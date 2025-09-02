@@ -813,7 +813,7 @@ DISPATCHER_SNIPPET = """
 <script>
 const $=s=>document.querySelector(s);
 const fmt=s=>{if(s==null||!isFinite(s))return \"—\";s=Math.round(s);return String(Math.floor(s/60)).padStart(2,'0')+\":\"+String(s%60).padStart(2,'0')};
-const pill=st=>{const m={green:[\"OK\",\"ok\"],yellow:[\"Ease off\",\"warn\"],red:[\"HOLD\",\"bad\"]};const [t,c]=m[st]||[\"OK\",\"ok\"];return '<span class=\"pill '+c+'\"><span class=\"dot\"></span><span>'+t+'</span></span>'};
+const pill=st=>{const m={green:[\"OK\",\"ok\"],yellow:[\"Slow Down\",\"warn\"],red:[\"HOLD\",\"bad\"]};const [t,c]=m[st]||[\"OK\",\"ok\"];return '<span class=\"pill '+c+'\"><span class=\"dot\"></span><span>'+t+'</span></span>'};
 async function j(u){const r=await fetch(u,{cache:\"no-store\"});if(!r.ok)throw new Error(r.status);return r.json()}
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
 
