@@ -831,8 +831,8 @@ async function loadRoutes(){
 
 function render(rows){
   const t=rows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent=\"Target \"+(t!=null?fmt(t):\"—\");
-  const ts=rows[0]?.updated_at?new Date(rows[0].updated_at*1000):new Date(); const p=n=>String(n).padStart(2,'0');
-  $('#upd').textContent=\"Updated \"+p(ts.getHours())+\":\"+p(ts.getMinutes())+\":\"+p(ts.getSeconds());
+  const ts=rows[0]?.updated_at ? new Date(rows[0].updated_at * 1000) : new Date();
+  $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
   const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
 
   if(!rows.length){ $('#rows').innerHTML='<tr><td class=\"hint\" colspan=\"6\">No vehicles.</td></tr>'; return; }
