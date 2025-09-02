@@ -235,6 +235,14 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     else:
         minus.extend(zeros)
 
+    # If a ring ends up with one or zero vehicles while another has more,
+    # fall back to a single combined ring so that every bus gets a headway.
+    # This avoids dispatcher entries with missing headway/gap when direction
+    # detection leaves one vehicle isolated.
+    if (len(plus) <= 1 or len(minus) <= 1) and len(vs) > 1:
+        plus = vs
+        minus = []
+
     def build_ring(group: List[Vehicle], forward: bool) -> List[VehicleView]:
         if not group:
             return []
