@@ -114,7 +114,8 @@ def parse_msajax(s: Optional[str]) -> Optional[int]:
     try:
         i = s.find("("); j = s.find(")")
         return int(s[i+1:j].split("-")[0])
-    except Exception:
+    except (ValueError, IndexError) as e:
+        print(f"[parse_msajax] invalid timestamp {s!r}: {e}")
         return None
 
 # ---------------------------
@@ -402,8 +403,8 @@ async def startup():
                                 nm = str(_v.get("Name") or "-")
                                 if nm:
                                     state.roster_names.add(nm)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"[updater] roster/routes_all error: {e}")
                         # Build active routes set (with grace window to prevent flicker)
                         fresh = []
                         for v in vehicles_raw:
@@ -483,8 +484,8 @@ async def startup():
                         async with state.lock:
                             state.last_error = str(e)
                             state.last_error_ts = time.time()
-                    except Exception:
-                        pass
+                    except Exception as inner:
+                        print(f"[updater] failed recording last_error: {inner}")
                     print("[updater] error:", e)
                 # sleep until next
                 dt = max(0.5, VEH_REFRESH_S - (time.time()-start))
