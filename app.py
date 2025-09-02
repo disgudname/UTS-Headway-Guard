@@ -285,14 +285,13 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                     best_ds = ds
                     best_leader = other
 
-            # Fallback: if everyone filtered by EPS, pick true smallest positive ds
+            # Fallback: if everyone filtered by EPS, pick the smallest ds even if 0.
+            # This ensures a stationary leader at the same s_pos is still recognised.
             if best_leader is None:
                 for other in group:
                     if other is me:
                         continue
                     ds = ((other.s_pos - me.s_pos) % L) if forward else ((me.s_pos - other.s_pos) % L)
-                    if ds == 0:
-                        continue
                     if best_ds is None or ds < best_ds:
                         best_ds = ds
                         best_leader = other
