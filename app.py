@@ -132,8 +132,6 @@ class Vehicle:
     s_pos: float = 0.0
     ema_mps: float = 0.0
     dir_sign: int = 0  # +1 forward, -1 reverse, 0 unknown
-    dir_score: int = 0  # hysteresis accumulator in [-3..+3]
-
 
 @dataclass
 class Route:
@@ -217,11 +215,10 @@ def target_headway_sec(route: Route, veh_count: int) -> float:
     return lap / veh_count
 
 def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> List["VehicleView"]:
-    """Direction-aware leader-finding. Adds:
-    - Direction hysteresis fallback: if a ring would be size 1 while there are
-      multiple vehicles overall, pick a leader from *all* vehicles so we don't
-      render blanks for that bus.
-    """
+    """Direction-aware leader-finding with per-vehicle nearest-ahead selection.
+    For each direction ring (+1 / -1), the leader of bus i is the bus j with the
+    smallest strictly-positive along-track distance ds in that ring (no reliance
+    on a global ordering that can wobble near wrap points). """
     vs = list(vehs_by_id.values())
     if not vs:
         return []
@@ -240,62 +237,58 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     def build_ring(group: List[Vehicle], forward: bool) -> List[VehicleView]:
         if not group:
             return []
-        total = len(vs)
+        # Target headway for THIS ring only
         th = target_headway_sec(route, len(group))
         out: List[VehicleView] = []
-        EPS = 1.0  # meters
+        EPS = 1.0  # meters: ignore near-coincident positions when choosing a leader
 
+        # Precompute segment caps lookup
         def ref_speed_for(v: Vehicle) -> float:
             seg_idx = find_seg_index_at_s(route.cum, v.s_pos)
             cap = route.seg_caps_mps[seg_idx] if route.seg_caps_mps else DEFAULT_CAP_MPS
             return max(MIN_SPEED_FLOOR, min(MAX_SPEED_CEIL, W_LIMIT * cap + (1 - W_LIMIT) * v.ema_mps))
 
         for me in group:
-            # If this ring has only 1 bus but there are multiple vehicles overall,
-            # pick a leader from *all* vehicles direction-agnostic (fallback).
-            ring_has_only_me = (len(group) == 1 and total > 1)
-            candidates = (vs if ring_has_only_me else group)
-
-            if len(candidates) == 1:
-                # Truly single-bus route overall
+            if len(group) == 1:
                 out.append(VehicleView(
-                    id=me.id, name=me.name, status="green",
+                    id=me.id,
+                    name=me.name,
+                    status="green",
                     headway_sec=None,
                     target_headway_sec=int(th) if th > 0 else None,
-                    gap_label="—", leader_name=None, countdown_sec=None,
+                    gap_label="—",
+                    leader_name=None,
+                    countdown_sec=None,
                     updated_at=int(me.ts_ms / 1000),
                 ))
                 continue
 
+            # Find nearest strictly-ahead bus in this ring
             best_ds = None
             best_leader = None
-            for other in candidates:
+            for other in group:
                 if other is me:
                     continue
-                if ring_has_only_me:
-                    ds = (other.s_pos - me.s_pos) % L
-                else:
-                    ds = ((other.s_pos - me.s_pos) % L) if forward else ((me.s_pos - other.s_pos) % L)
+                ds = ((other.s_pos - me.s_pos) % L) if forward else ((me.s_pos - other.s_pos) % L)
                 if ds <= EPS:
                     continue
                 if best_ds is None or ds < best_ds:
                     best_ds = ds
                     best_leader = other
 
+            # Fallback: if everyone filtered by EPS, pick true smallest positive ds
             if best_leader is None:
-                for other in candidates:
+                for other in group:
                     if other is me:
                         continue
-                    if ring_has_only_me:
-                        ds = (other.s_pos - me.s_pos) % L
-                    else:
-                        ds = ((other.s_pos - me.s_pos) % L) if forward else ((me.s_pos - other.s_pos) % L)
+                    ds = ((other.s_pos - me.s_pos) % L) if forward else ((me.s_pos - other.s_pos) % L)
                     if ds == 0:
                         continue
                     if best_ds is None or ds < best_ds:
                         best_ds = ds
                         best_leader = other
 
+            # With leader chosen, compute time headway
             ds = max(best_ds or 0.5, 0.5)
             ref_speed = ref_speed_for(me)
             headway = ds / max(ref_speed, 0.1)
@@ -309,10 +302,13 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                 status = "green"; gap = "On target" if abs(diff) <= ONTARGET_TOL_SEC else f"Cold {int(diff)}s"; countdown = None
 
             out.append(VehicleView(
-                id=me.id, name=me.name, status=status,
+                id=me.id,
+                name=me.name,
+                status=status,
                 headway_sec=int(headway),
                 target_headway_sec=int(th) if th > 0 else None,
-                gap_label=gap, leader_name=(best_leader.name if best_leader else None),
+                gap_label=gap,
+                leader_name=(best_leader.name if best_leader else None),
                 countdown_sec=(countdown if countdown is not None else None),
                 updated_at=int(me.ts_ms / 1000),
             ))
@@ -322,6 +318,7 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     views.extend(build_ring(plus, forward=True))
     views.extend(build_ring(minus, forward=False))
 
+    # Present forward ring first (sorted by along-route position), then reverse
     id_to_v = {v.id: v for v in vs if v.id is not None}
     def sort_key(vv: VehicleView):
         v = id_to_v.get(vv.id)
@@ -469,39 +466,15 @@ async def startup():
                                 along_mps = delta / dt
                             else:
                                 along_mps = 0.0
-                            DIR_EPS = 0.3  # keep; still used for along_mps computation above
-
-                            # Direction with hysteresis: accumulate a signed score so transient jitter
-                            # doesn't split the fleet into 3 vs 1 buses.
-                            prev_score = getattr(prev, "dir_score", 0) if prev else 0
-                            score = prev_score
-                            if prev and dt > 0:
-                                if along_mps > 0.8:       # strong forward evidence
-                                    score = min(score + 1, 3)
-                                elif along_mps < -0.8:    # strong reverse evidence
-                                    score = max(score - 1, -3)
-                                else:                      # decay toward 0 inside the deadband
-                                    if score > 0:
-                                        score -= 1
-                                    elif score < 0:
-                                        score += 1
-
-                            # Decide sign from score with hysteresis thresholds
-                            if score >= 2:
-                                dir_sign = +1
-                            elif score <= -2:
-                                dir_sign = -1
-                            else:
-                                dir_sign = prev.dir_sign if prev else 0
-
+                            DIR_EPS = 0.3
+                            if along_mps > DIR_EPS: dir_sign = +1
+                            elif along_mps < -DIR_EPS: dir_sign = -1
+                            else: dir_sign = (prev.dir_sign if prev else 0)
                             disp = abs(along_mps)
                             measured = 0.5 * mps + 0.5 * disp if mps > 0 else (disp if prev else mps)
                             ema = EMA_ALPHA * measured + (1 - EMA_ALPHA) * ema
                             ema = max(MIN_SPEED_FLOOR, min(MAX_SPEED_CEIL, ema))
-                            veh.s_pos = s_pos
-                            veh.ema_mps = ema
-                            veh.dir_sign = dir_sign
-                            veh.dir_score = score
+                            veh.s_pos = s_pos; veh.ema_mps = ema; veh.dir_sign = dir_sign
                             new_map[rid][vid] = veh
                         state.vehicles_by_route = new_map
                 except Exception as e:
@@ -891,3 +864,16 @@ function start(rid){
 }
 
 async function pollHealth(){
+  try{ const h=await j('/v1/health'); if(!h.ok && h.last_error){ setBanner('Feed error: '+h.last_error, 'error'); }
+       else{ /* keep info banner state */ } }
+  catch(e){ setBanner('Health check failed', 'error'); }
+  setTimeout(pollHealth, 15000);
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{ loadRoutes(); pollHealth(); });
+document.getElementById('route').addEventListener('change', e=> { userLocked=true; start(e.target.value); });
+</script>
+"""
+@app.get("/dispatcher")
+async def dispatcher_page():
+    return HTMLResponse(DISPATCHER_SNIPPET)
