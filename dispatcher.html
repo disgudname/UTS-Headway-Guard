@@ -1,0 +1,107 @@
+<!doctype html><meta charset=\"utf-8\"><title>UTS Anti-Bunching — Dispatcher</title>
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+<style>
+ body{font:15px system-ui;margin:0;background:#0b0e11;color:#e8eef5}
+ header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630}
+ select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
+ .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
+ table{width:100%;border-collapse:collapse;margin-top:8px}
+ th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
+ .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+ .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
+ .dot{width:10px;height:10px;border-radius:50%}
+ .ok{color:#b6f0cb}.ok .dot{background:#24c28a}
+ .warn{color:#ffe29a}.warn .dot{background:#ffbf47}
+ .bad{color:#ffb0b0}.bad .dot{background:#ff6b6b}
+ .hint{color:#9fb0c9}
+ .banner{padding:8px 12px;display:none}
+ .banner.error{background:#3b1f1f;color:#ffbfbf;border-bottom:1px solid #5a2b2b}
+ .banner.info{background:#121922;color:#cfe1ff;border-bottom:1px solid #2a3442}
+</style>
+<header>
+  <h1 style=\"font-size:16px;margin:0\">UTS Anti-Bunching — Dispatcher</h1>
+  <label>Route: <select id=\"route\"></select></label>
+  <span id=\"target\" class=\"chip\">Target —</span>
+  <span id=\"upd\" class=\"chip\">Updated —</span>
+</header>
+<div id=\"banner\" class=\"banner info\"></div>
+<main style=\"padding:0 12px 16px\">
+  <table>
+    <thead><tr>
+      <th>Vehicle</th><th>Order</th><th>Headway</th><th>Gap vs Target</th><th>Leader</th><th>Countdown</th>
+    </tr></thead>
+    <tbody id=\"rows\"><tr><td class=\"hint\" colspan=\"6\">Loading…</td></tr></tbody>
+  </table>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const fmt=s=>{if(s==null||!isFinite(s))return \"—\";s=Math.round(s);return String(Math.floor(s/60)).padStart(2,'0')+\":\"+String(s%60).padStart(2,'0')};
+const pill=st=>{const m={green:[\"OK\",\"ok\"],yellow:[\"Slow Down\",\"warn\"],red:[\"HOLD\",\"bad\"]};const [t,c]=m[st]||[\"OK\",\"ok\"];return '<span class=\"pill '+c+'\"><span class=\"dot\"></span><span>'+t+'</span></span>'};
+async function j(u){const r=await fetch(u,{cache:\"no-store\"});if(!r.ok)throw new Error(r.status);return r.json()}
+function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
+
+let activeES=null, activeIV=null, currentRid=null, sessionId=0, userLocked=false;
+
+async function loadRoutes(){
+  const d=await j(\"/v1/routes\"); const list=(d.routes||[]);
+  const sel=$('#route');
+  const prev=currentRid;
+  sel.innerHTML=list.map(r=>'<option value=\"'+r.id+'\">'+(r.name||(\"Route \"+r.id))+'</option>').join(\"\");
+  if(prev){ sel.value=String(prev); }
+  if(!sel.value && list.length){ sel.value=String(list[0].id); }
+  if(!currentRid && sel.value) start(sel.value);
+}
+
+function render(rows){
+  const t=rows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent=\"Target \"+(t!=null?fmt(t):\"—\");
+  const ts=rows[0]?.updated_at ? new Date(rows[0].updated_at * 1000) : new Date();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: tz});
+  const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
+
+  if(!rows.length){ $('#rows').innerHTML='<tr><td class=\"hint\" colspan=\"6\">No vehicles.</td></tr>'; return; }
+  
+  $('#rows').innerHTML=rows.map(v=>'<tr>'
+    +'<td class=\"mono\">'+(v.name||\"—\")+'</td>'
+    +'<td>'+ (onlyBus ? '<span class=\"pill ok\"><span class=\"dot\"></span><span>Only Bus</span></span>' : pill(v.status)) +'</td>'
+    +'<td class=\"mono\">'+(v.headway_sec!=null?fmt(v.headway_sec):\"—\")+'</td>'
+    +'<td class=\"mono\">'+(v.gap_label||\"—\")+'</td>'
+    +'<td class=\"mono\">'+(v.leader_name||\"—\")+'</td>'
+    +'<td class=\"mono\">'+(v.status!==\"green\"&&v.countdown_sec!=null?fmt(v.countdown_sec):\"—\")+'</td>'
+    +'</tr>').join(\"\");
+  setBanner(onlyBus ? 'Only 1 vehicle on route — headway control inactive.' : '', 'info');
+}
+
+function start(rid){
+  rid=String(rid);
+  // stop any previous channels
+  if(activeES){ try{ activeES.close(); }catch(_){}; activeES=null; }
+  if(activeIV){ clearInterval(activeIV); activeIV=null; }
+  currentRid=rid;
+  const sid=++sessionId;
+
+  // Try SSE first
+  try{
+    const es=new EventSource(\"/v1/stream/routes/\"+rid);
+    activeES=es;
+    es.onmessage=ev=>{ if(rid!==currentRid || sid!==sessionId) return; try{ render(JSON.parse(ev.data||\"[]\")); }catch(_){} };
+    es.onerror=_=>{ if(activeES===es){ es.close(); if(sid!==sessionId) return; activeES=null; startPoll(); } };
+  }catch(_){ startPoll(); }
+
+  function startPoll(){
+    async function tick(){ if(rid!==currentRid || sid!==sessionId) return; try{ render(await j('/v1/routes/'+rid+'/status')); }catch(_){} }
+    tick();
+    activeIV=setInterval(tick, 10000);
+  }
+}
+
+async function pollHealth(){
+  try{ const h=await j('/v1/health'); if(!h.ok && h.last_error){ setBanner('Feed error: '+h.last_error, 'error'); }
+       else{ /* keep info banner state */ } }
+  catch(e){ setBanner('Health check failed', 'error'); }
+  setTimeout(pollHealth, 15000);
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{ loadRoutes(); pollHealth(); });
+document.getElementById('route').addEventListener('change', e=> { userLocked=true; start(e.target.value); });
+</script>

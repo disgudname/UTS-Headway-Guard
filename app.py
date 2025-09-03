@@ -32,6 +32,7 @@ import httpx
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
+from pathlib import Path
 
 # ---------------------------
 # Config
@@ -368,6 +369,10 @@ class VehicleView:
 # ---------------------------
 app = FastAPI(title="Headway Guard")
 
+BASE_DIR = Path(__file__).resolve().parent
+DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
+DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
+
 class State:
     def __init__(self):
         self.routes: Dict[int, Route] = {}
@@ -646,257 +651,15 @@ async def stream_route(route_id: int):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ---------------------------
-# DRIVER PAGE (built-in)
+# DRIVER PAGE
 # ---------------------------
-DRIVER_SNIPPET = """
-<!doctype html>
-<meta charset="utf-8" />
-<title>Driver Anti-Bunching</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --ok:#24c28a; --warn:#ffbf47; --bad:#ff6b6b; }
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,Segoe UI,Roboto,Arial;display:flex;align-items:center;justify-content:center}
-  .card{width:min(560px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-  h1{margin:0 0 12px 0;font-size:18px}
-  label{display:block;margin:8px 0 6px 2px;color:var(--muted)}
-  select{width:100%;background:#10151c;color:var(--ink);border:1px solid var(--chip);border-radius:10px;padding:10px}
-  .row{display:flex;gap:10px}
-  .row>div{flex:1}
-  .btn{width:100%;margin-top:12px;background:#15202b;border:1px solid var(--chip);color:var(--ink);border-radius:10px;padding:10px;cursor:pointer;font-weight:600}
-  .btn:hover{filter:brightness(1.1)}
-  .btn.danger{background:#2b1515;border-color:#523737}
-  .btn.danger:hover{filter:brightness(1.05)}
-  .out{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
-  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
-  .pill{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:6px 10px;border:1px solid var(--chip);background:#10151c}
-  .dot{width:10px;height:10px;border-radius:999px;background:#718096;box-shadow:0 0 0 1px rgba(0,0,0,.35) inset}
-  .green .dot{background:var(--ok)} .yellow .dot{background:var(--warn)} .red .dot{background:var(--bad)}
-  .green{color:#b9f4db} .yellow{color:#ffe29a} .red{color:#ffb0b0}
-  .big{font-size:22px}
-  .muted{color:var(--muted)}
-</style>
-<div class="card">
-  <h1>Driver Anti-Bunching</h1>
-  <div id="warn" class="muted" style="display:none;margin:6px 2px 2px"></div>
-
-  <!-- Setup (pickers) -->
-  <div id="setup">
-    <div class="row">
-      <div>
-        <label>Unit Number</label>
-        <select id="bus"></select>
-      </div>
-      <div>
-        <label>Route</label>
-        <select id="route"></select>
-      </div>
-    </div>
-    <button id="go" class="btn">Start Anti-Bunching</button>
-    <div class="muted" style="margin-top:8px">Pick your bus and route, then press Start.</div>
-  </div>
-
-  <!-- Active session (instructions only) -->
-  <div id="session" style="display:none">
-    <div id="selection" class="muted" style="margin:0 0 8px 2px"></div>
-    <div id="out" class="out">
-      <div class="muted">Connecting…</div>
-    </div>
-    <button id="end" class="btn danger">End Anti-Bunching</button>
-  </div>
-</div>
-
-<script>
-const $ = s=>document.querySelector(s);
-const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
-const pill = st=>{ const m={green:["OK","green"],yellow:["Ease off","yellow"],red:["HOLD","red"]}; const [t,c]=m[st]||["OK","green"]; return `<span class="pill ${c} big"><span class="dot"></span><span>${t}</span></span>`; };
-async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
-
-let timer=null, currentBus="", currentRoute=0;
-
-// Load pickers once
-async function loadBuses(){
-  let list=[];
-  try{ const d=await j('/v1/vehicles?include_stale=1&include_unassigned=1'); list=(d.vehicles||[]).map(x=>x.name); }
-  catch(e){ try{ const d=await j('/v1/roster/vehicles'); list=(d.vehicles||[]).map(x=>x.name); } catch(_) { list=[]; } }
-  const uniq=[...new Set(list.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
-  $('#bus').innerHTML=uniq.map(n=>`<option>${n}</option>`).join('');
-}
-async function loadRoutes(){
-  let list=[]; const d=await j('/v1/routes_all'); list=(d.routes||[]);
-  list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-  $('#route').innerHTML=list.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
-}
-
-function showSession(busName, routeId, routeLabel){
-  $('#setup').style.display='none';
-  $('#session').style.display='block';
-  $('#selection').textContent = `Unit ${busName} • Route: ${routeLabel}`;
-}
-function showSetup(){
-  $('#session').style.display='none';
-  $('#setup').style.display='block';
-}
-
-async function tick(){
-  try{
-    const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
-    const cls=(data.order==='HOLD'?'red':(data.order==='Ease off'?'yellow':'green'));
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    $('#out').innerHTML = `${pill(cls)}<div class=\"mono\" style=\"margin-top:10px\">Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${new Date((data.updated_at||Date.now()/1000)*1000).toLocaleTimeString([], {timeZone: tz})}</span></div>`;
-  } catch(e){
-    $('#out').innerHTML = `<div class=\"red mono\">Waiting for route to become active...</div><div class=\"muted\">Page will update when route becomes active. Ensure selected route and unit are correct.</div>`;
-  }
-}
-
-// Start button
-$('#go').onclick = ()=>{
-  currentBus = $('#bus').value;
-  currentRoute = Number($('#route').value);
-  const routeLabel = $('#route').selectedOptions[0]?.text || `Route ${currentRoute}`;
-  showSession(currentBus, currentRoute, routeLabel);
-  if(timer) clearInterval(timer);
-  tick();
-  timer = setInterval(tick, 5000);
-};
-
-// End button
-$('#end').onclick = ()=>{
-  if(timer) { clearInterval(timer); timer=null; }
-  currentBus = ""; currentRoute = 0;
-  $('#out').innerHTML = '<div class=\"muted\">Pick your bus and route, then press Start.</div>';
-  showSetup();
-};
-
-// Initial loads
-document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadBuses(); await loadRoutes(); }catch(e){ $('#out').textContent='Error loading lists'; } });
-
-// Health banner
-async function pollHealth(){
-  try{ const h=await j('/v1/health'); const w=$('#warn'); if(!h.ok && h.last_error){ w.style.display='block'; w.textContent='Feed error: '+h.last_error; } else { w.style.display='none'; w.textContent=''; } }
-  catch(e){ const w=$('#warn'); w.style.display='block'; w.textContent='Health check failed'; }
-  setTimeout(pollHealth, 15000);
-}
-pollHealth();
-</script>
-"""
-
 @app.get("/driver")
 async def driver_page():
-    return HTMLResponse(DRIVER_SNIPPET)
+    return HTMLResponse(DRIVER_HTML)
 
 # ---------------------------
-# DISPATCHER PAGE (built-in)
+# DISPATCHER PAGE
 # ---------------------------
-DISPATCHER_SNIPPET = """
-<!doctype html><meta charset=\"utf-8\"><title>UTS Anti-Bunching — Dispatcher</title>
-<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-<style>
- body{font:15px system-ui;margin:0;background:#0b0e11;color:#e8eef5}
- header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630}
- select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
- .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
- table{width:100%;border-collapse:collapse;margin-top:8px}
- th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
- .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
- .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
- .dot{width:10px;height:10px;border-radius:50%}
- .ok{color:#b6f0cb}.ok .dot{background:#24c28a}
- .warn{color:#ffe29a}.warn .dot{background:#ffbf47}
- .bad{color:#ffb0b0}.bad .dot{background:#ff6b6b}
- .hint{color:#9fb0c9}
- .banner{padding:8px 12px;display:none}
- .banner.error{background:#3b1f1f;color:#ffbfbf;border-bottom:1px solid #5a2b2b}
- .banner.info{background:#121922;color:#cfe1ff;border-bottom:1px solid #2a3442}
-</style>
-<header>
-  <h1 style=\"font-size:16px;margin:0\">UTS Anti-Bunching — Dispatcher</h1>
-  <label>Route: <select id=\"route\"></select></label>
-  <span id=\"target\" class=\"chip\">Target —</span>
-  <span id=\"upd\" class=\"chip\">Updated —</span>
-</header>
-<div id=\"banner\" class=\"banner info\"></div>
-<main style=\"padding:0 12px 16px\">
-  <table>
-    <thead><tr>
-      <th>Vehicle</th><th>Order</th><th>Headway</th><th>Gap vs Target</th><th>Leader</th><th>Countdown</th>
-    </tr></thead>
-    <tbody id=\"rows\"><tr><td class=\"hint\" colspan=\"6\">Loading…</td></tr></tbody>
-  </table>
-</main>
-<script>
-const $=s=>document.querySelector(s);
-const fmt=s=>{if(s==null||!isFinite(s))return \"—\";s=Math.round(s);return String(Math.floor(s/60)).padStart(2,'0')+\":\"+String(s%60).padStart(2,'0')};
-const pill=st=>{const m={green:[\"OK\",\"ok\"],yellow:[\"Slow Down\",\"warn\"],red:[\"HOLD\",\"bad\"]};const [t,c]=m[st]||[\"OK\",\"ok\"];return '<span class=\"pill '+c+'\"><span class=\"dot\"></span><span>'+t+'</span></span>'};
-async function j(u){const r=await fetch(u,{cache:\"no-store\"});if(!r.ok)throw new Error(r.status);return r.json()}
-function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
-
-let activeES=null, activeIV=null, currentRid=null, sessionId=0, userLocked=false;
-
-async function loadRoutes(){
-  const d=await j(\"/v1/routes\"); const list=(d.routes||[]);
-  const sel=$('#route');
-  const prev=currentRid;
-  sel.innerHTML=list.map(r=>'<option value=\"'+r.id+'\">'+(r.name||(\"Route \"+r.id))+'</option>').join(\"\");
-  if(prev){ sel.value=String(prev); }
-  if(!sel.value && list.length){ sel.value=String(list[0].id); }
-  if(!currentRid && sel.value) start(sel.value);
-}
-
-function render(rows){
-  const t=rows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent=\"Target \"+(t!=null?fmt(t):\"—\");
-  const ts=rows[0]?.updated_at ? new Date(rows[0].updated_at * 1000) : new Date();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: tz});
-  const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
-
-  if(!rows.length){ $('#rows').innerHTML='<tr><td class=\"hint\" colspan=\"6\">No vehicles.</td></tr>'; return; }
-  
-  $('#rows').innerHTML=rows.map(v=>'<tr>'
-    +'<td class=\"mono\">'+(v.name||\"—\")+'</td>'
-    +'<td>'+ (onlyBus ? '<span class=\"pill ok\"><span class=\"dot\"></span><span>Only Bus</span></span>' : pill(v.status)) +'</td>'
-    +'<td class=\"mono\">'+(v.headway_sec!=null?fmt(v.headway_sec):\"—\")+'</td>'
-    +'<td class=\"mono\">'+(v.gap_label||\"—\")+'</td>'
-    +'<td class=\"mono\">'+(v.leader_name||\"—\")+'</td>'
-    +'<td class=\"mono\">'+(v.status!==\"green\"&&v.countdown_sec!=null?fmt(v.countdown_sec):\"—\")+'</td>'
-    +'</tr>').join(\"\");
-  setBanner(onlyBus ? 'Only 1 vehicle on route — headway control inactive.' : '', 'info');
-}
-
-function start(rid){
-  rid=String(rid);
-  // stop any previous channels
-  if(activeES){ try{ activeES.close(); }catch(_){}; activeES=null; }
-  if(activeIV){ clearInterval(activeIV); activeIV=null; }
-  currentRid=rid;
-  const sid=++sessionId;
-
-  // Try SSE first
-  try{
-    const es=new EventSource(\"/v1/stream/routes/\"+rid);
-    activeES=es;
-    es.onmessage=ev=>{ if(rid!==currentRid || sid!==sessionId) return; try{ render(JSON.parse(ev.data||\"[]\")); }catch(_){} };
-    es.onerror=_=>{ if(activeES===es){ es.close(); if(sid!==sessionId) return; activeES=null; startPoll(); } };
-  }catch(_){ startPoll(); }
-
-  function startPoll(){
-    async function tick(){ if(rid!==currentRid || sid!==sessionId) return; try{ render(await j('/v1/routes/'+rid+'/status')); }catch(_){} }
-    tick();
-    activeIV=setInterval(tick, 10000);
-  }
-}
-
-async function pollHealth(){
-  try{ const h=await j('/v1/health'); if(!h.ok && h.last_error){ setBanner('Feed error: '+h.last_error, 'error'); }
-       else{ /* keep info banner state */ } }
-  catch(e){ setBanner('Health check failed', 'error'); }
-  setTimeout(pollHealth, 15000);
-}
-
-document.addEventListener('DOMContentLoaded', ()=>{ loadRoutes(); pollHealth(); });
-document.getElementById('route').addEventListener('change', e=> { userLocked=true; start(e.target.value); });
-</script>
-"""
 @app.get("/dispatcher")
 async def dispatcher_page():
-    return HTMLResponse(DISPATCHER_SNIPPET)
+    return HTMLResponse(DISPATCHER_HTML)
