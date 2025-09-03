@@ -30,10 +30,10 @@
   /* Dashboard layout */
   #dashboard{display:flex;height:100%;width:100%;}
   #left,#right{flex:1;display:flex;flex-direction:column;}
-  #topbar{background:var(--panel);padding:8px 12px;border-bottom:1px solid var(--line);text-align:center;}
+  #topbar{background:var(--panel);padding:16px;border-bottom:1px solid var(--line);text-align:center;font-size:24px;}
   #info{padding:12px;flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;}
   #info .out{margin-top:0;border-top:none;padding-top:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;}
-  #instruction{width:100%;height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);}
+  #instruction{width:100%;height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);}
   #instruction.green{background:var(--ok);color:#000;}
   #instruction.yellow{background:var(--warn);color:#000;}
   #instruction.red{background:var(--bad);color:#000;}
@@ -82,7 +82,7 @@
 const $ = s=>document.querySelector(s);
 const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
-let timer=null, busTimer=null, currentBus="", currentRoute=0, map=null, routeLayer=null, markers={}, nameMarkers={};
+let timer=null, busTimer=null, currentBus="", currentRoute=0, map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200';
 // Load pickers once
 async function loadBuses(){
   let list=[];
@@ -118,6 +118,7 @@ function showSetup(){
   document.body.classList.add('centered');
   $('#setup').style.display='block';
   if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; }
+  routeColor='#E57200';
   if(timer) { clearInterval(timer); timer=null; }
   if(busTimer){ clearInterval(busTimer); busTimer=null; }
 }
@@ -155,8 +156,9 @@ async function loadRoutePath(){
     const data=await res.json();
     const r=data.find(x=>x.RouteID==currentRoute);
     if(r && r.EncodedPolyline){
+      routeColor = r.MapLineColor ? (r.MapLineColor.startsWith('#') ? r.MapLineColor : `#${r.MapLineColor}`) : '#E57200';
       const pts=polyline.decode(r.EncodedPolyline);
-      routeLayer=L.polyline(pts,{color:'#E57200',weight:5}).addTo(map);
+      routeLayer=L.polyline(pts,{color:routeColor,weight:5}).addTo(map);
       map.fitBounds(routeLayer.getBounds());
     }
   }catch(e){console.error('route load',e);}
@@ -175,7 +177,7 @@ async function updateBuses(){
         const heading = v.Heading || 0;
         const busName = v.Name;
         active.add(id);
-        const color = '#E57200';
+        const color = routeColor;
         const contrast = getContrastColor(color);
         const svgIcon = `<svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg"><g><circle cx="20" cy="20" r="15" fill="${color}" stroke="white" stroke-width="3" />${isMoving ? `<line x1="20" y1="10" x2="20" y2="22" stroke="${contrast}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" /><polygon points="15,22 25,22 20,30" fill="${contrast}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />` : `<rect x="14" y="14" width="12" height="12" fill="${contrast}" />`}</g></svg>`;
         const busIcon = L.divIcon({html: svgIcon, className:'', iconSize:[40,40], iconAnchor:[20,20]});
