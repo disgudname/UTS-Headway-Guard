@@ -11,7 +11,7 @@ Key features in this skeleton
 - Fetch & cache Overpass speed limits per route (fetch-once; invalidate on polyline change).
 - Compute headway = time along-route from follower → leader (arc-based).
 - Target headway anchored to speed-limit profile, lightly blended with live EMA.
-- Dispatcher-friendly fields: status (OK/Ease off/HOLD), headway_sec, gap_label (Hot/Cold/On target), countdown_sec, leader_name.
+ - Dispatcher-friendly fields: status (OK/Ease off/HOLD), headway_sec, gap_label (Ahead/Behind/On target), countdown_sec, leader_name.
 - REST endpoints + Server-Sent Events (SSE) stream.
 
 Run
@@ -303,11 +303,18 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
             diff = headway - th
 
             if th > 0 and headway < RED_FRAC * th:
-                status = "red"; gap = f"Hot {abs(int(diff))}s"; countdown = int(max(0, th - headway))
+                status = "red"; gap = f"Ahead {abs(int(diff))}s"; countdown = int(max(0, th - headway))
             elif th > 0 and headway < GREEN_FRAC * th:
-                status = "yellow"; gap = f"Hot {abs(int(diff))}s"; countdown = int(max(0, th - headway))
+                status = "yellow"; gap = f"Ahead {abs(int(diff))}s"; countdown = int(max(0, th - headway))
             else:
-                status = "green"; gap = "On target" if abs(diff) <= ONTARGET_TOL_SEC else f"Cold {int(diff)}s"; countdown = None
+                status = "green"
+                if abs(diff) <= ONTARGET_TOL_SEC:
+                    gap = "On target"
+                elif diff < 0:
+                    gap = f"Ahead {abs(int(diff))}s"
+                else:
+                    gap = f"Behind {int(diff)}s"
+                countdown = None
 
             out.append(VehicleView(
                 id=me.id,
