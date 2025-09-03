@@ -378,6 +378,11 @@ class State:
         self.routes: Dict[int, Route] = {}
         self.vehicles_by_route: Dict[int, Dict[int, Vehicle]] = {}
         self.headway_ema: Dict[int, float] = {}
+        # Remember each vehicle's last known direction (+1/-1) even if it drops
+        # out of the feed briefly. This helps preserve ring assignment when a
+        # bus is stationary and TransLoc stops reporting movement, preventing
+        # leader picking from resetting the bus to direction 0.
+        self.last_dir_sign: Dict[int, int] = {}
         self.lock = asyncio.Lock()
         self.last_overpass_note: str = ""
         # Added: error surfacing & active route tracking
@@ -483,6 +488,7 @@ async def startup():
                                           ground_mps=mps, age_s=v.get("Seconds") or 0.0)
                             s_pos, _ = project_vehicle_to_route(veh, state.routes[rid])
                             prev = prev_map.get(rid, {}).get(vid)
+                            prev_sign = prev.dir_sign if prev else state.last_dir_sign.get(vid, 0)
                             ema = prev.ema_mps if prev else (mps if mps > 0 else 6.0)
                             L = state.routes[rid].length_m
                             dt = ((veh.ts_ms - prev.ts_ms) / 1000.0) if prev else 0.0
@@ -495,13 +501,14 @@ async def startup():
                             DIR_EPS = 0.3
                             if along_mps > DIR_EPS: dir_sign = +1
                             elif along_mps < -DIR_EPS: dir_sign = -1
-                            else: dir_sign = (prev.dir_sign if prev else 0)
+                            else: dir_sign = prev_sign
                             disp = abs(along_mps)
                             measured = 0.5 * mps + 0.5 * disp if mps > 0 else (disp if prev else mps)
                             ema = EMA_ALPHA * measured + (1 - EMA_ALPHA) * ema
                             ema = max(MIN_SPEED_FLOOR, min(MAX_SPEED_CEIL, ema))
                             veh.s_pos = s_pos; veh.ema_mps = ema; veh.dir_sign = dir_sign
                             new_map[rid][vid] = veh
+                            state.last_dir_sign[vid] = dir_sign
                         state.vehicles_by_route = new_map
                 except Exception as e:
                     # record last error for UI surfacing
