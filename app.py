@@ -31,7 +31,7 @@ import asyncio, time, math, os, json
 import httpx
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
 
 # ---------------------------
@@ -656,6 +656,14 @@ async def stream_route(route_id: int):
             yield f"data: {json.dumps([r.__dict__ for r in rows])}\n\n"
             await asyncio.sleep(VEH_REFRESH_S)
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+# ---------------------------
+# Static assets
+# ---------------------------
+
+@app.get("/FGDC.ttf", include_in_schema=False)
+async def fgdc_font():
+    return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
 
 # ---------------------------
 # DRIVER PAGE
