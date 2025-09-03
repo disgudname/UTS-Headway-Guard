@@ -118,6 +118,12 @@ def parse_msajax(s: Optional[str]) -> Optional[int]:
         print(f"[parse_msajax] invalid timestamp {s!r}: {e}")
         return None
 
+
+def fmt_mmss(sec: float) -> str:
+    """Format seconds as MM:SS."""
+    sec = int(round(abs(sec)))
+    return f"{sec//60:02d}:{sec%60:02d}"
+
 # ---------------------------
 # Data models
 # ---------------------------
@@ -303,17 +309,17 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
             diff = headway - th
 
             if th > 0 and headway < RED_FRAC * th:
-                status = "red"; gap = f"Ahead {abs(int(diff))}s"; countdown = int(max(0, th - headway))
+                status = "red"; gap = f"Ahead {fmt_mmss(diff)}"; countdown = int(max(0, th - headway))
             elif th > 0 and headway < GREEN_FRAC * th:
-                status = "yellow"; gap = f"Ahead {abs(int(diff))}s"; countdown = int(max(0, th - headway))
+                status = "yellow"; gap = f"Ahead {fmt_mmss(diff)}"; countdown = int(max(0, th - headway))
             else:
                 status = "green"
                 if abs(diff) <= ONTARGET_TOL_SEC:
                     gap = "On target"
                 elif diff < 0:
-                    gap = f"Ahead {abs(int(diff))}s"
+                    gap = f"Ahead {fmt_mmss(diff)}"
                 else:
-                    gap = f"Behind {int(diff)}s"
+                    gap = f"Behind {fmt_mmss(diff)}"
                 countdown = None
 
             out.append(VehicleView(
