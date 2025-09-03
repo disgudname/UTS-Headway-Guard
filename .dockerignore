@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual envs
+.venv/
+venv/
+ENV/
+
+# VCS
+.git/
+.gitignore
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Node (if any front-end experiments later)
+node_modules/

@@ -1,0 +1,44 @@
+app = "uts-headway-guard"
+primary_region = "iad"  # or your nearest region
+kill_signal = "SIGINT"
+kill_timeout = "5s"
+
+[build]
+  # We use our own Dockerfile; leave this empty.
+
+[env]
+  # Safe defaults. Secrets set via `flyctl secrets set` will override these.
+  VEH_REFRESH_S = "10"
+  ROUTE_REFRESH_S = "60"
+  STALE_FIX_S = "90"
+  URBAN_FACTOR = "1.12"
+  GREEN_FRAC = "0.75"
+  RED_FRAC = "0.50"
+  ONTARGET_TOL_SEC = "30"
+  W_LIMIT = "0.85"
+  EMA_ALPHA = "0.40"
+  MIN_SPEED_FLOOR = "1.2"
+  MAX_SPEED_CEIL = "22.0"
+  OVERPASS_EP = "https://overpass-api.de/api/interpreter"
+  TRANSLOC_BASE = "https://uva.transloc.com/Services/JSONPRelay.svc"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # keep it running; we can flip back to true later
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "25s"       # give the app a moment to boot
+    interval = "10s"
+    timeout  = "4s"
+    method   = "GET"
+    path     = "/v1/health"
+    protocol = "http"
+
+[metrics]
+  port = 8080
+  path = "/metrics"  # (not implemented; harmless)
