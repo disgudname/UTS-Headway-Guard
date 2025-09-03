@@ -101,24 +101,42 @@ const OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132'];
 const BRIDGE_POINT = L.latLng(38.03404931117353, -78.4995922309842);
 const BRIDGE_RADIUS = 60; // meters
 let bridgeWarningActive = false;
-let alertCtx=null, alertOscillator=null;
+let alertCtx=null, alertInterval=null;
 function startAlert(){
-  if(alertCtx) return;
+  if(alertInterval) return;
   alertCtx = new (window.AudioContext||window.webkitAudioContext)();
-  alertOscillator = alertCtx.createOscillator();
-  const gain = alertCtx.createGain();
-  alertOscillator.type='sine';
-  alertOscillator.frequency.value=440;
-  gain.gain.value=0.2;
-  alertOscillator.connect(gain);
-  gain.connect(alertCtx.destination);
-  alertOscillator.start();
+  const overlay=$('#bridgeWarning');
+  const texts=overlay.querySelectorAll('p');
+  const beep=()=>{
+    const osc=alertCtx.createOscillator();
+    const gain=alertCtx.createGain();
+    osc.type='sine';
+    osc.frequency.value=440;
+    gain.gain.value=0.2;
+    osc.connect(gain);
+    gain.connect(alertCtx.destination);
+    osc.start();
+    osc.stop(alertCtx.currentTime+0.2);
+  };
+  let visible=true;
+  texts.forEach(p=>p.style.visibility='visible');
+  beep();
+  alertInterval=setInterval(()=>{
+    visible=!visible;
+    texts.forEach(p=>p.style.visibility=visible?'visible':'hidden');
+    if(visible) beep();
+  },500);
 }
 function stopAlert(){
+  const overlay=$('#bridgeWarning');
+  overlay.querySelectorAll('p').forEach(p=>p.style.visibility='visible');
+  if(alertInterval){
+    clearInterval(alertInterval);
+    alertInterval=null;
+  }
   if(alertCtx){
-    alertOscillator.stop();
     alertCtx.close();
-    alertCtx=null; alertOscillator=null;
+    alertCtx=null;
   }
 }
 function updateBridgeWarning(show){
