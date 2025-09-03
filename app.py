@@ -442,9 +442,9 @@ async def startup():
                                 route.seg_caps_mps = await fetch_overpass_speed_profile(route, client)
                                 state.routes[rid] = route
 
-                        # Vehicles per route: preserve previous snapshot, then apply fresh updates
+                        # Vehicles per route: rebuild from fresh data only to avoid lingering assignments
                         prev_map = getattr(state, 'vehicles_by_route', {})
-                        new_map: Dict[int, Dict[int, Vehicle]] = {rid: dict(prev_map.get(rid, {})) for rid in keep_ids}
+                        new_map: Dict[int, Dict[int, Vehicle]] = {rid: {} for rid in keep_ids}
                         for v in fresh:
                             rid = v["RouteID"]
                             if rid not in keep_ids or rid not in state.routes:
@@ -456,7 +456,7 @@ async def startup():
                             veh = Vehicle(id=vid, name=name, lat=v.get("Latitude"), lon=v.get("Longitude"), ts_ms=tsms,
                                           ground_mps=mps, age_s=v.get("Seconds") or 0.0)
                             s_pos, _ = project_vehicle_to_route(veh, state.routes[rid])
-                            prev = new_map[rid].get(vid)
+                            prev = prev_map.get(rid, {}).get(vid)
                             ema = prev.ema_mps if prev else (mps if mps > 0 else 6.0)
                             L = state.routes[rid].length_m
                             dt = ((veh.ts_ms - prev.ts_ms) / 1000.0) if prev else 0.0
