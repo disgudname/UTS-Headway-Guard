@@ -44,6 +44,8 @@
   #instruction.red{background:var(--bad);color:#000;}
   #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:20vh;border-bottom:1px solid var(--line);background:var(--panel);}
   #map{flex:1;}
+  #bridgeWarning{position:fixed;top:0;left:0;width:100vw;height:100vh;background:#ff0000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:8vh;font-weight:700;z-index:10000;}
+  #bridgeWarning p{margin:1vh 0;}
 </style>
 </head>
 <body class="centered">
@@ -85,12 +87,56 @@
     <div id="map"></div>
   </div>
 </div>
+<div id="bridgeWarning">
+  <p>DO NOT GO UNDER THE 14TH STREET BRIDGE.</p>
+  <p>VEHICLE IS OVERHEIGHT: 11' 11".</p>
+  <p>DAMAGE WILL OCCUR</p>
+</div>
 <script>
 const $ = s=>document.querySelector(s);
 const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
 let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200';
 const OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132'];
+const BRIDGE_POINT = L.latLng(38.03404931117353, -78.4995922309842);
+const BRIDGE_RADIUS = 60; // meters
+let bridgeWarningActive = false;
+let alertCtx=null, alertOscillator=null;
+function startAlert(){
+  if(alertCtx) return;
+  alertCtx = new (window.AudioContext||window.webkitAudioContext)();
+  alertOscillator = alertCtx.createOscillator();
+  const gain = alertCtx.createGain();
+  alertOscillator.type='sine';
+  alertOscillator.frequency.value=440;
+  gain.gain.value=0.2;
+  alertOscillator.connect(gain);
+  gain.connect(alertCtx.destination);
+  alertOscillator.start();
+}
+function stopAlert(){
+  if(alertCtx){
+    alertOscillator.stop();
+    alertCtx.close();
+    alertCtx=null; alertOscillator=null;
+  }
+}
+function updateBridgeWarning(show){
+  const overlay=$('#bridgeWarning');
+  if(show){
+    if(!bridgeWarningActive){
+      overlay.style.display='flex';
+      startAlert();
+      bridgeWarningActive=true;
+    }
+  }else{
+    if(bridgeWarningActive){
+      overlay.style.display='none';
+      stopAlert();
+      bridgeWarningActive=false;
+    }
+  }
+}
 // Load pickers once
 async function loadBuses(){
   let list=[];
@@ -109,6 +155,7 @@ function showSession(busName, routeId, routeLabel){
   document.body.classList.remove('centered');
   $('#dashboard').style.display='flex';
   updateOverheightBanner(busName);
+  updateBridgeWarning(false);
   currentRouteLabel = routeLabel;
   $('#topbar').innerHTML = `Unit ${busName} • <span id="route-pill" class="route-pill">${routeLabel}</span>`;
   setRoutePillColor(routeColor);
@@ -128,6 +175,7 @@ function showSetup(){
   $('#dashboard').style.display='none';
   document.body.classList.add('centered');
   $('#setup').style.display='block';
+  updateBridgeWarning(false);
   updateOverheightBanner('');
   if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; }
   routeColor='#E57200';
@@ -199,6 +247,7 @@ async function updateBuses(){
     const res=await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681');
     const data=await res.json();
     const active=new Set();
+    let nearBridge=false;
     data.forEach(v=>{
       if(v.RouteID==currentRoute){
         const id=v.VehicleID;
@@ -207,6 +256,10 @@ async function updateBuses(){
         const heading = v.Heading || 0;
         const busName = v.Name;
         active.add(id);
+        if(busName===currentBus){
+          const dist=L.latLng(pos).distanceTo(BRIDGE_POINT);
+          nearBridge=dist<=BRIDGE_RADIUS;
+        }
         const color = routeColor;
         const contrast = getContrastColor(color);
         const svgIcon = `<svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg"><g><circle cx="20" cy="20" r="15" fill="${color}" stroke="white" stroke-width="3" />${isMoving ? `<line x1="20" y1="10" x2="20" y2="22" stroke="${contrast}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" /><polygon points="15,22 25,22 20,30" fill="${contrast}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />` : `<rect x="14" y="14" width="12" height="12" fill="${contrast}" />`}</g></svg>`;
@@ -220,6 +273,7 @@ async function updateBuses(){
         else { nameMarkers[id]=L.marker(pos,{icon:nameIcon,interactive:false}).addTo(map); }
       }
     });
+    updateBridgeWarning(nearBridge && OVERHEIGHT_BUSES.includes(String(currentBus)));
     Object.keys(markers).forEach(id=>{
       if(!active.has(Number(id))){
         map.removeLayer(markers[id]); delete markers[id];
