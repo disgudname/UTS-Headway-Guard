@@ -1,11 +1,16 @@
 <!doctype html>
+<html>
 <meta charset="utf-8" />
 <title>Driver Anti-Bunching</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
 <style>
   :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --ok:#24c28a; --warn:#ffbf47; --bad:#ff6b6b; }
   html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,Segoe UI,Roboto,Arial;display:flex;align-items:center;justify-content:center}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,Segoe UI,Roboto,Arial;}
+  body.centered{display:flex;align-items:center;justify-content:center;}
   .card{width:min(560px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
   h1{margin:0 0 12px 0;font-size:18px}
   label{display:block;margin:8px 0 6px 2px;color:var(--muted)}
@@ -24,13 +29,20 @@
   .green{color:#b9f4db} .yellow{color:#ffe29a} .red{color:#ffb0b0}
   .big{font-size:22px}
   .muted{color:var(--muted)}
+  /* Dashboard layout */
+  #dashboard{display:flex;height:100%;width:100%;}
+  #left,#right{flex:1;display:flex;flex-direction:column;}
+  #topbar{background:var(--panel);padding:8px 12px;border-bottom:1px solid var(--line);}
+  #info{padding:12px;flex:1;display:flex;flex-direction:column;}
+  #info .out{margin-top:0;border-top:none;padding-top:0;}
+  #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:48px;border-bottom:1px solid var(--line);background:var(--panel);}
+  #map{flex:1;}
 </style>
-<div class="card">
+<body class="centered">
+<div id="setup" class="card">
   <h1>Driver Anti-Bunching</h1>
   <div id="warn" class="muted" style="display:none;margin:6px 2px 2px"></div>
-
-  <!-- Setup (pickers) -->
-  <div id="setup">
+  <div id="setupInner">
     <div class="row">
       <div>
         <label>Unit Number</label>
@@ -44,25 +56,26 @@
     <button id="go" class="btn">Start Anti-Bunching</button>
     <div class="muted" style="margin-top:8px">Pick your bus and route, then press Start.</div>
   </div>
-
-  <!-- Active session (instructions only) -->
-  <div id="session" style="display:none">
-    <div id="selection" class="muted" style="margin:0 0 8px 2px"></div>
-    <div id="out" class="out">
-      <div class="muted">Connecting…</div>
+</div>
+<div id="dashboard" style="display:none">
+  <div id="left">
+    <div id="topbar"></div>
+    <div id="info">
+      <div id="out" class="out"><div class="muted">Connecting…</div></div>
+      <button id="end" class="btn danger" style="margin-top:auto">End Anti-Bunching</button>
     </div>
-    <button id="end" class="btn danger">End Anti-Bunching</button>
+  </div>
+  <div id="right">
+    <div id="clock"></div>
+    <div id="map"></div>
   </div>
 </div>
-
 <script>
 const $ = s=>document.querySelector(s);
 const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
 const pill = st=>{ const m={green:["OK","green"],yellow:["Ease off","yellow"],red:["HOLD","red"]}; const [t,c]=m[st]||["OK","green"]; return `<span class="pill ${c} big"><span class="dot"></span><span>${t}</span></span>`; };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
-
-let timer=null, currentBus="", currentRoute=0;
-
+let timer=null, busTimer=null, currentBus="", currentRoute=0, map=null, routeLayer=null, markers={};
 // Load pickers once
 async function loadBuses(){
   let list=[];
@@ -76,17 +89,28 @@ async function loadRoutes(){
   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
   $('#route').innerHTML=list.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
 }
-
 function showSession(busName, routeId, routeLabel){
   $('#setup').style.display='none';
-  $('#session').style.display='block';
-  $('#selection').textContent = `Unit ${busName} • Route: ${routeLabel}`;
+  document.body.classList.remove('centered');
+  $('#dashboard').style.display='flex';
+  $('#topbar').textContent = `Unit ${busName} • Route: ${routeLabel}`;
+  updateClock();
+  if(timer) clearInterval(timer);
+  tick();
+  timer = setInterval(tick, 5000);
+  initMap();
+  if(busTimer) clearInterval(busTimer);
+  updateBuses();
+  busTimer = setInterval(updateBuses, 4000);
 }
 function showSetup(){
-  $('#session').style.display='none';
+  $('#dashboard').style.display='none';
+  document.body.classList.add('centered');
   $('#setup').style.display='block';
+  if(map){ map.remove(); map=null; routeLayer=null; markers={}; }
+  if(timer) { clearInterval(timer); timer=null; }
+  if(busTimer){ clearInterval(busTimer); busTimer=null; }
 }
-
 async function tick(){
   try{
     const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
@@ -97,34 +121,65 @@ async function tick(){
     $('#out').innerHTML = `<div class=\"red mono\">Waiting for route to become active...</div><div class=\"muted\">Page will update when route becomes active. Ensure selected route and unit are correct.</div>`;
   }
 }
-
-// Start button
+function updateClock(){
+  const now=new Date();
+  const t=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  $('#clock').textContent=t;
+}
+setInterval(updateClock,1000);
+function initMap(){
+  map = L.map('map').setView([38.03799212281404, -78.50981502838886], 14);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
+  loadRoutePath();
+}
+async function loadRoutePath(){
+  try{
+    const res=await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681');
+    const data=await res.json();
+    const r=data.find(x=>x.RouteID==currentRoute);
+    if(r && r.EncodedPolyline){
+      const pts=polyline.decode(r.EncodedPolyline);
+      routeLayer=L.polyline(pts,{color:'#E57200',weight:5}).addTo(map);
+      map.fitBounds(routeLayer.getBounds());
+    }
+  }catch(e){console.error('route load',e);}
+}
+async function updateBuses(){
+  if(!map) return;
+  try{
+    const res=await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681');
+    const data=await res.json();
+    const active=new Set();
+    data.forEach(v=>{
+      if(v.RouteID==currentRoute){
+        const id=v.VehicleID;
+        const pos=[v.Latitude,v.Longitude];
+        active.add(id);
+        if(markers[id]){ markers[id].setLatLng(pos); }
+        else { markers[id]=L.marker(pos).bindTooltip(v.Name,{permanent:true,direction:'top'}).addTo(map); }
+      }
+    });
+    Object.keys(markers).forEach(id=>{ if(!active.has(Number(id))){ map.removeLayer(markers[id]); delete markers[id]; }});
+  }catch(e){console.error('bus load',e);}
+}
 $('#go').onclick = ()=>{
   currentBus = $('#bus').value;
   currentRoute = Number($('#route').value);
   const routeLabel = $('#route').selectedOptions[0]?.text || `Route ${currentRoute}`;
   showSession(currentBus, currentRoute, routeLabel);
-  if(timer) clearInterval(timer);
-  tick();
-  timer = setInterval(tick, 5000);
 };
-
-// End button
 $('#end').onclick = ()=>{
-  if(timer) { clearInterval(timer); timer=null; }
-  currentBus = ""; currentRoute = 0;
-  $('#out').innerHTML = '<div class=\"muted\">Pick your bus and route, then press Start.</div>';
+  currentBus=""; currentRoute=0;
+  $('#out').innerHTML='<div class=\"muted\">Pick your bus and route, then press Start.</div>';
   showSetup();
 };
-
-// Initial loads
 document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadBuses(); await loadRoutes(); }catch(e){ $('#out').textContent='Error loading lists'; } });
-
-// Health banner
 async function pollHealth(){
   try{ const h=await j('/v1/health'); const w=$('#warn'); if(!h.ok && h.last_error){ w.style.display='block'; w.textContent='Feed error: '+h.last_error; } else { w.style.display='none'; w.textContent=''; } }
   catch(e){ const w=$('#warn'); w.style.display='block'; w.textContent='Health check failed'; }
-  setTimeout(pollHealth, 15000);
+  setTimeout(pollHealth,15000);
 }
 pollHealth();
 </script>
+</body>
+</html>
