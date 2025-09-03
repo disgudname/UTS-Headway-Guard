@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
 <style>
   :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --ok:#24c28a; --warn:#ffbf47; --bad:#ff6b6b; }
+  body.light{ --bg:#f0f4f8; --panel:#ffffff; --ink:#000000; --muted:#555555; --line:#cccccc; --chip:#dddddd; }
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,Segoe UI,Roboto,Arial;}
   body.centered{display:flex;align-items:center;justify-content:center;}
@@ -23,19 +24,18 @@
   .btn.danger:hover{filter:brightness(1.05)}
   .out{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
   .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
-  .pill{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:6px 10px;border:1px solid var(--chip);background:#10151c}
-  .dot{width:10px;height:10px;border-radius:999px;background:#718096;box-shadow:0 0 0 1px rgba(0,0,0,.35) inset}
-  .green .dot{background:var(--ok)} .yellow .dot{background:var(--warn)} .red .dot{background:var(--bad)}
-  .green{color:#b9f4db} .yellow{color:#ffe29a} .red{color:#ffb0b0}
-  .big{font-size:22px}
   .muted{color:var(--muted)}
   /* Dashboard layout */
   #dashboard{display:flex;height:100%;width:100%;}
   #left,#right{flex:1;display:flex;flex-direction:column;}
-  #topbar{background:var(--panel);padding:8px 12px;border-bottom:1px solid var(--line);}
-  #info{padding:12px;flex:1;display:flex;flex-direction:column;}
-  #info .out{margin-top:0;border-top:none;padding-top:0;}
-  #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:48px;border-bottom:1px solid var(--line);background:var(--panel);}
+  #topbar{background:var(--panel);padding:8px 12px;border-bottom:1px solid var(--line);text-align:center;}
+  #info{padding:12px;flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;}
+  #info .out{margin-top:0;border-top:none;padding-top:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;}
+  #instruction{width:100%;height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);}
+  #instruction.green{background:var(--ok);color:#000;}
+  #instruction.yellow{background:var(--warn);color:#000;}
+  #instruction.red{background:var(--bad);color:#000;}
+  #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:80px;border-bottom:1px solid var(--line);background:var(--panel);}
   #map{flex:1;}
 </style>
 <body class="centered">
@@ -61,8 +61,14 @@
   <div id="left">
     <div id="topbar"></div>
     <div id="info">
-      <div id="out" class="out"><div class="muted">Connecting…</div></div>
-      <button id="end" class="btn danger" style="margin-top:auto">End Anti-Bunching</button>
+      <div id="out" class="out">
+        <div id="instruction">Connecting…</div>
+        <div id="details" class="mono muted"></div>
+      </div>
+      <div class="row" style="margin-top:auto">
+        <button id="theme" class="btn">Light Mode</button>
+        <button id="end" class="btn danger">End Anti-Bunching</button>
+      </div>
     </div>
   </div>
   <div id="right">
@@ -73,7 +79,6 @@
 <script>
 const $ = s=>document.querySelector(s);
 const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
-const pill = st=>{ const m={green:["OK","green"],yellow:["Ease off","yellow"],red:["HOLD","red"]}; const [t,c]=m[st]||["OK","green"]; return `<span class="pill ${c} big"><span class="dot"></span><span>${t}</span></span>`; };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
 let timer=null, busTimer=null, currentBus="", currentRoute=0, map=null, routeLayer=null, markers={};
 // Load pickers once
@@ -93,7 +98,10 @@ function showSession(busName, routeId, routeLabel){
   $('#setup').style.display='none';
   document.body.classList.remove('centered');
   $('#dashboard').style.display='flex';
-  $('#topbar').textContent = `Unit ${busName} • Route: ${routeLabel}`;
+  $('#topbar').textContent = `Unit ${busName} • ${routeLabel}`;
+  $('#instruction').className='';
+  $('#instruction').textContent='Connecting…';
+  $('#details').textContent='';
   updateClock();
   if(timer) clearInterval(timer);
   tick();
@@ -116,9 +124,16 @@ async function tick(){
     const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
     const cls=(data.order==='HOLD'?'red':(data.order==='Ease off'?'yellow':'green'));
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    $('#out').innerHTML = `${pill(cls)}<div class=\"mono\" style=\"margin-top:10px\">Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${new Date((data.updated_at||Date.now()/1000)*1000).toLocaleTimeString([], {timeZone: tz})}</span></div>`;
+    const inst=data.order==='Ease off'? 'Ease off' : (data.order==='HOLD'?'HOLD':'OK');
+    const box=$('#instruction');
+    box.className=cls;
+    box.textContent=inst;
+    $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${new Date((data.updated_at||Date.now()/1000)*1000).toLocaleTimeString([], {timeZone: tz})}</span>`;
   } catch(e){
-    $('#out').innerHTML = `<div class=\"red mono\">Waiting for route to become active...</div><div class=\"muted\">Page will update when route becomes active. Ensure selected route and unit are correct.</div>`;
+    const box=$('#instruction');
+    box.className='red';
+    box.textContent='WAIT';
+    $('#details').innerHTML=`<div class=\"red mono\">Waiting for route to become active...</div><div class=\"muted\">Page will update when route becomes active. Ensure selected route and unit are correct.</div>`;
   }
 }
 function updateClock(){
@@ -170,10 +185,17 @@ $('#go').onclick = ()=>{
 };
 $('#end').onclick = ()=>{
   currentBus=""; currentRoute=0;
-  $('#out').innerHTML='<div class=\"muted\">Pick your bus and route, then press Start.</div>';
+  $('#instruction').className='';
+  $('#instruction').textContent='';
+  $('#details').innerHTML='<div class=\"muted\">Pick your bus and route, then press Start.</div>';
   showSetup();
 };
-document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadBuses(); await loadRoutes(); }catch(e){ $('#out').textContent='Error loading lists'; } });
+
+$('#theme').onclick = ()=>{
+  const light=document.body.classList.toggle('light');
+  $('#theme').textContent=light?'Dark Mode':'Light Mode';
+};
+document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadBuses(); await loadRoutes(); }catch(e){ $('#instruction').className='red'; $('#instruction').textContent='Error loading lists'; } });
 async function pollHealth(){
   try{ const h=await j('/v1/health'); const w=$('#warn'); if(!h.ok && h.last_error){ w.style.display='block'; w.textContent='Feed error: '+h.last_error; } else { w.style.display='none'; w.textContent=''; } }
   catch(e){ const w=$('#warn'); w.style.display='block'; w.textContent='Health check failed'; }
