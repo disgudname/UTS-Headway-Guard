@@ -107,7 +107,7 @@ function startAlert(){
   if(alertInterval) return;
   alertCtx = new (window.AudioContext||window.webkitAudioContext)();
   const overlay=$('#bridgeWarning');
-  const texts=overlay.querySelectorAll('p');
+  overlay.querySelectorAll('p').forEach(p=>p.style.visibility='visible');
   const beep=()=>{
     const osc=alertCtx.createOscillator();
     const gain=alertCtx.createGain();
@@ -119,14 +119,8 @@ function startAlert(){
     osc.start();
     osc.stop(alertCtx.currentTime+0.2);
   };
-  let visible=true;
-  texts.forEach(p=>p.style.visibility='visible');
   beep();
-  alertInterval=setInterval(()=>{
-    visible=!visible;
-    texts.forEach(p=>p.style.visibility=visible?'visible':'hidden');
-    if(visible) beep();
-  },500);
+  alertInterval=setInterval(beep,500);
 }
 function stopAlert(){
   const overlay=$('#bridgeWarning');
