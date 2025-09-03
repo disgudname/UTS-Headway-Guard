@@ -7,10 +7,12 @@
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
 <style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');}
   :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --ok:#24c28a; --warn:#ffbf47; --bad:#ff6b6b; }
   body.light{ --bg:#f0f4f8; --panel:#ffffff; --ink:#000000; --muted:#555555; --line:#cccccc; --chip:#dddddd; }
   html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,Segoe UI,Roboto,Arial;}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;}
+  button,select{font-family:inherit;}
   body.centered{display:flex;align-items:center;justify-content:center;}
   .card{width:min(560px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
   h1{margin:0 0 12px 0;font-size:18px}
@@ -23,7 +25,7 @@
   .btn.danger{background:#2b1515;border-color:#523737}
   .btn.danger:hover{filter:brightness(1.05)}
   .out{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
-  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .mono{font-family:'FGDC',ui-monospace,Menlo,Consolas,monospace}
   .muted{color:var(--muted)}
   /* Dashboard layout */
   #dashboard{display:flex;height:100%;width:100%;}
@@ -35,7 +37,7 @@
   #instruction.green{background:var(--ok);color:#000;}
   #instruction.yellow{background:var(--warn);color:#000;}
   #instruction.red{background:var(--bad);color:#000;}
-  #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:80px;border-bottom:1px solid var(--line);background:var(--panel);}
+  #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:20vh;border-bottom:1px solid var(--line);background:var(--panel);}
   #map{flex:1;}
 </style>
 <body class="centered">
@@ -80,7 +82,7 @@
 const $ = s=>document.querySelector(s);
 const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
-let timer=null, busTimer=null, currentBus="", currentRoute=0, map=null, routeLayer=null, markers={};
+let timer=null, busTimer=null, currentBus="", currentRoute=0, map=null, routeLayer=null, markers={}, nameMarkers={};
 // Load pickers once
 async function loadBuses(){
   let list=[];
@@ -115,7 +117,7 @@ function showSetup(){
   $('#dashboard').style.display='none';
   document.body.classList.add('centered');
   $('#setup').style.display='block';
-  if(map){ map.remove(); map=null; routeLayer=null; markers={}; }
+  if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; }
   if(timer) { clearInterval(timer); timer=null; }
   if(busTimer){ clearInterval(busTimer); busTimer=null; }
 }
@@ -124,7 +126,7 @@ async function tick(){
     const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
     const cls=(data.order==='HOLD'?'red':(data.order==='Ease off'?'yellow':'green'));
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const inst=data.order==='Ease off'? 'Ease off' : (data.order==='HOLD'?'HOLD':'OK');
+    const inst=data.order==='Ease off'? 'Ease off' : (data.order==='HOLD'?'HOLD':'Anti-Bunching OK');
     const box=$('#instruction');
     box.className=cls;
     box.textContent=inst;
@@ -169,12 +171,29 @@ async function updateBuses(){
       if(v.RouteID==currentRoute){
         const id=v.VehicleID;
         const pos=[v.Latitude,v.Longitude];
+        const isMoving = v.GroundSpeed > 0;
+        const heading = v.Heading || 0;
+        const busName = v.Name;
         active.add(id);
-        if(markers[id]){ markers[id].setLatLng(pos); }
-        else { markers[id]=L.marker(pos).bindTooltip(v.Name,{permanent:true,direction:'top'}).addTo(map); }
+        const color = '#E57200';
+        const contrast = getContrastColor(color);
+        const svgIcon = `<svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg"><g><circle cx="20" cy="20" r="15" fill="${color}" stroke="white" stroke-width="3" />${isMoving ? `<line x1="20" y1="10" x2="20" y2="22" stroke="${contrast}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" /><polygon points="15,22 25,22 20,30" fill="${contrast}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />` : `<rect x="14" y="14" width="12" height="12" fill="${contrast}" />`}</g></svg>`;
+        const busIcon = L.divIcon({html: svgIcon, className:'', iconSize:[40,40], iconAnchor:[20,20]});
+        if(markers[id]){ animateMarkerTo(markers[id], pos); markers[id].setIcon(busIcon); }
+        else { markers[id]=L.marker(pos,{icon:busIcon}).addTo(map); }
+        const bubbleWidth = Math.max(40, busName.length * 10);
+        const nameBubble = `<svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg"><g><rect x="0" y="5" width="${bubbleWidth}" height="20" rx="10" ry="10" fill="${color}" stroke="white" stroke-width="3" /><text x="${bubbleWidth/2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${contrast}" font-family="FGDC">${busName}</text></g></svg>`;
+        const nameIcon = L.divIcon({html:nameBubble, className:'', iconSize:[bubbleWidth,30], iconAnchor:[bubbleWidth/2,40]});
+        if(nameMarkers[id]){ animateMarkerTo(nameMarkers[id], pos); nameMarkers[id].setIcon(nameIcon); }
+        else { nameMarkers[id]=L.marker(pos,{icon:nameIcon,interactive:false}).addTo(map); }
       }
     });
-    Object.keys(markers).forEach(id=>{ if(!active.has(Number(id))){ map.removeLayer(markers[id]); delete markers[id]; }});
+    Object.keys(markers).forEach(id=>{
+      if(!active.has(Number(id))){
+        map.removeLayer(markers[id]); delete markers[id];
+        if(nameMarkers[id]){ map.removeLayer(nameMarkers[id]); delete nameMarkers[id]; }
+      }
+    });
   }catch(e){console.error('bus load',e);}
 }
 $('#go').onclick = ()=>{
@@ -202,6 +221,33 @@ async function pollHealth(){
   setTimeout(pollHealth,15000);
 }
 pollHealth();
+
+function getContrastColor(hexColor){
+  hexColor = hexColor.replace('#','');
+  const r = parseInt(hexColor.substring(0,2),16);
+  const g = parseInt(hexColor.substring(2,4),16);
+  const b = parseInt(hexColor.substring(4,6),16);
+  const luminance = (0.299*r + 0.587*g + 0.114*b)/255;
+  return luminance > 0.565 ? 'black':'white';
+}
+
+function animateMarkerTo(marker, newPosition){
+  const startPos = marker.getLatLng();
+  const endPos = L.latLng(newPosition);
+  const duration = 1000;
+  const startTime = performance.now();
+  function animate(time){
+    const elapsed = time - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    const currentPos = L.latLng(
+      startPos.lat + t * (endPos.lat - startPos.lat),
+      startPos.lng + t * (endPos.lng - startPos.lng)
+    );
+    marker.setLatLng(currentPos);
+    if(t < 1) requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+}
 </script>
 </body>
 </html>
