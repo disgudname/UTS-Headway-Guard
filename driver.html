@@ -20,7 +20,7 @@
   .card{width:min(560px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
   h1{margin:0 0 12px 0;font-size:18px}
   label{display:block;margin:8px 0 6px 2px;color:var(--muted)}
-  select{width:100%;background:#10151c;color:var(--ink);border:1px solid var(--chip);border-radius:10px;padding:10px}
+  select{width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--chip);border-radius:10px;padding:10px}
   .row{display:flex;gap:10px}
   .row>div{flex:1}
   .btn{width:100%;margin-top:12px;background:var(--btn);border:1px solid var(--chip);color:var(--ink);border-radius:10px;padding:10px;cursor:pointer;font-weight:600}
@@ -35,7 +35,7 @@
   #left,#right{flex:1;display:flex;flex-direction:column;}
   #topbar{background:var(--panel);padding:16px;border-bottom:1px solid var(--line);text-align:center;font-size:24px;}
   .route-pill{display:inline-block;padding:2px 8px;border-radius:999px;}
-  #overheight{background:var(--bad);color:#000;text-align:center;padding:8px;font-weight:700;display:none;}
+  #overheight{background:var(--bad);color:#000;text-align:center;padding:8px;font-weight:700;display:none;font-size:20px;}
   #info{padding:12px;flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;}
   #info .out{margin-top:0;border-top:none;padding-top:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;}
   #instruction{width:100%;height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);}
@@ -164,8 +164,8 @@ async function tick(){
   } catch(e){
     const box=$('#instruction');
     box.className='red';
-    box.textContent='WAIT';
-    $('#details').innerHTML=`<div class=\"red mono\">Waiting for route to become active...</div><div class=\"muted\">Page will update when route becomes active. Ensure selected route and unit are correct.</div>`;
+    box.textContent='Anti-Bunching not active';
+    $('#details').innerHTML=`<div class=\"red mono\">Selected route or unit is not active.</div><div class=\"muted\">Anti-Bunching is not currently running for this selection.</div>`;
   }
 }
 function updateClock(){
