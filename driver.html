@@ -100,6 +100,7 @@ let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel=
 const OVERHEIGHT_BUSES = ['25131','25231','25331','25431','18332'];
 const BRIDGE_POINT = L.latLng(38.03404931117353, -78.4995922309842);
 const BRIDGE_RADIUS = 117; // meters
+let bridgeCircle = null;
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
 function startAlert(){
@@ -185,6 +186,7 @@ function showSession(busName, routeId, routeLabel){
   tick();
   timer = setInterval(tick, 5000);
   initMap();
+  updateBridgeCircle();
   if(busTimer) clearInterval(busTimer);
   updateBuses();
   busTimer = setInterval(updateBuses, 4000);
@@ -195,7 +197,7 @@ function showSetup(){
   $('#setup').style.display='block';
   updateBridgeWarning(false);
   updateOverheightBanner('');
-  if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; }
+  if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; bridgeCircle=null; }
   routeColor='#E57200';
   currentRouteLabel='';
   if(timer) { clearInterval(timer); timer=null; }
@@ -206,6 +208,22 @@ function updateOverheightBanner(busName){
   const banner = $('#overheight');
   if(banner){
     banner.style.display = OVERHEIGHT_BUSES.includes(String(busName)) ? 'block' : 'none';
+  }
+}
+
+function updateBridgeCircle(){
+  if(!map) return;
+  if(bridgeCircle){
+    map.removeLayer(bridgeCircle);
+    bridgeCircle=null;
+  }
+  if(OVERHEIGHT_BUSES.includes(String(currentBus))){
+    bridgeCircle=L.circle(BRIDGE_POINT,{
+      radius:BRIDGE_RADIUS,
+      color:'#ff0000',
+      fillColor:'#ff0000',
+      fillOpacity:0.15
+    }).addTo(map);
   }
 }
 
