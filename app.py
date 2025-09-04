@@ -66,6 +66,7 @@ BRIDGE_LAT = 38.03404931117353
 BRIDGE_LON = -78.4995922309842
 LOW_CLEARANCE_SEARCH_M = 25 * 1609.34  # 25 miles in meters
 LOW_CLEARANCE_LIMIT_FT = 11 + 11/12    # 11'11"
+BRIDGE_IGNORE_RADIUS_M = 100.0
 
 # ---------------------------
 # Geometry helpers
@@ -225,6 +226,8 @@ out center;
         lat = el.get("lat") or el.get("center", {}).get("lat")
         lon = el.get("lon") or el.get("center", {}).get("lon")
         if lat is None or lon is None:
+            continue
+        if haversine((lat, lon), (BRIDGE_LAT, BRIDGE_LON)) < BRIDGE_IGNORE_RADIUS_M:
             continue
         items.append({"lat": lat, "lon": lon, "maxheight": mh})
     return items
