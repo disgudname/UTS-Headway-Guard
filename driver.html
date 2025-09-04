@@ -99,6 +99,7 @@ async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw 
 let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200';
 const OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
 const LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
+const BRIDGE_RADIUS = 177; // meters
 const BRIDGE_LAT = 38.03404931117353;
 const BRIDGE_LON = -78.4995922309842;
 let lowClearances = [];
@@ -178,7 +179,7 @@ async function loadLowClearances(){
     const d=await j('/v1/low_clearances');
     lowClearances=(d.clearances||[]).filter(c=>{
       const dist=L.latLng(c.lat,c.lon).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
-      return dist>LOW_CLEARANCE_RADIUS;
+      return dist>BRIDGE_RADIUS;
     });
   }
   catch(e){ lowClearances=[]; }
@@ -240,6 +241,13 @@ function updateLowClearanceCircles(){
       }).addTo(map);
       clearanceCircles.push(circle);
     });
+    const bridgeCircle=L.circle([BRIDGE_LAT,BRIDGE_LON],{
+      radius:BRIDGE_RADIUS,
+      color:'#ff0000',
+      fillColor:'#ff0000',
+      fillOpacity:0.15
+    }).addTo(map);
+    clearanceCircles.push(bridgeCircle);
   }
 }
 
@@ -314,7 +322,7 @@ async function updateBuses(){
             if(dist<=LOW_CLEARANCE_RADIUS){ nearOther=true; break; }
           }
           const distBridge=L.latLng(pos).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
-          if(distBridge<=LOW_CLEARANCE_RADIUS){ nearBridge=true; }
+          if(distBridge<=BRIDGE_RADIUS){ nearBridge=true; }
         }
         const color = routeColor;
         const contrast = getContrastColor(color);
