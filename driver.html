@@ -70,7 +70,7 @@
 <div id="dashboard" style="display:none">
   <div id="left">
     <div id="topbar"></div>
-    <div id="overheight">OVERHEIGHT VEHICLE. LOW CLEARANCE WARNING.</div>
+    <div id="overheight">OVERHEIGHT VEHICLE: 11' 11". DO NOT GO UNDER THE 14TH STREET BRIDGE.</div>
     <div id="info">
       <div id="out" class="out">
         <div id="instruction">Connecting…</div>
@@ -99,6 +99,8 @@ async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw 
 let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200';
 const OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
 const LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
+const BRIDGE_LAT = 38.03404931117353;
+const BRIDGE_LON = -78.4995922309842;
 let lowClearances = [];
 let clearanceCircles = [];
 let bridgeWarningActive = false;
@@ -134,8 +136,16 @@ function stopAlert(){
     alertCtx=null;
   }
 }
-function updateBridgeWarning(show){
+function updateBridgeWarning(show, isBridge=false){
   const overlay=$('#bridgeWarning');
+  const lines=overlay.querySelectorAll('p');
+  if(isBridge){
+    lines[0].textContent='DO NOT GO UNDER THE 14TH STREET BRIDGE';
+  }else{
+    lines[0].textContent='LOW CLEARANCE AHEAD';
+  }
+  lines[1].textContent='VEHICLE IS OVERHEIGHT: 11\' 11"';
+  lines[2].textContent='DAMAGE WILL OCCUR';
   if(show){
     if(!bridgeWarningActive){
       overlay.style.display='flex';
@@ -164,7 +174,13 @@ async function loadRoutes(){
   $('#route').innerHTML=list.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
 }
 async function loadLowClearances(){
-  try{ const d=await j('/v1/low_clearances'); lowClearances=d.clearances||[]; }
+  try{
+    const d=await j('/v1/low_clearances');
+    lowClearances=(d.clearances||[]).filter(c=>{
+      const dist=L.latLng(c.lat,c.lon).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
+      return dist>LOW_CLEARANCE_RADIUS;
+    });
+  }
   catch(e){ lowClearances=[]; }
   updateLowClearanceCircles();
 }
@@ -283,7 +299,7 @@ async function updateBuses(){
     const res=await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681');
     const data=await res.json();
     const active=new Set();
-    let nearClearance=false;
+    let nearBridge=false, nearOther=false;
     data.forEach(v=>{
       if(v.RouteID==currentRoute){
         const id=v.VehicleID;
@@ -295,8 +311,10 @@ async function updateBuses(){
         if(busName===currentBus){
           for(const c of lowClearances){
             const dist=L.latLng(pos).distanceTo([c.lat,c.lon]);
-            if(dist<=LOW_CLEARANCE_RADIUS){ nearClearance=true; break; }
+            if(dist<=LOW_CLEARANCE_RADIUS){ nearOther=true; break; }
           }
+          const distBridge=L.latLng(pos).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
+          if(distBridge<=LOW_CLEARANCE_RADIUS){ nearBridge=true; }
         }
         const color = routeColor;
         const contrast = getContrastColor(color);
@@ -311,7 +329,9 @@ async function updateBuses(){
         else { nameMarkers[id]=L.marker(pos,{icon:nameIcon,interactive:false}).addTo(map); }
       }
     });
-    updateBridgeWarning(nearClearance && OVERHEIGHT_BUSES.includes(String(currentBus)));
+    const overheight=OVERHEIGHT_BUSES.includes(String(currentBus));
+    if(overheight && (nearBridge || nearOther)){ updateBridgeWarning(true, nearBridge); }
+    else{ updateBridgeWarning(false); }
     Object.keys(markers).forEach(id=>{
       if(!active.has(Number(id))){
         map.removeLayer(markers[id]); delete markers[id];
