@@ -70,7 +70,7 @@
 <div id="dashboard" style="display:none">
   <div id="left">
     <div id="topbar"></div>
-    <div id="overheight">OVERHEIGHT VEHICLE. DO NOT GO UNDER THE 14TH STREET BRIDGE.</div>
+    <div id="overheight">OVERHEIGHT VEHICLE. LOW CLEARANCE WARNING.</div>
     <div id="info">
       <div id="out" class="out">
         <div id="instruction">Connecting…</div>
@@ -88,7 +88,7 @@
   </div>
 </div>
 <div id="bridgeWarning">
-  <p>DO NOT GO UNDER THE 14TH STREET BRIDGE</p>
+  <p>LOW CLEARANCE AHEAD</p>
   <p>VEHICLE IS OVERHEIGHT: 11' 11"</p>
   <p>DAMAGE WILL OCCUR</p>
 </div>
@@ -98,9 +98,9 @@ const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const 
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
 let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200';
 const OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
-const BRIDGE_POINT = L.latLng(38.03404931117353, -78.4995922309842);
-const BRIDGE_RADIUS = 117; // meters
-let bridgeCircle = null;
+const LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
+let lowClearances = [];
+let clearanceCircles = [];
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
 function startAlert(){
@@ -163,6 +163,11 @@ async function loadRoutes(){
   list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
   $('#route').innerHTML=list.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
 }
+async function loadLowClearances(){
+  try{ const d=await j('/v1/low_clearances'); lowClearances=d.clearances||[]; }
+  catch(e){ lowClearances=[]; }
+  updateLowClearanceCircles();
+}
 function showSession(busName, routeId, routeLabel){
   $('#setup').style.display='none';
   document.body.classList.remove('centered');
@@ -180,7 +185,7 @@ function showSession(busName, routeId, routeLabel){
   tick();
   timer = setInterval(tick, 5000);
   initMap();
-  updateBridgeCircle();
+  updateLowClearanceCircles();
   if(busTimer) clearInterval(busTimer);
   updateBuses();
   busTimer = setInterval(updateBuses, 4000);
@@ -191,7 +196,7 @@ function showSetup(){
   $('#setup').style.display='block';
   updateBridgeWarning(false);
   updateOverheightBanner('');
-  if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; bridgeCircle=null; }
+  if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; clearanceCircles=[]; }
   routeColor='#E57200';
   currentRouteLabel='';
   if(timer) { clearInterval(timer); timer=null; }
@@ -205,19 +210,20 @@ function updateOverheightBanner(busName){
   }
 }
 
-function updateBridgeCircle(){
+function updateLowClearanceCircles(){
   if(!map) return;
-  if(bridgeCircle){
-    map.removeLayer(bridgeCircle);
-    bridgeCircle=null;
-  }
+  clearanceCircles.forEach(c=>map.removeLayer(c));
+  clearanceCircles=[];
   if(OVERHEIGHT_BUSES.includes(String(currentBus))){
-    bridgeCircle=L.circle(BRIDGE_POINT,{
-      radius:BRIDGE_RADIUS,
-      color:'#ff0000',
-      fillColor:'#ff0000',
-      fillOpacity:0.15
-    }).addTo(map);
+    lowClearances.forEach(c=>{
+      const circle=L.circle([c.lat,c.lon],{
+        radius:LOW_CLEARANCE_RADIUS,
+        color:'#ff0000',
+        fillColor:'#ff0000',
+        fillOpacity:0.15
+      }).addTo(map);
+      clearanceCircles.push(circle);
+    });
   }
 }
 
@@ -277,7 +283,7 @@ async function updateBuses(){
     const res=await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681');
     const data=await res.json();
     const active=new Set();
-    let nearBridge=false;
+    let nearClearance=false;
     data.forEach(v=>{
       if(v.RouteID==currentRoute){
         const id=v.VehicleID;
@@ -287,8 +293,10 @@ async function updateBuses(){
         const busName = v.Name;
         active.add(id);
         if(busName===currentBus){
-          const dist=L.latLng(pos).distanceTo(BRIDGE_POINT);
-          nearBridge=dist<=BRIDGE_RADIUS;
+          for(const c of lowClearances){
+            const dist=L.latLng(pos).distanceTo([c.lat,c.lon]);
+            if(dist<=LOW_CLEARANCE_RADIUS){ nearClearance=true; break; }
+          }
         }
         const color = routeColor;
         const contrast = getContrastColor(color);
@@ -303,7 +311,7 @@ async function updateBuses(){
         else { nameMarkers[id]=L.marker(pos,{icon:nameIcon,interactive:false}).addTo(map); }
       }
     });
-    updateBridgeWarning(nearBridge && OVERHEIGHT_BUSES.includes(String(currentBus)));
+    updateBridgeWarning(nearClearance && OVERHEIGHT_BUSES.includes(String(currentBus)));
     Object.keys(markers).forEach(id=>{
       if(!active.has(Number(id))){
         map.removeLayer(markers[id]); delete markers[id];
@@ -330,7 +338,7 @@ $('#theme').onclick = ()=>{
   const light=document.body.classList.toggle('light');
   $('#theme').textContent=light?'Dark Mode':'Light Mode';
 };
-document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadBuses(); await loadRoutes(); }catch(e){ $('#instruction').className='red'; $('#instruction').textContent='Error loading lists'; } });
+document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadBuses(); await loadRoutes(); await loadLowClearances(); }catch(e){ $('#instruction').className='red'; $('#instruction').textContent='Error loading lists'; } });
 async function pollHealth(){
   try{ const h=await j('/v1/health'); const w=$('#warn'); if(!h.ok && h.last_error){ w.style.display='block'; w.textContent='Feed error: '+h.last_error; } else { w.style.display='none'; w.textContent=''; } }
   catch(e){ const w=$('#warn'); w.style.display='block'; w.textContent='Health check failed'; }
