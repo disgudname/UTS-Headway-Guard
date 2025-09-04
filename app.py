@@ -27,7 +27,7 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json
+import asyncio, time, math, os, json, re
 import httpx
 
 from fastapi import FastAPI, HTTPException
@@ -60,6 +60,12 @@ MAX_SPEED_CEIL  = float(os.getenv("MAX_SPEED_CEIL", "22.0"))
 LEADER_EPS_M   = float(os.getenv("LEADER_EPS_M", "8.0"))
 MPH_TO_MPS      = 0.44704
 DEFAULT_CAP_MPS = 25 * MPH_TO_MPS
+
+# Low clearance lookup around 14th Street bridge
+BRIDGE_LAT = 38.03404931117353
+BRIDGE_LON = -78.4995922309842
+LOW_CLEARANCE_SEARCH_M = 25 * 1609.34  # 25 miles in meters
+LOW_CLEARANCE_LIMIT_FT = 11 + 11/12    # 11'11"
 
 # ---------------------------
 # Geometry helpers
@@ -125,6 +131,26 @@ def fmt_mmss(sec: float) -> str:
     sec = int(round(abs(sec)))
     return f"{sec//60:02d}:{sec%60:02d}"
 
+def parse_maxheight(val: Optional[str]) -> Optional[float]:
+    """Parse an OSM maxheight tag into feet."""
+    if not val:
+        return None
+    s = str(val).strip().lower()
+    try:
+        if "'" in s:
+            m = re.match(r"\s*(\d+)\s*'\s*(\d+)?", s)
+            if m:
+                ft = float(m.group(1))
+                inch = float(m.group(2) or 0)
+                return ft + inch/12.0
+        if "m" in s:
+            num = float(re.findall(r"[0-9.]+", s)[0])
+            return num * 3.28084
+        num = float(re.findall(r"[0-9.]+", s)[0])
+        return num
+    except Exception:
+        return None
+
 # ---------------------------
 # Data models
 # ---------------------------
@@ -151,6 +177,9 @@ class Route:
     length_m: float
     seg_caps_mps: List[float] = field(default_factory=list)
 
+
+LOW_CLEARANCES_CACHE: Optional[List[Dict[str, float]]] = None
+
 # ---------------------------
 # HTTP clients
 # ---------------------------
@@ -173,6 +202,32 @@ async def fetch_vehicles(client: httpx.AsyncClient, include_unassigned: bool = T
 async def fetch_overpass_speed_profile(route: Route, client: httpx.AsyncClient) -> List[float]:
     """Build per-segment speed caps (m/s). Minimal version: default cap only."""
     return [DEFAULT_CAP_MPS for _ in range(len(route.poly)-1)]
+
+
+async def fetch_low_clearances(client: httpx.AsyncClient) -> List[Dict[str, float]]:
+    query = f"""
+[out:json][timeout:25];
+(
+  node(around:{int(LOW_CLEARANCE_SEARCH_M)},{BRIDGE_LAT},{BRIDGE_LON})["maxheight"];
+  way(around:{int(LOW_CLEARANCE_SEARCH_M)},{BRIDGE_LAT},{BRIDGE_LON})["maxheight"];
+);
+out center;
+"""
+    r = await client.post(OVERPASS_EP, data=query, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    items: List[Dict[str, float]] = []
+    for el in data.get("elements", []):
+        mh = el.get("tags", {}).get("maxheight")
+        ft = parse_maxheight(mh)
+        if ft is None or ft > LOW_CLEARANCE_LIMIT_FT:
+            continue
+        lat = el.get("lat") or el.get("center", {}).get("lat")
+        lon = el.get("lon") or el.get("center", {}).get("lon")
+        if lat is None or lon is None:
+            continue
+        items.append({"lat": lat, "lon": lon, "maxheight": mh})
+    return items
 
 # ---------------------------
 # Core maths (abridged but functional)
@@ -597,6 +652,21 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
         })
     items.sort(key=lambda x: str(x["name"]))
     return {"vehicles": items}
+
+# ---------------------------
+# REST: Low clearances
+# ---------------------------
+
+@app.get("/v1/low_clearances")
+async def low_clearances():
+    global LOW_CLEARANCES_CACHE
+    if LOW_CLEARANCES_CACHE is None:
+        try:
+            async with httpx.AsyncClient() as client:
+                LOW_CLEARANCES_CACHE = await fetch_low_clearances(client)
+        except Exception as e:
+            raise HTTPException(502, f"overpass error: {e}")
+    return {"clearances": LOW_CLEARANCES_CACHE}
 
 # ---------------------------
 # REST: Per-route status & instruction
