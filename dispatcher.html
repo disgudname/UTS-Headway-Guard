@@ -61,46 +61,70 @@ async function loadBlocks(){
     if(!ids){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
     const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString='+ids);
     const groups=data.BlockGroups||[];
-    let entries=[];
+    const raw=[];
     for(const g of groups){
       const blocks=g.Blocks||[];
       if(blocks.length){
         for(const b of blocks){
           const bus=b.Trips?.[0]?.VehicleName||'—';
           if(g.BlockGroupId.includes('[') || bus!=='—'){
-            entries.push({block:g.BlockGroupId,bus});
+            raw.push({id:g.BlockGroupId,bus});
           }
         }
       }else{
         const bus='—';
         if(g.BlockGroupId.includes('[') || bus!=='—'){
-          entries.push({block:g.BlockGroupId,bus});
+          raw.push({id:g.BlockGroupId,bus});
         }
       }
     }
+
+    function expand(id,bus){
+      switch(id){
+        case '[01]/[04]': return [["[01]",bus],["[04]",bus]];
+        case '[05]/[03]': return [["[05]",bus],["[03]",bus]];
+        case '[20]/[10]': return [["[20] AM",bus],["[10]",bus]];
+        case '[22]/[06]': return [["[22] AM",bus],["[06]",bus]];
+        case '[26]/[15]': return [["[26] AM",bus],["[15]",bus]];
+        case '[24]/[18] AM': return [["[24] AM",bus],["[18]",bus]];
+        case '[23]/[17]': return [["[23]",bus],["[17]",bus]];
+        default:
+          const m=id.match(/^(\[\d+\])\s*(AM|PM)?$/);
+          if(m){
+            const num=parseInt(m[1].slice(1,-1),10);
+            if(m[2] && num<=18) return [[m[1],bus]];
+            return [[m[1]+(m[2]?" "+m[2]:""),bus]];
+          }
+          return [[id,bus]];
+      }
+    }
+
     const seen=new Map();
-    const filtered=[];
-    for(const e of entries){
-      if(e.block.includes('[')){
-        const prev=seen.get(e.block);
-        if(!prev || (prev.bus==='—' && e.bus!=='—')){
-          seen.set(e.block,e);
+    for(const {id,bus} of raw){
+      for(const [block,b] of expand(id,bus)){
+        const prev=seen.get(block);
+        if(!prev || (prev.bus==='—' && b!=='—')){
+          seen.set(block,{block,bus:b});
         }
-      }else{
-        filtered.push(e);
       }
     }
-    entries=[...filtered,...seen.values()];
-    entries.sort((a,b)=>{
-      const ra=String(a.block).match(/^([A-Za-z]*)(\d*)/);
-      const rb=String(b.block).match(/^([A-Za-z]*)(\d*)/);
-      const aa=(ra?.[1]||'').toUpperCase();
-      const ab=(rb?.[1]||'').toUpperCase();
-      if(aa<ab) return -1; if(aa>ab) return 1;
-      const na=parseInt(ra?.[2]||'',10)||0;
-      const nb=parseInt(rb?.[2]||'',10)||0;
-      return na-nb;
-    });
+
+    const order=[
+      '[01]','[02]','[03]','[04]','[05]','[06]','[07]','[08]','[09]','[10]',
+      '[11]','[12]','[13]','[14]','[15]','[16]','[17]','[18]',
+      '[20] AM','[20] PM','[21]/[16] AM','[21] PM','[22] AM','[22] PM',
+      '[23]','[24] AM','[24] PM','[25]','[26] AM','[26] PM'
+    ];
+
+    let entries=[];
+    for(const id of order){
+      const e=seen.get(id)||{block:id,bus:'—'};
+      entries.push(e);
+      seen.delete(id);
+    }
+
+    const rest=[...seen.values()].sort((a,b)=>a.block.localeCompare(b.block));
+    entries=[...entries,...rest];
     const rows=9, cols=4;
     let html='';
     for(let r=0;r<rows;r++){
