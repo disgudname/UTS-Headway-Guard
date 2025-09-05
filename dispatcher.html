@@ -89,13 +89,16 @@ async function loadBlocks(){
     const routes=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes');
     const colorByRoute=new Map((routes||[]).map(r=>[String(r.RouteID||r.RouteId), r.MapLineColor||r.Color||r.RouteColor]));
 
+    const mvps=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints');
+    const routeByBus=new Map((mvps||[]).map(v=>[String(v.Name), v.RouteID||v.RouteId]));
+
     let entries=[], busBlocks=[];
     for(const g of groups){
       const blocks=g.Blocks||[];
       if(blocks.length){
         for(const b of blocks){
           const bus=b.Trips?.[0]?.VehicleName||'—';
-          const rid=b.Route?.RouteId||b.Route?.RouteID||g.Route?.RouteId||g.Route?.RouteID;
+          const rid=routeByBus.get(bus) || b.Route?.RouteId || b.Route?.RouteID || g.Route?.RouteId || g.Route?.RouteID;
           let col=colorByRoute.get(String(rid))||b.Route?.Color||b.Route?.RouteColor||g.Route?.Color||g.Route?.RouteColor||null;
           if(col && !col.startsWith('#')) col='#'+col;
           const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime,color:col,textColor:contrastColor(col)};
@@ -106,7 +109,7 @@ async function loadBlocks(){
         }
       }else{
         const bus='—';
-        const rid=g.Route?.RouteId||g.Route?.RouteID;
+        const rid=routeByBus.get(bus) || g.Route?.RouteId || g.Route?.RouteID;
         let col=colorByRoute.get(String(rid))||g.Route?.Color||g.Route?.RouteColor||null;
         if(col && !col.startsWith('#')) col='#'+col;
         const info={block:g.BlockGroupId,bus,start:null,end:null,color:col,textColor:contrastColor(col)};
