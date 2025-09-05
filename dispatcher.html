@@ -99,8 +99,13 @@ async function loadBlocks(){
         for(const b of blocks){
           const bus=b.Trips?.[0]?.VehicleName||'—';
           const rid=routeByBus.get(bus);
-          let col=rid?colorByRoute.get(String(rid))||null:null;
-          if(col && !col.startsWith('#')) col='#'+col;
+          let col=null;
+          if(rid===0){
+            col='#000000';
+          }else if(rid){
+            col=colorByRoute.get(String(rid))||null;
+            if(col && !col.startsWith('#')) col='#'+col;
+          }
           const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime,color:col,textColor:contrastColor(col)};
           if(g.BlockGroupId.includes('[') || bus!=='—'){
             entries.push(info);
@@ -195,7 +200,7 @@ async function loadBlocks(){
       for(let c=0;c<cols;c++){
         const it=entries[r+c*rows];
         html += it
-          ? `<td class="cell"${it.color ? ` style="--route-color:${it.color};--text-color:${it.textColor}"` : ''}><div class="mono">${it.block}</div><div>${it.bus}</div></td>`
+          ? `<td class="cell" style="--route-color:${it.color || 'transparent'};--text-color:${it.textColor}"><div class="mono">${it.block}</div><div>${it.bus}</div></td>`
           : '<td></td>';
       }
       html+='</tr>';
