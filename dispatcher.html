@@ -3,13 +3,17 @@
 <title>UTS Anti-Bunching — Dispatcher</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-body{font:15px system-ui;margin:0;background:#0b0e11;color:#e8eef5}
+@font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
+:root{--route-color:#2a3442}
+body{font:15px 'FGDC',system-ui;margin:0;background:#0b0e11;color:#e8eef5}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630}
 select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
-.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+#blocks td.cell{border-left:4px solid var(--route-color);border-radius:4px}
+#blocks td{border:none;padding:6px 8px}
+.mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
  .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
  .dot{width:10px;height:10px;border-radius:50%}
  .ok{color:#b6f0cb}.ok .dot{background:#24c28a}
@@ -33,16 +37,16 @@ h2{font-size:16px;margin:16px 0 0}
     <h2>Headway Guard AntiBunching</h2>
     <table>
       <thead><tr>
-        <th>Vehicle</th><th>Block</th><th>Order</th><th>Headway</th><th>Gap vs Target</th><th>Leader</th><th>Countdown</th>
+        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Countdown</th>
       </tr></thead>
-      <tbody id="rows"><tr><td class="hint" colspan="7">Loading…</td></tr></tbody>
+      <tbody id="rows"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
     </table>
     <h2>TransLoc AntiBunching</h2>
     <table>
       <thead><tr>
-        <th>Vehicle</th><th>Block</th><th>Order</th><th>Headway</th><th>Gap vs Target</th><th>Leader</th><th>Countdown</th>
+        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Countdown</th>
       </tr></thead>
-      <tbody id="rows-tl"><tr><td class="hint" colspan="7">Loading…</td></tr></tbody>
+      <tbody id="rows-tl"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
     </table>
   </main>
   <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
@@ -170,7 +174,7 @@ async function loadBlocks(){
       html+='<tr>';
       for(let c=0;c<cols;c++){
         const it=entries[r+c*rows];
-        html+=it?`<td><div class="mono">${it.block}</div><div>${it.bus}</div></td>`:'<td></td>';
+        html+=it?`<td class="cell"><div class="mono">${it.block}</div><div>${it.bus}</div></td>`:'<td></td>';
       }
       html+='</tr>';
     }
@@ -188,7 +192,7 @@ async function loadRoutes(){
   sel.innerHTML=list.map(r=>'<option value="'+r.id+'">'+(r.name||("Route "+r.id))+'</option>').join("");
   if(prev){ sel.value=String(prev); }
   if(!sel.value && list.length){ sel.value=String(list[0].id); }
-  if(!currentRid && sel.value) start(sel.value);
+  if(!currentRid && sel.value) await start(sel.value);
 }
 
 function computeBusOrder(rows){
@@ -219,12 +223,11 @@ function render(rows){
   lastRows=rows.slice();
   const t=lastRows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
   const ts=lastRows[0]?.updated_at ? new Date(lastRows[0].updated_at * 1000) : new Date();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: tz});
+  $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
   rows = rows.filter(r=>blockByBus.has(r.name));
   const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
 
-  if(!rows.length){ $('#rows').innerHTML='<tr><td class="hint" colspan="7">No vehicles.</td></tr>'; return; }
+  if(!rows.length){ $('#rows').innerHTML='<tr><td class="hint" colspan="5">No vehicles.</td></tr>'; return; }
 
   busOrder = computeBusOrder(rows);
   const orderMap=new Map(busOrder.map((n,i)=>[n,i]));
@@ -239,8 +242,6 @@ function render(rows){
     +'<td class="mono">'+(v.name||"—")+'</td>'
     +'<td class="mono">'+(blockByBus.get(v.name)||"—")+'</td>'
     +'<td>'+ (onlyBus ? '<span class="pill ok"><span class="dot"></span><span>Only Bus</span></span>' : pill(v.status)) +'</td>'
-    +'<td class="mono">'+(v.headway_sec!=null?fmt(v.headway_sec):"—")+'</td>'
-    +'<td class="mono">'+(v.gap_label||"—")+'</td>'
     +'<td class="mono">'+(v.leader_name||"—")+'</td>'
     +'<td class="mono">'+(v.status!=="green"&&v.countdown_sec!=null?fmt(v.countdown_sec):"—")+'</td>'
     +'</tr>').join("");
@@ -251,7 +252,7 @@ function render(rows){
 function renderTL(rows){
   lastTLRows = rows.slice();
   rows = rows.filter(r=>blockByBus.has(r.VehicleName));
-  if(!rows.length){ $('#rows-tl').innerHTML='<tr><td class="hint" colspan="7">No vehicles.</td></tr>'; return; }
+  if(!rows.length){ $('#rows-tl').innerHTML='<tr><td class="hint" colspan="5">No vehicles.</td></tr>'; return; }
   const orderMap=new Map(busOrder.map((n,i)=>[n,i]));
   rows = rows.slice().sort((a,b)=>{
     const ia=orderMap.has(a.VehicleName)?orderMap.get(a.VehicleName):Infinity;
@@ -266,20 +267,24 @@ function renderTL(rows){
       +'<td class="mono">'+(blockByBus.get(v.VehicleName)||"—")+'</td>'
       +'<td>'+pill(sev)+'</td>'
       +'<td class="mono">—</td>'
-      +'<td class="mono">—</td>'
-      +'<td class="mono">—</td>'
       +'<td class="mono">'+(sev!=='green'&&v.Adjustment!=null?fmt(v.Adjustment):"—")+'</td>'
       +'</tr>';
   }).join('');
 }
 
-function start(rid){
+async function start(rid){
   rid=String(rid);
   if(activeES){ try{ activeES.close(); }catch(_){}; activeES=null; }
   if(activeIV){ clearInterval(activeIV); activeIV=null; }
   if(activeTL){ clearInterval(activeTL); activeTL=null; }
   currentRid=rid;
   const sid=++sessionId;
+  try{
+    const routes=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681');
+    const route=(routes||[]).find(r=>String(r.RouteID)===rid);
+    const col=route&&route.MapLineColor? (route.MapLineColor.startsWith('#')?route.MapLineColor:'#'+route.MapLineColor):null;
+    if(col) document.documentElement.style.setProperty('--route-color', col);
+  }catch(_){ document.documentElement.style.setProperty('--route-color','#2a3442'); }
 
   try{
     const es=new EventSource("/v1/stream/routes/"+rid);
