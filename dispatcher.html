@@ -98,8 +98,8 @@ async function loadBlocks(){
       if(blocks.length){
         for(const b of blocks){
           const bus=b.Trips?.[0]?.VehicleName||'—';
-          const rid=routeByBus.get(bus) || b.Route?.RouteId || b.Route?.RouteID || g.Route?.RouteId || g.Route?.RouteID;
-          let col=colorByRoute.get(String(rid))||b.Route?.Color||b.Route?.RouteColor||g.Route?.Color||g.Route?.RouteColor||null;
+          const rid=routeByBus.get(bus);
+          let col=rid?colorByRoute.get(String(rid))||null:null;
           if(col && !col.startsWith('#')) col='#'+col;
           const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime,color:col,textColor:contrastColor(col)};
           if(g.BlockGroupId.includes('[') || bus!=='—'){
@@ -109,10 +109,7 @@ async function loadBlocks(){
         }
       }else{
         const bus='—';
-        const rid=routeByBus.get(bus) || g.Route?.RouteId || g.Route?.RouteID;
-        let col=colorByRoute.get(String(rid))||g.Route?.Color||g.Route?.RouteColor||null;
-        if(col && !col.startsWith('#')) col='#'+col;
-        const info={block:g.BlockGroupId,bus,start:null,end:null,color:col,textColor:contrastColor(col)};
+        const info={block:g.BlockGroupId,bus,start:null,end:null,color:null,textColor:contrastColor(null)};
         if(g.BlockGroupId.includes('[') || bus!=='—'){
           entries.push(info);
         }
