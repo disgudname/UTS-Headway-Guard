@@ -154,6 +154,7 @@
       let routeLayers = [];
       let stopMarkers = [];
       let nameBubbles = {};
+      let busBlocks = {};
       let previousBusData = {};
       let cachedEtas = {};
       let customPopups = [];
@@ -306,10 +307,12 @@
               });
               fetchRoutePaths();
               fetchBusStops();
+              fetchBlockAssignments();
               fetchBusLocations();
-              
+
               setInterval(fetchBusLocations, 4000);
               setInterval(fetchBusStops, 60000);
+              setInterval(fetchBlockAssignments, 60000);
               setInterval(() => {
                   fetchStopArrivalTimes().then(allEtas => {
                       cachedEtas = allEtas;
@@ -543,6 +546,54 @@
               });
       }
 
+      function fetchBlockAssignments() {
+          const d = new Date();
+          const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+          const schedUrl = `https://uva.transloc.com/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
+          fetch(schedUrl)
+              .then(response => response.json())
+              .then(sched => {
+                  const ids = (sched || []).map(s => s.ScheduleVehicleCalendarID).join(',');
+                  if (!ids) {
+                      busBlocks = {};
+                      return;
+                  }
+                  const blockUrl = `https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString=${ids}`;
+                  return fetch(blockUrl).then(r => r.json());
+              })
+              .then(data => {
+                  const groups = data?.BlockGroups || [];
+                  const alias = {
+                      "[01]": "[01]/[04]",
+                      "[03]": "[05]/[03]",
+                      "[04]": "[01]/[04]",
+                      "[05]": "[05]/[03]",
+                      "[06]": "[22]/[06]",
+                      "[10]": "[20]/[10]",
+                      "[15]": "[26]/[15]",
+                      "[16] AM": "[21]/[16] AM",
+                      "[17]": "[23]/[17]",
+                      "[18] AM": "[24]/[18] AM",
+                      "[20] AM": "[20]/[10]",
+                      "[21] AM": "[21]/[16] AM",
+                      "[22] AM": "[22]/[06]",
+                      "[23]": "[23]/[17]",
+                      "[24] AM": "[24]/[18] AM",
+                      "[26] AM": "[26]/[15]"
+                  };
+                  let mapping = {};
+                  groups.forEach(g => {
+                      const block = (g.BlockGroupId || '').trim();
+                      const vehicleId = g.Blocks?.[0]?.Trips?.[0]?.VehicleID ?? g.VehicleId;
+                      if (block && block.includes('[') && vehicleId != null) {
+                          mapping[vehicleId] = alias[block] || block;
+                      }
+                  });
+                  busBlocks = mapping;
+              })
+              .catch(error => console.error("Error fetching block assignments:", error));
+      }
+
       function fetchBusLocations() {
           const apiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true";
           fetch(apiUrl)
@@ -668,10 +719,44 @@
                                   nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
                                   nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false }).addTo(map);
                               }
+
+                              const blockName = busBlocks[vehicleID];
+                              if (blockName && blockName.includes('[')) {
+                                  const blockWidth = Math.max(40, blockName.length * 10);
+                                  const blockBubble = `
+                                      <svg width="${blockWidth}" height="30" viewBox="0 0 ${blockWidth} 30" xmlns="http://www.w3.org/2000/svg">
+                                          <g>
+                                              <rect x="0" y="5" width="${blockWidth}" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                              <text x="${blockWidth / 2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${blockName}</text>
+                                          </g>
+                                      </svg>`;
+                                  const blockIcon = L.divIcon({
+                                      html: blockBubble,
+                                      className: '',
+                                      iconSize: [blockWidth, 30],
+                                      iconAnchor: [blockWidth / 2, -20]
+                                  });
+                                  if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                      animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
+                                      nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
+                                  } else {
+                                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false }).addTo(map);
+                                  }
+                              } else {
+                                  if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                      map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                                      delete nameBubbles[vehicleID].blockMarker;
+                                  }
+                              }
                           } else {
                               if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
                                   map.removeLayer(nameBubbles[vehicleID].nameMarker);
                                   delete nameBubbles[vehicleID].nameMarker;
+                              }
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                  map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                                  delete nameBubbles[vehicleID].blockMarker;
                               }
                           }
                       });
@@ -683,6 +768,7 @@
                               if (nameBubbles[vehicleID]) {
                                   if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
                                   if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                                  if (nameBubbles[vehicleID].blockMarker) map.removeLayer(nameBubbles[vehicleID].blockMarker);
                                   delete nameBubbles[vehicleID];
                               }
                           }
