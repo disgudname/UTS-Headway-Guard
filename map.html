@@ -145,6 +145,7 @@
       let adminMode = true; // shows unit numbers, enables route selector and show/hide speed button
       let kioskMode = false; // adminMode must = true for kisokMode to work
       let showSpeed = false;
+      let showBlockNumbers = true;
       
       const outOfServiceRouteColor = '#000000';
       
@@ -182,6 +183,13 @@
         refreshMap();
       }
 
+      // New function to toggle block number display.
+      function toggleShowBlockNumbers() {
+        showBlockNumbers = !showBlockNumbers;
+        document.getElementById("toggleBlockButton").innerHTML = showBlockNumbers ? "Hide Block Numbers" : "Show Block Numbers";
+        refreshMap();
+      }
+
       // updateRouteSelector rebuilds the route selector panel.
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
@@ -189,8 +197,8 @@
         const container = document.getElementById("routeSelector");
         if (!container) return;
         let html = "";
-        // Add the speed toggle button.
-        html += "<div style='margin-bottom:10px;'><button id='toggleSpeedButton' onclick='toggleShowSpeed()'>" + (showSpeed ? "Hide Speed" : "Show Speed") + "</button></div>";
+        // Add the speed toggle button and block number toggle.
+        html += "<div style='margin-bottom:10px;'><button id='toggleSpeedButton' onclick='toggleShowSpeed()'>" + (showSpeed ? "Hide Speed" : "Show Speed") + "</button><button id='toggleBlockButton' onclick='toggleShowBlockNumbers()'>" + (showBlockNumbers ? "Hide Block Numbers" : "Show Block Numbers") + "</button></div>";
         html += "<h3>Select Routes</h3>" +
           "<button onclick='selectAllRoutes()'>Select All</button>" +
           "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
@@ -721,7 +729,7 @@
                               }
 
                               const blockName = busBlocks[vehicleID];
-                              if (blockName && blockName.includes('[')) {
+                              if (showBlockNumbers && blockName && blockName.includes('[')) {
                                   const canvas = document.createElement('canvas');
                                   const ctx = canvas.getContext('2d');
                                   ctx.font = 'bold 14px FGDC';
@@ -738,7 +746,7 @@
                                       html: blockBubble,
                                       className: '',
                                       iconSize: [blockWidth, 30],
-                                      iconAnchor: [blockWidth / 2, -18]
+                                      iconAnchor: [blockWidth / 2, -6]
                                   });
                                   if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                                       animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
