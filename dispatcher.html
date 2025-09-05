@@ -35,6 +35,12 @@
       </tr></thead>
       <tbody id="rows"><tr><td class="hint" colspan="6">Loading…</td></tr></tbody>
     </table>
+    <table>
+      <thead><tr>
+        <th>Vehicle</th><th>Order</th><th>Headway</th><th>Gap vs Target</th><th>Leader</th><th>Countdown</th>
+      </tr></thead>
+      <tbody id="rows-tl"><tr><td class="hint" colspan="6">Loading…</td></tr></tbody>
+    </table>
   </main>
   <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
     <table>
@@ -49,7 +55,7 @@ const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],re
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
 
-let activeES=null, activeIV=null, currentRid=null, sessionId=0, userLocked=false;
+let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false;
 
 async function loadBlocks(){
   try{
@@ -174,10 +180,23 @@ function render(rows){
   setBanner(onlyBus ? 'Only 1 vehicle on route — headway control inactive.' : '', 'info');
 }
 
+function renderTL(rows){
+  if(!rows.length){ $('#rows-tl').innerHTML='<tr><td class="hint" colspan="6">No vehicles.</td></tr>'; return; }
+  $('#rows-tl').innerHTML=rows.map(v=>'<tr>'
+    +'<td class="mono">'+(v.VehicleName||"—")+'</td>'
+    +'<td>'+pill(String(v.Severity||'').toLowerCase())+'</td>'
+    +'<td class="mono">—</td>'
+    +'<td class="mono">'+(v.Adjustment!=null?fmt(v.Adjustment):"—")+'</td>'
+    +'<td class="mono">—</td>'
+    +'<td class="mono">—</td>'
+    +'</tr>').join('');
+}
+
 function start(rid){
   rid=String(rid);
   if(activeES){ try{ activeES.close(); }catch(_){}; activeES=null; }
   if(activeIV){ clearInterval(activeIV); activeIV=null; }
+  if(activeTL){ clearInterval(activeTL); activeTL=null; }
   currentRid=rid;
   const sid=++sessionId;
 
@@ -193,6 +212,21 @@ function start(rid){
     tick();
     activeIV=setInterval(tick, 10000);
   }
+
+  function startTransloc(){
+    async function tick(){
+      if(rid!==currentRid || sid!==sessionId) return;
+      try{
+        const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetAntiBunching');
+        const route=(data||[]).find(r=>String(r.RouteID)===rid);
+        renderTL(route?.VehicleAntiBunching||[]);
+      }catch(_){ }
+    }
+    tick();
+    activeTL=setInterval(tick, 10000);
+  }
+
+  startTransloc();
 }
 
 async function pollHealth(){
