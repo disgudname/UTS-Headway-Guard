@@ -430,6 +430,7 @@ app = FastAPI(title="Headway Guard")
 BASE_DIR = Path(__file__).resolve().parent
 DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
+MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 
 class State:
     def __init__(self):
@@ -737,6 +738,13 @@ async def stream_route(route_id: int):
 @app.get("/FGDC.ttf", include_in_schema=False)
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
+
+# ---------------------------
+# MAP PAGE
+# ---------------------------
+@app.get("/map")
+async def map_page():
+    return HTMLResponse(MAP_HTML)
 
 # ---------------------------
 # DRIVER PAGE

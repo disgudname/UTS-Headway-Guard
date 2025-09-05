@@ -162,11 +162,16 @@
       let allRoutes = {};
       // Global object to store user selections (for admin mode).
       let routeSelections = {};
+      // Tracks routes that currently have at least one vehicle assigned.
+      let activeRoutes = new Set();
 
-      // In public mode, always show routes; in admin mode, return stored selection (default true).
+      // In public mode, always show routes. In admin mode, default to showing
+      // only routes that currently have vehicles unless the user overrides the
+      // selection via the route selector.
       function isRouteSelected(routeID) {
         if (!adminMode) return true;
-        return (routeSelections.hasOwnProperty(routeID)) ? routeSelections[routeID] : true;
+        if (routeSelections.hasOwnProperty(routeID)) return routeSelections[routeID];
+        return activeRoutes.has(Number(routeID));
       }
 
       // New function to toggle speed display.
@@ -177,40 +182,27 @@
       }
 
       // updateRouteSelector rebuilds the route selector panel.
-      // The list (excluding Out of Service) is alphabetized.
-      // Also adds a speed toggle button at the top.
+      // The list (excluding Out of Service) is alphabetized and defaults to
+      // checking only routes that currently have vehicles.
       function updateRouteSelector(activeRoutes) {
         const container = document.getElementById("routeSelector");
         if (!container) return;
-        // Update routeSelections with any new active route (default true).
-        activeRoutes.forEach(rid => {
-          if (!(rid in routeSelections)) {
-            routeSelections[rid] = true;
-          }
-        });
-        // Build display set: union of active routes and keys in routeSelections.
-        let displayRoutes = new Set([...activeRoutes, ...Object.keys(routeSelections)]);
         let html = "";
         // Add the speed toggle button.
         html += "<div style='margin-bottom:10px;'><button id='toggleSpeedButton' onclick='toggleShowSpeed()'>" + (showSpeed ? "Hide Speed" : "Show Speed") + "</button></div>";
         html += "<h3>Select Routes</h3>" +
           "<button onclick='selectAllRoutes()'>Select All</button>" +
           "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
+
         // Add Out of Service option (routeID 0) at the top.
-        if (displayRoutes.has(0) || displayRoutes.has("0")) {
-          let checked = routeSelections[0] !== false;
-          html += `<label>
-            <input type="checkbox" id="route_0" value="0" ${checked ? "checked" : ""}>
+        let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
+        html += `<label>
+            <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
             <span class="color-box" style="background:${outOfServiceRouteColor};"></span> Out of Service
           </label>`;
-        }
-        // Get an array of route IDs (excluding 0) from allRoutes that are in displayRoutes.
-        let routeIDs = [];
-        for (let routeID in allRoutes) {
-          if (displayRoutes.has(routeID) || displayRoutes.has(Number(routeID))) {
-            routeIDs.push(routeID);
-          }
-        }
+
+        // Get an array of route IDs (excluding 0) from allRoutes.
+        let routeIDs = Object.keys(allRoutes).map(Number).filter(id => id !== 0);
         // Sort alphabetically by route Description (case-insensitive).
         routeIDs.sort((a, b) => {
           let descA = allRoutes[a].Description.toUpperCase();
@@ -221,9 +213,8 @@
         });
         // Append sorted routes.
         routeIDs.forEach(routeID => {
-          if (routeID == 0) return;
           let route = allRoutes[routeID];
-          let checked = routeSelections[routeID] !== false;
+          let checked = routeSelections.hasOwnProperty(routeID) ? routeSelections[routeID] : activeRoutes.has(routeID);
           html += `<label>
             <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? "checked" : ""}>
             <span class="color-box" style="background:${route.MapLineColor};"></span> ${route.Description}
@@ -238,7 +229,7 @@
             refreshMap();
           });
         }
-        for (let routeID of routeIDs) {
+        routeIDs.forEach(routeID => {
           let chk = document.getElementById("route_" + routeID);
           if (chk) {
             chk.addEventListener("change", function() {
@@ -246,7 +237,7 @@
               refreshMap();
             });
           }
-        }
+        });
       }
 
       function selectAllRoutes() {
@@ -305,13 +296,7 @@
           cartoLight.addTo(map);
           
           fetchRouteColors().then(() => {
-              if (adminMode && !kioskMode) {
-                Object.keys(allRoutes).forEach(rid => {
-                  if (!(rid in routeSelections)) routeSelections[rid] = true;
-                });
-                routeSelections[0] = true;
-                updateRouteSelector(new Set(Object.keys(allRoutes).concat(["0"])));
-              } else {
+              if (!(adminMode && !kioskMode)) {
                 document.getElementById("routeSelector").style.display = "none";
                 document.getElementById("routeSelectorTab").style.display = "none";
               }
@@ -679,6 +664,7 @@
                           }
                       });
                       previousBusData = currentBusData;
+                      activeRoutes = activeRoutesSet;
                       if (adminMode) {
                           updateRouteSelector(activeRoutesSet);
                       }
