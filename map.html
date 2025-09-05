@@ -288,8 +288,7 @@
 
       // refreshMap updates route paths and bus locations.
       function refreshMap() {
-        fetchRoutePaths();
-        fetchBusLocations();
+        fetchBusLocations().then(fetchRoutePaths);
       }
 
       function getRouteColor(routeID) {
@@ -313,10 +312,9 @@
                   cachedEtas = allEtas;
                   updateCustomPopups();
               });
-              fetchRoutePaths();
               fetchBusStops();
               fetchBlockAssignments();
-              fetchBusLocations();
+              fetchBusLocations().then(fetchRoutePaths);
 
               setInterval(fetchBusLocations, 4000);
               setInterval(fetchBusStops, 60000);
@@ -604,7 +602,7 @@
 
       function fetchBusLocations() {
           const apiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true";
-          fetch(apiUrl)
+          return fetch(apiUrl)
               .then(response => {
                   if (!response.ok) throw new Error("Network response was not ok: " + response.statusText);
                   return response.json();
