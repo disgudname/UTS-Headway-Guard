@@ -70,20 +70,23 @@ async function loadBlocks(){
     if(!ids){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
     const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString='+ids);
     const groups=data.BlockGroups||[];
-    let entries=[];
+    let entries=[], busBlocks=[];
     for(const g of groups){
       const blocks=g.Blocks||[];
       if(blocks.length){
         for(const b of blocks){
           const bus=b.Trips?.[0]?.VehicleName||'—';
+          const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime};
           if(g.BlockGroupId.includes('[') || bus!=='—'){
-            entries.push({block:g.BlockGroupId,bus});
+            entries.push(info);
           }
+          if(bus && bus!=='—') busBlocks.push(info);
         }
       }else{
         const bus='—';
+        const info={block:g.BlockGroupId,bus,start:null,end:null};
         if(g.BlockGroupId.includes('[') || bus!=='—'){
-          entries.push({block:g.BlockGroupId,bus});
+          entries.push(info);
         }
       }
     }
@@ -105,10 +108,11 @@ async function loadBlocks(){
       "[24] AM":"[24]/[18] AM",
       "[26] AM":"[26]/[15]"
     };
-    entries=entries.map(e=>{
-      const key=String(e.block||'').trim();
-      return {block:alias[key]||key,bus:e.bus};
-    });
+    function applyAlias(arr){
+      return arr.map(e=>{ const key=String(e.block||'').trim(); return {...e,block:alias[key]||key}; });
+    }
+    entries=applyAlias(entries);
+    busBlocks=applyAlias(busBlocks);
     const seen=new Map();
     const filtered=[];
     for(const e of entries){
@@ -138,7 +142,27 @@ async function loadBlocks(){
       }
       return 0;
     });
-    blockByBus=new Map(entries.filter(e=>e.bus && e.bus!=='—').map(e=>[e.bus,e.block]));
+    const now=new Date();
+    function parseTime(t){
+      if(!t) return null;
+      const m=t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if(!m) return null;
+      let [_,hh,mm,ap]=m; hh=parseInt(hh,10); mm=parseInt(mm,10); ap=ap.toUpperCase();
+      if(ap==='PM' && hh<12) hh+=12; if(ap==='AM' && hh===12) hh=0;
+      const d=new Date(); d.setHours(hh,mm,0,0); return d;
+    }
+    const tmp=new Map();
+    for(const e of busBlocks){
+      const start=parseTime(e.start), end=parseTime(e.end);
+      if(!start||!end) continue;
+      const s=new Date(start.getTime()-30*60000);
+      const f=new Date(end.getTime()+30*60000);
+      if(now>=s && now<=f){
+        const prev=tmp.get(e.bus);
+        if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
+      }
+    }
+    blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
     const rows=9, cols=4;
     let html='';
     for(let r=0;r<rows;r++){
