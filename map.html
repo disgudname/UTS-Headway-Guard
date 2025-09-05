@@ -554,6 +554,9 @@
                   if (Array.isArray(data)) {
                       let currentBusData = {};
                       let activeRoutesSet = new Set();
+                      let vehicles = [];
+
+                      // First pass: gather vehicles and determine active routes.
                       data.forEach(vehicle => {
                           const vehicleID = vehicle.VehicleID;
                           const newPosition = [vehicle.Latitude, vehicle.Longitude];
@@ -566,16 +569,36 @@
                               return;
                           }
                           if (!adminMode && !routeColors.hasOwnProperty(routeID)) return;
-                          if (!isRouteSelected(routeID)) return;
                           activeRoutesSet.add(routeID);
+                          vehicles.push({
+                              vehicleID,
+                              newPosition,
+                              isMoving,
+                              busName,
+                              routeID,
+                              heading: vehicle.Heading,
+                              groundSpeed: vehicle.GroundSpeed
+                          });
+                      });
+
+                      // Update global activeRoutes and rebuild selector before rendering.
+                      activeRoutes = activeRoutesSet;
+                      if (adminMode) {
+                          updateRouteSelector(activeRoutesSet);
+                      }
+
+                      // Second pass: render only selected routes.
+                      vehicles.forEach(v => {
+                          const { vehicleID, newPosition, isMoving, busName, routeID, heading, groundSpeed } = v;
+                          if (!isRouteSelected(routeID)) return;
                           currentBusData[vehicleID] = true;
                           const svgIcon = `
                               <svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg">
                                 <g>
                                   <circle cx="20" cy="20" r="15" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
                                   ${isMoving ? `
-                                    <line x1="20" y1="10" x2="20" y2="22" stroke="${getContrastColor(getRouteColor(routeID))}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${vehicle.Heading + 180}deg); transform-origin: 20px 20px" />
-                                    <polygon points="15,22 25,22 20,30" fill="${getContrastColor(getRouteColor(routeID))}" style="transform: rotate(${vehicle.Heading + 180}deg); transform-origin: 20px 20px" />
+                                    <line x1="20" y1="10" x2="20" y2="22" stroke="${getContrastColor(getRouteColor(routeID))}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
+                                    <polygon points="15,22 25,22 20,30" fill="${getContrastColor(getRouteColor(routeID))}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
                                   ` : `
                                     <rect x="14" y="14" width="12" height="12" fill="${getContrastColor(getRouteColor(routeID))}" />
                                   `}
@@ -601,7 +624,7 @@
                                   <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
                                       <g>
                                           <rect x="0" y="0" width="60" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
-                                          <text x="30" y="15" font-size="12" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${Math.round(vehicle.GroundSpeed)} MPH</text>
+                                          <text x="30" y="15" font-size="12" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${Math.round(groundSpeed)} MPH</text>
                                       </g>
                                   </svg>`;
                               const speedIcon = L.divIcon({
@@ -652,6 +675,7 @@
                               }
                           }
                       });
+
                       Object.keys(markers).forEach(vehicleID => {
                           if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
                               map.removeLayer(markers[vehicleID]);
@@ -664,10 +688,6 @@
                           }
                       });
                       previousBusData = currentBusData;
-                      activeRoutes = activeRoutesSet;
-                      if (adminMode) {
-                          updateRouteSelector(activeRoutesSet);
-                      }
                   }
               })
               .catch(error => console.error("Error fetching bus locations:", error));
