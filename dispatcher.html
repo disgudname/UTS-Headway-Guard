@@ -58,7 +58,7 @@ const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],re
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
 
-let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false;
+let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastTLRows=[];
 
 async function loadBlocks(){
   try{
@@ -163,6 +163,30 @@ async function loadRoutes(){
   if(!currentRid && sel.value) start(sel.value);
 }
 
+function computeBusOrder(rows){
+  const names = rows.map(r=>r.name).filter(Boolean);
+  const followerOf=new Map();
+  for(const r of rows){
+    const leader=r.leader_name;
+    if(leader && names.includes(leader)) followerOf.set(r.name, leader);
+  }
+  const next=new Map();
+  for(const [f,l] of followerOf){ next.set(l,f); }
+  const starts=names.filter(n=>!followerOf.has(n) || !names.includes(followerOf.get(n)));
+  const order=[];
+  const seen=new Set();
+  for(const st of starts){
+    let cur=st;
+    while(cur && !seen.has(cur)){
+      order.push(cur);
+      seen.add(cur);
+      cur=next.get(cur);
+    }
+  }
+  for(const n of names) if(!seen.has(n)) order.push(n);
+  return order.length?order:names.slice().sort();
+}
+
 function render(rows){
   const t=rows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
   const ts=rows[0]?.updated_at ? new Date(rows[0].updated_at * 1000) : new Date();
@@ -171,6 +195,15 @@ function render(rows){
   const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
 
   if(!rows.length){ $('#rows').innerHTML='<tr><td class="hint" colspan="6">No vehicles.</td></tr>'; return; }
+
+  busOrder = computeBusOrder(rows);
+  const orderMap=new Map(busOrder.map((n,i)=>[n,i]));
+  rows = rows.slice().sort((a,b)=>{
+    const ia=orderMap.has(a.name)?orderMap.get(a.name):Infinity;
+    const ib=orderMap.has(b.name)?orderMap.get(b.name):Infinity;
+    if(ia!==ib) return ia-ib;
+    return String(a.name||'').localeCompare(String(b.name||''));
+  });
 
   $('#rows').innerHTML=rows.map(v=>'<tr>'
     +'<td class="mono">'+(v.name||"—")+'</td>'
@@ -181,10 +214,19 @@ function render(rows){
     +'<td class="mono">'+(v.status!=="green"&&v.countdown_sec!=null?fmt(v.countdown_sec):"—")+'</td>'
     +'</tr>').join("");
   setBanner(onlyBus ? 'Only 1 vehicle on route — headway control inactive.' : '', 'info');
+  if(lastTLRows.length) renderTL(lastTLRows);
 }
 
 function renderTL(rows){
+  lastTLRows = rows.slice();
   if(!rows.length){ $('#rows-tl').innerHTML='<tr><td class="hint" colspan="6">No vehicles.</td></tr>'; return; }
+  const orderMap=new Map(busOrder.map((n,i)=>[n,i]));
+  rows = rows.slice().sort((a,b)=>{
+    const ia=orderMap.has(a.VehicleName)?orderMap.get(a.VehicleName):Infinity;
+    const ib=orderMap.has(b.VehicleName)?orderMap.get(b.VehicleName):Infinity;
+    if(ia!==ib) return ia-ib;
+    return String(a.VehicleName||'').localeCompare(String(b.VehicleName||''));
+  });
   $('#rows-tl').innerHTML=rows.map(v=>{
     const sev=String(v.Severity||'').toLowerCase();
     return '<tr>'
