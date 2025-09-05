@@ -46,6 +46,7 @@ h2{font-size:16px;margin:16px 0 0}
     </table>
   </main>
   <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
+    <h2>Block Assignments</h2>
     <table>
       <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
     </table>
@@ -216,10 +217,11 @@ function computeBusOrder(rows){
 
 function render(rows){
   lastRows=rows.slice();
-  const t=rows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
-  const ts=rows[0]?.updated_at ? new Date(rows[0].updated_at * 1000) : new Date();
+  const t=lastRows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
+  const ts=lastRows[0]?.updated_at ? new Date(lastRows[0].updated_at * 1000) : new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: tz});
+  rows = rows.filter(r=>blockByBus.has(r.name));
   const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
 
   if(!rows.length){ $('#rows').innerHTML='<tr><td class="hint" colspan="7">No vehicles.</td></tr>'; return; }
@@ -248,6 +250,7 @@ function render(rows){
 
 function renderTL(rows){
   lastTLRows = rows.slice();
+  rows = rows.filter(r=>blockByBus.has(r.VehicleName));
   if(!rows.length){ $('#rows-tl').innerHTML='<tr><td class="hint" colspan="7">No vehicles.</td></tr>'; return; }
   const orderMap=new Map(busOrder.map((n,i)=>[n,i]));
   rows = rows.slice().sort((a,b)=>{
@@ -314,6 +317,6 @@ async function pollHealth(){
   setTimeout(pollHealth, 15000);
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{ loadRoutes(); pollHealth(); loadBlocks(); });
+document.addEventListener('DOMContentLoaded', ()=>{ loadRoutes(); pollHealth(); loadBlocks(); setInterval(loadBlocks,30000); });
 document.getElementById('route').addEventListener('change', e=> { userLocked=true; start(e.target.value); });
 </script>
