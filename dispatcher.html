@@ -3,22 +3,23 @@
 <title>UTS Anti-Bunching — Dispatcher</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
- body{font:15px system-ui;margin:0;background:#0b0e11;color:#e8eef5}
- header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630}
- select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
- .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
- table{width:100%;border-collapse:collapse;margin-top:8px}
- th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
- .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+body{font:15px system-ui;margin:0;background:#0b0e11;color:#e8eef5}
+header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630}
+select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
+.chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
  .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
  .dot{width:10px;height:10px;border-radius:50%}
  .ok{color:#b6f0cb}.ok .dot{background:#24c28a}
  .warn{color:#ffe29a}.warn .dot{background:#ffbf47}
- .bad{color:#ffb0b0}.bad .dot{background:#ff6b6b}
- .hint{color:#9fb0c9}
- .banner{padding:8px 12px;display:none}
- .banner.error{background:#3b1f1f;color:#ffbfbf;border-bottom:1px solid #5a2b2b}
- .banner.info{background:#121922;color:#cfe1ff;border-bottom:1px solid #2a3442}
+.bad{color:#ffb0b0}.bad .dot{background:#ff6b6b}
+.hint{color:#9fb0c9}
+.banner{padding:8px 12px;display:none}
+.banner.error{background:#3b1f1f;color:#ffbfbf;border-bottom:1px solid #5a2b2b}
+.banner.info{background:#121922;color:#cfe1ff;border-bottom:1px solid #2a3442}
+h2{font-size:16px;margin:16px 0 0}
 </style>
 <header>
   <h1 style="font-size:16px;margin:0">UTS Anti-Bunching — Dispatcher</h1>
@@ -29,12 +30,14 @@
 <div id="banner" class="banner info"></div>
 <div style="display:flex">
   <main style="flex:1;padding:0 12px 16px">
+    <h2>Headway Guard AntiBunching</h2>
     <table>
       <thead><tr>
         <th>Vehicle</th><th>Order</th><th>Headway</th><th>Gap vs Target</th><th>Leader</th><th>Countdown</th>
       </tr></thead>
       <tbody id="rows"><tr><td class="hint" colspan="6">Loading…</td></tr></tbody>
     </table>
+    <h2>TransLoc AntiBunching</h2>
     <table>
       <thead><tr>
         <th>Vehicle</th><th>Order</th><th>Headway</th><th>Gap vs Target</th><th>Leader</th><th>Countdown</th>
@@ -182,14 +185,17 @@ function render(rows){
 
 function renderTL(rows){
   if(!rows.length){ $('#rows-tl').innerHTML='<tr><td class="hint" colspan="6">No vehicles.</td></tr>'; return; }
-  $('#rows-tl').innerHTML=rows.map(v=>'<tr>'
-    +'<td class="mono">'+(v.VehicleName||"—")+'</td>'
-    +'<td>'+pill(String(v.Severity||'').toLowerCase())+'</td>'
-    +'<td class="mono">—</td>'
-    +'<td class="mono">'+(v.Adjustment!=null?fmt(v.Adjustment):"—")+'</td>'
-    +'<td class="mono">—</td>'
-    +'<td class="mono">—</td>'
-    +'</tr>').join('');
+  $('#rows-tl').innerHTML=rows.map(v=>{
+    const sev=String(v.Severity||'').toLowerCase();
+    return '<tr>'
+      +'<td class="mono">'+(v.VehicleName||"—")+'</td>'
+      +'<td>'+pill(sev)+'</td>'
+      +'<td class="mono">—</td>'
+      +'<td class="mono">—</td>'
+      +'<td class="mono">—</td>'
+      +'<td class="mono">'+(sev!=='green'&&v.Adjustment!=null?fmt(v.Adjustment):"—")+'</td>'
+      +'</tr>';
+  }).join('');
 }
 
 function start(rid){
