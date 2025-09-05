@@ -61,7 +61,7 @@ async function loadBlocks(){
     if(!ids){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
     const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString='+ids);
     const groups=data.BlockGroups||[];
-    const entries=[];
+    let entries=[];
     for(const g of groups){
       const blocks=g.Blocks||[];
       if(blocks.length){
@@ -78,6 +78,19 @@ async function loadBlocks(){
         }
       }
     }
+    const seen=new Map();
+    const filtered=[];
+    for(const e of entries){
+      if(e.block.includes('[')){
+        const prev=seen.get(e.block);
+        if(!prev || (prev.bus==='—' && e.bus!=='—')){
+          seen.set(e.block,e);
+        }
+      }else{
+        filtered.push(e);
+      }
+    }
+    entries=[...filtered,...seen.values()];
     entries.sort((a,b)=>{
       const ra=String(a.block).match(/^([A-Za-z]*)(\d*)/);
       const rb=String(b.block).match(/^([A-Za-z]*)(\d*)/);
