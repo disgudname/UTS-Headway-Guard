@@ -92,7 +92,8 @@ async function loadBlocks(){
     const mvps=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints');
     const routeByBus=new Map((mvps||[]).map(v=>[String(v.Name), v.RouteID||v.RouteId]));
 
-    let entries=[], busBlocks=[];
+    const entryMap=new Map();
+    const busMap=new Map();
     for(const g of groups){
       const blocks=g.Blocks||[];
       if(blocks.length){
@@ -106,20 +107,38 @@ async function loadBlocks(){
             col=colorByRoute.get(String(rid))||null;
             if(col && !col.startsWith('#')) col='#'+col;
           }
-          const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime,color:col,textColor:contrastColor(col)};
-          if(g.BlockGroupId.includes('[') || bus!=='—'){
-            entries.push(info);
+          const key=g.BlockGroupId;
+          const segs=[];
+          segs.push({start:b.BlockStartTime,end:b.BlockEndTime});
+          for(const t of (b.Trips||[])){
+            segs.push({start:t.TripStartTime||t.BlockStartTime,end:t.TripEndTime||t.BlockEndTime});
           }
-          if(bus && bus!=='—') busBlocks.push(info);
+          let info=entryMap.get(key);
+          if(!info){
+            info={block:key,bus:bus,color:col,textColor:contrastColor(col),segments:[]};
+            entryMap.set(key,info);
+          }else if(info.bus==='—' && bus!=='—'){
+            info.bus=bus;
+            info.color=col;
+            info.textColor=contrastColor(col);
+          }
+          info.segments.push(...segs);
+          if(bus && bus!=='—'){
+            let bb=busMap.get(bus);
+            if(!bb){ bb={block:key,segments:[]}; busMap.set(bus,bb); }
+            bb.segments.push(...segs);
+          }
         }
       }else{
-        const bus='—';
-        const info={block:g.BlockGroupId,bus,start:null,end:null,color:null,textColor:contrastColor(null)};
-        if(g.BlockGroupId.includes('[') || bus!=='—'){
-          entries.push(info);
+        const key=g.BlockGroupId;
+        if(!entryMap.has(key)){
+          entryMap.set(key,{block:key,bus:'—',color:null,textColor:contrastColor(null),segments:[]});
         }
       }
     }
+
+    let entries=Array.from(entryMap.values()).filter(e=>e.block.includes('[') || e.bus!=='—');
+    let busBlocks=Array.from(busMap.entries()).map(([bus,val])=>({bus,block:val.block,segments:val.segments}));
     const alias={
       "[01]":"[01]/[04]",
       "[03]":"[05]/[03]",
@@ -138,11 +157,9 @@ async function loadBlocks(){
       "[24] AM":"[24]/[18] AM",
       "[26] AM":"[26]/[15]"
     };
-    function applyAlias(arr){
-      return arr.map(e=>{ const key=String(e.block||'').trim(); return {...e,block:alias[key]||key}; });
-    }
-    entries=applyAlias(entries);
-    busBlocks=applyAlias(busBlocks);
+    function aliasBlock(b){ const key=String(b||'').trim(); return alias[key]||key; }
+    entries=entries.map(e=>({...e,block:aliasBlock(e.block)}));
+    busBlocks=busBlocks.map(e=>({...e,block:aliasBlock(e.block)}));
     const seen=new Map();
     const filtered=[];
     for(const e of entries){
@@ -182,21 +199,26 @@ async function loadBlocks(){
       const d=new Date(); d.setHours(hh,mm,0,0); return d;
     }
     for(const e of entries){
-      const start=parseTime(e.start), end=parseTime(e.end);
-      if(!(start && end && now>=start && now<=end)){
+      const active=e.segments.some(seg=>{
+        const start=parseTime(seg.start), end=parseTime(seg.end);
+        return start && end && now>=start && now<=end;
+      });
+      if(!active){
         e.color=null;
         e.textColor=contrastColor(null);
       }
     }
     const tmp=new Map();
     for(const e of busBlocks){
-      const start=parseTime(e.start), end=parseTime(e.end);
-      if(!start||!end) continue;
-      const s=new Date(start.getTime()-30*60000);
-      const f=new Date(end.getTime()+30*60000);
-      if(now>=s && now<=f){
-        const prev=tmp.get(e.bus);
-        if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
+      for(const seg of e.segments){
+        const start=parseTime(seg.start), end=parseTime(seg.end);
+        if(!start||!end) continue;
+        const s=new Date(start.getTime()-30*60000);
+        const f=new Date(end.getTime()+30*60000);
+        if(now>=s && now<=f){
+          const prev=tmp.get(e.bus);
+          if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
+        }
       }
     }
     blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
