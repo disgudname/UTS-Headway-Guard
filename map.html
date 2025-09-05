@@ -722,7 +722,11 @@
 
                               const blockName = busBlocks[vehicleID];
                               if (blockName && blockName.includes('[')) {
-                                  const blockWidth = Math.max(40, blockName.length * 10);
+                                  const canvas = document.createElement('canvas');
+                                  const ctx = canvas.getContext('2d');
+                                  ctx.font = 'bold 14px FGDC';
+                                  const textWidth = ctx.measureText(blockName).width;
+                                  const blockWidth = Math.max(40, textWidth + 20);
                                   const blockBubble = `
                                       <svg width="${blockWidth}" height="30" viewBox="0 0 ${blockWidth} 30" xmlns="http://www.w3.org/2000/svg">
                                           <g>
@@ -734,7 +738,7 @@
                                       html: blockBubble,
                                       className: '',
                                       iconSize: [blockWidth, 30],
-                                      iconAnchor: [blockWidth / 2, -20]
+                                      iconAnchor: [blockWidth / 2, -18]
                                   });
                                   if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                                       animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
