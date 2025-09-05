@@ -11,7 +11,7 @@ select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:1
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
-#blocks td.cell{border-left:4px solid var(--route-color);border-radius:4px}
+#blocks td.cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5)}
 #blocks td{border:none;padding:6px 8px}
 .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
  .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
@@ -63,6 +63,16 @@ const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],re
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
 
+function contrastColor(hex){
+  if(!hex) return '#e8eef5';
+  const c=hex.replace('#','');
+  const r=parseInt(c.substr(0,2),16)/255;
+  const g=parseInt(c.substr(2,2),16)/255;
+  const b=parseInt(c.substr(4,2),16)/255;
+  const l=0.2126*r+0.7152*g+0.0722*b;
+  return l>0.5?'#000':'#fff';
+}
+
 let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map();
 
 async function loadBlocks(){
@@ -75,14 +85,20 @@ async function loadBlocks(){
     if(!ids){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
     const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString='+ids);
     const groups=data.BlockGroups||[];
+
+    const routes=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes');
+    const colorByRoute=new Map((routes||[]).map(r=>[String(r.RouteID||r.RouteId), r.MapLineColor||r.Color||r.RouteColor]));
+
     let entries=[], busBlocks=[];
     for(const g of groups){
       const blocks=g.Blocks||[];
       if(blocks.length){
         for(const b of blocks){
           const bus=b.Trips?.[0]?.VehicleName||'—';
-          const col=b.Route?.RouteColor? (b.Route.RouteColor.startsWith('#')?b.Route.RouteColor:'#'+b.Route.RouteColor):null;
-          const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime,color:col};
+          const rid=b.Route?.RouteId||b.Route?.RouteID||g.Route?.RouteId||g.Route?.RouteID;
+          let col=colorByRoute.get(String(rid))||b.Route?.Color||b.Route?.RouteColor||g.Route?.Color||g.Route?.RouteColor||null;
+          if(col && !col.startsWith('#')) col='#'+col;
+          const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime,color:col,textColor:contrastColor(col)};
           if(g.BlockGroupId.includes('[') || bus!=='—'){
             entries.push(info);
           }
@@ -90,8 +106,10 @@ async function loadBlocks(){
         }
       }else{
         const bus='—';
-        const col=g.Route?.RouteColor? (g.Route.RouteColor.startsWith('#')?g.Route.RouteColor:'#'+g.Route.RouteColor):null;
-        const info={block:g.BlockGroupId,bus,start:null,end:null,color:col};
+        const rid=g.Route?.RouteId||g.Route?.RouteID;
+        let col=colorByRoute.get(String(rid))||g.Route?.Color||g.Route?.RouteColor||null;
+        if(col && !col.startsWith('#')) col='#'+col;
+        const info={block:g.BlockGroupId,bus,start:null,end:null,color:col,textColor:contrastColor(col)};
         if(g.BlockGroupId.includes('[') || bus!=='—'){
           entries.push(info);
         }
@@ -177,7 +195,7 @@ async function loadBlocks(){
       for(let c=0;c<cols;c++){
         const it=entries[r+c*rows];
         html += it
-          ? `<td class="cell"${it.color ? ` style="--route-color:${it.color}"` : ''}><div class="mono">${it.block}</div><div>${it.bus}</div></td>`
+          ? `<td class="cell"${it.color ? ` style="--route-color:${it.color};--text-color:${it.textColor}"` : ''}><div class="mono">${it.block}</div><div>${it.bus}</div></td>`
           : '<td></td>';
       }
       html+='</tr>';
