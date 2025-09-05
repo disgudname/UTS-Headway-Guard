@@ -96,7 +96,10 @@ async function loadBlocks(){
       "[24] AM":"[24]/[18] AM",
       "[26] AM":"[26]/[15]"
     };
-    entries=entries.map(e=>({block:alias[e.block]||e.block,bus:e.bus}));
+    entries=entries.map(e=>{
+      const key=String(e.block||'').trim();
+      return {block:alias[key]||key,bus:e.bus};
+    });
     const seen=new Map();
     const filtered=[];
     for(const e of entries){
@@ -111,14 +114,20 @@ async function loadBlocks(){
     }
     entries=[...filtered,...seen.values()];
     entries.sort((a,b)=>{
-      const ra=String(a.block).match(/^([A-Za-z]*)(\d*)/);
-      const rb=String(b.block).match(/^([A-Za-z]*)(\d*)/);
-      const aa=(ra?.[1]||'').toUpperCase();
-      const ab=(rb?.[1]||'').toUpperCase();
-      if(aa<ab) return -1; if(aa>ab) return 1;
-      const na=parseInt(ra?.[2]||'',10)||0;
-      const nb=parseInt(rb?.[2]||'',10)||0;
-      return na-nb;
+      function parse(s){
+        s=String(s).trim();
+        const letters=(s.match(/^[A-Za-z]+/)||[''])[0].toUpperCase();
+        const nums=(s.match(/\d+/g)||[]).map(Number);
+        return {letters,nums};
+      }
+      const pa=parse(a.block), pb=parse(b.block);
+      if(pa.letters<pb.letters) return -1; if(pa.letters>pb.letters) return 1;
+      const len=Math.max(pa.nums.length,pb.nums.length);
+      for(let i=0;i<len;i++){
+        const na=pa.nums[i]||0, nb=pb.nums[i]||0;
+        if(na!==nb) return na-nb;
+      }
+      return 0;
     });
     const rows=9, cols=4;
     let html='';
