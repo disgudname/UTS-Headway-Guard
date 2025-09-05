@@ -746,8 +746,8 @@
                                       html: blockBubble,
                                       className: '',
                                       iconSize: [blockWidth, 30],
-                                      // Push the block number bubble slightly lower so it doesn't cover the bus icon
-                                      iconAnchor: [blockWidth / 2, -16]
+                                      // Position the block number bubble so it touches but doesn't overlap the bus icon
+                                      iconAnchor: [blockWidth / 2, -13]
                                   });
                                   if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                                       animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
