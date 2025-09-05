@@ -91,6 +91,25 @@ async function loadBlocks(){
       }
     }
     entries=[...filtered,...seen.values()];
+    const alias={
+      "[01]":"[01]/[04]",
+      "[03]":"[05]/[03]",
+      "[04]":"[01]/[04]",
+      "[05]":"[05]/[03]",
+      "[06]":"[22]/[06]",
+      "[10]":"[20]/[10]",
+      "[15]":"[26]/[15]",
+      "[16] AM":"[21]/[16] AM",
+      "[17]":"[23]/[17]",
+      "[18] AM":"[24]/[18] AM",
+      "[20] AM":"[20]/[10]",
+      "[21] AM":"[21]/[16] AM",
+      "[22] AM":"[22]/[06]",
+      "[23]":"[23]/[17]",
+      "[24] AM":"[24]/[18] AM",
+      "[26] AM":"[26]/[15]"
+    };
+    entries=entries.map(e=>({block:alias[e.block]||e.block,bus:e.bus}));
     entries.sort((a,b)=>{
       const ra=String(a.block).match(/^([A-Za-z]*)(\d*)/);
       const rb=String(b.block).match(/^([A-Za-z]*)(\d*)/);
