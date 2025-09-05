@@ -181,6 +181,13 @@ async function loadBlocks(){
       if(ap==='PM' && hh<12) hh+=12; if(ap==='AM' && hh===12) hh=0;
       const d=new Date(); d.setHours(hh,mm,0,0); return d;
     }
+    for(const e of entries){
+      const start=parseTime(e.start), end=parseTime(e.end);
+      if(!(start && end && now>=start && now<=end)){
+        e.color=null;
+        e.textColor=contrastColor(null);
+      }
+    }
     const tmp=new Map();
     for(const e of busBlocks){
       const start=parseTime(e.start), end=parseTime(e.end);
