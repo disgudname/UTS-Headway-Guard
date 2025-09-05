@@ -232,9 +232,13 @@
         routeIDs.forEach(routeID => {
           let route = allRoutes[routeID];
           let checked = routeSelections.hasOwnProperty(routeID) ? routeSelections[routeID] : activeRoutes.has(routeID);
+          let displayName = route.Description;
+          if (route.InfoText && route.InfoText.trim() !== "") {
+            displayName += ` &ndash; ${route.InfoText.trim()}`;
+          }
           html += `<label>
             <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? "checked" : ""}>
-            <span class="color-box" style="background:${route.MapLineColor};"></span> ${route.Description}
+            <span class="color-box" style="background:${route.MapLineColor};"></span> ${displayName}
           </label>`;
         });
         container.innerHTML = html;
@@ -541,6 +545,12 @@
                   routeLayers = [];
                   if (Array.isArray(data)) {
                       data.forEach(route => {
+                          // Store InfoText for use in the route selector.
+                          if (allRoutes[route.RouteID]) {
+                              allRoutes[route.RouteID].InfoText = route.InfoText;
+                          } else {
+                              allRoutes[route.RouteID] = route;
+                          }
                           if (route.EncodedPolyline && route.IsRunning && (adminMode || route.IsVisibleOnMap) && isRouteSelected(route.RouteID)) {
                               const decodedPolyline = polyline.decode(route.EncodedPolyline);
                               let routeColor = getRouteColor(route.RouteID);
@@ -552,6 +562,9 @@
                               routeLayers.push(routeLayer);
                           }
                       });
+                      if (adminMode) {
+                          updateRouteSelector(activeRoutes);
+                      }
                       stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
                   }
               })
