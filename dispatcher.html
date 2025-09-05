@@ -5,7 +5,7 @@
 <style>
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 :root{--route-color:#2a3442}
-body{font:15px 'FGDC',system-ui;margin:0;background:#0b0e11;color:#e8eef5}
+body{font:17px 'FGDC',system-ui;margin:0;background:#0b0e11;color:#e8eef5}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630}
 select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
@@ -23,10 +23,10 @@ th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
 .banner{padding:8px 12px;display:none}
 .banner.error{background:#3b1f1f;color:#ffbfbf;border-bottom:1px solid #5a2b2b}
 .banner.info{background:#121922;color:#cfe1ff;border-bottom:1px solid #2a3442}
-h2{font-size:16px;margin:16px 0 0}
+h2{font-size:18px;margin:16px 0 0}
 </style>
 <header>
-  <h1 style="font-size:16px;margin:0">UTS Anti-Bunching — Dispatcher</h1>
+  <h1 style="font-size:18px;margin:0">UTS Anti-Bunching — Dispatcher</h1>
   <label>Route: <select id="route"></select></label>
   <span id="target" class="chip">Target —</span>
   <span id="upd" class="chip">Updated —</span>
@@ -81,7 +81,8 @@ async function loadBlocks(){
       if(blocks.length){
         for(const b of blocks){
           const bus=b.Trips?.[0]?.VehicleName||'—';
-          const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime};
+          const col=b.Route?.RouteColor? (b.Route.RouteColor.startsWith('#')?b.Route.RouteColor:'#'+b.Route.RouteColor):null;
+          const info={block:g.BlockGroupId,bus,start:b.BlockStartTime,end:b.BlockEndTime,color:col};
           if(g.BlockGroupId.includes('[') || bus!=='—'){
             entries.push(info);
           }
@@ -89,7 +90,8 @@ async function loadBlocks(){
         }
       }else{
         const bus='—';
-        const info={block:g.BlockGroupId,bus,start:null,end:null};
+        const col=g.Route?.RouteColor? (g.Route.RouteColor.startsWith('#')?g.Route.RouteColor:'#'+g.Route.RouteColor):null;
+        const info={block:g.BlockGroupId,bus,start:null,end:null,color:col};
         if(g.BlockGroupId.includes('[') || bus!=='—'){
           entries.push(info);
         }
@@ -174,7 +176,9 @@ async function loadBlocks(){
       html+='<tr>';
       for(let c=0;c<cols;c++){
         const it=entries[r+c*rows];
-        html+=it?`<td class="cell"><div class="mono">${it.block}</div><div>${it.bus}</div></td>`:'<td></td>';
+        html += it
+          ? `<td class="cell"${it.color ? ` style="--route-color:${it.color}"` : ''}><div class="mono">${it.block}</div><div>${it.bus}</div></td>`
+          : '<td></td>';
       }
       html+='</tr>';
     }
