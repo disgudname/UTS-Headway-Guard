@@ -58,22 +58,33 @@ async function loadBlocks(){
     const sched=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString='+encodeURIComponent(ds));
     const ids=(sched||[]).map(s=>s.ScheduleVehicleCalendarID).join(',');
     const tbody=$('#blocks');
-    if(!ids){ tbody.innerHTML='<tr><td class="hint">No blocks.</td></tr>'; return; }
+    if(!ids){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
     const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString='+ids);
     const groups=data.BlockGroups||[];
     const entries=groups.map(g=>({block:g.BlockGroupId,bus:g.Blocks?.[0]?.Trips?.[0]?.VehicleName||'—'}));
+    entries.sort((a,b)=>{
+      const ra=String(a.block).match(/^([A-Za-z]*)(\d*)/);
+      const rb=String(b.block).match(/^([A-Za-z]*)(\d*)/);
+      const aa=(ra?.[1]||'').toUpperCase();
+      const ab=(rb?.[1]||'').toUpperCase();
+      if(aa<ab) return -1; if(aa>ab) return 1;
+      const na=parseInt(ra?.[2]||'',10)||0;
+      const nb=parseInt(rb?.[2]||'',10)||0;
+      return na-nb;
+    });
+    const rows=9, cols=4;
     let html='';
-    for(let r=0;r<9;r++){
+    for(let r=0;r<rows;r++){
       html+='<tr>';
-      for(let c=0;c<3;c++){
-        const it=entries[r*3+c];
+      for(let c=0;c<cols;c++){
+        const it=entries[r+c*rows];
         html+=it?`<td><div class="mono">${it.block}</div><div>${it.bus}</div></td>`:'<td></td>';
       }
       html+='</tr>';
     }
-    if(!entries.length) html='<tr><td class="hint">No blocks.</td></tr>';
+    if(!entries.length) html='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
     tbody.innerHTML=html;
-  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint">Error</td></tr>'; }
+  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; }
 }
 
 async function loadRoutes(){
