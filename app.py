@@ -211,6 +211,7 @@ class Route:
 class BusDay:
     total_miles: float = 0.0
     reset_miles: float = 0.0
+    day_miles: float = 0.0
     blocks: set[str] = field(default_factory=set)
     last_lat: Optional[float] = None
     last_lon: Optional[float] = None
@@ -651,9 +652,25 @@ async def startup():
                             # Track per-day mileage
                             today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
                             bus_days = state.bus_days.setdefault(today, {})
-                            bd = bus_days.setdefault(name, BusDay())
+                            bd = bus_days.get(name)
+                            if bd is None:
+                                bd = BusDay()
+                                prev_bd = None
+                                for d in sorted(state.bus_days.keys(), reverse=True):
+                                    if d < today:
+                                        prev_bd = state.bus_days[d].get(name)
+                                        if prev_bd:
+                                            break
+                                if prev_bd:
+                                    bd.total_miles = prev_bd.total_miles
+                                    bd.reset_miles = prev_bd.reset_miles
+                                    bd.last_lat = prev_bd.last_lat
+                                    bd.last_lon = prev_bd.last_lon
+                                bus_days[name] = bd
                             if bd.last_lat is not None and bd.last_lon is not None:
-                                bd.total_miles += haversine((bd.last_lat, bd.last_lon), (veh.lat, veh.lon)) / 1609.34
+                                delta_miles = haversine((bd.last_lat, bd.last_lon), (veh.lat, veh.lon)) / 1609.34
+                                bd.total_miles += delta_miles
+                                bd.day_miles += delta_miles
                             bd.last_lat = veh.lat
                             bd.last_lon = veh.lon
                         state.vehicles_by_route = new_map
@@ -974,7 +991,7 @@ async def servicecrew_data(date: Optional[str] = None):
             if bd:
                 buses[bus] = {
                     "blocks": sorted(list(bd.blocks)),
-                    "actual_miles": bd.total_miles,
+                    "actual_miles": bd.day_miles,
                     "reset_miles": bd.reset_miles,
                     "display_miles": bd.total_miles - bd.reset_miles,
                 }
