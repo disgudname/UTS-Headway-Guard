@@ -23,6 +23,7 @@
 <div style="padding:8px;">
   <label for="date">Date:</label>
   <input type="date" id="date" />
+  <span id="totalMiles" style="margin-left:16px;"></span>
 </div>
 <div id="layout">
   <div id="table-wrapper">
@@ -36,6 +37,7 @@
 <script>
 const dateInput=document.getElementById('date');
 const tbody=document.querySelector('#bustable tbody');
+const totalSpan=document.getElementById('totalMiles');
 function todayStr(){return new Date().toISOString().split('T')[0];}
 async function fetchData(){
   const date=dateInput.value||todayStr();
@@ -44,6 +46,7 @@ async function fetchData(){
   const isToday=date===todayStr();
   document.getElementById('resetHead').style.display=isToday?'':'none';
   tbody.innerHTML='';
+  let total=0;
   const buses=Object.keys(data.buses).sort();
   for(const b of buses){
     const info=data.buses[b];
@@ -52,6 +55,7 @@ async function fetchData(){
     const miles=isToday?(info.display_miles||0).toFixed(2):`${(info.actual_miles||0).toFixed(2)} (reset at ${(info.reset_miles||0).toFixed(2)})`;
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${miles}</td>`;
     if(isToday){
+      total+=info.display_miles||0;
       const td=document.createElement('td');
       const btn=document.createElement('button');
       btn.textContent='Reset';
@@ -61,10 +65,16 @@ async function fetchData(){
     }
     tbody.appendChild(tr);
   }
+  if(isToday){
+    totalSpan.textContent=`Total: ${total.toFixed(2)} mi`;
+  }else{
+    totalSpan.textContent='';
+  }
 }
 dateInput.value=todayStr();
 dateInput.addEventListener('change',fetchData);
 fetchData();
+setInterval(fetchData,30000);
 </script>
 </body>
 </html>
