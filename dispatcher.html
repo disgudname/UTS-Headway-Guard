@@ -99,15 +99,19 @@ async function loadBlocks(){
       const blocks=g.Blocks||[];
       if(blocks.length){
         for(const b of blocks){
-          const bus=b.Trips?.[0]?.VehicleName||'—';
-          const rid=routeByBus.get(bus);
+          const trip=b.Trips?.[0];
+          const bus=trip?.VehicleName||'—';
+          let rid=routeByBus.get(bus);
+          if(rid==null) rid=trip?.RouteID||b.Route?.RouteId;
           let col=null;
           if(rid===0){
             col='#000000';
           }else if(rid){
-            col=colorByRoute.get(String(rid))||null;
-            if(col && !col.startsWith('#')) col='#'+col;
+            col=colorByRoute.get(String(rid))||trip?.RouteColor||b.Route?.Color||null;
+          }else{
+            col=trip?.RouteColor||b.Route?.Color||null;
           }
+          if(col && !col.startsWith('#')) col='#'+col;
           let key=g.BlockGroupId;
           if(!String(key).includes('[')) key = b.BlockId || key;
           const segs=[];
@@ -119,10 +123,9 @@ async function loadBlocks(){
           if(!info){
             info={block:key,bus:bus,color:col,textColor:contrastColor(col),segments:[]};
             entryMap.set(key,info);
-          }else if(info.bus==='—' && bus!=='—'){
-            info.bus=bus;
-            info.color=col;
-            info.textColor=contrastColor(col);
+          }else{
+            if(info.bus==='—' && bus!=='—') info.bus=bus;
+            if(!info.color && col){ info.color=col; info.textColor=contrastColor(col); }
           }
           info.segments.push(...segs);
           if(bus && bus!=='—'){
