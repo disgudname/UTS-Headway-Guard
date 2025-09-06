@@ -523,6 +523,47 @@ class State:
 
 state = State()
 
+MILEAGE_FILE = Path("/data/mileage.json")
+
+def load_bus_days() -> None:
+    if not MILEAGE_FILE.exists():
+        return
+    try:
+        data = json.loads(MILEAGE_FILE.read_text())
+        for date, buses in data.items():
+            day: Dict[str, BusDay] = {}
+            for bus, bd in buses.items():
+                day[bus] = BusDay(
+                    total_miles=bd.get("total_miles", 0.0),
+                    reset_miles=bd.get("reset_miles", 0.0),
+                    day_miles=bd.get("day_miles", 0.0),
+                    blocks=set(bd.get("blocks", [])),
+                    last_lat=bd.get("last_lat"),
+                    last_lon=bd.get("last_lon"),
+                )
+            state.bus_days[date] = day
+    except Exception as e:
+        print(f"[load_bus_days] error: {e}")
+
+def save_bus_days() -> None:
+    try:
+        payload: Dict[str, Dict[str, Any]] = {}
+        for date, buses in state.bus_days.items():
+            payload[date] = {}
+            for bus, bd in buses.items():
+                payload[date][bus] = {
+                    "total_miles": bd.total_miles,
+                    "reset_miles": bd.reset_miles,
+                    "day_miles": bd.day_miles,
+                    "blocks": sorted(list(bd.blocks)),
+                    "last_lat": bd.last_lat,
+                    "last_lon": bd.last_lon,
+                }
+        MILEAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        MILEAGE_FILE.write_text(json.dumps(payload))
+    except Exception as e:
+        print(f"[save_bus_days] error: {e}")
+
 # ---------------------------
 # Health
 # ---------------------------
@@ -537,6 +578,9 @@ async def health():
 # ---------------------------
 @app.on_event("startup")
 async def startup():
+    async with state.lock:
+        load_bus_days()
+
     async def updater():
         await asyncio.sleep(0.1)
         async with httpx.AsyncClient() as client:
@@ -696,6 +740,7 @@ async def startup():
                                     if bus and bid:
                                         bd = bus_days.setdefault(bus, BusDay())
                                         bd.blocks.add(bid)
+                        save_bus_days()
                 except Exception as e:
                     # record last error for UI surfacing
                     try:
@@ -1006,6 +1051,7 @@ async def servicecrew_reset(bus_name: str):
         day = state.bus_days.setdefault(today, {})
         bd = day.setdefault(bus_name, BusDay())
         bd.reset_miles = bd.total_miles
+        save_bus_days()
     return {"status": "ok"}
 
 # ---------------------------

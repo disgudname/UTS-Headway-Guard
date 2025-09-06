@@ -42,3 +42,7 @@ kill_timeout = "5s"
 [metrics]
   port = 8080
   path = "/metrics"  # (not implemented; harmless)
+
+[[mounts]]
+  source = "mileage_data"
+  destination = "/data"
