@@ -85,7 +85,7 @@ function contrastColor(hex){
   return l>0.5?'#000':'#fff';
 }
 
-const allBuses=[
+let allBuses=[
   "12132","12232","12332","12432","12532","12632",
   "14132","14232","14332","14432","14532",
   "17132","17232","17332","17432","17532","17632","17732",
@@ -95,6 +95,14 @@ const allBuses=[
   "24012","24112","24212","24312","24412",
   "25131","25231","25331","25431",
 ];
+
+async function loadConfig(){
+  try{
+    const cfg = await j('/v1/config');
+    if(cfg.ALL_BUSES) allBuses = cfg.ALL_BUSES;
+  }catch(e){}
+}
+
 let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map(), allBlockByBus=new Map();
 
 function updateExtraBuses(){
@@ -410,6 +418,6 @@ async function pollHealth(){
   setTimeout(pollHealth, 15000);
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{ loadRoutes(); pollHealth(); loadBlocks(); setInterval(loadBlocks,30000); });
+document.addEventListener('DOMContentLoaded', async ()=>{ await loadConfig(); loadRoutes(); pollHealth(); loadBlocks(); setInterval(loadBlocks,30000); });
 document.getElementById('route').addEventListener('change', e=> { userLocked=true; start(e.target.value); });
 </script>
