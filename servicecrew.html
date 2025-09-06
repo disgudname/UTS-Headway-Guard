@@ -55,7 +55,17 @@ async function fetchData(){
   document.getElementById('resetHead').style.display=isToday?'':'none';
   tbody.innerHTML='';
   let total=0;
-  const buses=Object.keys(data.buses).sort();
+  const sorted=Object.keys(data.buses).sort();
+  const withMiles=[], withoutMiles=[];
+  for(const b of sorted){
+    const info=data.buses[b];
+    if((info.display_miles||0)>0){
+      withMiles.push(b);
+    }else{
+      withoutMiles.push(b);
+    }
+  }
+  const buses=withMiles.concat(withoutMiles);
   for(const b of buses){
     const info=data.buses[b];
     const tr=document.createElement('tr');
@@ -63,6 +73,9 @@ async function fetchData(){
     const milesSinceReset=(info.display_miles||0).toFixed(2);
     const totalMilesToday=(info.actual_miles||0).toFixed(2);
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${milesSinceReset}</td><td>${totalMilesToday}</td>`;
+    if((info.display_miles||0)>100){
+      tr.style.background='red';
+    }
     if(isToday){
       total+=info.display_miles||0;
       const td=document.createElement('td');
