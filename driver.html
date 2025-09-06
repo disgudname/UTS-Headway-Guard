@@ -106,7 +106,7 @@ let lowClearances = [];
 let clearanceCircles = [];
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
-const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const tz = 'America/New_York';
 function startAlert(){
   if(alertInterval) return;
   alertCtx = new (window.AudioContext||window.webkitAudioContext)();
