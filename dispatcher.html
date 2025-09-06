@@ -116,10 +116,8 @@ function updateExtraBuses(){
   const unassigned=allBuses.filter(b=>!allBlockByBus.has(b));
   extra.innerHTML=unassigned.length
     ? unassigned.map(b=>{
-        let bg='#10151c';
-        if(OVERHEIGHT_BUSES.includes(b)){
-          bg='#E57200';
-        }else if(b.startsWith('24')){
+        let bg='#EEE8AA';
+        if(b.startsWith('24') && !OVERHEIGHT_BUSES.includes(b)){
           bg='#232D4B';
         }
         const color=contrastColor(bg);
