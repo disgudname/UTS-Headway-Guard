@@ -63,6 +63,8 @@ const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],re
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
 
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 function contrastColor(hex){
   if(!hex) return '#e8eef5';
   const c=hex.replace('#','');
@@ -271,7 +273,7 @@ function render(rows){
   lastRows=rows.slice();
   const t=lastRows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
   const ts=lastRows[0]?.updated_at ? new Date(lastRows[0].updated_at * 1000) : new Date();
-  $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  $('#upd').textContent = "Updated " + ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone: tz});
   rows = rows.filter(r=>blockByBus.has(r.name));
   const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
 

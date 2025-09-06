@@ -106,6 +106,7 @@ let lowClearances = [];
 let clearanceCircles = [];
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 function startAlert(){
   if(alertInterval) return;
   alertCtx = new (window.AudioContext||window.webkitAudioContext)();
@@ -261,14 +262,13 @@ function setRoutePillColor(color){
 }
 async function tick(){
   try{
-    const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
-    const cls=(data.order==='HOLD'?'red':(data.order==='Ease off'?'yellow':'green'));
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const inst=data.order==='Ease off'? 'Ease off' : (data.order==='HOLD'?'HOLD':'Anti-Bunching OK');
-    const box=$('#instruction');
-    box.className=cls;
-    box.textContent=inst;
-    $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${new Date((data.updated_at||Date.now()/1000)*1000).toLocaleTimeString([], {timeZone: tz})}</span>`;
+  const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
+  const cls=(data.order==='HOLD'?'red':(data.order==='Ease off'?'yellow':'green'));
+  const inst=data.order==='Ease off'? 'Ease off' : (data.order==='HOLD'?'HOLD':'Anti-Bunching OK');
+  const box=$('#instruction');
+  box.className=cls;
+  box.textContent=inst;
+  $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${new Date((data.updated_at||Date.now()/1000)*1000).toLocaleTimeString([], {timeZone: tz})}</span>`;
   } catch(e){
     const box=$('#instruction');
     box.className='red';
@@ -277,8 +277,7 @@ async function tick(){
   }
 }
 function updateClock(){
-  const now=new Date();
-  const t=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const t=new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false, timeZone: tz});
   $('#clock').textContent=t;
 }
 setInterval(updateClock,1000);
