@@ -55,6 +55,8 @@ h2{font-size:18px;margin:16px 0 0}
     <table id="blocks-table">
       <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
     </table>
+    <h2>Extra Buses</h2>
+    <ul id="extra-buses" style="list-style:none;padding:0;margin:0"><li class="hint">Loading…</li></ul>
   </aside>
 </div>
 <script>
@@ -83,7 +85,25 @@ function contrastColor(hex){
   return l>0.5?'#000':'#fff';
 }
 
+const allBuses=[
+  "12132","12232","12332","12432","12532","12632",
+  "14132","14232","14332","14432","14532",
+  "17132","17232","17332","17432","17532","17632","17732",
+  "18132","18232","18332","18432","18532","18632","18732","18832",
+  "19132","19232","19332","19432","19532",
+  "20131","20231","20331","20431",
+  "24012","24112","24212","24312","24412",
+  "25131","25231","25331","25431",
+];
 let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map();
+
+function updateExtraBuses(){
+  const extra=$('#extra-buses');
+  const unassigned=allBuses.filter(b=>!blockByBus.has(b));
+  extra.innerHTML=unassigned.length
+    ? unassigned.map(b=>`<li class="mono">${b}</li>`).join('')
+    : '<li class="hint">None</li>';
+}
 
 async function loadBlocks(){
   try{
@@ -92,7 +112,7 @@ async function loadBlocks(){
     const colorByRoute=new Map(Object.entries(res.color_by_route||{}));
     const routeByBus=new Map(Object.entries(res.route_by_bus||{}));
     const tbody=$('#blocks');
-    if(!groups.length){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
+    if(!groups.length){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; blockByBus=new Map(); updateExtraBuses(); return; }
 
     const entryMap=new Map();
     const busMap=new Map();
@@ -217,20 +237,20 @@ async function loadBlocks(){
     const tmp=new Map();
     for(const e of busBlocks){
       for(const seg of e.segments){
-        const start=parseTime(seg.start), end=parseTime(seg.end);
-        if(!start||!end) continue;
-        const s=new Date(start.getTime()-30*60000);
-        const f=new Date(end.getTime()+30*60000);
-        if(now>=s && now<=f){
-          const prev=tmp.get(e.bus);
-          if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
-        }
+      const start=parseTime(seg.start), end=parseTime(seg.end);
+      if(!start||!end) continue;
+      const s=new Date(start.getTime()-30*60000);
+      const f=new Date(end.getTime()+30*60000);
+      if(now>=s && now<=f){
+        const prev=tmp.get(e.bus);
+        if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
       }
     }
-    blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
-    const cols=4;
-    const rows=Math.ceil(entries.length/cols);
-    let html='';
+  }
+  blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
+  const cols=4;
+  const rows=Math.ceil(entries.length/cols);
+  let html='';
     for(let r=0;r<rows;r++){
       html+='<tr>';
       for(let c=0;c<cols;c++){
@@ -241,11 +261,12 @@ async function loadBlocks(){
       }
       html+='</tr>';
     }
-    if(!entries.length) html='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
-    tbody.innerHTML=html;
-    if(lastRows.length) render(lastRows);
-    if(lastTLRows.length) renderTL(lastTLRows);
-  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; }
+  if(!entries.length) html='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
+  tbody.innerHTML=html;
+  updateExtraBuses();
+  if(lastRows.length) render(lastRows);
+  if(lastTLRows.length) renderTL(lastTLRows);
+  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; blockByBus=new Map(); updateExtraBuses(); }
 }
 
 async function loadRoutes(){
