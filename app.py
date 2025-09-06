@@ -27,13 +27,13 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re
+import asyncio, time, math, os, json, re, sqlite3, hashlib, secrets, uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Request, Response, Depends
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse, RedirectResponse
 from pathlib import Path
 from urllib.parse import quote
 
@@ -460,6 +460,99 @@ DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
+LOGIN_HTML = (BASE_DIR / "login.html").read_text(encoding="utf-8")
+USERS_HTML = (BASE_DIR / "users.html").read_text(encoding="utf-8")
+
+USERS_DB = BASE_DIR / "users.db"
+AUDIT_LOG = BASE_DIR / "audit.log"
+SESSIONS: Dict[str, str] = {}
+
+def init_db():
+    with sqlite3.connect(USERS_DB) as db:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                is_admin INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        db.commit()
+
+def hash_password(pw: str) -> str:
+    salt = secrets.token_hex(8)
+    h = hashlib.sha256((salt + pw).encode()).hexdigest()
+    return f"{salt}${h}"
+
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        salt, h = hashed.split("$")
+    except ValueError:
+        return False
+    return hashlib.sha256((salt + pw).encode()).hexdigest() == h
+
+def get_user(username: str) -> Optional[Dict[str, Any]]:
+    with sqlite3.connect(USERS_DB) as db:
+        row = db.execute(
+            "SELECT username, password_hash, is_admin FROM users WHERE username=?",
+            (username,),
+        ).fetchone()
+    if row:
+        return {"username": row[0], "password_hash": row[1], "is_admin": bool(row[2])}
+    return None
+
+def users_exist() -> bool:
+    with sqlite3.connect(USERS_DB) as db:
+        cnt = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    return cnt > 0
+
+def create_user_db(username: str, password: str, is_admin: bool):
+    pw_hash = hash_password(password)
+    with sqlite3.connect(USERS_DB) as db:
+        db.execute(
+            "INSERT INTO users(username, password_hash, is_admin, created_at) VALUES (?,?,?,?)",
+            (username, pw_hash, int(is_admin), datetime.utcnow().isoformat()),
+        )
+        db.commit()
+
+def list_users_db() -> List[Dict[str, Any]]:
+    with sqlite3.connect(USERS_DB) as db:
+        rows = db.execute("SELECT username, is_admin FROM users").fetchall()
+    return [{"username": r[0], "is_admin": bool(r[1])} for r in rows]
+
+def log_action(user: str, action: str, details: Dict[str, Any]):
+    with open(AUDIT_LOG, "a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "ts": datetime.utcnow().isoformat(),
+                    "user": user,
+                    "action": action,
+                    "details": details,
+                }
+            )
+            + "\n"
+        )
+
+def get_optional_user(req: Request) -> Optional[Dict[str, Any]]:
+    token = req.cookies.get("session")
+    if not token:
+        return None
+    username = SESSIONS.get(token)
+    if not username:
+        return None
+    return get_user(username)
+
+def require_user(req: Request) -> Dict[str, Any]:
+    user = get_optional_user(req)
+    if not user:
+        raise HTTPException(status_code=401, detail="auth required")
+    return user
+
+init_db()
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -874,6 +967,36 @@ async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
 
 # ---------------------------
+# AUTH
+# ---------------------------
+
+@app.get("/login")
+async def login_page():
+    return HTMLResponse(LOGIN_HTML)
+
+@app.post("/login")
+async def login(payload: Dict[str, str]):
+    username = payload.get("username", "")
+    password = payload.get("password", "")
+    user = get_user(username)
+    if not user or not verify_password(password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    token = uuid.uuid4().hex
+    SESSIONS[token] = username
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie("session", token, httponly=True)
+    return resp
+
+@app.post("/logout")
+async def logout(request: Request):
+    token = request.cookies.get("session")
+    if token in SESSIONS:
+        del SESSIONS[token]
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("session")
+    return resp
+
+# ---------------------------
 # MAP PAGE
 # ---------------------------
 @app.get("/map")
@@ -884,18 +1007,36 @@ async def map_page():
 # ADMIN PAGE
 # ---------------------------
 @app.get("/admin")
-async def admin_page():
+async def admin_page(req: Request):
+    user = get_optional_user(req)
+    if not user or not user["is_admin"]:
+        return RedirectResponse("/login")
     return HTMLResponse(ADMIN_HTML)
+
+# ---------------------------
+# USERS PAGE
+# ---------------------------
+@app.get("/users")
+async def users_page(req: Request):
+    user = get_optional_user(req)
+    if not user or not user["is_admin"]:
+        return RedirectResponse("/login")
+    return HTMLResponse(USERS_HTML)
 
 # ---------------------------
 # CONFIG
 # ---------------------------
 @app.get("/v1/config")
-async def get_config():
+async def get_config(user: Dict[str, Any] = Depends(require_user)):
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403)
     return {k: globals().get(k) for k in CONFIG_KEYS}
 
 @app.post("/v1/config")
-async def set_config(payload: Dict[str, Any]):
+async def set_config(payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)):
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403)
+    changes = {}
     for k, v in payload.items():
         if k in CONFIG_KEYS:
             cur = globals().get(k)
@@ -908,7 +1049,36 @@ async def set_config(payload: Dict[str, Any]):
                     globals()[k] = type(cur)(v)
                 except Exception:
                     globals()[k] = v
+            if cur != globals()[k]:
+                changes[k] = {"before": cur, "after": globals()[k]}
+    if changes:
+        log_action(user["username"], "config_change", changes)
     return {k: globals().get(k) for k in CONFIG_KEYS}
+
+# ---------------------------
+# USERS API
+# ---------------------------
+@app.get("/v1/users")
+async def list_users(user: Dict[str, Any] = Depends(require_user)):
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403)
+    return list_users_db()
+
+@app.post("/v1/users")
+async def create_user_endpoint(payload: Dict[str, Any], req: Request):
+    cur_user = get_optional_user(req)
+    if users_exist() and (not cur_user or not cur_user["is_admin"]):
+        raise HTTPException(status_code=403)
+    username = payload.get("username")
+    password = payload.get("password")
+    is_admin = bool(payload.get("is_admin"))
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="username and password required")
+    if get_user(username):
+        raise HTTPException(status_code=400, detail="user exists")
+    create_user_db(username, password, is_admin)
+    log_action(cur_user["username"] if cur_user else "SYSTEM", "create_user", {"username": username, "is_admin": is_admin})
+    return {"username": username, "is_admin": is_admin}
 
 # ---------------------------
 # DRIVER PAGE
