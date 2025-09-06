@@ -53,7 +53,7 @@ async function fetchData(){
     const tr=document.createElement('tr');
     const blocks=info.blocks.length?info.blocks.join(', '):'—';
     const milesDisplay=(info.display_miles||0).toFixed(2);
-    const miles=isToday?milesDisplay:`${milesDisplay} (total ${(info.actual_miles||0).toFixed(2)})`;
+    const miles=isToday?milesDisplay:`${milesDisplay} (day ${(info.actual_miles||0).toFixed(2)})`;
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${miles}</td>`;
     if(isToday){
       total+=info.display_miles||0;
