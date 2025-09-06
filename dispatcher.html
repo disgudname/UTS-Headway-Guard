@@ -117,7 +117,9 @@ function updateExtraBuses(){
   extra.innerHTML=unassigned.length
     ? unassigned.map(b=>{
         let bg='#EEE8AA';
-        if(b.startsWith('24') && !OVERHEIGHT_BUSES.includes(b)){
+        if(OVERHEIGHT_BUSES.includes(b)){
+          bg='#E57200';
+        }else if(b.startsWith('24')){
           bg='#232D4B';
         }
         const color=contrastColor(bg);
