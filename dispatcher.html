@@ -12,9 +12,9 @@ select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:1
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
-#blocks-table{width:auto}
-#blocks td{border:none;padding:2px 4px;text-align:center;width:14ch;height:2.6em}
-#blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;height:100%}
+#blocks-table,#future-blocks-table{width:auto}
+#blocks td,#future-blocks td{border:none;padding:2px 4px;text-align:center;width:14ch;height:2.6em}
+#blocks td .cell,#future-blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;height:100%}
 #extra-buses{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(6ch,1fr));gap:4px}
 #extra-buses li{background:#10151c;border:1px solid #2a3442;border-radius:4px;padding:4px;text-align:center}
 #extra-buses .hint{background:none;border:none;padding:0;grid-column:1/-1;text-align:left}
@@ -60,9 +60,13 @@ h2{font-size:18px;margin:16px 0 0}
     </table>
   </main>
   <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
-    <h2>Block Assignments</h2>
+    <h2>Current Block Assignments</h2>
     <table id="blocks-table">
       <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
+    </table>
+    <h2>Future Block Assignments</h2>
+    <table id="future-blocks-table">
+      <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
     </table>
     <h2>Extra Buses</h2>
     <ul id="extra-buses"><li class="hint">Loading…</li></ul>
@@ -141,7 +145,16 @@ async function loadBlocks(){
     const colorByRoute=new Map(Object.entries(res.color_by_route||{}));
     const routeByBus=new Map(Object.entries(res.route_by_bus||{}));
     const tbody=$('#blocks');
-    if(!groups.length){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; blockByBus=new Map(); allBlockByBus=new Map(); updateExtraBuses(); return; }
+    const futureBody=$('#future-blocks');
+    if(!groups.length){
+      const msg='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
+      tbody.innerHTML=msg;
+      futureBody.innerHTML=msg;
+      blockByBus=new Map();
+      allBlockByBus=new Map();
+      updateExtraBuses();
+      return;
+    }
 
     const entryMap=new Map();
     const busMap=new Map();
@@ -255,48 +268,50 @@ async function loadBlocks(){
       const d=new Date(); d.setHours(hh,mm,0,0); return d;
     }
     for(const e of entries){
-      const active=e.segments.some(seg=>{
+      e.active=e.segments.some(seg=>{
         const start=parseTime(seg.start), end=parseTime(seg.end);
         return start && end && now>=start && now<=end;
       });
-      if(!active){
-        e.color=null;
-        e.textColor=contrastColor(null);
-      }
     }
+    const activeEntries=entries.filter(e=>e.active);
+    const futureEntries=entries.filter(e=>!e.active && e.bus!=='—');
     const tmp=new Map();
     for(const e of busBlocks){
       for(const seg of e.segments){
-      const start=parseTime(seg.start), end=parseTime(seg.end);
-      if(!start||!end) continue;
-      const s=new Date(start.getTime()-30*60000);
-      const f=new Date(end.getTime()+30*60000);
-      if(now>=s && now<=f){
-        const prev=tmp.get(e.bus);
-        if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
+        const start=parseTime(seg.start), end=parseTime(seg.end);
+        if(!start||!end) continue;
+        const s=new Date(start.getTime()-30*60000);
+        const f=new Date(end.getTime()+30*60000);
+        if(now>=s && now<=f){
+          const prev=tmp.get(e.bus);
+          if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
+        }
       }
     }
-  }
-  blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
-  const cols=4;
-  const rows=Math.ceil(entries.length/cols);
-  let html='';
-    for(let r=0;r<rows;r++){
-      html+='<tr>';
-      for(let c=0;c<cols;c++){
-        const it=entries[r+c*rows];
-        html += it
-          ? `<td><div class="cell" style="--route-color:${it.color || 'transparent'};--text-color:${it.textColor}"><div class="mono">${it.block}</div><div>${it.bus}</div></div></td>`
-          : '<td></td>';
+    blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
+    const cols=4;
+    function renderTable(list,useColors){
+      const rows=Math.ceil(list.length/cols);
+      let html='';
+      for(let r=0;r<rows;r++){
+        html+='<tr>';
+        for(let c=0;c<cols;c++){
+          const it=list[r+c*rows];
+          html+=it
+            ? `<td><div class="cell" style="--route-color:${useColors&&it.color?it.color:'transparent'};--text-color:${useColors&&it.color?it.textColor:contrastColor(null)}"><div class="mono">${it.block}</div><div>${it.bus}</div></div></td>`
+            : '<td></td>';
+        }
+        html+='</tr>';
       }
-      html+='</tr>';
+      if(!list.length) html='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
+      return html;
     }
-  if(!entries.length) html='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
-  tbody.innerHTML=html;
-  updateExtraBuses();
-  if(lastRows.length) render(lastRows);
-  if(lastTLRows.length) renderTL(lastTLRows);
-  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; blockByBus=new Map(); allBlockByBus=new Map(); updateExtraBuses(); }
+    tbody.innerHTML=renderTable(activeEntries,true);
+    futureBody.innerHTML=renderTable(futureEntries,false);
+    updateExtraBuses();
+    if(lastRows.length) render(lastRows);
+    if(lastTLRows.length) renderTL(lastTLRows);
+  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; $('#future-blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; blockByBus=new Map(); allBlockByBus=new Map(); updateExtraBuses(); }
 }
 
 async function loadRoutes(){
