@@ -33,6 +33,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
+from urllib.parse import quote
 
 # ---------------------------
 # Config
@@ -164,6 +165,7 @@ class Vehicle:
     ts_ms: int
     ground_mps: float
     age_s: float
+    heading: float = 0.0
     s_pos: float = 0.0
     ema_mps: float = 0.0
     dir_sign: int = 0  # +1 forward, -1 reverse, 0 unknown
@@ -176,6 +178,7 @@ class Route:
     poly: List[Tuple[float, float]]
     cum: List[float]
     length_m: float
+    color: Optional[str] = None
     seg_caps_mps: List[float] = field(default_factory=list)
 
 
@@ -449,6 +452,11 @@ class State:
         self.last_error_ts: float = 0.0
         self.active_route_ids: set[int] = set()
         self.route_last_seen: dict[int, float] = {}
+        # Caches for proxied TransLoc data
+        self.blocks_cache: Optional[Dict] = None
+        self.blocks_cache_ts: float = 0.0
+        self.anti_cache: Optional[Dict] = None
+        self.anti_cache_ts: float = 0.0
 
 state = State()
 
@@ -527,7 +535,10 @@ async def startup():
                                 if len(poly) < 2:
                                     continue
                                 cum, length = cumulative_distance(poly)
-                                route = Route(id=rid, name=name, encoded=enc, poly=poly, cum=cum, length_m=length)
+                                col = r.get("MapLineColor") or r.get("Color") or r.get("RouteColor")
+                                if col and not str(col).startswith("#"):
+                                    col = f"#{col}"
+                                route = Route(id=rid, name=name, encoded=enc, poly=poly, cum=cum, length_m=length, color=col)
                                 # fetch speed profile (fetch-once policy)
                                 route.seg_caps_mps = await fetch_overpass_speed_profile(route, client)
                                 state.routes[rid] = route
@@ -543,8 +554,9 @@ async def startup():
                             vid = v.get("VehicleID")
                             tsms = parse_msajax(v.get("TimeStamp")) or int(time.time()*1000)
                             mps = (v.get("GroundSpeed") or 0.0) * MPH_TO_MPS
+                            heading = v.get("Heading") or 0.0
                             veh = Vehicle(id=vid, name=name, lat=v.get("Latitude"), lon=v.get("Longitude"), ts_ms=tsms,
-                                          ground_mps=mps, age_s=v.get("Seconds") or 0.0)
+                                          ground_mps=mps, age_s=v.get("Seconds") or 0.0, heading=heading)
                             s_pos, _ = project_vehicle_to_route(veh, state.routes[rid])
                             prev = prev_map.get(rid, {}).get(vid)
                             prev_sign = prev.dir_sign if prev else state.last_dir_sign.get(vid, 0)
@@ -616,6 +628,22 @@ async def routes_all():
         items.sort(key=lambda x: str(x["name"]))
         return {"routes": items}
 
+@app.get("/v1/routes/{route_id}")
+async def route_info(route_id: int):
+    async with state.lock:
+        route = state.routes.get(route_id)
+        if not route:
+            raise HTTPException(404, "route not found or inactive")
+        return {"id": route.id, "name": route.name, "color": route.color, "length_m": route.length_m}
+
+@app.get("/v1/routes/{route_id}/shape")
+async def route_shape(route_id: int):
+    async with state.lock:
+        route = state.routes.get(route_id)
+        if not route:
+            raise HTTPException(404, "route not found or inactive")
+        return {"polyline": route.encoded, "color": route.color}
+
 # ---------------------------
 # REST: Vehicles roster (for driver dropdown)
 # ---------------------------
@@ -656,6 +684,76 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
         })
     items.sort(key=lambda x: str(x["name"]))
     return {"vehicles": items}
+
+@app.get("/v1/routes/{route_id}/vehicles_raw")
+async def route_vehicles_raw(route_id: int):
+    async with state.lock:
+        vehs = state.vehicles_by_route.get(route_id, {})
+        items = []
+        for v in vehs.values():
+            items.append({
+                "id": v.id,
+                "name": v.name,
+                "lat": v.lat,
+                "lon": v.lon,
+                "heading": getattr(v, "heading", 0.0),
+                "ground_mps": v.ground_mps,
+            })
+        return {"vehicles": items}
+
+# ---------------------------
+# REST: Dispatch helpers
+# ---------------------------
+
+@app.get("/v1/dispatch/blocks")
+async def dispatch_blocks():
+    async with state.lock:
+        now = time.time()
+        if state.blocks_cache and now - state.blocks_cache_ts < 60:
+            return state.blocks_cache
+    d = time.localtime()
+    ds = f"{d.tm_mon}/{d.tm_mday}/{d.tm_year}"
+    async with httpx.AsyncClient() as client:
+        r1 = await client.get(f"{TRANSLOC_BASE}/GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}", timeout=20)
+        r1.raise_for_status()
+        sched = r1.json()
+        sched = sched if isinstance(sched, list) else sched.get("d", [])
+        ids = ",".join(str(s.get("ScheduleVehicleCalendarID")) for s in sched if s.get("ScheduleVehicleCalendarID"))
+        if ids:
+            r2 = await client.get(f"{TRANSLOC_BASE}/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}", timeout=20)
+            r2.raise_for_status()
+            block_groups = r2.json().get("BlockGroups", [])
+        else:
+            block_groups = []
+    async with state.lock:
+        color_by_route = {rid: r.color for rid, r in state.routes.items() if r.color}
+        route_by_bus: Dict[str, int] = {}
+        for rid, vehs in state.vehicles_by_route.items():
+            for v in vehs.values():
+                route_by_bus[str(v.name)] = rid
+        res = {
+            "block_groups": block_groups,
+            "color_by_route": color_by_route,
+            "route_by_bus": route_by_bus,
+        }
+        state.blocks_cache = res
+        state.blocks_cache_ts = time.time()
+        return res
+
+@app.get("/v1/transloc/anti_bunching")
+async def anti_bunching_raw():
+    async with state.lock:
+        now = time.time()
+        if state.anti_cache and now - state.anti_cache_ts < VEH_REFRESH_S:
+            return state.anti_cache
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"{TRANSLOC_BASE}/GetAntiBunching", timeout=20)
+        r.raise_for_status()
+        data = r.json()
+    async with state.lock:
+        state.anti_cache = data
+        state.anti_cache_ts = time.time()
+    return data
 
 # ---------------------------
 # REST: Low clearances

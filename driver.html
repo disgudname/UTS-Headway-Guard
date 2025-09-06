@@ -289,13 +289,11 @@ function initMap(){
 }
 async function loadRoutePath(){
   try{
-    const res=await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681');
-    const data=await res.json();
-    const r=data.find(x=>x.RouteID==currentRoute);
-    if(r && r.EncodedPolyline){
-      routeColor = r.MapLineColor ? (r.MapLineColor.startsWith('#') ? r.MapLineColor : `#${r.MapLineColor}`) : '#E57200';
+    const data=await j(`/v1/routes/${currentRoute}/shape`);
+    if(data && data.polyline){
+      routeColor = data.color ? (data.color.startsWith('#') ? data.color : `#${data.color}`) : '#E57200';
       setRoutePillColor(routeColor);
-      const pts=polyline.decode(r.EncodedPolyline);
+      const pts=polyline.decode(data.polyline);
       routeLayer=L.polyline(pts,{color:routeColor,weight:5}).addTo(map);
       map.fitBounds(routeLayer.getBounds());
     }
@@ -304,18 +302,16 @@ async function loadRoutePath(){
 async function updateBuses(){
   if(!map) return;
   try{
-    const res=await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681');
-    const data=await res.json();
+    const data=await j(`/v1/routes/${currentRoute}/vehicles_raw`);
     const active=new Set();
     let nearBridge=false, nearOther=false;
-    data.forEach(v=>{
-      if(v.RouteID==currentRoute){
-        const id=v.VehicleID;
-        const pos=[v.Latitude,v.Longitude];
-        const isMoving = v.GroundSpeed > 0;
-        const heading = v.Heading || 0;
-        const busName = v.Name;
-        active.add(id);
+    (data.vehicles||[]).forEach(v=>{
+      const id=v.id;
+      const pos=[v.lat,v.lon];
+      const isMoving = v.ground_mps > 0;
+      const heading = v.heading || 0;
+      const busName = v.name;
+      active.add(id);
         if(busName===currentBus){
           for(const c of lowClearances){
             const dist=L.latLng(pos).distanceTo([c.lat,c.lon]);
@@ -335,7 +331,6 @@ async function updateBuses(){
         const nameIcon = L.divIcon({html:nameBubble, className:'', iconSize:[bubbleWidth,30], iconAnchor:[bubbleWidth/2,40]});
         if(nameMarkers[id]){ animateMarkerTo(nameMarkers[id], pos); nameMarkers[id].setIcon(nameIcon); }
         else { nameMarkers[id]=L.marker(pos,{icon:nameIcon,interactive:false}).addTo(map); }
-      }
     });
     const overheight=OVERHEIGHT_BUSES.includes(String(currentBus));
     if(overheight && (nearBridge || nearOther)){ updateBridgeWarning(true, nearBridge); }

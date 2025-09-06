@@ -77,20 +77,12 @@ let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, u
 
 async function loadBlocks(){
   try{
-    const d=new Date();
-    const ds=`${d.getMonth()+1}/${d.getDate()}/${d.getFullYear()}`;
-    const sched=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString='+encodeURIComponent(ds));
-    const ids=(sched||[]).map(s=>s.ScheduleVehicleCalendarID).join(',');
+    const res=await j('/v1/dispatch/blocks');
+    const groups=res.block_groups||[];
+    const colorByRoute=new Map(Object.entries(res.color_by_route||{}));
+    const routeByBus=new Map(Object.entries(res.route_by_bus||{}));
     const tbody=$('#blocks');
-    if(!ids){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
-    const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString='+ids);
-    const groups=data.BlockGroups||[];
-
-    const routes=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes');
-    const colorByRoute=new Map((routes||[]).map(r=>[String(r.RouteID||r.RouteId), r.MapLineColor||r.Color||r.RouteColor]));
-
-    const mvps=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints');
-    const routeByBus=new Map((mvps||[]).map(v=>[String(v.Name), v.RouteID||v.RouteId]));
+    if(!groups.length){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; return; }
 
     const entryMap=new Map();
     const busMap=new Map();
@@ -336,9 +328,8 @@ async function start(rid){
   currentRid=rid;
   const sid=++sessionId;
   try{
-    const routes=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681');
-    const route=(routes||[]).find(r=>String(r.RouteID)===rid);
-    const col=route&&route.MapLineColor? (route.MapLineColor.startsWith('#')?route.MapLineColor:'#'+route.MapLineColor):null;
+    const route=await j('/v1/routes/'+rid);
+    const col=route && route.color ? route.color : null;
     if(col) document.documentElement.style.setProperty('--route-color', col);
   }catch(_){ document.documentElement.style.setProperty('--route-color','#2a3442'); }
 
@@ -359,7 +350,7 @@ async function start(rid){
     async function tick(){
       if(rid!==currentRid || sid!==sessionId) return;
       try{
-        const data=await j('https://uva.transloc.com/Services/JSONPRelay.svc/GetAntiBunching');
+        const data=await j('/v1/transloc/anti_bunching');
         const route=(data||[]).find(r=>String(r.RouteID)===rid);
         renderTL(route?.VehicleAntiBunching||[]);
       }catch(_){ }
