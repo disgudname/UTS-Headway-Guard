@@ -8,15 +8,15 @@
 <style>
   @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
   :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --btn:#15202b; }
-  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;height:100vh;display:flex;flex-direction:column;}
   table{width:100%;border-collapse:collapse;}
   th,td{border:1px solid var(--line);padding:6px;text-align:left;}
-  #layout{display:flex;flex-direction:column;padding:8px;gap:8px;}
-  #table-wrapper{overflow-x:auto;}
-  #mapframe{border:1px solid var(--line);min-height:400px;width:100%;}
+  #layout{display:flex;flex-direction:column;padding:8px;gap:8px;flex:1;overflow:hidden;}
+  #table-wrapper{flex:1;overflow:auto;}
+  #mapframe{border:1px solid var(--line);flex:1;width:100%;min-height:400px;}
   button{padding:4px 8px;background:var(--btn);border:1px solid var(--chip);color:var(--ink);border-radius:6px;cursor:pointer;}
   button:hover{filter:brightness(1.1);}
-  @media (min-width:768px){#layout{flex-direction:row;}#mapframe{flex:1;min-height:0;}}
+  @media (min-width:768px){#layout{flex-direction:row;}#table-wrapper{flex:0 0 auto;}#mapframe{flex:1;min-height:0;}}
 </style>
 </head>
 <body>
