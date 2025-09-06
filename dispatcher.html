@@ -99,10 +99,13 @@ let allBuses=[
   "25131","25231","25331","25431",
 ];
 
+let OVERHEIGHT_BUSES=['25131','25231','25331','25431','17132','14132','12432','18532'];
+
 async function loadConfig(){
   try{
     const cfg = await j('/v1/config');
     if(cfg.ALL_BUSES) allBuses = cfg.ALL_BUSES;
+    if(cfg.OVERHEIGHT_BUSES) OVERHEIGHT_BUSES = cfg.OVERHEIGHT_BUSES;
   }catch(e){}
 }
 
@@ -112,7 +115,16 @@ function updateExtraBuses(){
   const extra=$('#extra-buses');
   const unassigned=allBuses.filter(b=>!allBlockByBus.has(b));
   extra.innerHTML=unassigned.length
-    ? unassigned.map(b=>`<li class="mono">${b}</li>`).join('')
+    ? unassigned.map(b=>{
+        let bg='#10151c';
+        if(OVERHEIGHT_BUSES.includes(b)){
+          bg='#E57200';
+        }else if(b.startsWith('24')){
+          bg='#232D4B';
+        }
+        const color=contrastColor(bg);
+        return `<li class="mono" style="background:${bg};color:${color};border-color:${bg}">${b}</li>`;
+      }).join('')
     : '<li class="hint">None</li>';
 }
 
