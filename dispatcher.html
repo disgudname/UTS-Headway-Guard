@@ -108,7 +108,8 @@ async function loadBlocks(){
             col=colorByRoute.get(String(rid))||null;
             if(col && !col.startsWith('#')) col='#'+col;
           }
-          const key=g.BlockGroupId;
+          let key=g.BlockGroupId;
+          if(!String(key).includes('[')) key = b.BlockId || key;
           const segs=[];
           segs.push({start:b.BlockStartTime,end:b.BlockEndTime});
           for(const t of (b.Trips||[])){
