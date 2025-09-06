@@ -234,13 +234,17 @@ async function loadBlocks(){
 }
 
 async function loadRoutes(){
-  const d = await j("/v1/routes"); const list=(d.routes||[]);
-  const sel=$('#route');
-  const prev=currentRid;
-  sel.innerHTML=list.map(r=>'<option value="'+r.id+'">'+(r.name||("Route "+r.id))+'</option>').join("");
-  if(prev){ sel.value=String(prev); }
-  if(!sel.value && list.length){ sel.value=String(list[0].id); }
-  if(!currentRid && sel.value) await start(sel.value);
+  const d = await j("/v1/routes");
+  const list = d.routes || [];
+  const active = list.filter(r => r.active_vehicles > 0).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  const inactive = list.filter(r => !r.active_vehicles).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  const sel = $('#route');
+  const prev = currentRid;
+  const combined = active.concat(inactive);
+  sel.innerHTML = combined.map(r => '<option value="' + r.id + '">' + (r.name || ("Route " + r.id)) + '</option>').join("");
+  if (prev) { sel.value = String(prev); }
+  if (!sel.value && combined.length) { sel.value = String(combined[0].id); }
+  if (!currentRid && sel.value) await start(sel.value);
 }
 
 function computeBusOrder(rows){

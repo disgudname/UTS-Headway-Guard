@@ -171,8 +171,10 @@ async function loadBuses(){
 }
 async function loadRoutes(){
   let list=[]; const d=await j('/v1/routes_all'); list=(d.routes||[]);
-  list.sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
-  $('#route').innerHTML=list.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
+  const active = list.filter(r=>r.active).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const inactive = list.filter(r=>!r.active).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const combined = active.concat(inactive);
+  $('#route').innerHTML=combined.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
 }
 async function loadLowClearances(){
   try{
