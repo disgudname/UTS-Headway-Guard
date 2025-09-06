@@ -28,12 +28,19 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import httpx
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
 from urllib.parse import quote
+
+# Ensure local time aligns with Charlottesville, VA
+os.environ.setdefault("TZ", "America/New_York")
+if hasattr(time, "tzset"):
+    time.tzset()
 
 # ---------------------------
 # Config
@@ -711,8 +718,8 @@ async def dispatch_blocks():
         now = time.time()
         if state.blocks_cache and now - state.blocks_cache_ts < 60:
             return state.blocks_cache
-    d = time.localtime()
-    ds = f"{d.tm_mon}/{d.tm_mday}/{d.tm_year}"
+    d = datetime.now(ZoneInfo("America/New_York"))
+    ds = f"{d.month}/{d.day}/{d.year}"
     async with httpx.AsyncClient() as client:
         r1 = await client.get(f"{TRANSLOC_BASE}/GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}", timeout=20)
         r1.raise_for_status()
