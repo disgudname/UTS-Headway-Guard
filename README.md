@@ -28,21 +28,6 @@ uvicorn app:app --reload --port 8080
 
 Open the [driver](http://localhost:8080/driver) and [dispatcher](http://localhost:8080/dispatcher) pages in a browser.
 
-## Authentication
-The admin interface, configuration API and TransLoc key are protected behind a username/password login.
-
-1. **Create the first user** (no authentication required while the database is empty):
-
-   ```bash
-   curl -X POST http://localhost:8080/v1/users \
-        -H "Content-Type: application/json" \
-        -d '{"username":"admin","password":"secret","is_admin": true}'
-   ```
-
-2. Visit [http://localhost:8080/login](http://localhost:8080/login) and sign in.
-3. The [admin page](http://localhost:8080/admin) allows configuration and links to the `/users` page for managing additional accounts.
-4. Configuration updates and user creation events are logged to `audit.log` with the acting user and timestamp.
-
 ## API
 
 Key endpoints exposed by the service:
