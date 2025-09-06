@@ -228,7 +228,8 @@ async function loadBlocks(){
       }
     }
     blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
-    const rows=9, cols=4;
+    const cols=4;
+    const rows=Math.ceil(entries.length/cols);
     let html='';
     for(let r=0;r<rows;r++){
       html+='<tr>';
