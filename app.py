@@ -616,11 +616,14 @@ async def startup():
                             print(f"[updater] roster/routes_all error: {e}")
                         # Build active routes set (with grace window to prevent flicker)
                         fresh = []
+                        fresh_all = []  # includes unassigned vehicles for mileage tracking
                         for v in vehicles_raw:
                             tms = parse_msajax(v.get("TimeStamp"))
                             age = v.get("Seconds") if v.get("Seconds") is not None else (max(0, (time.time()*1000 - tms)/1000) if tms else 9999)
-                            if age <= STALE_FIX_S and v.get("RouteID") and v.get("RouteID") != 0:
-                                fresh.append(v)
+                            if age <= STALE_FIX_S:
+                                fresh_all.append(v)
+                                if v.get("RouteID") and v.get("RouteID") != 0:
+                                    fresh.append(v)
                         active_ids = {v["RouteID"] for v in fresh}
                         now_ts = time.time()
                         for rid in active_ids:
@@ -692,10 +695,16 @@ async def startup():
                             veh.s_pos = s_pos; veh.ema_mps = ema; veh.dir_sign = dir_sign
                             new_map[rid][vid] = veh
                             state.last_dir_sign[vid] = dir_sign
-
-                            # Track per-day mileage
-                            today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
-                            bus_days = state.bus_days.setdefault(today, {})
+                        state.vehicles_by_route = new_map
+                        # Track per-day mileage for all fresh vehicles (including RouteID 0)
+                        today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+                        bus_days = state.bus_days.setdefault(today, {})
+                        for v in fresh_all:
+                            name = str(v.get("Name") or "-")
+                            lat = v.get("Latitude")
+                            lon = v.get("Longitude")
+                            if lat is None or lon is None:
+                                continue
                             bd = bus_days.get(name)
                             if bd is None:
                                 bd = BusDay()
@@ -712,12 +721,11 @@ async def startup():
                                     bd.last_lon = prev_bd.last_lon
                                 bus_days[name] = bd
                             if bd.last_lat is not None and bd.last_lon is not None:
-                                delta_miles = haversine((bd.last_lat, bd.last_lon), (veh.lat, veh.lon)) / 1609.34
+                                delta_miles = haversine((bd.last_lat, bd.last_lon), (lat, lon)) / 1609.34
                                 bd.total_miles += delta_miles
                                 bd.day_miles += delta_miles
-                            bd.last_lat = veh.lat
-                            bd.last_lon = veh.lon
-                        state.vehicles_by_route = new_map
+                            bd.last_lat = lat
+                            bd.last_lon = lon
                         # Update block assignments cache and history
                         color_by_route = {rid: r.color for rid, r in state.routes.items() if r.color}
                         route_by_bus = {}
