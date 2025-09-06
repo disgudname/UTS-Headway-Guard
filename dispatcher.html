@@ -13,7 +13,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
 #blocks-table{width:auto}
 #blocks td{border:none;padding:2px 4px;text-align:center;width:14ch;height:2.6em}
-#blocks td.cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center}
+#blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;height:100%}
 .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
  .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
  .dot{width:10px;height:10px;border-radius:50%}
@@ -236,7 +236,7 @@ async function loadBlocks(){
       for(let c=0;c<cols;c++){
         const it=entries[r+c*rows];
         html += it
-          ? `<td class="cell" style="--route-color:${it.color || 'transparent'};--text-color:${it.textColor}"><div class="mono">${it.block}</div><div>${it.bus}</div></td>`
+          ? `<td><div class="cell" style="--route-color:${it.color || 'transparent'};--text-color:${it.textColor}"><div class="mono">${it.block}</div><div>${it.bus}</div></div></td>`
           : '<td></td>';
       }
       html+='</tr>';
