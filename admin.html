@@ -10,7 +10,6 @@ input,textarea{width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442
 button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3442;background:#15202b;color:#e8eef5;cursor:pointer;}
 </style>
 <h1>Headway Guard Admin</h1>
-<p><a href="/users">Manage Users</a> | <a href="#" id="logout">Logout</a></p>
 <form id="cfg"></form>
 <button id="save">Save</button>
 <script>
@@ -50,9 +49,5 @@ async function save(){
   alert('Saved!');
 }
 document.getElementById('save').onclick=save;
-document.getElementById('logout').onclick=async()=>{
-  await fetch('/logout',{method:'POST'});
-  location.href='/login';
-};
 load();
 </script>
