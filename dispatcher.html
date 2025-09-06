@@ -14,11 +14,14 @@ th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
 #blocks-table{width:auto}
 #blocks td{border:none;padding:2px 4px;text-align:center;width:14ch;height:2.6em}
 #blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;height:100%}
+#extra-buses{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(6ch,1fr));gap:4px}
+#extra-buses li{background:#10151c;border:1px solid #2a3442;border-radius:4px;padding:4px;text-align:center}
+#extra-buses .hint{background:none;border:none;padding:0;grid-column:1/-1;text-align:left}
 .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
- .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
- .dot{width:10px;height:10px;border-radius:50%}
- .ok{color:#b6f0cb}.ok .dot{background:#24c28a}
- .warn{color:#ffe29a}.warn .dot{background:#ffbf47}
+.pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
+.dot{width:10px;height:10px;border-radius:50%}
+.ok{color:#b6f0cb}.ok .dot{background:#24c28a}
+.warn{color:#ffe29a}.warn .dot{background:#ffbf47}
 .bad{color:#ffb0b0}.bad .dot{background:#ff6b6b}
 .hint{color:#9fb0c9}
 .banner{padding:8px 12px;display:none}
@@ -56,7 +59,7 @@ h2{font-size:18px;margin:16px 0 0}
       <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
     </table>
     <h2>Extra Buses</h2>
-    <ul id="extra-buses" style="list-style:none;padding:0;margin:0"><li class="hint">Loading…</li></ul>
+    <ul id="extra-buses"><li class="hint">Loading…</li></ul>
   </aside>
 </div>
 <script>
