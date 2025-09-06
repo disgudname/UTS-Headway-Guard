@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Headway Guard Users</title>
+<style>
+@font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
+body{font:16px 'FGDC',system-ui;background:#0b0e11;color:#e8eef5;margin:0;padding:20px;}
+label{display:block;margin:8px 0;}
+input{width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;}
+button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3442;background:#15202b;color:#e8eef5;cursor:pointer;}
+</style>
+<h1>Users</h1>
+<div id="list"></div>
+<h2>Create User</h2>
+<form id="new">
+<label>Username<input name="username"></label>
+<label>Password<input type="password" name="password"></label>
+<label><input type="checkbox" name="admin"> Admin</label>
+</form>
+<button id="create">Create</button>
+<script>
+async function load(){
+  const data = await fetch('/v1/users').then(r=>r.json());
+  const list = document.getElementById('list');
+  list.innerHTML='';
+  for(const u of data){
+    const div=document.createElement('div');
+    div.textContent = u.username + (u.is_admin ? ' (admin)' : '');
+    list.appendChild(div);
+  }
+}
+document.getElementById('create').onclick = async () => {
+  const form = document.getElementById('new');
+  await fetch('/v1/users', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username: form.username.value, password: form.password.value, is_admin: form.admin.checked})
+  });
+  form.reset();
+  load();
+};
+load();
+</script>

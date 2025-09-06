@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Headway Guard Login</title>
+<style>
+@font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
+body{font:16px 'FGDC',system-ui;background:#0b0e11;color:#e8eef5;margin:0;padding:20px;}
+label{display:block;margin:8px 0;}
+input{width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;}
+button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3442;background:#15202b;color:#e8eef5;cursor:pointer;}
+</style>
+<h1>Login</h1>
+<form id="login">
+<label>Username<input name="username"></label>
+<label>Password<input type="password" name="password"></label>
+</form>
+<button id="go">Login</button>
+<script>
+document.getElementById('go').onclick = async () => {
+  const form = document.getElementById('login');
+  const resp = await fetch('/login', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username: form.username.value, password: form.password.value})
+  });
+  if(resp.ok){
+    location.href='/admin';
+  }else{
+    alert('Login failed');
+  }
+};
+</script>
