@@ -95,11 +95,11 @@ const allBuses=[
   "24012","24112","24212","24312","24412",
   "25131","25231","25331","25431",
 ];
-let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map();
+let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map(), allBlockByBus=new Map();
 
 function updateExtraBuses(){
   const extra=$('#extra-buses');
-  const unassigned=allBuses.filter(b=>!blockByBus.has(b));
+  const unassigned=allBuses.filter(b=>!allBlockByBus.has(b));
   extra.innerHTML=unassigned.length
     ? unassigned.map(b=>`<li class="mono">${b}</li>`).join('')
     : '<li class="hint">None</li>';
@@ -112,7 +112,7 @@ async function loadBlocks(){
     const colorByRoute=new Map(Object.entries(res.color_by_route||{}));
     const routeByBus=new Map(Object.entries(res.route_by_bus||{}));
     const tbody=$('#blocks');
-    if(!groups.length){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; blockByBus=new Map(); updateExtraBuses(); return; }
+    if(!groups.length){ tbody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>'; blockByBus=new Map(); allBlockByBus=new Map(); updateExtraBuses(); return; }
 
     const entryMap=new Map();
     const busMap=new Map();
@@ -186,6 +186,7 @@ async function loadBlocks(){
     function aliasBlock(b){ const key=String(b||'').trim(); return alias[key]||key; }
     entries=entries.map(e=>({...e,block:aliasBlock(e.block)}));
     busBlocks=busBlocks.map(e=>({...e,block:aliasBlock(e.block)}));
+    allBlockByBus=new Map(busBlocks.map(e=>[e.bus,e.block]));
     const seen=new Map();
     const filtered=[];
     for(const e of entries){
@@ -266,7 +267,7 @@ async function loadBlocks(){
   updateExtraBuses();
   if(lastRows.length) render(lastRows);
   if(lastTLRows.length) renderTL(lastTLRows);
-  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; blockByBus=new Map(); updateExtraBuses(); }
+  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; blockByBus=new Map(); allBlockByBus=new Map(); updateExtraBuses(); }
 }
 
 async function loadRoutes(){
