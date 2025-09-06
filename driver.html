@@ -285,10 +285,16 @@ async function tick(){
   try{
   const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
   const cls=(data.order==='HOLD'?'red':(data.order==='Ease off'?'yellow':'green'));
-  const inst=data.order==='Ease off'? 'Ease off' : (data.order==='HOLD'?'HOLD':'Anti-Bunching OK');
   const box=$('#instruction');
   box.className=cls;
-  box.textContent=inst;
+  if(data.order==='HOLD'){
+    const cd = data.countdown;
+    const cdText = (cd!=null && isFinite(cd)) ? fmt(cd) : cd;
+    box.innerHTML = cdText?`HOLD<br><span style="font-size:32px">${cdText}</span>`:'HOLD';
+  }else{
+    const inst=data.order==='Ease off'? 'Ease off' : 'Anti-Bunching OK';
+    box.textContent=inst;
+  }
   const updatedTime = timeFormatter.format(new Date((data.updated_at || Date.now()/1000) * 1000));
   $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${updatedTime}</span>`;
   } catch(e){
