@@ -28,7 +28,15 @@
 <div id="layout">
   <div id="table-wrapper">
     <table id="bustable">
-      <thead><tr><th>Bus</th><th>Blocks</th><th>Miles since Reset</th><th id="resetHead">Reset</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Bus</th>
+          <th>Blocks</th>
+          <th>Miles since Reset</th>
+          <th>Total Miles Today</th>
+          <th id="resetHead">Reset</th>
+        </tr>
+      </thead>
       <tbody></tbody>
     </table>
   </div>
@@ -52,9 +60,9 @@ async function fetchData(){
     const info=data.buses[b];
     const tr=document.createElement('tr');
     const blocks=info.blocks.length?info.blocks.join(', '):'—';
-    const milesDisplay=(info.display_miles||0).toFixed(2);
-    const miles=isToday?milesDisplay:`${milesDisplay} (day ${(info.actual_miles||0).toFixed(2)})`;
-    tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${miles}</td>`;
+    const milesSinceReset=(info.display_miles||0).toFixed(2);
+    const totalMilesToday=(info.actual_miles||0).toFixed(2);
+    tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${milesSinceReset}</td><td>${totalMilesToday}</td>`;
     if(isToday){
       total+=info.display_miles||0;
       const td=document.createElement('td');
