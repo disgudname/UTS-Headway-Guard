@@ -102,7 +102,7 @@ let allBuses=[
 async function loadConfig(){
   try{
     const cfg = await j('/v1/config');
-    if(cfg.ALL_BUSES) allBuses = cfg.ALL_BUSES;
+    if(cfg.ALL_BUSES) allBuses = cfg.ALL_BUSES.map(b=>String(b));
   }catch(e){}
 }
 
@@ -110,7 +110,7 @@ let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, u
 
 function updateExtraBuses(){
   const extra=$('#extra-buses');
-  const unassigned=allBuses.filter(b=>!allBlockByBus.has(b));
+  const unassigned=allBuses.map(b=>String(b)).filter(b=>!allBlockByBus.has(b));
   extra.innerHTML=unassigned.length
     ? unassigned.map(b=>`<li class="mono">${b}</li>`).join('')
     : '<li class="hint">None</li>';
