@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Headway Guard Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+@font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
+body{font:16px 'FGDC',system-ui;background:#0b0e11;color:#e8eef5;margin:0;padding:20px;}
+label{display:block;margin:8px 0;}
+input,textarea{width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;}
+button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3442;background:#15202b;color:#e8eef5;cursor:pointer;}
+</style>
+<h1>Headway Guard Admin</h1>
+<form id="cfg"></form>
+<button id="save">Save</button>
+<script>
+async function load(){
+  const cfg = await fetch('/v1/config',{cache:'no-store'}).then(r=>r.json());
+  const form=document.getElementById('cfg');
+  for(const [k,v] of Object.entries(cfg)){
+    const label=document.createElement('label');
+    label.textContent=k;
+    let inp;
+    if(Array.isArray(v)){
+      inp=document.createElement('textarea');
+      inp.rows=2;
+      inp.value=v.join(',');
+    }else{
+      inp=document.createElement('input');
+      inp.value=v;
+    }
+    inp.name=k;
+    label.appendChild(inp);
+    form.appendChild(label);
+  }
+}
+async function save(){
+  const form=document.getElementById('cfg');
+  const data={};
+  for(const el of form.elements){
+    if(!el.name) continue;
+    if(el.tagName==='TEXTAREA'){
+      data[el.name]=el.value.split(',').map(s=>s.trim()).filter(Boolean);
+    }else{
+      const num=parseFloat(el.value);
+      data[el.name]=isNaN(num)?el.value:num;
+    }
+  }
+  await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+  alert('Saved!');
+}
+document.getElementById('save').onclick=save;
+load();
+</script>

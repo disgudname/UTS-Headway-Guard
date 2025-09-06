@@ -25,7 +25,7 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re
 from datetime import datetime
@@ -76,6 +76,23 @@ BRIDGE_LON = -78.4995922309842
 LOW_CLEARANCE_SEARCH_M = 25 * 1609.34  # 25 miles in meters
 LOW_CLEARANCE_LIMIT_FT = 11 + 11/12    # 11'11"
 BRIDGE_IGNORE_RADIUS_M = 100.0
+
+# Driver/Dispatcher configuration
+OVERHEIGHT_BUSES = [
+    "25131","25231","25331","25431","17132","14132","12432","18532"
+]
+LOW_CLEARANCE_RADIUS = 122
+BRIDGE_RADIUS = 117
+ALL_BUSES = [
+    "12132","12232","12332","12432","12532","12632",
+    "14132","14232","14332","14432","14532",
+    "17132","17232","17332","17432","17532","17632","17732",
+    "18132","18232","18332","18432","18532","18632","18732","18832",
+    "19132","19232","19332","19432","19532",
+    "20131","20231","20331","20431",
+    "24012","24112","24212","24312","24412",
+    "25131","25231","25331","25431",
+]
 
 # ---------------------------
 # Geometry helpers
@@ -442,6 +459,17 @@ BASE_DIR = Path(__file__).resolve().parent
 DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
+ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
+
+CONFIG_KEYS = [
+    "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
+    "VEH_REFRESH_S","ROUTE_REFRESH_S","STALE_FIX_S","ROUTE_GRACE_S",
+    "URBAN_FACTOR","GREEN_FRAC","RED_FRAC","ONTARGET_TOL_SEC","W_LIMIT",
+    "EMA_ALPHA","MIN_SPEED_FLOOR","MAX_SPEED_CEIL","LEADER_EPS_M",
+    "DEFAULT_CAP_MPS","BRIDGE_LAT","BRIDGE_LON","LOW_CLEARANCE_SEARCH_M",
+    "LOW_CLEARANCE_LIMIT_FT","BRIDGE_IGNORE_RADIUS_M","OVERHEIGHT_BUSES",
+    "LOW_CLEARANCE_RADIUS","BRIDGE_RADIUS","ALL_BUSES"
+]
 
 class State:
     def __init__(self):
@@ -851,6 +879,36 @@ async def fgdc_font():
 @app.get("/map")
 async def map_page():
     return HTMLResponse(MAP_HTML)
+
+# ---------------------------
+# ADMIN PAGE
+# ---------------------------
+@app.get("/admin")
+async def admin_page():
+    return HTMLResponse(ADMIN_HTML)
+
+# ---------------------------
+# CONFIG
+# ---------------------------
+@app.get("/v1/config")
+async def get_config():
+    return {k: globals().get(k) for k in CONFIG_KEYS}
+
+@app.post("/v1/config")
+async def set_config(payload: Dict[str, Any]):
+    for k, v in payload.items():
+        if k in CONFIG_KEYS:
+            cur = globals().get(k)
+            if isinstance(cur, list):
+                if not isinstance(v, list):
+                    v = [x.strip() for x in str(v).split(',') if x.strip()]
+                globals()[k] = v
+            else:
+                try:
+                    globals()[k] = type(cur)(v)
+                except Exception:
+                    globals()[k] = v
+    return {k: globals().get(k) for k in CONFIG_KEYS}
 
 # ---------------------------
 # DRIVER PAGE

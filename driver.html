@@ -97,11 +97,11 @@ const $ = s=>document.querySelector(s);
 const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
 let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200';
-const OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
-const LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
-const BRIDGE_RADIUS = 117; // meters
-const BRIDGE_LAT = 38.03404931117353;
-const BRIDGE_LON = -78.4995922309842;
+let OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
+let LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
+let BRIDGE_RADIUS = 117; // meters
+let BRIDGE_LAT = 38.03404931117353;
+let BRIDGE_LON = -78.4995922309842;
 let lowClearances = [];
 let clearanceCircles = [];
 let bridgeWarningActive = false;
@@ -114,6 +114,18 @@ const timeFormatter = new Intl.DateTimeFormat([], {
   hour12: true,
   timeZone: tz
 });
+
+async function loadConfig(){
+  try{
+    const cfg = await j('/v1/config');
+    if(cfg.OVERHEIGHT_BUSES) OVERHEIGHT_BUSES = cfg.OVERHEIGHT_BUSES;
+    if(cfg.LOW_CLEARANCE_RADIUS!=null) LOW_CLEARANCE_RADIUS = cfg.LOW_CLEARANCE_RADIUS;
+    if(cfg.BRIDGE_RADIUS!=null) BRIDGE_RADIUS = cfg.BRIDGE_RADIUS;
+    if(cfg.BRIDGE_LAT!=null) BRIDGE_LAT = cfg.BRIDGE_LAT;
+    if(cfg.BRIDGE_LON!=null) BRIDGE_LON = cfg.BRIDGE_LON;
+  }catch(e){}
+}
+
 function startAlert(){
   if(alertInterval) return;
   alertCtx = new (window.AudioContext||window.webkitAudioContext)();
@@ -370,7 +382,7 @@ $('#theme').onclick = ()=>{
   const light=document.body.classList.toggle('light');
   $('#theme').textContent=light?'Dark Mode':'Light Mode';
 };
-document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadBuses(); await loadRoutes(); await loadLowClearances(); }catch(e){ $('#instruction').className='red'; $('#instruction').textContent='Error loading lists'; } });
+document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadConfig(); await loadBuses(); await loadRoutes(); await loadLowClearances(); }catch(e){ $('#instruction').className='red'; $('#instruction').textContent='Error loading lists'; } });
 async function pollHealth(){
   try{ const h=await j('/v1/health'); const w=$('#warn'); if(!h.ok && h.last_error){ w.style.display='block'; w.textContent='Feed error: '+h.last_error; } else { w.style.display='none'; w.textContent=''; } }
   catch(e){ const w=$('#warn'); w.style.display='block'; w.textContent='Health check failed'; }
