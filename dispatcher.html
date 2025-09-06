@@ -41,14 +41,14 @@ h2{font-size:18px;margin:16px 0 0}
     <h2>Headway Guard AntiBunching</h2>
     <table>
       <thead><tr>
-        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Countdown</th>
+        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
       </tr></thead>
       <tbody id="rows"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
     </table>
     <h2>TransLoc AntiBunching</h2>
     <table>
       <thead><tr>
-        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Countdown</th>
+        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
       </tr></thead>
       <tbody id="rows-tl"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
     </table>
@@ -355,7 +355,7 @@ function render(rows){
     +'<td class="mono">'+(blockByBus.get(v.name)||"—")+'</td>'
     +'<td>'+ (onlyBus ? '<span class="pill ok"><span class="dot"></span><span>Only Bus</span></span>' : pill(v.status)) +'</td>'
     +'<td class="mono">'+(v.leader_name||"—")+'</td>'
-    +'<td class="mono">'+(v.status!=="green"&&v.countdown_sec!=null?fmt(v.countdown_sec):"—")+'</td>'
+    +'<td class="mono">'+(v.countdown_sec!=null?fmt(v.countdown_sec):"—")+'</td>'
     +'</tr>').join("");
   setBanner(onlyBus ? 'Only 1 vehicle on route — headway control inactive.' : '', 'info');
   if(lastTLRows.length) renderTL(lastTLRows);
@@ -379,7 +379,7 @@ function renderTL(rows){
       +'<td class="mono">'+(blockByBus.get(v.VehicleName)||"—")+'</td>'
       +'<td>'+pill(sev)+'</td>'
       +'<td class="mono">—</td>'
-      +'<td class="mono">'+(sev!=='green'&&v.Adjustment!=null?fmt(v.Adjustment):"—")+'</td>'
+      +'<td class="mono">'+(v.Adjustment!=null?fmt(v.Adjustment):"—")+'</td>'
       +'</tr>';
   }).join('');
 }
