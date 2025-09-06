@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Service Crew - Headway Guard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --btn:#15202b; }
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;}
+  table{width:100%;border-collapse:collapse;}
+  th,td{border:1px solid var(--line);padding:6px;text-align:left;}
+  #layout{display:flex;flex-direction:column;padding:8px;gap:8px;}
+  #table-wrapper{overflow-x:auto;}
+  #mapframe{border:1px solid var(--line);min-height:400px;width:100%;}
+  button{padding:4px 8px;background:var(--btn);border:1px solid var(--chip);color:var(--ink);border-radius:6px;cursor:pointer;}
+  button:hover{filter:brightness(1.1);}
+  @media (min-width:768px){#layout{flex-direction:row;}#mapframe{flex:1;min-height:0;}}
+</style>
+</head>
+<body>
+<div style="padding:8px;">
+  <label for="date">Date:</label>
+  <input type="date" id="date" />
+</div>
+<div id="layout">
+  <div id="table-wrapper">
+    <table id="bustable">
+      <thead><tr><th>Bus</th><th>Blocks</th><th>Miles</th><th id="resetHead">Reset</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <iframe id="mapframe" src="/map"></iframe>
+</div>
+<script>
+const dateInput=document.getElementById('date');
+const tbody=document.querySelector('#bustable tbody');
+function todayStr(){return new Date().toISOString().split('T')[0];}
+async function fetchData(){
+  const date=dateInput.value||todayStr();
+  const res=await fetch(`/v1/servicecrew?date=${date}`);
+  const data=await res.json();
+  const isToday=date===todayStr();
+  document.getElementById('resetHead').style.display=isToday?'':'none';
+  tbody.innerHTML='';
+  const buses=Object.keys(data.buses).sort();
+  for(const b of buses){
+    const info=data.buses[b];
+    const tr=document.createElement('tr');
+    const blocks=info.blocks.length?info.blocks.join(', '):'—';
+    const miles=isToday?(info.display_miles||0).toFixed(2):`${(info.actual_miles||0).toFixed(2)} (reset at ${(info.reset_miles||0).toFixed(2)})`;
+    tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${miles}</td>`;
+    if(isToday){
+      const td=document.createElement('td');
+      const btn=document.createElement('button');
+      btn.textContent='Reset';
+      btn.onclick=async()=>{await fetch('/v1/servicecrew/reset/'+b,{method:'POST'});fetchData();};
+      td.appendChild(btn);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+}
+dateInput.value=todayStr();
+dateInput.addEventListener('change',fetchData);
+fetchData();
+</script>
+</body>
+</html>

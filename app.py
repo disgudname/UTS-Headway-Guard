@@ -207,6 +207,15 @@ class Route:
     seg_caps_mps: List[float] = field(default_factory=list)
 
 
+@dataclass
+class BusDay:
+    total_miles: float = 0.0
+    reset_miles: float = 0.0
+    blocks: set[str] = field(default_factory=set)
+    last_lat: Optional[float] = None
+    last_lon: Optional[float] = None
+
+
 LOW_CLEARANCES_CACHE: Optional[List[Dict[str, float]]] = None
 
 # ---------------------------
@@ -227,6 +236,20 @@ async def fetch_vehicles(client: httpx.AsyncClient, include_unassigned: bool = T
     r.raise_for_status()
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
+
+async def fetch_block_groups(client: httpx.AsyncClient) -> List[Dict]:
+    d = datetime.now(ZoneInfo("America/New_York"))
+    ds = f"{d.month}/{d.day}/{d.year}"
+    r1 = await client.get(f"{TRANSLOC_BASE}/GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}", timeout=20)
+    r1.raise_for_status()
+    sched = r1.json()
+    sched = sched if isinstance(sched, list) else sched.get("d", [])
+    ids = ",".join(str(s.get("ScheduleVehicleCalendarID")) for s in sched if s.get("ScheduleVehicleCalendarID"))
+    if ids:
+        r2 = await client.get(f"{TRANSLOC_BASE}/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}", timeout=20)
+        r2.raise_for_status()
+        return r2.json().get("BlockGroups", [])
+    return []
 
 async def fetch_overpass_speed_profile(route: Route, client: httpx.AsyncClient) -> List[float]:
     """Build per-segment speed caps (m/s). Minimal version: default cap only."""
@@ -460,6 +483,7 @@ DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
+SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -493,6 +517,8 @@ class State:
         self.blocks_cache_ts: float = 0.0
         self.anti_cache: Optional[Dict] = None
         self.anti_cache_ts: float = 0.0
+        # Per-day mileage and block history
+        self.bus_days: Dict[str, Dict[str, BusDay]] = {}
 
 state = State()
 
@@ -518,6 +544,11 @@ async def startup():
                 try:
                     routes_raw = await fetch_routes_with_shapes(client)
                     vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
+                    try:
+                        block_groups = await fetch_block_groups(client)
+                    except Exception as e:
+                        block_groups = []
+                        print(f"[updater] block fetch error: {e}")
                     async with state.lock:
                         # Update complete routes & roster (all buses/all routes)
                         try:
@@ -616,7 +647,38 @@ async def startup():
                             veh.s_pos = s_pos; veh.ema_mps = ema; veh.dir_sign = dir_sign
                             new_map[rid][vid] = veh
                             state.last_dir_sign[vid] = dir_sign
+
+                            # Track per-day mileage
+                            today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+                            bus_days = state.bus_days.setdefault(today, {})
+                            bd = bus_days.setdefault(name, BusDay())
+                            if bd.last_lat is not None and bd.last_lon is not None:
+                                bd.total_miles += haversine((bd.last_lat, bd.last_lon), (veh.lat, veh.lon)) / 1609.34
+                            bd.last_lat = veh.lat
+                            bd.last_lon = veh.lon
                         state.vehicles_by_route = new_map
+                        # Update block assignments cache and history
+                        color_by_route = {rid: r.color for rid, r in state.routes.items() if r.color}
+                        route_by_bus = {}
+                        for rid, vehs in state.vehicles_by_route.items():
+                            for v in vehs.values():
+                                route_by_bus[str(v.name)] = rid
+                        state.blocks_cache = {
+                            "block_groups": block_groups,
+                            "color_by_route": color_by_route,
+                            "route_by_bus": route_by_bus,
+                        }
+                        state.blocks_cache_ts = time.time()
+                        today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+                        bus_days = state.bus_days.setdefault(today, {})
+                        for grp in block_groups:
+                            for blk in grp.get("Blocks", []):
+                                bid = blk.get("BlockId")
+                                for trip in blk.get("Trips", []):
+                                    bus = str(trip.get("VehicleName") or "")
+                                    if bus and bid:
+                                        bd = bus_days.setdefault(bus, BusDay())
+                                        bd.blocks.add(bid)
                 except Exception as e:
                     # record last error for UI surfacing
                     try:
@@ -744,23 +806,10 @@ async def route_vehicles_raw(route_id: int):
 @app.get("/v1/dispatch/blocks")
 async def dispatch_blocks():
     async with state.lock:
-        now = time.time()
-        if state.blocks_cache and now - state.blocks_cache_ts < BLOCK_REFRESH_S:
+        if state.blocks_cache:
             return state.blocks_cache
-    d = datetime.now(ZoneInfo("America/New_York"))
-    ds = f"{d.month}/{d.day}/{d.year}"
     async with httpx.AsyncClient() as client:
-        r1 = await client.get(f"{TRANSLOC_BASE}/GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}", timeout=20)
-        r1.raise_for_status()
-        sched = r1.json()
-        sched = sched if isinstance(sched, list) else sched.get("d", [])
-        ids = ",".join(str(s.get("ScheduleVehicleCalendarID")) for s in sched if s.get("ScheduleVehicleCalendarID"))
-        if ids:
-            r2 = await client.get(f"{TRANSLOC_BASE}/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}", timeout=20)
-            r2.raise_for_status()
-            block_groups = r2.json().get("BlockGroups", [])
-        else:
-            block_groups = []
+        block_groups = await fetch_block_groups(client)
     async with state.lock:
         color_by_route = {rid: r.color for rid, r in state.routes.items() if r.color}
         route_by_bus: Dict[str, int] = {}
@@ -909,6 +958,45 @@ async def set_config(payload: Dict[str, Any]):
                 except Exception:
                     globals()[k] = v
     return {k: globals().get(k) for k in CONFIG_KEYS}
+
+# ---------------------------
+# SERVICE CREW API
+# ---------------------------
+@app.get("/v1/servicecrew")
+async def servicecrew_data(date: Optional[str] = None):
+    if not date:
+        date = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    async with state.lock:
+        day = state.bus_days.get(date, {})
+        buses = {}
+        for bus in ALL_BUSES:
+            bd = day.get(bus)
+            if bd:
+                buses[bus] = {
+                    "blocks": sorted(list(bd.blocks)),
+                    "actual_miles": bd.total_miles,
+                    "reset_miles": bd.reset_miles,
+                    "display_miles": bd.total_miles - bd.reset_miles,
+                }
+            else:
+                buses[bus] = {"blocks": [], "actual_miles": 0.0, "reset_miles": 0.0, "display_miles": 0.0}
+        return {"date": date, "buses": buses}
+
+@app.post("/v1/servicecrew/reset/{bus_name}")
+async def servicecrew_reset(bus_name: str):
+    today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    async with state.lock:
+        day = state.bus_days.setdefault(today, {})
+        bd = day.setdefault(bus_name, BusDay())
+        bd.reset_miles = bd.total_miles
+    return {"status": "ok"}
+
+# ---------------------------
+# SERVICE CREW PAGE
+# ---------------------------
+@app.get("/servicecrew")
+async def servicecrew_page():
+    return HTMLResponse(SERVICECREW_HTML)
 
 # ---------------------------
 # DRIVER PAGE
