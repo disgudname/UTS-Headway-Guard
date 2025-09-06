@@ -51,6 +51,7 @@ OVERPASS_EP   = os.getenv("OVERPASS_EP", "https://overpass-api.de/api/interprete
 
 VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "10"))
 ROUTE_REFRESH_S = int(os.getenv("ROUTE_REFRESH_S", "60"))
+BLOCK_REFRESH_S = int(os.getenv("BLOCK_REFRESH_S", "30"))
 STALE_FIX_S     = int(os.getenv("STALE_FIX_S", "90"))
 
 # Grace window to keep routes "active" despite brief data hiccups (prevents dispatcher flicker)
@@ -716,7 +717,7 @@ async def route_vehicles_raw(route_id: int):
 async def dispatch_blocks():
     async with state.lock:
         now = time.time()
-        if state.blocks_cache and now - state.blocks_cache_ts < 60:
+        if state.blocks_cache and now - state.blocks_cache_ts < BLOCK_REFRESH_S:
             return state.blocks_cache
     d = datetime.now(ZoneInfo("America/New_York"))
     ds = f"{d.month}/{d.day}/{d.year}"
