@@ -115,7 +115,8 @@ async function loadConfig(){
 let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map(), allBlockByBus=new Map(), lastUpdateTs=Date.now();
 
 function updateLastUpdated(){
-  const updatedAgo = fmt((Date.now() - lastUpdateTs) / 1000);
+  const secondsAgo = Math.max((Date.now() - lastUpdateTs) / 1000, 0);
+  const updatedAgo = fmt(secondsAgo);
   $('#upd').textContent = "Updated " + updatedAgo + " ago";
 }
 

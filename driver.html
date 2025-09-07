@@ -292,7 +292,7 @@ async function tick(){
     box.textContent=inst;
   }
     const ts = (data.updated_at || Date.now()/1000) * 1000;
-    const updatedAgo = fmt((Date.now() - ts) / 1000);
+    const updatedAgo = fmt(Math.max((Date.now() - ts) / 1000, 0));
     $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class="muted">Leader: ${data.leader||'—'} • Updated ${updatedAgo} ago</span>`;
   } catch(e){
     const box=$('#instruction');
