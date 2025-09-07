@@ -31,6 +31,7 @@ import asyncio, time, math, os, json, re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
+from collections import deque
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
@@ -225,6 +226,7 @@ LOW_CLEARANCES_CACHE: Optional[List[Dict[str, float]]] = None
 async def fetch_routes_with_shapes(client: httpx.AsyncClient):
     url = f"{TRANSLOC_BASE}/GetRoutesForMapWithScheduleWithEncodedLine?APIKey={TRANSLOC_KEY}"
     r = await client.get(url, timeout=20)
+    record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
@@ -234,6 +236,7 @@ async def fetch_vehicles(client: httpx.AsyncClient, include_unassigned: bool = T
     flag = "true" if include_unassigned else "false"
     url = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute={flag}"
     r = await client.get(url, timeout=20)
+    record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
@@ -241,13 +244,17 @@ async def fetch_vehicles(client: httpx.AsyncClient, include_unassigned: bool = T
 async def fetch_block_groups(client: httpx.AsyncClient) -> List[Dict]:
     d = datetime.now(ZoneInfo("America/New_York"))
     ds = f"{d.month}/{d.day}/{d.year}"
-    r1 = await client.get(f"{TRANSLOC_BASE}/GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}", timeout=20)
+    r1_url = f"{TRANSLOC_BASE}/GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
+    r1 = await client.get(r1_url, timeout=20)
+    record_api_call("GET", r1_url, r1.status_code)
     r1.raise_for_status()
     sched = r1.json()
     sched = sched if isinstance(sched, list) else sched.get("d", [])
     ids = ",".join(str(s.get("ScheduleVehicleCalendarID")) for s in sched if s.get("ScheduleVehicleCalendarID"))
     if ids:
-        r2 = await client.get(f"{TRANSLOC_BASE}/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}", timeout=20)
+        r2_url = f"{TRANSLOC_BASE}/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
+        r2 = await client.get(r2_url, timeout=20)
+        record_api_call("GET", r2_url, r2.status_code)
         r2.raise_for_status()
         return r2.json().get("BlockGroups", [])
     return []
@@ -267,6 +274,7 @@ async def fetch_low_clearances(client: httpx.AsyncClient) -> List[Dict[str, floa
 out center;
 """
     r = await client.post(OVERPASS_EP, data=query, timeout=60)
+    record_api_call("POST", OVERPASS_EP, r.status_code)
     r.raise_for_status()
     data = r.json()
     items: List[Dict[str, float]] = []
@@ -486,6 +494,16 @@ MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
 SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
 LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
+APICALLS_HTML = (BASE_DIR / "apicalls.html").read_text(encoding="utf-8")
+
+API_CALL_LOG = deque(maxlen=100)
+API_CALL_SUBS: set[asyncio.Queue] = set()
+
+def record_api_call(method: str, url: str, status: int) -> None:
+    item = {"ts": int(time.time()*1000), "method": method, "url": url, "status": status}
+    API_CALL_LOG.append(item)
+    for q in list(API_CALL_SUBS):
+        q.put_nowait(item)
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -903,7 +921,9 @@ async def anti_bunching_raw():
         if state.anti_cache and now - state.anti_cache_ts < VEH_REFRESH_S:
             return state.anti_cache
     async with httpx.AsyncClient() as client:
-        r = await client.get(f"{TRANSLOC_BASE}/GetAntiBunching", timeout=20)
+        url = f"{TRANSLOC_BASE}/GetAntiBunching"
+        r = await client.get(url, timeout=20)
+        record_api_call("GET", url, r.status_code)
         r.raise_for_status()
         data = r.json()
     async with state.lock:
@@ -983,6 +1003,24 @@ async def stream_route(route_id: int):
                     rows = []
             yield f"data: {json.dumps([r.__dict__ for r in rows])}\n\n"
             await asyncio.sleep(VEH_REFRESH_S)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+# ---------------------------
+# SSE: External API calls
+# ---------------------------
+@app.get("/v1/stream/api_calls")
+async def stream_api_calls():
+    async def gen():
+        q: asyncio.Queue = asyncio.Queue()
+        API_CALL_SUBS.add(q)
+        try:
+            for item in list(API_CALL_LOG):
+                yield f"data: {json.dumps(item)}\n\n"
+            while True:
+                item = await q.get()
+                yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            API_CALL_SUBS.discard(q)
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ---------------------------
@@ -1090,3 +1128,10 @@ async def driver_page():
 @app.get("/dispatcher")
 async def dispatcher_page():
     return HTMLResponse(DISPATCHER_HTML)
+
+# ---------------------------
+# API CALLS PAGE
+# ---------------------------
+@app.get("/apicalls")
+async def apicalls_page():
+    return HTMLResponse(APICALLS_HTML)
