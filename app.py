@@ -1154,7 +1154,10 @@ async def fgdc_font():
 
 @app.get("/vehicle_log.jsonl", include_in_schema=False)
 async def vehicle_log_file():
-    return FileResponse(BASE_DIR / "vehicle_log.jsonl", media_type="application/json")
+    path = BASE_DIR / "vehicle_log.jsonl"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+    return FileResponse(path, media_type="application/json")
 
 # ---------------------------
 # LANDING PAGE

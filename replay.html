@@ -43,14 +43,16 @@
 
     function loadLog() {
       fetch('vehicle_log.jsonl')
-        .then(r => r.text())
+        .then(r => (r.ok ? r.text() : ''))
         .then(text => {
+          if (!text.trim()) return;
           logData = text.trim().split('\n').map(line => JSON.parse(line));
           if (logData.length === 0) return;
           const timeline = document.getElementById('timeline');
           timeline.max = logData.length - 1;
           showFrame(0);
-        });
+        })
+        .catch(err => console.error('Failed to load vehicle log', err));
     }
 
     function clearMarkers() {
