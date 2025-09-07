@@ -100,7 +100,7 @@
 const $ = s=>document.querySelector(s);
 const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const m=Math.floor(s/60), r=s%60; return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; };
 async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
-let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200';
+let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200', lastUpdateTs=Date.now();
 let OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
 let LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
 let BRIDGE_RADIUS = 117; // meters
@@ -277,6 +277,12 @@ function setRoutePillColor(color){
     pill.style.color = contrast;
   }
 }
+function updateLastUpdated(){
+  const el=$('#upd');
+  if(!el) return;
+  const secondsAgo=(Date.now()-lastUpdateTs)/1000;
+  el.textContent="Updated "+fmt(secondsAgo)+" ago";
+}
 async function tick(){
   try{
   const data=await j(`/v1/routes/${currentRoute}/vehicles/${encodeURIComponent(currentBus)}/instruction`);
@@ -292,8 +298,9 @@ async function tick(){
     box.textContent=inst;
   }
     const ts = (data.updated_at || Date.now()/1000) * 1000;
-    const updatedAgo = fmt((Date.now() - ts) / 1000);
-    $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class="muted">Leader: ${data.leader||'—'} • Updated ${updatedAgo} ago</span>`;
+    lastUpdateTs = ts;
+    $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class="muted">Leader: ${data.leader||'—'} • <span id="upd"></span></span>`;
+    updateLastUpdated();
   } catch(e){
     const box=$('#instruction');
     box.className='red';
@@ -392,7 +399,19 @@ $('#theme').onclick = ()=>{
   const light=document.body.classList.toggle('light');
   $('#theme').textContent=light?'Dark Mode':'Light Mode';
 };
-document.addEventListener('DOMContentLoaded', async ()=>{ try{ await loadConfig(); await loadBuses(); await loadRoutes(); await loadLowClearances(); }catch(e){ $('#instruction').className='red'; $('#instruction').textContent='Error loading lists'; } });
+document.addEventListener('DOMContentLoaded', async ()=>{
+  try{
+    await loadConfig();
+    await loadBuses();
+    await loadRoutes();
+    await loadLowClearances();
+  }catch(e){
+    $('#instruction').className='red';
+    $('#instruction').textContent='Error loading lists';
+  }
+  updateLastUpdated();
+  setInterval(updateLastUpdated,1000);
+});
 async function pollHealth(){
   try{ const h=await j('/v1/health'); const w=$('#warn'); if(!h.ok && h.last_error){ w.style.display='block'; w.textContent='Feed error: '+h.last_error; } else { w.style.display='none'; w.textContent=''; } }
   catch(e){ const w=$('#warn'); w.style.display='block'; w.textContent='Health check failed'; }
