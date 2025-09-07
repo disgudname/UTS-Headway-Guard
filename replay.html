@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Replay Map - Headway Guard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: calc(100% - 60px); width: 100%; }
+    #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background: rgba(255,255,255,0.9); display: flex; align-items: center; padding: 5px; box-sizing: border-box; }
+    #timeline { flex: 1; margin: 0 10px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="controls">
+    <button id="playBtn">Play</button>
+    <button id="pauseBtn">Pause</button>
+    <button id="ff2Btn">FF x2</button>
+    <button id="ff4Btn">FF x4</button>
+    <input type="range" id="timeline" min="0" value="0">
+    <span id="timeLabel"></span>
+  </div>
+  <script>
+    let map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    let logData = [];
+    let markers = {};
+    let timer = null;
+    let playbackSpeed = 1;
+    let routeColors = {};
+
+    function fetchRouteColors() {
+      const routesApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681";
+      return fetch(routesApiUrl)
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) data.forEach(route => { routeColors[route.RouteID] = route.MapLineColor; }); });
+    }
+
+    function loadLog() {
+      fetch('vehicle_log.jsonl')
+        .then(r => r.text())
+        .then(text => {
+          logData = text.trim().split('\n').map(line => JSON.parse(line));
+          if (logData.length === 0) return;
+          const timeline = document.getElementById('timeline');
+          timeline.max = logData.length - 1;
+          showFrame(0);
+        });
+    }
+
+    function clearMarkers() {
+      for (let id in markers) { map.removeLayer(markers[id]); }
+      markers = {};
+    }
+
+    function showFrame(i) {
+      if (!logData[i]) return;
+      const entry = logData[i];
+      document.getElementById('timeline').value = i;
+      document.getElementById('timeLabel').textContent = new Date(entry.ts).toLocaleTimeString();
+      clearMarkers();
+      entry.vehicles.forEach(vehicle => {
+        const routeID = vehicle.RouteID || 0;
+        const pos = [vehicle.Latitude, vehicle.Longitude];
+        const isMoving = vehicle.GroundSpeed > 0;
+        const heading = vehicle.Heading;
+        const routeColor = routeColors[routeID] || '#000000';
+        const svgIcon = `
+          <svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg">
+            <g>
+              <circle cx="20" cy="20" r="15" fill="${routeColor}" stroke="white" stroke-width="3" />
+              ${isMoving ? `
+                <line x1="20" y1="10" x2="20" y2="22" stroke="white" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
+                <polygon points="15,22 25,22 20,30" fill="white" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
+              ` : `
+                <rect x="14" y="14" width="12" height="12" fill="white" />
+              `}
+            </g>
+          </svg>`;
+        const busIcon = L.divIcon({ html: svgIcon, className: '', iconSize: [40,40], iconAnchor: [20,20] });
+        const marker = L.marker(pos, { icon: busIcon }).addTo(map);
+        markers[vehicle.VehicleID] = marker;
+      });
+    }
+
+    function advance() {
+      const timeline = document.getElementById('timeline');
+      let next = parseInt(timeline.value) + 1;
+      if (next >= logData.length) { pause(); return; }
+      showFrame(next);
+    }
+
+    function play() {
+      pause();
+      timer = setInterval(advance, 1000 / playbackSpeed);
+    }
+
+    function pause() {
+      if (timer) clearInterval(timer);
+      timer = null;
+    }
+
+    document.getElementById('playBtn').onclick = () => { playbackSpeed = 1; play(); };
+    document.getElementById('pauseBtn').onclick = pause;
+    document.getElementById('ff2Btn').onclick = () => { playbackSpeed = 2; play(); };
+    document.getElementById('ff4Btn').onclick = () => { playbackSpeed = 4; play(); };
+    document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
+
+    fetchRouteColors().then(loadLog);
+  </script>
+</body>
+</html>
