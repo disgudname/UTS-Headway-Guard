@@ -555,6 +555,7 @@ ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
 SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
 LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
 APICALLS_HTML = (BASE_DIR / "apicalls.html").read_text(encoding="utf-8")
+DEBUG_HTML = (BASE_DIR / "debug.html").read_text(encoding="utf-8")
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -948,6 +949,10 @@ async def route_vehicles_raw(route_id: int):
                 "lon": v.lon,
                 "heading": getattr(v, "heading", 0.0),
                 "ground_mps": v.ground_mps,
+                "s_pos": getattr(v, "s_pos", 0.0),
+                "ema_mps": getattr(v, "ema_mps", 0.0),
+                "dir_sign": getattr(v, "dir_sign", 0),
+                "age_s": getattr(v, "age_s", 0.0),
             })
         return {"vehicles": items}
 
@@ -1021,6 +1026,43 @@ async def route_status(route_id: int):
             # If the route isn't currently active, return empty list instead of 404
             return []
         return compute_status_for_route(route, vehs)
+
+@app.get("/v1/routes/{route_id}/debug")
+async def route_debug(route_id: int):
+    async with state.lock:
+        route = state.routes.get(route_id)
+        vehs = state.vehicles_by_route.get(route_id, {})
+        if not route:
+            return []
+        views = compute_status_for_route(route, vehs)
+        by_id = {v.id: v for v in vehs.values()}
+        out = []
+        for vv in views:
+            raw = by_id.get(vv.id)
+            d = {
+                "id": vv.id,
+                "name": vv.name,
+                "status": vv.status,
+                "headway_sec": vv.headway_sec,
+                "target_headway_sec": vv.target_headway_sec,
+                "gap_label": vv.gap_label,
+                "leader_name": vv.leader_name,
+                "countdown_sec": vv.countdown_sec,
+                "updated_at": vv.updated_at,
+            }
+            if raw:
+                d.update({
+                    "lat": raw.lat,
+                    "lon": raw.lon,
+                    "s_pos": raw.s_pos,
+                    "ground_mps": raw.ground_mps,
+                    "ema_mps": raw.ema_mps,
+                    "dir_sign": raw.dir_sign,
+                    "heading": raw.heading,
+                    "age_s": raw.age_s,
+                })
+            out.append(d)
+        return out
 
 @app.get("/v1/routes/{route_id}/vehicles/{vehicle_name}/instruction")
 async def vehicle_instruction(route_id: int, vehicle_name: str):
@@ -1107,6 +1149,13 @@ async def landing_page():
 @app.get("/map")
 async def map_page():
     return HTMLResponse(MAP_HTML)
+
+# ---------------------------
+# DEBUG PAGE
+# ---------------------------
+@app.get("/debug")
+async def debug_page():
+    return HTMLResponse(DEBUG_HTML)
 
 # ---------------------------
 # ADMIN PAGE
