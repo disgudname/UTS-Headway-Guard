@@ -68,6 +68,7 @@ EMA_ALPHA       = float(os.getenv("EMA_ALPHA", "0.40"))
 MIN_SPEED_FLOOR = float(os.getenv("MIN_SPEED_FLOOR", "1.2"))
 MAX_SPEED_CEIL  = float(os.getenv("MAX_SPEED_CEIL", "22.0"))
 LEADER_EPS_M   = float(os.getenv("LEADER_EPS_M", "8.0"))
+STOPPED_MPS    = float(os.getenv("STOPPED_MPS", "0.5"))
 MPH_TO_MPS      = 0.44704
 DEFAULT_CAP_MPS = 25 * MPH_TO_MPS
 
@@ -428,6 +429,15 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
         plus.extend(zeros)
     else:
         minus.extend(zeros)
+
+    # If one ring is entirely stationary, merge rings so stopped buses still act
+    # as leaders for moving vehicles.
+    def all_stopped(group: List[Vehicle]) -> bool:
+        return all(abs(v.ground_mps) < STOPPED_MPS for v in group)
+
+    if plus and minus and (all_stopped(plus) or all_stopped(minus)):
+        plus = vs
+        minus = []
 
     # If one ring is empty while the other has vehicles, merge them so every bus
     # receives guidance.  When both rings have at least one bus we keep them
