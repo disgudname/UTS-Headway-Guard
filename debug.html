@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Debug - Headway Guard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --line:#1f2630; --muted:#9fb0c9; }
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;display:flex;height:100vh;}
+  #info{flex:1;overflow:auto;padding:10px;box-sizing:border-box;}
+  #mapFrame{flex:1;border:0;}
+  table{border-collapse:collapse;width:100%;margin-bottom:16px;font-size:14px;}
+  th,td{border:1px solid var(--line);padding:4px;text-align:left;}
+  h3{margin:8px 0;}
+  .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
+</style>
+</head>
+<body>
+<div id="info"></div>
+<iframe id="mapFrame" src="/map"></iframe>
+<script>
+async function loadDebug(){
+  const container=document.getElementById('info');
+  try{
+    const res=await fetch('/v1/routes');
+    const data=await res.json();
+    const routes=data.routes||[];
+    container.innerHTML='';
+    for(const r of routes){
+      const sect=document.createElement('section');
+      const h=document.createElement('h3');
+      h.textContent=`${r.name} (ID ${r.id})`;
+      sect.appendChild(h);
+      try{
+        const resp=await fetch(`/v1/routes/${r.id}/debug`);
+        const vehs=await resp.json();
+        if(!vehs.length){
+          const p=document.createElement('p');p.textContent='No vehicles.';sect.appendChild(p);
+        }else{
+          const tbl=document.createElement('table');
+          tbl.innerHTML='<tr><th>Bus</th><th>Status</th><th>Headway</th><th>Target</th><th>Gap</th><th>Leader</th><th>s (m)</th><th>Lat</th><th>Lon</th><th>mph</th></tr>';
+          for(const v of vehs){
+            const mph=(v.ground_mps||0)*2.23694;
+            tbl.innerHTML+=`<tr><td>${v.name}</td><td>${v.status}</td><td>${v.headway_sec??'—'}</td><td>${v.target_headway_sec??'—'}</td><td>${v.gap_label||'—'}</td><td>${v.leader_name||'—'}</td><td>${v.s_pos?.toFixed(1)}</td><td>${v.lat?.toFixed(5)}</td><td>${v.lon?.toFixed(5)}</td><td>${mph.toFixed(1)}</td></tr>`;
+          }
+          sect.appendChild(tbl);
+        }
+      }catch(e){
+        const p=document.createElement('p');p.textContent='Error loading vehicles';sect.appendChild(p);
+      }
+      container.appendChild(sect);
+    }
+  }catch(e){
+    container.textContent='Error loading routes';
+  }
+}
+loadDebug();
+setInterval(loadDebug,5000);
+</script>
+<div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+</body>
+</html>
