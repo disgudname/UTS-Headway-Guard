@@ -110,15 +110,6 @@ let lowClearances = [];
 let clearanceCircles = [];
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
-function formatTime(ts){
-  return new Date(ts).toLocaleTimeString('en-US', {
-    timeZone:'America/New_York',
-    hour:'numeric',
-    minute:'2-digit',
-    second:'2-digit',
-    hour12:true
-  });
-}
 
 async function loadConfig(){
   try{
@@ -300,8 +291,9 @@ async function tick(){
     const inst=data.order==='Ease off'? 'Ease off' : 'Anti-Bunching OK';
     box.textContent=inst;
   }
-  const updatedTime = formatTime((data.updated_at || Date.now()/1000) * 1000);
-  $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${updatedTime}</span>`;
+    const ts = (data.updated_at || Date.now()/1000) * 1000;
+    const updatedAgo = fmt((Date.now() - ts) / 1000);
+    $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class="muted">Leader: ${data.leader||'—'} • Updated ${updatedAgo} ago</span>`;
   } catch(e){
     const box=$('#instruction');
     box.className='red';
