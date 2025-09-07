@@ -42,7 +42,8 @@
     }
 
     function loadLog() {
-      fetch('vehicle_log.jsonl')
+      // Use absolute path so this works regardless of the current URL
+      fetch('/vehicle_log.jsonl')
         .then(r => (r.ok ? r.text() : ''))
         .then(text => {
           if (!text.trim()) return;
