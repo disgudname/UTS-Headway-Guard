@@ -568,6 +568,7 @@ SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
 LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
 APICALLS_HTML = (BASE_DIR / "apicalls.html").read_text(encoding="utf-8")
 DEBUG_HTML = (BASE_DIR / "debug.html").read_text(encoding="utf-8")
+REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -1151,6 +1152,13 @@ async def stream_api_calls():
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
 
+@app.get("/vehicle_log.jsonl", include_in_schema=False)
+async def vehicle_log_file():
+    path = BASE_DIR / "vehicle_log.jsonl"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="log not found")
+    return FileResponse(path, media_type="application/json")
+
 # ---------------------------
 # LANDING PAGE
 # ---------------------------
@@ -1164,6 +1172,13 @@ async def landing_page():
 @app.get("/map")
 async def map_page():
     return HTMLResponse(MAP_HTML)
+
+# ---------------------------
+# REPLAY PAGE
+# ---------------------------
+@app.get("/replay")
+async def replay_page():
+    return HTMLResponse(REPLAY_HTML)
 
 # ---------------------------
 # DEBUG PAGE

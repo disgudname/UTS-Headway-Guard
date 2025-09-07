@@ -28,6 +28,14 @@ uvicorn app:app --reload --port 8080
 
 Open the [driver](http://localhost:8080/driver) and [dispatcher](http://localhost:8080/dispatcher) pages in a browser.
 
+### Replay
+
+A lightweight logger and replay page are included for reviewing past vehicle
+positions. Run `python log_vehicle_points.py` to continuously poll TransLoc and
+append snapshots to `vehicle_log.jsonl` while pruning entries older than one
+week. Visit [`/replay`](http://localhost:8080/replay) to view the logged data
+with a timeline and playback controls (pause, play and fast forward).
+
 ## API
 
 Key endpoints exposed by the service:
