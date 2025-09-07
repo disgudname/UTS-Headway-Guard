@@ -446,6 +446,12 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
         plus = vs
         minus = []
 
+    ring_state = {
+        "plus": [v.name for v in plus],
+        "minus": [v.name for v in minus],
+        "zeros": [v.name for v in zeros],
+    }
+
     def build_ring(group: List[Vehicle], forward: bool) -> List[VehicleView]:
         if not group:
             return []
@@ -526,6 +532,20 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     views: List[VehicleView] = []
     views.extend(build_ring(plus, forward=True))
     views.extend(build_ring(minus, forward=False))
+
+    if len(vs) > 1:
+        missing = [vv.name for vv in views if vv.leader_name is None]
+        if missing:
+            state.leader_events.append(
+                {
+                    "ts": int(time.time()),
+                    "route_id": route.id,
+                    "route_name": route.name,
+                    "missing": missing,
+                    "ring_state": ring_state,
+                    "positions": {v.name: round(v.s_pos, 1) for v in vs},
+                }
+            )
 
     # Present forward ring first (sorted by along-route position), then reverse
     id_to_v = {v.id: v for v in vs if v.id is not None}
@@ -610,6 +630,8 @@ class State:
         self.anti_cache_ts: float = 0.0
         # Per-day mileage and block history
         self.bus_days: Dict[str, Dict[str, BusDay]] = {}
+        # Recent leader-loss events for debugging
+        self.leader_events: deque[Dict[str, Any]] = deque(maxlen=100)
 
 state = State()
 
@@ -1103,6 +1125,11 @@ async def vehicle_instruction(route_id: int, vehicle_name: str):
             "leader": vv.leader_name or "—",
             "updated_at": vv.updated_at
         }
+
+@app.get("/v1/leader_events")
+async def leader_events():
+    async with state.lock:
+        return {"events": list(state.leader_events)}
 
 # ---------------------------
 # SSE: Per-route stream
