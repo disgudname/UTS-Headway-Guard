@@ -485,6 +485,7 @@ DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
 SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
+LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -991,6 +992,13 @@ async def stream_route(route_id: int):
 @app.get("/FGDC.ttf", include_in_schema=False)
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
+
+# ---------------------------
+# LANDING PAGE
+# ---------------------------
+@app.get("/")
+async def landing_page():
+    return HTMLResponse(LANDING_HTML)
 
 # ---------------------------
 # MAP PAGE
