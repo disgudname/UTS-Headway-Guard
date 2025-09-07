@@ -695,6 +695,8 @@ async def health():
 async def startup():
     async with state.lock:
         load_bus_days()
+    # Clean out any stale or placeholder log entries before logging starts
+    prune_old_entries()
 
     async def updater():
         await asyncio.sleep(0.1)
@@ -884,17 +886,21 @@ async def startup():
         async with httpx.AsyncClient(timeout=20) as client:
             while True:
                 ts = int(time.time()*1000)
+                entry = {"ts": ts, "vehicles": []}
                 try:
                     r = await client.get(VEH_LOG_URL)
                     r.raise_for_status()
                     data = r.json()
-                    vehicles = data if isinstance(data, list) else data.get("d", [])
-                    entry = {"ts": ts, "vehicles": vehicles}
+                    entry["vehicles"] = data if isinstance(data, list) else data.get("d", [])
+                except Exception as e:
+                    entry["error"] = str(e)
+                    print(f"[vehicle_logger] error: {e}")
+                try:
                     with VEH_LOG_FILE.open("a") as f:
                         f.write(json.dumps(entry) + "\n")
-                    prune_old_entries()
                 except Exception as e:
-                    print(f"[vehicle_logger] error: {e}")
+                    print(f"[vehicle_logger] file error: {e}")
+                prune_old_entries()
                 await asyncio.sleep(VEH_LOG_INTERVAL_S)
 
     asyncio.create_task(updater())
@@ -1195,10 +1201,9 @@ async def fgdc_font():
 
 @app.get("/vehicle_log.jsonl", include_in_schema=False)
 async def vehicle_log_file():
-    path = BASE_DIR / "vehicle_log.jsonl"
-    if not path.exists():
+    if not VEH_LOG_FILE.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
-    return FileResponse(path, media_type="application/json")
+    return FileResponse(VEH_LOG_FILE, media_type="application/json")
 
 # ---------------------------
 # LANDING PAGE
