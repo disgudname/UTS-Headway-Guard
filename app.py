@@ -393,7 +393,7 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                     gap_label="—",
                     leader_name=None,
                     countdown_sec=None,
-                    updated_at=int(me.ts_ms / 1000),
+                    updated_at=int(time.time() - me.age_s),
                 ))
                 continue
 
@@ -450,7 +450,7 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                 gap_label=gap,
                 leader_name=(best_leader.name if best_leader else None),
                 countdown_sec=(countdown if countdown is not None else None),
-                updated_at=int(me.ts_ms / 1000),
+                updated_at=int(time.time() - me.age_s),
             ))
         return out
 
@@ -689,8 +689,11 @@ async def startup():
                             tsms = parse_msajax(v.get("TimeStampUTC") or v.get("TimeStamp")) or int(time.time()*1000)
                             mps = (v.get("GroundSpeed") or 0.0) * MPH_TO_MPS
                             heading = v.get("Heading") or 0.0
+                            age_s = v.get("Seconds")
+                            if age_s is None:
+                                age_s = max(0, (time.time()*1000 - tsms) / 1000)
                             veh = Vehicle(id=vid, name=name, lat=v.get("Latitude"), lon=v.get("Longitude"), ts_ms=tsms,
-                                          ground_mps=mps, age_s=v.get("Seconds") or 0.0, heading=heading)
+                                          ground_mps=mps, age_s=age_s, heading=heading)
                             s_pos, _ = project_vehicle_to_route(veh, state.routes[rid])
                             prev = prev_map.get(rid, {}).get(vid)
                             prev_sign = prev.dir_sign if prev else state.last_dir_sign.get(vid, 0)
