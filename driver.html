@@ -111,13 +111,16 @@ let clearanceCircles = [];
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
 const tz = 'America/New_York';
-const timeFormatter = new Intl.DateTimeFormat([], {
+const timeOptions = {
   hour: 'numeric',
   minute: '2-digit',
   second: '2-digit',
   hour12: true,
   timeZone: tz
-});
+};
+function formatTime(ts){
+  return new Date(ts).toLocaleTimeString('en-US', timeOptions);
+}
 
 async function loadConfig(){
   try{
@@ -299,7 +302,7 @@ async function tick(){
     const inst=data.order==='Ease off'? 'Ease off' : 'Anti-Bunching OK';
     box.textContent=inst;
   }
-  const updatedTime = timeFormatter.format(new Date((data.updated_at || Date.now()/1000) * 1000));
+  const updatedTime = formatTime((data.updated_at || Date.now()/1000) * 1000);
   $('#details').innerHTML=`Headway: ${data.headway||'—'} • Target: ${data.target||'—'}<br>Gap: ${data.gap||'—'} • Countdown: ${data.countdown||'—'}<br><span class=\"muted\">Leader: ${data.leader||'—'} • Updated: ${updatedTime}</span>`;
   } catch(e){
     const box=$('#instruction');
@@ -309,7 +312,7 @@ async function tick(){
   }
 }
 function updateClock(){
-  const t=new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false, timeZone: tz});
+  const t=new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false, timeZone: tz});
   $('#clock').textContent=t;
 }
 setInterval(updateClock,1000);

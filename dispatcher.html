@@ -82,13 +82,16 @@ async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) thro
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
 
 const tz = 'America/New_York';
-const timeFormatter = new Intl.DateTimeFormat([], {
+const timeOptions = {
   hour: 'numeric',
   minute: '2-digit',
   second: '2-digit',
   hour12: true,
   timeZone: tz
-});
+};
+function formatTime(ts){
+  return new Date(ts).toLocaleTimeString('en-US', timeOptions);
+}
 
 function contrastColor(hex){
   if(!hex) return '#e8eef5';
@@ -357,8 +360,8 @@ function computeBusOrder(rows){
 function render(rows){
   lastRows=rows.slice();
   const t=lastRows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
-  const ts = lastRows[0]?.updated_at ? new Date(lastRows[0].updated_at * 1000) : new Date();
-  $('#upd').textContent = "Updated " + timeFormatter.format(ts);
+  const ts = lastRows[0]?.updated_at ? (lastRows[0].updated_at * 1000) : Date.now();
+  $('#upd').textContent = "Updated " + formatTime(ts);
   rows = rows.filter(r=>blockByBus.has(r.name));
   const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
 
