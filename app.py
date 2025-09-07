@@ -341,18 +341,25 @@ def target_headway_sec(route: Route, veh_count: int) -> float:
     return lap / veh_count
 
 def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> List["VehicleView"]:
-    """Direction-aware leader-finding with per-vehicle nearest-ahead selection.
-    For each direction ring (+1 / -1), the leader of bus i is the bus j with the
-    smallest strictly-positive along-track distance ds in that ring (no reliance
-    on a global ordering that can wobble near wrap points). """
+    """Compute per-vehicle status with a fresh leader selection algorithm.
+
+    Buses may face one another on bidirectional sections of a route and can stop
+    for extended periods.  Rather than relying on a global ordering that breaks
+    near wrap points, we build direction "rings" and, within each ring, sort
+    vehicles by their along-route position ``s_pos``.  The leader of a bus is the
+    next vehicle in travel direction order (wrapping around the loop).  Stopped
+    vehicles remain in the ring so they continue to act as leaders for following
+    buses.  The routine handles any number of vehicles.
+    """
     vs = list(vehs_by_id.values())
     if not vs:
         return []
 
     L = max(1.0, route.length_m)
 
-    # Partition by direction; unknowns latch onto the larger ring
-    plus  = [v for v in vs if v.dir_sign > 0]
+    # Partition by travel direction.  Vehicles with unknown direction latch onto
+    # the larger group so that they still participate in headway calculations.
+    plus = [v for v in vs if v.dir_sign > 0]
     minus = [v for v in vs if v.dir_sign < 0]
     zeros = [v for v in vs if v.dir_sign == 0]
     if len(plus) >= len(minus):
@@ -360,77 +367,64 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     else:
         minus.extend(zeros)
 
-    # If a ring ends up with one or zero vehicles while another has more,
-    # fall back to a single combined ring so that every bus gets a headway.
-    # This avoids dispatcher entries with missing headway/gap when direction
-    # detection leaves one vehicle isolated.
-    if (len(plus) <= 1 or len(minus) <= 1) and len(vs) > 1:
+    # If one ring is empty while the other has vehicles, merge them so every bus
+    # receives guidance.  When both rings have at least one bus we keep them
+    # separate to avoid mixing opposing directions.
+    if (len(plus) == 0 or len(minus) == 0) and len(vs) > 1:
         plus = vs
         minus = []
 
     def build_ring(group: List[Vehicle], forward: bool) -> List[VehicleView]:
         if not group:
             return []
-        # Target headway for THIS ring only
+
         th = target_headway_sec(route, len(group))
         out: List[VehicleView] = []
-        EPS = 1.0  # meters: ignore near-coincident positions when choosing a leader
 
-        # Precompute segment caps lookup
         def ref_speed_for(v: Vehicle) -> float:
             seg_idx = find_seg_index_at_s(route.cum, v.s_pos)
             cap = route.seg_caps_mps[seg_idx] if route.seg_caps_mps else DEFAULT_CAP_MPS
-            return max(MIN_SPEED_FLOOR, min(MAX_SPEED_CEIL, W_LIMIT * cap + (1 - W_LIMIT) * v.ema_mps))
+            return max(
+                MIN_SPEED_FLOOR,
+                min(MAX_SPEED_CEIL, W_LIMIT * cap + (1 - W_LIMIT) * v.ema_mps),
+            )
 
-        for me in group:
-            if len(group) == 1:
-                out.append(VehicleView(
-                    id=me.id,
-                    name=me.name,
-                    status="green",
-                    headway_sec=None,
-                    target_headway_sec=int(th) if th > 0 else None,
-                    gap_label="—",
-                    leader_name=None,
-                    countdown_sec=None,
-                    updated_at=min(me.ts_ms, int(time.time()*1000))//1000,
-                ))
+        ordered = sorted(group, key=lambda v: v.s_pos)
+        n = len(ordered)
+
+        for idx, me in enumerate(ordered):
+            if n == 1:
+                out.append(
+                    VehicleView(
+                        id=me.id,
+                        name=me.name,
+                        status="green",
+                        headway_sec=None,
+                        target_headway_sec=int(th) if th > 0 else None,
+                        gap_label="—",
+                        leader_name=None,
+                        countdown_sec=None,
+                        updated_at=min(me.ts_ms, int(time.time() * 1000)) // 1000,
+                    )
+                )
                 continue
 
-            # Find nearest strictly-ahead bus in this ring
-            best_ds = None
-            best_leader = None
-            for other in group:
-                if other is me:
-                    continue
-                ds = ((other.s_pos - me.s_pos) % L) if forward else ((me.s_pos - other.s_pos) % L)
-                if ds <= EPS:
-                    continue
-                if best_ds is None or ds < best_ds:
-                    best_ds = ds
-                    best_leader = other
+            leader = ordered[(idx + 1) % n] if forward else ordered[(idx - 1) % n]
+            ds = (leader.s_pos - me.s_pos) % L if forward else (me.s_pos - leader.s_pos) % L
+            ds = max(ds, 0.5)  # ensure non-zero gap so stationary leaders still count
 
-            # Fallback: if everyone filtered by EPS, pick the smallest ds even if 0.
-            # This ensures a stationary leader at the same s_pos is still recognised.
-            if best_leader is None:
-                for other in group:
-                    if other is me:
-                        continue
-                    ds = ((other.s_pos - me.s_pos) % L) if forward else ((me.s_pos - other.s_pos) % L)
-                    if best_ds is None or ds < best_ds:
-                        best_ds = ds
-                        best_leader = other
-
-            # With leader chosen, compute time headway
-            ds = max(best_ds or 0.5, 0.5)
             ref_speed = ref_speed_for(me)
             headway = ds / max(ref_speed, 0.1)
             diff = headway - th
 
             if th > 0 and headway < RED_FRAC * th:
-                status = "red"; gap = f"Ahead {fmt_mmss(diff)}"; countdown = int(max(0, th - headway))
+                status = "red"
+                gap = f"Ahead {fmt_mmss(diff)}"
+                countdown = int(max(0, th - headway))
             elif th > 0 and headway < GREEN_FRAC * th:
-                status = "yellow"; gap = f"Ahead {fmt_mmss(diff)}"; countdown = int(max(0, th - headway))
+                status = "yellow"
+                gap = f"Ahead {fmt_mmss(diff)}"
+                countdown = int(max(0, th - headway))
             else:
                 status = "green"
                 if abs(diff) <= ONTARGET_TOL_SEC:
@@ -441,17 +435,20 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                     gap = f"Behind {fmt_mmss(diff)}"
                 countdown = None
 
-            out.append(VehicleView(
-                id=me.id,
-                name=me.name,
-                status=status,
-                headway_sec=int(headway),
-                target_headway_sec=int(th) if th > 0 else None,
-                gap_label=gap,
-                leader_name=(best_leader.name if best_leader else None),
-                countdown_sec=(countdown if countdown is not None else None),
-                updated_at=min(me.ts_ms, int(time.time()*1000))//1000,
-            ))
+            out.append(
+                VehicleView(
+                    id=me.id,
+                    name=me.name,
+                    status=status,
+                    headway_sec=int(headway),
+                    target_headway_sec=int(th) if th > 0 else None,
+                    gap_label=gap,
+                    leader_name=leader.name,
+                    countdown_sec=(countdown if countdown is not None else None),
+                    updated_at=min(me.ts_ms, int(time.time() * 1000)) // 1000,
+                )
+            )
+
         return out
 
     views: List[VehicleView] = []
@@ -460,6 +457,7 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
 
     # Present forward ring first (sorted by along-route position), then reverse
     id_to_v = {v.id: v for v in vs if v.id is not None}
+
     def sort_key(vv: VehicleView):
         v = id_to_v.get(vv.id)
         dir_bucket = 0 if (v and v.dir_sign > 0) else 1
