@@ -110,20 +110,14 @@ let lowClearances = [];
 let clearanceCircles = [];
 let bridgeWarningActive = false;
 let alertCtx=null, alertInterval=null;
-function toEasternDate(ts){
-  const d=new Date(ts);
-  const y=d.getUTCFullYear();
-  const m1=new Date(Date.UTC(y,2,1));
-  const mSun=(7-m1.getUTCDay())%7;
-  const dstStart=Date.UTC(y,2,8+mSun,7,0,0);
-  const n1=new Date(Date.UTC(y,10,1));
-  const nSun=(7-n1.getUTCDay())%7;
-  const dstEnd=Date.UTC(y,10,1+nSun,6,0,0);
-  const off=(ts>=dstStart && ts<dstEnd)?-4:-5;
-  return new Date(ts+off*3600*1000);
-}
 function formatTime(ts){
-  return toEasternDate(ts).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', second:'2-digit', hour12:true});
+  return new Date(ts).toLocaleTimeString('en-US', {
+    timeZone:'America/New_York',
+    hour:'numeric',
+    minute:'2-digit',
+    second:'2-digit',
+    hour12:true
+  });
 }
 
 async function loadConfig(){
@@ -316,7 +310,13 @@ async function tick(){
   }
 }
 function updateClock(){
-  const t=toEasternDate(Date.now()).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+  const t = new Date().toLocaleTimeString('en-US', {
+    timeZone:'America/New_York',
+    hour:'2-digit',
+    minute:'2-digit',
+    second:'2-digit',
+    hour12:false
+  });
   $('#clock').textContent=t;
 }
 updateClock();
