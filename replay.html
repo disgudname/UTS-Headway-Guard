@@ -61,8 +61,12 @@
     function showFrame(i) {
       if (!logData[i]) return;
       const entry = logData[i];
-      document.getElementById('timeline').value = i;
-      document.getElementById('timeLabel').textContent = new Date(entry.ts).toLocaleTimeString();
+      const timeline = document.getElementById('timeline');
+      const date = new Date(entry.ts);
+      const formatted = date.toLocaleString();
+      timeline.value = i;
+      timeline.title = formatted; // show date/time when hovering the slider
+      document.getElementById('timeLabel').textContent = formatted;
       clearMarkers();
       entry.vehicles.forEach(vehicle => {
         const routeID = vehicle.RouteID || 0;
