@@ -1061,6 +1061,8 @@ async def route_debug(route_id: int):
                 "updated_at": vv.updated_at,
             }
             if raw:
+                seg_idx = find_seg_index_at_s(route.cum, raw.s_pos)
+                cap = route.seg_caps_mps[seg_idx] if route.seg_caps_mps else DEFAULT_CAP_MPS
                 d.update({
                     "lat": raw.lat,
                     "lon": raw.lon,
@@ -1070,6 +1072,7 @@ async def route_debug(route_id: int):
                     "dir_sign": raw.dir_sign,
                     "heading": raw.heading,
                     "age_s": raw.age_s,
+                    "speed_limit_mph": cap / MPH_TO_MPS,
                 })
             out.append(d)
         return out

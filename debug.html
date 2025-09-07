@@ -23,6 +23,7 @@
 <script>
 async function loadDebug(){
   const container=document.getElementById('info');
+  const scrollTop=container.scrollTop;
   try{
     const res=await fetch('/v1/routes');
     const data=await res.json();
@@ -40,10 +41,11 @@ async function loadDebug(){
           const p=document.createElement('p');p.textContent='No vehicles.';sect.appendChild(p);
         }else{
           const tbl=document.createElement('table');
-          tbl.innerHTML='<tr><th>Bus</th><th>Status</th><th>Headway</th><th>Target</th><th>Gap</th><th>Leader</th><th>s (m)</th><th>Lat</th><th>Lon</th><th>mph</th></tr>';
+          tbl.innerHTML='<tr><th>Bus</th><th>Status</th><th>Headway</th><th>Target</th><th>Gap</th><th>Leader</th><th>s (m)</th><th>Lat</th><th>Lon</th><th>mph</th><th>Limit</th></tr>';
           for(const v of vehs){
             const mph=(v.ground_mps||0)*2.23694;
-            tbl.innerHTML+=`<tr><td>${v.name}</td><td>${v.status}</td><td>${v.headway_sec??'—'}</td><td>${v.target_headway_sec??'—'}</td><td>${v.gap_label||'—'}</td><td>${v.leader_name||'—'}</td><td>${v.s_pos?.toFixed(1)}</td><td>${v.lat?.toFixed(5)}</td><td>${v.lon?.toFixed(5)}</td><td>${mph.toFixed(1)}</td></tr>`;
+            const lim=v.speed_limit_mph;
+            tbl.innerHTML+=`<tr><td>${v.name}</td><td>${v.status}</td><td>${v.headway_sec??'—'}</td><td>${v.target_headway_sec??'—'}</td><td>${v.gap_label||'—'}</td><td>${v.leader_name||'—'}</td><td>${v.s_pos?.toFixed(1)}</td><td>${v.lat?.toFixed(5)}</td><td>${v.lon?.toFixed(5)}</td><td>${mph.toFixed(1)}</td><td>${lim!=null?lim.toFixed(1):'—'}</td></tr>`;
           }
           sect.appendChild(tbl);
         }
@@ -55,6 +57,7 @@ async function loadDebug(){
   }catch(e){
     container.textContent='Error loading routes';
   }
+  container.scrollTop=scrollTop;
 }
 loadDebug();
 setInterval(loadDebug,5000);
