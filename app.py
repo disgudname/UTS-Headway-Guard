@@ -637,7 +637,7 @@ async def startup():
                         fresh = []
                         fresh_all = []  # includes unassigned vehicles for mileage tracking
                         for v in vehicles_raw:
-                            tms = parse_msajax(v.get("TimeStamp"))
+                            tms = parse_msajax(v.get("TimeStampUTC") or v.get("TimeStamp"))
                             age = v.get("Seconds") if v.get("Seconds") is not None else (max(0, (time.time()*1000 - tms)/1000) if tms else 9999)
                             if age <= STALE_FIX_S:
                                 fresh_all.append(v)
@@ -686,7 +686,7 @@ async def startup():
                                 continue
                             name = str(v.get("Name") or "-")
                             vid = v.get("VehicleID")
-                            tsms = parse_msajax(v.get("TimeStamp")) or int(time.time()*1000)
+                            tsms = parse_msajax(v.get("TimeStampUTC") or v.get("TimeStamp")) or int(time.time()*1000)
                             mps = (v.get("GroundSpeed") or 0.0) * MPH_TO_MPS
                             heading = v.get("Heading") or 0.0
                             veh = Vehicle(id=vid, name=name, lat=v.get("Latitude"), lon=v.get("Longitude"), ts_ms=tsms,
