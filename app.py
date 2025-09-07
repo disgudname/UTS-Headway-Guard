@@ -393,7 +393,7 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                     gap_label="—",
                     leader_name=None,
                     countdown_sec=None,
-                    updated_at=int(time.time() - me.age_s),
+                    updated_at=min(me.ts_ms, int(time.time()*1000))//1000,
                 ))
                 continue
 
@@ -450,7 +450,7 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                 gap_label=gap,
                 leader_name=(best_leader.name if best_leader else None),
                 countdown_sec=(countdown if countdown is not None else None),
-                updated_at=int(time.time() - me.age_s),
+                updated_at=min(me.ts_ms, int(time.time()*1000))//1000,
             ))
         return out
 
