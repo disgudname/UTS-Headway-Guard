@@ -96,6 +96,28 @@ ALL_BUSES = [
     "25131","25231","25331","25431",
 ]
 
+# Vehicle position logging
+VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
+VEH_LOG_FILE = Path(os.getenv("VEH_LOG_FILE", "vehicle_log.jsonl"))
+VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
+VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
+
+def prune_old_entries() -> None:
+    cutoff = int(time.time() * 1000) - VEH_LOG_RETENTION_MS
+    if not VEH_LOG_FILE.exists():
+        return
+    lines: list[str] = []
+    with VEH_LOG_FILE.open() as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("ts", 0) >= cutoff:
+                lines.append(line)
+    with VEH_LOG_FILE.open("w") as f:
+        f.writelines(lines)
+
 # ---------------------------
 # Geometry helpers
 # ---------------------------
@@ -857,7 +879,26 @@ async def startup():
                 # sleep until next
                 dt = max(0.5, VEH_REFRESH_S - (time.time()-start))
                 await asyncio.sleep(dt)
+    async def vehicle_logger():
+        await asyncio.sleep(0.1)
+        async with httpx.AsyncClient(timeout=20) as client:
+            while True:
+                ts = int(time.time()*1000)
+                try:
+                    r = await client.get(VEH_LOG_URL)
+                    r.raise_for_status()
+                    data = r.json()
+                    vehicles = data if isinstance(data, list) else data.get("d", [])
+                    entry = {"ts": ts, "vehicles": vehicles}
+                    with VEH_LOG_FILE.open("a") as f:
+                        f.write(json.dumps(entry) + "\n")
+                    prune_old_entries()
+                except Exception as e:
+                    print(f"[vehicle_logger] error: {e}")
+                await asyncio.sleep(VEH_LOG_INTERVAL_S)
+
     asyncio.create_task(updater())
+    asyncio.create_task(vehicle_logger())
 
 # ---------------------------
 # REST: Routes

@@ -31,10 +31,10 @@ Open the [driver](http://localhost:8080/driver) and [dispatcher](http://localhos
 ### Replay
 
 A lightweight logger and replay page are included for reviewing past vehicle
-positions. Run `python log_vehicle_points.py` to continuously poll TransLoc and
-append snapshots to `vehicle_log.jsonl` while pruning entries older than one
-week. Open `/replay` in a running server to view the logged data with a
-timeline and playback controls (pause, play and fast forward).
+positions. The application automatically polls TransLoc every few seconds and
+appends snapshots to `vehicle_log.jsonl`, pruning entries older than one week.
+Open `/replay` in a running server to view the logged data with a timeline and
+playback controls (pause, play and fast forward).
 
 ## API
 
