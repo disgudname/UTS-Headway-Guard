@@ -439,6 +439,14 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
         plus = vs
         minus = []
 
+    # If both rings contain exactly one vehicle (e.g. one bus reversed or stopped)
+    # treat them as a single ring so that each bus has a leader and headway can
+    # cascade.  Without this, two buses facing opposite directions would each
+    # appear leaderless and anti-bunching would stall.
+    if len(plus) == 1 and len(minus) == 1:
+        plus = vs
+        minus = []
+
     # If one ring is empty while the other has vehicles, merge them so every bus
     # receives guidance.  When both rings have at least one bus we keep them
     # separate to avoid mixing opposing directions.
