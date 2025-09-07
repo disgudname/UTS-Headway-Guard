@@ -40,6 +40,7 @@ Key endpoints exposed by the service:
 - `/v1/routes/{route_id}/status` – headway status for a route.
 - `/v1/routes/{route_id}/vehicles/{vehicle_name}/instruction` – driver instruction for a vehicle.
 - `/v1/stream/routes/{route_id}` – Server-Sent Events stream.
+- `/v1/leader_events` – recent leader-loss events for debugging.
 
 ## Configuration
 Runtime settings can be tuned with environment variables such as `TRANSLOC_BASE`, `TRANSLOC_KEY` and `OVERPASS_EP`.
