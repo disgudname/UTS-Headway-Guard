@@ -112,7 +112,12 @@ async function loadConfig(){
   }catch(e){}
 }
 
-let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map(), allBlockByBus=new Map();
+let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map(), allBlockByBus=new Map(), lastUpdateTs=Date.now();
+
+function updateLastUpdated(){
+  const updatedAgo = fmt((Date.now() - lastUpdateTs) / 1000);
+  $('#upd').textContent = "Updated " + updatedAgo + " ago";
+}
 
 function updateExtraBuses(){
   const extra=$('#extra-buses');
@@ -349,8 +354,8 @@ function render(rows){
   lastRows=rows.slice();
   const t=lastRows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
   const ts = lastRows[0]?.updated_at ? (lastRows[0].updated_at * 1000) : Date.now();
-  const updatedAgo = fmt((Date.now() - ts) / 1000);
-  $('#upd').textContent = "Updated " + updatedAgo + " ago";
+  lastUpdateTs = ts;
+  updateLastUpdated();
   rows = rows.filter(r=>blockByBus.has(r.name));
   const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
 
@@ -448,6 +453,14 @@ async function pollHealth(){
   setTimeout(pollHealth, 15000);
 }
 
-document.addEventListener('DOMContentLoaded', async ()=>{ await loadConfig(); loadRoutes(); pollHealth(); loadBlocks(); setInterval(loadBlocks,30000); });
+document.addEventListener('DOMContentLoaded', async ()=>{
+  await loadConfig();
+  loadRoutes();
+  pollHealth();
+  loadBlocks();
+  setInterval(loadBlocks,30000);
+  updateLastUpdated();
+  setInterval(updateLastUpdated,1000);
+});
 document.getElementById('route').addEventListener('change', e=> { userLocked=true; start(e.target.value); });
 </script>
