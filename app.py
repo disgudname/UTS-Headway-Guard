@@ -179,6 +179,20 @@ def parse_maxheight(val: Optional[str]) -> Optional[float]:
     except Exception:
         return None
 
+
+def parse_maxspeed(val: Optional[str]) -> Optional[float]:
+    """Parse an OSM maxspeed tag into miles per hour."""
+    if not val:
+        return None
+    s = str(val).strip().lower()
+    try:
+        num = float(re.findall(r"[0-9.]+", s)[0])
+    except Exception:
+        return None
+    if "km/h" in s or "kph" in s:
+        return num * 0.621371
+    return num
+
 # ---------------------------
 # Data models
 # ---------------------------
@@ -260,8 +274,56 @@ async def fetch_block_groups(client: httpx.AsyncClient) -> List[Dict]:
     return []
 
 async def fetch_overpass_speed_profile(route: Route, client: httpx.AsyncClient) -> List[float]:
-    """Build per-segment speed caps (m/s). Minimal version: default cap only."""
-    return [DEFAULT_CAP_MPS for _ in range(len(route.poly)-1)]
+    """Build per-segment speed caps (m/s) using OSM maxspeed data."""
+    pts = route.poly
+    if len(pts) < 2:
+        return []
+    lats = [p[0] for p in pts]
+    lons = [p[1] for p in pts]
+    pad = 0.001  # ~100m padding to cover route bbox
+    min_lat, max_lat = min(lats)-pad, max(lats)+pad
+    min_lon, max_lon = min(lons)-pad, max(lons)+pad
+    query = f"""
+[out:json][timeout:25];
+way({min_lat},{min_lon},{max_lat},{max_lon})["maxspeed"]; 
+out geom;
+"""
+    try:
+        r = await client.post(OVERPASS_EP, data=query, timeout=60)
+        record_api_call("POST", OVERPASS_EP, r.status_code)
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return [DEFAULT_CAP_MPS for _ in range(len(pts)-1)]
+
+    ways: List[Dict[str, Any]] = []
+    for el in data.get("elements", []):
+        mph = parse_maxspeed(el.get("tags", {}).get("maxspeed"))
+        if mph is None:
+            continue
+        ways.append({
+            "speed_mps": mph * MPH_TO_MPS,
+            "geometry": el.get("geometry", []),
+        })
+
+    caps: List[float] = []
+    for i in range(len(pts)-1):
+        a = pts[i]
+        b = pts[i+1]
+        mid_lat = (a[0] + b[0]) / 2
+        mid_lon = (a[1] + b[1]) / 2
+        best_speed = DEFAULT_CAP_MPS
+        best_d = 50.0  # meters
+        for way in ways:
+            speed = way["speed_mps"]
+            for node in way["geometry"]:
+                d = haversine((mid_lat, mid_lon), (node.get("lat"), node.get("lon")))
+                if d < best_d:
+                    best_d = d
+                    best_speed = speed
+        caps.append(best_speed)
+
+    return caps
 
 
 async def fetch_low_clearances(client: httpx.AsyncClient) -> List[Dict[str, float]]:
