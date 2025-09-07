@@ -17,6 +17,7 @@
   button{padding:4px 8px;background:var(--btn);border:1px solid var(--chip);color:var(--ink);border-radius:6px;cursor:pointer;}
   button:hover{filter:brightness(1.1);}
   @media (min-width:768px){#layout{flex-direction:row;}#table-wrapper{flex:0 0 auto;}#mapframe{flex:1;min-height:0;}}
+  .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
 </style>
 </head>
 <body>
@@ -42,6 +43,7 @@
   </div>
   <iframe id="mapframe" src="/map"></iframe>
 </div>
+<div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
 const dateInput=document.getElementById('date');
 const tbody=document.querySelector('#bustable tbody');

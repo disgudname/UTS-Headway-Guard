@@ -34,6 +34,7 @@ h2{font-size:18px;margin:16px 0 0}
   #layout{flex-direction:column}
   #layout aside{border-left:none !important;border-top:1px solid #1f2630}
 }
+.credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 </style>
 <header>
   <h1 style="font-size:18px;margin:0">UTS Anti-Bunching — Dispatcher</h1>
@@ -72,6 +73,7 @@ h2{font-size:18px;margin:16px 0 0}
     <ul id="extra-buses"><li class="hint">Loading…</li></ul>
   </aside>
 </div>
+<div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
 const $ = s => document.querySelector(s);
 const fmt = s => { if (s==null || !isFinite(s)) return "—"; s = Math.round(s); return String(Math.floor(s/60)).padStart(2,'0')+":"+String(s%60).padStart(2,'0'); };
