@@ -618,6 +618,36 @@ CONFIG_KEYS = [
     "LOW_CLEARANCE_RADIUS","BRIDGE_RADIUS","ALL_BUSES"
 ]
 
+CONFIG_FILE = Path("/data/config.json")
+
+def load_config() -> None:
+    if not CONFIG_FILE.exists():
+        return
+    try:
+        data = json.loads(CONFIG_FILE.read_text())
+    except Exception as e:
+        print(f"[load_config] error: {e}")
+        return
+    for k, v in data.items():
+        if k in CONFIG_KEYS:
+            cur = globals().get(k)
+            if isinstance(cur, list):
+                globals()[k] = v if isinstance(v, list) else [str(v)]
+            else:
+                try:
+                    globals()[k] = type(cur)(v)
+                except Exception:
+                    globals()[k] = v
+
+def save_config() -> None:
+    try:
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE.write_text(json.dumps({k: globals().get(k) for k in CONFIG_KEYS}))
+    except Exception as e:
+        print(f"[save_config] error: {e}")
+
+load_config()
+
 class State:
     def __init__(self):
         self.routes: Dict[int, Route] = {}
@@ -1353,6 +1383,7 @@ async def set_config(payload: Dict[str, Any]):
                     globals()[k] = type(cur)(v)
                 except Exception:
                     globals()[k] = v
+    save_config()
     return {k: globals().get(k) for k in CONFIG_KEYS}
 
 # ---------------------------
