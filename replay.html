@@ -41,19 +41,29 @@
         .then(data => { if (Array.isArray(data)) data.forEach(route => { routeColors[route.RouteID] = route.MapLineColor; }); });
     }
 
-    function loadLog() {
+    function loadLog(retryDelay = 2000) {
       // Use absolute path so this works regardless of the current URL
-      fetch('/vehicle_log.jsonl')
+      fetch('/vehicle_log.jsonl', { cache: 'no-store' })
         .then(r => (r.ok ? r.text() : ''))
         .then(text => {
-          if (!text.trim()) return;
+          if (!text.trim()) {
+            setTimeout(() => loadLog(retryDelay), retryDelay);
+            return;
+          }
           logData = text.trim().split('\n').map(line => JSON.parse(line));
-          if (logData.length === 0) return;
+          const hasData = logData.some(e => e.ts && (e.vehicles || []).length);
+          if (!hasData) {
+            setTimeout(() => loadLog(retryDelay), retryDelay);
+            return;
+          }
           const timeline = document.getElementById('timeline');
           timeline.max = logData.length - 1;
           showFrame(0);
         })
-        .catch(err => console.error('Failed to load vehicle log', err));
+        .catch(err => {
+          console.error('Failed to load vehicle log', err);
+          setTimeout(() => loadLog(retryDelay), retryDelay);
+        });
     }
 
     function clearMarkers() {
