@@ -98,7 +98,8 @@
     <input id="startTime" placeholder="Start time">
     <input id="endTime" placeholder="End time">
     <button id="loadRangeBtn">Load</button>
-    <button id="playPauseBtn">&#9654;</button>
+    <button id="playBtn">&#9654;</button>
+    <button id="pauseBtn">&#10074;&#10074;</button>
     <button id="ff2Btn"><span class="play-icons">&#9654;&#9654;</span></button>
     <button id="ff4Btn"><span class="play-icons">&#9654;&#9654;&#9654;&#9654;</span></button>
     <input type="range" id="timeline" min="0" value="0">
@@ -146,16 +147,17 @@
     let currentFrameIndex = 0;
     const outOfServiceRouteColor = '#000000';
     let isPlaying = false;
-    const playPauseBtn = document.getElementById('playPauseBtn');
+    const playBtn = document.getElementById('playBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
     const ff2Btn = document.getElementById('ff2Btn');
     const ff4Btn = document.getElementById('ff4Btn');
 
     function updateSpeedButtons() {
-      playPauseBtn.classList.remove('selected');
+      playBtn.classList.remove('selected');
       ff2Btn.classList.remove('selected');
       ff4Btn.classList.remove('selected');
-      if (!isPlaying || playbackSpeed === 1) {
-        playPauseBtn.classList.add('selected');
+      if (playbackSpeed === 1) {
+        playBtn.classList.add('selected');
       } else if (playbackSpeed === 2) {
         ff2Btn.classList.add('selected');
       } else if (playbackSpeed === 4) {
@@ -470,7 +472,6 @@
     function play() {
       pause();
       isPlaying = true;
-      playPauseBtn.innerHTML = '&#10074;&#10074;';
       updateSpeedButtons();
       scheduleNext();
     }
@@ -480,7 +481,6 @@
       timer = null;
       if (isPlaying) {
         isPlaying = false;
-        playPauseBtn.innerHTML = '&#9654;';
       }
       updateSpeedButtons();
     }
@@ -501,10 +501,8 @@
       showFrame(0);
     }
 
-    playPauseBtn.onclick = () => {
-      if (isPlaying) { pause(); }
-      else { playbackSpeed = 1; play(); }
-    };
+    playBtn.onclick = () => { playbackSpeed = 1; play(); };
+    pauseBtn.onclick = pause;
     ff2Btn.onclick = () => { playbackSpeed = 2; play(); };
     ff4Btn.onclick = () => { playbackSpeed = 4; play(); };
     document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
