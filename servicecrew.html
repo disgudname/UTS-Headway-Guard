@@ -11,20 +11,16 @@
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.2 'FGDC',sans-serif;height:100vh;width:100vw;display:flex;flex-direction:column;}
   table{width:100%;border-collapse:collapse;}
   th,td{border:1px solid var(--line);padding:2px 4px;text-align:left;}
-  #header{padding:8px;display:flex;justify-content:space-between;}
-  #layout{flex:1;display:flex;overflow:hidden;padding:8px;gap:8px;}
-  #table-wrapper{width:700px;overflow:hidden;}
+  #layout{flex:1;display:flex;overflow:hidden;height:100vh;gap:8px;padding:0 8px;}
+  #table-wrapper{width:700px;overflow:hidden;display:flex;flex-direction:column;}
   #mapframe{border:1px solid var(--line);flex:1;height:100%;}
   .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
 </style>
 </head>
 <body>
-<div id="header">
-  <span id="dateDisplay"></span>
-  <span id="totalMiles"></span>
-</div>
 <div id="layout">
   <div id="table-wrapper">
+    <div id="dateDisplay"></div>
     <table id="bustable">
       <thead>
         <tr>
@@ -42,7 +38,6 @@
 <script>
 const dateSpan=document.getElementById('dateDisplay');
 const tbody=document.querySelector('#bustable tbody');
-const totalSpan=document.getElementById('totalMiles');
 function todayStr(){return new Date().toISOString().split('T')[0];}
 async function fetchData(){
   const date=todayStr();
@@ -50,31 +45,18 @@ async function fetchData(){
   const res=await fetch(`/v1/servicecrew?date=${date}`);
   const data=await res.json();
   tbody.innerHTML='';
-  let total=0;
-  const sorted=Object.keys(data.buses).sort();
-  const withMiles=[], withoutMiles=[];
-  for(const b of sorted){
-    const info=data.buses[b];
-    if((info.display_miles||0)>0){
-      withMiles.push(b);
-    }else{
-      withoutMiles.push(b);
-    }
-  }
-  const buses=withMiles.concat(withoutMiles);
-  for(const b of buses){
-    const info=data.buses[b];
+  const buses=Object.entries(data.buses)
+    .sort(([,a],[,b]) => (b.actual_miles||0)-(a.actual_miles||0));
+  for(const [b,info] of buses){
     const tr=document.createElement('tr');
     const blocks=info.blocks.length?info.blocks.join(', '):'—';
     const totalMilesToday=(info.actual_miles||0).toFixed(2);
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${totalMilesToday}</td>`;
-    if((info.display_miles||0)>100){
+    if((info.actual_miles||0)>=100){
       tr.style.background='red';
     }
-    total+=info.display_miles||0;
     tbody.appendChild(tr);
   }
-  totalSpan.textContent=`Total: ${total.toFixed(2)} mi`;
 }
 fetchData();
 setInterval(fetchData,30000);
