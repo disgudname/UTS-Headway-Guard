@@ -1,0 +1,3 @@
+# Ignore generated vehicle logs
+vehicle_log.jsonl
+__pycache__/

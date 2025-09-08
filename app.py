@@ -98,7 +98,7 @@ ALL_BUSES = [
 
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
-VEH_LOG_FILE = Path(os.getenv("VEH_LOG_FILE", "vehicle_log.jsonl"))
+VEH_LOG_FILE = Path(os.getenv("VEH_LOG_FILE", "/data/vehicle_log.jsonl"))
 VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
 
@@ -890,6 +890,7 @@ async def startup():
                     data = r.json()
                     vehicles = data if isinstance(data, list) else data.get("d", [])
                     entry = {"ts": ts, "vehicles": vehicles}
+                    VEH_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
                     with VEH_LOG_FILE.open("a") as f:
                         f.write(json.dumps(entry) + "\n")
                     prune_old_entries()
@@ -1195,7 +1196,7 @@ async def fgdc_font():
 
 @app.get("/vehicle_log.jsonl", include_in_schema=False)
 async def vehicle_log_file():
-    path = BASE_DIR / "vehicle_log.jsonl"
+    path = VEH_LOG_FILE
     if not path.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
     return FileResponse(path, media_type="application/json")
