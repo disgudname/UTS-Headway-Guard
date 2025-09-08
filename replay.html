@@ -145,7 +145,7 @@
       #routeSelector label { font-size: 18px; }
       #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
       #timeline { flex: 1 0 100%; }
-      #timeLabel { flex: 0 0 100%; text-align: center; }
+      #timeLabel, #lastUpdateLabel { flex: 0 0 100%; text-align: center; }
     }
   </style>
 </head>
@@ -169,6 +169,7 @@
     <button id="ff4Btn"><span class="play-icons">&#9654;&#9654;&#9654;&#9654;</span></button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
+    <span id="lastUpdateLabel"></span>
   </div>
   <script>
     let map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
@@ -570,6 +571,11 @@
       }
     }
 
+    function parseMsAjax(s) {
+      const m = /Date\((\d+)/.exec(s || '');
+      return m ? Number(m[1]) : null;
+    }
+
     function showFrame(i) {
       if (!playbackData[i]) return;
       currentFrameIndex = i;
@@ -579,7 +585,19 @@
       const formatted = date.toLocaleString();
       timeline.value = i;
       timeline.title = formatted; // show date/time when hovering the slider
-      document.getElementById('timeLabel').textContent = formatted;
+      document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
+
+      let lastUpdateMs = 0;
+      for (const v of entry.vehicles) {
+        const ms = parseMsAjax(v.TimeStampUTC || v.TimeStamp);
+        if (ms && ms > lastUpdateMs) lastUpdateMs = ms;
+      }
+      if (lastUpdateMs) {
+        const lastFormatted = new Date(lastUpdateMs).toLocaleString();
+        document.getElementById('lastUpdateLabel').textContent = `Last Position Update: ${lastFormatted}`;
+      } else {
+        document.getElementById('lastUpdateLabel').textContent = '';
+      }
 
       const activeRoutesSet = new Set();
       const activeBusesSet = new Set();
