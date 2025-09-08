@@ -463,13 +463,10 @@ def target_headway_sec(route: Route, veh_count: int) -> float:
 def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> List["VehicleView"]:
     """Compute headway guidance for each vehicle on a route.
 
-    The routine rebuilds anti‑bunching logic from first principles.  Vehicles are
-    partitioned into forward and reverse "rings" based on their last known
-    direction of travel (``dir_sign``).  This value is preserved even when a bus
-    stops or its motion is ambiguous, keeping the vehicle in its ring so it can
-    continue serving as a leader.  Within each ring vehicles are ordered by their
-    cumulative distance ``s_pos`` along the route and headways are computed to the
-    next vehicle in that order (wrapping around the loop).
+    All active vehicles are ordered around the route's loop distance and each bus
+    takes the next bus in that order as its leader.  Headways and countdowns are
+    computed using modular gaps so the ring remains stable even as vehicles pass
+    the zero‑distance boundary or stop temporarily.
     """
 
     vehicles = list(vehs_by_id.values())
@@ -477,165 +474,100 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
         return []
 
     loop_len = max(1.0, route.length_m)
+    ordered = sorted(vehicles, key=lambda v: v.s_pos)
+    n = len(ordered)
+    target = target_headway_sec(route, n)
+    results: List[VehicleView] = []
 
-    forward: List[Vehicle] = []
-    reverse: List[Vehicle] = []
-    unknown: List[Vehicle] = []
-    for v in vehicles:
-        # Classify based on persistent direction sign.  Stopped vehicles retain
-        # their previous ``dir_sign`` so they remain in their ring instead of
-        # being shuffled between rings when stationary.
-        if v.dir_sign > 0:
-            forward.append(v)
-        elif v.dir_sign < 0:
-            reverse.append(v)
-        else:
-            unknown.append(v)
-
-    if len(forward) >= len(reverse):
-        forward.extend(unknown)
-    else:
-        reverse.extend(unknown)
-
-    def group_stopped(group: List[Vehicle]) -> bool:
-        return all(
-            max(abs(v.ground_mps), abs(v.ema_mps), abs(getattr(v, "along_mps", 0.0))) < STOPPED_MPS
-            for v in group
+    def ref_speed(v: Vehicle) -> float:
+        seg_idx = find_seg_index_at_s(route.cum, v.s_pos)
+        cap = route.seg_caps_mps[seg_idx] if route.seg_caps_mps else DEFAULT_CAP_MPS
+        return max(
+            MIN_SPEED_FLOOR,
+            min(MAX_SPEED_CEIL, W_LIMIT * cap + (1 - W_LIMIT) * v.ema_mps),
         )
 
-    if forward and reverse:
-        if group_stopped(forward) or group_stopped(reverse):
-            forward = vehicles
-            reverse = []
-        elif len(forward) == 1 and len(reverse) == 1:
-            forward = vehicles
-            reverse = []
-    elif len(vehicles) > 1:
-        forward = vehicles
-        reverse = []
-
-    def eval_ring(group: List[Vehicle], go_forward: bool) -> List[VehicleView]:
-        if not group:
-            return []
-
-        target = target_headway_sec(route, len(group))
-        ordered = sorted(group, key=lambda v: v.s_pos)
-        n = len(ordered)
-        results: List[VehicleView] = []
-
-        def ref_speed(v: Vehicle) -> float:
-            seg_idx = find_seg_index_at_s(route.cum, v.s_pos)
-            cap = route.seg_caps_mps[seg_idx] if route.seg_caps_mps else DEFAULT_CAP_MPS
-            return max(
-                MIN_SPEED_FLOOR,
-                min(MAX_SPEED_CEIL, W_LIMIT * cap + (1 - W_LIMIT) * v.ema_mps),
-            )
-
-        for idx, me in enumerate(ordered):
-            if n == 1:
-                results.append(
-                    VehicleView(
-                        id=me.id,
-                        name=me.name,
-                        status="green",
-                        headway_sec=None,
-                        target_headway_sec=int(target) if target > 0 else None,
-                        gap_label="—",
-                        leader_name=None,
-                        countdown_sec=None,
-                        updated_at=min(me.ts_ms, int(time.time() * 1000)) // 1000,
-                    )
-                )
-                continue
-
-            leader = ordered[(idx + 1) % n] if go_forward else ordered[(idx - 1) % n]
-            gap_m = (leader.s_pos - me.s_pos) % loop_len if go_forward else (me.s_pos - leader.s_pos) % loop_len
-            gap_m = max(gap_m, LEADER_EPS_M)
-
-            speed = ref_speed(me)
-            headway = gap_m / max(speed, 0.1)
-            diff = headway - target
-
-            if target > 0 and headway < RED_FRAC * target:
-                status = "red"
-                gap_label = f"Ahead {fmt_mmss(diff)}"
-                countdown = int(max(0, target - headway))
-            elif target > 0 and headway < GREEN_FRAC * target:
-                status = "yellow"
-                gap_label = f"Ahead {fmt_mmss(diff)}"
-                countdown = int(max(0, target - headway))
-            else:
-                status = "green"
-                if target > 0 and abs(diff) <= ONTARGET_TOL_SEC:
-                    gap_label = "On target"
-                elif diff < 0:
-                    gap_label = f"Ahead {fmt_mmss(diff)}"
-                else:
-                    gap_label = f"Behind {fmt_mmss(diff)}"
-                countdown = None
-
+    for idx, me in enumerate(ordered):
+        if n == 1:
             results.append(
                 VehicleView(
                     id=me.id,
                     name=me.name,
-                    status=status,
-                    headway_sec=int(headway),
+                    status="green",
+                    headway_sec=None,
                     target_headway_sec=int(target) if target > 0 else None,
-                    gap_label=gap_label,
-                    leader_name=leader.name,
-                    countdown_sec=countdown,
+                    gap_label="—",
+                    leader_name=None,
+                    countdown_sec=None,
                     updated_at=min(me.ts_ms, int(time.time() * 1000)) // 1000,
                 )
             )
+            continue
 
-        # If a vehicle's leader is also holding, the follower must wait for the
-        # leader to finish its hold before moving.  Accumulate countdowns along
-        # the ring so each vehicle's hold time includes that of its leader.
-        n = len(results)
-        if n > 1:
-            bases = [v.countdown_sec for v in results]
-            roots = [i for i, b in enumerate(bases) if not b]
-            if not roots:
-                roots = [0]
-            for start in roots:
-                if go_forward:
-                    i = (start - 1) % n
-                    while i != start:
-                        if bases[i]:
-                            leader_idx = (i + 1) % n
-                            leader_hold = results[leader_idx].countdown_sec or 0
-                            results[i].countdown_sec = bases[i] + leader_hold
-                            bases[i] = results[i].countdown_sec
-                            i = (i - 1) % n
-                        else:
-                            break
+        leader = ordered[(idx + 1) % n]
+        gap_m = (leader.s_pos - me.s_pos) % loop_len
+        gap_m = max(gap_m, LEADER_EPS_M)
+
+        speed = ref_speed(me)
+        headway = gap_m / max(speed, 0.1)
+        diff = headway - target
+
+        if target > 0 and headway < RED_FRAC * target:
+            status = "red"
+            gap_label = f"Ahead {fmt_mmss(diff)}"
+            countdown = int(max(0, target - headway))
+        elif target > 0 and headway < GREEN_FRAC * target:
+            status = "yellow"
+            gap_label = f"Ahead {fmt_mmss(diff)}"
+            countdown = int(max(0, target - headway))
+        else:
+            status = "green"
+            if target > 0 and abs(diff) <= ONTARGET_TOL_SEC:
+                gap_label = "On target"
+            elif diff < 0:
+                gap_label = f"Ahead {fmt_mmss(diff)}"
+            else:
+                gap_label = f"Behind {fmt_mmss(diff)}"
+            countdown = None
+
+        results.append(
+            VehicleView(
+                id=me.id,
+                name=me.name,
+                status=status,
+                headway_sec=int(headway),
+                target_headway_sec=int(target) if target > 0 else None,
+                gap_label=gap_label,
+                leader_name=leader.name,
+                countdown_sec=countdown,
+                updated_at=min(me.ts_ms, int(time.time() * 1000)) // 1000,
+            )
+        )
+
+    # Accumulate hold times: if a leader is holding, followers must also wait.
+    if n > 1:
+        bases = [v.countdown_sec for v in results]
+        roots = [i for i, b in enumerate(bases) if not b] or [0]
+        for start in roots:
+            i = (start - 1) % n
+            while i != start:
+                if bases[i]:
+                    leader_idx = (i + 1) % n
+                    leader_hold = results[leader_idx].countdown_sec or 0
+                    results[i].countdown_sec = bases[i] + leader_hold
+                    bases[i] = results[i].countdown_sec
+                    i = (i - 1) % n
                 else:
-                    i = (start + 1) % n
-                    while i != start:
-                        if bases[i]:
-                            leader_idx = (i - 1) % n
-                            leader_hold = results[leader_idx].countdown_sec or 0
-                            results[i].countdown_sec = bases[i] + leader_hold
-                            bases[i] = results[i].countdown_sec
-                            i = (i + 1) % n
-                        else:
-                            break
+                    break
 
-        return results
-
-    views: List[VehicleView] = []
-    views.extend(eval_ring(forward, True))
-    views.extend(eval_ring(reverse, False))
-
-    id_map = {v.id: v for v in vehicles if v.id is not None}
+    id_map = {v.id: v for v in ordered if v.id is not None}
 
     def sort_key(vv: VehicleView):
         v = id_map.get(vv.id)
-        bucket = 0 if (v and v.dir_sign > 0) else 1
         s = v.s_pos if v else 0.0
-        return (bucket, round(s, 3), vv.updated_at)
+        return (round(s, 3), vv.updated_at)
 
-    return sorted(views, key=sort_key)
+    return sorted(results, key=sort_key)
 # ---------------------------
 # Presentation models
 # ---------------------------
