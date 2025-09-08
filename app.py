@@ -889,7 +889,61 @@ async def startup():
                     r.raise_for_status()
                     data = r.json()
                     vehicles = data if isinstance(data, list) else data.get("d", [])
-                    entry = {"ts": ts, "vehicles": vehicles}
+
+                    blocks: Dict[int, str] = {}
+                    try:
+                        ds = datetime.now().strftime("%m/%d/%Y")
+                        sched_url = (
+                            "https://uva.transloc.com/Services/JSONPRelay.svc/"
+                            f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
+                        )
+                        sr = await client.get(sched_url)
+                        sr.raise_for_status()
+                        sched = sr.json() or []
+                        ids = ",".join(str(s["ScheduleVehicleCalendarID"]) for s in sched)
+                        if ids:
+                            block_url = (
+                                "https://uva.transloc.com/Services/JSONPRelay.svc/"
+                                f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
+                            )
+                            br = await client.get(block_url)
+                            br.raise_for_status()
+                            data2 = br.json() or {}
+                            groups = data2.get("BlockGroups", [])
+                            alias = {
+                                "[01]": "[01]/[04]",
+                                "[03]": "[05]/[03]",
+                                "[04]": "[01]/[04]",
+                                "[05]": "[05]/[03]",
+                                "[06]": "[22]/[06]",
+                                "[10]": "[20]/[10]",
+                                "[15]": "[26]/[15]",
+                                "[16] AM": "[21]/[16] AM",
+                                "[17]": "[23]/[17]",
+                                "[18] AM": "[24]/[18] AM",
+                                "[20] AM": "[20]/[10]",
+                                "[21] AM": "[21]/[16] AM",
+                                "[22] AM": "[22]/[06]",
+                                "[23]": "[23]/[17]",
+                                "[24] AM": "[24]/[18] AM",
+                                "[26] AM": "[26]/[15]",
+                            }
+                            mapping: Dict[int, str] = {}
+                            for g in groups:
+                                block = (g.get("BlockGroupId") or "").strip()
+                                vehicle_id = (
+                                    g.get("Blocks", [{}])[0]
+                                    .get("Trips", [{}])[0]
+                                    .get("VehicleID")
+                                    or g.get("VehicleId")
+                                )
+                                if block and "[" in block and vehicle_id is not None:
+                                    mapping[vehicle_id] = alias.get(block, block)
+                            blocks = mapping
+                    except Exception as e:
+                        print(f"[vehicle_logger] block error: {e}")
+
+                    entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
                     VEH_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
                     with VEH_LOG_FILE.open("a") as f:
                         f.write(json.dumps(entry) + "\n")
