@@ -98,7 +98,10 @@ ALL_BUSES = [
 
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
-VEH_LOG_FILE = Path(os.getenv("VEH_LOG_FILE", "vehicle_log.jsonl"))
+# Ensure the log path is anchored to the application directory so both the
+# logger and the HTTP route reference the same file regardless of the CWD.
+VEH_LOG_FILE = (Path(__file__).resolve().parent /
+                Path(os.getenv("VEH_LOG_FILE", "vehicle_log.jsonl")))
 VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
 
@@ -1195,10 +1198,9 @@ async def fgdc_font():
 
 @app.get("/vehicle_log.jsonl", include_in_schema=False)
 async def vehicle_log_file():
-    path = BASE_DIR / "vehicle_log.jsonl"
-    if not path.exists():
+    if not VEH_LOG_FILE.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
-    return FileResponse(path, media_type="application/json")
+    return FileResponse(VEH_LOG_FILE, media_type="application/json")
 
 # ---------------------------
 # LANDING PAGE
