@@ -18,7 +18,7 @@
     }
     html, body { height: 100%; margin: 0; font-family: 'FGDC', sans-serif; overflow: hidden; }
     #map { height: calc(100% - var(--controls-height)); width: 100%; }
-    #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: var(--controls-height); background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; }
+    #controls { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; }
     #controls > * { margin: 2px; }
     #controls input, #controls button {
       padding: 6px;
@@ -137,7 +137,7 @@
       transition: right 0.3s ease;
     }
     @media (max-width: 600px) {
-      :root { --controls-height: 150px; }
+      :root { --controls-height: 180px; }
       #busSelector { width: 80%; left: 10%; font-size: 18px; bottom: calc(var(--controls-height) + 20px); }
       #busSelector.hidden { transform: translateX(calc(-100% - 20px)); }
       #busSelector button { font-size: 20px; }
@@ -250,8 +250,14 @@
       tab.style.right = panel.classList.contains('hidden') ? '0' : offset + 'px';
     }
 
-    window.addEventListener('load', () => { positionBusTab(); positionRouteTab(); });
-    window.addEventListener('resize', () => { positionBusTab(); positionRouteTab(); });
+    function updateControlsHeight() {
+      const controls = document.getElementById('controls');
+      if (!controls) return;
+      const height = controls.offsetHeight;
+      document.documentElement.style.setProperty('--controls-height', height + 'px');
+    }
+    window.addEventListener('load', () => { positionBusTab(); positionRouteTab(); updateControlsHeight(); });
+    window.addEventListener('resize', () => { positionBusTab(); positionRouteTab(); updateControlsHeight(); });
 
     function updateSpeedButtons() {
       playBtn.classList.remove('selected');
