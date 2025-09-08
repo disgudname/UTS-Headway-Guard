@@ -98,8 +98,8 @@
     <input id="startTime" placeholder="Start time">
     <input id="endTime" placeholder="End time">
     <button id="loadRangeBtn">Load</button>
-    <button id="playBtn">&#9654;</button>
     <button id="pauseBtn">&#10074;&#10074;</button>
+    <button id="playBtn">&#9654;</button>
     <button id="ff2Btn"><span class="play-icons">&#9654;&#9654;</span></button>
     <button id="ff4Btn"><span class="play-icons">&#9654;&#9654;&#9654;&#9654;</span></button>
     <input type="range" id="timeline" min="0" value="0">
@@ -154,9 +154,12 @@
 
     function updateSpeedButtons() {
       playBtn.classList.remove('selected');
+      pauseBtn.classList.remove('selected');
       ff2Btn.classList.remove('selected');
       ff4Btn.classList.remove('selected');
-      if (playbackSpeed === 1) {
+      if (!isPlaying) {
+        pauseBtn.classList.add('selected');
+      } else if (playbackSpeed === 1) {
         playBtn.classList.add('selected');
       } else if (playbackSpeed === 2) {
         ff2Btn.classList.add('selected');
@@ -508,7 +511,7 @@
     document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
-    updateSpeedButtons();
+    pause();
     fetchRouteColors().then(fetchRouteInfo).then(loadLog);
   </script>
 </body>
