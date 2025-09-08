@@ -171,6 +171,8 @@
     <button id="playBtn" class="speed-btn">1x</button>
     <button id="ff2Btn" class="speed-btn">2x</button>
     <button id="ff4Btn" class="speed-btn">4x</button>
+    <button id="ff8Btn" class="speed-btn">8x</button>
+    <button id="ff10Btn" class="speed-btn">10x</button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
     <span id="lastUpdateLabel"></span>
@@ -208,7 +210,7 @@
     let blockMarkers = {};
     let routeLayers = [];
     let timer = null;       // handle for scheduled frame advance
-    let playbackSpeed = 1;  // 1x, 2x, 4x
+    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x
     let routeColors = {};
     let allRoutes = {};
     let routeSelections = {};
@@ -225,6 +227,8 @@
     const pauseBtn = document.getElementById('pauseBtn');
     const ff2Btn = document.getElementById('ff2Btn');
     const ff4Btn = document.getElementById('ff4Btn');
+    const ff8Btn = document.getElementById('ff8Btn');
+    const ff10Btn = document.getElementById('ff10Btn');
 
     function positionBusTab() {
       const panel = document.getElementById('busSelector');
@@ -254,6 +258,8 @@
       pauseBtn.classList.remove('selected');
       ff2Btn.classList.remove('selected');
       ff4Btn.classList.remove('selected');
+      ff8Btn.classList.remove('selected');
+      ff10Btn.classList.remove('selected');
       if (!isPlaying) {
         pauseBtn.classList.add('selected');
       } else if (playbackSpeed === 1) {
@@ -262,6 +268,10 @@
         ff2Btn.classList.add('selected');
       } else if (playbackSpeed === 4) {
         ff4Btn.classList.add('selected');
+      } else if (playbackSpeed === 8) {
+        ff8Btn.classList.add('selected');
+      } else if (playbackSpeed === 10) {
+        ff10Btn.classList.add('selected');
       }
     }
 
@@ -743,6 +753,8 @@
     pauseBtn.onclick = pause;
     ff2Btn.onclick = () => { playbackSpeed = 2; play(); };
     ff4Btn.onclick = () => { playbackSpeed = 4; play(); };
+    ff8Btn.onclick = () => { playbackSpeed = 8; play(); };
+    ff10Btn.onclick = () => { playbackSpeed = 10; play(); };
     document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
