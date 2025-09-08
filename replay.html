@@ -23,6 +23,7 @@
       border: 1px solid #ccc;
     }
     #timeline { flex: 1; margin: 0 10px; }
+    .play-icons { letter-spacing: -4px; }
   </style>
 </head>
 <body>
@@ -32,10 +33,9 @@
     <input id="startTime" placeholder="Start time">
     <input id="endTime" placeholder="End time">
     <button id="loadRangeBtn">Load</button>
-    <button id="playBtn">Play</button>
-    <button id="pauseBtn">Pause</button>
-    <button id="ff2Btn">FF x2</button>
-    <button id="ff4Btn">FF x4</button>
+    <button id="playPauseBtn">&#9654;</button>
+    <button id="ff2Btn"><span class="play-icons">&#9654;&#9654;</span></button>
+    <button id="ff4Btn"><span class="play-icons">&#9654;&#9654;&#9654;&#9654;</span></button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
   </div>
@@ -71,6 +71,8 @@
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x
     let routeColors = {};
+    let isPlaying = false;
+    const playPauseBtn = document.getElementById('playPauseBtn');
 
     function fetchRouteColors() {
       const routesApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681";
@@ -187,12 +189,18 @@
 
     function play() {
       pause();
+      isPlaying = true;
+      playPauseBtn.innerHTML = '&#10074;&#10074;';
       scheduleNext();
     }
 
     function pause() {
       if (timer) clearTimeout(timer);
       timer = null;
+      if (isPlaying) {
+        isPlaying = false;
+        playPauseBtn.innerHTML = '&#9654;';
+      }
     }
 
     function applyRange() {
@@ -211,8 +219,10 @@
       showFrame(0);
     }
 
-    document.getElementById('playBtn').onclick = () => { playbackSpeed = 1; play(); };
-    document.getElementById('pauseBtn').onclick = pause;
+    playPauseBtn.onclick = () => {
+      if (isPlaying) { pause(); }
+      else { playbackSpeed = 1; play(); }
+    };
     document.getElementById('ff2Btn').onclick = () => { playbackSpeed = 2; play(); };
     document.getElementById('ff4Btn').onclick = () => { playbackSpeed = 4; play(); };
     document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
