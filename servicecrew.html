@@ -48,6 +48,26 @@ const dateSpan=document.getElementById('dateDisplay');
 const tbody=document.querySelector('#bustable tbody');
 let blockNameMap=new Map();
 
+let OVERHEIGHT_BUSES=['25131','25231','25331','25431','17132','14132','12432','18532'];
+
+function contrastColor(hex){
+  if(!hex) return '#e8eef5';
+  const c=hex.replace('#','');
+  const r=parseInt(c.substr(0,2),16)/255;
+  const g=parseInt(c.substr(2,2),16)/255;
+  const b=parseInt(c.substr(4,2),16)/255;
+  const l=0.2126*r+0.7152*g+0.0722*b;
+  return l>0.5?'#000':'#fff';
+}
+
+async function loadConfig(){
+  try{
+    const cfg=await fetch('/v1/config');
+    const data=await cfg.json();
+    if(data.OVERHEIGHT_BUSES) OVERHEIGHT_BUSES=data.OVERHEIGHT_BUSES;
+  }catch(_){ }
+}
+
 const alias={
   "[01]":"[01]/[04]",
   "[03]":"[05]/[03]",
@@ -99,6 +119,16 @@ async function fetchData(){
     const blocks=info.blocks.length?info.blocks.map(x=>blockNameMap.get(x)||x).join(', '):'—';
     const totalMilesToday=(info.actual_miles||0).toFixed(2);
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${totalMilesToday}</td>`;
+    const busCell=tr.children[0];
+    let bg='#EEE8AA';
+    if(OVERHEIGHT_BUSES.includes(b)){
+      bg='#E57200';
+    }else if(b.startsWith('24')){
+      bg='#232D4B';
+    }
+    busCell.style.background=bg;
+    busCell.style.color=contrastColor(bg);
+
     const milesCell=tr.children[2];
     if((info.actual_miles||0)>=100){
       milesCell.classList.add('high-mileage');
@@ -106,10 +136,15 @@ async function fetchData(){
     tbody.appendChild(tr);
   }
 }
-loadBlockMap();
-fetchData();
-setInterval(fetchData,30000);
-setInterval(loadBlockMap,30000);
+async function init(){
+  await loadConfig();
+  await loadBlockMap();
+  fetchData();
+  setInterval(fetchData,30000);
+  setInterval(loadBlockMap,30000);
+  setInterval(loadConfig,30000);
+}
+init();
 </script>
 </body>
 </html>
