@@ -7,24 +7,21 @@
 <link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
 <style>
   @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
-  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --btn:#15202b; }
-  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;height:100vh;display:flex;flex-direction:column;}
+  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; }
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.2 'FGDC',sans-serif;height:100vh;width:100vw;display:flex;flex-direction:column;}
   table{width:100%;border-collapse:collapse;}
-  th,td{border:1px solid var(--line);padding:6px;text-align:left;}
-  #layout{display:flex;flex-direction:column;padding:8px;gap:8px;flex:1;overflow:hidden;}
-  #table-wrapper{flex:1;overflow:auto;}
-  #mapframe{border:1px solid var(--line);flex:1;width:100%;min-height:400px;}
-  button{padding:4px 8px;background:var(--btn);border:1px solid var(--chip);color:var(--ink);border-radius:6px;cursor:pointer;}
-  button:hover{filter:brightness(1.1);}
-  @media (min-width:768px){#layout{flex-direction:row;}#table-wrapper{flex:0 0 auto;}#mapframe{flex:1;min-height:0;}}
+  th,td{border:1px solid var(--line);padding:2px 4px;text-align:left;}
+  #header{padding:8px;display:flex;justify-content:space-between;}
+  #layout{flex:1;display:flex;overflow:hidden;padding:8px;gap:8px;}
+  #table-wrapper{width:700px;overflow:hidden;}
+  #mapframe{border:1px solid var(--line);flex:1;height:100%;}
   .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
 </style>
 </head>
 <body>
-<div style="padding:8px;">
-  <label for="date">Date:</label>
-  <input type="date" id="date" />
-  <span id="totalMiles" style="margin-left:16px;"></span>
+<div id="header">
+  <span id="dateDisplay"></span>
+  <span id="totalMiles"></span>
 </div>
 <div id="layout">
   <div id="table-wrapper">
@@ -33,9 +30,7 @@
         <tr>
           <th>Bus</th>
           <th>Blocks</th>
-          <th>Miles since Reset</th>
           <th>Total Miles Today</th>
-          <th id="resetHead">Reset</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -45,16 +40,15 @@
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
-const dateInput=document.getElementById('date');
+const dateSpan=document.getElementById('dateDisplay');
 const tbody=document.querySelector('#bustable tbody');
 const totalSpan=document.getElementById('totalMiles');
 function todayStr(){return new Date().toISOString().split('T')[0];}
 async function fetchData(){
-  const date=dateInput.value||todayStr();
+  const date=todayStr();
+  dateSpan.textContent=`Date: ${date}`;
   const res=await fetch(`/v1/servicecrew?date=${date}`);
   const data=await res.json();
-  const isToday=date===todayStr();
-  document.getElementById('resetHead').style.display=isToday?'':'none';
   tbody.innerHTML='';
   let total=0;
   const sorted=Object.keys(data.buses).sort();
@@ -72,31 +66,16 @@ async function fetchData(){
     const info=data.buses[b];
     const tr=document.createElement('tr');
     const blocks=info.blocks.length?info.blocks.join(', '):'—';
-    const milesSinceReset=(info.display_miles||0).toFixed(2);
     const totalMilesToday=(info.actual_miles||0).toFixed(2);
-    tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${milesSinceReset}</td><td>${totalMilesToday}</td>`;
+    tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${totalMilesToday}</td>`;
     if((info.display_miles||0)>100){
       tr.style.background='red';
     }
-    if(isToday){
-      total+=info.display_miles||0;
-      const td=document.createElement('td');
-      const btn=document.createElement('button');
-      btn.textContent='Reset';
-      btn.onclick=async()=>{await fetch('/v1/servicecrew/reset/'+b,{method:'POST'});fetchData();};
-      td.appendChild(btn);
-      tr.appendChild(td);
-    }
+    total+=info.display_miles||0;
     tbody.appendChild(tr);
   }
-  if(isToday){
-    totalSpan.textContent=`Total: ${total.toFixed(2)} mi`;
-  }else{
-    totalSpan.textContent='';
-  }
+  totalSpan.textContent=`Total: ${total.toFixed(2)} mi`;
 }
-dateInput.value=todayStr();
-dateInput.addEventListener('change',fetchData);
 fetchData();
 setInterval(fetchData,30000);
 </script>
