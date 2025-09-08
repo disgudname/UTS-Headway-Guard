@@ -13,9 +13,12 @@
       font-family: 'FGDC';
       src: url('FGDC.ttf') format('truetype');
     }
-    html, body { height: 100%; margin: 0; font-family: 'FGDC', sans-serif; }
-    #map { height: calc(100% - 90px); width: 100%; }
-    #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: 90px; background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; }
+    :root {
+      --controls-height: 90px;
+    }
+    html, body { height: 100%; margin: 0; font-family: 'FGDC', sans-serif; overflow: hidden; }
+    #map { height: calc(100% - var(--controls-height)); width: 100%; }
+    #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: var(--controls-height); background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; }
     #controls > * { margin: 2px; }
     #controls input, #controls button {
       padding: 6px;
@@ -33,7 +36,7 @@
       position: fixed;
       top: 10px;
       left: 10px;
-      bottom: 110px;
+      bottom: calc(var(--controls-height) + 20px);
       z-index: 1100;
       background: rgba(255, 255, 255, 0.9);
       padding: 10px;
@@ -80,7 +83,7 @@
       position: fixed;
       top: 10px;
       right: 10px;
-      bottom: 110px;
+      bottom: calc(var(--controls-height) + 20px);
       z-index: 1100;
       background: rgba(255, 255, 255, 0.9);
       padding: 10px;
@@ -130,16 +133,19 @@
       transition: right 0.3s ease;
     }
     @media (max-width: 600px) {
-      #busSelector { width: 80%; left: 10%; font-size: 18px; bottom: 110px; }
+      :root { --controls-height: 150px; }
+      #busSelector { width: 80%; left: 10%; font-size: 18px; bottom: calc(var(--controls-height) + 20px); }
       #busSelector.hidden { transform: translateX(calc(-100% - 20px)); }
       #busSelector button { font-size: 20px; }
       #busSelector label { font-size: 18px; }
       #busSelectorTab { width: 40px; height: 80px; font-size: 28px; }
-      #routeSelector { width: 80%; right: 10%; font-size: 18px; bottom: 110px; }
+      #routeSelector { width: 80%; right: 10%; font-size: 18px; bottom: calc(var(--controls-height) + 20px); }
       #routeSelector.hidden { transform: translateX(calc(100% + 20px)); }
       #routeSelector button { font-size: 20px; }
       #routeSelector label { font-size: 18px; }
       #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
+      #timeline { flex: 1 0 100%; }
+      #timeLabel { flex: 0 0 100%; text-align: center; }
     }
   </style>
 </head>
