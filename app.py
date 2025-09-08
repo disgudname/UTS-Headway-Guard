@@ -162,6 +162,16 @@ def ll_to_xy(lat: float, lon: float, ref_lat: float, ref_lon: float) -> Tuple[fl
     ky = 110540.0
     return ((lon - ref_lon) * kx, (lat - ref_lat) * ky)
 
+def bearing_between(a: Tuple[float,float], b: Tuple[float,float]) -> float:
+    """Approximate heading in degrees from point ``a`` to ``b`` using a local
+    tangent plane where 0° is north and 90° is east."""
+    dx, dy = ll_to_xy(b[0], b[1], a[0], a[1])
+    return (math.degrees(math.atan2(dx, dy)) + 360.0) % 360.0
+
+def heading_diff(a: float, b: float) -> float:
+    """Smallest absolute difference between two headings in degrees."""
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
 def cumulative_distance(poly: List[Tuple[float,float]]) -> Tuple[List[float], float]:
     cum = [0.0]
     for i in range(1, len(poly)):
@@ -235,6 +245,8 @@ class Vehicle:
     s_pos: float = 0.0
     ema_mps: float = 0.0
     dir_sign: int = 0  # +1 forward, -1 reverse, 0 unknown
+    seg_idx: int = 0
+    along_mps: float = 0.0
 
 @dataclass
 class Route:
@@ -391,15 +403,20 @@ def find_seg_index_at_s(cum: List[float], s: float) -> int:
         else: hi = mid
     return lo
 
-def project_vehicle_to_route(v: Vehicle, route: Route) -> Tuple[float, int]:
+def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] = None,
+                             heading: Optional[float] = None) -> Tuple[float, int]:
     """Project vehicle to the nearest point on the polyline (by segment),
-    returning cumulative arc-length s (meters) and the segment index.
-    This fixes off-by-one leader selection caused by nearest-vertex snapping.
+    returning cumulative arc-length ``s`` (meters) and the segment index.
+
+    When multiple segments are nearly equidistant, prefer the one aligned with
+    ``heading`` or closest to ``prev_idx`` to stabilise projections on
+    overlapping bidirectional segments.
     """
     pts = route.poly; cum = route.cum
     best_d2 = 1e30
     best_s = 0.0
     best_i = 0
+    best_heading: Optional[float] = None
     for i in range(len(pts) - 1):
         a_lat, a_lon = pts[i]
         b_lat, b_lon = pts[i+1]
@@ -414,11 +431,21 @@ def project_vehicle_to_route(v: Vehicle, route: Route) -> Tuple[float, int]:
         projx = ax + t*vx; projy = ay + t*vy
         dx = px - projx; dy = py - projy
         d2 = dx*dx + dy*dy
-        if d2 < best_d2:
-            best_d2 = d2
-            seg_len = haversine((a_lat, a_lon), (b_lat, b_lon))
-            best_s = cum[i] + t * seg_len
-            best_i = i
+        seg_len = haversine((a_lat, a_lon), (b_lat, b_lon))
+        s = cum[i] + t * seg_len
+        seg_heading = bearing_between((a_lat, a_lon), (b_lat, b_lon))
+        if d2 < best_d2 - 1e-6:
+            best_d2 = d2; best_s = s; best_i = i; best_heading = seg_heading
+        elif abs(d2 - best_d2) <= 4.0:  # within ~2 m
+            prefer = False
+            if heading is not None and best_heading is not None:
+                if heading_diff(heading, seg_heading) + 1e-3 < heading_diff(heading, best_heading):
+                    prefer = True
+            elif prev_idx is not None:
+                if abs(i - prev_idx) < abs(best_i - prev_idx):
+                    prefer = True
+            if prefer:
+                best_d2 = d2; best_s = s; best_i = i; best_heading = seg_heading
     return best_s, best_i
 
 def target_headway_sec(route: Route, veh_count: int) -> float:
@@ -449,7 +476,9 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     reverse: List[Vehicle] = []
     unknown: List[Vehicle] = []
     for v in vehicles:
-        if v.dir_sign > 0:
+        if abs(v.ground_mps) < STOPPED_MPS:
+            unknown.append(v)
+        elif v.dir_sign > 0:
             forward.append(v)
         elif v.dir_sign < 0:
             reverse.append(v)
@@ -462,7 +491,10 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
         reverse.extend(unknown)
 
     def group_stopped(group: List[Vehicle]) -> bool:
-        return all(abs(v.ground_mps) < STOPPED_MPS for v in group)
+        return all(
+            max(abs(v.ground_mps), abs(v.ema_mps), abs(getattr(v, "along_mps", 0.0))) < STOPPED_MPS
+            for v in group
+        )
 
     if forward and reverse:
         if group_stopped(forward) or group_stopped(reverse):
@@ -511,7 +543,7 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
 
             leader = ordered[(idx + 1) % n] if go_forward else ordered[(idx - 1) % n]
             gap_m = (leader.s_pos - me.s_pos) % loop_len if go_forward else (me.s_pos - leader.s_pos) % loop_len
-            gap_m = max(gap_m, 0.5)
+            gap_m = max(gap_m, LEADER_EPS_M)
 
             speed = ref_speed(me)
             headway = gap_m / max(speed, 0.1)
@@ -793,8 +825,9 @@ async def startup():
                                 age_s = max(0, (time.time()*1000 - tsms) / 1000)
                             veh = Vehicle(id=vid, name=name, lat=v.get("Latitude"), lon=v.get("Longitude"), ts_ms=tsms,
                                           ground_mps=mps, age_s=age_s, heading=heading)
-                            s_pos, _ = project_vehicle_to_route(veh, state.routes[rid])
                             prev = prev_map.get(rid, {}).get(vid)
+                            prev_idx = prev.seg_idx if prev else None
+                            s_pos, seg_idx = project_vehicle_to_route(veh, state.routes[rid], prev_idx, heading)
                             prev_sign = prev.dir_sign if prev else state.last_dir_sign.get(vid, 0)
                             ema = prev.ema_mps if prev else (mps if mps > 0 else 6.0)
                             L = state.routes[rid].length_m
@@ -806,14 +839,24 @@ async def startup():
                             else:
                                 along_mps = 0.0
                             DIR_EPS = 0.3
-                            if along_mps > DIR_EPS: dir_sign = +1
-                            elif along_mps < -DIR_EPS: dir_sign = -1
-                            else: dir_sign = prev_sign
+                            if along_mps > DIR_EPS:
+                                dir_sign = +1
+                            elif along_mps < -DIR_EPS:
+                                dir_sign = -1
+                            else:
+                                dir_sign = prev_sign
+                                if abs(along_mps) <= DIR_EPS and prev_sign == 0 and seg_idx is not None:
+                                    seg_heading = bearing_between(
+                                        state.routes[rid].poly[seg_idx],
+                                        state.routes[rid].poly[seg_idx + 1],
+                                    )
+                                    dir_sign = +1 if heading_diff(heading, seg_heading) <= 90 else -1
                             disp = abs(along_mps)
                             measured = 0.5 * mps + 0.5 * disp if mps > 0 else (disp if prev else mps)
                             ema = EMA_ALPHA * measured + (1 - EMA_ALPHA) * ema
                             ema = max(MIN_SPEED_FLOOR, min(MAX_SPEED_CEIL, ema))
                             veh.s_pos = s_pos; veh.ema_mps = ema; veh.dir_sign = dir_sign
+                            veh.seg_idx = seg_idx; veh.along_mps = along_mps
                             new_map[rid][vid] = veh
                             state.last_dir_sign[vid] = dir_sign
                         state.vehicles_by_route = new_map
