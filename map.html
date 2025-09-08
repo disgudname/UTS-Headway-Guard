@@ -151,10 +151,10 @@
       // Manually set these variables.
       // adminMode: true for admin view (with route selector, speed bubbles, etc.)
       // kioskMode: true to hide the route selector panel and tab.
-      // showSpeed: now defaults to false.
-      let adminMode = true; // shows unit numbers, enables route selector and show/hide speed button
+      // showSpeed/showBlockNumbers: only one may be true at a time.
+      let adminMode = true; // shows unit numbers, enables route selector and show/hide toggle
       let kioskMode = false; // adminMode must = true for kisokMode to work
-      let showSpeed = false;
+      let showSpeed = false; // default to showing block numbers
       let showBlockNumbers = true;
       
       const outOfServiceRouteColor = '#000000';
@@ -199,17 +199,16 @@
         return activeRoutes.has(Number(routeID));
       }
 
-      // New function to toggle speed display.
-      function toggleShowSpeed() {
-        showSpeed = !showSpeed;
-        document.getElementById("toggleSpeedButton").innerHTML = showSpeed ? "Hide Speed" : "Show Speed";
-        refreshMap();
-      }
-
-      // New function to toggle block number display.
-      function toggleShowBlockNumbers() {
-        showBlockNumbers = !showBlockNumbers;
-        document.getElementById("toggleBlockButton").innerHTML = showBlockNumbers ? "Hide Block Numbers" : "Show Block Numbers";
+      // Toggle between displaying speed or block numbers.
+      function toggleSpeedOrBlock() {
+        if (showSpeed) {
+          showSpeed = false;
+          showBlockNumbers = true;
+        } else {
+          showSpeed = true;
+          showBlockNumbers = false;
+        }
+        document.getElementById("toggleDisplayButton").innerHTML = showSpeed ? "Show Block Numbers" : "Show Speed";
         refreshMap();
       }
 
@@ -220,8 +219,8 @@
         const container = document.getElementById("routeSelector");
         if (!container) return;
         let html = "";
-        // Add the speed toggle button and block number toggle.
-        html += "<div style='margin-bottom:10px;'><button id='toggleSpeedButton' onclick='toggleShowSpeed()'>" + (showSpeed ? "Hide Speed" : "Show Speed") + "</button><button id='toggleBlockButton' onclick='toggleShowBlockNumbers()'>" + (showBlockNumbers ? "Hide Block Numbers" : "Show Block Numbers") + "</button></div>";
+        // Add the speed/block toggle button.
+        html += "<div style='margin-bottom:10px;'><button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button></div>";
         html += "<h3>Select Routes</h3>" +
           "<button onclick='selectAllRoutes()'>Select All</button>" +
           "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
