@@ -71,6 +71,7 @@ LEADER_EPS_M   = float(os.getenv("LEADER_EPS_M", "8.0"))
 STOPPED_MPS    = float(os.getenv("STOPPED_MPS", "0.5"))
 MPH_TO_MPS      = 0.44704
 DEFAULT_CAP_MPS = 25 * MPH_TO_MPS
+HEADING_JITTER_M = float(os.getenv("HEADING_JITTER_M", "3.0"))
 
 # Low clearance lookup around 14th Street bridge
 BRIDGE_LAT = 38.03404931117353
@@ -825,13 +826,21 @@ async def startup():
                             vid = v.get("VehicleID")
                             tsms = parse_msajax(v.get("TimeStampUTC") or v.get("TimeStamp")) or int(time.time()*1000)
                             mps = (v.get("GroundSpeed") or 0.0) * MPH_TO_MPS
+                            lat = v.get("Latitude")
+                            lon = v.get("Longitude")
+                            prev = prev_map.get(rid, {}).get(vid)
                             heading = v.get("Heading") or 0.0
+                            if prev and prev.lat is not None and prev.lon is not None and lat is not None and lon is not None:
+                                move = haversine((prev.lat, prev.lon), (lat, lon))
+                                if move >= HEADING_JITTER_M:
+                                    heading = bearing_between((prev.lat, prev.lon), (lat, lon))
+                                else:
+                                    heading = prev.heading
                             age_s = v.get("Seconds")
                             if age_s is None:
                                 age_s = max(0, (time.time()*1000 - tsms) / 1000)
-                            veh = Vehicle(id=vid, name=name, lat=v.get("Latitude"), lon=v.get("Longitude"), ts_ms=tsms,
+                            veh = Vehicle(id=vid, name=name, lat=lat, lon=lon, ts_ms=tsms,
                                           ground_mps=mps, age_s=age_s, heading=heading)
-                            prev = prev_map.get(rid, {}).get(vid)
                             prev_idx = prev.seg_idx if prev else None
                             s_pos, seg_idx = project_vehicle_to_route(veh, state.routes[rid], prev_idx, heading)
                             prev_sign = prev.dir_sign if prev else state.last_dir_sign.get(vid, 0)
