@@ -22,6 +22,9 @@
       border-radius: 4px;
       border: 1px solid #ccc;
     }
+    #controls button.selected {
+      background-color: #ccc;
+    }
     #timeline { flex: 1; margin: 0 10px; }
     .play-icons { letter-spacing: -4px; }
     #routeSelector {
@@ -144,6 +147,21 @@
     const outOfServiceRouteColor = '#000000';
     let isPlaying = false;
     const playPauseBtn = document.getElementById('playPauseBtn');
+    const ff2Btn = document.getElementById('ff2Btn');
+    const ff4Btn = document.getElementById('ff4Btn');
+
+    function updateSpeedButtons() {
+      playPauseBtn.classList.remove('selected');
+      ff2Btn.classList.remove('selected');
+      ff4Btn.classList.remove('selected');
+      if (!isPlaying || playbackSpeed === 1) {
+        playPauseBtn.classList.add('selected');
+      } else if (playbackSpeed === 2) {
+        ff2Btn.classList.add('selected');
+      } else if (playbackSpeed === 4) {
+        ff4Btn.classList.add('selected');
+      }
+    }
 
     function fetchRouteColors() {
       const routesApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681";
@@ -450,6 +468,7 @@
       pause();
       isPlaying = true;
       playPauseBtn.innerHTML = '&#10074;&#10074;';
+      updateSpeedButtons();
       scheduleNext();
     }
 
@@ -460,6 +479,7 @@
         isPlaying = false;
         playPauseBtn.innerHTML = '&#9654;';
       }
+      updateSpeedButtons();
     }
 
     function applyRange() {
@@ -482,11 +502,12 @@
       if (isPlaying) { pause(); }
       else { playbackSpeed = 1; play(); }
     };
-    document.getElementById('ff2Btn').onclick = () => { playbackSpeed = 2; play(); };
-    document.getElementById('ff4Btn').onclick = () => { playbackSpeed = 4; play(); };
+    ff2Btn.onclick = () => { playbackSpeed = 2; play(); };
+    ff4Btn.onclick = () => { playbackSpeed = 4; play(); };
     document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
+    updateSpeedButtons();
     fetchRouteColors().then(fetchRouteInfo).then(loadLog);
   </script>
 </body>
