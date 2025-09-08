@@ -27,6 +27,52 @@
     }
     #timeline { flex: 1; margin: 0 10px; }
     .play-icons { letter-spacing: -4px; }
+    #busSelector {
+      width: 300px;
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      bottom: 110px;
+      z-index: 1100;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border-radius: 5px;
+      overflow-y: auto;
+      transition: transform 0.3s ease;
+      font-size: 21px;
+    }
+    #busSelector.hidden { transform: translateX(-320px); }
+    #busSelector h3 { margin-top: 0; }
+    #busSelector button {
+      margin: 5px 2px;
+      padding: 5px 10px;
+      font-size: 24px;
+      font-family: 'FGDC', sans-serif;
+      background-color: #E57200;
+      color: black;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+    #busSelector label { display: block; margin-bottom: 5px; cursor: pointer; }
+    #busSelectorTab {
+      position: fixed;
+      top: 50%;
+      left: 0;
+      width: 30px;
+      height: 60px;
+      background: #ccc;
+      border-top-right-radius: 10px;
+      border-bottom-right-radius: 10px;
+      cursor: pointer;
+      display: block;
+      transform: translateY(-50%);
+      z-index: 1150;
+      text-align: center;
+      line-height: 60px;
+      font-size: 20px;
+      user-select: none;
+    }
     #routeSelector {
       width: 300px;
       position: fixed;
@@ -81,6 +127,11 @@
       user-select: none;
     }
     @media (max-width: 600px) {
+      #busSelector { width: 80%; left: 10%; font-size: 18px; bottom: 110px; }
+      #busSelector.hidden { transform: translateX(calc(-100% - 20px)); }
+      #busSelector button { font-size: 20px; }
+      #busSelector label { font-size: 18px; }
+      #busSelectorTab { width: 40px; height: 80px; font-size: 28px; }
       #routeSelector { width: 80%; right: 10%; font-size: 18px; bottom: 110px; }
       #routeSelector.hidden { transform: translateX(calc(100% + 20px)); }
       #routeSelector button { font-size: 20px; }
@@ -91,6 +142,8 @@
 </head>
 <body>
   <div id="map"></div>
+  <div id="busSelector"></div>
+  <div id="busSelectorTab" onclick="toggleBusPanel()">&#9654;</div>
   <div id="routeSelector"></div>
   <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
   <div id="controls">
@@ -145,6 +198,9 @@
     let allRoutes = {};
     let routeSelections = {};
     let activeRoutes = new Set();
+    let allBuses = {};
+    let busSelections = {};
+    let activeBuses = new Set();
     let showSpeed = false;
     let showBlockNumbers = true;
     let currentFrameIndex = 0;
@@ -220,6 +276,11 @@
       return activeRoutes.has(Number(routeID));
     }
 
+    function isBusSelected(busID) {
+      if (busSelections.hasOwnProperty(busID)) return busSelections[busID];
+      return activeBuses.has(Number(busID));
+    }
+
     function refreshReplay() {
       showFrame(currentFrameIndex);
     }
@@ -236,6 +297,67 @@
       const btn = document.getElementById('toggleBlockButton');
       if (btn) btn.innerHTML = showBlockNumbers ? 'Hide Block Numbers' : 'Show Block Numbers';
       refreshReplay();
+    }
+
+    function updateBusSelector(activeBusesSet) {
+      const container = document.getElementById('busSelector');
+      if (!container) return;
+      let busIDs = Object.keys(allBuses).map(Number);
+      busIDs.sort((a,b) => {
+        let nameA = allBuses[a].toUpperCase();
+        let nameB = allBuses[b].toUpperCase();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        return 0;
+      });
+      let html = "<h3>Select Buses</h3>" +
+        "<button onclick='selectAllBuses()'>Select All</button>" +
+        "<button onclick='deselectAllBuses()'>Deselect All</button><br/><br/>";
+      busIDs.forEach(id => {
+        let checked = busSelections.hasOwnProperty(id) ? busSelections[id] : activeBusesSet.has(id);
+        let name = allBuses[id] || id;
+        html += `<label><input type="checkbox" id="bus_${id}" value="${id}" ${checked ? "checked" : ""}> ${name}</label>`;
+      });
+      container.innerHTML = html;
+      busIDs.forEach(id => {
+        let chk = document.getElementById('bus_' + id);
+        if (chk) {
+          chk.addEventListener('change', function() {
+            busSelections[id] = chk.checked;
+            refreshReplay();
+          });
+        }
+      });
+    }
+
+    function selectAllBuses() {
+      for (let id in allBuses) {
+        let chk = document.getElementById('bus_' + id);
+        if (chk) chk.checked = true;
+        busSelections[id] = true;
+      }
+      refreshReplay();
+    }
+
+    function deselectAllBuses() {
+      for (let id in allBuses) {
+        let chk = document.getElementById('bus_' + id);
+        if (chk) chk.checked = false;
+        busSelections[id] = false;
+      }
+      refreshReplay();
+    }
+
+    function toggleBusPanel() {
+      let panel = document.getElementById('busSelector');
+      let tab = document.getElementById('busSelectorTab');
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        tab.innerHTML = '&#9654;';
+      } else {
+        panel.classList.add('hidden');
+        tab.innerHTML = '&#9664;';
+      }
     }
 
     function updateRouteSelector(activeRoutes) {
@@ -386,15 +508,25 @@
       document.getElementById('timeLabel').textContent = formatted;
 
       const activeRoutesSet = new Set();
-      entry.vehicles.forEach(v => activeRoutesSet.add(v.RouteID || 0));
+      const activeBusesSet = new Set();
+      entry.vehicles.forEach(v => {
+        activeRoutesSet.add(v.RouteID || 0);
+        activeBusesSet.add(v.VehicleID);
+        const busName = v.Name ? v.Name.slice(0, -2) : '';
+        if (busName) {
+          allBuses[v.VehicleID] = busName;
+        }
+      });
       activeRoutes = activeRoutesSet;
+      activeBuses = activeBusesSet;
       updateRouteSelector(activeRoutesSet);
+      updateBusSelector(activeBusesSet);
 
       clearMarkers();
       const blocks = entry.blocks || {};
       entry.vehicles.forEach(vehicle => {
         const routeID = vehicle.RouteID || 0;
-        if (!isRouteSelected(routeID)) return;
+        if (!isRouteSelected(routeID) || !isBusSelected(vehicle.VehicleID)) return;
         const pos = [vehicle.Latitude, vehicle.Longitude];
         const isMoving = vehicle.GroundSpeed > 0;
         const heading = vehicle.Heading;
