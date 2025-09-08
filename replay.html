@@ -397,16 +397,18 @@
       if (willOpen) {
         panel.classList.remove('hidden');
         tab.innerHTML = '&#9654;';
-        if (routePanel && !routePanel.classList.contains('hidden')) {
-          routePanel.classList.add('hidden');
-          if (routeTab) routeTab.innerHTML = '&#9654;';
-          positionRouteTab();
+        if (routePanel) routePanel.classList.add('hidden');
+        if (routeTab) {
+          routeTab.innerHTML = '&#9654;';
+          routeTab.style.display = 'none';
         }
       } else {
         panel.classList.add('hidden');
         tab.innerHTML = '&#9664;';
+        if (routeTab) routeTab.style.display = 'block';
       }
       positionBusTab();
+      positionRouteTab();
     }
 
     function updateRouteSelector(activeRoutes) {
@@ -499,16 +501,18 @@
       if (willOpen) {
         panel.classList.remove('hidden');
         tab.innerHTML = '&#9664;';
-        if (busPanel && !busPanel.classList.contains('hidden')) {
-          busPanel.classList.add('hidden');
-          if (busTab) busTab.innerHTML = '&#9664;';
-          positionBusTab();
+        if (busPanel) busPanel.classList.add('hidden');
+        if (busTab) {
+          busTab.innerHTML = '&#9664;';
+          busTab.style.display = 'none';
         }
       } else {
         panel.classList.add('hidden');
         tab.innerHTML = '&#9654;';
+        if (busTab) busTab.style.display = 'block';
       }
       positionRouteTab();
+      positionBusTab();
     }
 
     function loadLog(retryDelay = 2000) {
