@@ -54,7 +54,9 @@ Key endpoints exposed by the service:
 
 ## Configuration
 Runtime settings can be tuned with environment variables such as `TRANSLOC_BASE`, `TRANSLOC_KEY` and `OVERPASS_EP`.
-See `app.py` for the full list and default values.
+See `app.py` for the full list and default values. Changes made through the `/admin` page
+are persisted to `/data/config.json` on the `mileage_data` volume so they survive
+redeployments.
 
 ## Docker
 Build and run a containerised instance:
