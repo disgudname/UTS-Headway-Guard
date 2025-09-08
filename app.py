@@ -459,9 +459,10 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     """Compute headway guidance for each vehicle on a route.
 
     The routine rebuilds anti‑bunching logic from first principles.  Vehicles are
-    partitioned into forward and reverse "rings" based on their direction of
-    travel around the loop.  Stopped vehicles stay in their ring so that they can
-    still serve as leaders.  Within each ring the vehicles are ordered by their
+    partitioned into forward and reverse "rings" based on their last known
+    direction of travel (``dir_sign``).  This value is preserved even when a bus
+    stops or its motion is ambiguous, keeping the vehicle in its ring so it can
+    continue serving as a leader.  Within each ring vehicles are ordered by their
     cumulative distance ``s_pos`` along the route and headways are computed to the
     next vehicle in that order (wrapping around the loop).
     """
@@ -476,9 +477,10 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
     reverse: List[Vehicle] = []
     unknown: List[Vehicle] = []
     for v in vehicles:
-        if abs(v.ground_mps) < STOPPED_MPS:
-            unknown.append(v)
-        elif v.dir_sign > 0:
+        # Classify based on persistent direction sign.  Stopped vehicles retain
+        # their previous ``dir_sign`` so they remain in their ring instead of
+        # being shuffled between rings when stationary.
+        if v.dir_sign > 0:
             forward.append(v)
         elif v.dir_sign < 0:
             reverse.append(v)
