@@ -566,7 +566,7 @@
                           } else {
                               allRoutes[route.RouteID] = route;
                           }
-                          if (route.EncodedPolyline && route.IsRunning && (adminMode || route.IsVisibleOnMap) && isRouteSelected(route.RouteID)) {
+                          if (route.EncodedPolyline && (adminMode || route.IsVisibleOnMap) && isRouteSelected(route.RouteID)) {
                               const decodedPolyline = polyline.decode(route.EncodedPolyline);
                               let routeColor = getRouteColor(route.RouteID);
                               const routeLayer = L.polyline(decodedPolyline, {
