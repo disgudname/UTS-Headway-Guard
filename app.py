@@ -101,6 +101,8 @@ VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&return
 VEH_LOG_FILE = Path(os.getenv("VEH_LOG_FILE", "/data/vehicle_log.jsonl"))
 VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
+VEH_LOG_MIN_MOVE_M = float(os.getenv("VEH_LOG_MIN_MOVE_M", "3"))
+LAST_LOG_POS: Dict[int, Tuple[float, float]] = {}
 
 def prune_old_entries() -> None:
     cutoff = int(time.time() * 1000) - VEH_LOG_RETENTION_MS
@@ -890,6 +892,24 @@ async def startup():
                     data = r.json()
                     vehicles = data if isinstance(data, list) else data.get("d", [])
 
+                    filtered: list[dict] = []
+                    for v in vehicles:
+                        vid = v.get("VehicleID")
+                        lat = v.get("Latitude")
+                        lon = v.get("Longitude")
+                        if vid is None or lat is None or lon is None:
+                            continue
+                        last = LAST_LOG_POS.get(vid)
+                        if last and haversine((lat, lon), last) < VEH_LOG_MIN_MOVE_M:
+                            continue
+                        LAST_LOG_POS[vid] = (lat, lon)
+                        filtered.append(v)
+                    vehicles = filtered
+                    vehicle_ids = {v.get("VehicleID") for v in vehicles}
+                    if not vehicles:
+                        await asyncio.sleep(VEH_LOG_INTERVAL_S)
+                        continue
+
                     blocks: Dict[int, str] = {}
                     try:
                         ds = datetime.now().strftime("%m/%d/%Y")
@@ -943,6 +963,7 @@ async def startup():
                     except Exception as e:
                         print(f"[vehicle_logger] block error: {e}")
 
+                    blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
                     entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
                     VEH_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
                     with VEH_LOG_FILE.open("a") as f:
