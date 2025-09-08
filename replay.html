@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <style>
@@ -194,6 +195,7 @@
     let nameMarkers = {};
     let speedMarkers = {};
     let blockMarkers = {};
+    let routeLayers = [];
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x
     let routeColors = {};
@@ -275,6 +277,12 @@
             data.forEach(route => {
               if (allRoutes[route.RouteID]) {
                 allRoutes[route.RouteID].InfoText = route.InfoText;
+                allRoutes[route.RouteID].EncodedPolyline = route.EncodedPolyline;
+              } else {
+                allRoutes[route.RouteID] = route;
+              }
+              if (route.EncodedPolyline) {
+                allRoutes[route.RouteID].decodedPolyline = polyline.decode(route.EncodedPolyline);
               }
             });
           }
@@ -523,6 +531,23 @@
       blockMarkers = {};
     }
 
+    function drawRoutes() {
+      routeLayers.forEach(layer => map.removeLayer(layer));
+      routeLayers = [];
+      for (let routeID in allRoutes) {
+        const route = allRoutes[routeID];
+        if (!route.decodedPolyline) continue;
+        if (!isRouteSelected(Number(routeID))) continue;
+        const color = getRouteColor(Number(routeID));
+        const layer = L.polyline(route.decodedPolyline, {
+          color: color,
+          weight: 6,
+          opacity: 1
+        }).addTo(map);
+        routeLayers.push(layer);
+      }
+    }
+
     function showFrame(i) {
       if (!playbackData[i]) return;
       currentFrameIndex = i;
@@ -549,6 +574,7 @@
       updateRouteSelector(activeRoutesSet);
       updateBusSelector(activeBusesSet);
 
+      drawRoutes();
       clearMarkers();
       const blocks = entry.blocks || {};
       entry.vehicles.forEach(vehicle => {
