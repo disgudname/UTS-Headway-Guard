@@ -38,10 +38,49 @@
 <script>
 const dateSpan=document.getElementById('dateDisplay');
 const tbody=document.querySelector('#bustable tbody');
+let blockNameMap=new Map();
+
+const alias={
+  "[01]":"[01]/[04]",
+  "[03]":"[05]/[03]",
+  "[04]":"[01]/[04]",
+  "[05]":"[05]/[03]",
+  "[06]":"[22]/[06]",
+  "[10]":"[20]/[10]",
+  "[15]":"[26]/[15]",
+  "[16] AM":"[21]/[16] AM",
+  "[17]":"[23]/[17]",
+  "[18] AM":"[24]/[18] AM",
+  "[20] AM":"[20]/[10]",
+  "[21] AM":"[21]/[16] AM",
+  "[22] AM":"[22]/[06]",
+  "[23]":"[23]/[17]",
+  "[24] AM":"[24]/[18] AM",
+  "[26] AM":"[26]/[15]"
+};
+function aliasBlock(b){const k=String(b||'').trim();return alias[k]||k;}
+
+async function loadBlockMap(){
+  try{
+    const res=await fetch('/v1/dispatch/blocks');
+    const data=await res.json();
+    const groups=data.block_groups||[];
+    const map=new Map();
+    for(const g of groups){
+      const name=aliasBlock(g.BlockGroupId);
+      for(const b of (g.Blocks||[])){
+        map.set(b.BlockId,name);
+      }
+    }
+    blockNameMap=map;
+  }catch(_){blockNameMap=new Map();}
+}
+
 function todayStr(){return new Date().toISOString().split('T')[0];}
 async function fetchData(){
   const date=todayStr();
   dateSpan.textContent=`Date: ${date}`;
+  if(!blockNameMap.size) await loadBlockMap();
   const res=await fetch(`/v1/servicecrew?date=${date}`);
   const data=await res.json();
   tbody.innerHTML='';
@@ -49,7 +88,7 @@ async function fetchData(){
     .sort(([,a],[,b]) => (b.actual_miles||0)-(a.actual_miles||0));
   for(const [b,info] of buses){
     const tr=document.createElement('tr');
-    const blocks=info.blocks.length?info.blocks.join(', '):'—';
+    const blocks=info.blocks.length?info.blocks.map(x=>blockNameMap.get(x)||x).join(', '):'—';
     const totalMilesToday=(info.actual_miles||0).toFixed(2);
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${totalMilesToday}</td>`;
     if((info.actual_miles||0)>=100){
@@ -58,8 +97,10 @@ async function fetchData(){
     tbody.appendChild(tr);
   }
 }
+loadBlockMap();
 fetchData();
 setInterval(fetchData,30000);
+setInterval(loadBlockMap,30000);
 </script>
 </body>
 </html>
