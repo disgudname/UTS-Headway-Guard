@@ -576,7 +576,7 @@
     }
 
     function parseMsAjax(s) {
-      const m = /Date\((\d+)/.exec(s || '');
+      const m = /Date\((\d+)(?:[-+]\d{4})?\)/.exec(s || '');
       return m ? Number(m[1]) : null;
     }
 
@@ -585,8 +585,7 @@
       currentFrameIndex = i;
       const entry = playbackData[i];
       const timeline = document.getElementById('timeline');
-      const date = new Date(entry.ts);
-      const formatted = date.toLocaleString();
+      const formatted = new Date(entry.ts).toLocaleString('en-US', {timeZone: 'America/New_York'});
       timeline.value = i;
       timeline.title = formatted; // show date/time when hovering the slider
       document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
@@ -597,7 +596,7 @@
         if (ms && ms > lastUpdateMs) lastUpdateMs = ms;
       }
       if (lastUpdateMs) {
-        const lastFormatted = new Date(lastUpdateMs).toLocaleString();
+        const lastFormatted = new Date(lastUpdateMs).toLocaleString('en-US', {timeZone: 'America/New_York'});
         document.getElementById('lastUpdateLabel').textContent = `Last Position Update: ${lastFormatted}`;
       } else {
         document.getElementById('lastUpdateLabel').textContent = '';
