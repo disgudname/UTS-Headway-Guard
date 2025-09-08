@@ -6,7 +6,11 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; }
+    @font-face {
+      font-family: 'FGDC';
+      src: url('FGDC.ttf') format('truetype');
+    }
+    html, body { height: 100%; margin: 0; font-family: 'FGDC', sans-serif; }
     #map { height: calc(100% - 90px); width: 100%; }
     #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: 90px; background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; }
     #controls > * { margin: 2px; }
@@ -36,6 +40,7 @@
     let logData = [];
     let playbackData = [];
     let markers = {};
+    let nameMarkers = {};
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x
     let routeColors = {};
@@ -45,6 +50,15 @@
       return fetch(routesApiUrl)
         .then(r => r.json())
         .then(data => { if (Array.isArray(data)) data.forEach(route => { routeColors[route.RouteID] = route.MapLineColor; }); });
+    }
+
+    function getContrastColor(hexColor) {
+      hexColor = hexColor.replace('#', '');
+      const r = parseInt(hexColor.substring(0,2), 16);
+      const g = parseInt(hexColor.substring(2,4), 16);
+      const b = parseInt(hexColor.substring(4,6), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.5 ? '#000000' : '#FFFFFF';
     }
 
     function loadLog(retryDelay = 2000) {
@@ -79,6 +93,8 @@
     function clearMarkers() {
       for (let id in markers) { map.removeLayer(markers[id]); }
       markers = {};
+      for (let id in nameMarkers) { map.removeLayer(nameMarkers[id]); }
+      nameMarkers = {};
     }
 
     function showFrame(i) {
@@ -112,6 +128,21 @@
         const busIcon = L.divIcon({ html: svgIcon, className: '', iconSize: [40,40], iconAnchor: [20,20] });
         const marker = L.marker(pos, { icon: busIcon }).addTo(map);
         markers[vehicle.VehicleID] = marker;
+
+        const busName = vehicle.Name ? vehicle.Name.slice(0, -2) : '';
+        if (busName) {
+          const bubbleWidth = Math.max(40, busName.length * 10);
+          const nameBubble = `
+            <svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg">
+              <g>
+                <rect x="0" y="5" width="${bubbleWidth}" height="20" rx="10" ry="10" fill="${routeColor}" stroke="white" stroke-width="3" />
+                <text x="${bubbleWidth / 2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(routeColor)}" font-family="FGDC">${busName}</text>
+              </g>
+            </svg>`;
+          const nameIcon = L.divIcon({ html: nameBubble, className: '', iconSize: [bubbleWidth,30], iconAnchor: [bubbleWidth/2,40] });
+          const nameMarker = L.marker(pos, { icon: nameIcon, interactive: false }).addTo(map);
+          nameMarkers[vehicle.VehicleID] = nameMarker;
+        }
       });
     }
 
