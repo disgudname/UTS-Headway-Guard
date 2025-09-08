@@ -544,7 +544,11 @@
             setTimeout(() => loadLog(retryDelay), retryDelay);
             return;
           }
-          logData = text.trim().split('\n').map(line => JSON.parse(line));
+          logData = text
+            .split('\n')
+            .filter(l => l.trim())
+            .map(line => JSON.parse(line))
+            .sort((a, b) => new Date(a.ts) - new Date(b.ts));
           const hasData = logData.some(e => e.ts && (e.vehicles || []).length);
           if (!hasData) {
             setTimeout(() => loadLog(retryDelay), retryDelay);
@@ -756,11 +760,14 @@
       const current = parseInt(timeline.value);
       const next = current + 1;
       if (next >= playbackData.length) { pause(); return; }
-      const delta = new Date(playbackData[next].ts) - new Date(playbackData[current].ts);
+      const rawDelta = new Date(playbackData[next].ts) - new Date(playbackData[current].ts);
+      const safeDelta = Math.max(rawDelta, 0);
+      const maxGap = 60 * 1000; // cap wait to 60 seconds to skip long gaps quickly
+      const wait = Math.min(safeDelta, maxGap) / playbackSpeed;
       timer = setTimeout(() => {
         showFrame(next);
         scheduleNext();
-      }, delta / playbackSpeed);
+      }, wait);
     }
 
     function play() {
