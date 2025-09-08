@@ -344,6 +344,9 @@
           const datePicker = document.getElementById('datePicker')._flatpickr;
           const first = playbackData[0] && new Date(playbackData[0].ts);
           if (first) { datePicker.setDate(first, true); }
+          const last = playbackData[playbackData.length - 1] && new Date(playbackData[playbackData.length - 1].ts);
+          const endPicker = document.getElementById('endTime')._flatpickr;
+          if (last && endPicker) { endPicker.setDate(last, true); }
           showFrame(0);
         })
         .catch(err => {
