@@ -442,7 +442,11 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
                 if heading_diff(heading, seg_heading) + 1e-3 < heading_diff(heading, best_heading):
                     prefer = True
             elif prev_idx is not None:
-                if abs(i - prev_idx) < abs(best_i - prev_idx):
+                nseg = len(pts) - 1
+                # Treat the polyline as circular when comparing segment indices
+                diff_new = abs(i - prev_idx)
+                diff_best = abs(best_i - prev_idx)
+                if min(diff_new, nseg - diff_new) < min(diff_best, nseg - diff_best):
                     prefer = True
             if prefer:
                 best_d2 = d2; best_s = s; best_i = i; best_heading = seg_heading
