@@ -24,10 +24,72 @@
     }
     #timeline { flex: 1; margin: 0 10px; }
     .play-icons { letter-spacing: -4px; }
+    #routeSelector {
+      width: 300px;
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 1100;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border-radius: 5px;
+      max-height: 90vh;
+      overflow-y: auto;
+      transition: transform 0.3s ease;
+      font-size: 21px;
+    }
+    #routeSelector.hidden { transform: translateX(320px); }
+    #routeSelector h3 { margin-top: 0; }
+    #routeSelector button {
+      margin: 5px 2px;
+      padding: 5px 10px;
+      font-size: 24px;
+      font-family: 'FGDC', sans-serif;
+      background-color: #E57200;
+      color: black;
+      border: none;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+    #routeSelector label { display: block; margin-bottom: 5px; cursor: pointer; }
+    #routeSelector .color-box {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+    #routeSelectorTab {
+      position: fixed;
+      top: 50%;
+      right: 0;
+      width: 30px;
+      height: 60px;
+      background: #ccc;
+      border-top-left-radius: 10px;
+      border-bottom-left-radius: 10px;
+      cursor: pointer;
+      display: block;
+      transform: translateY(-50%);
+      z-index: 1150;
+      text-align: center;
+      line-height: 60px;
+      font-size: 20px;
+      user-select: none;
+    }
+    @media (max-width: 600px) {
+      #routeSelector { width: 80%; right: 10%; font-size: 18px; }
+      #routeSelector.hidden { transform: translateX(calc(100% + 20px)); }
+      #routeSelector button { font-size: 20px; }
+      #routeSelector label { font-size: 18px; }
+      #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div id="routeSelector"></div>
+  <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
   <div id="controls">
     <input id="datePicker" placeholder="Date">
     <input id="startTime" placeholder="Start time">
@@ -68,9 +130,18 @@
     let playbackData = [];
     let markers = {};
     let nameMarkers = {};
+    let speedMarkers = {};
+    let blockMarkers = {};
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x
     let routeColors = {};
+    let allRoutes = {};
+    let routeSelections = {};
+    let activeRoutes = new Set();
+    let showSpeed = false;
+    let showBlockNumbers = true;
+    let currentFrameIndex = 0;
+    const outOfServiceRouteColor = '#000000';
     let isPlaying = false;
     const playPauseBtn = document.getElementById('playPauseBtn');
 
@@ -78,7 +149,30 @@
       const routesApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681";
       return fetch(routesApiUrl)
         .then(r => r.json())
-        .then(data => { if (Array.isArray(data)) data.forEach(route => { routeColors[route.RouteID] = route.MapLineColor; }); });
+        .then(data => {
+          if (Array.isArray(data)) {
+            data.forEach(route => {
+              routeColors[route.RouteID] = route.MapLineColor;
+              allRoutes[route.RouteID] = route;
+            });
+          }
+        });
+    }
+
+    function fetchRouteInfo() {
+      const routePathsApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681";
+      return fetch(routePathsApiUrl)
+        .then(r => r.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            data.forEach(route => {
+              if (allRoutes[route.RouteID]) {
+                allRoutes[route.RouteID].InfoText = route.InfoText;
+              }
+            });
+          }
+        })
+        .catch(err => console.error('Error fetching route info', err));
     }
 
     function getContrastColor(hexColor) {
@@ -88,6 +182,127 @@
       const b = parseInt(hexColor.substring(4,6), 16);
       const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       return luminance > 0.5 ? '#000000' : '#FFFFFF';
+    }
+
+    function getRouteColor(routeID) {
+      if (routeID === 0) return outOfServiceRouteColor;
+      return routeColors[routeID] || '#000000';
+    }
+
+    function isRouteSelected(routeID) {
+      if (routeSelections.hasOwnProperty(routeID)) return routeSelections[routeID];
+      return activeRoutes.has(Number(routeID));
+    }
+
+    function refreshReplay() {
+      showFrame(currentFrameIndex);
+    }
+
+    function toggleShowSpeed() {
+      showSpeed = !showSpeed;
+      const btn = document.getElementById('toggleSpeedButton');
+      if (btn) btn.innerHTML = showSpeed ? 'Hide Speed' : 'Show Speed';
+      refreshReplay();
+    }
+
+    function toggleShowBlockNumbers() {
+      showBlockNumbers = !showBlockNumbers;
+      const btn = document.getElementById('toggleBlockButton');
+      if (btn) btn.innerHTML = showBlockNumbers ? 'Hide Block Numbers' : 'Show Block Numbers';
+      refreshReplay();
+    }
+
+    function updateRouteSelector(activeRoutes) {
+      const container = document.getElementById('routeSelector');
+      if (!container) return;
+      let html = "";
+      html += "<div style='margin-bottom:10px;'><button id='toggleSpeedButton' onclick='toggleShowSpeed()'>" + (showSpeed ? "Hide Speed" : "Show Speed") + "</button><button id='toggleBlockButton' onclick='toggleShowBlockNumbers()'>" + (showBlockNumbers ? "Hide Block Numbers" : "Show Block Numbers") + "</button></div>";
+      html += "<h3>Select Routes</h3>" +
+        "<button onclick='selectAllRoutes()'>Select All</button>" +
+        "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
+
+      let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
+      html += `<label>
+            <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
+            <span class="color-box" style="background:${outOfServiceRouteColor};"></span> Out of Service
+          </label>`;
+
+      let routeIDs = Object.keys(allRoutes).map(Number).filter(id => id !== 0);
+      routeIDs.sort((a,b) => {
+        let descA = allRoutes[a].Description.toUpperCase();
+        let descB = allRoutes[b].Description.toUpperCase();
+        if (descA < descB) return -1;
+        if (descA > descB) return 1;
+        return 0;
+      });
+
+      routeIDs.forEach(routeID => {
+        let route = allRoutes[routeID];
+        let checked = routeSelections.hasOwnProperty(routeID) ? routeSelections[routeID] : activeRoutes.has(routeID);
+        let displayName = route.Description;
+        if (route.InfoText && route.InfoText.trim() !== "") {
+          displayName += ` &ndash; ${route.InfoText.trim()}`;
+        }
+        html += `<label>
+            <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? "checked" : ""}>
+            <span class="color-box" style="background:${route.MapLineColor};"></span> ${displayName}
+          </label>`;
+      });
+
+      container.innerHTML = html;
+
+      let outChk = document.getElementById('route_0');
+      if (outChk) {
+        outChk.addEventListener('change', function() {
+          routeSelections[0] = outChk.checked;
+          refreshReplay();
+        });
+      }
+      routeIDs.forEach(routeID => {
+        let chk = document.getElementById('route_' + routeID);
+        if (chk) {
+          chk.addEventListener('change', function() {
+            routeSelections[routeID] = chk.checked;
+            refreshReplay();
+          });
+        }
+      });
+    }
+
+    function selectAllRoutes() {
+      let outChk = document.getElementById('route_0');
+      if (outChk) outChk.checked = true;
+      for (let routeID in allRoutes) {
+        let chk = document.getElementById('route_' + routeID);
+        if (chk) chk.checked = true;
+        routeSelections[routeID] = true;
+      }
+      routeSelections[0] = true;
+      refreshReplay();
+    }
+
+    function deselectAllRoutes() {
+      let outChk = document.getElementById('route_0');
+      if (outChk) outChk.checked = false;
+      for (let routeID in allRoutes) {
+        let chk = document.getElementById('route_' + routeID);
+        if (chk) chk.checked = false;
+        routeSelections[routeID] = false;
+      }
+      routeSelections[0] = false;
+      refreshReplay();
+    }
+
+    function togglePanel() {
+      let panel = document.getElementById('routeSelector');
+      let tab = document.getElementById('routeSelectorTab');
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        tab.innerHTML = '&#9664;';
+      } else {
+        panel.classList.add('hidden');
+        tab.innerHTML = '&#9654;';
+      }
     }
 
     function loadLog(retryDelay = 2000) {
@@ -124,10 +339,15 @@
       markers = {};
       for (let id in nameMarkers) { map.removeLayer(nameMarkers[id]); }
       nameMarkers = {};
+      for (let id in speedMarkers) { map.removeLayer(speedMarkers[id]); }
+      speedMarkers = {};
+      for (let id in blockMarkers) { map.removeLayer(blockMarkers[id]); }
+      blockMarkers = {};
     }
 
     function showFrame(i) {
       if (!playbackData[i]) return;
+      currentFrameIndex = i;
       const entry = playbackData[i];
       const timeline = document.getElementById('timeline');
       const date = new Date(entry.ts);
@@ -135,13 +355,21 @@
       timeline.value = i;
       timeline.title = formatted; // show date/time when hovering the slider
       document.getElementById('timeLabel').textContent = formatted;
+
+      const activeRoutesSet = new Set();
+      entry.vehicles.forEach(v => activeRoutesSet.add(v.RouteID || 0));
+      activeRoutes = activeRoutesSet;
+      updateRouteSelector(activeRoutesSet);
+
       clearMarkers();
+      const blocks = entry.blocks || {};
       entry.vehicles.forEach(vehicle => {
         const routeID = vehicle.RouteID || 0;
+        if (!isRouteSelected(routeID)) return;
         const pos = [vehicle.Latitude, vehicle.Longitude];
         const isMoving = vehicle.GroundSpeed > 0;
         const heading = vehicle.Heading;
-        const routeColor = routeColors[routeID] || '#000000';
+        const routeColor = getRouteColor(routeID);
         const svgIcon = `
           <svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg">
             <g>
@@ -157,6 +385,37 @@
         const busIcon = L.divIcon({ html: svgIcon, className: '', iconSize: [40,40], iconAnchor: [20,20] });
         const marker = L.marker(pos, { icon: busIcon }).addTo(map);
         markers[vehicle.VehicleID] = marker;
+
+        if (showSpeed) {
+          const speedBubble = `
+            <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
+              <g>
+                <rect x="0" y="0" width="60" height="20" rx="10" ry="10" fill="${routeColor}" stroke="white" stroke-width="3" />
+                <text x="30" y="15" font-size="12" font-weight="bold" text-anchor="middle" fill="${getContrastColor(routeColor)}" font-family="FGDC">${Math.round(vehicle.GroundSpeed)} MPH</text>
+              </g>
+            </svg>`;
+          const speedIcon = L.divIcon({ html: speedBubble, className: '', iconSize: [60,20], iconAnchor: [30,-15] });
+          speedMarkers[vehicle.VehicleID] = L.marker(pos, { icon: speedIcon, interactive: false }).addTo(map);
+        }
+
+        if (showBlockNumbers) {
+          const blockName = blocks[vehicle.VehicleID];
+          if (blockName && blockName.includes('[')) {
+            const ctx = document.createElement('canvas').getContext('2d');
+            ctx.font = 'bold 14px FGDC';
+            const textWidth = ctx.measureText(blockName).width;
+            const blockWidth = Math.max(40, textWidth + 20);
+            const blockBubble = `
+              <svg width="${blockWidth}" height="30" viewBox="0 0 ${blockWidth} 30" xmlns="http://www.w3.org/2000/svg">
+                <g>
+                  <rect x="0" y="5" width="${blockWidth}" height="20" rx="10" ry="10" fill="${routeColor}" stroke="white" stroke-width="3" />
+                  <text x="${blockWidth/2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(routeColor)}" font-family="FGDC">${blockName}</text>
+                </g>
+              </svg>`;
+            const blockIcon = L.divIcon({ html: blockBubble, className: '', iconSize: [blockWidth,30], iconAnchor: [blockWidth/2,-13] });
+            blockMarkers[vehicle.VehicleID] = L.marker(pos, { icon: blockIcon, interactive: false }).addTo(map);
+          }
+        }
 
         const busName = vehicle.Name ? vehicle.Name.slice(0, -2) : '';
         if (busName) {
@@ -228,7 +487,7 @@
     document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
-    fetchRouteColors().then(loadLog);
+    fetchRouteColors().then(fetchRouteInfo).then(loadLog);
   </script>
 </body>
 </html>
