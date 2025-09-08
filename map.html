@@ -156,6 +156,12 @@
       let kioskMode = false; // adminMode must = true for kisokMode to work
       let showSpeed = false; // default to showing block numbers
       let showBlockNumbers = true;
+
+      const params = new URLSearchParams(window.location.search);
+      const kioskParam = params.get('kioskMode');
+      if (kioskParam !== null) {
+        kioskMode = kioskParam.toLowerCase() === 'true';
+      }
       
       const outOfServiceRouteColor = '#000000';
       
