@@ -747,6 +747,7 @@ async def startup():
                         block_groups = []
                         print(f"[updater] block fetch error: {e}")
                     async with state.lock:
+                        state.routes_raw = routes_raw
                         # Update complete routes & roster (all buses/all routes)
                         try:
                             state.routes_all = {}
@@ -1169,6 +1170,11 @@ async def dispatch_blocks():
         state.blocks_cache = res
         state.blocks_cache_ts = time.time()
         return res
+
+@app.get("/v1/transloc/routes")
+async def transloc_routes():
+    async with state.lock:
+        return getattr(state, "routes_raw", [])
 
 @app.get("/v1/transloc/anti_bunching")
 async def anti_bunching_raw():

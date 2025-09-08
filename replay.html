@@ -288,40 +288,21 @@
       }
     }
 
-    function fetchRouteColors() {
-      const routesApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681";
-      return fetch(routesApiUrl)
+    function fetchRoutes() {
+      return fetch('/v1/transloc/routes')
         .then(r => r.json())
         .then(data => {
           if (Array.isArray(data)) {
             data.forEach(route => {
               routeColors[route.RouteID] = route.MapLineColor;
               allRoutes[route.RouteID] = route;
-            });
-          }
-        });
-    }
-
-    function fetchRouteInfo() {
-      const routePathsApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681";
-      return fetch(routePathsApiUrl)
-        .then(r => r.json())
-        .then(data => {
-          if (Array.isArray(data)) {
-            data.forEach(route => {
-              if (allRoutes[route.RouteID]) {
-                allRoutes[route.RouteID].InfoText = route.InfoText;
-                allRoutes[route.RouteID].EncodedPolyline = route.EncodedPolyline;
-              } else {
-                allRoutes[route.RouteID] = route;
-              }
               if (route.EncodedPolyline) {
                 allRoutes[route.RouteID].decodedPolyline = polyline.decode(route.EncodedPolyline);
               }
             });
           }
         })
-        .catch(err => console.error('Error fetching route info', err));
+        .catch(err => console.error('Error fetching routes', err));
     }
 
     function getContrastColor(hexColor) {
@@ -772,7 +753,7 @@
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
     pause();
-    fetchRouteColors().then(fetchRouteInfo).then(loadLog);
+    fetchRoutes().then(loadLog);
   </script>
 </body>
 </html>
