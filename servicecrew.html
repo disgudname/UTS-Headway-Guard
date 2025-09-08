@@ -12,7 +12,9 @@
   table{width:100%;border-collapse:collapse;table-layout:fixed;}
   th,td{border:1px solid var(--line);padding:2px 4px;text-align:left;}
   #layout{flex:1;display:flex;overflow:hidden;height:100vh;gap:8px;padding:0 8px;}
-  #table-wrapper{width:660px;overflow:hidden;display:flex;flex-direction:column;}
+  #table-wrapper{width:630px;overflow:hidden;display:flex;flex-direction:column;}
+  #bustable col.bus{width:5ch;}
+  #bustable col.miles{width:120px;}
   #mapframe{border:1px solid var(--line);flex:1;height:100%;}
   .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
 </style>
@@ -22,6 +24,11 @@
   <div id="table-wrapper">
     <div id="dateDisplay"></div>
     <table id="bustable">
+      <colgroup>
+        <col class="bus" />
+        <col />
+        <col class="miles" />
+      </colgroup>
       <thead>
         <tr>
           <th>Bus</th>
