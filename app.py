@@ -588,6 +588,39 @@ def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> Li
                 )
             )
 
+        # If a vehicle's leader is also holding, the follower must wait for the
+        # leader to finish its hold before moving.  Accumulate countdowns along
+        # the ring so each vehicle's hold time includes that of its leader.
+        n = len(results)
+        if n > 1:
+            bases = [v.countdown_sec for v in results]
+            roots = [i for i, b in enumerate(bases) if not b]
+            if not roots:
+                roots = [0]
+            for start in roots:
+                if go_forward:
+                    i = (start - 1) % n
+                    while i != start:
+                        if bases[i]:
+                            leader_idx = (i + 1) % n
+                            leader_hold = results[leader_idx].countdown_sec or 0
+                            results[i].countdown_sec = bases[i] + leader_hold
+                            bases[i] = results[i].countdown_sec
+                            i = (i - 1) % n
+                        else:
+                            break
+                else:
+                    i = (start + 1) % n
+                    while i != start:
+                        if bases[i]:
+                            leader_idx = (i - 1) % n
+                            leader_hold = results[leader_idx].countdown_sec or 0
+                            results[i].countdown_sec = bases[i] + leader_hold
+                            bases[i] = results[i].countdown_sec
+                            i = (i + 1) % n
+                        else:
+                            break
+
         return results
 
     views: List[VehicleView] = []
