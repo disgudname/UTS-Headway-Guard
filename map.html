@@ -136,6 +136,7 @@
         line-height: 60px;
         font-size: 20px;
         user-select: none;
+        transition: right 0.3s ease;
       }
       @media (max-width: 600px) {
         #routeSelector { width: 80%; right: 10%; font-size: 18px; }
@@ -168,6 +169,19 @@
       let previousBusData = {};
       let cachedEtas = {};
       let customPopups = [];
+
+      function positionRouteTab() {
+        const panel = document.getElementById("routeSelector");
+        const tab = document.getElementById("routeSelectorTab");
+        if (!panel || !tab) return;
+        const panelStyle = window.getComputedStyle(panel);
+        const gap = parseFloat(panelStyle.right) || 0;
+        const offset = panel.offsetWidth + gap;
+        tab.style.right = panel.classList.contains("hidden") ? "0" : offset + "px";
+      }
+
+      window.addEventListener("load", positionRouteTab);
+      window.addEventListener("resize", positionRouteTab);
 
       // Global storage for routes from GetRoutes.
       let allRoutes = {};
@@ -297,6 +311,7 @@
           panel.classList.add("hidden");
           tab.innerHTML = "&#9654;"; // right arrow
         }
+        positionRouteTab();
       }
 
       // refreshMap updates route paths and bus locations.

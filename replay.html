@@ -72,6 +72,7 @@
       line-height: 60px;
       font-size: 20px;
       user-select: none;
+      transition: left 0.3s ease;
     }
     #routeSelector {
       width: 300px;
@@ -125,6 +126,7 @@
       line-height: 60px;
       font-size: 20px;
       user-select: none;
+      transition: right 0.3s ease;
     }
     @media (max-width: 600px) {
       #busSelector { width: 80%; left: 10%; font-size: 18px; bottom: 110px; }
@@ -210,6 +212,29 @@
     const pauseBtn = document.getElementById('pauseBtn');
     const ff2Btn = document.getElementById('ff2Btn');
     const ff4Btn = document.getElementById('ff4Btn');
+
+    function positionBusTab() {
+      const panel = document.getElementById('busSelector');
+      const tab = document.getElementById('busSelectorTab');
+      if (!panel || !tab) return;
+      const panelStyle = window.getComputedStyle(panel);
+      const gap = parseFloat(panelStyle.left) || 0;
+      const offset = panel.offsetWidth + gap;
+      tab.style.left = panel.classList.contains('hidden') ? '0' : offset + 'px';
+    }
+
+    function positionRouteTab() {
+      const panel = document.getElementById('routeSelector');
+      const tab = document.getElementById('routeSelectorTab');
+      if (!panel || !tab) return;
+      const panelStyle = window.getComputedStyle(panel);
+      const gap = parseFloat(panelStyle.right) || 0;
+      const offset = panel.offsetWidth + gap;
+      tab.style.right = panel.classList.contains('hidden') ? '0' : offset + 'px';
+    }
+
+    window.addEventListener('load', () => { positionBusTab(); positionRouteTab(); });
+    window.addEventListener('resize', () => { positionBusTab(); positionRouteTab(); });
 
     function updateSpeedButtons() {
       playBtn.classList.remove('selected');
@@ -358,6 +383,7 @@
         panel.classList.add('hidden');
         tab.innerHTML = '&#9664;';
       }
+      positionBusTab();
     }
 
     function updateRouteSelector(activeRoutes) {
@@ -451,6 +477,7 @@
         panel.classList.add('hidden');
         tab.innerHTML = '&#9654;';
       }
+      positionRouteTab();
     }
 
     function loadLog(retryDelay = 2000) {
