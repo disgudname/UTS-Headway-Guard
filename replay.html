@@ -30,8 +30,8 @@
 
     let logData = [];
     let markers = {};
-    let timer = null;
-    let playbackSpeed = 1;
+    let timer = null;       // handle for scheduled frame advance
+    let playbackSpeed = 1;  // 1x, 2x, 4x
     let routeColors = {};
 
     function fetchRouteColors() {
@@ -105,20 +105,25 @@
       });
     }
 
-    function advance() {
+    function scheduleNext() {
       const timeline = document.getElementById('timeline');
-      let next = parseInt(timeline.value) + 1;
+      const current = parseInt(timeline.value);
+      const next = current + 1;
       if (next >= logData.length) { pause(); return; }
-      showFrame(next);
+      const delta = logData[next].ts - logData[current].ts;
+      timer = setTimeout(() => {
+        showFrame(next);
+        scheduleNext();
+      }, delta / playbackSpeed);
     }
 
     function play() {
       pause();
-      timer = setInterval(advance, 1000 / playbackSpeed);
+      scheduleNext();
     }
 
     function pause() {
-      if (timer) clearInterval(timer);
+      if (timer) clearTimeout(timer);
       timer = null;
     }
 
