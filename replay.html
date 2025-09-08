@@ -7,14 +7,19 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <style>
     html, body { height: 100%; margin: 0; }
-    #map { height: calc(100% - 60px); width: 100%; }
-    #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background: rgba(255,255,255,0.9); display: flex; align-items: center; padding: 5px; box-sizing: border-box; }
+    #map { height: calc(100% - 90px); width: 100%; }
+    #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: 90px; background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; }
+    #controls > * { margin: 2px; }
     #timeline { flex: 1; margin: 0 10px; }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div id="controls">
+    <input type="date" id="datePicker">
+    <input type="time" id="startTime" value="00:00">
+    <input type="time" id="endTime" value="23:59">
+    <button id="loadRangeBtn">Load</button>
     <button id="playBtn">Play</button>
     <button id="pauseBtn">Pause</button>
     <button id="ff2Btn">FF x2</button>
@@ -29,6 +34,7 @@
     }).addTo(map);
 
     let logData = [];
+    let playbackData = [];
     let markers = {};
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x
@@ -56,8 +62,12 @@
             setTimeout(() => loadLog(retryDelay), retryDelay);
             return;
           }
+          playbackData = logData;
           const timeline = document.getElementById('timeline');
-          timeline.max = logData.length - 1;
+          timeline.max = playbackData.length - 1;
+          const datePicker = document.getElementById('datePicker');
+          const first = playbackData[0] && new Date(playbackData[0].ts);
+          if (first) { datePicker.value = first.toISOString().slice(0,10); }
           showFrame(0);
         })
         .catch(err => {
@@ -72,8 +82,8 @@
     }
 
     function showFrame(i) {
-      if (!logData[i]) return;
-      const entry = logData[i];
+      if (!playbackData[i]) return;
+      const entry = playbackData[i];
       const timeline = document.getElementById('timeline');
       const date = new Date(entry.ts);
       const formatted = date.toLocaleString();
@@ -109,8 +119,8 @@
       const timeline = document.getElementById('timeline');
       const current = parseInt(timeline.value);
       const next = current + 1;
-      if (next >= logData.length) { pause(); return; }
-      const delta = logData[next].ts - logData[current].ts;
+      if (next >= playbackData.length) { pause(); return; }
+      const delta = new Date(playbackData[next].ts) - new Date(playbackData[current].ts);
       timer = setTimeout(() => {
         showFrame(next);
         scheduleNext();
@@ -127,11 +137,28 @@
       timer = null;
     }
 
+    function applyRange() {
+      if (!logData.length) return;
+      const dateStr = document.getElementById('datePicker').value;
+      const startStr = document.getElementById('startTime').value || '00:00';
+      const endStr = document.getElementById('endTime').value || '23:59';
+      const start = new Date(`${dateStr}T${startStr}:00`);
+      const end = new Date(`${dateStr}T${endStr}:00`);
+      playbackData = logData.filter(entry => {
+        const ts = new Date(entry.ts);
+        return ts >= start && ts <= end;
+      });
+      const timeline = document.getElementById('timeline');
+      timeline.max = playbackData.length ? playbackData.length - 1 : 0;
+      showFrame(0);
+    }
+
     document.getElementById('playBtn').onclick = () => { playbackSpeed = 1; play(); };
     document.getElementById('pauseBtn').onclick = pause;
     document.getElementById('ff2Btn').onclick = () => { playbackSpeed = 2; play(); };
     document.getElementById('ff4Btn').onclick = () => { playbackSpeed = 4; play(); };
     document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
+    document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
     fetchRouteColors().then(loadLog);
   </script>
