@@ -390,9 +390,17 @@
     function toggleBusPanel() {
       let panel = document.getElementById('busSelector');
       let tab = document.getElementById('busSelectorTab');
-      if (panel.classList.contains('hidden')) {
+      let routePanel = document.getElementById('routeSelector');
+      let routeTab = document.getElementById('routeSelectorTab');
+      const willOpen = panel.classList.contains('hidden');
+      if (willOpen) {
         panel.classList.remove('hidden');
         tab.innerHTML = '&#9654;';
+        if (routePanel && !routePanel.classList.contains('hidden')) {
+          routePanel.classList.add('hidden');
+          if (routeTab) routeTab.innerHTML = '&#9654;';
+          positionRouteTab();
+        }
       } else {
         panel.classList.add('hidden');
         tab.innerHTML = '&#9664;';
@@ -484,9 +492,17 @@
     function togglePanel() {
       let panel = document.getElementById('routeSelector');
       let tab = document.getElementById('routeSelectorTab');
-      if (panel.classList.contains('hidden')) {
+      let busPanel = document.getElementById('busSelector');
+      let busTab = document.getElementById('busSelectorTab');
+      const willOpen = panel.classList.contains('hidden');
+      if (willOpen) {
         panel.classList.remove('hidden');
         tab.innerHTML = '&#9664;';
+        if (busPanel && !busPanel.classList.contains('hidden')) {
+          busPanel.classList.add('hidden');
+          if (busTab) busTab.innerHTML = '&#9664;';
+          positionBusTab();
+        }
       } else {
         panel.classList.add('hidden');
         tab.innerHTML = '&#9654;';
