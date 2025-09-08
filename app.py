@@ -892,23 +892,27 @@ async def startup():
                     data = r.json()
                     vehicles = data if isinstance(data, list) else data.get("d", [])
 
-                    filtered: list[dict] = []
+                    # Capture a full snapshot of vehicles but avoid
+                    # writing a new log entry unless at least one moves.
+                    valid: list[dict] = []
+                    moved = False
                     for v in vehicles:
                         vid = v.get("VehicleID")
                         lat = v.get("Latitude")
                         lon = v.get("Longitude")
                         if vid is None or lat is None or lon is None:
                             continue
+                        pos = (lat, lon)
                         last = LAST_LOG_POS.get(vid)
-                        if last and haversine((lat, lon), last) < VEH_LOG_MIN_MOVE_M:
-                            continue
-                        LAST_LOG_POS[vid] = (lat, lon)
-                        filtered.append(v)
-                    vehicles = filtered
-                    vehicle_ids = {v.get("VehicleID") for v in vehicles}
-                    if not vehicles:
+                        if not moved and (last is None or haversine(pos, last) >= VEH_LOG_MIN_MOVE_M):
+                            moved = True
+                        LAST_LOG_POS[vid] = pos
+                        valid.append(v)
+                    vehicles = valid
+                    if not moved or not vehicles:
                         await asyncio.sleep(VEH_LOG_INTERVAL_S)
                         continue
+                    vehicle_ids = {v.get("VehicleID") for v in vehicles}
 
                     blocks: Dict[int, str] = {}
                     try:
