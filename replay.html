@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <style>
     @font-face {
       font-family: 'FGDC';
@@ -14,15 +16,21 @@
     #map { height: calc(100% - 90px); width: 100%; }
     #controls { position: fixed; bottom: 0; left: 0; width: 100%; height: 90px; background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; }
     #controls > * { margin: 2px; }
+    #controls input, #controls button {
+      padding: 6px;
+      font-size: 14px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
     #timeline { flex: 1; margin: 0 10px; }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div id="controls">
-    <input type="date" id="datePicker">
-    <input type="time" id="startTime" value="00:00">
-    <input type="time" id="endTime" value="23:59">
+    <input id="datePicker" placeholder="Date">
+    <input id="startTime" placeholder="Start time">
+    <input id="endTime" placeholder="End time">
     <button id="loadRangeBtn">Load</button>
     <button id="playBtn">Play</button>
     <button id="pauseBtn">Pause</button>
@@ -36,6 +44,25 @@
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
+
+    flatpickr("#datePicker", {
+      dateFormat: "Y-m-d",
+      defaultDate: new Date().toISOString().slice(0,10)
+    });
+    flatpickr("#startTime", {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      defaultDate: "00:00"
+    });
+    flatpickr("#endTime", {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      defaultDate: "23:59"
+    });
 
     let logData = [];
     let playbackData = [];
@@ -79,9 +106,9 @@
           playbackData = logData;
           const timeline = document.getElementById('timeline');
           timeline.max = playbackData.length - 1;
-          const datePicker = document.getElementById('datePicker');
+          const datePicker = document.getElementById('datePicker')._flatpickr;
           const first = playbackData[0] && new Date(playbackData[0].ts);
-          if (first) { datePicker.value = first.toISOString().slice(0,10); }
+          if (first) { datePicker.setDate(first, true); }
           showFrame(0);
         })
         .catch(err => {
