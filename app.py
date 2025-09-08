@@ -169,11 +169,24 @@ def cumulative_distance(poly: List[Tuple[float,float]]) -> Tuple[List[float], fl
     return cum, cum[-1] if cum else 0.0
 
 def parse_msajax(s: Optional[str]) -> Optional[int]:
-    # e.g. "/Date(1693622400000-0400)/" -> 1693622400000
-    if not s: return None
+    """Parse a Microsoft AJAX timestamp into epoch milliseconds.
+
+    Handles optional timezone offsets such as "/Date(1693622400000-0400)/".
+    """
+    if not s:
+        return None
     try:
-        i = s.find("("); j = s.find(")")
-        return int(s[i+1:j].split("-")[0])
+        m = re.search(r"Date\((\d+)([-+]\d{4})?", s)
+        if not m:
+            return None
+        ms = int(m.group(1))
+        off = m.group(2)
+        if off:
+            sign = 1 if off[0] == '+' else -1
+            hrs = int(off[1:3])
+            mins = int(off[3:5])
+            ms += sign * (hrs * 60 + mins) * 60 * 1000
+        return ms
     except (ValueError, IndexError) as e:
         print(f"[parse_msajax] invalid timestamp {s!r}: {e}")
         return None
