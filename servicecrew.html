@@ -17,6 +17,7 @@
   #bustable col.miles{width:120px;}
   #mapframe{border:1px solid var(--line);flex:1;height:100%;}
   .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
+  td.high-mileage{background:red;}
 </style>
 </head>
 <body>
@@ -98,8 +99,9 @@ async function fetchData(){
     const blocks=info.blocks.length?info.blocks.map(x=>blockNameMap.get(x)||x).join(', '):'—';
     const totalMilesToday=(info.actual_miles||0).toFixed(2);
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${totalMilesToday}</td>`;
+    const milesCell=tr.children[2];
     if((info.actual_miles||0)>=100){
-      tr.style.background='red';
+      milesCell.classList.add('high-mileage');
     }
     tbody.appendChild(tr);
   }
