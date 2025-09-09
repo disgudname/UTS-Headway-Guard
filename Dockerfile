@@ -22,9 +22,8 @@ RUN python -m pip install --upgrade pip && \
 # Copy app
 COPY . /app
 
-# Non-root user
+# Non-root user for running the app, but keep root for startup tasks
 RUN useradd -m appuser
-USER appuser
 
 # Fly will provide $PORT (defaults to 8080). We must use a shell form to expand it.
 ENV PORT=8080
@@ -32,6 +31,5 @@ ENV PORT=8080
 # Expose port (doc-only; Fly ignores EXPOSE but it’s still useful)
 EXPOSE 8080
 
-# Start the service (single worker to avoid duplicate background updaters)
-# NOTE: exec-form (JSON array) does NOT expand ${PORT}. Use shell to expand env vars.
-CMD sh -lc 'exec python -m uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}'
+# Start via helper script that ensures /data permissions before dropping to appuser
+CMD ["/app/start.sh"]
