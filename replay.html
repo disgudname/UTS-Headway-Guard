@@ -836,6 +836,16 @@
       const endStr = document.getElementById('endTime').value || '23:59';
       startTime = new Date(`${dateStr}T${startStr}:00`);
       userEndTime = new Date(`${dateStr}T${endStr}:00`);
+
+      // If the selected date is today, don't try to load data beyond the current time
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      if (dateStr === todayStr) {
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        if (userEndTime > now) {
+          userEndTime = now;
+        }
+      }
+
       endTime = userEndTime;
       playbackData = [];
       playbackTimes = [];
@@ -851,6 +861,24 @@
         const idx = findFrameIndex(ms);
         showFrame(idx, ms);
       }
+    }
+
+    // Periodically check for newly available data in the selected day
+    function startAutoRefresh() {
+      setInterval(async () => {
+        const dateStr = document.getElementById('datePicker').value;
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        if (dateStr !== todayStr) return;
+
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        if (now > userEndTime) {
+          userEndTime = now;
+          endTime = now;
+          const timeline = document.getElementById('timeline');
+          timeline.max = now.getTime();
+          await loadHour(now.getTime());
+        }
+      }, 60000);
     }
 
     playBtn.onclick = () => { playbackSpeed = 1; play(); };
@@ -872,7 +900,7 @@
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
     pause();
-    fetchRoutes().then(() => applyRange());
+    fetchRoutes().then(() => { applyRange(); startAutoRefresh(); });
   </script>
 </body>
 </html>
