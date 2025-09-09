@@ -475,16 +475,41 @@ function updateArrivalTable(data, vc){
 
 /* ===================== Helpers ===================== */
 async function generateDeviceID(){
-  const seed = [
-    navigator.userAgent,
-    navigator.language,
-    screen.width + 'x' + screen.height,
-    screen.colorDepth,
-    navigator.hardwareConcurrency
-  ].join('|');
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
-  const hex = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-  return hex.slice(0,16);
+  const parts=[];
+  const nav=navigator; const scr=screen;
+  // Basic browser/OS details
+  parts.push(nav.userAgent, nav.platform, nav.language, (nav.languages||[]).join(','));
+  parts.push(scr.width+'x'+scr.height+'x'+scr.colorDepth, window.devicePixelRatio);
+  parts.push(nav.hardwareConcurrency, nav.deviceMemory||'', nav.maxTouchPoints||'');
+  parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone||'');
+
+  // WebGL vendor/renderer + canvas fingerprint
+  try{
+    const canvas=document.createElement('canvas');
+    const gl=canvas.getContext('webgl')||canvas.getContext('experimental-webgl');
+    if(gl){
+      const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+      if(dbg){
+        parts.push(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL));
+        parts.push(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL));
+      }else{
+        parts.push(gl.getParameter(gl.VENDOR));
+        parts.push(gl.getParameter(gl.RENDERER));
+      }
+    }
+    const ctx=canvas.getContext('2d');
+    ctx.textBaseline='top';
+    ctx.font='16px Arial';
+    ctx.fillStyle='#f60';
+    ctx.fillRect(0,0,100,20);
+    ctx.fillStyle='#069';
+    ctx.fillText('fingerprint',2,15);
+    parts.push(canvas.toDataURL());
+  }catch(e){}
+
+  const data=parts.join('|||');
+  const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,32);
 }
 async function resolveStopID(){
   const id = await generateDeviceID();
