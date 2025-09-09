@@ -19,16 +19,24 @@
 <h1>Ridership Report</h1>
 <label>Date: <input type="date" id="datePicker"></label><button id="loadBtn">Load</button>
 <table id="ridershipTable">
-  <tr><th>Overall Total:</th><td id="overallTotal" colspan="7"></td></tr>
-  <tr><td colspan="8"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
-  <tr><th colspan="8">Red Line</th></tr>
-  <tr><th>Total Passengers:</th><td id="totalRedAM"></td><td id="totalRedPM"></td><td colspan="5"></td></tr>
-  <tr><th colspan="8">AM Numbers</th></tr>
-  <tr><th>5-6AM</th><th>6-7AM</th><th>AM Total</th><td colspan="5"></td></tr>
-  <tr><td id="am_5_6"></td><td id="am_6_7"></td><td id="am_total"></td><td colspan="5"></td></tr>
-  <tr><th colspan="8">PM Numbers</th></tr>
-  <tr><th>2:30PM-3PM</th><th>3-4PM</th><th>4-5PM</th><th>5-6PM</th><th>6-7PM</th><th>7-8PM</th><th>PM Total</th><th>Day Total</th></tr>
-  <tr><td id="pm_230_3"></td><td id="pm_3_4"></td><td id="pm_4_5"></td><td id="pm_5_6"></td><td id="pm_6_7"></td><td id="pm_7_8"></td><td id="pm_total"></td><td id="day_total"></td></tr>
+  <tr><th>Overall Total:</th><td id="overallTotal" colspan="8"></td></tr>
+  <tr><td colspan="9"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
+  <tr><th colspan="9">Red Line</th></tr>
+  <tr><th>Total Passengers:</th><td id="totalRedAM"></td><td id="totalRedPM"></td><td colspan="6"></td></tr>
+  <tr><th colspan="9">AM Numbers</th></tr>
+  <tr><th>5-6AM</th><th>6-7AM</th><th>AM Total</th><td colspan="6"></td></tr>
+  <tr><td id="am_5_6"></td><td id="am_6_7"></td><td id="am_total"></td><td colspan="6"></td></tr>
+  <tr><th colspan="9">PM Numbers</th></tr>
+  <tr><th></th><th>2:30PM-3PM</th><th>3-4PM</th><th>4-5PM</th><th>5-6PM</th><th>6-7PM</th><th>7-8PM</th><th>PM Total</th><th>Day Total</th></tr>
+  <tr><td></td><td id="pm_230_3"></td><td id="pm_3_4"></td><td id="pm_4_5"></td><td id="pm_5_6"></td><td id="pm_6_7"></td><td id="pm_7_8"></td><td id="pm_total"></td><td id="day_total"></td></tr>
+  <tr><th colspan="9">Blue Line</th></tr>
+  <tr><th>Total Passengers:</th><td id="totalBlueAM"></td><td id="totalBluePM"></td><td colspan="6"></td></tr>
+  <tr><th colspan="9">AM Numbers</th></tr>
+  <tr><th>7-7:30AM</th><th>7:30-8AM</th><th>8-9AM</th><th>9-10AM</th><th>AM Total</th><td colspan="4"></td></tr>
+  <tr><td id="blue_am_7_7_30"></td><td id="blue_am_7_30_8"></td><td id="blue_am_8_9"></td><td id="blue_am_9_10"></td><td id="blue_am_total"></td><td colspan="4"></td></tr>
+  <tr><th colspan="9">PM Numbers</th></tr>
+  <tr><th>10AM-2:30PM</th><th>2:30-3PM</th><th>3-4PM</th><th>4-5PM</th><th>5-6PM</th><th>6-7PM</th><th>7-8PM</th><th>Total after 2:30PM</th><th>Day Total</th></tr>
+  <tr><td id="blue_10_14_30"></td><td id="blue_14_30_15"></td><td id="blue_15_16"></td><td id="blue_16_17"></td><td id="blue_17_18"></td><td id="blue_18_19"></td><td id="blue_19_20"></td><td id="blue_total_after_230"></td><td id="blue_day_total"></td></tr>
 </table>
 <script>
 const dateInput=document.getElementById('datePicker');
@@ -52,46 +60,81 @@ function load(){
 
 function render(data){
   const overall={'Red Line AM':0,'Red Line PM':0,'Blue Line':0};
-  const routeTotals={'Red Line AM':0,'Red Line PM':0};
-  const amSlots={'5-6':0,'6-7':0};
-  const pmSlots={'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
+  const routeTotals={'Red Line AM':0,'Red Line PM':0,'Blue Line AM':0,'Blue Line PM':0};
+  const redAmSlots={'5-6':0,'6-7':0};
+  const redPmSlots={'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
+  const blueAmSlots={'7-7_30':0,'7_30-8':0,'8-9':0,'9-10':0};
+  const bluePmSlots={'10-14_30':0,'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
   data.forEach(rec=>{
     const route=rec.Route;
     const entries=Number(rec.Entries)||0;
     if(overall[route]!==undefined){overall[route]+=entries;}
+    const t=new Date(rec.ClientTime);
+    const h=t.getHours();
+    const m=t.getMinutes();
+    const mins=h*60+m;
     if(route==='Red Line AM'||route==='Red Line PM'){
       routeTotals[route]+=entries;
-      const t=new Date(rec.ClientTime);
-      const h=t.getHours();
-      const m=t.getMinutes();
-      if(h===5){amSlots['5-6']+=entries;}
-      else if(h===6){amSlots['6-7']+=entries;}
-      const mins=h*60+m;
-      if(mins>=14*60+30 && mins<15*60) pmSlots['14_30-15']+=entries;
-      else if(mins>=15*60 && mins<16*60) pmSlots['15-16']+=entries;
-      else if(mins>=16*60 && mins<17*60) pmSlots['16-17']+=entries;
-      else if(mins>=17*60 && mins<18*60) pmSlots['17-18']+=entries;
-      else if(mins>=18*60 && mins<19*60) pmSlots['18-19']+=entries;
-      else if(mins>=19*60 && mins<20*60) pmSlots['19-20']+=entries;
+      if(h===5){redAmSlots['5-6']+=entries;}
+      else if(h===6){redAmSlots['6-7']+=entries;}
+      if(mins>=14*60+30 && mins<15*60) redPmSlots['14_30-15']+=entries;
+      else if(mins>=15*60 && mins<16*60) redPmSlots['15-16']+=entries;
+      else if(mins>=16*60 && mins<17*60) redPmSlots['16-17']+=entries;
+      else if(mins>=17*60 && mins<18*60) redPmSlots['17-18']+=entries;
+      else if(mins>=18*60 && mins<19*60) redPmSlots['18-19']+=entries;
+      else if(mins>=19*60 && mins<20*60) redPmSlots['19-20']+=entries;
+    }
+    if(route==='Blue Line'){
+      if(mins<10*60){routeTotals['Blue Line AM']+=entries;} else {routeTotals['Blue Line PM']+=entries;}
+      if(mins>=7*60 && mins<7*60+30) blueAmSlots['7-7_30']+=entries;
+      else if(mins>=7*60+30 && mins<8*60) blueAmSlots['7_30-8']+=entries;
+      else if(mins>=8*60 && mins<9*60) blueAmSlots['8-9']+=entries;
+      else if(mins>=9*60 && mins<10*60) blueAmSlots['9-10']+=entries;
+      else if(mins>=10*60 && mins<14*60+30) bluePmSlots['10-14_30']+=entries;
+      else if(mins>=14*60+30 && mins<15*60) bluePmSlots['14_30-15']+=entries;
+      else if(mins>=15*60 && mins<16*60) bluePmSlots['15-16']+=entries;
+      else if(mins>=16*60 && mins<17*60) bluePmSlots['16-17']+=entries;
+      else if(mins>=17*60 && mins<18*60) bluePmSlots['17-18']+=entries;
+      else if(mins>=18*60 && mins<19*60) bluePmSlots['18-19']+=entries;
+      else if(mins>=19*60 && mins<20*60) bluePmSlots['19-20']+=entries;
     }
   });
   document.getElementById('overallTotal').textContent=
     overall['Red Line AM']+overall['Red Line PM']+overall['Blue Line'];
   document.getElementById('totalRedAM').textContent=routeTotals['Red Line AM'];
   document.getElementById('totalRedPM').textContent=routeTotals['Red Line PM'];
-  document.getElementById('am_5_6').textContent=amSlots['5-6'];
-  document.getElementById('am_6_7').textContent=amSlots['6-7'];
-  const amTotal=amSlots['5-6']+amSlots['6-7'];
+  document.getElementById('am_5_6').textContent=redAmSlots['5-6'];
+  document.getElementById('am_6_7').textContent=redAmSlots['6-7'];
+  const amTotal=redAmSlots['5-6']+redAmSlots['6-7'];
   document.getElementById('am_total').textContent=amTotal;
-  document.getElementById('pm_230_3').textContent=pmSlots['14_30-15'];
-  document.getElementById('pm_3_4').textContent=pmSlots['15-16'];
-  document.getElementById('pm_4_5').textContent=pmSlots['16-17'];
-  document.getElementById('pm_5_6').textContent=pmSlots['17-18'];
-  document.getElementById('pm_6_7').textContent=pmSlots['18-19'];
-  document.getElementById('pm_7_8').textContent=pmSlots['19-20'];
-  const pmTotal=Object.values(pmSlots).reduce((a,b)=>a+b,0);
+  document.getElementById('pm_230_3').textContent=redPmSlots['14_30-15'];
+  document.getElementById('pm_3_4').textContent=redPmSlots['15-16'];
+  document.getElementById('pm_4_5').textContent=redPmSlots['16-17'];
+  document.getElementById('pm_5_6').textContent=redPmSlots['17-18'];
+  document.getElementById('pm_6_7').textContent=redPmSlots['18-19'];
+  document.getElementById('pm_7_8').textContent=redPmSlots['19-20'];
+  const pmTotal=Object.values(redPmSlots).reduce((a,b)=>a+b,0);
   document.getElementById('pm_total').textContent=pmTotal;
   document.getElementById('day_total').textContent=pmTotal+amTotal;
+  document.getElementById('totalBlueAM').textContent=routeTotals['Blue Line AM'];
+  document.getElementById('totalBluePM').textContent=routeTotals['Blue Line PM'];
+  document.getElementById('blue_am_7_7_30').textContent=blueAmSlots['7-7_30'];
+  document.getElementById('blue_am_7_30_8').textContent=blueAmSlots['7_30-8'];
+  document.getElementById('blue_am_8_9').textContent=blueAmSlots['8-9'];
+  document.getElementById('blue_am_9_10').textContent=blueAmSlots['9-10'];
+  const blueAmTotal=Object.values(blueAmSlots).reduce((a,b)=>a+b,0);
+  document.getElementById('blue_am_total').textContent=blueAmTotal;
+  document.getElementById('blue_10_14_30').textContent=bluePmSlots['10-14_30'];
+  document.getElementById('blue_14_30_15').textContent=bluePmSlots['14_30-15'];
+  document.getElementById('blue_15_16').textContent=bluePmSlots['15-16'];
+  document.getElementById('blue_16_17').textContent=bluePmSlots['16-17'];
+  document.getElementById('blue_17_18').textContent=bluePmSlots['17-18'];
+  document.getElementById('blue_18_19').textContent=bluePmSlots['18-19'];
+  document.getElementById('blue_19_20').textContent=bluePmSlots['19-20'];
+  const bluePmTotal=Object.values(bluePmSlots).reduce((a,b)=>a+b,0);
+  const blueAfter230=bluePmSlots['14_30-15']+bluePmSlots['15-16']+bluePmSlots['16-17']+bluePmSlots['17-18']+bluePmSlots['18-19']+bluePmSlots['19-20'];
+  document.getElementById('blue_total_after_230').textContent=blueAfter230;
+  document.getElementById('blue_day_total').textContent=blueAmTotal+bluePmTotal;
 }
 </script>
 </body>
