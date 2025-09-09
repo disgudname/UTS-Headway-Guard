@@ -191,6 +191,18 @@ def parse_msajax(s: Optional[str]) -> Optional[int]:
         return None
 
 
+def normalize_bus_name(name: Optional[str]) -> str:
+    """Normalize bus identifiers to bare numeric strings.
+
+    TransLoc sometimes returns names with suffixes or whitespace; mileage
+    tracking and service crew views expect plain numeric bus numbers. This
+    helper strips any non-digit characters so lookups remain consistent.
+    """
+    if not name:
+        return ""
+    return re.sub(r"\D", "", str(name))
+
+
 def fmt_mmss(sec: float) -> str:
     """Format seconds as MM:SS."""
     sec = int(round(abs(sec)))
@@ -875,7 +887,9 @@ async def startup():
                         today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
                         bus_days = state.bus_days.setdefault(today, {})
                         for v in fresh_all:
-                            name = str(v.get("Name") or "-")
+                            name = normalize_bus_name(v.get("Name"))
+                            if not name:
+                                continue
                             lat = v.get("Latitude")
                             lon = v.get("Longitude")
                             if lat is None or lon is None:
@@ -919,7 +933,7 @@ async def startup():
                             for blk in grp.get("Blocks", []):
                                 bid = blk.get("BlockId")
                                 for trip in blk.get("Trips", []):
-                                    bus = str(trip.get("VehicleName") or "")
+                                    bus = normalize_bus_name(trip.get("VehicleName"))
                                     if bus and bid:
                                         bd = bus_days.setdefault(bus, BusDay())
                                         bd.blocks.add(bid)
@@ -1027,6 +1041,8 @@ async def startup():
                     VEH_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
                     with VEH_LOG_FILE.open("a") as f:
                         f.write(json.dumps(entry) + "\n")
+                        f.flush()
+                        os.fsync(f.fileno())
                     prune_old_entries()
                 except Exception as e:
                     print(f"[vehicle_logger] error: {e}")
@@ -1417,6 +1433,7 @@ async def servicecrew_data(date: Optional[str] = None):
 
 @app.post("/v1/servicecrew/reset/{bus_name}")
 async def servicecrew_reset(bus_name: str):
+    bus_name = normalize_bus_name(bus_name)
     today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
     async with state.lock:
         day = state.bus_days.setdefault(today, {})
