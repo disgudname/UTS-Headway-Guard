@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Register Arrivals Display</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+<style>
+ body { font-family: sans-serif; margin: 2rem; }
+ label { display: block; margin-top: 1rem; }
+ input { font-size: 1rem; padding: 0.3rem; }
+ button { margin-top: 1rem; padding: 0.5rem 1rem; }
+ #status { margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>Register Arrivals Display</h1>
+<p>Enter the device ID shown on the display and its desired stop ID.</p>
+<label>Device ID: <input id="device-id"/></label>
+<label>Stop ID: <input id="stop-id"/></label>
+<button onclick="registerDisplay()">Register</button>
+<div id="status"></div>
+<script>
+async function registerDisplay(){
+  const id=document.getElementById('device-id').value.trim();
+  const stop=document.getElementById('stop-id').value.trim();
+  const status=document.getElementById('status');
+  status.textContent='';
+  if(!id||!stop){ status.textContent='Both fields required.'; return; }
+  try{
+    await axios.post('/device-stop',{id,stopID:stop});
+    status.textContent='Saved!';
+  }catch(e){
+    status.textContent='Error saving.';
+    console.error(e);
+  }
+}
+</script>
+</body>
+</html>

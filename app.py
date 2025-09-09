@@ -612,6 +612,19 @@ DEBUG_HTML = (BASE_DIR / "debug.html").read_text(encoding="utf-8")
 REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
+REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
+
+DEVICE_STOP_FILE = BASE_DIR / "device_stops.json"
+try:
+    DEVICE_STOPS: Dict[str, str] = json.loads(DEVICE_STOP_FILE.read_text())
+except Exception:
+    DEVICE_STOPS = {}
+
+def save_device_stops() -> None:
+    try:
+        DEVICE_STOP_FILE.write_text(json.dumps(DEVICE_STOPS))
+    except Exception as e:
+        print(f"[device_stops] save error: {e}")
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -1510,6 +1523,34 @@ async def ridership_page():
 @app.get("/arrivalsdisplay")
 async def arrivalsdisplay_page():
     return HTMLResponse(ARRIVALSDISPLAY_HTML)
+
+# ---------------------------
+# ARRIVALS DISPLAY REGISTRATION PAGE
+# ---------------------------
+@app.get("/registerdisplay")
+async def registerdisplay_page():
+    return HTMLResponse(REGISTERDISPLAY_HTML)
+
+
+# ---------------------------
+# DEVICE ↔ STOP MAPPING ENDPOINTS
+# ---------------------------
+@app.get("/device-stop")
+async def get_device_stop(id: str):
+    stop = DEVICE_STOPS.get(id)
+    if not stop:
+        raise HTTPException(status_code=404, detail="device not registered")
+    return {"stopID": stop}
+
+@app.post("/device-stop")
+async def set_device_stop(payload: Dict[str, str]):
+    dev = payload.get("id")
+    stop = payload.get("stopID")
+    if not dev or not stop:
+        raise HTTPException(status_code=400, detail="id and stopID required")
+    DEVICE_STOPS[dev] = stop
+    save_device_stops()
+    return {"ok": True}
 
 # ---------------------------
 # REPLAY PAGE
