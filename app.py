@@ -614,14 +614,24 @@ RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
 
-DEVICE_STOP_FILE = BASE_DIR / "device_stops.json"
+DEVICE_STOP_FILE = Path(os.environ.get("DEVICE_STOP_FILE", "/data/device_stops.json"))
 try:
-    DEVICE_STOPS: Dict[str, str] = json.loads(DEVICE_STOP_FILE.read_text())
+    raw = json.loads(DEVICE_STOP_FILE.read_text())
+    DEVICE_STOPS: Dict[str, Dict[str, str]] = {}
+    for k, v in raw.items():
+        if isinstance(v, dict):
+            DEVICE_STOPS[k] = {
+                "stopID": v.get("stopID", ""),
+                "friendlyName": v.get("friendlyName", ""),
+            }
+        else:
+            DEVICE_STOPS[k] = {"stopID": v, "friendlyName": ""}
 except Exception:
     DEVICE_STOPS = {}
 
 def save_device_stops() -> None:
     try:
+        DEVICE_STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
         DEVICE_STOP_FILE.write_text(json.dumps(DEVICE_STOPS))
     except Exception as e:
         print(f"[device_stops] save error: {e}")
@@ -1537,18 +1547,31 @@ async def registerdisplay_page():
 # ---------------------------
 @app.get("/device-stop")
 async def get_device_stop(id: str):
-    stop = DEVICE_STOPS.get(id)
-    if not stop:
+    reg = DEVICE_STOPS.get(id)
+    if not reg:
         raise HTTPException(status_code=404, detail="device not registered")
-    return {"stopID": stop}
+    return reg
+
+@app.get("/device-stop/list")
+async def list_device_stops():
+    return {"devices": [{"id": k, **v} for k, v in DEVICE_STOPS.items()]}
 
 @app.post("/device-stop")
 async def set_device_stop(payload: Dict[str, str]):
     dev = payload.get("id")
     stop = payload.get("stopID")
+    fname = payload.get("friendlyName", "")
     if not dev or not stop:
         raise HTTPException(status_code=400, detail="id and stopID required")
-    DEVICE_STOPS[dev] = stop
+    DEVICE_STOPS[dev] = {"stopID": stop, "friendlyName": fname}
+    save_device_stops()
+    return {"ok": True}
+
+@app.delete("/device-stop/{dev_id}")
+async def delete_device_stop(dev_id: str):
+    if dev_id not in DEVICE_STOPS:
+        raise HTTPException(status_code=404, detail="device not registered")
+    del DEVICE_STOPS[dev_id]
     save_device_stops()
     return {"ok": True}
 

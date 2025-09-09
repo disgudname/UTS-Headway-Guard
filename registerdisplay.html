@@ -14,26 +14,64 @@
 </head>
 <body>
 <h1>Register Arrivals Display</h1>
-<p>Enter the device ID shown on the display and its desired stop ID.</p>
+<p>Enter the device ID shown on the display, a friendly name, and its desired stop ID.</p>
 <label>Device ID: <input id="device-id"/></label>
+<label>Friendly Name: <input id="friendly-name"/></label>
 <label>Stop ID: <input id="stop-id"/></label>
 <button onclick="registerDisplay()">Register</button>
 <div id="status"></div>
+
+<h2>Registered Devices</h2>
+<table id="devices">
+  <thead><tr><th>ID</th><th>Friendly Name</th><th>Stop ID</th><th></th></tr></thead>
+  <tbody></tbody>
+</table>
+
 <script>
 async function registerDisplay(){
   const id=document.getElementById('device-id').value.trim();
   const stop=document.getElementById('stop-id').value.trim();
+  const fname=document.getElementById('friendly-name').value.trim();
   const status=document.getElementById('status');
   status.textContent='';
-  if(!id||!stop){ status.textContent='Both fields required.'; return; }
+  if(!id||!stop){ status.textContent='Device ID and Stop ID required.'; return; }
   try{
-    await axios.post('/device-stop',{id,stopID:stop});
+    await axios.post('/device-stop',{id,stopID:stop,friendlyName:fname});
     status.textContent='Saved!';
+    loadRegistrations();
   }catch(e){
     status.textContent='Error saving.';
     console.error(e);
   }
 }
+
+async function loadRegistrations(){
+  try{
+    const r=await axios.get('/device-stop/list');
+    const tbody=document.querySelector('#devices tbody');
+    tbody.innerHTML='';
+    for(const d of r.data.devices){
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${d.id}</td><td>${d.friendlyName||''}</td><td>${d.stopID}</td>`+
+                  `<td><button onclick="deleteReg('${d.id}')">Delete</button></td>`;
+      tbody.appendChild(tr);
+    }
+  }catch(e){
+    console.error(e);
+  }
+}
+
+async function deleteReg(id){
+  if(!confirm('Delete registration for '+id+'?')) return;
+  try{
+    await axios.delete('/device-stop/'+id);
+    loadRegistrations();
+  }catch(e){
+    console.error(e);
+  }
+}
+
+loadRegistrations();
 </script>
 </body>
 </html>
