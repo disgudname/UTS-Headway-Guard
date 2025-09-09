@@ -22,7 +22,7 @@
   <tr><th>Overall Total:</th><td id="overallTotal" colspan="8"></td></tr>
   <tr><td colspan="9"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
   <tr><th colspan="9">Red Line</th></tr>
-  <tr><th>Total Passengers:</th><td id="totalRedAM"></td><td id="totalRedPM"></td><td colspan="6"></td></tr>
+  <tr><th>Total Passengers:</th><td id="totalRed"></td><td colspan="7"></td></tr>
   <tr><th colspan="9">AM Numbers</th></tr>
   <tr><th>5-6AM</th><th>6-7AM</th><th>AM Total</th><td colspan="6"></td></tr>
   <tr><td id="am_5_6"></td><td id="am_6_7"></td><td id="am_total"></td><td colspan="6"></td></tr>
@@ -30,7 +30,7 @@
   <tr><th></th><th>2:30PM-3PM</th><th>3-4PM</th><th>4-5PM</th><th>5-6PM</th><th>6-7PM</th><th>7-8PM</th><th>PM Total</th><th>Day Total</th></tr>
   <tr><td></td><td id="pm_230_3"></td><td id="pm_3_4"></td><td id="pm_4_5"></td><td id="pm_5_6"></td><td id="pm_6_7"></td><td id="pm_7_8"></td><td id="pm_total"></td><td id="day_total"></td></tr>
   <tr><th colspan="9">Blue Line</th></tr>
-  <tr><th>Total Passengers:</th><td id="totalBlueAM"></td><td id="totalBluePM"></td><td colspan="6"></td></tr>
+  <tr><th>Total Passengers:</th><td id="totalBlue"></td><td colspan="7"></td></tr>
   <tr><th colspan="9">AM Numbers</th></tr>
   <tr><th>7-7:30AM</th><th>7:30-8AM</th><th>8-9AM</th><th>9-10AM</th><th>AM Total</th><td colspan="4"></td></tr>
   <tr><td id="blue_am_7_7_30"></td><td id="blue_am_7_30_8"></td><td id="blue_am_8_9"></td><td id="blue_am_9_10"></td><td id="blue_am_total"></td><td colspan="4"></td></tr>
@@ -101,8 +101,8 @@ function render(data){
   });
   document.getElementById('overallTotal').textContent=
     overall['Red Line AM']+overall['Red Line PM']+overall['Blue Line'];
-  document.getElementById('totalRedAM').textContent=routeTotals['Red Line AM'];
-  document.getElementById('totalRedPM').textContent=routeTotals['Red Line PM'];
+  const totalRed=routeTotals['Red Line AM']+routeTotals['Red Line PM'];
+  document.getElementById('totalRed').textContent=totalRed;
   document.getElementById('am_5_6').textContent=redAmSlots['5-6'];
   document.getElementById('am_6_7').textContent=redAmSlots['6-7'];
   const amTotal=redAmSlots['5-6']+redAmSlots['6-7'];
@@ -116,8 +116,8 @@ function render(data){
   const pmTotal=Object.values(redPmSlots).reduce((a,b)=>a+b,0);
   document.getElementById('pm_total').textContent=pmTotal;
   document.getElementById('day_total').textContent=pmTotal+amTotal;
-  document.getElementById('totalBlueAM').textContent=routeTotals['Blue Line AM'];
-  document.getElementById('totalBluePM').textContent=routeTotals['Blue Line PM'];
+  const totalBlue=routeTotals['Blue Line AM']+routeTotals['Blue Line PM'];
+  document.getElementById('totalBlue').textContent=totalBlue;
   document.getElementById('blue_am_7_7_30').textContent=blueAmSlots['7-7_30'];
   document.getElementById('blue_am_7_30_8').textContent=blueAmSlots['7_30-8'];
   document.getElementById('blue_am_8_9').textContent=blueAmSlots['8-9'];
