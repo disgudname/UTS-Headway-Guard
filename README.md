@@ -34,11 +34,18 @@ A lightweight logger and replay page are included for reviewing past vehicle
 positions. The application automatically polls TransLoc every few seconds and
 appends snapshots to hourly files under `/data/vehicle_logs` (configurable via
 the `VEH_LOG_DIRS` environment variable), pruning files older than one week.
-The paths listed in `DATA_DIRS` (defaulting to `/data`) are backed by Fly.io
-volumes (see `fly.toml`). If multiple volumes are specified, data is mirrored
-across them so logs and configuration survive reboots. Open `/replay` in a
+The path listed in `DATA_DIRS` (defaulting to `/data`) is backed by a Fly.io
+volume (see `fly.toml`) so logs and configuration survive reboots. Open `/replay` in a
 running server to view the logged data with a timeline and playback controls
 (pause, play and fast forward).
+
+### Multi-machine sync
+
+When running multiple Fly machines, each machine has its own volume. Set the
+`SYNC_PEERS` environment variable to a comma-separated list of peer internal
+addresses (for example `"machine2.internal:8080"`). When configuration or
+`mileage.json` is updated on one instance, the app will POST the changes to each
+peer's `/sync` endpoint to keep volumes in sync.
 
 ## API
 
@@ -56,7 +63,7 @@ Key endpoints exposed by the service:
 ## Configuration
 Runtime settings can be tuned with environment variables such as `TRANSLOC_BASE`, `TRANSLOC_KEY` and `OVERPASS_EP`.
 See `app.py` for the full list and default values. Changes made through the `/admin` page
-are persisted to `config.json` within each directory listed in `DATA_DIRS` so they
+are persisted to `config.json` within the directory listed in `DATA_DIRS` so they
 survive redeployments.
 
 ## Docker

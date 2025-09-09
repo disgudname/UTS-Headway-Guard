@@ -110,6 +110,9 @@ VEH_LOG_DIRS = [
 ]
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
 
+# Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
+SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
+
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
 VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
@@ -133,6 +136,14 @@ def prune_old_entries() -> None:
                     path.unlink()
                 except OSError:
                     pass
+
+def propagate_file(name: str, data: str) -> None:
+    for peer in SYNC_PEERS:
+        url = f"http://{peer.rstrip('/')}/sync"
+        try:
+            httpx.post(url, json={"name": name, "data": data}, timeout=5)
+        except Exception as e:
+            print(f"[sync] error sending {name} to {peer}: {e}")
 
 # ---------------------------
 # Geometry helpers
@@ -663,6 +674,7 @@ def save_device_stops() -> None:
             path.write_text(payload)
         except Exception as e:
             print(f"[device_stops] save error for {path}: {e}")
+    propagate_file(DEVICE_STOP_NAME, payload)
 
 load_device_stops()
 
@@ -723,6 +735,7 @@ def save_config() -> None:
             path.write_text(payload)
         except Exception as e:
             print(f"[save_config] error writing {path}: {e}")
+    propagate_file(CONFIG_NAME, payload)
 
 load_config()
 
@@ -804,6 +817,26 @@ def save_bus_days() -> None:
             path.write_text(payload_json)
         except Exception as e:
             print(f"[save_bus_days] error writing {path}: {e}")
+    propagate_file(MILEAGE_NAME, payload_json)
+
+# ---------------------------
+# Sync endpoint
+# ---------------------------
+
+@app.post("/sync")
+def receive_sync(payload: dict):
+    name = payload.get("name")
+    data = payload.get("data")
+    if not isinstance(name, str) or not isinstance(data, str):
+        raise HTTPException(status_code=400, detail="invalid payload")
+    for base in DATA_DIRS:
+        path = base / name
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(data)
+        except Exception as e:
+            print(f"[sync] error writing {path}: {e}")
+    return {"ok": True}
 
 # ---------------------------
 # Health
