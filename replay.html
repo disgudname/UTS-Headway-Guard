@@ -592,6 +592,8 @@
           if (endInput && endInput._flatpickr) {
             endInput._flatpickr.setDate(new Date(lastMs), true);
           }
+          endTime = new Date(lastMs);
+          userEndTime = new Date(lastMs);
         }
       } catch (err) {
         console.error('Failed to load log hour', err);
@@ -841,7 +843,9 @@
       const timeline = document.getElementById('timeline');
       timeline.min = startTime.getTime();
       timeline.max = userEndTime.getTime();
-      await loadHour(startTime.getTime());
+      for (let ms = startTime.getTime(); ms <= userEndTime.getTime(); ms += 3600 * 1000) {
+        await loadHour(ms);
+      }
       if (playbackTimes.length) {
         const ms = startTime.getTime();
         const idx = findFrameIndex(ms);
