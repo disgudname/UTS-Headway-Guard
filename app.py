@@ -614,6 +614,7 @@ RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
+SERVICECREW_SUBS: set[asyncio.Queue] = set()
 
 def record_api_call(method: str, url: str, status: int) -> None:
     item = {"ts": int(time.time()*1000), "method": method, "url": url, "status": status}
@@ -1445,6 +1446,26 @@ async def servicecrew_reset(bus_name: str):
         bd = day.setdefault(bus_name, BusDay())
         bd.reset_miles = bd.total_miles
         save_bus_days()
+    return {"status": "ok"}
+
+@app.get("/v1/stream/servicecrew_refresh")
+async def stream_servicecrew_refresh():
+    async def gen():
+        q: asyncio.Queue = asyncio.Queue()
+        SERVICECREW_SUBS.add(q)
+        try:
+            while True:
+                item = await q.get()
+                yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            SERVICECREW_SUBS.discard(q)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+@app.post("/v1/servicecrew/refresh")
+async def servicecrew_refresh():
+    item = {"ts": int(time.time()*1000)}
+    for q in list(SERVICECREW_SUBS):
+        q.put_nowait(item)
     return {"status": "ok"}
 
 # ---------------------------

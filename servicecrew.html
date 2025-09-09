@@ -143,15 +143,17 @@ async function fetchData(){
     tbody.appendChild(tr);
   }
 }
-async function init(){
-  await loadConfig();
-  await loadBlockMap();
-  fetchData();
-  setInterval(fetchData,30000);
-  setInterval(loadBlockMap,30000);
-  setInterval(loadConfig,30000);
-}
-init();
-</script>
-</body>
-</html>
+  async function init(){
+    await loadConfig();
+    await loadBlockMap();
+    fetchData();
+    setInterval(fetchData,30000);
+    setInterval(loadBlockMap,30000);
+    setInterval(loadConfig,30000);
+  }
+  init();
+  const svcES=new EventSource('/v1/stream/servicecrew_refresh');
+  svcES.onmessage=()=>location.reload();
+  </script>
+  </body>
+  </html>

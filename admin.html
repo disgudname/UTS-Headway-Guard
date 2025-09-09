@@ -13,6 +13,7 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 <h1>Headway Guard Admin</h1>
 <form id="cfg"></form>
 <button id="save">Save</button>
+<button id="forceRefresh">Force Refresh</button>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
 async function load(){
@@ -51,5 +52,8 @@ async function save(){
   alert('Saved!');
 }
 document.getElementById('save').onclick=save;
+document.getElementById('forceRefresh').onclick=()=>{
+  fetch('/v1/servicecrew/refresh',{method:'POST'});
+};
 load();
 </script>
