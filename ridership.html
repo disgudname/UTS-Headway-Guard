@@ -19,7 +19,7 @@
 <h1>Ridership Report</h1>
 <label>Date: <input type="date" id="datePicker"></label><button id="loadBtn">Load</button>
 <table id="ridershipTable">
-  <tr><th>Overall Total:</th><td id="overallRedAM"></td><td id="overallRedPM"></td><td id="overallBlue"></td><td colspan="4"></td></tr>
+  <tr><th>Overall Total:</th><td id="overallTotal" colspan="7"></td></tr>
   <tr><td colspan="8"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
   <tr><th colspan="8">Red Line</th></tr>
   <tr><th>Total Passengers:</th><td id="totalRedAM"></td><td id="totalRedPM"></td><td colspan="5"></td></tr>
@@ -75,9 +75,8 @@ function render(data){
       else if(mins>=19*60 && mins<20*60) pmSlots['19-20']+=entries;
     }
   });
-  document.getElementById('overallRedAM').textContent=overall['Red Line AM'];
-  document.getElementById('overallRedPM').textContent=overall['Red Line PM'];
-  document.getElementById('overallBlue').textContent=overall['Blue Line'];
+  document.getElementById('overallTotal').textContent=
+    overall['Red Line AM']+overall['Red Line PM']+overall['Blue Line'];
   document.getElementById('totalRedAM').textContent=routeTotals['Red Line AM'];
   document.getElementById('totalRedPM').textContent=routeTotals['Red Line PM'];
   document.getElementById('am_5_6').textContent=amSlots['5-6'];
