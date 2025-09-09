@@ -173,6 +173,7 @@
     <button id="ff4Btn" class="speed-btn">4x</button>
     <button id="ff8Btn" class="speed-btn">8x</button>
     <button id="ff10Btn" class="speed-btn">10x</button>
+    <button id="ff30Btn" class="speed-btn">30x</button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
     <span id="lastUpdateLabel"></span>
@@ -213,7 +214,7 @@
     let blockMarkers = {};
     let routeLayers = [];
     let timer = null;       // handle for scheduled frame advance
-    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x
+    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x
     let routeColors = {};
     let allRoutes = {};
     let routeSelections = {};
@@ -234,6 +235,7 @@
     const ff4Btn = document.getElementById('ff4Btn');
     const ff8Btn = document.getElementById('ff8Btn');
     const ff10Btn = document.getElementById('ff10Btn');
+    const ff30Btn = document.getElementById('ff30Btn');
 
     function positionBusTab() {
       const panel = document.getElementById('busSelector');
@@ -278,6 +280,7 @@
       ff4Btn.classList.remove('selected');
       ff8Btn.classList.remove('selected');
       ff10Btn.classList.remove('selected');
+      ff30Btn.classList.remove('selected');
       if (!isPlaying) {
         pauseBtn.classList.add('selected');
       } else if (playbackSpeed === 1) {
@@ -290,6 +293,8 @@
         ff8Btn.classList.add('selected');
       } else if (playbackSpeed === 10) {
         ff10Btn.classList.add('selected');
+      } else if (playbackSpeed === 30) {
+        ff30Btn.classList.add('selected');
       }
     }
 
@@ -663,7 +668,7 @@
       const blocks = entry.blocks || {};
       const seen = new Set();
       let smoothDuration = 0;
-      if (playbackSpeed === 10 && i > 0) {
+      if (playbackSpeed >= 10 && i > 0) {
         smoothDuration = (new Date(playbackData[i].ts) - new Date(playbackData[i-1].ts)) / playbackSpeed;
       }
       entry.vehicles.forEach(vehicle => {
@@ -671,7 +676,7 @@
         if (!isRouteSelected(routeID) || !isBusSelected(vehicle.VehicleID)) return;
         seen.add(vehicle.VehicleID);
         const pos = [vehicle.Latitude, vehicle.Longitude];
-        const startPos = (playbackSpeed === 10 && lastPositions[vehicle.VehicleID]) ? lastPositions[vehicle.VehicleID] : pos;
+        const startPos = (playbackSpeed >= 10 && lastPositions[vehicle.VehicleID]) ? lastPositions[vehicle.VehicleID] : pos;
         const isMoving = vehicle.GroundSpeed > 0;
         const heading = vehicle.Heading;
         const routeColor = getRouteColor(routeID);
@@ -689,7 +694,7 @@
           </svg>`;
         const busIcon = L.divIcon({ html: svgIcon, className: '', iconSize: [40,40], iconAnchor: [20,20] });
         const marker = L.marker(startPos, { icon: busIcon }).addTo(map);
-        if (playbackSpeed === 10 && smoothDuration > 0) {
+        if (playbackSpeed >= 10 && smoothDuration > 0) {
           marker._icon.style.transition = `transform ${smoothDuration}ms linear`;
           setTimeout(() => marker.setLatLng(pos), 0);
         } else {
@@ -707,7 +712,7 @@
             </svg>`;
           const speedIcon = L.divIcon({ html: speedBubble, className: '', iconSize: [60,20], iconAnchor: [30,-15] });
           const sm = L.marker(startPos, { icon: speedIcon, interactive: false }).addTo(map);
-          if (playbackSpeed === 10 && smoothDuration > 0) {
+          if (playbackSpeed >= 10 && smoothDuration > 0) {
             sm._icon.style.transition = `transform ${smoothDuration}ms linear`;
             setTimeout(() => sm.setLatLng(pos), 0);
           } else {
@@ -732,7 +737,7 @@
               </svg>`;
             const blockIcon = L.divIcon({ html: blockBubble, className: '', iconSize: [blockWidth,30], iconAnchor: [blockWidth/2,-13] });
             const bm = L.marker(startPos, { icon: blockIcon, interactive: false }).addTo(map);
-            if (playbackSpeed === 10 && smoothDuration > 0) {
+            if (playbackSpeed >= 10 && smoothDuration > 0) {
               bm._icon.style.transition = `transform ${smoothDuration}ms linear`;
               setTimeout(() => bm.setLatLng(pos), 0);
             } else {
@@ -754,7 +759,7 @@
             </svg>`;
           const nameIcon = L.divIcon({ html: nameBubble, className: '', iconSize: [bubbleWidth,30], iconAnchor: [bubbleWidth/2,40] });
           const nm = L.marker(startPos, { icon: nameIcon, interactive: false }).addTo(map);
-          if (playbackSpeed === 10 && smoothDuration > 0) {
+          if (playbackSpeed >= 10 && smoothDuration > 0) {
             nm._icon.style.transition = `transform ${smoothDuration}ms linear`;
             setTimeout(() => nm.setLatLng(pos), 0);
           } else {
@@ -834,6 +839,7 @@
     ff4Btn.onclick = () => { playbackSpeed = 4; play(); };
     ff8Btn.onclick = () => { playbackSpeed = 8; play(); };
     ff10Btn.onclick = () => { playbackSpeed = 10; play(); };
+    ff30Btn.onclick = () => { playbackSpeed = 30; play(); };
     document.getElementById('timeline').addEventListener('input', async e => {
       pause();
       const ms = parseInt(e.target.value);
