@@ -108,7 +108,10 @@ async function loadBlockMap(){
   }catch(_){blockNameMap=new Map();}
 }
 
-function todayStr(){return new Date().toISOString().split('T')[0];}
+function todayStr(){
+  // Ensure date is computed in Charlottesville's timezone
+  return new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+}
 async function fetchData(){
   const date=todayStr();
   dateSpan.textContent=`Date: ${date}`;
