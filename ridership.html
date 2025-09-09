@@ -21,7 +21,7 @@
 <table id="ridershipTable">
   <tr><th>Overall Total:</th><td id="overallRedAM"></td><td id="overallRedPM"></td><td id="overallBlue"></td><td colspan="4"></td></tr>
   <tr><td colspan="8"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
-  <tr><th colspan="8">Scott Stadium West Parking Lots (Red Line)</th></tr>
+  <tr><th colspan="8">Red Line</th></tr>
   <tr><th>Total Passengers:</th><td id="totalRedAM"></td><td id="totalRedPM"></td><td colspan="5"></td></tr>
   <tr><th colspan="8">AM Numbers</th></tr>
   <tr><th>5-6AM</th><th>6-7AM</th><th>AM Total</th><td colspan="5"></td></tr>
@@ -52,16 +52,15 @@ function load(){
 
 function render(data){
   const overall={'Red Line AM':0,'Red Line PM':0,'Blue Line':0};
-  const stopName='Scott Stadium West Parking Lots';
-  const stopTotals={'Red Line AM':0,'Red Line PM':0};
+  const routeTotals={'Red Line AM':0,'Red Line PM':0};
   const amSlots={'5-6':0,'6-7':0};
   const pmSlots={'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
   data.forEach(rec=>{
     const route=rec.Route;
     const entries=Number(rec.Entries)||0;
     if(overall[route]!==undefined){overall[route]+=entries;}
-    if((route==='Red Line AM'||route==='Red Line PM') && rec.RouteStop===stopName){
-      stopTotals[route]+=entries;
+    if(route==='Red Line AM'||route==='Red Line PM'){
+      routeTotals[route]+=entries;
       const t=new Date(rec.ClientTime);
       const h=t.getHours();
       const m=t.getMinutes();
@@ -79,8 +78,8 @@ function render(data){
   document.getElementById('overallRedAM').textContent=overall['Red Line AM'];
   document.getElementById('overallRedPM').textContent=overall['Red Line PM'];
   document.getElementById('overallBlue').textContent=overall['Blue Line'];
-  document.getElementById('totalRedAM').textContent=stopTotals['Red Line AM'];
-  document.getElementById('totalRedPM').textContent=stopTotals['Red Line PM'];
+  document.getElementById('totalRedAM').textContent=routeTotals['Red Line AM'];
+  document.getElementById('totalRedPM').textContent=routeTotals['Red Line PM'];
   document.getElementById('am_5_6').textContent=amSlots['5-6'];
   document.getElementById('am_6_7').textContent=amSlots['6-7'];
   const amTotal=amSlots['5-6']+amSlots['6-7'];
