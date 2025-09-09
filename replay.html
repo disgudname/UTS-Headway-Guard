@@ -841,11 +841,18 @@
       const timeline = document.getElementById('timeline');
       timeline.min = startTime.getTime();
       timeline.max = userEndTime.getTime();
-      await loadHour(startTime.getTime());
+
+      const startMs = startTime.getTime();
+      const endMs = userEndTime.getTime();
+      let ms = startMs - (startMs % (3600 * 1000));
+      while (ms <= endMs) {
+        await loadHour(ms);
+        ms += 3600 * 1000;
+      }
+
       if (playbackTimes.length) {
-        const ms = startTime.getTime();
-        const idx = findFrameIndex(ms);
-        showFrame(idx, ms);
+        const idx = findFrameIndex(startMs);
+        showFrame(idx, startMs);
       }
     }
 
