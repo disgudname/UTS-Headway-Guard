@@ -99,7 +99,7 @@ ALL_BUSES = [
 
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
-VEH_LOG_FILE = Path(os.getenv("VEH_LOG_FILE", "/data/vehicle_log.jsonl"))
+VEH_LOG_DIR = Path(os.getenv("VEH_LOG_DIR", "/data/vehicle_logs"))
 VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
 VEH_LOG_MIN_MOVE_M = float(os.getenv("VEH_LOG_MIN_MOVE_M", "3"))
@@ -107,19 +107,19 @@ LAST_LOG_POS: Dict[int, Tuple[float, float]] = {}
 
 def prune_old_entries() -> None:
     cutoff = int(time.time() * 1000) - VEH_LOG_RETENTION_MS
-    if not VEH_LOG_FILE.exists():
+    if not VEH_LOG_DIR.exists():
         return
-    lines: list[str] = []
-    with VEH_LOG_FILE.open() as f:
-        for line in f:
+    for path in VEH_LOG_DIR.glob("*.jsonl"):
+        try:
+            dt = datetime.strptime(path.stem, "%Y%m%d_%H")
+        except ValueError:
+            continue
+        end_ms = int(dt.timestamp() * 1000) + 3600 * 1000
+        if end_ms < cutoff:
             try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if entry.get("ts", 0) >= cutoff:
-                lines.append(line)
-    with VEH_LOG_FILE.open("w") as f:
-        f.writelines(lines)
+                path.unlink()
+            except OSError:
+                pass
 
 # ---------------------------
 # Geometry helpers
@@ -1038,8 +1038,10 @@ async def startup():
 
                     blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
                     entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
-                    VEH_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-                    with VEH_LOG_FILE.open("a") as f:
+                    fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
+                    path = VEH_LOG_DIR / fname
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with path.open("a") as f:
                         f.write(json.dumps(entry) + "\n")
                         f.flush()
                         os.fsync(f.fileno())
@@ -1349,9 +1351,11 @@ async def stream_api_calls():
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
 
-@app.get("/vehicle_log.jsonl", include_in_schema=False)
-async def vehicle_log_file():
-    path = VEH_LOG_FILE
+@app.get("/vehicle_log/{log_name}", include_in_schema=False)
+async def vehicle_log_file(log_name: str):
+    if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
+        raise HTTPException(status_code=404, detail="Invalid log file")
+    path = VEH_LOG_DIR / log_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="Log file not found")
     return FileResponse(path, media_type="application/json")

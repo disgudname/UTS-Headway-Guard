@@ -32,12 +32,12 @@ Open the [driver](http://localhost:8080/driver) and [dispatcher](http://localhos
 
 A lightweight logger and replay page are included for reviewing past vehicle
 positions. The application automatically polls TransLoc every few seconds and
-appends snapshots to `/data/vehicle_log.jsonl` (configurable via the
-`VEH_LOG_FILE` environment variable), pruning entries older than one week.
+appends snapshots to hourly files under `/data/vehicle_logs` (configurable via
+the `VEH_LOG_DIR` environment variable), pruning files older than one week.
 The `/data` directory is backed by Fly.io's `mileage_data` volume (see
-`fly.toml`) so logs survive reboots. Open `/replay` in a running server to
-view the logged data with a timeline and playback controls (pause, play and
-fast forward).
+`fly.toml`) so logs survive reboots. Open `/replay` in a running server to view
+the logged data with a timeline and playback controls (pause, play and fast
+forward).
 
 ## API
 
