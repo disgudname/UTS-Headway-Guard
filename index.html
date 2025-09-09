@@ -14,11 +14,13 @@
   .card{width:160px;height:160px;border-radius:16px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);}
   .card svg{width:64px;height:64px;margin-bottom:12px;}
   .admin-link{position:fixed;top:12px;right:16px;color:var(--ink);text-decoration:none;font-size:14px;}
+  .github-link{position:fixed;top:12px;left:16px;color:var(--ink);text-decoration:none;font-size:14px;}
   .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
   @media(max-width:600px){.container{flex-direction:column;}}
 </style>
 </head>
 <body>
+<a href="https://github.com/disgudname/UTS-Headway-Guard" class="github-link" target="_blank" rel="noopener">GitHub</a>
 <a href="/admin" class="admin-link">Admin</a>
 <div class="title">Welcome to Headway Guard</div>
 <div class="container">
@@ -59,6 +61,15 @@
       <line x1="40" y1="20" x2="40" y2="52" />
     </svg>
     <div>Live Map</div>
+  </a>
+  <a class="card" href="/ridership">
+    <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="8" y1="52" x2="56" y2="52" />
+      <rect x="12" y="32" width="8" height="20" stroke="none" fill="currentColor" />
+      <rect x="28" y="24" width="8" height="28" stroke="none" fill="currentColor" />
+      <rect x="44" y="16" width="8" height="36" stroke="none" fill="currentColor" />
+    </svg>
+    <div>Red/Blue Daily Counts</div>
   </a>
   <a class="card" href="/replay">
     <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">

@@ -9,7 +9,9 @@ It gathers live data from TransLoc and the OpenStreetMap Overpass API, computes 
 - Computes arc-based headways and recommended actions (OK/Ease off/HOLD).
 - Exposes REST endpoints for health, routes, vehicles, per-vehicle instructions, and low-clearance warnings.
 - Streams per-route status via Server-Sent Events for live updates.
-- Serves minimal dispatcher and driver web clients with overheight alerts.
+- Serves lightweight web clients for drivers, dispatchers, service crew, a live map, daily ridership dashboard, and replay viewer with overheight alerts for drivers.
+- Logs vehicle positions for later replay and analysis.
+- Displays Red and Blue line daily ridership counts with CSV export.
 
 ## Requirements
 - Python 3.10+
