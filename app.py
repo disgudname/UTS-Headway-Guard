@@ -97,9 +97,21 @@ ALL_BUSES = [
     "25131","25231","25331","25431",
 ]
 
+# Data directories (support multiple mirrored volumes)
+DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
+PRIMARY_DATA_DIR = DATA_DIRS[0]
+
+VEH_LOG_DIRS = [
+    Path(p)
+    for p in os.getenv(
+        "VEH_LOG_DIRS",
+        os.getenv("VEH_LOG_DIR", str(PRIMARY_DATA_DIR / "vehicle_logs")),
+    ).split(":")
+]
+VEH_LOG_DIR = VEH_LOG_DIRS[0]
+
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
-VEH_LOG_DIR = Path(os.getenv("VEH_LOG_DIR", "/data/vehicle_logs"))
 VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
 VEH_LOG_MIN_MOVE_M = float(os.getenv("VEH_LOG_MIN_MOVE_M", "3"))
@@ -107,19 +119,20 @@ LAST_LOG_POS: Dict[int, Tuple[float, float]] = {}
 
 def prune_old_entries() -> None:
     cutoff = int(time.time() * 1000) - VEH_LOG_RETENTION_MS
-    if not VEH_LOG_DIR.exists():
-        return
-    for path in VEH_LOG_DIR.glob("*.jsonl"):
-        try:
-            dt = datetime.strptime(path.stem, "%Y%m%d_%H")
-        except ValueError:
+    for log_dir in VEH_LOG_DIRS:
+        if not log_dir.exists():
             continue
-        end_ms = int(dt.timestamp() * 1000) + 3600 * 1000
-        if end_ms < cutoff:
+        for path in log_dir.glob("*.jsonl"):
             try:
-                path.unlink()
-            except OSError:
-                pass
+                dt = datetime.strptime(path.stem, "%Y%m%d_%H")
+            except ValueError:
+                continue
+            end_ms = int(dt.timestamp() * 1000) + 3600 * 1000
+            if end_ms < cutoff:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
 
 # ---------------------------
 # Geometry helpers
@@ -614,27 +627,40 @@ RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
 
-DEVICE_STOP_FILE = Path(os.environ.get("DEVICE_STOP_FILE", "/data/device_stops.json"))
-try:
-    raw = json.loads(DEVICE_STOP_FILE.read_text())
-    DEVICE_STOPS: Dict[str, Dict[str, str]] = {}
-    for k, v in raw.items():
-        if isinstance(v, dict):
-            DEVICE_STOPS[k] = {
-                "stopID": v.get("stopID", ""),
-                "friendlyName": v.get("friendlyName", ""),
-            }
-        else:
-            DEVICE_STOPS[k] = {"stopID": v, "friendlyName": ""}
-except Exception:
+DEVICE_STOP_NAME = Path(os.environ.get("DEVICE_STOP_FILE", "device_stops.json")).name
+DEVICE_STOP_FILE = PRIMARY_DATA_DIR / DEVICE_STOP_NAME
+
+def load_device_stops() -> None:
+    global DEVICE_STOPS
+    for base in DATA_DIRS:
+        path = base / DEVICE_STOP_NAME
+        try:
+            raw = json.loads(path.read_text())
+            DEVICE_STOPS = {}
+            for k, v in raw.items():
+                if isinstance(v, dict):
+                    DEVICE_STOPS[k] = {
+                        "stopID": v.get("stopID", ""),
+                        "friendlyName": v.get("friendlyName", ""),
+                    }
+                else:
+                    DEVICE_STOPS[k] = {"stopID": v, "friendlyName": ""}
+            return
+        except Exception:
+            continue
     DEVICE_STOPS = {}
 
 def save_device_stops() -> None:
     try:
-        DEVICE_STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
-        DEVICE_STOP_FILE.write_text(json.dumps(DEVICE_STOPS))
+        payload = json.dumps(DEVICE_STOPS)
+        for base in DATA_DIRS:
+            path = base / DEVICE_STOP_NAME
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(payload)
     except Exception as e:
         print(f"[device_stops] save error: {e}")
+
+load_device_stops()
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -655,32 +681,38 @@ CONFIG_KEYS = [
     "LOW_CLEARANCE_LIMIT_FT","BRIDGE_IGNORE_RADIUS_M","OVERHEIGHT_BUSES",
     "LOW_CLEARANCE_RADIUS","BRIDGE_RADIUS","ALL_BUSES"
 ]
-
-CONFIG_FILE = Path("/data/config.json")
+CONFIG_NAME = "config.json"
+CONFIG_FILE = PRIMARY_DATA_DIR / CONFIG_NAME
 
 def load_config() -> None:
-    if not CONFIG_FILE.exists():
+    for base in DATA_DIRS:
+        path = base / CONFIG_NAME
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except Exception as e:
+            print(f"[load_config] error: {e}")
+            continue
+        for k, v in data.items():
+            if k in CONFIG_KEYS:
+                cur = globals().get(k)
+                if isinstance(cur, list):
+                    globals()[k] = v if isinstance(v, list) else [str(v)]
+                else:
+                    try:
+                        globals()[k] = type(cur)(v)
+                    except Exception:
+                        globals()[k] = v
         return
-    try:
-        data = json.loads(CONFIG_FILE.read_text())
-    except Exception as e:
-        print(f"[load_config] error: {e}")
-        return
-    for k, v in data.items():
-        if k in CONFIG_KEYS:
-            cur = globals().get(k)
-            if isinstance(cur, list):
-                globals()[k] = v if isinstance(v, list) else [str(v)]
-            else:
-                try:
-                    globals()[k] = type(cur)(v)
-                except Exception:
-                    globals()[k] = v
 
 def save_config() -> None:
     try:
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(json.dumps({k: globals().get(k) for k in CONFIG_KEYS}))
+        payload = json.dumps({k: globals().get(k) for k in CONFIG_KEYS})
+        for base in DATA_DIRS:
+            path = base / CONFIG_NAME
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(payload)
     except Exception as e:
         print(f"[save_config] error: {e}")
 
@@ -712,28 +744,32 @@ class State:
         self.bus_days: Dict[str, Dict[str, BusDay]] = {}
 
 state = State()
-
-MILEAGE_FILE = Path("/data/mileage.json")
+MILEAGE_NAME = "mileage.json"
+MILEAGE_FILE = PRIMARY_DATA_DIR / MILEAGE_NAME
 
 def load_bus_days() -> None:
-    if not MILEAGE_FILE.exists():
-        return
-    try:
-        data = json.loads(MILEAGE_FILE.read_text())
-        for date, buses in data.items():
-            day: Dict[str, BusDay] = {}
-            for bus, bd in buses.items():
-                day[bus] = BusDay(
-                    total_miles=bd.get("total_miles", 0.0),
-                    reset_miles=bd.get("reset_miles", 0.0),
-                    day_miles=bd.get("day_miles", 0.0),
-                    blocks=set(bd.get("blocks", [])),
-                    last_lat=bd.get("last_lat"),
-                    last_lon=bd.get("last_lon"),
-                )
-            state.bus_days[date] = day
-    except Exception as e:
-        print(f"[load_bus_days] error: {e}")
+    for base in DATA_DIRS:
+        path = base / MILEAGE_NAME
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+            for date, buses in data.items():
+                day: Dict[str, BusDay] = {}
+                for bus, bd in buses.items():
+                    day[bus] = BusDay(
+                        total_miles=bd.get("total_miles", 0.0),
+                        reset_miles=bd.get("reset_miles", 0.0),
+                        day_miles=bd.get("day_miles", 0.0),
+                        blocks=set(bd.get("blocks", [])),
+                        last_lat=bd.get("last_lat"),
+                        last_lon=bd.get("last_lon"),
+                    )
+                state.bus_days[date] = day
+            return
+        except Exception as e:
+            print(f"[load_bus_days] error: {e}")
+    
 
 def save_bus_days() -> None:
     try:
@@ -749,8 +785,11 @@ def save_bus_days() -> None:
                     "last_lat": bd.last_lat,
                     "last_lon": bd.last_lon,
                 }
-        MILEAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        MILEAGE_FILE.write_text(json.dumps(payload))
+        payload_json = json.dumps(payload)
+        for base in DATA_DIRS:
+            path = base / MILEAGE_NAME
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(payload_json)
     except Exception as e:
         print(f"[save_bus_days] error: {e}")
 
@@ -1065,12 +1104,13 @@ async def startup():
                     blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
                     entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
                     fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
-                    path = VEH_LOG_DIR / fname
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    with path.open("a") as f:
-                        f.write(json.dumps(entry) + "\n")
-                        f.flush()
-                        os.fsync(f.fileno())
+                    for log_dir in VEH_LOG_DIRS:
+                        path = log_dir / fname
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        with path.open("a") as f:
+                            f.write(json.dumps(entry) + "\n")
+                            f.flush()
+                            os.fsync(f.fileno())
                     prune_old_entries()
                 except Exception as e:
                     print(f"[vehicle_logger] error: {e}")
@@ -1381,8 +1421,13 @@ async def fgdc_font():
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
         raise HTTPException(status_code=404, detail="Invalid log file")
-    path = VEH_LOG_DIR / log_name
-    if not path.exists():
+    path = None
+    for log_dir in VEH_LOG_DIRS:
+        p = log_dir / log_name
+        if p.exists():
+            path = p
+            break
+    if path is None:
         raise HTTPException(status_code=404, detail="Log file not found")
     return FileResponse(path, media_type="application/json")
 
