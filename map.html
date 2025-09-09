@@ -149,7 +149,8 @@
     </style>
     <script>
       // Manually set these variables.
-      // adminMode: true for admin view (with route selector, speed bubbles, etc.)
+      // adminMode: true for admin view (with route selector, speed bubbles, etc.).
+      //            Can be disabled via URL param `adminMode=false`.
       // kioskMode: true to hide the route selector panel and tab.
       // showSpeed/showBlockNumbers: only one may be true at a time.
       let adminMode = true; // shows unit numbers, enables route selector and show/hide toggle
@@ -161,6 +162,10 @@
       const kioskParam = params.get('kioskMode');
       if (kioskParam !== null) {
         kioskMode = kioskParam.toLowerCase() === 'true';
+      }
+      const adminParam = params.get('adminMode');
+      if (adminParam !== null) {
+        adminMode = adminParam.toLowerCase() === 'true';
       }
       
       const outOfServiceRouteColor = '#000000';
