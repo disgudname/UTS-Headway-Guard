@@ -40,8 +40,9 @@
 </table>
 <script>
 const dateInput=document.getElementById('datePicker');
-const today=new Date().toISOString().split('T')[0];
-dateInput.value=today;
+const today=new Date();
+today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
+dateInput.value=today.toISOString().split('T')[0];
 
 document.getElementById('loadBtn').addEventListener('click',load);
 window.addEventListener('load',load);
