@@ -202,9 +202,11 @@
       defaultDate: "23:59"
     });
 
-    let logData = [];
     let playbackData = [];
     let playbackTimes = [];
+    let startTime = null;
+    let endTime = null;
+    let loadedHours = new Set();
     let markers = {};
     let nameMarkers = {};
     let speedMarkers = {};
@@ -536,47 +538,45 @@
       positionBusTab();
     }
 
-    function loadLog(retryDelay = 2000) {
-      // Use absolute path so this works regardless of the current URL
-      fetch('/vehicle_log.jsonl', { cache: 'no-store' })
-        .then(r => (r.ok ? r.text() : ''))
-        .then(text => {
-          if (!text.trim()) {
-            setTimeout(() => loadLog(retryDelay), retryDelay);
-            return;
-          }
-          logData = text
-            .split('\n')
-            .filter(l => l.trim())
-            .map(line => JSON.parse(line))
-            .sort((a, b) => new Date(a.ts) - new Date(b.ts));
-          const hasData = logData.some(e => e.ts && (e.vehicles || []).length);
-          if (!hasData) {
-            setTimeout(() => loadLog(retryDelay), retryDelay);
-            return;
-          }
-          playbackData = logData;
-          playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
-          const timeline = document.getElementById('timeline');
-          if (playbackTimes.length) {
-            timeline.min = playbackTimes[0];
-            timeline.max = playbackTimes[playbackTimes.length - 1];
-          } else {
-            timeline.min = 0;
-            timeline.max = 0;
-          }
-          const datePicker = document.getElementById('datePicker')._flatpickr;
-          const first = playbackData[0] && new Date(playbackData[0].ts);
-          if (first) { datePicker.setDate(first, true); }
-          const last = playbackData[playbackData.length - 1] && new Date(playbackData[playbackData.length - 1].ts);
-          const endPicker = document.getElementById('endTime')._flatpickr;
-          if (last && endPicker) { endPicker.setDate(last, true); }
-          showFrame(0);
-        })
-        .catch(err => {
-          console.error('Failed to load vehicle log', err);
-          setTimeout(() => loadLog(retryDelay), retryDelay);
+    function hourKey(ms) {
+      const d = new Date(ms);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const h = String(d.getHours()).padStart(2, '0');
+      return `${y}${m}${day}_${h}`;
+    }
+
+    async function loadHour(ms) {
+      const key = hourKey(ms);
+      if (loadedHours.has(key)) return;
+      try {
+        const resp = await fetch(`/vehicle_log/${key}.jsonl`, { cache: 'no-store' });
+        if (!resp.ok) { loadedHours.add(key); return; }
+        const text = await resp.text();
+        if (!text.trim()) { loadedHours.add(key); return; }
+        const entries = text
+          .split('\n')
+          .filter(l => l.trim())
+          .map(line => JSON.parse(line));
+        playbackData = playbackData.concat(entries);
+        playbackData.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+        playbackData = playbackData.filter(e => {
+          const t = new Date(e.ts);
+          return (!startTime || t >= startTime) && (!endTime || t <= endTime);
         });
+        playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
+        loadedHours.add(key);
+      } catch (err) {
+        console.error('Failed to load log hour', err);
+        loadedHours.add(key);
+      }
+    }
+
+    async function ensureLoaded(ms) {
+      if (!playbackTimes.length || ms > playbackTimes[playbackTimes.length - 1]) {
+        await loadHour(ms);
+      }
     }
 
     function clearMarkers() {
@@ -771,10 +771,17 @@
       }
     }
 
-    function scheduleNext() {
+    async function scheduleNext() {
       const current = currentFrameIndex;
-      const next = current + 1;
-      if (next >= playbackData.length) { pause(); return; }
+      let next = current + 1;
+      if (next >= playbackData.length) {
+        const last = playbackTimes[playbackTimes.length - 1];
+        if (endTime && last < endTime.getTime()) {
+          await loadHour(last + 1000);
+          next = current + 1;
+          if (next >= playbackData.length) { pause(); return; }
+        } else { pause(); return; }
+      }
       const rawDelta = playbackTimes[next] - playbackTimes[current];
       const safeDelta = Math.max(rawDelta, 0);
       const maxGap = 60 * 1000; // cap wait to 60 seconds to skip long gaps quickly
@@ -801,27 +808,23 @@
       updateSpeedButtons();
     }
 
-    function applyRange() {
-      if (!logData.length) return;
+    async function applyRange() {
       const dateStr = document.getElementById('datePicker').value;
       const startStr = document.getElementById('startTime').value || '00:00';
       const endStr = document.getElementById('endTime').value || '23:59';
-      const start = new Date(`${dateStr}T${startStr}:00`);
-      const end = new Date(`${dateStr}T${endStr}:00`);
-      playbackData = logData.filter(entry => {
-        const ts = new Date(entry.ts);
-        return ts >= start && ts <= end;
-      });
-      playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
+      startTime = new Date(`${dateStr}T${startStr}:00`);
+      endTime = new Date(`${dateStr}T${endStr}:00`);
+      playbackData = [];
+      playbackTimes = [];
+      loadedHours = new Set();
       const timeline = document.getElementById('timeline');
+      timeline.min = startTime.getTime();
+      timeline.max = endTime.getTime();
+      await loadHour(startTime.getTime());
       if (playbackTimes.length) {
-        timeline.min = playbackTimes[0];
-        timeline.max = playbackTimes[playbackTimes.length - 1];
-      } else {
-        timeline.min = 0;
-        timeline.max = 0;
+        const idx = findFrameIndex(startTime.getTime());
+        showFrame(idx);
       }
-      showFrame(0);
     }
 
     playBtn.onclick = () => { playbackSpeed = 1; play(); };
@@ -830,16 +833,17 @@
     ff4Btn.onclick = () => { playbackSpeed = 4; play(); };
     ff8Btn.onclick = () => { playbackSpeed = 8; play(); };
     ff10Btn.onclick = () => { playbackSpeed = 10; play(); };
-    document.getElementById('timeline').addEventListener('input', e => {
+    document.getElementById('timeline').addEventListener('input', async e => {
       pause();
       const ms = parseInt(e.target.value);
+      await ensureLoaded(ms);
       const idx = findFrameIndex(ms);
       showFrame(idx);
     });
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
     pause();
-    fetchRoutes().then(loadLog);
+    fetchRoutes().then(() => applyRange());
   </script>
 </body>
 </html>
