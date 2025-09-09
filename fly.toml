@@ -23,6 +23,7 @@ kill_timeout = "5s"
   TRANSLOC_BASE = "https://uva.transloc.com/Services/JSONPRelay.svc"
   PORT = "8080"
   VEH_LOG_DIR = "/data/vehicle_logs"
+  DEVICE_STOP_FILE = "/data/device_stops.json"
 
 [http_service]
   internal_port = 8080
