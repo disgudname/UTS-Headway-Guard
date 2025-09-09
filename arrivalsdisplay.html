@@ -296,7 +296,7 @@ const Announcement=(()=>{
   const perVeh = Object.create(null); // `${vehId}@${stop}` -> { lastEta, announced:{10,5,1}, cooldown:{10,5,1}, ts }
   const perRoute = Object.create(null); // route -> { leaderId, lastEta, ts }
 
-  function stopKey(){ return getStopIDFromURL() || 'stop'; }
+  function stopKey(){ return currentStopID || 'stop'; }
   function vehKey(id){ return `${id||'nv'}@${stopKey()}`; }
 
   function sayThreshold(route, th){
