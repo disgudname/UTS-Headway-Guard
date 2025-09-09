@@ -47,10 +47,11 @@ document.getElementById('loadBtn').addEventListener('click',load);
 window.addEventListener('load',load);
 
 function load(){
-  const date=new Date(dateInput.value);
-  const end=new Date(date);
-  end.setDate(end.getDate()+1);
-  const startStr=(date.getMonth()+1)+"/"+date.getDate()+"/"+date.getFullYear();
+  const [y,m,d]=dateInput.value.split('-').map(Number);
+  const start=new Date(y,m-1,d);
+  const end=new Date(start);
+  end.setDate(start.getDate()+1);
+  const startStr=(start.getMonth()+1)+"/"+start.getDate()+"/"+start.getFullYear();
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
   const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
   fetch(url).then(r=>r.json()).then(render).catch(err=>{
