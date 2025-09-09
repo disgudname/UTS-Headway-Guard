@@ -26,6 +26,18 @@
   .footer-left { font-size:3em; text-align:left; }
   .footer-right { text-align:right; font-size:1.2em; }
 
+  #device-id-qr {
+    margin-top:0.5rem;
+    width:160px;
+    height:160px;
+    margin-left:auto;
+    margin-right:auto;
+  }
+  #device-id-qr-caption {
+    margin-top:0.5rem;
+    font-size:0.8em;
+  }
+
   /* Optional: primer button; harmless if autoplay policy is fixed */
   #audio-primer {
     position: fixed; top: 10px; right: 10px; z-index: 9999;
@@ -52,6 +64,7 @@
   #announce-text { color:#fff; font-size:3em; text-transform:uppercase; padding: 0 5%; display:inline-block; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===================== Utilities ===================== */
 let arrivalInterval, alertInterval, registrationInterval, retryCountdownInterval, currentStopID;
@@ -527,6 +540,21 @@ async function resolveStopID(){
       document.body.prepend(div);
     }
     div.textContent=`Device ID: ${id}`;
+    let qr=document.getElementById('device-id-qr');
+    if(!qr){
+      qr=document.createElement('div');
+      qr.id='device-id-qr';
+      div.appendChild(qr);
+    }
+    qr.innerHTML='';
+    new QRCode(qr,{text:id,width:160,height:160});
+    if(!document.getElementById('device-id-qr-caption')){
+      const cap=document.createElement('div');
+      cap.id='device-id-qr-caption';
+      cap.textContent='Scan QR for device ID';
+      div.appendChild(cap);
+    }
+    div.title='QR code for device ID';
     throw e;
   }
 }
