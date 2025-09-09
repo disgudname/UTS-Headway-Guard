@@ -13,11 +13,15 @@
   th,td{border:1px solid var(--line);padding:4px;text-align:center;}
   textarea{width:100%;height:60px;}
   input[type=date]{margin-right:8px;}
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--ink);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin-left:8px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  #newestDisplay{margin-top:8px;}
 </style>
 </head>
 <body>
 <h1>Red Line and Blue Line Daily APC Numbers</h1>
-<label>Date: <input type="date" id="datePicker"></label><button id="loadBtn">Load</button><button id="exportBtn">Export CSV</button>
+<label>Date: <input type="date" id="datePicker"></label><button id="loadBtn">Load</button><span id="spinner" class="spinner" style="display:none"></span><button id="exportBtn">Export CSV</button>
+<div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
 <table id="ridershipTable">
   <tr><th>Overall Total:</th><td id="overallTotal" colspan="8"></td></tr>
   <tr><td colspan="9"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
@@ -40,6 +44,8 @@
 </table>
 <script>
 const dateInput=document.getElementById('datePicker');
+const spinner=document.getElementById('spinner');
+const newestTimestamp=document.getElementById('newestTimestamp');
 const today=new Date();
 today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
 dateInput.value=today.toISOString().split('T')[0];
@@ -49,6 +55,7 @@ window.addEventListener('load',load);
 document.getElementById('exportBtn').addEventListener('click',exportCsv);
 
 function load(){
+  spinner.style.display='inline-block';
   const [y,m,d]=dateInput.value.split('-').map(Number);
   const start=new Date(y,m-1,d);
   const end=new Date(start);
@@ -56,8 +63,12 @@ function load(){
   const startStr=(start.getMonth()+1)+"/"+start.getDate()+"/"+start.getFullYear();
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
   const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
-  fetch(url).then(r=>r.json()).then(render).catch(err=>{
+  fetch(url).then(r=>r.json()).then(data=>{
+    render(data);
+    spinner.style.display='none';
+  }).catch(err=>{
     console.error(err);
+    spinner.style.display='none';
   });
 }
 
@@ -68,11 +79,13 @@ function render(data){
   const redPmSlots={'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
   const blueAmSlots={'7-7_30':0,'7_30-8':0,'8-9':0,'9-10':0};
   const bluePmSlots={'10-14_30':0,'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
+  let newest=null;
   data.forEach(rec=>{
     const route=rec.Route;
     const entries=Number(rec.Entries)||0;
     if(overall[route]!==undefined){overall[route]+=entries;}
     const t=new Date(rec.ClientTime);
+    if(!newest||t>newest) newest=t;
     const h=t.getHours();
     const m=t.getMinutes();
     const mins=h*60+m;
@@ -138,6 +151,7 @@ function render(data){
   const blueAfter230=bluePmSlots['14_30-15']+bluePmSlots['15-16']+bluePmSlots['16-17']+bluePmSlots['17-18']+bluePmSlots['18-19']+bluePmSlots['19-20'];
   document.getElementById('blue_total_after_230').textContent=blueAfter230;
   document.getElementById('blue_day_total').textContent=blueAmTotal+bluePmTotal;
+  newestTimestamp.textContent=newest?newest.toLocaleString():'';
 }
 
 function exportCsv(){
