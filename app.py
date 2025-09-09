@@ -653,12 +653,16 @@ def load_device_stops() -> None:
 def save_device_stops() -> None:
     try:
         payload = json.dumps(DEVICE_STOPS)
-        for base in DATA_DIRS:
-            path = base / DEVICE_STOP_NAME
+    except Exception as e:
+        print(f"[device_stops] encode error: {e}")
+        return
+    for base in DATA_DIRS:
+        path = base / DEVICE_STOP_NAME
+        try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(payload)
-    except Exception as e:
-        print(f"[device_stops] save error: {e}")
+        except Exception as e:
+            print(f"[device_stops] save error for {path}: {e}")
 
 load_device_stops()
 
@@ -709,12 +713,16 @@ def load_config() -> None:
 def save_config() -> None:
     try:
         payload = json.dumps({k: globals().get(k) for k in CONFIG_KEYS})
-        for base in DATA_DIRS:
-            path = base / CONFIG_NAME
+    except Exception as e:
+        print(f"[save_config] encode error: {e}")
+        return
+    for base in DATA_DIRS:
+        path = base / CONFIG_NAME
+        try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(payload)
-    except Exception as e:
-        print(f"[save_config] error: {e}")
+        except Exception as e:
+            print(f"[save_config] error writing {path}: {e}")
 
 load_config()
 
@@ -786,12 +794,16 @@ def save_bus_days() -> None:
                     "last_lon": bd.last_lon,
                 }
         payload_json = json.dumps(payload)
-        for base in DATA_DIRS:
-            path = base / MILEAGE_NAME
+    except Exception as e:
+        print(f"[save_bus_days] encode error: {e}")
+        return
+    for base in DATA_DIRS:
+        path = base / MILEAGE_NAME
+        try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(payload_json)
-    except Exception as e:
-        print(f"[save_bus_days] error: {e}")
+        except Exception as e:
+            print(f"[save_bus_days] error writing {path}: {e}")
 
 # ---------------------------
 # Health
