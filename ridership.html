@@ -75,18 +75,18 @@ function render(data){
     const mins=h*60+m;
     if(route==='Red Line AM'||route==='Red Line PM'){
       routeTotals[route]+=entries;
-      if(h===5){redAmSlots['5-6']+=entries;}
-      else if(h===6){redAmSlots['6-7']+=entries;}
-      if(mins>=14*60+30 && mins<15*60) redPmSlots['14_30-15']+=entries;
+      if(mins>=4*60+30 && mins<6*60) redAmSlots['5-6']+=entries;
+      else if(mins>=6*60 && mins<7*60+30) redAmSlots['6-7']+=entries;
+      if(mins>=14*60 && mins<15*60) redPmSlots['14_30-15']+=entries;
       else if(mins>=15*60 && mins<16*60) redPmSlots['15-16']+=entries;
       else if(mins>=16*60 && mins<17*60) redPmSlots['16-17']+=entries;
       else if(mins>=17*60 && mins<18*60) redPmSlots['17-18']+=entries;
       else if(mins>=18*60 && mins<19*60) redPmSlots['18-19']+=entries;
-      else if(mins>=19*60 && mins<20*60) redPmSlots['19-20']+=entries;
+      else if(mins>=19*60 && mins<20*60+30) redPmSlots['19-20']+=entries;
     }
     if(route==='Blue Line'){
       if(mins<10*60){routeTotals['Blue Line AM']+=entries;} else {routeTotals['Blue Line PM']+=entries;}
-      if(mins>=7*60 && mins<7*60+30) blueAmSlots['7-7_30']+=entries;
+      if(mins>=6*60+30 && mins<7*60+30) blueAmSlots['7-7_30']+=entries;
       else if(mins>=7*60+30 && mins<8*60) blueAmSlots['7_30-8']+=entries;
       else if(mins>=8*60 && mins<9*60) blueAmSlots['8-9']+=entries;
       else if(mins>=9*60 && mins<10*60) blueAmSlots['9-10']+=entries;
@@ -96,7 +96,7 @@ function render(data){
       else if(mins>=16*60 && mins<17*60) bluePmSlots['16-17']+=entries;
       else if(mins>=17*60 && mins<18*60) bluePmSlots['17-18']+=entries;
       else if(mins>=18*60 && mins<19*60) bluePmSlots['18-19']+=entries;
-      else if(mins>=19*60 && mins<20*60) bluePmSlots['19-20']+=entries;
+      else if(mins>=19*60 && mins<20*60+30) bluePmSlots['19-20']+=entries;
     }
   });
   document.getElementById('overallTotal').textContent=
