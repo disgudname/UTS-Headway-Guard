@@ -611,6 +611,7 @@ APICALLS_HTML = (BASE_DIR / "apicalls.html").read_text(encoding="utf-8")
 DEBUG_HTML = (BASE_DIR / "debug.html").read_text(encoding="utf-8")
 REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
+ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -1502,6 +1503,13 @@ async def apicalls_page():
 @app.get("/ridership")
 async def ridership_page():
     return HTMLResponse(RIDERSHIP_HTML)
+
+# ---------------------------
+# ARRIVALS DISPLAY PAGE
+# ---------------------------
+@app.get("/arrivalsdisplay")
+async def arrivalsdisplay_page():
+    return HTMLResponse(ARRIVALSDISPLAY_HTML)
 
 # ---------------------------
 # REPLAY PAGE
