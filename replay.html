@@ -149,7 +149,7 @@
       #routeSelector label { font-size: 18px; }
       #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
       #timeline { flex: 1 0 100%; }
-      #timeLabel, #lastUpdateLabel { flex: 0 0 100%; text-align: center; }
+      #timeLabel { flex: 0 0 100%; text-align: center; }
     }
   </style>
 </head>
@@ -178,7 +178,6 @@
     <button id="ff200Btn" class="speed-btn">200x</button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
-    <span id="lastUpdateLabel"></span>
   </div>
   <script>
     let map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
@@ -209,6 +208,7 @@
     let playbackTimes = [];
     let startTime = null;
     let endTime = null;
+    let userEndTime = null;
     let loadedHours = new Set();
     let markers = {};
     let nameMarkers = {};
@@ -350,7 +350,9 @@
     }
 
     function refreshReplay() {
-      showFrame(currentFrameIndex);
+      const timeline = document.getElementById('timeline');
+      const ms = parseInt(timeline.value);
+      showFrame(currentFrameIndex, isNaN(ms) ? undefined : ms);
     }
 
     // Toggle between displaying speed or block numbers.
@@ -578,10 +580,19 @@
         playbackData.sort((a, b) => new Date(a.ts) - new Date(b.ts));
         playbackData = playbackData.filter(e => {
           const t = new Date(e.ts);
-          return (!startTime || t >= startTime) && (!endTime || t <= endTime);
+          return (!startTime || t >= startTime) && (!userEndTime || t <= userEndTime);
         });
         playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
         loadedHours.add(key);
+        if (playbackTimes.length) {
+          const lastMs = playbackTimes[playbackTimes.length - 1];
+          const timeline = document.getElementById('timeline');
+          if (timeline) timeline.max = lastMs;
+          const endInput = document.getElementById('endTime');
+          if (endInput && endInput._flatpickr) {
+            endInput._flatpickr.setDate(new Date(lastMs), true);
+          }
+        }
       } catch (err) {
         console.error('Failed to load log hour', err);
         loadedHours.add(key);
@@ -623,40 +634,29 @@
       }
     }
 
-    function parseMsAjax(s) {
-      const m = /Date\((\d+)(?:[-+]\d{4})?\)/.exec(s || '');
-      return m ? Number(m[1]) : null;
-    }
 
     function findFrameIndex(ms) {
+      let idx = 0;
       for (let i = 0; i < playbackTimes.length; i++) {
-        if (playbackTimes[i] >= ms) return i;
+        if (playbackTimes[i] <= ms) {
+          idx = i;
+        } else {
+          break;
+        }
       }
-      return playbackTimes.length - 1;
+      return idx;
     }
 
-    function showFrame(i) {
+    function showFrame(i, displayMs) {
       if (!playbackData[i]) return;
       currentFrameIndex = i;
       const entry = playbackData[i];
       const timeline = document.getElementById('timeline');
-      const timeMs = playbackTimes[i];
+      const timeMs = (typeof displayMs !== 'undefined') ? displayMs : playbackTimes[i];
       const formatted = new Date(timeMs).toLocaleString('en-US', {timeZone: 'America/New_York'});
       timeline.value = timeMs;
       timeline.title = formatted; // show date/time when hovering the slider
       document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
-
-      let lastUpdateMs = 0;
-      for (const v of entry.vehicles) {
-        const ms = parseMsAjax(v.TimeStampUTC || v.TimeStamp);
-        if (ms && ms > lastUpdateMs) lastUpdateMs = ms;
-      }
-      if (lastUpdateMs) {
-        const lastFormatted = new Date(lastUpdateMs).toLocaleString('en-US', {timeZone: 'America/New_York'});
-        document.getElementById('lastUpdateLabel').textContent = `Last Position Update: ${lastFormatted}`;
-      } else {
-        document.getElementById('lastUpdateLabel').textContent = '';
-      }
 
       const activeRoutesSet = new Set();
       const activeBusesSet = new Set();
@@ -833,17 +833,19 @@
       const startStr = document.getElementById('startTime').value || '00:00';
       const endStr = document.getElementById('endTime').value || '23:59';
       startTime = new Date(`${dateStr}T${startStr}:00`);
-      endTime = new Date(`${dateStr}T${endStr}:00`);
+      userEndTime = new Date(`${dateStr}T${endStr}:00`);
+      endTime = userEndTime;
       playbackData = [];
       playbackTimes = [];
       loadedHours = new Set();
       const timeline = document.getElementById('timeline');
       timeline.min = startTime.getTime();
-      timeline.max = endTime.getTime();
+      timeline.max = userEndTime.getTime();
       await loadHour(startTime.getTime());
       if (playbackTimes.length) {
-        const idx = findFrameIndex(startTime.getTime());
-        showFrame(idx);
+        const ms = startTime.getTime();
+        const idx = findFrameIndex(ms);
+        showFrame(idx, ms);
       }
     }
 
@@ -861,7 +863,7 @@
       const ms = parseInt(e.target.value);
       await ensureLoaded(ms);
       const idx = findFrameIndex(ms);
-      showFrame(idx);
+      showFrame(idx, ms);
     });
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
