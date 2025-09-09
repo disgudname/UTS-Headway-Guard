@@ -791,10 +791,14 @@
       const current = currentFrameIndex;
       let next = current + 1;
       if (next >= playbackData.length) {
-        const last = playbackTimes[playbackTimes.length - 1];
-        if (endTime && last < endTime.getTime()) {
-          await loadHour(last + 1000);
-          next = current + 1;
+        if (endTime) {
+          let ms = playbackTimes[playbackTimes.length - 1] + 1000;
+          const endMs = endTime.getTime();
+          while (ms <= endMs && next >= playbackData.length) {
+            await loadHour(ms);
+            next = current + 1;
+            ms += 3600 * 1000; // step one hour forward
+          }
           if (next >= playbackData.length) { pause(); return; }
         } else { pause(); return; }
       }
