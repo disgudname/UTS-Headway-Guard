@@ -22,8 +22,9 @@ kill_timeout = "5s"
   OVERPASS_EP = "https://overpass-api.de/api/interpreter"
   TRANSLOC_BASE = "https://uva.transloc.com/Services/JSONPRelay.svc"
   PORT = "8080"
-  DATA_DIRS = "/data:/data2"
-  VEH_LOG_DIRS = "/data/vehicle_logs:/data2/vehicle_logs"
+  DATA_DIRS = "/data"
+  VEH_LOG_DIRS = "/data/vehicle_logs"
+  SYNC_PEERS = ""
 
 [http_service]
   internal_port = 8080
@@ -49,6 +50,3 @@ kill_timeout = "5s"
   source = "mileage_data"
   destination = "/data"
 
-[[mounts]]
-  source = "mileage_data_2"
-  destination = "/data2"
