@@ -204,6 +204,7 @@
 
     let logData = [];
     let playbackData = [];
+    let playbackTimes = [];
     let markers = {};
     let nameMarkers = {};
     let speedMarkers = {};
@@ -555,8 +556,15 @@
             return;
           }
           playbackData = logData;
+          playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
           const timeline = document.getElementById('timeline');
-          timeline.max = playbackData.length - 1;
+          if (playbackTimes.length) {
+            timeline.min = playbackTimes[0];
+            timeline.max = playbackTimes[playbackTimes.length - 1];
+          } else {
+            timeline.min = 0;
+            timeline.max = 0;
+          }
           const datePicker = document.getElementById('datePicker')._flatpickr;
           const first = playbackData[0] && new Date(playbackData[0].ts);
           if (first) { datePicker.setDate(first, true); }
@@ -604,13 +612,21 @@
       return m ? Number(m[1]) : null;
     }
 
+    function findFrameIndex(ms) {
+      for (let i = 0; i < playbackTimes.length; i++) {
+        if (playbackTimes[i] >= ms) return i;
+      }
+      return playbackTimes.length - 1;
+    }
+
     function showFrame(i) {
       if (!playbackData[i]) return;
       currentFrameIndex = i;
       const entry = playbackData[i];
       const timeline = document.getElementById('timeline');
-      const formatted = new Date(entry.ts).toLocaleString('en-US', {timeZone: 'America/New_York'});
-      timeline.value = i;
+      const timeMs = playbackTimes[i];
+      const formatted = new Date(timeMs).toLocaleString('en-US', {timeZone: 'America/New_York'});
+      timeline.value = timeMs;
       timeline.title = formatted; // show date/time when hovering the slider
       document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
 
@@ -756,11 +772,10 @@
     }
 
     function scheduleNext() {
-      const timeline = document.getElementById('timeline');
-      const current = parseInt(timeline.value);
+      const current = currentFrameIndex;
       const next = current + 1;
       if (next >= playbackData.length) { pause(); return; }
-      const rawDelta = new Date(playbackData[next].ts) - new Date(playbackData[current].ts);
+      const rawDelta = playbackTimes[next] - playbackTimes[current];
       const safeDelta = Math.max(rawDelta, 0);
       const maxGap = 60 * 1000; // cap wait to 60 seconds to skip long gaps quickly
       const wait = Math.min(safeDelta, maxGap) / playbackSpeed;
@@ -797,8 +812,15 @@
         const ts = new Date(entry.ts);
         return ts >= start && ts <= end;
       });
+      playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
       const timeline = document.getElementById('timeline');
-      timeline.max = playbackData.length ? playbackData.length - 1 : 0;
+      if (playbackTimes.length) {
+        timeline.min = playbackTimes[0];
+        timeline.max = playbackTimes[playbackTimes.length - 1];
+      } else {
+        timeline.min = 0;
+        timeline.max = 0;
+      }
       showFrame(0);
     }
 
@@ -808,7 +830,12 @@
     ff4Btn.onclick = () => { playbackSpeed = 4; play(); };
     ff8Btn.onclick = () => { playbackSpeed = 8; play(); };
     ff10Btn.onclick = () => { playbackSpeed = 10; play(); };
-    document.getElementById('timeline').addEventListener('input', e => { pause(); showFrame(parseInt(e.target.value)); });
+    document.getElementById('timeline').addEventListener('input', e => {
+      pause();
+      const ms = parseInt(e.target.value);
+      const idx = findFrameIndex(ms);
+      showFrame(idx);
+    });
     document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
 
     pause();
