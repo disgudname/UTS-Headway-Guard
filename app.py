@@ -112,6 +112,8 @@ VEH_LOG_DIR = VEH_LOG_DIRS[0]
 
 # Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
 SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
+# Shared secret required for /sync endpoint
+SYNC_SECRET = os.getenv("SYNC_SECRET")
 
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
@@ -138,10 +140,15 @@ def prune_old_entries() -> None:
                     pass
 
 def propagate_file(name: str, data: str) -> None:
+    if not SYNC_PEERS:
+        return
+    payload = {"name": name, "data": data}
+    if SYNC_SECRET:
+        payload["secret"] = SYNC_SECRET
     for peer in SYNC_PEERS:
         url = f"http://{peer.rstrip('/')}/sync"
         try:
-            httpx.post(url, json={"name": name, "data": data}, timeout=5)
+            httpx.post(url, json=payload, timeout=5)
         except Exception as e:
             print(f"[sync] error sending {name} to {peer}: {e}")
 
@@ -825,9 +832,16 @@ def save_bus_days() -> None:
 
 @app.post("/sync")
 def receive_sync(payload: dict):
+    secret = payload.get("secret")
+    if SYNC_SECRET is None or secret != SYNC_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
     name = payload.get("name")
     data = payload.get("data")
-    if not isinstance(name, str) or not isinstance(data, str):
+    if (
+        not isinstance(name, str)
+        or name not in {DEVICE_STOP_NAME, CONFIG_NAME, MILEAGE_NAME}
+        or not isinstance(data, str)
+    ):
         raise HTTPException(status_code=400, detail="invalid payload")
     for base in DATA_DIRS:
         path = base / name
