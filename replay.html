@@ -574,7 +574,8 @@
     }
 
     async function ensureLoaded(ms) {
-      if (!playbackTimes.length || ms > playbackTimes[playbackTimes.length - 1]) {
+      const key = hourKey(ms);
+      if (!loadedHours.has(key)) {
         await loadHour(ms);
       }
     }
