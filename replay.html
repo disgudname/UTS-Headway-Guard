@@ -174,6 +174,7 @@
     <button id="ff8Btn" class="speed-btn">8x</button>
     <button id="ff10Btn" class="speed-btn">10x</button>
     <button id="ff30Btn" class="speed-btn">30x</button>
+    <button id="ff100Btn" class="speed-btn">100x</button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
     <span id="lastUpdateLabel"></span>
@@ -214,7 +215,7 @@
     let blockMarkers = {};
     let routeLayers = [];
     let timer = null;       // handle for scheduled frame advance
-    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x
+    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x
     let routeColors = {};
     let allRoutes = {};
     let routeSelections = {};
@@ -236,6 +237,7 @@
     const ff8Btn = document.getElementById('ff8Btn');
     const ff10Btn = document.getElementById('ff10Btn');
     const ff30Btn = document.getElementById('ff30Btn');
+    const ff100Btn = document.getElementById('ff100Btn');
 
     function positionBusTab() {
       const panel = document.getElementById('busSelector');
@@ -281,6 +283,7 @@
       ff8Btn.classList.remove('selected');
       ff10Btn.classList.remove('selected');
       ff30Btn.classList.remove('selected');
+      ff100Btn.classList.remove('selected');
       if (!isPlaying) {
         pauseBtn.classList.add('selected');
       } else if (playbackSpeed === 1) {
@@ -295,6 +298,8 @@
         ff10Btn.classList.add('selected');
       } else if (playbackSpeed === 30) {
         ff30Btn.classList.add('selected');
+      } else if (playbackSpeed === 100) {
+        ff100Btn.classList.add('selected');
       }
     }
 
@@ -840,6 +845,7 @@
     ff8Btn.onclick = () => { playbackSpeed = 8; play(); };
     ff10Btn.onclick = () => { playbackSpeed = 10; play(); };
     ff30Btn.onclick = () => { playbackSpeed = 30; play(); };
+    ff100Btn.onclick = () => { playbackSpeed = 100; play(); };
     document.getElementById('timeline').addEventListener('input', async e => {
       pause();
       const ms = parseInt(e.target.value);
