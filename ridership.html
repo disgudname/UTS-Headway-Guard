@@ -17,7 +17,7 @@
 </head>
 <body>
 <h1>Ridership Report</h1>
-<label>Date: <input type="date" id="datePicker"></label><button id="loadBtn">Load</button>
+<label>Date: <input type="date" id="datePicker"></label><button id="loadBtn">Load</button><button id="exportBtn">Export CSV</button>
 <table id="ridershipTable">
   <tr><th>Overall Total:</th><td id="overallTotal" colspan="8"></td></tr>
   <tr><td colspan="9"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
@@ -46,6 +46,7 @@ dateInput.value=today.toISOString().split('T')[0];
 
 document.getElementById('loadBtn').addEventListener('click',load);
 window.addEventListener('load',load);
+document.getElementById('exportBtn').addEventListener('click',exportCsv);
 
 function load(){
   const [y,m,d]=dateInput.value.split('-').map(Number);
@@ -137,6 +138,29 @@ function render(data){
   const blueAfter230=bluePmSlots['14_30-15']+bluePmSlots['15-16']+bluePmSlots['16-17']+bluePmSlots['17-18']+bluePmSlots['18-19']+bluePmSlots['19-20'];
   document.getElementById('blue_total_after_230').textContent=blueAfter230;
   document.getElementById('blue_day_total').textContent=blueAmTotal+bluePmTotal;
+}
+
+function exportCsv(){
+  const rows=[...document.querySelectorAll('#ridershipTable tr')];
+  const csvLines=rows.map(row=>
+    [...row.cells].map(cell=>{
+      const text=cell.innerText.replace(/\n/g,' ').trim();
+      return /[",\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
+    }).join(',')
+  );
+  const notes=document.getElementById('notes').value;
+  const escapedNotes=/[",\n]/.test(notes)?`"${notes.replace(/"/g,'""')}"`:notes;
+  csvLines.push(`Notes,${escapedNotes}`);
+  const csv=csvLines.join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const date=document.getElementById('datePicker').value||new Date().toISOString().split('T')[0];
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`ridership_${date}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
 }
 </script>
 </body>
