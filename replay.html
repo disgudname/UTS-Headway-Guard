@@ -185,7 +185,7 @@
 
     flatpickr("#datePicker", {
       dateFormat: "Y-m-d",
-      defaultDate: new Date().toISOString().slice(0,10)
+      defaultDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
     });
     flatpickr("#startTime", {
       enableTime: true,
