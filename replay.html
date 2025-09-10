@@ -839,11 +839,14 @@
 
       // If the selected date is today, don't try to load data beyond the current time
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      let lastHour = new Date(`${dateStr}T23:00:00`);
       if (dateStr === todayStr) {
         const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
         if (userEndTime > now) {
           userEndTime = now;
         }
+        // For the current day only load up to the current hour
+        lastHour = new Date(`${dateStr}T${String(now.getHours()).padStart(2, '0')}:00:00`);
       }
 
       endTime = userEndTime;
@@ -853,9 +856,14 @@
       const timeline = document.getElementById('timeline');
       timeline.min = startTime.getTime();
       timeline.max = userEndTime.getTime();
-      for (let ms = startTime.getTime(); ms <= userEndTime.getTime(); ms += 3600 * 1000) {
+
+      // Load every hour of the day (00 through 23) in advance
+      const dayStart = new Date(`${dateStr}T00:00:00`).getTime();
+      const lastMs = lastHour.getTime();
+      for (let ms = dayStart; ms <= lastMs; ms += 3600 * 1000) {
         await loadHour(ms);
       }
+
       if (playbackTimes.length) {
         const ms = startTime.getTime();
         const idx = findFrameIndex(ms);
