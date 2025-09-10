@@ -587,13 +587,22 @@
         if (playbackTimes.length) {
           const lastMs = playbackTimes[playbackTimes.length - 1];
           const timeline = document.getElementById('timeline');
-          if (timeline) timeline.max = lastMs;
-          const endInput = document.getElementById('endTime');
-          if (endInput && endInput._flatpickr) {
-            endInput._flatpickr.setDate(new Date(lastMs), true);
+          if (timeline) {
+            const currentMax = parseInt(timeline.max, 10) || 0;
+            if (lastMs > currentMax) {
+              timeline.max = lastMs;
+            }
           }
-          endTime = new Date(lastMs);
-          userEndTime = new Date(lastMs);
+          if (lastMs > endTime.getTime()) {
+            endTime = new Date(lastMs);
+          }
+          if (lastMs > userEndTime.getTime()) {
+            userEndTime = new Date(lastMs);
+            const endInput = document.getElementById('endTime');
+            if (endInput && endInput._flatpickr) {
+              endInput._flatpickr.setDate(new Date(lastMs), true);
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to load log hour', err);
@@ -830,7 +839,7 @@
       updateSpeedButtons();
     }
 
-    async function applyRange() {
+    async function applyRange(initial = false) {
       const dateStr = document.getElementById('datePicker').value;
       const startStr = document.getElementById('startTime').value || '00:00';
       const endStr = document.getElementById('endTime').value || '23:59';
@@ -857,11 +866,24 @@
       timeline.min = startTime.getTime();
       timeline.max = userEndTime.getTime();
 
-      // Load every hour of the day (00 through 23) in advance
-      const dayStart = new Date(`${dateStr}T00:00:00`).getTime();
-      const lastMs = lastHour.getTime();
-      for (let ms = dayStart; ms <= lastMs; ms += 3600 * 1000) {
+      let startHour = new Date(startTime);
+      startHour.setMinutes(0, 0, 0);
+      let endHour = initial ? lastHour : new Date(userEndTime);
+      endHour.setMinutes(0, 0, 0);
+
+      for (let ms = startHour.getTime(); ms <= endHour.getTime(); ms += 3600 * 1000) {
         await loadHour(ms);
+      }
+
+      if (initial && playbackTimes.length) {
+        const lastMs = playbackTimes[playbackTimes.length - 1];
+        timeline.max = lastMs;
+        const endInput = document.getElementById('endTime');
+        if (endInput && endInput._flatpickr) {
+          endInput._flatpickr.setDate(new Date(lastMs), true);
+        }
+        endTime = new Date(lastMs);
+        userEndTime = new Date(lastMs);
       }
 
       if (playbackTimes.length) {
@@ -905,10 +927,10 @@
       const idx = findFrameIndex(ms);
       showFrame(idx, ms);
     });
-    document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(); };
+    document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(false); };
 
     pause();
-    fetchRoutes().then(() => { applyRange(); startAutoRefresh(); });
+    fetchRoutes().then(() => { applyRange(true); startAutoRefresh(); });
   </script>
 </body>
 </html>
