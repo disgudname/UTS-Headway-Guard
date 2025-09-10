@@ -176,6 +176,7 @@
     <button id="ff30Btn" class="speed-btn">30x</button>
     <button id="ff100Btn" class="speed-btn">100x</button>
     <button id="ff200Btn" class="speed-btn">200x</button>
+    <button id="ff500Btn" class="speed-btn">500x</button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
   </div>
@@ -216,7 +217,7 @@
     let blockMarkers = {};
     let routeLayers = [];
     let timer = null;       // handle for scheduled frame advance
-    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x
+    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x
     let routeColors = {};
     let allRoutes = {};
     let routeSelections = {};
@@ -240,6 +241,7 @@
     const ff30Btn = document.getElementById('ff30Btn');
     const ff100Btn = document.getElementById('ff100Btn');
     const ff200Btn = document.getElementById('ff200Btn');
+    const ff500Btn = document.getElementById('ff500Btn');
 
     function positionBusTab() {
       const panel = document.getElementById('busSelector');
@@ -287,6 +289,7 @@
       ff30Btn.classList.remove('selected');
       ff100Btn.classList.remove('selected');
       ff200Btn.classList.remove('selected');
+      ff500Btn.classList.remove('selected');
       if (!isPlaying) {
         pauseBtn.classList.add('selected');
       } else if (playbackSpeed === 1) {
@@ -305,6 +308,8 @@
         ff100Btn.classList.add('selected');
       } else if (playbackSpeed === 200) {
         ff200Btn.classList.add('selected');
+      } else if (playbackSpeed === 500) {
+        ff500Btn.classList.add('selected');
       }
     }
 
@@ -920,6 +925,7 @@
     ff30Btn.onclick = () => { playbackSpeed = 30; play(); };
     ff100Btn.onclick = () => { playbackSpeed = 100; play(); };
     ff200Btn.onclick = () => { playbackSpeed = 200; play(); };
+    ff500Btn.onclick = () => { playbackSpeed = 500; play(); };
     document.getElementById('timeline').addEventListener('input', async e => {
       pause();
       const ms = parseInt(e.target.value);
