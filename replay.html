@@ -177,6 +177,7 @@
     <button id="ff100Btn" class="speed-btn">100x</button>
     <button id="ff200Btn" class="speed-btn">200x</button>
     <button id="ff500Btn" class="speed-btn">500x</button>
+    <button id="ff1000Btn" class="speed-btn">1000x</button>
     <input type="range" id="timeline" min="0" value="0">
     <span id="timeLabel"></span>
   </div>
@@ -217,7 +218,7 @@
     let blockMarkers = {};
     let routeLayers = [];
     let timer = null;       // handle for scheduled frame advance
-    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x
+    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x, 1000x
     let routeColors = {};
     let allRoutes = {};
     let routeSelections = {};
@@ -242,6 +243,7 @@
     const ff100Btn = document.getElementById('ff100Btn');
     const ff200Btn = document.getElementById('ff200Btn');
     const ff500Btn = document.getElementById('ff500Btn');
+    const ff1000Btn = document.getElementById('ff1000Btn');
 
     function positionBusTab() {
       const panel = document.getElementById('busSelector');
@@ -290,6 +292,7 @@
       ff100Btn.classList.remove('selected');
       ff200Btn.classList.remove('selected');
       ff500Btn.classList.remove('selected');
+      ff1000Btn.classList.remove('selected');
       if (!isPlaying) {
         pauseBtn.classList.add('selected');
       } else if (playbackSpeed === 1) {
@@ -310,6 +313,8 @@
         ff200Btn.classList.add('selected');
       } else if (playbackSpeed === 500) {
         ff500Btn.classList.add('selected');
+      } else if (playbackSpeed === 1000) {
+        ff1000Btn.classList.add('selected');
       }
     }
 
@@ -926,6 +931,7 @@
     ff100Btn.onclick = () => { playbackSpeed = 100; play(); };
     ff200Btn.onclick = () => { playbackSpeed = 200; play(); };
     ff500Btn.onclick = () => { playbackSpeed = 500; play(); };
+    ff1000Btn.onclick = () => { playbackSpeed = 1000; play(); };
     document.getElementById('timeline').addEventListener('input', async e => {
       pause();
       const ms = parseInt(e.target.value);
