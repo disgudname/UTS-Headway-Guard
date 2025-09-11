@@ -151,9 +151,37 @@
       #timeline { flex: 1 0 100%; }
       #timeLabel { flex: 0 0 100%; text-align: center; }
     }
+
+    #disclaimerOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+
+    #disclaimerBox {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 600px;
+      text-align: center;
+      font-size: 18px;
+    }
   </style>
 </head>
 <body>
+  <div id="disclaimerOverlay">
+    <div id="disclaimerBox">
+      <p>Information on this page is only as accurate as information received from TransLoc, and may not be correct. This page should only be used for initial investigations following a report of an issue. Any information should be verified via camera footage.</p>
+      <button id="disclaimerBtn">Acknowledge</button>
+    </div>
+  </div>
   <div id="map"></div>
   <div id="busSelector" class="hidden"></div>
   <div id="busSelectorTab" onclick="toggleBusPanel()">&#9664;</div>
@@ -920,6 +948,10 @@
         }
       }, 60000);
     }
+
+    const disclaimerOverlay = document.getElementById('disclaimerOverlay');
+    const disclaimerBtn = document.getElementById('disclaimerBtn');
+    disclaimerBtn.onclick = () => { disclaimerOverlay.style.display = 'none'; };
 
     playBtn.onclick = () => { playbackSpeed = 1; play(); };
     pauseBtn.onclick = pause;
