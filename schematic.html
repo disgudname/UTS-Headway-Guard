@@ -25,7 +25,8 @@
     const height = 800;
 
     function stylizePolyline(coords) {
-      const result = [[0, 0]];
+      if (!coords.length) return [];
+      const result = [[coords[0][0], coords[0][1]]];
       for (let i = 1; i < coords.length; i++) {
         const [lat1, lon1] = coords[i - 1];
         const [lat2, lon2] = coords[i];
@@ -115,8 +116,15 @@
             .map(v => v.RouteID)
         );
         const routes = [];
+        const seenRouteIds = new Set();
         (routeData || []).forEach(route => {
-          if (route.IsRunning && activeRouteIds.has(route.RouteID) && route.EncodedPolyline) {
+          if (
+            route.IsRunning &&
+            activeRouteIds.has(route.RouteID) &&
+            route.EncodedPolyline &&
+            !seenRouteIds.has(route.RouteID)
+          ) {
+            seenRouteIds.add(route.RouteID);
             const decoded = polyline.decode(route.EncodedPolyline);
             const stylized = stylizePolyline(decoded);
             routes.push({
