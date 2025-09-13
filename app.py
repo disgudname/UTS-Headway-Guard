@@ -644,6 +644,7 @@ REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
+SCHEMATIC_HTML = (BASE_DIR / "schematic.html").read_text(encoding="utf-8")
 
 DEVICE_STOP_NAME = Path(os.environ.get("DEVICE_STOP_FILE", "device_stops.json")).name
 DEVICE_STOP_FILE = PRIMARY_DATA_DIR / DEVICE_STOP_NAME
@@ -1644,6 +1645,13 @@ async def arrivalsdisplay_page():
 @app.get("/registerdisplay")
 async def registerdisplay_page():
     return HTMLResponse(REGISTERDISPLAY_HTML)
+
+# ---------------------------
+# SCHEMATIC PAGE
+# ---------------------------
+@app.get("/schematic")
+async def schematic_page():
+    return HTMLResponse(SCHEMATIC_HTML)
 
 
 # ---------------------------
