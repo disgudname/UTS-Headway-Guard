@@ -43,6 +43,26 @@
       return result;
     }
 
+    function offsetScaledPoints(points, offset) {
+      if (!offset) return points;
+      const shifted = [];
+      for (let i = 0; i < points.length; i++) {
+        let dx, dy;
+        if (i < points.length - 1) {
+          dx = points[i + 1][0] - points[i][0];
+          dy = points[i + 1][1] - points[i][1];
+        } else {
+          dx = points[i][0] - points[i - 1][0];
+          dy = points[i][1] - points[i - 1][1];
+        }
+        const len = Math.hypot(dx, dy) || 1;
+        const offX = -dy / len * offset;
+        const offY = dx / len * offset;
+        shifted.push([points[i][0] + offX, points[i][1] + offY]);
+      }
+      return shifted;
+    }
+
     function scaleAndRender(routes) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       routes.forEach(r => r.points.forEach(([y, x]) => {
@@ -56,28 +76,47 @@
       const offsetX = (width - (maxX - minX) * scale) / 2;
       const offsetY = (height - (maxY - minY) * scale) / 2;
 
+      const grouped = {};
       routes.forEach(r => {
-        const pts = r.points.map(([y, x]) => {
-          const sx = (x - minX) * scale + offsetX;
-          const sy = height - ((y - minY) * scale + offsetY); // invert y
-          return `${sx},${sy}`;
-        }).join(' ');
-        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-        poly.setAttribute('points', pts);
-        poly.setAttribute('fill', 'none');
-        poly.setAttribute('stroke', r.color || '#000');
-        poly.setAttribute('stroke-width', '4');
-        poly.setAttribute('stroke-linejoin', 'round');
-        svg.appendChild(poly);
+        const key = JSON.stringify(r.points);
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(r);
+      });
+
+      Object.values(grouped).forEach(group => {
+        group.forEach((r, idx) => {
+          const ptsScaled = r.points.map(([y, x]) => {
+            const sx = (x - minX) * scale + offsetX;
+            const sy = height - ((y - minY) * scale + offsetY); // invert y
+            return [sx, sy];
+          });
+          const offset = (idx - (group.length - 1) / 2) * 5; // 5px spacing
+          const ptsOffset = offsetScaledPoints(ptsScaled, offset);
+          const ptsStr = ptsOffset.map(([x, y]) => `${x},${y}`).join(' ');
+          const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+          poly.setAttribute('points', ptsStr);
+          poly.setAttribute('fill', 'none');
+          poly.setAttribute('stroke', r.color || '#000');
+          poly.setAttribute('stroke-width', '4');
+          poly.setAttribute('stroke-linejoin', 'round');
+          svg.appendChild(poly);
+        });
       });
     }
 
-    fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681')
-      .then(r => r.json())
-      .then(data => {
+    Promise.all([
+      fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681').then(r => r.json()),
+      fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true').then(r => r.json())
+    ])
+      .then(([routeData, vehicleData]) => {
+        const activeRouteIds = new Set(
+          (vehicleData || [])
+            .filter(v => v.RouteID && v.RouteID > 0)
+            .map(v => v.RouteID)
+        );
         const routes = [];
-        (data || []).forEach(route => {
-          if (route.EncodedPolyline) {
+        (routeData || []).forEach(route => {
+          if (route.IsRunning && activeRouteIds.has(route.RouteID) && route.EncodedPolyline) {
             const decoded = polyline.decode(route.EncodedPolyline);
             const stylized = stylizePolyline(decoded);
             routes.push({
@@ -88,7 +127,7 @@
         });
         scaleAndRender(routes);
       })
-      .catch(err => console.error('Error loading routes', err));
+      .catch(err => console.error('Error loading data', err));
   </script>
 </body>
 </html>
