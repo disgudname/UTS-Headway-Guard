@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Schematic Map - Headway Guard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    #mapSvg {
+      width: 100%;
+      height: 100%;
+      background: #fff;
+    }
+  </style>
+  <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+</head>
+<body>
+  <svg id="mapSvg" viewBox="0 0 1000 800" preserveAspectRatio="xMidYMid meet"></svg>
+  <script>
+    const svg = document.getElementById('mapSvg');
+    const width = 1000;
+    const height = 800;
+
+    function stylizePolyline(coords) {
+      const result = [[0, 0]];
+      for (let i = 1; i < coords.length; i++) {
+        const [lat1, lon1] = coords[i - 1];
+        const [lat2, lon2] = coords[i];
+        const dx = lon2 - lon1;
+        const dy = lat2 - lat1;
+        const len = Math.hypot(dx, dy);
+        if (len === 0) continue;
+        const angle = Math.atan2(dy, dx);
+        const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4); // multiples of 45°
+        const [prevY, prevX] = result[result.length - 1];
+        const newX = prevX + len * Math.cos(snapped);
+        const newY = prevY + len * Math.sin(snapped);
+        result.push([newY, newX]);
+      }
+      return result;
+    }
+
+    function scaleAndRender(routes) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      routes.forEach(r => r.points.forEach(([y, x]) => {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }));
+
+      const scale = Math.min(width / (maxX - minX), height / (maxY - minY));
+      const offsetX = (width - (maxX - minX) * scale) / 2;
+      const offsetY = (height - (maxY - minY) * scale) / 2;
+
+      routes.forEach(r => {
+        const pts = r.points.map(([y, x]) => {
+          const sx = (x - minX) * scale + offsetX;
+          const sy = height - ((y - minY) * scale + offsetY); // invert y
+          return `${sx},${sy}`;
+        }).join(' ');
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        poly.setAttribute('points', pts);
+        poly.setAttribute('fill', 'none');
+        poly.setAttribute('stroke', r.color || '#000');
+        poly.setAttribute('stroke-width', '4');
+        poly.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(poly);
+      });
+    }
+
+    fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681')
+      .then(r => r.json())
+      .then(data => {
+        const routes = [];
+        (data || []).forEach(route => {
+          if (route.EncodedPolyline) {
+            const decoded = polyline.decode(route.EncodedPolyline);
+            const stylized = stylizePolyline(decoded);
+            routes.push({
+              color: route.MapLineColor || route.Color || '#000',
+              points: stylized
+            });
+          }
+        });
+        scaleAndRender(routes);
+      })
+      .catch(err => console.error('Error loading routes', err));
+  </script>
+</body>
+</html>
