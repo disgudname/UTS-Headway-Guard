@@ -131,17 +131,25 @@
         const n = group.length;
         if (n > 1) overlaps.push({ segment: key, routes: group.map(g => g.route) });
 
-        // Average start and end points so near-overlaps align to a common centerline
+        // Normalize segment orientation before averaging so opposite directions don't collapse
         const avgStart = [0, 0];
         const avgEnd = [0, 0];
-        group.forEach(info => {
+        const aligned = group.map(info => {
           const pts = routes[info.route].scaled;
-          const p1 = pts[info.idx];
-          const p2 = pts[info.idx + 1];
-          avgStart[0] += p1[0];
-          avgStart[1] += p1[1];
-          avgEnd[0] += p2[0];
-          avgEnd[1] += p2[1];
+          let startIdx = info.idx;
+          let endIdx = info.idx + 1;
+          let pStart = pts[startIdx];
+          let pEnd = pts[endIdx];
+          if (pStart[0] > pEnd[0] || (pStart[0] === pEnd[0] && pStart[1] > pEnd[1])) {
+            [pStart, pEnd] = [pEnd, pStart];
+            startIdx = info.idx + 1;
+            endIdx = info.idx;
+          }
+          avgStart[0] += pStart[0];
+          avgStart[1] += pStart[1];
+          avgEnd[0] += pEnd[0];
+          avgEnd[1] += pEnd[1];
+          return { route: info.route, startIdx, endIdx, pStart, pEnd, segIdx: info.idx };
         });
         avgStart[0] /= n; avgStart[1] /= n;
         avgEnd[0] /= n; avgEnd[1] /= n;
@@ -149,20 +157,18 @@
         const dy = avgEnd[1] - avgStart[1];
         const len = Math.hypot(dx, dy) || 1;
 
-        group.forEach((info, idx) => {
-          const route = routes[info.route];
-          const pts = route.scaled;
-          const i = info.idx;
+        aligned.forEach((data, idx) => {
+          const route = routes[data.route];
           const offset = (idx - (n - 1) / 2) * OVERLAP_SPACING;
           const offX = -dy / len * offset;
           const offY = dx / len * offset;
-          route.offsets[i][0] += (avgStart[0] - pts[i][0]) + offX;
-          route.offsets[i][1] += (avgStart[1] - pts[i][1]) + offY;
-          route.offsets[i + 1][0] += (avgEnd[0] - pts[i + 1][0]) + offX;
-          route.offsets[i + 1][1] += (avgEnd[1] - pts[i + 1][1]) + offY;
-          route.counts[i]++;
-          route.counts[i + 1]++;
-          if (n > 1) route.overlapSegments.push(i);
+          route.offsets[data.startIdx][0] += (avgStart[0] - data.pStart[0]) + offX;
+          route.offsets[data.startIdx][1] += (avgStart[1] - data.pStart[1]) + offY;
+          route.offsets[data.endIdx][0] += (avgEnd[0] - data.pEnd[0]) + offX;
+          route.offsets[data.endIdx][1] += (avgEnd[1] - data.pEnd[1]) + offY;
+          route.counts[data.startIdx]++;
+          route.counts[data.endIdx]++;
+          if (n > 1) route.overlapSegments.push(data.segIdx);
         });
       });
       if (overlaps.length) console.log('Overlapping segments', overlaps);
