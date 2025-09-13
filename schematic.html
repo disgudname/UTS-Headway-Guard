@@ -24,6 +24,7 @@
     const width = 1000;
     const height = 800;
     const STROKE_WIDTH = 4;
+    const OVERLAP_SPACING = STROKE_WIDTH + 2;
 
     // Ramer-Douglas-Peucker line simplification
     function simplifyLine(points, tolerance) {
@@ -61,20 +62,14 @@
       return res;
     }
 
-    // Build a smooth SVG path using quadratic curves
-    function buildSmoothPath(points) {
+    // Build a straight polyline path
+    function buildStraightPath(points) {
       if (!points.length) return '';
-      if (points.length === 1) return `M ${points[0][0]} ${points[0][1]}`;
       let d = `M ${points[0][0]} ${points[0][1]}`;
-      for (let i = 1; i < points.length - 1; i++) {
-        const [x0, y0] = points[i];
-        const [x1, y1] = points[i + 1];
-        const mx = (x0 + x1) / 2;
-        const my = (y0 + y1) / 2;
-        d += ` Q ${x0} ${y0} ${mx} ${my}`;
+      for (let i = 1; i < points.length; i++) {
+        const [x, y] = points[i];
+        d += ` L ${x} ${y}`;
       }
-      const last = points[points.length - 1];
-      d += ` L ${last[0]} ${last[1]}`;
       return d;
     }
 
@@ -137,7 +132,7 @@
           const dx = x2 - x1;
           const dy = y2 - y1;
           const len = Math.hypot(dx, dy) || 1;
-          const offset = (idx - (n - 1) / 2) * STROKE_WIDTH;
+          const offset = (idx - (n - 1) / 2) * OVERLAP_SPACING;
           const offX = -dy / len * offset;
           const offY = dx / len * offset;
           route.offsets[i][0] += offX;
@@ -151,7 +146,7 @@
       });
       if (overlaps.length) console.log('Overlapping segments', overlaps);
 
-      // Render smooth paths with averaged offsets
+      // Render paths with averaged offsets
       routes.forEach(r => {
         const pts = r.scaled.map((p, i) => {
           if (r.counts[i]) {
@@ -159,13 +154,13 @@
           }
           return p;
         });
-        const d = buildSmoothPath(pts);
+        const d = buildStraightPath(pts);
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', d);
         path.setAttribute('fill', 'none');
         path.setAttribute('stroke', r.color || '#000');
         path.setAttribute('stroke-width', STROKE_WIDTH);
-        path.setAttribute('stroke-linejoin', 'round');
+        path.setAttribute('stroke-linejoin', 'miter');
         path.setAttribute('stroke-linecap', 'round');
         svg.appendChild(path);
       });
