@@ -25,7 +25,10 @@
     const height = 800;
     const STROKE_WIDTH = 4;
     const OVERLAP_SPACING = STROKE_WIDTH + 2;
-    const SEGMENT_TOLERANCE = STROKE_WIDTH * 2; // pixels used to detect near-overlaps
+    // Use a very generous tolerance so nearby but non-identical segments are treated as the same
+    const SEGMENT_TOLERANCE = STROKE_WIDTH * 12; // pixels used to detect near-overlaps
+    // Aggressively simplify routes since exact lengths are not important
+    const SIMPLIFY_TOLERANCE = 12;
 
     function segmentKey(x1, y1, x2, y2) {
       const q = v => Math.round(v / SEGMENT_TOLERANCE) * SEGMENT_TOLERANCE;
@@ -125,9 +128,9 @@
           const sy = height - ((y - minY) * scale + offsetY); // invert y
           return [sx, sy];
         });
-        r.scaled = simplifyLine(r.scaled, 2);
+        r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE);
         r.scaled = snapToAngles(r.scaled);
-        r.scaled = simplifyLine(r.scaled, 1);
+        r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE / 2);
       });
 
       // Map of segments to routes that share them
