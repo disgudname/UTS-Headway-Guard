@@ -30,13 +30,18 @@
     const SEGMENT_TOLERANCE = STROKE_WIDTH * 16; // pixels used to detect near-overlaps
     // Aggressively simplify routes since exact lengths are not important
     const SIMPLIFY_TOLERANCE = 12;
+    // Approximate tolerance in degrees for matching segments to real roads
+    const ROAD_TOLERANCE = 0.0001; // ~11m
 
-    function segmentKey(x1, y1, x2, y2) {
+    function segmentKey(x1, y1, x2, y2, roadId, routeIdx) {
       const q = v => Math.round(v / SEGMENT_TOLERANCE) * SEGMENT_TOLERANCE;
+      let base;
       if (x1 < x2 || (x1 === x2 && y1 <= y2)) {
-        return `${q(x1)},${q(y1)},${q(x2)},${q(y2)}`;
+        base = `${q(x1)},${q(y1)},${q(x2)},${q(y2)}`;
+      } else {
+        base = `${q(x2)},${q(y2)},${q(x1)},${q(y1)}`;
       }
-      return `${q(x2)},${q(y2)},${q(x1)},${q(y1)}`;
+      return `${roadId || 'r' + routeIdx}:${base}`;
     }
 
     // Ramer-Douglas-Peucker line simplification
@@ -120,7 +125,66 @@
       }
     }
 
-    function scaleAndRender(routes) {
+    async function buildRoadLookup(routes) {
+      let minLat = Infinity, minLon = Infinity, maxLat = -Infinity, maxLon = -Infinity;
+      routes.forEach(r => r.points.forEach(([lat, lon]) => {
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+      }));
+      const query = `[out:json][timeout:25];way[highway](${minLat},${minLon},${maxLat},${maxLon});out geom;`;
+      const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+      let json;
+      try {
+        json = await fetch(url).then(r => r.json());
+      } catch (e) {
+        console.error('Error loading road data', e);
+        return null;
+      }
+      const segments = [];
+      (json.elements || []).forEach(el => {
+        if (el.type === 'way' && el.geometry) {
+          for (let i = 0; i < el.geometry.length - 1; i++) {
+            const a = el.geometry[i];
+            const b = el.geometry[i + 1];
+            segments.push({ wayId: el.id, a: [a.lat, a.lon], b: [b.lat, b.lon] });
+          }
+        }
+      });
+      const tol2 = ROAD_TOLERANCE * ROAD_TOLERANCE;
+      function sqDistPointToSeg(lat, lon, seg) {
+        const x = lon, y = lat;
+        const x1 = seg.a[1], y1 = seg.a[0];
+        const x2 = seg.b[1], y2 = seg.b[0];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        let t = 0;
+        if (dx !== 0 || dy !== 0) {
+          t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+          t = Math.max(0, Math.min(1, t));
+        }
+        const px = x1 + t * dx;
+        const py = y1 + t * dy;
+        const ddx = x - px;
+        const ddy = y - py;
+        return ddx * ddx + ddy * ddy;
+      }
+      return function lookup(lat, lon) {
+        let best = null;
+        let bestDist = Infinity;
+        segments.forEach(seg => {
+          const d = sqDistPointToSeg(lat, lon, seg);
+          if (d < bestDist) {
+            bestDist = d;
+            best = seg.wayId;
+          }
+        });
+        return bestDist < tol2 ? best : null;
+      };
+    }
+
+    function scaleAndRender(routes, roadLookup) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       routes.forEach(r => r.points.forEach(([y, x]) => {
         if (x < minX) minX = x;
@@ -150,12 +214,21 @@
 
       // Map of segments to routes that share them
       const segMap = new Map();
+      const invScale = 1 / scale;
       routes.forEach((r, ridx) => {
         const pts = r.scaled;
         for (let i = 0; i < pts.length - 1; i++) {
           const [x1, y1] = pts[i];
           const [x2, y2] = pts[i + 1];
-          const key = segmentKey(x1, y1, x2, y2);
+          let roadId = null;
+          if (roadLookup) {
+            const midX = (x1 + x2) / 2;
+            const midY = (y1 + y2) / 2;
+            const lon = (midX - offsetX) * invScale + minX;
+            const lat = ((height - midY) - offsetY) * invScale + minY;
+            roadId = roadLookup(lat, lon);
+          }
+          const key = segmentKey(x1, y1, x2, y2, roadId, ridx);
           if (!segMap.has(key)) segMap.set(key, []);
           segMap.get(key).push({ route: ridx, idx: i });
         }
@@ -281,11 +354,12 @@
       });
     }
 
-    Promise.all([
-      fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681').then(r => r.json()),
-      fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true').then(r => r.json())
-    ])
-      .then(([routeData, vehicleData]) => {
+    (async () => {
+      try {
+        const [routeData, vehicleData] = await Promise.all([
+          fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681').then(r => r.json()),
+          fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true').then(r => r.json())
+        ]);
         const activeRouteIds = new Set(
           (vehicleData || [])
             .filter(v => v.RouteID && v.RouteID > 0)
@@ -301,17 +375,20 @@
             !seenRouteIds.has(route.RouteID)
           ) {
             seenRouteIds.add(route.RouteID);
-              const decoded = polyline.decode(route.EncodedPolyline);
-              ensureClosed(decoded);
-              routes.push({
-                color: route.MapLineColor || route.Color || '#000',
-                points: decoded
-              });
-            }
-          });
-          scaleAndRender(routes);
-      })
-      .catch(err => console.error('Error loading data', err));
+            const decoded = polyline.decode(route.EncodedPolyline);
+            ensureClosed(decoded);
+            routes.push({
+              color: route.MapLineColor || route.Color || '#000',
+              points: decoded
+            });
+          }
+        });
+        const roadLookup = await buildRoadLookup(routes);
+        scaleAndRender(routes, roadLookup);
+      } catch (err) {
+        console.error('Error loading data', err);
+      }
+    })();
   </script>
 </body>
 </html>
