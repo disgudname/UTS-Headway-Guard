@@ -141,21 +141,25 @@
         json = await fetch(url).then(r => r.json());
       } catch (e) {
         console.error('Error loading road data', e);
-        return null;
+        return { lookup: null, roads: new Map() };
       }
       const segments = [];
+      const roadGeoms = new Map();
       (json.elements || []).forEach(el => {
         if (el.type === 'way' && el.geometry) {
           // Group parallel ways with the same name (e.g. divided highways)
-          const roadName = (el.tags && el.tags.name) || null;
-          for (let i = 0; i < el.geometry.length - 1; i++) {
-            const a = el.geometry[i];
-            const b = el.geometry[i + 1];
+          const roadName = (el.tags && el.tags.name) || el.id;
+          const geom = el.geometry.map(p => [p.lat, p.lon]);
+          if (!roadGeoms.has(roadName)) {
+            roadGeoms.set(roadName, geom);
+          }
+          for (let i = 0; i < geom.length - 1; i++) {
+            const a = geom[i];
+            const b = geom[i + 1];
             segments.push({
-              wayId: el.id,
-              groupId: roadName || el.id,
-              a: [a.lat, a.lon],
-              b: [b.lat, b.lon]
+              groupId: roadName,
+              a: [a[0], a[1]],
+              b: [b[0], b[1]]
             });
           }
         }
@@ -178,21 +182,22 @@
         const ddy = y - py;
         return ddx * ddx + ddy * ddy;
       }
-        return function lookup(lat, lon) {
-          let best = null;
-          let bestDist = Infinity;
-          segments.forEach(seg => {
-            const d = sqDistPointToSeg(lat, lon, seg);
-            if (d < bestDist) {
-              bestDist = d;
-              best = seg.groupId;
-            }
-          });
-          return bestDist < tol2 ? best : null;
-        };
+      function lookup(lat, lon) {
+        let best = null;
+        let bestDist = Infinity;
+        segments.forEach(seg => {
+          const d = sqDistPointToSeg(lat, lon, seg);
+          if (d < bestDist) {
+            bestDist = d;
+            best = seg.groupId;
+          }
+        });
+        return bestDist < tol2 ? best : null;
+      }
+      return { lookup, roads: roadGeoms };
     }
 
-    function scaleAndRender(routes, roadLookup) {
+    function scaleAndRender(routes, roadLookup, roadGeoms) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       routes.forEach(r => r.points.forEach(([y, x]) => {
         if (x < minX) minX = x;
@@ -205,18 +210,39 @@
       const offsetX = (width - (maxX - minX) * scale) / 2;
       const offsetY = (height - (maxY - minY) * scale) / 2;
 
-      // Scale and simplify all points first
-      routes.forEach(r => {
-        r.scaled = r.points.map(([y, x]) => {
+      // Pre-scale road geometries so route paths can snap to them
+      const scaledRoads = new Map();
+      roadGeoms.forEach((pts, id) => {
+        const scaled = pts.map(([y, x]) => {
           const sx = (x - minX) * scale + offsetX;
-          const sy = height - ((y - minY) * scale + offsetY); // invert y
+          const sy = height - ((y - minY) * scale + offsetY);
           return [sx, sy];
         });
-          r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE);
-          r.scaled = snapToAngles(r.scaled);
-          r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE / 2);
-          // Quantize coordinates to reduce tiny differences between near-identical paths
-          r.scaled = r.scaled.map(([x, y]) => [Math.round(x), Math.round(y)]);
+        scaledRoads.set(id, scaled);
+      });
+
+      // Scale and simplify all points first
+      routes.forEach(r => {
+        const snapped = [];
+        for (let i = 0; i < r.points.length; i++) {
+          const [y, x] = r.points[i];
+          const sx = (x - minX) * scale + offsetX;
+          const sy = height - ((y - minY) * scale + offsetY);
+          if (roadLookup) {
+            const roadId = roadLookup(y, x);
+            if (roadId && scaledRoads.has(roadId)) {
+              scaledRoads.get(roadId).forEach(pt => snapped.push(pt));
+              continue;
+            }
+          }
+          snapped.push([sx, sy]);
+        }
+        r.scaled = snapped;
+        r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE);
+        r.scaled = snapToAngles(r.scaled);
+        r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE / 2);
+        // Quantize coordinates to reduce tiny differences between near-identical paths
+        r.scaled = r.scaled.map(([x, y]) => [Math.round(x), Math.round(y)]);
           ensureClosed(r.scaled);
         });
 
@@ -391,8 +417,8 @@
             });
           }
         });
-        const roadLookup = await buildRoadLookup(routes);
-        scaleAndRender(routes, roadLookup);
+        const { lookup: roadLookup, roads: roadGeoms } = await buildRoadLookup(routes);
+        scaleAndRender(routes, roadLookup, roadGeoms);
       } catch (err) {
         console.error('Error loading data', err);
       }
