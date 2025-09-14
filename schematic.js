@@ -202,6 +202,7 @@ function scaleAndRender(routes, roadLookup, roadGeoms) {
   // Scale and simplify all points first
   routes.forEach(r => {
     const snapped = [];
+    let lastRoadId = null;
     for (let i = 0; i < r.points.length; i++) {
       const [y, x] = r.points[i];
       const sx = (x - minX) * scale + offsetX;
@@ -209,9 +210,13 @@ function scaleAndRender(routes, roadLookup, roadGeoms) {
       if (roadLookup) {
         const roadId = roadLookup(y, x);
         if (roadId && scaledRoads.has(roadId)) {
-          scaledRoads.get(roadId).forEach(pt => snapped.push(pt));
+          if (roadId !== lastRoadId) {
+            scaledRoads.get(roadId).forEach(pt => snapped.push(pt));
+            lastRoadId = roadId;
+          }
           continue;
         }
+        lastRoadId = null;
       }
       snapped.push([sx, sy]);
     }
