@@ -109,6 +109,17 @@
       return snapped;
     }
 
+    // Ensure a polyline forms a closed loop by repeating the first point at the end
+    function ensureClosed(points) {
+      if (points.length > 1) {
+        const [fx, fy] = points[0];
+        const [lx, ly] = points[points.length - 1];
+        if (fx !== lx || fy !== ly) {
+          points.push([fx, fy]);
+        }
+      }
+    }
+
     function scaleAndRender(routes) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       routes.forEach(r => r.points.forEach(([y, x]) => {
@@ -134,6 +145,7 @@
           r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE / 2);
           // Quantize coordinates to reduce tiny differences between near-identical paths
           r.scaled = r.scaled.map(([x, y]) => [Math.round(x), Math.round(y)]);
+          ensureClosed(r.scaled);
         });
 
       // Map of segments to routes that share them
@@ -267,14 +279,15 @@
             !seenRouteIds.has(route.RouteID)
           ) {
             seenRouteIds.add(route.RouteID);
-            const decoded = polyline.decode(route.EncodedPolyline);
-            routes.push({
-              color: route.MapLineColor || route.Color || '#000',
-              points: decoded
-            });
-          }
-        });
-        scaleAndRender(routes);
+              const decoded = polyline.decode(route.EncodedPolyline);
+              ensureClosed(decoded);
+              routes.push({
+                color: route.MapLineColor || route.Color || '#000',
+                points: decoded
+              });
+            }
+          });
+          scaleAndRender(routes);
       })
       .catch(err => console.error('Error loading data', err));
   </script>
