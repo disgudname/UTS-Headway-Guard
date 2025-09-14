@@ -73,8 +73,8 @@ function smoothPath(points) {
   return smoothed;
 }
 
-// Snap segments that are nearly overlapping to shared coordinates
-function snapSegments(routes, tolerance) {
+// Build a map of segments that occupy the same roadway
+function groupSegments(routes, tolerance) {
   const q = v => Math.round(v / tolerance) * tolerance;
   const segMap = new Map();
   function key(p1, p2) {
@@ -92,6 +92,11 @@ function snapSegments(routes, tolerance) {
       segMap.get(k).push({ route: r, idx: i });
     }
   });
+  return segMap;
+}
+
+// Align all segments in the same group to shared coordinates
+function alignSharedSegments(segMap) {
   segMap.forEach(entries => {
     if (entries.length < 2) return;
     let sx = 0, sy = 0, ex = 0, ey = 0;
@@ -169,7 +174,8 @@ function buildPath(points) {
     });
 
     const KEY_TOL = 8;
-    snapSegments(routes, KEY_TOL);
+    let segMap = groupSegments(routes, KEY_TOL);
+    alignSharedSegments(segMap);
 
     routes.forEach(r => {
       let pts = r.scaled;
@@ -181,29 +187,14 @@ function buildPath(points) {
       r.counts = Array(pts.length).fill(0);
     });
 
+    // Re-align segments after smoothing/simplifying
+    segMap = groupSegments(routes, KEY_TOL);
+    alignSharedSegments(segMap);
+
     // Detect overlapping segments and offset
-    const segMap = new Map();
-    function segKey(p1, p2) {
-      let [x1, y1] = p1;
-      let [x2, y2] = p2;
-      if (x1 > x2 || (x1 === x2 && y1 > y2)) {
-        [x1, y1, x2, y2] = [x2, y2, x1, y1];
-      }
-      const q = v => Math.round(v / KEY_TOL) * KEY_TOL;
-      return `${q(x1)},${q(y1)},${q(x2)},${q(y2)}`;
-    }
-
-    routes.forEach((r, ri) => {
-      for (let i = 0; i < r.scaled.length - 1; i++) {
-        const key = segKey(r.scaled[i], r.scaled[i + 1]);
-        if (!segMap.has(key)) segMap.set(key, []);
-        segMap.get(key).push({ route: ri, idx: i });
-      }
-    });
-
     segMap.forEach(entries => {
       if (entries.length < 2) return;
-      const r0 = routes[entries[0].route];
+      const r0 = entries[0].route;
       const p1 = r0.scaled[entries[0].idx];
       const p2 = r0.scaled[entries[0].idx + 1];
       const dx = p2[0] - p1[0];
@@ -216,7 +207,7 @@ function buildPath(points) {
         const offset = (i - (entries.length - 1) / 2) * spacing;
         const ox = nx * offset;
         const oy = ny * offset;
-        const r = routes[e.route];
+        const r = e.route;
         r.offsets[e.idx][0] += ox;
         r.offsets[e.idx][1] += oy;
         r.offsets[e.idx + 1][0] += ox;
