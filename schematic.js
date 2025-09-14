@@ -40,8 +40,7 @@ function simplifyLine(points, tolerance) {
 function snap45(points) {
   if (points.length <= 1) return points;
   const snapped = [points[0].slice()];
-  // process all but the final point so the end point remains unchanged
-  for (let i = 1; i < points.length - 1; i++) {
+  for (let i = 1; i < points.length; i++) {
     const prev = snapped[i - 1];
     const curr = points[i];
     const dx = curr[0] - prev[0];
@@ -57,8 +56,6 @@ function snap45(points) {
     const ny = prev[1] + Math.sin(snappedAngle) * len;
     snapped.push([nx, ny]);
   }
-  // preserve original end point
-  snapped.push(points[points.length - 1].slice());
   return snapped;
 }
 
@@ -129,13 +126,8 @@ function buildPath(points) {
         return [x, y];
       });
       pts = simplifyLine(pts, 8);
-      const startPt = pts[0];
-      const endPt = pts[pts.length - 1];
-      pts = snap45(pts);
       pts = smoothPath(pts);
-      // restore original endpoints
-      pts[0] = startPt;
-      pts[pts.length - 1] = endPt;
+      pts = snap45(pts);
       r.scaled = pts;
       r.offsets = Array(pts.length).fill(0).map(() => [0, 0]);
       r.counts = Array(pts.length).fill(0);
