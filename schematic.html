@@ -27,11 +27,12 @@
     const OVERLAP_SPACING = STROKE_WIDTH + 2;
     // Use a very generous tolerance so nearby but non-identical segments are treated as the same
     // Increasing the tolerance helps merge routes that follow almost identical roads
-    const SEGMENT_TOLERANCE = STROKE_WIDTH * 16; // pixels used to detect near-overlaps
+      const SEGMENT_TOLERANCE = STROKE_WIDTH * 32; // pixels used to detect near-overlaps
     // Aggressively simplify routes since exact lengths are not important
     const SIMPLIFY_TOLERANCE = 12;
     // Approximate tolerance in degrees for matching segments to real roads
-    const ROAD_TOLERANCE = 0.0001; // ~11m
+    // Bumped up so routes separated by a median still resolve to the same road
+    const ROAD_TOLERANCE = 0.0003; // ~33m
 
     function segmentKey(x1, y1, x2, y2, roadId, routeIdx) {
       const q = v => Math.round(v / SEGMENT_TOLERANCE) * SEGMENT_TOLERANCE;
@@ -145,10 +146,17 @@
       const segments = [];
       (json.elements || []).forEach(el => {
         if (el.type === 'way' && el.geometry) {
+          // Group parallel ways with the same name (e.g. divided highways)
+          const roadName = (el.tags && el.tags.name) || null;
           for (let i = 0; i < el.geometry.length - 1; i++) {
             const a = el.geometry[i];
             const b = el.geometry[i + 1];
-            segments.push({ wayId: el.id, a: [a.lat, a.lon], b: [b.lat, b.lon] });
+            segments.push({
+              wayId: el.id,
+              groupId: roadName || el.id,
+              a: [a.lat, a.lon],
+              b: [b.lat, b.lon]
+            });
           }
         }
       });
@@ -170,18 +178,18 @@
         const ddy = y - py;
         return ddx * ddx + ddy * ddy;
       }
-      return function lookup(lat, lon) {
-        let best = null;
-        let bestDist = Infinity;
-        segments.forEach(seg => {
-          const d = sqDistPointToSeg(lat, lon, seg);
-          if (d < bestDist) {
-            bestDist = d;
-            best = seg.wayId;
-          }
-        });
-        return bestDist < tol2 ? best : null;
-      };
+        return function lookup(lat, lon) {
+          let best = null;
+          let bestDist = Infinity;
+          segments.forEach(seg => {
+            const d = sqDistPointToSeg(lat, lon, seg);
+            if (d < bestDist) {
+              bestDist = d;
+              best = seg.groupId;
+            }
+          });
+          return bestDist < tol2 ? best : null;
+        };
     }
 
     function scaleAndRender(routes, roadLookup) {
