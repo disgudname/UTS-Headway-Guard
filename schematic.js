@@ -70,12 +70,22 @@ function buildPath(points) {
 
 (async () => {
   try {
+    const vehRes = await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true');
+    const vehData = await vehRes.json();
+    const activeRouteIds = new Set((vehData || [])
+      .filter(v => v.RouteID && v.RouteID > 0 && v.IsOnRoute)
+      .map(v => v.RouteID));
+
+    if (!activeRouteIds.size) return;
+
     const routeRes = await fetch('https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681');
     const routeData = await routeRes.json();
-    const routes = (routeData || []).filter(r => r.EncodedPolyline).map(r => ({
-      color: r.MapLineColor || r.Color || '#000',
-      points: polyline.decode(r.EncodedPolyline)
-    }));
+    const routes = (routeData || [])
+      .filter(r => r.EncodedPolyline && activeRouteIds.has(r.RouteID))
+      .map(r => ({
+        color: r.MapLineColor || r.Color || '#000',
+        points: polyline.decode(r.EncodedPolyline)
+      }));
 
     if (!routes.length) return;
 
