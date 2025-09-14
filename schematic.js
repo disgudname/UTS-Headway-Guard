@@ -173,7 +173,9 @@ function buildPath(points) {
       });
     });
 
-    const KEY_TOL = 8;
+    // Tolerance for grouping segments that share the same roadway.
+    // Increased to better align opposite directions separated by a median.
+    const KEY_TOL = 12;
     let segMap = groupSegments(routes, KEY_TOL);
     alignSharedSegments(segMap);
 
