@@ -2,6 +2,7 @@ const svg = document.getElementById('mapSvg');
 const width = 1000;
 const height = 800;
 const STROKE_WIDTH = 4;
+const GRID_SIZE = 10;
 
 // Ramer-Douglas-Peucker simplification
 function simplifyLine(points, tolerance) {
@@ -57,6 +58,28 @@ function snap45(points) {
     snapped.push([nx, ny]);
   }
   return snapped;
+}
+
+function snapToGrid(points, size) {
+  return points.map(([x, y]) => [Math.round(x / size) * size, Math.round(y / size) * size]);
+}
+
+function snapVertices(routes, size) {
+  const buckets = new Map();
+  const key = (x, y) => `${Math.round(x / size) * size},${Math.round(y / size) * size}`;
+  routes.forEach(r => {
+    r.scaled.forEach(p => {
+      const k = key(p[0], p[1]);
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(p);
+    });
+  });
+  buckets.forEach(list => {
+    let sx = 0, sy = 0;
+    list.forEach(([x, y]) => { sx += x; sy += y; });
+    sx /= list.length; sy /= list.length;
+    list.forEach(p => { p[0] = sx; p[1] = sy; });
+  });
 }
 
 // Simple moving average smoothing preserving endpoints
@@ -184,12 +207,16 @@ function buildPath(points) {
       pts = simplifyLine(pts, 8);
       pts = smoothPath(pts);
       pts = snap45(pts);
+      pts = snapToGrid(pts, GRID_SIZE);
       r.scaled = pts;
       r.offsets = Array(pts.length).fill(0).map(() => [0, 0]);
       r.counts = Array(pts.length).fill(0);
     });
 
-    // Re-align segments after smoothing/simplifying
+    // Re-align and snap shared geometry
+    segMap = groupSegments(routes, KEY_TOL);
+    alignSharedSegments(segMap);
+    snapVertices(routes, GRID_SIZE);
     segMap = groupSegments(routes, KEY_TOL);
     alignSharedSegments(segMap);
 
