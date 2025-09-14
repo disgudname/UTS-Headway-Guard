@@ -161,11 +161,18 @@ function buildPath(points) {
     const scale = Math.min(scaleX, scaleY);
 
     routes.forEach(r => {
-      let pts = r.points.map(([lat, lon]) => {
+      r.scaled = r.points.map(([lat, lon]) => {
         const x = (lon - minLon) * scale + padding;
         const y = height - ((lat - minLat) * scale + padding);
         return [x, y];
       });
+    });
+
+    const KEY_TOL = 8;
+    snapSegments(routes, KEY_TOL);
+
+    routes.forEach(r => {
+      let pts = r.scaled;
       pts = simplifyLine(pts, 8);
       pts = smoothPath(pts);
       pts = snap45(pts);
@@ -173,9 +180,6 @@ function buildPath(points) {
       r.offsets = Array(pts.length).fill(0).map(() => [0, 0]);
       r.counts = Array(pts.length).fill(0);
     });
-
-    const KEY_TOL = 8;
-    snapSegments(routes, KEY_TOL);
 
     // Detect overlapping segments and offset
     const segMap = new Map();
