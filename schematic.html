@@ -26,7 +26,8 @@
     const STROKE_WIDTH = 4;
     const OVERLAP_SPACING = STROKE_WIDTH + 2;
     // Use a very generous tolerance so nearby but non-identical segments are treated as the same
-    const SEGMENT_TOLERANCE = STROKE_WIDTH * 12; // pixels used to detect near-overlaps
+    // Increasing the tolerance helps merge routes that follow almost identical roads
+    const SEGMENT_TOLERANCE = STROKE_WIDTH * 16; // pixels used to detect near-overlaps
     // Aggressively simplify routes since exact lengths are not important
     const SIMPLIFY_TOLERANCE = 12;
 
@@ -128,10 +129,12 @@
           const sy = height - ((y - minY) * scale + offsetY); // invert y
           return [sx, sy];
         });
-        r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE);
-        r.scaled = snapToAngles(r.scaled);
-        r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE / 2);
-      });
+          r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE);
+          r.scaled = snapToAngles(r.scaled);
+          r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE / 2);
+          // Quantize coordinates to reduce tiny differences between near-identical paths
+          r.scaled = r.scaled.map(([x, y]) => [Math.round(x), Math.round(y)]);
+        });
 
       // Map of segments to routes that share them
       const segMap = new Map();
@@ -257,8 +260,8 @@
         const routes = [];
         const seenRouteIds = new Set();
         (routeData || []).forEach(route => {
+          // Only include routes that currently have an active vehicle assigned
           if (
-            route.IsRunning &&
             activeRouteIds.has(route.RouteID) &&
             route.EncodedPolyline &&
             !seenRouteIds.has(route.RouteID)
