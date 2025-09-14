@@ -1477,6 +1477,10 @@ async def stream_api_calls():
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
 
+@app.get("/schematic.js", include_in_schema=False)
+async def schematic_js():
+    return FileResponse(BASE_DIR / "schematic.js", media_type="application/javascript")
+
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
