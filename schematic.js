@@ -73,6 +73,47 @@ function smoothPath(points) {
   return smoothed;
 }
 
+// Snap segments that are nearly overlapping to shared coordinates
+function snapSegments(routes, tolerance) {
+  const q = v => Math.round(v / tolerance) * tolerance;
+  const segMap = new Map();
+  function key(p1, p2) {
+    let [x1, y1] = p1;
+    let [x2, y2] = p2;
+    if (x1 > x2 || (x1 === x2 && y1 > y2)) {
+      [x1, y1, x2, y2] = [x2, y2, x1, y1];
+    }
+    return `${q(x1)},${q(y1)},${q(x2)},${q(y2)}`;
+  }
+  routes.forEach(r => {
+    for (let i = 0; i < r.scaled.length - 1; i++) {
+      const k = key(r.scaled[i], r.scaled[i + 1]);
+      if (!segMap.has(k)) segMap.set(k, []);
+      segMap.get(k).push({ route: r, idx: i });
+    }
+  });
+  segMap.forEach(entries => {
+    if (entries.length < 2) return;
+    let sx = 0, sy = 0, ex = 0, ey = 0;
+    entries.forEach(({ route, idx }) => {
+      const s = route.scaled[idx];
+      const e = route.scaled[idx + 1];
+      sx += s[0];
+      sy += s[1];
+      ex += e[0];
+      ey += e[1];
+    });
+    sx /= entries.length; sy /= entries.length;
+    ex /= entries.length; ey /= entries.length;
+    entries.forEach(({ route, idx }) => {
+      route.scaled[idx][0] = sx;
+      route.scaled[idx][1] = sy;
+      route.scaled[idx + 1][0] = ex;
+      route.scaled[idx + 1][1] = ey;
+    });
+  });
+}
+
 function buildPath(points) {
   if (!points.length) return '';
   let d = `M ${points[0][0]} ${points[0][1]}`;
@@ -133,9 +174,11 @@ function buildPath(points) {
       r.counts = Array(pts.length).fill(0);
     });
 
+    const KEY_TOL = 8;
+    snapSegments(routes, KEY_TOL);
+
     // Detect overlapping segments and offset
     const segMap = new Map();
-    const KEY_TOL = 8;
     function segKey(p1, p2) {
       let [x1, y1] = p1;
       let [x2, y2] = p2;
