@@ -177,60 +177,82 @@
           if (!routeGroups.has(info.route)) routeGroups.set(info.route, []);
           routeGroups.get(info.route).push(info);
         });
-        const uniqueRoutes = Array.from(routeGroups.keys());
-        const n = uniqueRoutes.length;
-        if (n > 1) overlaps.push({ segment: key, routes: uniqueRoutes });
 
-        // Normalize segment orientation before averaging so opposite directions don't collapse
-        const avgStart = [0, 0];
-        const avgEnd = [0, 0];
-        uniqueRoutes.forEach(routeId => {
-          const info = routeGroups.get(routeId)[0];
+        // Build entries for each route, capturing orientation so opposite
+        // directions can be paired and drawn on top of each other.
+        const routeEntries = [];
+        routeGroups.forEach((infos, routeId) => {
           const pts = routes[routeId].scaled;
+          const info = infos[0];
           let startIdx = info.idx;
           let endIdx = info.idx + 1;
           let pStart = pts[startIdx];
           let pEnd = pts[endIdx];
+          let dir = 1;
           if (pStart[0] > pEnd[0] || (pStart[0] === pEnd[0] && pStart[1] > pEnd[1])) {
             [pStart, pEnd] = [pEnd, pStart];
             startIdx = info.idx + 1;
             endIdx = info.idx;
+            dir = -1;
           }
-          avgStart[0] += pStart[0];
-          avgStart[1] += pStart[1];
-          avgEnd[0] += pEnd[0];
-          avgEnd[1] += pEnd[1];
+          routeEntries.push({ routeId, infos, startIdx, endIdx, pStart, pEnd, dir });
         });
-        avgStart[0] /= n; avgStart[1] /= n;
-        avgEnd[0] /= n; avgEnd[1] /= n;
+
+        const nAll = routeEntries.length;
+        if (nAll > 1) overlaps.push({ segment: key, routes: routeEntries.map(r => r.routeId) });
+
+        // Average the positions so nearly overlapping segments line up
+        const avgStart = [0, 0];
+        const avgEnd = [0, 0];
+        routeEntries.forEach(re => {
+          avgStart[0] += re.pStart[0];
+          avgStart[1] += re.pStart[1];
+          avgEnd[0] += re.pEnd[0];
+          avgEnd[1] += re.pEnd[1];
+        });
+        avgStart[0] /= nAll; avgStart[1] /= nAll;
+        avgEnd[0] /= nAll; avgEnd[1] /= nAll;
         const dx = avgEnd[0] - avgStart[0];
         const dy = avgEnd[1] - avgStart[1];
         const len = Math.hypot(dx, dy) || 1;
 
-        uniqueRoutes.forEach((routeId, idx) => {
+        // Pair routes travelling in opposite directions so they share an offset
+        const positives = routeEntries.filter(r => r.dir === 1);
+        const negatives = routeEntries.filter(r => r.dir === -1);
+        const groupsForOffset = [];
+        const m = Math.min(positives.length, negatives.length);
+        for (let i = 0; i < m; i++) {
+          groupsForOffset.push([positives[i], negatives[i]]);
+        }
+        for (let i = m; i < positives.length; i++) groupsForOffset.push([positives[i]]);
+        for (let i = m; i < negatives.length; i++) groupsForOffset.push([negatives[i]]);
+        const n = groupsForOffset.length;
+
+        groupsForOffset.forEach((entries, idx) => {
           const offset = n > 1 ? (idx - (n - 1) / 2) * OVERLAP_SPACING : 0;
           const offX = -dy / len * offset;
           const offY = dx / len * offset;
-          const infos = routeGroups.get(routeId);
-          infos.forEach(info => {
-            const pts = routes[routeId].scaled;
-            let startIdx = info.idx;
-            let endIdx = info.idx + 1;
-            let pStart = pts[startIdx];
-            let pEnd = pts[endIdx];
-            if (pStart[0] > pEnd[0] || (pStart[0] === pEnd[0] && pStart[1] > pEnd[1])) {
-              [pStart, pEnd] = [pEnd, pStart];
-              startIdx = info.idx + 1;
-              endIdx = info.idx;
-            }
-            const route = routes[routeId];
-            route.offsets[startIdx][0] += (avgStart[0] - pStart[0]) + offX;
-            route.offsets[startIdx][1] += (avgStart[1] - pStart[1]) + offY;
-            route.offsets[endIdx][0] += (avgEnd[0] - pEnd[0]) + offX;
-            route.offsets[endIdx][1] += (avgEnd[1] - pEnd[1]) + offY;
-            route.counts[startIdx]++;
-            route.counts[endIdx]++;
-            if (n > 1) route.overlapSegments.push(info.idx);
+          entries.forEach(re => {
+            const pts = routes[re.routeId].scaled;
+            re.infos.forEach(info => {
+              let startIdx = info.idx;
+              let endIdx = info.idx + 1;
+              let pStart = pts[startIdx];
+              let pEnd = pts[endIdx];
+              if (pStart[0] > pEnd[0] || (pStart[0] === pEnd[0] && pStart[1] > pEnd[1])) {
+                [pStart, pEnd] = [pEnd, pStart];
+                startIdx = info.idx + 1;
+                endIdx = info.idx;
+              }
+              const route = routes[re.routeId];
+              route.offsets[startIdx][0] += (avgStart[0] - pStart[0]) + offX;
+              route.offsets[startIdx][1] += (avgStart[1] - pStart[1]) + offY;
+              route.offsets[endIdx][0] += (avgEnd[0] - pEnd[0]) + offX;
+              route.offsets[endIdx][1] += (avgEnd[1] - pEnd[1]) + offY;
+              route.counts[startIdx]++;
+              route.counts[endIdx]++;
+              if (n > 1) route.overlapSegments.push(info.idx);
+            });
           });
         });
       });
