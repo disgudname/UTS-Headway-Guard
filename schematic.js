@@ -40,7 +40,8 @@ function simplifyLine(points, tolerance) {
 function snap45(points) {
   if (points.length <= 1) return points;
   const snapped = [points[0].slice()];
-  for (let i = 1; i < points.length; i++) {
+  // process all but the final point so the end point remains unchanged
+  for (let i = 1; i < points.length - 1; i++) {
     const prev = snapped[i - 1];
     const curr = points[i];
     const dx = curr[0] - prev[0];
@@ -56,7 +57,23 @@ function snap45(points) {
     const ny = prev[1] + Math.sin(snappedAngle) * len;
     snapped.push([nx, ny]);
   }
+  // preserve original end point
+  snapped.push(points[points.length - 1].slice());
   return snapped;
+}
+
+// Simple moving average smoothing preserving endpoints
+function smoothPath(points) {
+  if (points.length <= 2) return points;
+  const smoothed = [points[0].slice()];
+  for (let i = 1; i < points.length - 1; i++) {
+    const [x0, y0] = points[i - 1];
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[i + 1];
+    smoothed.push([(x0 + x1 + x2) / 3, (y0 + y1 + y2) / 3]);
+  }
+  smoothed.push(points[points.length - 1].slice());
+  return smoothed;
 }
 
 function buildPath(points) {
@@ -112,7 +129,13 @@ function buildPath(points) {
         return [x, y];
       });
       pts = simplifyLine(pts, 8);
+      const startPt = pts[0];
+      const endPt = pts[pts.length - 1];
       pts = snap45(pts);
+      pts = smoothPath(pts);
+      // restore original endpoints
+      pts[0] = startPt;
+      pts[pts.length - 1] = endPt;
       r.scaled = pts;
       r.offsets = Array(pts.length).fill(0).map(() => [0, 0]);
       r.counts = Array(pts.length).fill(0);
