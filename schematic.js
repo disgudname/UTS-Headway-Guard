@@ -88,11 +88,11 @@ function snapVertices(routes, size) {
 function insertSharedVertices(routes, tol) {
   function dist(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
   function pointOnSegment(p, a, b) {
+    const lenSq = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
     const cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
-    if (Math.abs(cross) > tol) return false;
+    if (cross * cross > tol * tol * lenSq) return false;
     const dot = (p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1]);
     if (dot < 0) return false;
-    const lenSq = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
     if (dot > lenSq) return false;
     return true;
   }
