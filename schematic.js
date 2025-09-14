@@ -104,6 +104,29 @@ function ensureClosed(points) {
   }
 }
 
+// Snap a point to the closest position on a road polyline
+function snapPointToRoad(pt, roadPts) {
+  let best = pt;
+  let bestDist = Infinity;
+  for (let i = 0; i < roadPts.length - 1; i++) {
+    const [x1, y1] = roadPts[i];
+    const [x2, y2] = roadPts[i + 1];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (!len2) continue;
+    const t = Math.max(0, Math.min(1, ((pt[0] - x1) * dx + (pt[1] - y1) * dy) / len2));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    const dist = (pt[0] - projX) ** 2 + (pt[1] - projY) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = [projX, projY];
+    }
+  }
+  return best;
+}
+
 async function buildRoadLookup(routes) {
   let minLat = Infinity, minLon = Infinity, maxLat = -Infinity, maxLon = -Infinity;
   routes.forEach(r => r.points.forEach(([lat, lon]) => {
@@ -202,21 +225,15 @@ function scaleAndRender(routes, roadLookup, roadGeoms) {
   // Scale and simplify all points first
   routes.forEach(r => {
     const snapped = [];
-    let lastRoadId = null;
     for (let i = 0; i < r.points.length; i++) {
       const [y, x] = r.points[i];
-      const sx = (x - minX) * scale + offsetX;
-      const sy = height - ((y - minY) * scale + offsetY);
+      let sx = (x - minX) * scale + offsetX;
+      let sy = height - ((y - minY) * scale + offsetY);
       if (roadLookup) {
         const roadId = roadLookup(y, x);
         if (roadId && scaledRoads.has(roadId)) {
-          if (roadId !== lastRoadId) {
-            scaledRoads.get(roadId).forEach(pt => snapped.push(pt));
-            lastRoadId = roadId;
-          }
-          continue;
+          [sx, sy] = snapPointToRoad([sx, sy], scaledRoads.get(roadId));
         }
-        lastRoadId = null;
       }
       snapped.push([sx, sy]);
     }
@@ -226,8 +243,8 @@ function scaleAndRender(routes, roadLookup, roadGeoms) {
     r.scaled = simplifyLine(r.scaled, SIMPLIFY_TOLERANCE / 2);
     // Quantize coordinates to reduce tiny differences between near-identical paths
     r.scaled = r.scaled.map(([x, y]) => [Math.round(x), Math.round(y)]);
-      ensureClosed(r.scaled);
-    });
+    ensureClosed(r.scaled);
+  });
 
   // Map of segments to routes that share them
   const segMap = new Map();
