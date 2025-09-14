@@ -83,6 +83,46 @@ function snapVertices(routes, size) {
   });
 }
 
+// Insert vertices where another route has a point along a segment.
+// This helps ensure routes that share the same roadway use identical segmentation.
+function insertSharedVertices(routes, tol) {
+  function dist(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+  function pointOnSegment(p, a, b) {
+    const cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+    if (Math.abs(cross) > tol) return false;
+    const dot = (p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1]);
+    if (dot < 0) return false;
+    const lenSq = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2;
+    if (dot > lenSq) return false;
+    return true;
+  }
+  routes.forEach(r1 => {
+    let i = 0;
+    while (i < r1.scaled.length - 1) {
+      const a = r1.scaled[i];
+      const b = r1.scaled[i + 1];
+      const inserts = [];
+      routes.forEach(r2 => {
+        if (r1 === r2) return;
+        r2.scaled.forEach(p => {
+          if (dist(p, a) < tol || dist(p, b) < tol) return;
+          if (pointOnSegment(p, a, b)) {
+            inserts.push({ pt: [p[0], p[1]], d: dist(p, a) });
+          }
+        });
+      });
+      if (inserts.length) {
+        inserts.sort((u, v) => u.d - v.d);
+        inserts.forEach(({ pt }, idx) => {
+          r1.scaled.splice(i + 1 + idx, 0, pt);
+        });
+        i += inserts.length;
+      }
+      i++;
+    }
+  });
+}
+
 // Simple moving average smoothing preserving endpoints
 function smoothPath(points) {
   if (points.length <= 2) return points;
@@ -210,14 +250,13 @@ function buildPath(points) {
       pts = snap45(pts);
       pts = snapToGrid(pts, GRID_SIZE);
       r.scaled = pts;
-      r.offsets = Array(pts.length).fill(0).map(() => [0, 0]);
-      r.counts = Array(pts.length).fill(0);
     });
 
     // Re-align and snap shared geometry
     segMap = groupSegments(routes, KEY_TOL);
     alignSharedSegments(segMap);
     snapVertices(routes, GRID_SIZE);
+    insertSharedVertices(routes, GRID_SIZE / 2);
 
     // Ensure final geometry uses 45° angles on a shared grid
     routes.forEach(r => {
@@ -226,6 +265,12 @@ function buildPath(points) {
     });
     segMap = groupSegments(routes, KEY_TOL);
     alignSharedSegments(segMap);
+
+    // Prepare offset arrays after final alignment
+    routes.forEach(r => {
+      r.offsets = Array(r.scaled.length).fill(0).map(() => [0, 0]);
+      r.counts = Array(r.scaled.length).fill(0);
+    });
 
     // Detect overlapping segments and offset
     segMap.forEach(entries => {
