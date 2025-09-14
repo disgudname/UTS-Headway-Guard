@@ -217,6 +217,12 @@ function buildPath(points) {
     segMap = groupSegments(routes, KEY_TOL);
     alignSharedSegments(segMap);
     snapVertices(routes, GRID_SIZE);
+
+    // Ensure final geometry uses 45° angles on a shared grid
+    routes.forEach(r => {
+      r.scaled = snap45(r.scaled);
+      r.scaled = snapToGrid(r.scaled, GRID_SIZE);
+    });
     segMap = groupSegments(routes, KEY_TOL);
     alignSharedSegments(segMap);
 
