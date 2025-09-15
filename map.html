@@ -257,6 +257,12 @@
       function updateRouteSelector(activeRoutes) {
         const container = document.getElementById("routeSelector");
         if (!container) return;
+        // If the agency dropdown is currently focused (open), skip rebuilding
+        // the selector to avoid closing the dropdown.
+        const agencyDropdown = document.getElementById('agencySelect');
+        if (agencyDropdown && document.activeElement === agencyDropdown) {
+          return;
+        }
         let html = "";
         html += "<label for='agencySelect'>Select System:</label>";
         html += "<select id='agencySelect' onchange='changeAgency(this.value)'>";
