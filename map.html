@@ -192,13 +192,22 @@
       async function loadAgencies() {
         try {
           const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
-          const text = await response.text();
-          const parser = new DOMParser();
-          const xml = parser.parseFromString(text, 'application/xml');
-          const clients = Array.from(xml.getElementsByTagName('Client'));
+          const contentType = response.headers.get('content-type') || '';
+          let clients = [];
+          if (contentType.includes('application/json')) {
+            clients = await response.json();
+          } else {
+            const text = await response.text();
+            const parser = new DOMParser();
+            const xml = parser.parseFromString(text, 'application/xml');
+            clients = Array.from(xml.getElementsByTagName('Client')).map(c => ({
+              Name: c.getElementsByTagName('Name')[0]?.textContent.trim(),
+              WebAddress: c.getElementsByTagName('WebAddress')[0]?.textContent.trim()
+            }));
+          }
           agencies = clients.map(c => {
-            const name = c.getElementsByTagName('Name')[0]?.textContent.trim();
-            const webAddress = c.getElementsByTagName('WebAddress')[0]?.textContent.trim();
+            const name = c.Name?.trim();
+            const webAddress = c.WebAddress?.trim();
             if (!name || !webAddress) return null;
             const url = webAddress.startsWith('http') ? webAddress : `http://${webAddress}`;
             return { name, url };
