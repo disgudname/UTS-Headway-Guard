@@ -209,7 +209,9 @@
             const name = c.Name?.trim();
             const webAddress = c.WebAddress?.trim();
             if (!name || !webAddress) return null;
-            const url = webAddress.startsWith('http') ? webAddress : `http://${webAddress}`;
+            const url = webAddress.startsWith('http')
+              ? webAddress.replace(/^http:\/\//i, 'https://')
+              : `https://${webAddress}`;
             return { name, url };
           }).filter(Boolean);
           agencies.sort((a, b) => a.name.localeCompare(b.name));
