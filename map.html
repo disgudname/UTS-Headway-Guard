@@ -180,6 +180,8 @@
       let previousBusData = {};
       let cachedEtas = {};
       let customPopups = [];
+      let allRouteBounds = null;
+      let mapHasFitAllRoutes = false;
 
       function positionRouteTab() {
         const panel = document.getElementById("routeSelector");
@@ -565,7 +567,7 @@
           .catch(error => console.error("Error fetching route colors:", error));
       }
 
-      // Fetch route paths from GetRoutesForMapWithSchedule.
+      // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
       function fetchRoutePaths() {
           const routePathsApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681";
           fetch(routePathsApiUrl)
@@ -573,6 +575,7 @@
               .then(data => {
                   routeLayers.forEach(layer => map.removeLayer(layer));
                   routeLayers = [];
+                  let bounds = null;
                   if (Array.isArray(data)) {
                       data.forEach(route => {
                           // Store InfoText for use in the route selector.
@@ -581,17 +584,29 @@
                           } else {
                               allRoutes[route.RouteID] = route;
                           }
-                          if (route.EncodedPolyline && (adminMode || route.IsVisibleOnMap) && isRouteSelected(route.RouteID)) {
+                          if (route.EncodedPolyline) {
                               const decodedPolyline = polyline.decode(route.EncodedPolyline);
-                              let routeColor = getRouteColor(route.RouteID);
-                              const routeLayer = L.polyline(decodedPolyline, {
-                                  color: routeColor,
-                                  weight: 6,
-                                  opacity: 1
-                              }).addTo(map);
-                              routeLayers.push(routeLayer);
+                              const polyBounds = L.latLngBounds(decodedPolyline);
+                              bounds = bounds ? bounds.extend(polyBounds) : polyBounds;
+
+                              if ((adminMode || route.IsVisibleOnMap) && isRouteSelected(route.RouteID)) {
+                                  let routeColor = getRouteColor(route.RouteID);
+                                  const routeLayer = L.polyline(decodedPolyline, {
+                                      color: routeColor,
+                                      weight: 6,
+                                      opacity: 1
+                                  }).addTo(map);
+                                  routeLayers.push(routeLayer);
+                              }
                           }
                       });
+                      if (bounds) {
+                          allRouteBounds = bounds;
+                          if (!mapHasFitAllRoutes) {
+                              map.fitBounds(allRouteBounds, { padding: [20, 20] });
+                              mapHasFitAllRoutes = true;
+                          }
+                      }
                       if (adminMode) {
                           updateRouteSelector(activeRoutes);
                       }
