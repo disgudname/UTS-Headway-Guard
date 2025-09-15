@@ -748,7 +748,7 @@
                           const vehicleID = vehicle.VehicleID;
                           const newPosition = [vehicle.Latitude, vehicle.Longitude];
                           const isMoving = vehicle.GroundSpeed > 0;
-                          const busName = vehicle.Name.slice(0, -2);
+                          const busName = vehicle.Name;
                           let routeID = vehicle.RouteID;
                           if (!routeID && adminMode) {
                               routeID = 0;
