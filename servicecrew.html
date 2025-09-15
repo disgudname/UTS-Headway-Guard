@@ -111,8 +111,12 @@ async function loadBlockMap(){
 }
 
 function todayStr(){
-  // Ensure date is computed in Charlottesville's timezone
-  return new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+  // Treat "today" as the 24h period starting at the most recent 3AM
+  const tz='America/New_York';
+  const now=new Date();
+  const hour=parseInt(new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'2-digit',hour12:false}).format(now),10);
+  const day=hour<3?new Date(now.getTime()-86400000):now;
+  return day.toLocaleDateString('en-CA',{timeZone:tz});
 }
 async function fetchData(){
   const date=todayStr();
