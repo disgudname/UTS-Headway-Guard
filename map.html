@@ -149,11 +149,13 @@
     </style>
     <script>
       // Manually set these variables.
-      // adminMode: true for admin view (with route selector, speed bubbles, etc.).
+      // adminMode: true for admin view (with speed/block bubbles and unit numbers).
       //            Can be disabled via URL param `adminMode=false`.
+      //            In public mode (adminMode=false) the route selector is still shown
+      //            but only for routes that are public-facing.
       // kioskMode: true to hide the route selector panel and tab.
       // showSpeed/showBlockNumbers: only one may be true at a time.
-      let adminMode = true; // shows unit numbers, enables route selector and show/hide toggle
+      let adminMode = true; // shows unit numbers and speed/block bubbles
       let kioskMode = false; // adminMode must = true for kisokMode to work
       let showSpeed = false; // default to showing block numbers
       let showBlockNumbers = true;
@@ -258,11 +260,9 @@
       // Tracks routes that currently have at least one vehicle assigned.
       let activeRoutes = new Set();
 
-      // In public mode, always show routes. In admin mode, default to showing
-      // only routes that currently have vehicles unless the user overrides the
-      // selection via the route selector.
+      // Routes default to visible if they currently have vehicles unless the user
+      // overrides the selection via the route selector.
       function isRouteSelected(routeID) {
-        if (!adminMode) return true;
         if (routeSelections.hasOwnProperty(routeID)) return routeSelections[routeID];
         return activeRoutes.has(Number(routeID));
       }
@@ -299,18 +299,22 @@
           html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
         });
         html += "</select><br/><br/>";
-        // Add the speed/block toggle button.
-        html += "<div style='margin-bottom:10px;'><button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button></div>";
+        if (adminMode) {
+          // Add the speed/block toggle button in admin mode only.
+          html += "<div style='margin-bottom:10px;'><button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button></div>";
+        }
         html += "<h3>Select Routes</h3>" +
           "<button onclick='selectAllRoutes()'>Select All</button>" +
           "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
 
-        // Add Out of Service option (routeID 0) at the top.
-        let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
-        html += `<label>
+        if (adminMode) {
+          // Add Out of Service option (routeID 0) at the top for admin mode.
+          let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
+          html += `<label>
             <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
             <span class="color-box" style="background:${outOfServiceRouteColor};"></span> Out of Service
           </label>`;
+        }
 
         // Get an array of route IDs (excluding 0) from allRoutes.
         let routeIDs = Object.keys(allRoutes).map(Number).filter(id => id !== 0);
@@ -356,26 +360,32 @@
       }
 
       function selectAllRoutes() {
-        let outChk = document.getElementById("route_0");
-        if (outChk) outChk.checked = true;
+        if (adminMode) {
+          let outChk = document.getElementById("route_0");
+          if (outChk) outChk.checked = true;
+          routeSelections[0] = true;
+        }
         for (let routeID in allRoutes) {
+          if (!adminMode && Number(routeID) === 0) continue;
           let chk = document.getElementById("route_" + routeID);
           if (chk) chk.checked = true;
           routeSelections[routeID] = true;
         }
-        routeSelections[0] = true;
         refreshMap();
       }
 
       function deselectAllRoutes() {
-        let outChk = document.getElementById("route_0");
-        if (outChk) outChk.checked = false;
+        if (adminMode) {
+          let outChk = document.getElementById("route_0");
+          if (outChk) outChk.checked = false;
+          routeSelections[0] = false;
+        }
         for (let routeID in allRoutes) {
+          if (!adminMode && Number(routeID) === 0) continue;
           let chk = document.getElementById("route_" + routeID);
           if (chk) chk.checked = false;
           routeSelections[routeID] = false;
         }
-        routeSelections[0] = false;
         refreshMap();
       }
 
@@ -464,7 +474,7 @@
           cartoLight.addTo(map);
           
           fetchRouteColors().then(() => {
-              if (!(adminMode && !kioskMode)) {
+              if (kioskMode) {
                 document.getElementById("routeSelector").style.display = "none";
                 document.getElementById("routeSelectorTab").style.display = "none";
               }
@@ -724,9 +734,7 @@
                               mapHasFitAllRoutes = true;
                           }
                       }
-                      if (adminMode) {
-                          updateRouteSelector(activeRoutes);
-                      }
+                      updateRouteSelector(activeRoutes);
                       stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
                   }
               })
@@ -828,9 +836,7 @@
 
                       // Update global activeRoutes and rebuild selector before rendering.
                       activeRoutes = activeRoutesSet;
-                      if (adminMode) {
-                          updateRouteSelector(activeRoutesSet);
-                      }
+                      updateRouteSelector(activeRoutesSet);
 
                       // Second pass: render only selected routes.
                       vehicles.forEach(v => {
