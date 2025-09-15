@@ -10,6 +10,7 @@ table{border-collapse:collapse;width:100%;margin-top:20px;}
 th,td{padding:8px;border:1px solid #2a3442;text-align:left;}
 th{background:#15202b}
 tr.stale{opacity:0.5}
+td.speeding{background:#8b0000;color:#fff}
 .hint{color:var(--muted,#9fb0c9);text-align:center}
 .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 </style>
@@ -79,11 +80,12 @@ async function load(){
       const tr=document.createElement('tr');
       if(!r.fresh) tr.classList.add('stale');
       const cells=[r.name,r.block,r.road,r.limit!=null?r.limit.toFixed(1):'',r.speed!=null?r.speed.toFixed(1):''];
-      for(const c of cells){
+      cells.forEach((c,i)=>{
         const td=document.createElement('td');
         td.textContent=c;
+        if(i===4 && r.limit!=null && r.speed!=null && r.speed>r.limit) td.classList.add('speeding');
         tr.append(td);
-      }
+      });
       return tr;
     }));
     return cfg;
