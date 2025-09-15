@@ -510,6 +510,7 @@
                               weight: 3
                           }).addTo(map);
                           const routeStopIds = groupedStops[key].map(stop => stop.RouteStopID);
+                          const unifiedStopId = groupedStops[key][0].StopID || groupedStops[key][0].StopId;
                           const etas = [];
                           routeStopIds.forEach(routeStopId => {
                               if (cachedEtas[routeStopId]) {
@@ -522,7 +523,7 @@
                                   .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`).join('')
                             : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
                           stopMarker.on('click', () => {
-                              createCustomPopup(stopPosition, stopNames, etaText, routeStopIds);
+                              createCustomPopup(stopPosition, stopNames, etaText, routeStopIds, unifiedStopId);
                           });
                           stopMarkers.push(stopMarker);
                       });
@@ -532,7 +533,7 @@
               .catch(error => console.error("Error fetching bus stops:", error));
       }
 
-      function createCustomPopup(position, stopName, etaText, routeStopIds) {
+      function createCustomPopup(position, stopName, etaText, routeStopIds, stopId) {
           customPopups.forEach(popup => popup.remove());
           customPopups = [];
           const popupElement = document.createElement('div');
@@ -550,11 +551,10 @@
               </tbody>
             </table>
           `;
-          const stopNumbers = routeStopIds.join(', ');
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
             <span style="font-size: 16px; font-weight: bold;">${stopName}</span><br>
-            <span>Stop #: ${stopNumbers}</span><br>
+            <span>Stop ID: ${stopId}</span><br>
             ${etaTable}
             <div class="custom-popup-arrow"></div>
           `;
@@ -562,6 +562,7 @@
           popupElement.dataset.position = `${position[0]},${position[1]}`;
           popupElement.dataset.stopName = stopName.replace('Stop Name: ', '');
           popupElement.dataset.routeStopIds = JSON.stringify(routeStopIds);
+          popupElement.dataset.stopId = stopId;
           updatePopupPosition(popupElement, position);
           popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
               popupElement.remove();
@@ -614,11 +615,11 @@
                       </tbody>
                     </table>
                   `;
-                  const stopNumbers = routeStopIds.join(', ');
+                  const stopId = popupElement.dataset.stopId;
                   popupElement.innerHTML = `
                     <button class="custom-popup-close">&times;</button>
                     <span style="font-size: 16px; font-weight: bold;">${popupElement.dataset.stopName}</span><br>
-                    <span>Stop #: ${stopNumbers}</span><br>
+                    <span>Stop ID: ${stopId}</span><br>
                     ${etaTable}
                     <div class="custom-popup-arrow"></div>
                   `;
