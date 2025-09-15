@@ -186,59 +186,35 @@
       let mapHasFitAllRoutes = false;
       let refreshIntervals = [];
 
-      const agencies = [
-        { url: 'https://uva.transloc.com', name: 'University Transit Service (UVA)' },
-        { url: 'https://ahn.ridesystems.net', name: 'AHN (Allegheny Health Network)' },
-        { url: 'https://byui.ridesystems.net', name: 'BYU Idaho CatTracks' },
-        { url: 'https://bc.transloc.com', name: 'Boston College' },
-        { url: 'https://bu.transloc.com', name: 'Boston University' },
-        { url: 'https://casewestern.transloc.com', name: 'Case Western Reserve University' },
-        { url: 'https://childrenshealth.ridesystems.net', name: 'Children\'s Health Dallas' },
-        { url: 'https://montgomery.transloc.com', name: 'City of Montgomery (The M)' },
-        { url: 'https://duke.transloc.com', name: 'Duke University' },
-        { url: 'https://fairfield.transloc.com', name: 'Fairfield University' },
-        { url: 'https://flight.transloc.com', name: 'Flight Shuttles' },
-        { url: 'https://fdl.ridesystems.net', name: 'Fond du Lac Transit' },
-        { url: 'https://freddiemac.ridesystems.net', name: 'Freddie Mac (McLean, VA)' },
-        { url: 'https://mason.ridesystems.net', name: 'George Mason University' },
-        { url: 'https://glaciervalley.transloc.com', name: 'Glacier Valley Transit (AK)' },
-        { url: 'https://gspshuttle.ridesystems.net', name: 'Greenville-Spartanburg International Airport' },
-        { url: 'https://gspshuttle.ridesystems.net', name: 'Gulfport/Biloxi International Airport' },
-        { url: 'https://howarduniversity.ridesystems.net', name: 'Howard University (DC)' },
-        { url: 'https://ict.ridesystems.net', name: 'ICT Shuttle (Wichita, KS)' },
-        { url: 'https://southpadreisland.ridesystems.net', name: 'Island Metro (South Padre Island, TX)' },
-        { url: 'https://jumparoundcarson.transloc.com', name: 'Jump Around Carson (Carson City, NV)' },
-        { url: 'https://ridelax.ridesystems.net', name: 'LAX Parking Shuttles' },
-        { url: 'https://laxtransportation.ridesystems.net', name: 'LAZ Fly Airport Parking' },
-        { url: 'https://lasalle.ridesystems.net', name: 'La Salle University' },
-        { url: 'https://cityofmcallen.ridesystems.net', name: 'Metro McAllen (TX)' },
-        { url: 'http://www.nashvilleairport.ridesystems.net', name: 'Nashville International Airport' },
-        { url: 'https://occk.transloc.com', name: 'OCCK, Inc. (Kansas)' },
-        { url: 'https://oxfordms.transloc.com', name: 'Oxford University Transit (MS)' },
-        { url: 'https://premiercoach.ridesystems.net', name: 'Premier Coach (VT)' },
-        { url: 'http://www.rice.ridesystems.net', name: 'Rice University' },
-        { url: 'https://richmond.ridesystems.net', name: 'Richmond International Airport' },
-        { url: 'https://rmu.transloc.com', name: 'Robert Morris University' },
-        { url: 'https://slcairport.ridesystems.net', name: 'Salt Lake City International Airport' },
-        { url: 'https://samford.ridesystems.net', name: 'Samford University' },
-        { url: 'https://thebus.okstate.edu', name: 'The Bus (Oklahoma State University)' },
-        { url: 'https://ucmerced.ridesystems.net', name: 'UC Merced Cattracks' },
-        { url: 'https://ummc.transloc.com', name: 'UMMC (Univ. of Mississippi Medical Center)' },
-        { url: 'https://umboston.transloc.com', name: 'UMass Boston' },
-        { url: 'https://universal.ridesystems.net', name: 'Universal Studios Hollywood' },
-        { url: 'https://universityofcalifornia.transloc.com', name: 'University of California System' },
-        { url: 'http://www.cougarline.ridesystems.net', name: 'University of Houston' },
-        { url: 'https://umb.ridesystems.net', name: 'University of Maryland Baltimore' },
-        { url: 'https://upmc.ridesystems.net', name: 'University of Pittsburgh Medical Center' },
-        { url: 'https://utrgv.ridesystems.net', name: 'University of Texas Rio Grande Valley' },
-        { url: 'https://uwashington.ridesystems.net', name: 'University of Washington' },
-        { url: 'https://vrt.ridesystems.net', name: 'Valparaiso Region Transit (VA)' },
-        { url: 'https://wacotransit.ridesystems.net', name: 'Waco Transit Systems (TX)' },
-        { url: 'https://wcu.transloc.com', name: 'West Chester University' },
-        { url: 'https://yorkschools.ridesystems.net', name: 'York County (PA) Schools Shuttle' },
-        { url: 'https://catbus.ridesystems.net', name: 'catbus (Clemson Area Transit)' }
-      ];
-      let baseURL = agencies[0].url;
+      let agencies = [];
+      let baseURL = '';
+
+      async function loadAgencies() {
+        try {
+          const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
+          const text = await response.text();
+          const parser = new DOMParser();
+          const xml = parser.parseFromString(text, 'application/xml');
+          const clients = Array.from(xml.getElementsByTagName('Client'));
+          agencies = clients.map(c => {
+            const name = c.getElementsByTagName('Name')[0]?.textContent.trim();
+            const webAddress = c.getElementsByTagName('WebAddress')[0]?.textContent.trim();
+            if (!name || !webAddress) return null;
+            const url = webAddress.startsWith('http') ? webAddress : `http://${webAddress}`;
+            return { name, url };
+          }).filter(Boolean);
+          agencies.sort((a, b) => a.name.localeCompare(b.name));
+          const uvaIndex = agencies.findIndex(a => a.name === 'University of Virginia');
+          if (uvaIndex > -1) {
+            const uva = agencies.splice(uvaIndex, 1)[0];
+            agencies.unshift(uva);
+          }
+          baseURL = agencies[0]?.url || '';
+          updateRouteSelector(activeRoutes, true);
+        } catch (e) {
+          console.error('Failed to load agencies', e);
+        }
+      }
 
       function positionRouteTab() {
         const panel = document.getElementById("routeSelector");
@@ -1011,7 +987,9 @@
         requestAnimationFrame(animate);
       }
 
-      document.addEventListener("DOMContentLoaded", initMap);
+      document.addEventListener("DOMContentLoaded", () => {
+        loadAgencies().then(initMap);
+      });
     </script>
   </head>
   <body>
