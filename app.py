@@ -302,6 +302,7 @@ class Route:
     length_m: float
     color: Optional[str] = None
     seg_caps_mps: List[float] = field(default_factory=list)
+    seg_names: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -355,11 +356,11 @@ async def fetch_block_groups(client: httpx.AsyncClient) -> List[Dict]:
         return r2.json().get("BlockGroups", [])
     return []
 
-async def fetch_overpass_speed_profile(route: Route, client: httpx.AsyncClient) -> List[float]:
-    """Build per-segment speed caps (m/s) using OSM maxspeed data."""
+async def fetch_overpass_speed_profile(route: Route, client: httpx.AsyncClient) -> Tuple[List[float], List[str]]:
+    """Build per-segment speed caps (m/s) and road names using OSM maxspeed data."""
     pts = route.poly
     if len(pts) < 2:
-        return []
+        return [], []
     lats = [p[0] for p in pts]
     lons = [p[1] for p in pts]
     pad = 0.001  # ~100m padding to cover route bbox
@@ -376,7 +377,7 @@ out geom;
         r.raise_for_status()
         data = r.json()
     except Exception:
-        return [DEFAULT_CAP_MPS for _ in range(len(pts)-1)]
+        return [DEFAULT_CAP_MPS for _ in range(len(pts)-1)], [""] * (len(pts)-1)
 
     ways: List[Dict[str, Any]] = []
     for el in data.get("elements", []):
@@ -386,26 +387,32 @@ out geom;
         ways.append({
             "speed_mps": mph * MPH_TO_MPS,
             "geometry": el.get("geometry", []),
+            "name": el.get("tags", {}).get("name", ""),
         })
 
     caps: List[float] = []
+    names: List[str] = []
     for i in range(len(pts)-1):
         a = pts[i]
         b = pts[i+1]
         mid_lat = (a[0] + b[0]) / 2
         mid_lon = (a[1] + b[1]) / 2
         best_speed = DEFAULT_CAP_MPS
+        best_name = ""
         best_d = 50.0  # meters
         for way in ways:
             speed = way["speed_mps"]
+            name = way.get("name", "")
             for node in way["geometry"]:
                 d = haversine((mid_lat, mid_lon), (node.get("lat"), node.get("lon")))
                 if d < best_d:
                     best_d = d
                     best_speed = speed
+                    best_name = name
         caps.append(best_speed)
+        names.append(best_name)
 
-    return caps
+    return caps, names
 
 
 async def fetch_low_clearances(client: httpx.AsyncClient) -> List[Dict[str, float]]:
@@ -645,6 +652,7 @@ REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
+BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
 
 DEVICE_STOP_NAME = Path(os.environ.get("DEVICE_STOP_FILE", "device_stops.json")).name
 DEVICE_STOP_FILE = PRIMARY_DATA_DIR / DEVICE_STOP_NAME
@@ -945,7 +953,9 @@ async def startup():
                                     col = f"#{col}"
                                 route = Route(id=rid, name=name, encoded=enc, poly=poly, cum=cum, length_m=length, color=col)
                                 # fetch speed profile (fetch-once policy)
-                                route.seg_caps_mps = await fetch_overpass_speed_profile(route, client)
+                                caps, names = await fetch_overpass_speed_profile(route, client)
+                                route.seg_caps_mps = caps
+                                route.seg_names = names
                                 state.routes[rid] = route
 
                         # Vehicles per route: rebuild from fresh data only to avoid lingering assignments
@@ -1273,8 +1283,17 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
 async def route_vehicles_raw(route_id: int):
     async with state.lock:
         vehs = state.vehicles_by_route.get(route_id, {})
+        route = state.routes.get(route_id)
         items = []
         for v in vehs.values():
+            seg_idx = getattr(v, "seg_idx", 0)
+            road = ""
+            cap = DEFAULT_CAP_MPS
+            if route:
+                if route.seg_names and seg_idx < len(route.seg_names):
+                    road = route.seg_names[seg_idx]
+                if route.seg_caps_mps and seg_idx < len(route.seg_caps_mps):
+                    cap = route.seg_caps_mps[seg_idx]
             items.append({
                 "id": v.id,
                 "name": v.name,
@@ -1286,6 +1305,8 @@ async def route_vehicles_raw(route_id: int):
                 "ema_mps": getattr(v, "ema_mps", 0.0),
                 "dir_sign": getattr(v, "dir_sign", 0),
                 "age_s": getattr(v, "age_s", 0.0),
+                "road": road,
+                "speed_limit_mps": cap,
             })
         return {"vehicles": items}
 
@@ -1525,6 +1546,13 @@ async def debug_page():
 @app.get("/admin")
 async def admin_page():
     return HTMLResponse(ADMIN_HTML)
+
+# ---------------------------
+# BUSES PAGE
+# ---------------------------
+@app.get("/buses")
+async def buses_page():
+    return HTMLResponse(BUS_TABLE_HTML)
 
 # ---------------------------
 # CONFIG
