@@ -34,13 +34,41 @@ td.speeding{background:#8b0000;color:#fff}
 const MPH_PER_MPS = 2.23694;
 let STALE_LIMIT = 90;
 function parseBlocks(res){
+  const alias={
+    "[01]":"[01]/[04]",
+    "[03]":"[05]/[03]",
+    "[04]":"[01]/[04]",
+    "[05]":"[05]/[03]",
+    "[06]":"[22]/[06]",
+    "[10]":"[20]/[10]",
+    "[15]":"[26]/[15]",
+    "[16] AM":"[21]/[16] AM",
+    "[17]":"[23]/[17]",
+    "[18] AM":"[24]/[18] AM",
+    "[20] AM":"[20]/[10]",
+    "[21] AM":"[21]/[16] AM",
+    "[22] AM":"[22]/[06]",
+    "[23]":"[23]/[17]",
+    "[24] AM":"[24]/[18] AM",
+    "[26] AM":"[26]/[15]"
+  };
+  function aliasBlock(b){
+    const key=String(b||'').trim();
+    return alias[key]||key;
+  }
   const map=new Map();
   for(const g of res.block_groups||[]){
+    const busMap=new Map();
     for(const b of g.Blocks||[]){
-      const trip=b.Trips?.[0];
-      const bus=trip?.VehicleName;
+      const bus=b.Trips?.[0]?.VehicleName;
       if(!bus) continue;
-      const key=b.BlockId || g.BlockGroupId;
+      const key=aliasBlock(b.BlockId || g.BlockGroupId);
+      const prev=busMap.get(bus);
+      if(!prev || (!prev.includes('[') && key.includes('['))){
+        busMap.set(bus,key);
+      }
+    }
+    for(const [bus,key] of busMap){
       map.set(String(bus), key);
     }
   }
