@@ -18,6 +18,8 @@
 <body>
   <svg id="metroMap"></svg>
   <script>
+    const SNAP_GRID = 3e-4;
+    const MERGE_TOLERANCE = 4e-4;
     async function fetchActiveRouteShapes() {
       const resp = await fetch('/v1/routes');
       const data = await resp.json();
@@ -74,10 +76,9 @@
     }
 
     function snapPoint(p) {
-      const grid = 1e-4;
       return {
-        lat: Math.round(p.lat / grid) * grid,
-        lon: Math.round(p.lon / grid) * grid
+        lat: Math.round(p.lat / SNAP_GRID) * SNAP_GRID,
+        lon: Math.round(p.lon / SNAP_GRID) * SNAP_GRID
       };
     }
 
@@ -107,16 +108,30 @@
 
     function prepareSegments(shapes) {
       const segs = {};
+      const dist = (a, b) => Math.hypot(a.lon - b.lon, a.lat - b.lat);
       for (const route of shapes) {
         const pts = simplifyPath(route.pts, 0.0005).map(p => snapPoint(p));
         for (let i = 1; i < pts.length; i++) {
           const seg = snapSegment(pts[i - 1], pts[i]);
           if (!seg) continue;
-          pts[i] = seg.end;
-          const key = keyForSeg(seg);
-          if (!segs[key]) segs[key] = { start: seg.start, end: seg.end, routes: [] };
-          if (!segs[key].routes.find(r => r.id === route.id)) {
-            segs[key].routes.push({ id: route.id, color: route.color });
+          let key = null;
+          let reverse = false;
+          for (const [k, s] of Object.entries(segs)) {
+            if (dist(seg.start, s.start) < MERGE_TOLERANCE && dist(seg.end, s.end) < MERGE_TOLERANCE) {
+              key = k; break;
+            }
+            if (dist(seg.start, s.end) < MERGE_TOLERANCE && dist(seg.end, s.start) < MERGE_TOLERANCE) {
+              key = k; reverse = true; break;
+            }
+          }
+          if (!key) {
+            key = keyForSeg(seg);
+            if (!segs[key]) segs[key] = { start: seg.start, end: seg.end, routes: [] };
+          }
+          const target = segs[key];
+          pts[i] = reverse ? target.start : target.end;
+          if (!target.routes.find(r => r.id === route.id)) {
+            target.routes.push({ id: route.id, color: route.color });
           }
         }
       }
