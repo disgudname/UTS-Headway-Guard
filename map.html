@@ -436,9 +436,11 @@
               </tbody>
             </table>
           `;
+          const stopNumbers = routeStopIds.join(', ');
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
-            <span style="font-size: 16px; font-weight: bold;">${stopName}</span>
+            <span style="font-size: 16px; font-weight: bold;">${stopName}</span><br>
+            <span>Stop #: ${stopNumbers}</span><br>
             ${etaTable}
             <div class="custom-popup-arrow"></div>
           `;
@@ -498,9 +500,11 @@
                       </tbody>
                     </table>
                   `;
+                  const stopNumbers = routeStopIds.join(', ');
                   popupElement.innerHTML = `
                     <button class="custom-popup-close">&times;</button>
                     <span style="font-size: 16px; font-weight: bold;">${popupElement.dataset.stopName}</span><br>
+                    <span>Stop #: ${stopNumbers}</span><br>
                     ${etaTable}
                     <div class="custom-popup-arrow"></div>
                   `;
