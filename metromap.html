@@ -33,6 +33,38 @@
       return shapes;
     }
 
+    function simplifyPath(points, tolerance) {
+      if (points.length < 3) return points;
+      const sqTol = tolerance * tolerance;
+      const getSqSegDist = (p, a, b) => {
+        let x = a.lon, y = a.lat;
+        let dx = b.lon - x, dy = b.lat - y;
+        if (dx !== 0 || dy !== 0) {
+          const t = ((p.lon - x) * dx + (p.lat - y) * dy) / (dx * dx + dy * dy);
+          if (t > 1) { x = b.lon; y = b.lat; }
+          else if (t > 0) { x += dx * t; y += dy * t; }
+        }
+        dx = p.lon - x; dy = p.lat - y;
+        return dx * dx + dy * dy;
+      };
+      const simplified = [points[0]];
+      function step(first, last) {
+        let maxDist = sqTol, index;
+        for (let i = first + 1; i < last; i++) {
+          const dist = getSqSegDist(points[i], points[first], points[last]);
+          if (dist > maxDist) { index = i; maxDist = dist; }
+        }
+        if (maxDist > sqTol) {
+          if (index - first > 1) step(first, index);
+          simplified.push(points[index]);
+          if (last - index > 1) step(index, last);
+        }
+      }
+      step(0, points.length - 1);
+      simplified.push(points[points.length - 1]);
+      return simplified;
+    }
+
     function snapSegment(p1, p2) {
       let dx = p2.lon - p1.lon;
       let dy = p2.lat - p1.lat;
@@ -58,10 +90,9 @@
     function prepareSegments(shapes) {
       const segs = {};
       for (const route of shapes) {
-        const pts = route.pts;
+        const pts = simplifyPath(route.pts, 0.0005);
         for (let i = 1; i < pts.length; i++) {
-          const seg = snapSegment(pts[i - 1], pts[i]);
-          if (!seg) continue;
+          const seg = { start: pts[i - 1], end: pts[i] };
           const key = keyForSeg(seg);
           if (!segs[key]) segs[key] = { start: seg.start, end: seg.end, routes: [] };
           if (!segs[key].routes.find(r => r.id === route.id)) {
@@ -69,6 +100,10 @@
           }
         }
       }
+      Object.values(segs).forEach(seg => {
+        const s = snapSegment(seg.start, seg.end);
+        if (s) { seg.start = s.start; seg.end = s.end; }
+      });
       return segs;
     }
 
