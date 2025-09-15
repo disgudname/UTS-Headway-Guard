@@ -75,7 +75,17 @@ async function load(){
       tbody.innerHTML='<tr><td class="hint" colspan="5">No buses.</td></tr>';
       return;
     }
-    tbody.innerHTML=rows.map(r=>`<tr class="${r.fresh?'':'stale'}"><td>${r.name}</td><td>${r.block}</td><td>${r.road}</td><td>${r.limit!=null?r.limit.toFixed(1):''}</td><td>${r.speed!=null?r.speed.toFixed(1):''}</td></tr>`).join('');
+    tbody.replaceChildren(...rows.map(r=>{
+      const tr=document.createElement('tr');
+      if(!r.fresh) tr.classList.add('stale');
+      const cells=[r.name,r.block,r.road,r.limit!=null?r.limit.toFixed(1):'',r.speed!=null?r.speed.toFixed(1):''];
+      for(const c of cells){
+        const td=document.createElement('td');
+        td.textContent=c;
+        tr.append(td);
+      }
+      return tr;
+    }));
   }catch(e){
     console.error(e);
   }
