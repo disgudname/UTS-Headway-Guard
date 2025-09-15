@@ -86,9 +86,15 @@ async function load(){
       }
       return tr;
     }));
+    return cfg;
   }catch(e){
     console.error(e);
   }
 }
-load();
+
+load().then(cfg=>{
+  const ms=cfg?.VEH_REFRESH_S!=null?cfg.VEH_REFRESH_S*1000:15000;
+  const interval=Math.min(15000, ms);
+  setInterval(load, interval);
+});
 </script>
