@@ -65,6 +65,14 @@
       return simplified;
     }
 
+    function snapPoint(p) {
+      const grid = 1e-4;
+      return {
+        lat: Math.round(p.lat / grid) * grid,
+        lon: Math.round(p.lon / grid) * grid
+      };
+    }
+
     function snapSegment(p1, p2) {
       let dx = p2.lon - p1.lon;
       let dy = p2.lat - p1.lat;
@@ -75,7 +83,9 @@
       const snap = Math.round(angle / step) * step;
       const nx = Math.cos(snap) * len;
       const ny = Math.sin(snap) * len;
-      return { start: { lat: p1.lat, lon: p1.lon }, end: { lat: p1.lat + ny, lon: p1.lon + nx } };
+      const start = snapPoint(p1);
+      const end = { lat: start.lat + ny, lon: start.lon + nx };
+      return { start, end };
     }
 
     function keyForSeg(seg) {
@@ -90,9 +100,11 @@
     function prepareSegments(shapes) {
       const segs = {};
       for (const route of shapes) {
-        const pts = simplifyPath(route.pts, 0.0005);
+        const pts = simplifyPath(route.pts, 0.0005).map(p => snapPoint(p));
         for (let i = 1; i < pts.length; i++) {
-          const seg = { start: pts[i - 1], end: pts[i] };
+          const seg = snapSegment(pts[i - 1], pts[i]);
+          if (!seg) continue;
+          pts[i] = seg.end;
           const key = keyForSeg(seg);
           if (!segs[key]) segs[key] = { start: seg.start, end: seg.end, routes: [] };
           if (!segs[key].routes.find(r => r.id === route.id)) {
@@ -100,10 +112,6 @@
           }
         }
       }
-      Object.values(segs).forEach(seg => {
-        const s = snapSegment(seg.start, seg.end);
-        if (s) { seg.start = s.start; seg.end = s.end; }
-      });
       return segs;
     }
 
