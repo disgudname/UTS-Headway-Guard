@@ -183,6 +183,31 @@
       let allRouteBounds = null;
       let mapHasFitAllRoutes = false;
 
+      const agencies = [
+        { url: 'https://uva.transloc.com', name: 'University Transit Service (UVA)' },
+        { url: 'https://richmond.ridesystems.net', name: 'Richmond International Airport' },
+        { url: 'https://utrgv.ridesystems.net', name: 'University of Texas Rio Grande Valley' },
+        { url: 'https://cityofmcallen.ridesystems.net', name: 'Metro McAllen (TX)' },
+        { url: 'https://upmc.ridesystems.net', name: 'University of Pittsburgh Medical Center' },
+        { url: 'https://southpadreisland.ridesystems.net', name: 'Island Metro (South Padre Island, TX)' },
+        { url: 'https://howarduniversity.ridesystems.net', name: 'Howard University (DC)' },
+        { url: 'https://premiercoach.ridesystems.net', name: 'Premier Coach (VT)' },
+        { url: 'https://wacotransit.ridesystems.net', name: 'Waco Transit Systems (TX)' },
+        { url: 'http://www.nashvilleairport.ridesystems.net', name: 'Nashville International Airport' },
+        { url: 'https://slcairport.ridesystems.net', name: 'Salt Lake City International Airport' },
+        { url: 'https://thebus.okstate.edu', name: 'The Bus (Oklahoma State University)' },
+        { url: 'http://www.cougarline.ridesystems.net', name: 'University of Houston' },
+        { url: 'https://laxtransportation.ridesystems.net', name: 'LAZ Fly Airport Parking' },
+        { url: 'https://ridelax.ridesystems.net', name: 'LAX Parking Shuttles' },
+        { url: 'https://catbus.ridesystems.net', name: 'catbus (Clemson Area Transit)' },
+        { url: 'https://gspshuttle.ridesystems.net', name: 'Greenville-Spartanburg International Airport' },
+        { url: 'https://umb.ridesystems.net', name: 'University of Maryland Baltimore' },
+        { url: 'https://freddiemac.ridesystems.net', name: 'Freddie Mac (McLean, VA)' },
+        { url: 'http://www.rice.ridesystems.net', name: 'Rice University' },
+        { url: 'https://mason.ridesystems.net', name: 'George Mason University' }
+      ];
+      let baseURL = agencies[0].url;
+
       function positionRouteTab() {
         const panel = document.getElementById("routeSelector");
         const tab = document.getElementById("routeSelectorTab");
@@ -232,6 +257,12 @@
         const container = document.getElementById("routeSelector");
         if (!container) return;
         let html = "";
+        html += "<label for='agencySelect'>Select System:</label>";
+        html += "<select id='agencySelect' onchange='changeAgency(this.value)'>";
+        agencies.forEach(a => {
+          html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
+        });
+        html += "</select><br/><br/>";
         // Add the speed/block toggle button.
         html += "<div style='margin-bottom:10px;'><button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button></div>";
         html += "<h3>Select Routes</h3>" +
@@ -331,6 +362,39 @@
         fetchBusLocations().then(fetchRoutePaths);
       }
 
+      function changeAgency(url) {
+        baseURL = url;
+        Object.values(markers).forEach(m => map.removeLayer(m));
+        markers = {};
+        Object.values(nameBubbles).forEach(b => {
+          if (b.speedMarker) map.removeLayer(b.speedMarker);
+          if (b.nameMarker) map.removeLayer(b.nameMarker);
+          if (b.blockMarker) map.removeLayer(b.blockMarker);
+        });
+        nameBubbles = {};
+        stopMarkers.forEach(m => map.removeLayer(m));
+        stopMarkers = [];
+        routeLayers.forEach(l => map.removeLayer(l));
+        routeLayers = [];
+        busBlocks = {};
+        previousBusData = {};
+        cachedEtas = {};
+        customPopups.forEach(p => p.remove());
+        customPopups = [];
+        allRoutes = {};
+        routeSelections = {};
+        activeRoutes = new Set();
+        allRouteBounds = null;
+        mapHasFitAllRoutes = false;
+        updateRouteSelector(new Set());
+        fetchRouteColors().then(() => {
+          fetchBusStops();
+          fetchBlockAssignments();
+          fetchBusLocations().then(fetchRoutePaths);
+          fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; updateCustomPopups(); });
+        });
+      }
+
       function getRouteColor(routeID) {
         if (routeID === 0) return outOfServiceRouteColor;
         return routeColors[routeID] || '#000000';
@@ -373,7 +437,7 @@
       }
 
       function fetchBusStops() {
-          const stopsApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetStops?APIKey=8882812681";
+          const stopsApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
           fetch(stopsApiUrl)
               .then(response => response.json())
               .then(data => {
@@ -519,7 +583,7 @@
       }
 
       function fetchStopArrivalTimes() {
-          const arrivalTimesApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681";
+          const arrivalTimesApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681`;
           return fetch(arrivalTimesApiUrl)
               .then(response => response.json())
               .then(data => {
@@ -548,7 +612,7 @@
       // Fetch routes from GetRoutes.
       function fetchRouteColors() {
         console.log('Fetching route colors...');
-        const routesApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681";
+        const routesApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681`;
         return fetch(routesApiUrl)
           .then(response => response.json())
           .then(data => {
@@ -569,7 +633,7 @@
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
       function fetchRoutePaths() {
-          const routePathsApiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681";
+          const routePathsApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
           fetch(routePathsApiUrl)
               .then(response => response.json())
               .then(data => {
@@ -621,7 +685,7 @@
       function fetchBlockAssignments() {
           const d = new Date();
           const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-          const schedUrl = `https://uva.transloc.com/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
+          const schedUrl = `${baseURL}/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
           fetch(schedUrl)
               .then(response => response.json())
               .then(sched => {
@@ -630,7 +694,7 @@
                       busBlocks = {};
                       return;
                   }
-                  const blockUrl = `https://uva.transloc.com/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString=${ids}`;
+                  const blockUrl = `${baseURL}/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString=${ids}`;
                   return fetch(blockUrl).then(r => r.json());
               })
               .then(data => {
@@ -667,7 +731,7 @@
       }
 
       function fetchBusLocations() {
-          const apiUrl = "https://uva.transloc.com/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true";
+          const apiUrl = `${baseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           return fetch(apiUrl)
               .then(response => {
                   if (!response.ok) throw new Error("Network response was not ok: " + response.statusText);
