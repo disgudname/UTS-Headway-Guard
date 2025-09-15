@@ -254,13 +254,13 @@
       // updateRouteSelector rebuilds the route selector panel.
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
-      function updateRouteSelector(activeRoutes) {
+      function updateRouteSelector(activeRoutes, forceUpdate = false) {
         const container = document.getElementById("routeSelector");
         if (!container) return;
         // If the agency dropdown is currently focused (open), skip rebuilding
         // the selector to avoid closing the dropdown.
         const agencyDropdown = document.getElementById('agencySelect');
-        if (agencyDropdown && document.activeElement === agencyDropdown) {
+        if (!forceUpdate && agencyDropdown && document.activeElement === agencyDropdown) {
           return;
         }
         let html = "";
@@ -412,7 +412,7 @@
         activeRoutes = new Set();
         allRouteBounds = null;
         mapHasFitAllRoutes = false;
-        updateRouteSelector(new Set());
+        updateRouteSelector(new Set(), true);
         fetchRouteColors().then(() => {
           fetchBusStops();
           fetchBlockAssignments();
