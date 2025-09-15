@@ -182,6 +182,7 @@
       let customPopups = [];
       let allRouteBounds = null;
       let mapHasFitAllRoutes = false;
+      let refreshIntervals = [];
 
       const agencies = [
         { url: 'https://uva.transloc.com', name: 'University Transit Service (UVA)' },
@@ -362,7 +363,26 @@
         fetchBusLocations().then(fetchRoutePaths);
       }
 
+      function clearRefreshIntervals() {
+        refreshIntervals.forEach(clearInterval);
+        refreshIntervals = [];
+      }
+
+      function startRefreshIntervals() {
+        refreshIntervals.push(setInterval(fetchBusLocations, 4000));
+        refreshIntervals.push(setInterval(fetchBusStops, 60000));
+        refreshIntervals.push(setInterval(fetchBlockAssignments, 60000));
+        refreshIntervals.push(setInterval(() => {
+          fetchStopArrivalTimes().then(allEtas => {
+            cachedEtas = allEtas;
+            updateCustomPopups();
+          });
+        }, 15000));
+        refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
+      }
+
       function changeAgency(url) {
+        clearRefreshIntervals();
         baseURL = url;
         Object.values(markers).forEach(m => map.removeLayer(m));
         markers = {};
@@ -392,6 +412,7 @@
           fetchBlockAssignments();
           fetchBusLocations().then(fetchRoutePaths);
           fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; updateCustomPopups(); });
+          startRefreshIntervals();
         });
       }
 
@@ -419,28 +440,20 @@
               fetchBusStops();
               fetchBlockAssignments();
               fetchBusLocations().then(fetchRoutePaths);
-
-              setInterval(fetchBusLocations, 4000);
-              setInterval(fetchBusStops, 60000);
-              setInterval(fetchBlockAssignments, 60000);
-              setInterval(() => {
-                  fetchStopArrivalTimes().then(allEtas => {
-                      cachedEtas = allEtas;
-                      updateCustomPopups();
-                  });
-              }, 15000);
+              startRefreshIntervals();
           });
-          setInterval(fetchRoutePaths, 15000);
           fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
           map.on('move', updatePopupPositions);
           map.on('zoom', updatePopupPositions);
       }
 
       function fetchBusStops() {
-          const stopsApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
+          const currentBaseURL = baseURL;
+          const stopsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
           fetch(stopsApiUrl)
               .then(response => response.json())
               .then(data => {
+                  if (currentBaseURL !== baseURL) return;
                   let stopsArray = data.stops || data;
                   if (stopsArray && Array.isArray(stopsArray)) {
                       stopMarkers.forEach(marker => map.removeLayer(marker));
@@ -583,10 +596,12 @@
       }
 
       function fetchStopArrivalTimes() {
-          const arrivalTimesApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681`;
+          const currentBaseURL = baseURL;
+          const arrivalTimesApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681`;
           return fetch(arrivalTimesApiUrl)
               .then(response => response.json())
               .then(data => {
+                  if (currentBaseURL !== baseURL) return {};
                   let allEtas = {};
                   data.forEach(arrival => {
                       if (!allEtas[arrival.RouteStopId]) {
@@ -633,10 +648,12 @@
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
       function fetchRoutePaths() {
-          const routePathsApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
+          const currentBaseURL = baseURL;
+          const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
           fetch(routePathsApiUrl)
               .then(response => response.json())
               .then(data => {
+                  if (currentBaseURL !== baseURL) return;
                   routeLayers.forEach(layer => map.removeLayer(layer));
                   routeLayers = [];
                   let bounds = null;
@@ -683,21 +700,24 @@
       }
 
       function fetchBlockAssignments() {
+          const currentBaseURL = baseURL;
           const d = new Date();
           const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-          const schedUrl = `${baseURL}/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
+          const schedUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
           fetch(schedUrl)
               .then(response => response.json())
               .then(sched => {
+                  if (currentBaseURL !== baseURL) return;
                   const ids = (sched || []).map(s => s.ScheduleVehicleCalendarID).join(',');
                   if (!ids) {
                       busBlocks = {};
                       return;
                   }
-                  const blockUrl = `${baseURL}/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString=${ids}`;
+                  const blockUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString=${ids}`;
                   return fetch(blockUrl).then(r => r.json());
               })
               .then(data => {
+                  if (currentBaseURL !== baseURL || !data) return;
                   const groups = data?.BlockGroups || [];
                   const alias = {
                       "[01]": "[01]/[04]",
@@ -731,13 +751,15 @@
       }
 
       function fetchBusLocations() {
-          const apiUrl = `${baseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
+          const currentBaseURL = baseURL;
+          const apiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           return fetch(apiUrl)
               .then(response => {
                   if (!response.ok) throw new Error("Network response was not ok: " + response.statusText);
                   return response.json();
               })
               .then(data => {
+                  if (currentBaseURL !== baseURL) return;
                   if (Array.isArray(data)) {
                       let currentBusData = {};
                       let activeRoutesSet = new Set();
