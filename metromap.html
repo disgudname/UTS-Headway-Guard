@@ -24,10 +24,18 @@
       const active = data.routes.filter(r => r.active_vehicles > 0);
       const shapes = await Promise.all(active.map(async (r) => {
         const s = await fetch(`/v1/routes/${r.id}/shape`).then(x => x.json());
+        const pts = polyline.decode(s.polyline).map(p => ({ lat: p[0], lon: p[1] }));
+        if (pts.length > 1) {
+          const start = pts[0];
+          const end = pts[pts.length - 1];
+          if (Math.abs(start.lat - end.lat) + Math.abs(start.lon - end.lon) > 0) {
+            pts[pts.length - 1] = { ...start };
+          }
+        }
         return {
           id: r.id,
           color: s.color,
-          pts: polyline.decode(s.polyline).map(p => ({ lat: p[0], lon: p[1] }))
+          pts
         };
       }));
       return shapes;
@@ -84,7 +92,7 @@
       const nx = Math.cos(snap) * len;
       const ny = Math.sin(snap) * len;
       const start = snapPoint(p1);
-      const end = { lat: start.lat + ny, lon: start.lon + nx };
+      const end = snapPoint({ lat: start.lat + ny, lon: start.lon + nx });
       return { start, end };
     }
 
