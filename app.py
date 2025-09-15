@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from collections import deque
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
 from urllib.parse import quote
@@ -653,6 +653,14 @@ RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
 BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
+NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: HTTPException):
+    if "text/html" in request.headers.get("accept", ""):
+        return HTMLResponse(NOT_FOUND_HTML, status_code=404)
+    detail = getattr(exc, "detail", "Not Found")
+    return JSONResponse({"detail": detail}, status_code=404)
 
 DEVICE_STOP_NAME = Path(os.environ.get("DEVICE_STOP_FILE", "device_stops.json")).name
 DEVICE_STOP_FILE = PRIMARY_DATA_DIR / DEVICE_STOP_NAME
