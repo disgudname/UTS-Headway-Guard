@@ -53,9 +53,8 @@ function snap45(points) {
     }
     const angle = Math.atan2(dy, dx);
     const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-    const snappedLen = Math.round(len / GRID_SIZE) * GRID_SIZE;
-    const nx = prev[0] + Math.cos(snappedAngle) * snappedLen;
-    const ny = prev[1] + Math.sin(snappedAngle) * snappedLen;
+    const nx = prev[0] + Math.cos(snappedAngle) * len;
+    const ny = prev[1] + Math.sin(snappedAngle) * len;
     snapped.push([nx, ny]);
   }
   return snapped;
