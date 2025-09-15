@@ -146,6 +146,8 @@
         #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
       }
       .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
+      .cookie-banner{position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:white;padding:10px;text-align:center;font-size:14px;z-index:1200;}
+      .cookie-banner button{margin-left:10px;}
     </style>
     <script>
       // Manually set these variables.
@@ -220,7 +222,13 @@
             const uva = agencies.splice(uvaIndex, 1)[0];
             agencies.unshift(uva);
           }
-          baseURL = agencies[0]?.url || '';
+          const consent = localStorage.getItem('agencyConsent') === 'true';
+          const storedAgency = consent ? localStorage.getItem('selectedAgency') : null;
+          if (storedAgency && agencies.some(a => a.url === storedAgency)) {
+            baseURL = storedAgency;
+          } else {
+            baseURL = agencies[0]?.url || '';
+          }
           updateRouteSelector(activeRoutes, true);
         } catch (e) {
           console.error('Failed to load agencies', e);
@@ -413,7 +421,22 @@
         refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
       }
 
+      function showCookieBanner() {
+        if (localStorage.getItem('agencyConsent') !== 'true') {
+          const banner = document.getElementById('cookieBanner');
+          banner.style.display = 'block';
+          document.getElementById('cookieAccept').addEventListener('click', () => {
+            localStorage.setItem('agencyConsent', 'true');
+            localStorage.setItem('selectedAgency', baseURL);
+            banner.style.display = 'none';
+          });
+        }
+      }
+
       function changeAgency(url) {
+        if (localStorage.getItem('agencyConsent') === 'true') {
+          localStorage.setItem('selectedAgency', url);
+        }
         clearRefreshIntervals();
         baseURL = url;
         Object.values(markers).forEach(m => map.removeLayer(m));
@@ -999,7 +1022,10 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
-        loadAgencies().then(initMap);
+        loadAgencies().then(() => {
+          initMap();
+          showCookieBanner();
+        });
       });
     </script>
   </head>
@@ -1008,5 +1034,9 @@
     <div id="routeSelector"></div>
     <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
     <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+    <div id="cookieBanner" class="cookie-banner" style="display:none;">
+      This site stores your selected transit agency on your device to remember your preference.
+      <button id="cookieAccept">OK</button>
+    </div>
   </body>
 </html>
