@@ -635,6 +635,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
+METROMAP_HTML = (BASE_DIR / "metromap.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
 SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
 LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
@@ -1481,6 +1482,10 @@ async def fgdc_font():
 async def schematic_js():
     return FileResponse(BASE_DIR / "schematic.js", media_type="application/javascript")
 
+@app.get("/metromap.js", include_in_schema=False)
+async def metromap_js():
+    return FileResponse(BASE_DIR / "metromap.js", media_type="application/javascript")
+
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
@@ -1656,6 +1661,13 @@ async def registerdisplay_page():
 @app.get("/schematic")
 async def schematic_page():
     return HTMLResponse(SCHEMATIC_HTML)
+
+# ---------------------------
+# METROMAP PAGE
+# ---------------------------
+@app.get("/metromap")
+async def metromap_page():
+    return HTMLResponse(METROMAP_HTML)
 
 
 # ---------------------------
