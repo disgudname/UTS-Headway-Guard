@@ -635,7 +635,6 @@ BASE_DIR = Path(__file__).resolve().parent
 DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
-METROMAP_HTML = (BASE_DIR / "metromap.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
 SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
 LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
@@ -645,7 +644,6 @@ REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
-SCHEMATIC_HTML = (BASE_DIR / "schematic.html").read_text(encoding="utf-8")
 
 DEVICE_STOP_NAME = Path(os.environ.get("DEVICE_STOP_FILE", "device_stops.json")).name
 DEVICE_STOP_FILE = PRIMARY_DATA_DIR / DEVICE_STOP_NAME
@@ -1478,14 +1476,6 @@ async def stream_api_calls():
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
 
-@app.get("/schematic.js", include_in_schema=False)
-async def schematic_js():
-    return FileResponse(BASE_DIR / "schematic.js", media_type="application/javascript")
-
-@app.get("/metromap.js", include_in_schema=False)
-async def metromap_js():
-    return FileResponse(BASE_DIR / "metromap.js", media_type="application/javascript")
-
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
@@ -1654,20 +1644,6 @@ async def arrivalsdisplay_page():
 @app.get("/registerdisplay")
 async def registerdisplay_page():
     return HTMLResponse(REGISTERDISPLAY_HTML)
-
-# ---------------------------
-# SCHEMATIC PAGE
-# ---------------------------
-@app.get("/schematic")
-async def schematic_page():
-    return HTMLResponse(SCHEMATIC_HTML)
-
-# ---------------------------
-# METROMAP PAGE
-# ---------------------------
-@app.get("/metromap")
-async def metromap_page():
-    return HTMLResponse(METROMAP_HTML)
 
 
 # ---------------------------
