@@ -159,11 +159,23 @@ function groupSegments(routes, tolerance) {
 }
 
 // Align all segments in the same group to shared coordinates
-function alignSharedSegments(segMap) {
+// Only segments whose endpoints are within the given tolerance are aligned.
+function alignSharedSegments(segMap, tol) {
+  function dist(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
   segMap.forEach(entries => {
     if (entries.length < 2) return;
+    const ref = entries[0];
+    const a0 = ref.route.scaled[ref.idx];
+    const b0 = ref.route.scaled[ref.idx + 1];
+    const matched = entries.filter(({ route, idx }) => {
+      const s = route.scaled[idx];
+      const e = route.scaled[idx + 1];
+      return (dist(s, a0) <= tol && dist(e, b0) <= tol) ||
+             (dist(s, b0) <= tol && dist(e, a0) <= tol);
+    });
+    if (matched.length < 2) return;
     let sx = 0, sy = 0, ex = 0, ey = 0;
-    entries.forEach(({ route, idx }) => {
+    matched.forEach(({ route, idx }) => {
       const s = route.scaled[idx];
       const e = route.scaled[idx + 1];
       sx += s[0];
@@ -171,9 +183,9 @@ function alignSharedSegments(segMap) {
       ex += e[0];
       ey += e[1];
     });
-    sx /= entries.length; sy /= entries.length;
-    ex /= entries.length; ey /= entries.length;
-    entries.forEach(({ route, idx }) => {
+    sx /= matched.length; sy /= matched.length;
+    ex /= matched.length; ey /= matched.length;
+    matched.forEach(({ route, idx }) => {
       route.scaled[idx][0] = sx;
       route.scaled[idx][1] = sy;
       route.scaled[idx + 1][0] = ex;
@@ -240,7 +252,7 @@ function buildPath(points) {
     // Increased to better align opposite directions separated by a median.
     const KEY_TOL = 12;
     let segMap = groupSegments(routes, KEY_TOL);
-    alignSharedSegments(segMap);
+    alignSharedSegments(segMap, KEY_TOL);
 
     routes.forEach(r => {
       let pts = r.scaled;
@@ -253,7 +265,7 @@ function buildPath(points) {
 
     // Re-align and snap shared geometry
     segMap = groupSegments(routes, KEY_TOL);
-    alignSharedSegments(segMap);
+    alignSharedSegments(segMap, KEY_TOL);
     snapVertices(routes, GRID_SIZE);
     insertSharedVertices(routes, GRID_SIZE / 2);
 
@@ -263,7 +275,7 @@ function buildPath(points) {
       r.scaled = snapToGrid(r.scaled, GRID_SIZE);
     });
     segMap = groupSegments(routes, KEY_TOL);
-    alignSharedSegments(segMap);
+    alignSharedSegments(segMap, KEY_TOL);
 
     // Prepare offset arrays after final alignment
     routes.forEach(r => {
