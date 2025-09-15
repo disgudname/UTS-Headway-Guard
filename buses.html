@@ -4,7 +4,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
-body{font:16px 'FGDC',system-ui;background:#0b0e11;color:#e8eef5;margin:0;padding:20px;}
+body{font:16px 'FGDC',system-ui;background:#0b0e11;color:#e8eef5;margin:0;}
+.container{display:flex;height:100vh;}
+.left{flex:1;padding:20px;overflow:auto;position:relative;}
+.right{flex:1;border:0;width:100%;height:100%;}
 h1{margin-top:0}
 table{border-collapse:collapse;width:100%;margin-top:20px;}
 th,td{padding:8px;border:1px solid #2a3442;text-align:left;}
@@ -12,16 +15,21 @@ th{background:#15202b}
 tr.stale{opacity:0.5}
 td.speeding{background:#8b0000;color:#fff}
 .hint{color:var(--muted,#9fb0c9);text-align:center}
-.credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
+.credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 </style>
-<h1>Bus Overview</h1>
-<table id="buses">
-  <thead>
-    <tr><th>Bus</th><th>Block</th><th>Road</th><th>Speed Limit (mph)</th><th>Speed (mph)</th></tr>
-  </thead>
-  <tbody></tbody>
-</table>
-<div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+<div class="container">
+  <div class="left">
+    <h1>Bus Overview</h1>
+    <table id="buses">
+      <thead>
+        <tr><th>Bus</th><th>Block</th><th>Road</th><th>Speed Limit (mph)</th><th>Speed (mph)</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+  </div>
+  <iframe class="right" src="/map" loading="lazy"></iframe>
+</div>
 <script>
 const MPH_PER_MPS = 2.23694;
 let STALE_LIMIT = 90;
