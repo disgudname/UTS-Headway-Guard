@@ -62,7 +62,9 @@ function parseBlocks(res){
     for(const b of g.Blocks||[]){
       const bus=b.Trips?.[0]?.VehicleName;
       if(!bus) continue;
-      const key=aliasBlock(b.BlockId || g.BlockGroupId);
+      let key=g.BlockGroupId;
+      if(!String(key).includes('[')) key=b.BlockId || key;
+      key=aliasBlock(key);
       const prev=busMap.get(bus);
       if(!prev || (!prev.includes('[') && key.includes('['))){
         busMap.set(bus,key);
