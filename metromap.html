@@ -18,7 +18,6 @@
 <body>
   <svg id="metroMap"></svg>
   <script>
-    const SNAP_GRID = 3e-4;
     const MERGE_TOLERANCE = 4e-4;
     async function fetchActiveRouteShapes() {
       const resp = await fetch('/v1/routes');
@@ -43,59 +42,7 @@
       return shapes;
     }
 
-    function simplifyPath(points, tolerance) {
-      if (points.length < 3) return points;
-      const sqTol = tolerance * tolerance;
-      const getSqSegDist = (p, a, b) => {
-        let x = a.lon, y = a.lat;
-        let dx = b.lon - x, dy = b.lat - y;
-        if (dx !== 0 || dy !== 0) {
-          const t = ((p.lon - x) * dx + (p.lat - y) * dy) / (dx * dx + dy * dy);
-          if (t > 1) { x = b.lon; y = b.lat; }
-          else if (t > 0) { x += dx * t; y += dy * t; }
-        }
-        dx = p.lon - x; dy = p.lat - y;
-        return dx * dx + dy * dy;
-      };
-      const simplified = [points[0]];
-      function step(first, last) {
-        let maxDist = sqTol, index;
-        for (let i = first + 1; i < last; i++) {
-          const dist = getSqSegDist(points[i], points[first], points[last]);
-          if (dist > maxDist) { index = i; maxDist = dist; }
-        }
-        if (maxDist > sqTol) {
-          if (index - first > 1) step(first, index);
-          simplified.push(points[index]);
-          if (last - index > 1) step(index, last);
-        }
-      }
-      step(0, points.length - 1);
-      simplified.push(points[points.length - 1]);
-      return simplified;
-    }
-
-    function snapPoint(p) {
-      return {
-        lat: Math.round(p.lat / SNAP_GRID) * SNAP_GRID,
-        lon: Math.round(p.lon / SNAP_GRID) * SNAP_GRID
-      };
-    }
-
-    function snapSegment(p1, p2) {
-      let dx = p2.lon - p1.lon;
-      let dy = p2.lat - p1.lat;
-      const len = Math.hypot(dx, dy);
-      if (len === 0) return null;
-      const step = Math.PI / 4;
-      const angle = Math.atan2(dy, dx);
-      const snap = Math.round(angle / step) * step;
-      const nx = Math.cos(snap) * len;
-      const ny = Math.sin(snap) * len;
-      const start = snapPoint(p1);
-      const end = snapPoint({ lat: start.lat + ny, lon: start.lon + nx });
-      return { start, end };
-    }
+    // Lines are rendered using their native geometry without snapping to fixed angles.
 
     function keyForSeg(seg) {
       const r = v => Math.round(v * 1e5) / 1e5;
@@ -110,10 +57,9 @@
       const segs = {};
       const dist = (a, b) => Math.hypot(a.lon - b.lon, a.lat - b.lat);
       for (const route of shapes) {
-        const pts = simplifyPath(route.pts, 0.0005).map(p => snapPoint(p));
+        const pts = route.pts.map(p => ({ ...p }));
         for (let i = 1; i < pts.length; i++) {
-          const seg = snapSegment(pts[i - 1], pts[i]);
-          if (!seg) continue;
+          const seg = { start: pts[i - 1], end: pts[i] };
           let key = null;
           let reverse = false;
           for (const [k, s] of Object.entries(segs)) {
@@ -157,7 +103,8 @@
         maxLon = Math.max(maxLon, s.start.lon, s.end.lon);
       });
       const box = { minLat, maxLat, minLon, maxLon };
-      const offset = 4;
+      const STROKE_WIDTH = 6;
+      const offset = STROKE_WIDTH;
       for (const seg of Object.values(segs)) {
         const [x1, y1] = project(seg.start.lat, seg.start.lon, box, width, height);
         const [x2, y2] = project(seg.end.lat, seg.end.lon, box, width, height);
@@ -178,7 +125,7 @@
           line.setAttribute('x2', sx2);
           line.setAttribute('y2', sy2);
           line.setAttribute('stroke', r.color || '#000');
-          line.setAttribute('stroke-width', 6);
+          line.setAttribute('stroke-width', STROKE_WIDTH);
           line.setAttribute('stroke-linecap', 'round');
           svg.appendChild(line);
         });
