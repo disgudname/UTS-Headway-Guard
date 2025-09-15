@@ -277,15 +277,7 @@ function buildPath(points) {
     segMap = groupSegments(routes, KEY_TOL);
     alignSharedSegments(segMap, KEY_TOL);
 
-    // After aligning, snap again so shared roads follow identical paths
-    snapVertices(routes, GRID_SIZE);
-    insertSharedVertices(routes, GRID_SIZE / 2);
-    routes.forEach(r => {
-      r.scaled = snap45(r.scaled);
-      r.scaled = snapToGrid(r.scaled, GRID_SIZE);
-    });
-
-    // Prepare offset arrays after final alignment and snapping
+    // Prepare offset arrays after final alignment
     routes.forEach(r => {
       r.offsets = Array(r.scaled.length).fill(0).map(() => [0, 0]);
       r.counts = Array(r.scaled.length).fill(0);
