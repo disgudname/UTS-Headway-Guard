@@ -124,7 +124,14 @@
     }
 
     async function fetchAlerts() {
-      const showInactive = (qp('showInactiveAlerts','false') === 'true');
+      const showInactive = (() => {
+        const direct = qp('showInactive');
+        if (direct !== null) {
+          const value = direct.trim().toLowerCase();
+          return value === '' || value === 'true';
+        }
+        return qp('showInactiveAlerts','false') === 'true';
+      })();
       const url = 'https://uva.transloc.com/Secure/Services/RoutesService.svc/GetMessagesPaged';
       const resp = await axios.get(url, {
         params: {
