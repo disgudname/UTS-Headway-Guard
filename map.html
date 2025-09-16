@@ -433,7 +433,7 @@
           });
         }
         routeIDs.forEach(routeID => {
-          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) return;
           let chk = document.getElementById("route_" + routeID);
           if (chk) {
             chk.addEventListener("change", function() {
