@@ -308,12 +308,45 @@
       let routeSelections = {};
       // Tracks routes that currently have at least one vehicle assigned.
       let activeRoutes = new Set();
+      // Tracks which routes the API designates as public-facing.
+      let routeVisibility = {};
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
       function isRouteSelected(routeID) {
-        if (routeSelections.hasOwnProperty(routeID)) return routeSelections[routeID];
-        return activeRoutes.has(Number(routeID));
+        if (!canDisplayRoute(routeID)) return false;
+        const id = Number(routeID);
+        if (Number.isNaN(id)) return false;
+        if (routeSelections.hasOwnProperty(id)) return routeSelections[id];
+        return activeRoutes.has(id);
+      }
+
+      function setRouteVisibility(route) {
+        if (!route || typeof route.RouteID === 'undefined') return;
+        const id = Number(route.RouteID);
+        if (Number.isNaN(id)) return;
+        routeVisibility[id] = route.IsVisibleOnMap !== false;
+      }
+
+      function isRoutePublicById(routeID) {
+        const id = Number(routeID);
+        if (Number.isNaN(id) || id === 0) return false;
+        if (Object.prototype.hasOwnProperty.call(routeVisibility, id)) {
+          return routeVisibility[id];
+        }
+        return true;
+      }
+
+      function canDisplayRoute(routeID) {
+        const id = Number(routeID);
+        if (Number.isNaN(id)) return false;
+        if (id === 0) {
+          return adminKioskMode || (!kioskMode && adminMode);
+        }
+        if (adminKioskMode) return true;
+        if (kioskMode) return isRoutePublicById(id);
+        if (adminMode) return true;
+        return isRoutePublicById(id);
       }
 
       // Toggle between displaying speed or block numbers.
@@ -356,7 +389,7 @@
           "<button onclick='selectAllRoutes()'>Select All</button>" +
           "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
 
-        if (adminMode) {
+        if (adminMode && canDisplayRoute(0)) {
           // Add Out of Service option (routeID 0) at the top for admin mode.
           let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
           html += `<label>
@@ -366,7 +399,9 @@
         }
 
         // Get an array of route IDs (excluding 0) from allRoutes.
-        let routeIDs = Object.keys(allRoutes).map(Number).filter(id => id !== 0);
+        let routeIDs = Object.keys(allRoutes)
+          .map(id => Number(id))
+          .filter(id => !Number.isNaN(id) && id !== 0 && canDisplayRoute(id));
         // Sort alphabetically by route Description (case-insensitive).
         routeIDs.sort((a, b) => {
           let descA = allRoutes[a].Description.toUpperCase();
@@ -398,6 +433,7 @@
           });
         }
         routeIDs.forEach(routeID => {
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
           let chk = document.getElementById("route_" + routeID);
           if (chk) {
             chk.addEventListener("change", function() {
@@ -409,13 +445,13 @@
       }
 
       function selectAllRoutes() {
-        if (adminMode) {
+        if (adminMode && canDisplayRoute(0)) {
           let outChk = document.getElementById("route_0");
           if (outChk) outChk.checked = true;
           routeSelections[0] = true;
         }
         for (let routeID in allRoutes) {
-          if (!adminMode && Number(routeID) === 0) continue;
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
           let chk = document.getElementById("route_" + routeID);
           if (chk) chk.checked = true;
           routeSelections[routeID] = true;
@@ -424,13 +460,13 @@
       }
 
       function deselectAllRoutes() {
-        if (adminMode) {
+        if (adminMode && canDisplayRoute(0)) {
           let outChk = document.getElementById("route_0");
           if (outChk) outChk.checked = false;
           routeSelections[0] = false;
         }
         for (let routeID in allRoutes) {
-          if (!adminMode && Number(routeID) === 0) continue;
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
           let chk = document.getElementById("route_" + routeID);
           if (chk) chk.checked = false;
           routeSelections[routeID] = false;
@@ -562,6 +598,8 @@
         allRoutes = {};
         routeSelections = {};
         activeRoutes = new Set();
+        routeColors = {};
+        routeVisibility = {};
         allRouteBounds = null;
         mapHasFitAllRoutes = false;
         updateRouteLegend([]);
@@ -793,12 +831,14 @@
           .then(data => {
             if (Array.isArray(data)) {
               data.forEach(route => {
-                if (adminMode || route.IsVisibleOnMap) {
+                setRouteVisibility(route);
+                allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
+                if (canDisplayRoute(route.RouteID)) {
                   routeColors[route.RouteID] = route.MapLineColor;
-                  allRoutes[route.RouteID] = route;
                   console.log(`Route ID: ${route.RouteID}, Color: ${route.MapLineColor}`);
                 } else {
-                  console.log(`Route ID: ${route.RouteID} is not visible on map and adminMode is false`);
+                  delete routeColors[route.RouteID];
+                  console.log(`Route ID: ${route.RouteID} hidden due to display settings`);
                 }
               });
             }
@@ -820,18 +860,15 @@
                   const displayedRoutes = new Map();
                   if (Array.isArray(data)) {
                       data.forEach(route => {
-                          // Store InfoText for use in the route selector.
-                          if (allRoutes[route.RouteID]) {
-                              allRoutes[route.RouteID].InfoText = route.InfoText;
-                          } else {
-                              allRoutes[route.RouteID] = route;
-                          }
-                          if (route.EncodedPolyline) {
+                          setRouteVisibility(route);
+                          allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
+                          const routeAllowed = canDisplayRoute(route.RouteID);
+                          if (route.EncodedPolyline && routeAllowed) {
                               const decodedPolyline = polyline.decode(route.EncodedPolyline);
                               const polyBounds = L.latLngBounds(decodedPolyline);
                               bounds = bounds ? bounds.extend(polyBounds) : polyBounds;
 
-                              if ((adminMode || route.IsVisibleOnMap) && isRouteSelected(route.RouteID)) {
+                              if (isRouteSelected(route.RouteID)) {
                                   let routeColor = getRouteColor(route.RouteID);
                                   const routeLayer = L.polyline(decodedPolyline, {
                                       color: routeColor,
@@ -958,14 +995,17 @@
                           } else if (!routeID) {
                               return;
                           }
-                          if (!adminMode && !routeColors.hasOwnProperty(routeID)) return;
-                          activeRoutesSet.add(routeID);
+                          const numericRouteId = Number(routeID);
+                          const effectiveRouteId = Number.isNaN(numericRouteId) ? routeID : numericRouteId;
+                          if (!canDisplayRoute(effectiveRouteId)) return;
+                          if (!adminMode && !routeColors.hasOwnProperty(effectiveRouteId)) return;
+                          activeRoutesSet.add(effectiveRouteId);
                           vehicles.push({
                               vehicleID,
                               newPosition,
                               isMoving,
                               busName,
-                              routeID,
+                              routeID: effectiveRouteId,
                               heading: vehicle.Heading,
                               groundSpeed: vehicle.GroundSpeed
                           });
