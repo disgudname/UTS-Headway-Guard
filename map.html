@@ -422,6 +422,9 @@
       }
 
       function showCookieBanner() {
+        if (kioskMode) {
+          return;
+        }
         if (localStorage.getItem('agencyConsent') !== 'true') {
           const banner = document.getElementById('cookieBanner');
           banner.style.display = 'block';
