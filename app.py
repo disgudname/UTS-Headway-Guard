@@ -650,6 +650,7 @@ APICALLS_HTML = (BASE_DIR / "apicalls.html").read_text(encoding="utf-8")
 DEBUG_HTML = (BASE_DIR / "debug.html").read_text(encoding="utf-8")
 REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
+TRANSLOC_TICKER_HTML = (BASE_DIR / "transloc_ticker.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
 BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
@@ -1674,6 +1675,13 @@ async def apicalls_page():
 @app.get("/ridership")
 async def ridership_page():
     return HTMLResponse(RIDERSHIP_HTML)
+
+# ---------------------------
+# TRANSLOC TICKER PAGE
+# ---------------------------
+@app.get("/transloc_ticker")
+async def transloc_ticker_page():
+    return HTMLResponse(TRANSLOC_TICKER_HTML)
 
 # ---------------------------
 # ARRIVALS DISPLAY PAGE
