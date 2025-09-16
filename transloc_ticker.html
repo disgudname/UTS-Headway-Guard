@@ -22,9 +22,10 @@
       --padding-x: 2rem;
     }
     * { box-sizing: border-box; }
-    html, body { height:100%; margin:0; background:transparent; }
+    html, body { height:100%; margin:0; background:transparent !important; }
     html[data-visible="false"] {
       pointer-events: none;
+      background: transparent !important;
     }
     body {
       font-family: 'FGDC', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -34,10 +35,13 @@
 
     body[data-visible="true"] {
       opacity: 1;
+      display: block;
     }
 
     body[data-visible="false"] {
       pointer-events: none;
+      display: none;
+      background: transparent !important;
     }
 
     @keyframes ticker-scroll {
