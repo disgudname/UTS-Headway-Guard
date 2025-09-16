@@ -642,6 +642,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
+MADMAP_HTML = (BASE_DIR / "madmap.html").read_text(encoding="utf-8")
 METROMAP_HTML = (BASE_DIR / "metromap.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
 SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
@@ -1534,6 +1535,13 @@ async def landing_page():
 @app.get("/map")
 async def map_page():
     return HTMLResponse(MAP_HTML)
+
+# ---------------------------
+# MAD MAP PAGE
+# ---------------------------
+@app.get("/madmap")
+async def madmap_page():
+    return HTMLResponse(MADMAP_HTML)
 
 # ---------------------------
 # METRO MAP PAGE
