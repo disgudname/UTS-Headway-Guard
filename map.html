@@ -155,10 +155,12 @@
       //            Can be disabled via URL param `adminMode=false`.
       //            In public mode (adminMode=false) the route selector is still shown
       //            but only for routes that are public-facing.
-      // kioskMode: true to hide the route selector panel and tab.
+      // kioskMode: true to hide the route selector/tab and suppress vehicle overlays for a public display.
+      // adminKioskMode: true to hide the route selector/tab while retaining admin overlays (previous kiosk behavior).
       // showSpeed/showBlockNumbers: only one may be true at a time.
       let adminMode = true; // shows unit numbers and speed/block bubbles
-      let kioskMode = false; // adminMode must = true for kisokMode to work
+      let kioskMode = false;
+      let adminKioskMode = false;
       let showSpeed = false; // default to showing block numbers
       let showBlockNumbers = true;
 
@@ -166,6 +168,10 @@
       const kioskParam = params.get('kioskMode');
       if (kioskParam !== null) {
         kioskMode = kioskParam.toLowerCase() === 'true';
+      }
+      const adminKioskParam = params.get('adminKioskMode');
+      if (adminKioskParam !== null) {
+        adminKioskMode = adminKioskParam.toLowerCase() === 'true';
       }
       const adminParam = params.get('adminMode');
       if (adminParam !== null) {
@@ -422,7 +428,7 @@
       }
 
       function showCookieBanner() {
-        if (kioskMode) {
+        if (kioskMode || adminKioskMode) {
           return;
         }
         if (localStorage.getItem('agencyConsent') !== 'true') {
@@ -487,7 +493,7 @@
           cartoLight.addTo(map);
           
           fetchRouteColors().then(() => {
-              if (kioskMode) {
+              if (kioskMode || adminKioskMode) {
                 document.getElementById("routeSelector").style.display = "none";
                 document.getElementById("routeSelectorTab").style.display = "none";
               }
@@ -743,7 +749,7 @@
                       if (bounds) {
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
-                              if (!kioskMode) {
+                              if (!kioskMode && !adminKioskMode) {
                                   map.fitBounds(allRouteBounds, { padding: [20, 20] });
                               }
                               mapHasFitAllRoutes = true;
@@ -885,7 +891,7 @@
                               markers[vehicleID].routeID = routeID;
                               markers[vehicleID].addTo(map);
                           }
-                          if (adminMode && showSpeed) {
+                          if (adminMode && showSpeed && !kioskMode) {
                               const speedBubble = `
                                   <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
                                       <g>
@@ -912,7 +918,7 @@
                                   delete nameBubbles[vehicleID].speedMarker;
                               }
                           }
-                          if (adminMode) {
+                          if (adminMode && !kioskMode) {
                               const bubbleWidth = Math.max(40, busName.length * 10);
                               const nameBubble = `
                                   <svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg">
