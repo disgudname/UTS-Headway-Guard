@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-visible="false">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -23,6 +23,9 @@
     }
     * { box-sizing: border-box; }
     html, body { height:100%; margin:0; background:transparent; }
+    html[data-visible="false"] {
+      pointer-events: none;
+    }
     body {
       font-family: 'FGDC', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       opacity: 0;
@@ -159,6 +162,9 @@
       if (document.body) {
         document.body.setAttribute('data-visible', list.length ? 'true' : 'false');
       }
+      if (document.documentElement) {
+        document.documentElement.setAttribute('data-visible', list.length ? 'true' : 'false');
+      }
       if (!wrap || !strip) return;
       strip.innerHTML = '';
       if (!list.length) {
@@ -188,6 +194,9 @@
       }
       if (document.body) {
         document.body.setAttribute('data-visible', 'true');
+      }
+      if (document.documentElement) {
+        document.documentElement.setAttribute('data-visible', 'true');
       }
       const e = document.querySelector('.ticker-error');
       if (!e) return;
