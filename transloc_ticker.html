@@ -22,7 +22,12 @@
       --padding-x: 2rem;
     }
     * { box-sizing: border-box; }
-    html, body { height:100%; margin:0; background:transparent !important; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: transparent !important;
+      background-color: transparent !important;
+    }
     html[data-visible="false"] {
       pointer-events: none;
       background: transparent !important;
@@ -31,17 +36,17 @@
       font-family: 'FGDC', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       opacity: 0;
       transition: opacity 0.2s ease-in-out;
+      background: transparent !important;
+      background-color: transparent !important;
     }
 
     body[data-visible="true"] {
       opacity: 1;
-      display: block;
     }
 
     body[data-visible="false"] {
       pointer-events: none;
-      display: none;
-      background: transparent !important;
+      opacity: 0;
     }
 
     @keyframes ticker-scroll {
