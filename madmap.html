@@ -148,12 +148,64 @@
       .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
     .cookie-banner{position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:white;padding:10px;text-align:center;font-size:14px;z-index:1200;}
       .cookie-banner button{margin-left:10px;}
+      #disclaimerModal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.85);
+        color: white;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        z-index: 2000;
+        text-align: center;
+      }
+      #disclaimerModal .modal-content {
+        background: #232D4B;
+        border: 4px solid white;
+        border-radius: 15px;
+        padding: 30px;
+        max-width: 800px;
+        width: 100%;
+      }
+      #disclaimerModal p {
+        margin: 0 0 20px 0;
+        line-height: 1.6;
+        font-size: 18px;
+        text-transform: uppercase;
+      }
+      #disclaimerModal .modal-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+      }
+      #disclaimerModal .modal-buttons button {
+        padding: 10px 20px;
+        font-size: 18px;
+        font-family: 'FGDC', sans-serif;
+        border-radius: 20px;
+        border: none;
+        cursor: pointer;
+      }
+      #disclaimerConfirm {
+        background-color: #E57200;
+        color: black;
+      }
+      #disclaimerCancel {
+        background-color: #f00;
+        color: white;
+      }
     </style>
     <script>
       let adminMode = true;
       let kioskMode = false;
       let showSpeed = false;
       let showBlockNumbers = true;
+      let userHasConsented = false;
 
       const ROUTE_KEY_SEPARATOR = '::';
       const STOP_KEY_SEPARATOR = '::';
@@ -1012,16 +1064,56 @@
         }
       }
 
-      document.addEventListener("DOMContentLoaded", () => {
+      function initializeAfterConsent() {
+        if (userHasConsented) return;
+        userHasConsented = true;
         loadAgencies().then(() => {
           initMap();
           showCookieBanner();
         });
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const disclaimerModal = document.getElementById('disclaimerModal');
+        const confirmButton = document.getElementById('disclaimerConfirm');
+        const cancelButton = document.getElementById('disclaimerCancel');
+
+        if (disclaimerModal) {
+          disclaimerModal.style.display = 'flex';
+        }
+
+        if (confirmButton) {
+          confirmButton.addEventListener('click', () => {
+            if (disclaimerModal) {
+              disclaimerModal.style.display = 'none';
+            }
+            initializeAfterConsent();
+          });
+        }
+
+        if (cancelButton) {
+          cancelButton.addEventListener('click', () => {
+            window.location.href = 'index.html';
+          });
+        }
+
+        if (!disclaimerModal) {
+          initializeAfterConsent();
+        }
       });
     </script>
 
   </head>
   <body>
+    <div id="disclaimerModal">
+      <div class="modal-content">
+        <p>THIS PAGE WILL ATTEMPT TO LOAD VEHICLE LOCATIONS, STOPS, ROUTES, AND SCHEDULES FROM 53 DIFFERENT AGENCIES. MOBILE PHONES CANNOT SUPPORT THE MEMORY USAGE. MOST CONSUMER COMPUTERS CANNOT SUPPORT THE MEMORY USAGE. THIS EXPLOSION OF INTERNET TRAFFIC WILL LIKELY BE SEEN AS A DDOS BY TRANSLOC. ARE YOU SURE YOU WISH TO PROCEED?</p>
+        <div class="modal-buttons">
+          <button id="disclaimerConfirm">I'm sure</button>
+          <button id="disclaimerCancel">You're right, this is a bad idea</button>
+        </div>
+      </div>
+    </div>
     <div id="map"></div>
     <div id="routeSelector"></div>
     <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
