@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UTS Ticker</title>
+  <style>
+    @font-face {
+      font-family: 'FGDC';
+      src: url('FGDC.ttf');
+      font-display: swap;
+    }
+
+    :root{
+      --height: 4rem;
+      --bg: rgba(0,0,0,0.9);
+      --fg: #ffffff;
+      --sep-fg: #ffffff;
+      --size: 3rem;
+      --sep-size: 2rem;
+      --duration: 30s;
+      --padding-x: 2rem;
+    }
+    * { box-sizing: border-box; }
+    html, body { height:100%; margin:0; background:transparent; }
+    body {
+      font-family: 'FGDC', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    @keyframes ticker-scroll {
+      0%   { transform: translate3d(0,0,0); visibility: visible; }
+      100% { transform: translate3d(-100%,0,0); }
+    }
+    .ticker-wrap {
+      position: relative;
+      width: 100%;
+      overflow: hidden;
+      height: var(--height);
+      background: var(--bg);
+      padding-left: 100%;
+      box-sizing: content-box;
+      display: none;
+    }
+    .ticker {
+      display: inline-block;
+      height: var(--height);
+      line-height: var(--height);
+      white-space: nowrap;
+      padding-right: 100%;
+      box-sizing: content-box;
+      animation: ticker-scroll var(--duration) linear infinite;
+    }
+    .ticker__item {
+      display: inline-block;
+      padding: 0 var(--padding-x);
+      font-size: var(--size);
+      color: var(--fg);
+    }
+    .ticker__separator {
+      display: inline-block;
+      padding: 0 1rem;
+      font-size: var(--sep-size);
+      color: var(--sep-fg);
+    }
+    .ticker-error {
+      display: none;
+      height: var(--height);
+      line-height: var(--height);
+      background: #7a0000;
+      color: #fff;
+      text-align: center;
+      font-weight: 600;
+      font-family: 'FGDC', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+  </style>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js" defer></script>
+  <script>
+    function qp(name, def=null) {
+      const params = new URLSearchParams(window.location.search);
+      return params.has(name) ? params.get(name) : def;
+    }
+    function applyRuntimeStyles() {
+      const root = document.documentElement.style;
+      [
+        ['--height','height'],
+        ['--bg','bg'],
+        ['--fg','fg'],
+        ['--sep-fg','sepfg'],
+        ['--size','size'],
+        ['--sep-size','sepsize'],
+        ['--duration','duration'],
+        ['--padding-x','pad']
+      ].forEach(([css,varname]) => {
+        const v = qp(varname);
+        if (v) root.setProperty(css, v);
+      });
+    }
+
+    async function fetchAlerts() {
+      const showInactive = (qp('showInactiveAlerts','false') === 'true');
+      const url = 'https://uva.transloc.com/Secure/Services/RoutesService.svc/GetMessagesPaged';
+      const resp = await axios.get(url, {
+        params: {
+          showInactive: showInactive,
+          includeDeleted: false,
+          messageTypeId: 1,
+          search: false,
+          rows: 10,
+          page: 1,
+          sortIndex: 'StartDateUtc',
+          sortOrder: 'asc'
+        }
+      });
+      const data = resp.data || {};
+      return Array.isArray(data.Rows) ? data.Rows.map(r => r.MessageText).filter(Boolean) : [];
+    }
+
+    async function fetchArrivals() {
+      const stopsParam = qp('stops','');
+      if (!stopsParam) return [];
+      const url = 'https://uva.transloc.com/Services/JSONPRelay.svc/GetStopArrivalTimes';
+      const resp = await axios.get(url, { params: { stops: stopsParam }});
+      const payload = resp.data || {};
+      const out = [];
+      if (payload.Arrivals && Array.isArray(payload.Arrivals)) {
+        payload.Arrivals.forEach(stop => {
+          const routeLabel = stop.RouteShortName || stop.RouteName || `Route ${stop.RouteId}`;
+          const stopLabel  = stop.StopName || `Stop ${stop.StopId}`;
+          const arr = Array.isArray(stop.Arrivals) ? stop.Arrivals : [];
+          arr.forEach(a => {
+            const mins = Math.round((a.SecondsToArrival||0) / 60);
+            out.push(`${routeLabel} → ${stopLabel}: ${mins} min`);
+          });
+        });
+      }
+      return [...new Set(out)];
+    }
+
+    function render(messages) {
+      const wrap = document.querySelector('.ticker-wrap');
+      const strip = document.getElementById('alerts-container');
+      strip.innerHTML = '';
+      if (!messages.length) {
+        wrap.style.display = 'none';
+        return;
+      }
+      const sepText = qp('sep','•');
+      messages.forEach((msg, i) => {
+        const item = document.createElement('div');
+        item.className = 'ticker__item';
+        item.textContent = msg;
+        strip.appendChild(item);
+        if (i < messages.length - 1) {
+          const sep = document.createElement('span');
+          sep.className = 'ticker__separator';
+          sep.textContent = ` ${sepText} `;
+          strip.appendChild(sep);
+        }
+      });
+      wrap.style.display = 'block';
+    }
+
+    function showError(text) {
+      const e = document.querySelector('.ticker-error');
+      if (!e) return;
+      e.textContent = text || 'Error';
+      e.style.display = 'block';
+    }
+
+    async function runOnce() {
+      try {
+        const source = (qp('source','alerts') || 'alerts').toLowerCase();
+        let msgs = [];
+        if (source === 'arrivals') {
+          msgs = await fetchArrivals();
+        } else {
+          msgs = await fetchAlerts();
+        }
+        render(msgs);
+      } catch (e) {
+        console.error(e);
+        showError('Data unavailable');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      applyRuntimeStyles();
+      runOnce();
+      const refreshMs = parseInt(qp('refresh','15000'), 10);
+      if (!isNaN(refreshMs) && refreshMs > 0) {
+        setInterval(runOnce, refreshMs);
+      }
+    });
+  </script>
+</head>
+<body>
+  <div class="ticker-wrap">
+    <div class="ticker" id="alerts-container"></div>
+  </div>
+  <div class="ticker-error" aria-live="polite"></div>
+</body>
+</html>
