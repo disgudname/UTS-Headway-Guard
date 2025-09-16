@@ -138,6 +138,54 @@
         user-select: none;
         transition: right 0.3s ease;
       }
+      #routeLegend {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 1100;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 12px 16px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        max-width: 320px;
+        display: none;
+        font-size: 20px;
+      }
+      #routeLegend .legend-title {
+        font-weight: bold;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      #routeLegend .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      #routeLegend .legend-item:last-child {
+        margin-bottom: 0;
+      }
+      #routeLegend .legend-color {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #FFFFFF;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+        flex-shrink: 0;
+      }
+      #routeLegend .legend-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      #routeLegend .legend-name {
+        font-weight: bold;
+      }
+      #routeLegend .legend-description {
+        font-size: 16px;
+        color: #1b1b1b;
+      }
       @media (max-width: 600px) {
         #routeSelector { width: 80%; right: 10%; font-size: 18px; }
         #routeSelector.hidden { transform: translateX(calc(100% + 20px)); }
@@ -404,6 +452,52 @@
         positionRouteTab();
       }
 
+      function updateRouteLegend(displayedRoutes = []) {
+        const legend = document.getElementById("routeLegend");
+        if (!legend) return;
+        if (!kioskMode || adminKioskMode || displayedRoutes.length === 0) {
+          legend.style.display = "none";
+          legend.innerHTML = "";
+          return;
+        }
+
+        legend.style.display = "block";
+        legend.innerHTML = "";
+
+        const title = document.createElement("div");
+        title.className = "legend-title";
+        title.textContent = "Routes";
+        legend.appendChild(title);
+
+        displayedRoutes.forEach(route => {
+          const item = document.createElement("div");
+          item.className = "legend-item";
+
+          const color = document.createElement("span");
+          color.className = "legend-color";
+          color.style.backgroundColor = route.color || "#000000";
+          item.appendChild(color);
+
+          const textContainer = document.createElement("div");
+          textContainer.className = "legend-text";
+
+          const name = document.createElement("div");
+          name.className = "legend-name";
+          name.textContent = route.name;
+          textContainer.appendChild(name);
+
+          if (route.description) {
+            const description = document.createElement("div");
+            description.className = "legend-description";
+            description.textContent = route.description;
+            textContainer.appendChild(description);
+          }
+
+          item.appendChild(textContainer);
+          legend.appendChild(item);
+        });
+      }
+
       // refreshMap updates route paths and bus locations.
       function refreshMap() {
         fetchBusLocations().then(fetchRoutePaths);
@@ -470,6 +564,7 @@
         activeRoutes = new Set();
         allRouteBounds = null;
         mapHasFitAllRoutes = false;
+        updateRouteLegend([]);
         updateRouteSelector(new Set(), true);
         fetchRouteColors().then(() => {
           fetchBusStops();
@@ -722,6 +817,7 @@
                   routeLayers.forEach(layer => map.removeLayer(layer));
                   routeLayers = [];
                   let bounds = null;
+                  const displayedRoutes = new Map();
                   if (Array.isArray(data)) {
                       data.forEach(route => {
                           // Store InfoText for use in the route selector.
@@ -743,6 +839,24 @@
                                       opacity: 1
                                   }).addTo(map);
                                   routeLayers.push(routeLayer);
+                                  const storedRoute = allRoutes[route.RouteID] || {};
+                                  const legendNameCandidates = [
+                                      storedRoute.Description,
+                                      route.Description,
+                                      storedRoute.Name,
+                                      route.Name,
+                                      storedRoute.RouteName,
+                                      route.RouteName
+                                  ];
+                                  let legendName = legendNameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+                                  legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
+                                  const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
+                                  const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
+                                  displayedRoutes.set(route.RouteID, {
+                                      color: routeColor,
+                                      name: legendName,
+                                      description: legendDescription
+                                  });
                               }
                           }
                       });
@@ -758,9 +872,11 @@
                       updateRouteSelector(activeRoutes);
                       stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
                   }
+                  updateRouteLegend(Array.from(displayedRoutes.values()));
               })
               .catch(error => {
                   console.error("Error fetching route paths:", error);
+                  updateRouteLegend([]);
               });
       }
 
@@ -1042,6 +1158,7 @@
   </head>
   <body>
     <div id="map"></div>
+    <div id="routeLegend" aria-live="polite"></div>
     <div id="routeSelector"></div>
     <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
     <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
