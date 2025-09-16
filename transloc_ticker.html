@@ -25,10 +25,16 @@
     html, body { height:100%; margin:0; background:transparent; }
     body {
       font-family: 'FGDC', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      opacity: 0;
+      transition: opacity 0.2s ease-in-out;
+    }
+
+    body[data-visible="true"] {
+      opacity: 1;
     }
 
     body[data-visible="false"] {
-      display: none;
+      pointer-events: none;
     }
 
     @keyframes ticker-scroll {
