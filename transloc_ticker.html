@@ -168,18 +168,21 @@
         error.style.display = 'none';
         error.textContent = '';
       }
+      const hasMessages = list.length > 0;
       if (document.body) {
-        document.body.setAttribute('data-visible', list.length ? 'true' : 'false');
+        document.body.setAttribute('data-visible', hasMessages ? 'true' : 'false');
       }
       if (document.documentElement) {
-        document.documentElement.setAttribute('data-visible', list.length ? 'true' : 'false');
+        document.documentElement.setAttribute('data-visible', hasMessages ? 'true' : 'false');
       }
       if (!wrap || !strip) return;
       strip.innerHTML = '';
-      if (!list.length) {
+      if (!hasMessages) {
         wrap.style.display = 'none';
+        wrap.style.background = 'transparent';
         return;
       }
+      wrap.style.background = '';
       const sepText = qp('sep','•');
       list.forEach((msg, i) => {
         const item = document.createElement('div');
