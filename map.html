@@ -740,7 +740,9 @@
                       if (bounds) {
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
-                              map.fitBounds(allRouteBounds, { padding: [20, 20] });
+                              if (!kioskMode) {
+                                  map.fitBounds(allRouteBounds, { padding: [20, 20] });
+                              }
                               mapHasFitAllRoutes = true;
                           }
                       }
