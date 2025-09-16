@@ -27,6 +27,10 @@
       font-family: 'FGDC', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
 
+    body[data-visible="false"] {
+      display: none;
+    }
+
     @keyframes ticker-scroll {
       0%   { transform: translate3d(0,0,0); visibility: visible; }
       100% { transform: translate3d(-100%,0,0); }
@@ -138,20 +142,30 @@
     }
 
     function render(messages) {
+      const list = Array.isArray(messages) ? messages.filter(Boolean) : [];
       const wrap = document.querySelector('.ticker-wrap');
       const strip = document.getElementById('alerts-container');
+      const error = document.querySelector('.ticker-error');
+      if (error) {
+        error.style.display = 'none';
+        error.textContent = '';
+      }
+      if (document.body) {
+        document.body.setAttribute('data-visible', list.length ? 'true' : 'false');
+      }
+      if (!wrap || !strip) return;
       strip.innerHTML = '';
-      if (!messages.length) {
+      if (!list.length) {
         wrap.style.display = 'none';
         return;
       }
       const sepText = qp('sep','•');
-      messages.forEach((msg, i) => {
+      list.forEach((msg, i) => {
         const item = document.createElement('div');
         item.className = 'ticker__item';
         item.textContent = msg;
         strip.appendChild(item);
-        if (i < messages.length - 1) {
+        if (i < list.length - 1) {
           const sep = document.createElement('span');
           sep.className = 'ticker__separator';
           sep.textContent = ` ${sepText} `;
@@ -162,6 +176,13 @@
     }
 
     function showError(text) {
+      const wrap = document.querySelector('.ticker-wrap');
+      if (wrap) {
+        wrap.style.display = 'none';
+      }
+      if (document.body) {
+        document.body.setAttribute('data-visible', 'true');
+      }
       const e = document.querySelector('.ticker-error');
       if (!e) return;
       e.textContent = text || 'Error';
@@ -194,7 +215,7 @@
     });
   </script>
 </head>
-<body>
+<body data-visible="false">
   <div class="ticker-wrap">
     <div class="ticker" id="alerts-container"></div>
   </div>
