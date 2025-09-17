@@ -257,6 +257,26 @@
         let mapEl = null;
         let canvas = null;
         let ctx = null;
+        let canvasPane = null;
+
+        function resolveCanvasPane() {
+          if (!map || typeof map.getPane !== 'function') {
+            return canvasPane && canvasPane.isConnected ? canvasPane : null;
+          }
+
+          if (!canvasPane || !canvasPane.isConnected) {
+            canvasPane = map.getPane('routeCanvasPane');
+            if (!canvasPane) {
+              canvasPane = map.createPane('routeCanvasPane');
+            }
+            if (canvasPane) {
+              canvasPane.style.zIndex = '450';
+              canvasPane.style.pointerEvents = 'none';
+            }
+          }
+
+          return canvasPane;
+        }
 
         // state
         let routesToRender = [];
@@ -275,14 +295,19 @@
             canvas = document.getElementById('route-canvas');
           }
 
-          if (canvas && !mapEl.contains(canvas)) {
-            mapEl.appendChild(canvas);
+          const targetParent = resolveCanvasPane() || mapEl;
+
+          if (canvas) {
+            const currentParent = canvas.parentElement;
+            if (currentParent !== targetParent) {
+              targetParent.appendChild(canvas);
+            }
           }
 
           if (!canvas) {
             canvas = document.createElement('canvas');
             canvas.id = 'route-canvas';
-            mapEl.appendChild(canvas);
+            targetParent.appendChild(canvas);
           }
 
           if (!ctx && canvas) {
