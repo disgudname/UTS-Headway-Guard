@@ -65,8 +65,14 @@
         font-size: 14px;
       }
       #map {
+        position: relative;
         height: 100%;
         width: 100%;
+      }
+      #route-canvas {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
       }
       html, body {
         height: 100%;
@@ -231,7 +237,6 @@
       let map;
       let markers = {};
       let routeColors = {};
-      let routeLayers = [];
       let stopMarkers = [];
       let nameBubbles = {};
       let busBlocks = {};
@@ -246,209 +251,149 @@
       let agencies = [];
       let baseURL = '';
 
-      // ===== Stripe Engine (Leaflet) =====
+      // ===== Route Canvas Renderer (Leaflet) =====
+      (function () {
+        let mapEl = null;
+        let canvas = null;
+        let ctx = null;
 
-      // Earth constants for Web Mercator scale
-      const R_EARTH_M = 6378137;
-      function metersPerPixelAtLat(map, lat) {
-        const zoom = map.getZoom();
-        // 2πR * cos(lat) / (256 * 2^zoom)
-        return (2 * Math.PI * R_EARTH_M * Math.cos(lat * Math.PI/180)) / (256 * Math.pow(2, zoom));
-      }
+        // state
+        let routesToRender = [];
+        let listenersAttached = false;
 
-      // Simple stable hash for a string -> 32-bit int
-      function hash32(s) {
-        let h = 2166136261 >>> 0;
-        for (let i = 0; i < s.length; i++) {
-          h ^= s.charCodeAt(i);
-          h = Math.imul(h, 16777619);
-        }
-        return h >>> 0;
-      }
+        function ensureCanvas() {
+          mapEl = mapEl || document.getElementById('map');
+          if (!mapEl) return false;
 
-      // Haversine distance (meters)
-      function dist(a, b) {
-        const toRad = x => x * Math.PI/180;
-        const dLat = toRad(b.lat - a.lat);
-        const dLng = toRad(b.lng - a.lng);
-        const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
-        const sinDLat = Math.sin(dLat/2), sinDLng = Math.sin(dLng/2);
-        const x = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
-        return 2 * R_EARTH_M * Math.asin(Math.min(1, Math.sqrt(x)));
-      }
-
-      // Linear interpolate along a segment by fraction t in [0,1]
-      function lerpLatLng(a, b, t) {
-        return L.latLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t);
-      }
-
-      // Densify polyline to <= step meters between vertices
-      function densify(latlngs, stepMeters = 12) {
-        if (latlngs.length < 2) return latlngs.slice();
-        const out = [latlngs[0]];
-        for (let i = 0; i < latlngs.length - 1; i++) {
-          const A = latlngs[i], B = latlngs[i + 1];
-          const d = dist(A, B);
-          if (d <= stepMeters) {
-            out.push(B);
-            continue;
+          if (canvas && !canvas.isConnected) {
+            canvas = null;
+            ctx = null;
           }
-          const n = Math.ceil(d / stepMeters);
-          for (let k = 1; k < n; k++) {
-            out.push(lerpLatLng(A, B, k / n));
+
+          if (!canvas) {
+            canvas = document.getElementById('route-canvas');
           }
-          out.push(B);
-        }
-        return out;
-      }
 
-      // Cumulative distances along polyline
-      function cumulativeMeters(latlngs) {
-        const cum = [0];
-        for (let i = 1; i < latlngs.length; i++) {
-          cum.push(cum[i - 1] + dist(latlngs[i - 1], latlngs[i]));
-        }
-        return cum;
-      }
-
-      // Find point at distance s meters from start (assumes s within [0,total])
-      function pointAtDistance(latlngs, cum, s) {
-        let i = 1;
-        while (i < cum.length && cum[i] < s) i++;
-        if (i === cum.length) return latlngs[latlngs.length - 1];
-        const prev = latlngs[i - 1], next = latlngs[i];
-        const segLen = cum[i] - cum[i - 1];
-        const t = segLen > 0 ? (s - cum[i - 1]) / segLen : 0;
-        return lerpLatLng(prev, next, t);
-      }
-
-      // Split polyline at a list of cut distances (meters from start)
-      function splitAtDistances(latlngs, cum, cuts) {
-        const segments = [];
-        let startD = 0;
-        for (const c of cuts) {
-          const seg = [];
-          // walk from startD to c
-          const startPt = pointAtDistance(latlngs, cum, startD);
-          seg.push(startPt);
-          // push intermediate vertices strictly inside (startD, c)
-          for (let i = 1; i < cum.length; i++) {
-            if (cum[i] > startD && cum[i] < c) seg.push(latlngs[i]);
+          if (canvas && !mapEl.contains(canvas)) {
+            mapEl.appendChild(canvas);
           }
-          const endPt = pointAtDistance(latlngs, cum, c);
-          seg.push(endPt);
-          segments.push(seg);
-          startD = c;
-        }
-        // tail
-        const tail = [];
-        tail.push(pointAtDistance(latlngs, cum, startD));
-        for (let i = 1; i < cum.length; i++) {
-          if (cum[i] > startD) tail.push(latlngs[i]);
-        }
-        if (tail.length >= 2) segments.push(tail);
-        return segments;
-      }
 
-      // Global cache to preserve phase across re-renders
-      const StripeState = new Map(); // key -> {phaseMeters}
+          if (!canvas) {
+            canvas = document.createElement('canvas');
+            canvas.id = 'route-canvas';
+            mapEl.appendChild(canvas);
+          }
 
-      // Create striped polylines for a path + ordered colors
-      function createStripedLayers(map, rawLatLngs, colors, options = {}) {
-        const {
-          stripePx = 18,         // visual stripe length target
-          densifyStepM = 12,     // vertex spacing for stable cuts
-          weight = 8,
-          opacity = 1.0,
-          lineCap = 'butt',
-          lineJoin = 'miter',
-          pane = undefined,
-          className = ''
-        } = options;
+          if (!ctx && canvas) {
+            ctx = canvas.getContext('2d');
+          }
 
-        if (!rawLatLngs || rawLatLngs.length < 2 || !colors || colors.length === 0)
-          return [];
-
-        // Normalize direction so identical overlaps stripe identically
-        const start = rawLatLngs[0], end = rawLatLngs[rawLatLngs.length - 1];
-        const dirKey = start.lat < end.lat ? 1 : (start.lat > end.lat ? -1 :
-                      (start.lng <= end.lng ? 1 : -1));
-        const latlngs = dirKey === 1 ? rawLatLngs.slice() : rawLatLngs.slice().reverse();
-
-        const dense = densify(latlngs, densifyStepM);
-        const cum = cumulativeMeters(dense);
-        const total = cum[cum.length - 1];
-        if (total === 0) return [];
-
-        // Stripe length in meters for this zoom (lock to center latitude)
-        const centerLat = dense[Math.floor(dense.length / 2)].lat;
-        const mPerPx = metersPerPixelAtLat(map, centerLat);
-        const segLenM = Math.max(5, stripePx * mPerPx); // guardrails
-
-        // Build a stable key and phase
-        const colorsKey = colors.join(',');
-        const firstKey = `${dense[0].lat.toFixed(5)},${dense[0].lng.toFixed(5)}`;
-        const seriesKey = `${firstKey}|${colorsKey}`;
-        let state = StripeState.get(seriesKey);
-        if (!state) {
-          const h = hash32(seriesKey);
-          const phaseMeters = h % segLenM;
-          state = { phaseMeters };
-          StripeState.set(seriesKey, state);
-        } else {
-          // If zoom changed (segLenM changed), keep phase fraction in [0,1)
-          const fraction = state.phaseMeters / segLenM;
-          state.phaseMeters = (fraction - Math.floor(fraction)) * segLenM;
+          return !!ctx;
         }
 
-        // Compute cut distances starting at phase
-        const cuts = [];
-        for (let s = state.phaseMeters; s < total; s += segLenM) cuts.push(s);
-        const pieces = splitAtDistances(dense, cum, cuts);
+        // Hi-DPI: set devicePixelRatio ONCE during resize; do not scale inside drawRoute.
+        function resizeCanvas() {
+          if (!ensureCanvas()) return;
+          const dpr = window.devicePixelRatio || 1;
+          const { clientWidth, clientHeight } = mapEl;
+          canvas.width  = Math.max(1, Math.floor(clientWidth  * dpr));
+          canvas.height = Math.max(1, Math.floor(clientHeight * dpr));
+          canvas.style.width  = clientWidth + 'px';
+          canvas.style.height = clientHeight + 'px';
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // only here
+        }
 
-        // Paint alternating colors
-        const layers = [];
-        let colorIdx = 0;
-        for (const seg of pieces) {
-          const layer = L.polyline(seg, {
-            color: colors[colorIdx % colors.length],
-            weight, opacity, lineCap, lineJoin, pane, className,
-            smoothFactor: 0
+        // Stable per-route dash phase so overlaps look even
+        function hashPhase(id) {
+          let h = 2166136261 >>> 0;
+          const str = String(id ?? '');
+          for (let i = 0; i < str.length; i++) {
+            h ^= str.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+          }
+          return (h >>> 0) % 16; // 0..15 px offset
+        }
+
+        function drawRoute(route) {
+          if (!ensureCanvas() || !map) return;
+          if (!route || !Array.isArray(route.coords) || route.coords.length === 0) return;
+
+          ctx.beginPath();
+          for (let i = 0; i < route.coords.length; i++) {
+            const ll = route.coords[i];
+            const p = map.latLngToContainerPoint([ll.lat, ll.lng]);
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
+          }
+
+          ctx.lineWidth   = route.width ?? 6;
+          ctx.lineJoin    = 'round';
+          ctx.lineCap     = 'round';
+          ctx.strokeStyle = route.color || '#000';
+
+          if (route.striped) {
+            ctx.setLineDash([8, 8]);
+            ctx.lineDashOffset = hashPhase(route.id);
+          } else {
+            ctx.setLineDash([]); // solid
+            ctx.lineDashOffset = 0;
+          }
+
+          ctx.stroke();
+        }
+
+        function drawFrame() {
+          if (!ensureCanvas()) return;
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          const dpr = window.devicePixelRatio || 1;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+          routesToRender.forEach(drawRoute);
+        }
+
+        function attachListenersOnce() {
+          if (listenersAttached || !map) return;
+          if (!ensureCanvas()) return;
+          listenersAttached = true;
+
+          map.on('move zoom resize', () => {
+            resizeCanvas();
+            drawFrame();
           });
-          layers.push(layer);
-          colorIdx++;
+
+          resizeCanvas();
         }
 
-        return layers;
-      }
-
-      // Convenience: add striped group to map and auto-redraw on zoom
-      function addStripedGroup(map, latlngs, colors, options) {
-        const group = L.layerGroup();
-        const render = () => {
-          group.clearLayers();
-          const layers = createStripedLayers(map, latlngs, colors, options);
-          layers.forEach(l => l.addTo(group));
-        };
-        map.on('zoomend', render);
-        group._stripeCleanup = () => {
-          map.off('zoomend', render);
-          delete group._stripeCleanup;
-        };
-        group.on('remove', () => {
-          if (typeof group._stripeCleanup === 'function') {
-            group._stripeCleanup();
+        function setRoutesInternal(list) {
+          routesToRender = Array.isArray(list) ? list : [];
+          attachListenersOnce();
+          if (!ensureCanvas()) return;
+          resizeCanvas();
+          if (routesToRender.length > 0) {
+            console.assert(
+              typeof routesToRender[0]?.coords?.[0]?.lat === 'number' &&
+              typeof routesToRender[0]?.coords?.[0]?.lng === 'number',
+              'coords must be {lat,lng} for Leaflet projection'
+            );
           }
-        });
-        render();
-        return group;
-      }
+          drawFrame();
+        }
 
-      // ===== Usage example =====
-      // const overlapCenterline = [... array of L.LatLng ...];
-      // const colorOrder = ['#0072bc','#ffdd00','#ff7300']; // Blue, Gold, Orange for example
-      // const grp = addStripedGroup(map, overlapCenterline, colorOrder, { stripePx: 18, weight: 8 });
-      // grp.addTo(map);
+        window.RouteCanvas = {
+          setRoutes(list) {
+            setRoutesInternal(list);
+          },
+          redraw() {
+            drawFrame();
+          },
+          resize() {
+            resizeCanvas();
+            drawFrame();
+          }
+        };
+      })();
 
       async function loadAgencies() {
         try {
@@ -814,8 +759,9 @@
         nameBubbles = {};
         stopMarkers.forEach(m => map.removeLayer(m));
         stopMarkers = [];
-        routeLayers.forEach(l => map.removeLayer(l));
-        routeLayers = [];
+        if (window.RouteCanvas) {
+          RouteCanvas.setRoutes([]);
+        }
         cachedRouteVisualization = null;
         busBlocks = {};
         previousBusData = {};
@@ -1766,62 +1712,74 @@
       }
 
       function renderRouteVisualization(visualization) {
-        routeLayers.forEach(layer => {
-          if (layer && typeof layer._stripeCleanup === 'function') {
-            layer._stripeCleanup();
-          }
-          if (layer) {
-            map.removeLayer(layer);
-          }
-        });
-        routeLayers = [];
-
-        if (!visualization) {
+        if (!window.RouteCanvas) {
           stopMarkers.forEach(marker => marker.bringToFront());
           return;
         }
 
+        if (!visualization) {
+          RouteCanvas.setRoutes([]);
+          stopMarkers.forEach(marker => marker.bringToFront());
+          return;
+        }
+
+        const routes = [];
         const { overlaps, nonOverlap } = visualization;
 
         if (Array.isArray(nonOverlap)) {
-          nonOverlap.forEach(segment => {
+          nonOverlap.forEach((segment, index) => {
             if (!segment || !Array.isArray(segment.path) || segment.path.length < 2) return;
-            const layer = L.polyline(segment.path, {
+            const coords = segment.path
+              .map(pt => {
+                if (!Array.isArray(pt) || pt.length < 2) return null;
+                const lat = Number(pt[0]);
+                const lng = Number(pt[1]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+                return { lat, lng };
+              })
+              .filter(Boolean);
+            if (coords.length < 2) return;
+            routes.push({
+              id: `solid-${segment.routeId ?? index}-${index}`,
               color: segment.color || '#000000',
-              weight: 6,
-              opacity: 1,
-              lineCap: 'butt',
-              lineJoin: 'miter',
-              smoothFactor: 0
-            }).addTo(map);
-            routeLayers.push(layer);
-          });
-        }
-
-        if (Array.isArray(overlaps) && overlaps.length > 0) {
-          overlaps.forEach(section => {
-            if (!section || !Array.isArray(section.path) || section.path.length < 2) return;
-            const normalized = section.normalizedColorInfos || normalizeColorInfos(section.colorInfos);
-            if (!normalized.length) return;
-            section.normalizedColorInfos = normalized;
-            const colorOrder = normalized.map(info => info.color || '#000000');
-            const latlngs = section.path.map(pt => L.latLng(pt[0], pt[1]));
-            if (latlngs.length < 2) return;
-            const group = addStripedGroup(map, latlngs, colorOrder, {
-              stripePx: 18,
-              weight: 8,
-              densifyStepM: 12,
-              opacity: 1,
-              lineCap: 'butt',
-              lineJoin: 'miter'
+              width: 6,
+              striped: false,
+              coords
             });
-            if (group) {
-              group.addTo(map);
-              routeLayers.push(group);
-            }
           });
         }
 
+        if (Array.isArray(overlaps)) {
+          overlaps.forEach((section, sectionIndex) => {
+            if (!section || !Array.isArray(section.path) || section.path.length < 2) return;
+            const coords = section.path
+              .map(pt => {
+                if (!Array.isArray(pt) || pt.length < 2) return null;
+                const lat = Number(pt[0]);
+                const lng = Number(pt[1]);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+                return { lat, lng };
+              })
+              .filter(Boolean);
+            if (coords.length < 2) return;
+            const normalized = section.normalizedColorInfos || normalizeColorInfos(section.colorInfos);
+            if (!Array.isArray(normalized) || !normalized.length) return;
+            section.normalizedColorInfos = normalized;
+            normalized.forEach(info => {
+              if (!info) return;
+              const routeId = info.routeId != null ? info.routeId : `${info.color || 'route'}-${sectionIndex}`;
+              routes.push({
+                id: String(routeId),
+                color: info.color || '#000000',
+                width: 6,
+                striped: true,
+                coords
+              });
+            });
+          });
+        }
+
+        RouteCanvas.setRoutes(routes);
         stopMarkers.forEach(marker => marker.bringToFront());
       }
 
