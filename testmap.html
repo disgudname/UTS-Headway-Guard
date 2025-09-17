@@ -344,10 +344,23 @@
           if (!ensureCanvas() || !map) return;
           if (!route || !Array.isArray(route.coords) || route.coords.length === 0) return;
 
+          const toPanePoint = typeof map.latLngToLayerPoint === 'function'
+            ? (lat, lng) => map.latLngToLayerPoint([lat, lng])
+            : (lat, lng) => {
+                const containerPoint = map.latLngToContainerPoint([lat, lng]);
+                const panePos = typeof map._getMapPanePos === 'function'
+                  ? map._getMapPanePos()
+                  : { x: 0, y: 0 };
+                return {
+                  x: containerPoint.x - panePos.x,
+                  y: containerPoint.y - panePos.y
+                };
+              };
+
           ctx.beginPath();
           for (let i = 0; i < route.coords.length; i++) {
             const ll = route.coords[i];
-            const p = map.latLngToContainerPoint([ll.lat, ll.lng]);
+            const p = toPanePoint(ll.lat, ll.lng);
             if (i === 0) ctx.moveTo(p.x, p.y);
             else ctx.lineTo(p.x, p.y);
           }
