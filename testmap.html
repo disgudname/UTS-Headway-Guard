@@ -322,6 +322,7 @@
       const MIN_STRIPE_LENGTH_METERS = 20;
       const MAX_STRIPE_LENGTH_METERS = 500000;
       const CONTRIBUTION_CLUSTER_DISTANCE_METERS = 4;
+      const MAX_BOUNDARY_REPLACEMENT_DISTANCE_METERS = 4.5;
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
@@ -1089,10 +1090,16 @@
         });
       }
 
-      function mergeReplacementPoint(replacements, index, point) {
+      function mergeReplacementPoint(replacements, index, point, originalPoint = null) {
         if (!(replacements instanceof Map)) return;
         if (!Number.isFinite(index)) return;
         if (!Array.isArray(point) || point.length < 2) return;
+        if (Array.isArray(originalPoint) && originalPoint.length >= 2) {
+          const distance = distanceMeters(originalPoint, point);
+          if (!Number.isFinite(distance) || distance > MAX_BOUNDARY_REPLACEMENT_DISTANCE_METERS) {
+            return;
+          }
+        }
         const sanitized = [point[0], point[1]];
         if (replacements.has(index)) {
           const existing = replacements.get(index);
@@ -1666,8 +1673,19 @@
                     replacements = new Map();
                     boundaryReplacementsByShape.set(info.shapeId, replacements);
                   }
-                  mergeReplacementPoint(replacements, info.startPointIndex, sanitizedPath[0]);
-                  mergeReplacementPoint(replacements, info.endPointIndex, sanitizedPath[sanitizedPath.length - 1]);
+                  const pathStart = Array.isArray(info.pathPoints) && info.pathPoints.length > 0
+                    ? info.pathPoints[0]
+                    : null;
+                  const pathEnd = Array.isArray(info.pathPoints) && info.pathPoints.length > 0
+                    ? info.pathPoints[info.pathPoints.length - 1]
+                    : null;
+                  mergeReplacementPoint(replacements, info.startPointIndex, sanitizedPath[0], pathStart);
+                  mergeReplacementPoint(
+                    replacements,
+                    info.endPointIndex,
+                    sanitizedPath[sanitizedPath.length - 1],
+                    pathEnd
+                  );
                 });
 
                 overlaps.push({ path: sanitizedPath, colorInfos });
