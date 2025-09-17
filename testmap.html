@@ -321,6 +321,7 @@
       const TARGET_STRIPE_SCREEN_LENGTH_PX = 18;
       const MIN_STRIPE_LENGTH_METERS = 20;
       const MAX_STRIPE_LENGTH_METERS = 500000;
+      const CONTRIBUTION_CLUSTER_DISTANCE_METERS = 4;
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
@@ -1051,14 +1052,39 @@
           if (!contributions.length) {
             return [refPoint[0], refPoint[1]];
           }
-          const summed = contributions.reduce((acc, coord) => {
-            acc[0] += coord[0];
-            acc[1] += coord[1];
+          const clusters = [];
+          contributions.forEach(coord => {
+            if (!Array.isArray(coord) || coord.length < 2) return;
+            let matchedCluster = null;
+            for (const cluster of clusters) {
+              if (distanceMeters(cluster.center, coord) <= CONTRIBUTION_CLUSTER_DISTANCE_METERS) {
+                matchedCluster = cluster;
+                break;
+              }
+            }
+            if (matchedCluster) {
+              matchedCluster.count += 1;
+              const weight = 1 / matchedCluster.count;
+              matchedCluster.center[0] = matchedCluster.center[0] + (coord[0] - matchedCluster.center[0]) * weight;
+              matchedCluster.center[1] = matchedCluster.center[1] + (coord[1] - matchedCluster.center[1]) * weight;
+            } else {
+              clusters.push({
+                center: [coord[0], coord[1]],
+                count: 1
+              });
+            }
+          });
+          if (!clusters.length) {
+            return [refPoint[0], refPoint[1]];
+          }
+          const summedCenters = clusters.reduce((acc, cluster) => {
+            acc[0] += cluster.center[0];
+            acc[1] += cluster.center[1];
             return acc;
           }, [0, 0]);
           return [
-            summed[0] / contributions.length,
-            summed[1] / contributions.length
+            summedCenters[0] / clusters.length,
+            summedCenters[1] / clusters.length
           ];
         });
       }
