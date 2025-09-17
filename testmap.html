@@ -1417,6 +1417,352 @@
         return unique;
       }
 
+      function computeRouteOverlapGraphics(routeShapes) {
+        if (!Array.isArray(routeShapes) || routeShapes.length === 0) {
+          return { overlaps: [], nonOverlap: [] };
+        }
+
+        function sanitizePoints(points) {
+          if (!Array.isArray(points)) return [];
+          const sanitized = [];
+          points.forEach(pt => {
+            if (!Array.isArray(pt) || pt.length < 2) return;
+            const lat = Number(pt[0]);
+            const lng = Number(pt[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            if (!sanitized.length) {
+              sanitized.push([lat, lng]);
+              return;
+            }
+            const prev = sanitized[sanitized.length - 1];
+            if (Math.abs(prev[0] - lat) > 1e-12 || Math.abs(prev[1] - lng) > 1e-12) {
+              sanitized.push([lat, lng]);
+            }
+          });
+          return sanitized;
+        }
+
+        function sanitizeSlice(points) {
+          const sanitized = sanitizePoints(points);
+          return sanitized.length < 2 ? [] : sanitized;
+        }
+
+        const processedRoutes = [];
+        const routeLookup = new Map();
+        const segmentsList = [];
+
+        routeShapes.forEach((shape, idx) => {
+          if (!shape || !Array.isArray(shape.points) || shape.points.length < 2) return;
+          const rawRouteId = shape.routeId;
+          const routeId = rawRouteId != null ? rawRouteId : idx;
+          const color = typeof shape.color === 'string' && shape.color ? shape.color : '#000000';
+          const basePoints = sanitizePoints(shape.points);
+          if (basePoints.length < 2) return;
+          const densified = sanitizePoints(densifyPolyline(basePoints, SEGMENT_SAMPLING_DISTANCE_METERS));
+          if (densified.length < 2) return;
+          const cumulativeDistances = computeCumulativeDistances(densified);
+          const totalLength = cumulativeDistances.length > 0
+            ? cumulativeDistances[cumulativeDistances.length - 1]
+            : computePolylineLength(densified);
+          const routeKey = typeof routeId === 'number'
+            ? `n:${routeId}`
+            : `s:${String(routeId)}`;
+          const routeData = {
+            routeId,
+            routeKey,
+            color,
+            rawPoints: densified.map(pt => [pt[0], pt[1]]),
+            cumulativeDistances,
+            totalLength,
+            segments: [],
+            overlapSegmentIndices: new Set()
+          };
+          for (let i = 1; i < densified.length; i++) {
+            const start = densified[i - 1];
+            const end = densified[i];
+            const segLength = distanceMeters(start, end);
+            if (!Number.isFinite(segLength) || segLength < MIN_SEGMENT_LENGTH_METERS) continue;
+            const midLat = (start[0] + end[0]) / 2;
+            const midLng = (start[1] + end[1]) / 2;
+            const bearing = normalizeBearing(bearingDegrees(start, end));
+            const latIdx = Math.round(midLat / LAT_LNG_BUCKET_SIZE);
+            const lngIdx = Math.round(midLng / LAT_LNG_BUCKET_SIZE);
+            const angleIdx = Math.round(bearing / ANGLE_TOLERANCE_DEGREES);
+            const segment = {
+              routeId,
+              routeKey,
+              color,
+              start: [start[0], start[1]],
+              end: [end[0], end[1]],
+              mid: [midLat, midLng],
+              length: segLength,
+              bearing,
+              routePointStartIndex: i - 1,
+              routePointEndIndex: i,
+              index: i - 1,
+              latIdx,
+              lngIdx,
+              angleIdx,
+              globalIndex: segmentsList.length,
+              isOverlapping: false,
+              matchRouteIds: new Set()
+            };
+            segmentsList.push(segment);
+            routeData.segments.push(segment);
+          }
+          processedRoutes.push(routeData);
+          routeLookup.set(routeKey, routeData);
+        });
+
+        if (!segmentsList.length) {
+          const fallback = [];
+          processedRoutes.forEach(route => {
+            if (!Array.isArray(route.rawPoints) || route.rawPoints.length < 2) return;
+            const path = sanitizeSlice(route.rawPoints);
+            if (path.length >= 2) {
+              fallback.push({
+                path,
+                color: route.color,
+                routeId: route.routeId
+              });
+            }
+          });
+          return { overlaps: [], nonOverlap: fallback };
+        }
+
+        const bucketMap = new Map();
+        segmentsList.forEach(segment => {
+          const key = `${segment.latIdx}|${segment.lngIdx}|${segment.angleIdx}`;
+          if (!bucketMap.has(key)) bucketMap.set(key, []);
+          bucketMap.get(key).push(segment);
+        });
+
+        const parents = segmentsList.map((_, idx) => idx);
+        const ranks = segmentsList.map(() => 0);
+
+        function find(idx) {
+          if (parents[idx] !== idx) {
+            parents[idx] = find(parents[idx]);
+          }
+          return parents[idx];
+        }
+
+        function union(a, b) {
+          const rootA = find(a);
+          const rootB = find(b);
+          if (rootA === rootB) return;
+          const rankA = ranks[rootA];
+          const rankB = ranks[rootB];
+          if (rankA < rankB) {
+            parents[rootA] = rootB;
+          } else if (rankA > rankB) {
+            parents[rootB] = rootA;
+          } else {
+            parents[rootB] = rootA;
+            ranks[rootA] += 1;
+          }
+        }
+
+        segmentsList.forEach(segment => {
+          const { latIdx, lngIdx, angleIdx } = segment;
+          for (let dLat = -1; dLat <= 1; dLat++) {
+            for (let dLng = -1; dLng <= 1; dLng++) {
+              for (let dAngle = -1; dAngle <= 1; dAngle++) {
+                const key = `${latIdx + dLat}|${lngIdx + dLng}|${angleIdx + dAngle}`;
+                const bucket = bucketMap.get(key);
+                if (!bucket) continue;
+                bucket.forEach(candidate => {
+                  if (!candidate) return;
+                  if (candidate.globalIndex <= segment.globalIndex) return;
+                  if (candidate.routeKey === segment.routeKey) return;
+                  const angleDiff = angleDifference(segment.bearing, candidate.bearing);
+                  if (!Number.isFinite(angleDiff) || angleDiff > ANGLE_TOLERANCE_DEGREES) return;
+                  const midDist = distanceMeters(segment.mid, candidate.mid);
+                  if (!Number.isFinite(midDist) || midDist > OVERLAP_DISTANCE_TOLERANCE_METERS) return;
+                  segment.isOverlapping = true;
+                  candidate.isOverlapping = true;
+                  segment.matchRouteIds.add(candidate.routeId);
+                  candidate.matchRouteIds.add(segment.routeId);
+                  union(segment.globalIndex, candidate.globalIndex);
+                });
+              }
+            }
+          }
+        });
+
+        processedRoutes.forEach(route => {
+          const segs = route.segments;
+          if (!Array.isArray(segs) || segs.length < 2) return;
+          segs.sort((a, b) => a.routePointStartIndex - b.routePointStartIndex);
+          for (let i = 1; i < segs.length; i++) {
+            const prev = segs[i - 1];
+            const curr = segs[i];
+            if (!prev.isOverlapping || !curr.isOverlapping) continue;
+            let sharesRoute = false;
+            prev.matchRouteIds.forEach(id => {
+              if (curr.matchRouteIds.has(id)) {
+                sharesRoute = true;
+              }
+            });
+            if (sharesRoute) {
+              union(prev.globalIndex, curr.globalIndex);
+            }
+          }
+        });
+
+        const clusters = new Map();
+        segmentsList.forEach(segment => {
+          if (!segment.isOverlapping) return;
+          const root = find(segment.globalIndex);
+          if (!clusters.has(root)) clusters.set(root, []);
+          clusters.get(root).push(segment);
+        });
+
+        const overlaps = [];
+
+        clusters.forEach(clusterSegments => {
+          if (!Array.isArray(clusterSegments) || clusterSegments.length === 0) return;
+          const segmentsByRoute = new Map();
+          clusterSegments.forEach(seg => {
+            if (!segmentsByRoute.has(seg.routeKey)) segmentsByRoute.set(seg.routeKey, []);
+            segmentsByRoute.get(seg.routeKey).push(seg);
+          });
+          if (segmentsByRoute.size <= 1) return;
+
+          const contributions = [];
+          const colorInfos = [];
+          let referenceInfo = null;
+
+          segmentsByRoute.forEach((segList, routeKey) => {
+            const routeData = routeLookup.get(routeKey);
+            if (!routeData || !segList.length) return;
+            segList.sort((a, b) => a.routePointStartIndex - b.routePointStartIndex);
+            let minIdx = Infinity;
+            let maxIdx = -Infinity;
+            segList.forEach(seg => {
+              if (Number.isFinite(seg.routePointStartIndex)) {
+                minIdx = Math.min(minIdx, seg.routePointStartIndex);
+              }
+              if (Number.isFinite(seg.routePointEndIndex)) {
+                maxIdx = Math.max(maxIdx, seg.routePointEndIndex);
+              }
+            });
+            if (!Number.isFinite(minIdx) || !Number.isFinite(maxIdx)) return;
+            const startIndex = Math.max(0, Math.min(routeData.rawPoints.length - 2, Math.floor(minIdx)));
+            const endIndex = Math.min(routeData.rawPoints.length - 1, Math.max(startIndex + 1, Math.ceil(maxIdx)));
+            const slice = routeData.rawPoints.slice(startIndex, endIndex + 1);
+            const sanitizedSlice = sanitizeSlice(slice);
+            if (sanitizedSlice.length < 2) return;
+            const subCumulative = [];
+            const base = routeData.cumulativeDistances[startIndex];
+            for (let idx2 = startIndex; idx2 <= endIndex; idx2++) {
+              subCumulative.push(routeData.cumulativeDistances[idx2] - base);
+            }
+            const totalLength = subCumulative.length > 0 ? subCumulative[subCumulative.length - 1] : 0;
+            const info = {
+              routeId: routeData.routeId,
+              color: routeData.color,
+              pathPoints: sanitizedSlice,
+              cumulativeDistances: subCumulative,
+              totalLength
+            };
+            contributions.push({ routeData, segList, info });
+            colorInfos.push({ routeId: routeData.routeId, color: routeData.color });
+            if (!referenceInfo || totalLength > referenceInfo.totalLength) {
+              referenceInfo = info;
+            }
+          });
+
+          if (!referenceInfo || contributions.length < 2) return;
+
+          const referencePoints = referenceInfo.pathPoints.map(pt => [pt[0], pt[1]]);
+          const referenceDistances = referenceInfo.cumulativeDistances.slice();
+          const replacements = new Map();
+          contributions.forEach(({ info }) => {
+            if (!info.pathPoints || info.pathPoints.length === 0) return;
+            mergeReplacementPoint(replacements, 0, info.pathPoints[0], referencePoints[0]);
+            mergeReplacementPoint(
+              replacements,
+              referencePoints.length - 1,
+              info.pathPoints[info.pathPoints.length - 1],
+              referencePoints[referencePoints.length - 1]
+            );
+          });
+          const adjustedReference = referencePoints.map((pt, idx) => getAdjustedPointForIndex(replacements, idx, pt));
+          const averagedPath = buildAveragedPath(adjustedReference, referenceDistances, contributions.map(c => c.info));
+          const sanitizedPath = sanitizeSlice(averagedPath);
+          if (sanitizedPath.length < 2) return;
+
+          contributions.forEach(({ routeData, segList }) => {
+            segList.forEach(seg => {
+              if (Number.isFinite(seg.routePointStartIndex)) {
+                routeData.overlapSegmentIndices.add(seg.routePointStartIndex);
+              }
+            });
+          });
+
+          const normalizedColors = normalizeColorInfos(colorInfos);
+          overlaps.push({
+            path: sanitizedPath,
+            colorInfos: normalizedColors,
+            normalizedColorInfos: normalizedColors
+          });
+        });
+
+        const nonOverlap = [];
+        processedRoutes.forEach(route => {
+          const points = route.rawPoints;
+          if (!Array.isArray(points) || points.length < 2) return;
+          const overlapSet = route.overlapSegmentIndices;
+          let currentStart = null;
+          for (let segIdx = 0; segIdx < points.length - 1; segIdx++) {
+            const isOverlap = overlapSet.has(segIdx);
+            if (isOverlap) {
+              if (currentStart !== null) {
+                const slice = sanitizeSlice(points.slice(currentStart, segIdx + 1));
+                if (slice.length >= 2) {
+                  nonOverlap.push({
+                    path: slice,
+                    color: route.color,
+                    routeId: route.routeId
+                  });
+                }
+                currentStart = null;
+              }
+            } else {
+              if (currentStart === null) {
+                currentStart = segIdx;
+              }
+            }
+          }
+          if (currentStart !== null) {
+            const slice = sanitizeSlice(points.slice(currentStart, points.length));
+            if (slice.length >= 2) {
+              nonOverlap.push({
+                path: slice,
+                color: route.color,
+                routeId: route.routeId
+              });
+            }
+          }
+        });
+
+        if (!nonOverlap.length && !overlaps.length) {
+          processedRoutes.forEach(route => {
+            const slice = sanitizeSlice(route.rawPoints);
+            if (slice.length >= 2) {
+              nonOverlap.push({
+                path: slice,
+                color: route.color,
+                routeId: route.routeId
+              });
+            }
+          });
+        }
+
+        return { overlaps, nonOverlap };
+      }
+
       function renderRouteVisualization(visualization) {
         routeLayers.forEach(layer => {
           if (layer && typeof layer._stripeCleanup === 'function') {
