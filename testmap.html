@@ -246,6 +246,210 @@
       let agencies = [];
       let baseURL = '';
 
+      // ===== Stripe Engine (Leaflet) =====
+
+      // Earth constants for Web Mercator scale
+      const R_EARTH_M = 6378137;
+      function metersPerPixelAtLat(map, lat) {
+        const zoom = map.getZoom();
+        // 2πR * cos(lat) / (256 * 2^zoom)
+        return (2 * Math.PI * R_EARTH_M * Math.cos(lat * Math.PI/180)) / (256 * Math.pow(2, zoom));
+      }
+
+      // Simple stable hash for a string -> 32-bit int
+      function hash32(s) {
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < s.length; i++) {
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+
+      // Haversine distance (meters)
+      function dist(a, b) {
+        const toRad = x => x * Math.PI/180;
+        const dLat = toRad(b.lat - a.lat);
+        const dLng = toRad(b.lng - a.lng);
+        const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
+        const sinDLat = Math.sin(dLat/2), sinDLng = Math.sin(dLng/2);
+        const x = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+        return 2 * R_EARTH_M * Math.asin(Math.min(1, Math.sqrt(x)));
+      }
+
+      // Linear interpolate along a segment by fraction t in [0,1]
+      function lerpLatLng(a, b, t) {
+        return L.latLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t);
+      }
+
+      // Densify polyline to <= step meters between vertices
+      function densify(latlngs, stepMeters = 12) {
+        if (latlngs.length < 2) return latlngs.slice();
+        const out = [latlngs[0]];
+        for (let i = 0; i < latlngs.length - 1; i++) {
+          const A = latlngs[i], B = latlngs[i + 1];
+          const d = dist(A, B);
+          if (d <= stepMeters) {
+            out.push(B);
+            continue;
+          }
+          const n = Math.ceil(d / stepMeters);
+          for (let k = 1; k < n; k++) {
+            out.push(lerpLatLng(A, B, k / n));
+          }
+          out.push(B);
+        }
+        return out;
+      }
+
+      // Cumulative distances along polyline
+      function cumulativeMeters(latlngs) {
+        const cum = [0];
+        for (let i = 1; i < latlngs.length; i++) {
+          cum.push(cum[i - 1] + dist(latlngs[i - 1], latlngs[i]));
+        }
+        return cum;
+      }
+
+      // Find point at distance s meters from start (assumes s within [0,total])
+      function pointAtDistance(latlngs, cum, s) {
+        let i = 1;
+        while (i < cum.length && cum[i] < s) i++;
+        if (i === cum.length) return latlngs[latlngs.length - 1];
+        const prev = latlngs[i - 1], next = latlngs[i];
+        const segLen = cum[i] - cum[i - 1];
+        const t = segLen > 0 ? (s - cum[i - 1]) / segLen : 0;
+        return lerpLatLng(prev, next, t);
+      }
+
+      // Split polyline at a list of cut distances (meters from start)
+      function splitAtDistances(latlngs, cum, cuts) {
+        const segments = [];
+        let startD = 0;
+        for (const c of cuts) {
+          const seg = [];
+          // walk from startD to c
+          const startPt = pointAtDistance(latlngs, cum, startD);
+          seg.push(startPt);
+          // push intermediate vertices strictly inside (startD, c)
+          for (let i = 1; i < cum.length; i++) {
+            if (cum[i] > startD && cum[i] < c) seg.push(latlngs[i]);
+          }
+          const endPt = pointAtDistance(latlngs, cum, c);
+          seg.push(endPt);
+          segments.push(seg);
+          startD = c;
+        }
+        // tail
+        const tail = [];
+        tail.push(pointAtDistance(latlngs, cum, startD));
+        for (let i = 1; i < cum.length; i++) {
+          if (cum[i] > startD) tail.push(latlngs[i]);
+        }
+        if (tail.length >= 2) segments.push(tail);
+        return segments;
+      }
+
+      // Global cache to preserve phase across re-renders
+      const StripeState = new Map(); // key -> {phaseMeters}
+
+      // Create striped polylines for a path + ordered colors
+      function createStripedLayers(map, rawLatLngs, colors, options = {}) {
+        const {
+          stripePx = 18,         // visual stripe length target
+          densifyStepM = 12,     // vertex spacing for stable cuts
+          weight = 8,
+          opacity = 1.0,
+          lineCap = 'butt',
+          lineJoin = 'miter',
+          pane = undefined,
+          className = ''
+        } = options;
+
+        if (!rawLatLngs || rawLatLngs.length < 2 || !colors || colors.length === 0)
+          return [];
+
+        // Normalize direction so identical overlaps stripe identically
+        const start = rawLatLngs[0], end = rawLatLngs[rawLatLngs.length - 1];
+        const dirKey = start.lat < end.lat ? 1 : (start.lat > end.lat ? -1 :
+                      (start.lng <= end.lng ? 1 : -1));
+        const latlngs = dirKey === 1 ? rawLatLngs.slice() : rawLatLngs.slice().reverse();
+
+        const dense = densify(latlngs, densifyStepM);
+        const cum = cumulativeMeters(dense);
+        const total = cum[cum.length - 1];
+        if (total === 0) return [];
+
+        // Stripe length in meters for this zoom (lock to center latitude)
+        const centerLat = dense[Math.floor(dense.length / 2)].lat;
+        const mPerPx = metersPerPixelAtLat(map, centerLat);
+        const segLenM = Math.max(5, stripePx * mPerPx); // guardrails
+
+        // Build a stable key and phase
+        const colorsKey = colors.join(',');
+        const firstKey = `${dense[0].lat.toFixed(5)},${dense[0].lng.toFixed(5)}`;
+        const seriesKey = `${firstKey}|${colorsKey}`;
+        let state = StripeState.get(seriesKey);
+        if (!state) {
+          const h = hash32(seriesKey);
+          const phaseMeters = h % segLenM;
+          state = { phaseMeters };
+          StripeState.set(seriesKey, state);
+        } else {
+          // If zoom changed (segLenM changed), keep phase fraction in [0,1)
+          const fraction = state.phaseMeters / segLenM;
+          state.phaseMeters = (fraction - Math.floor(fraction)) * segLenM;
+        }
+
+        // Compute cut distances starting at phase
+        const cuts = [];
+        for (let s = state.phaseMeters; s < total; s += segLenM) cuts.push(s);
+        const pieces = splitAtDistances(dense, cum, cuts);
+
+        // Paint alternating colors
+        const layers = [];
+        let colorIdx = 0;
+        for (const seg of pieces) {
+          const layer = L.polyline(seg, {
+            color: colors[colorIdx % colors.length],
+            weight, opacity, lineCap, lineJoin, pane, className,
+            smoothFactor: 0
+          });
+          layers.push(layer);
+          colorIdx++;
+        }
+
+        return layers;
+      }
+
+      // Convenience: add striped group to map and auto-redraw on zoom
+      function addStripedGroup(map, latlngs, colors, options) {
+        const group = L.layerGroup();
+        const render = () => {
+          group.clearLayers();
+          const layers = createStripedLayers(map, latlngs, colors, options);
+          layers.forEach(l => l.addTo(group));
+        };
+        map.on('zoomend', render);
+        group._stripeCleanup = () => {
+          map.off('zoomend', render);
+          delete group._stripeCleanup;
+        };
+        group.on('remove', () => {
+          if (typeof group._stripeCleanup === 'function') {
+            group._stripeCleanup();
+          }
+        });
+        render();
+        return group;
+      }
+
+      // ===== Usage example =====
+      // const overlapCenterline = [... array of L.LatLng ...];
+      // const colorOrder = ['#0072bc','#ffdd00','#ff7300']; // Blue, Gold, Orange for example
+      // const grp = addStripedGroup(map, overlapCenterline, colorOrder, { stripePx: 18, weight: 8 });
+      // grp.addTo(map);
+
       async function loadAgencies() {
         try {
           const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
@@ -317,10 +521,6 @@
       const ANGLE_TOLERANCE_DEGREES = 18;
       const LAT_LNG_BUCKET_SIZE = 0.00018;
       const MIN_SEGMENT_LENGTH_METERS = 0.5;
-      const TARGET_STRIPE_LENGTH_METERS = 30;
-      const TARGET_STRIPE_SCREEN_LENGTH_PX = 18;
-      const MIN_STRIPE_LENGTH_METERS = 20;
-      const MAX_STRIPE_LENGTH_METERS = 500000;
       const CONTRIBUTION_CLUSTER_DISTANCE_METERS = 4;
       const MAX_BOUNDARY_REPLACEMENT_DISTANCE_METERS = 4.5;
 
@@ -1126,156 +1326,6 @@
         return [replacement[0], replacement[1]];
       }
 
-      function interpolatePoint(a, b, fraction) {
-        if (!Array.isArray(a) || !Array.isArray(b)) return a;
-        const t = Math.min(1, Math.max(0, Number.isFinite(fraction) ? fraction : 0));
-        const lat = a[0] + (b[0] - a[0]) * t;
-        const lng = a[1] + (b[1] - a[1]) * t;
-        return [lat, lng];
-      }
-
-      function splitPolylineByLength(points, segmentLengthMeters) {
-        if (!Array.isArray(points) || points.length < 2 || !Number.isFinite(segmentLengthMeters) || segmentLengthMeters <= 0) {
-          return [];
-        }
-
-        const EPSILON = 1e-9;
-        const segments = [];
-        let currentSegment = [points[0]];
-        let distanceIntoSegment = 0;
-        let previousPoint = points[0];
-
-        for (let i = 1; i < points.length; i++) {
-          const nextPoint = points[i];
-          if (!nextPoint) continue;
-
-          let remainingDistance = distanceMeters(previousPoint, nextPoint);
-          if (!Number.isFinite(remainingDistance) || remainingDistance <= EPSILON) {
-            const lastPoint = currentSegment[currentSegment.length - 1];
-            if (!lastPoint || Math.abs(lastPoint[0] - nextPoint[0]) > EPSILON || Math.abs(lastPoint[1] - nextPoint[1]) > EPSILON) {
-              currentSegment.push(nextPoint);
-            }
-            previousPoint = nextPoint;
-            continue;
-          }
-
-          let startPoint = previousPoint;
-          while (distanceIntoSegment + remainingDistance >= segmentLengthMeters - EPSILON) {
-            const distanceNeeded = segmentLengthMeters - distanceIntoSegment;
-            const fraction = Math.min(1, distanceNeeded / remainingDistance);
-            const interpolatedPoint = interpolatePoint(startPoint, nextPoint, fraction);
-            currentSegment.push(interpolatedPoint);
-            segments.push(currentSegment);
-            currentSegment = [interpolatedPoint];
-            startPoint = interpolatedPoint;
-            remainingDistance = Math.max(0, remainingDistance - distanceNeeded);
-            distanceIntoSegment = 0;
-          }
-
-          if (remainingDistance > EPSILON) {
-            distanceIntoSegment += remainingDistance;
-            const lastPoint = currentSegment[currentSegment.length - 1];
-            if (!lastPoint || Math.abs(lastPoint[0] - nextPoint[0]) > EPSILON || Math.abs(lastPoint[1] - nextPoint[1]) > EPSILON) {
-              currentSegment.push(nextPoint);
-            }
-          } else {
-            currentSegment = [nextPoint];
-            distanceIntoSegment = 0;
-          }
-
-          previousPoint = nextPoint;
-        }
-
-        if (currentSegment.length > 1) {
-          segments.push(currentSegment);
-        }
-
-        return segments;
-      }
-
-      function createStripeSegments(points, stripeLengthMeters, totalColors, startColorIndex = 0, startOffsetMeters = 0) {
-        const sanitizedColors = Number.isFinite(totalColors) && totalColors > 0 ? Math.floor(totalColors) : 0;
-        if (!Array.isArray(points) || points.length < 2 || !Number.isFinite(stripeLengthMeters) || stripeLengthMeters <= 0 || sanitizedColors === 0) {
-          return { segments: [], endColorIndex: 0, endOffset: 0 };
-        }
-
-        const EPSILON = 1e-6;
-        const normalizedStripeLength = Math.max(EPSILON, stripeLengthMeters);
-        const normalizedStartColor = ((Math.floor(startColorIndex) % sanitizedColors) + sanitizedColors) % sanitizedColors;
-        const initialOffset = Math.min(
-          Math.max(Number.isFinite(startOffsetMeters) ? startOffsetMeters : 0, 0),
-          normalizedStripeLength - EPSILON
-        );
-
-        const segments = [];
-        let currentColorIndex = normalizedStartColor;
-        let consumedInColor = initialOffset;
-        let currentPoints = [points[0]];
-
-        for (let i = 1; i < points.length; i++) {
-          let prevPoint = points[i - 1];
-          const nextPoint = points[i];
-          if (!prevPoint || !nextPoint) continue;
-
-          let remainingDistance = distanceMeters(prevPoint, nextPoint);
-          if (!Number.isFinite(remainingDistance) || remainingDistance <= EPSILON) {
-            const lastPoint = currentPoints[currentPoints.length - 1];
-            if (!lastPoint || Math.abs(lastPoint[0] - nextPoint[0]) > EPSILON || Math.abs(lastPoint[1] - nextPoint[1]) > EPSILON) {
-              currentPoints.push(nextPoint);
-            }
-            continue;
-          }
-
-          while (remainingDistance > EPSILON) {
-            const remainingForColor = normalizedStripeLength - consumedInColor;
-            if (remainingForColor <= EPSILON) {
-              if (currentPoints.length > 1) {
-                segments.push({ colorIndex: currentColorIndex, points: currentPoints });
-              }
-              currentColorIndex = (currentColorIndex + 1) % sanitizedColors;
-              consumedInColor = 0;
-              currentPoints = [prevPoint];
-              continue;
-            }
-
-            if (remainingDistance <= remainingForColor + EPSILON) {
-              currentPoints.push(nextPoint);
-              consumedInColor += remainingDistance;
-              remainingDistance = 0;
-              prevPoint = nextPoint;
-              if (consumedInColor >= normalizedStripeLength - EPSILON) {
-                segments.push({ colorIndex: currentColorIndex, points: currentPoints });
-                currentColorIndex = (currentColorIndex + 1) % sanitizedColors;
-                consumedInColor = 0;
-                currentPoints = [nextPoint];
-              }
-            } else {
-              const distanceNeeded = Math.max(remainingForColor, EPSILON);
-              const fraction = distanceNeeded / remainingDistance;
-              const interpolatedPoint = interpolatePoint(prevPoint, nextPoint, fraction);
-              currentPoints.push(interpolatedPoint);
-              segments.push({ colorIndex: currentColorIndex, points: currentPoints });
-              currentColorIndex = (currentColorIndex + 1) % sanitizedColors;
-              consumedInColor = 0;
-              currentPoints = [interpolatedPoint];
-              prevPoint = interpolatedPoint;
-              remainingDistance = Math.max(0, remainingDistance - distanceNeeded);
-            }
-          }
-        }
-
-        if (currentPoints.length > 1) {
-          segments.push({ colorIndex: currentColorIndex, points: currentPoints });
-        }
-
-        const endOffset = consumedInColor >= normalizedStripeLength - EPSILON ? 0 : consumedInColor;
-        const endColorIndex = consumedInColor >= normalizedStripeLength - EPSILON
-          ? (currentColorIndex + 1) % sanitizedColors
-          : currentColorIndex;
-
-        return { segments, endColorIndex, endOffset };
-      }
-
       function createSegmentBucketKey(segment) {
         const latIdx = Math.round(segment.mid[0] / LAT_LNG_BUCKET_SIZE);
         const lngIdx = Math.round(segment.mid[1] / LAT_LNG_BUCKET_SIZE);
@@ -1367,496 +1417,15 @@
         return unique;
       }
 
-      function colorInfoKeyFromNormalizedInfos(normalizedInfos) {
-        if (!Array.isArray(normalizedInfos) || !normalizedInfos.length) return '';
-        return normalizedInfos.map(info => {
-          const id = info.routeId != null ? info.routeId : 'null';
-          const color = info.color || '#000000';
-          return `${id}:${color}`;
-        }).join('|');
-      }
-
-      function computeAdaptiveStripeBaseLengthMeters() {
-        if (!map || typeof map.getCenter !== 'function') {
-          return TARGET_STRIPE_LENGTH_METERS;
-        }
-        try {
-          const center = map.getCenter();
-          if (!center) return TARGET_STRIPE_LENGTH_METERS;
-          const centerPoint = map.latLngToContainerPoint(center);
-          if (!centerPoint || !Number.isFinite(centerPoint.x) || !Number.isFinite(centerPoint.y)) {
-            return TARGET_STRIPE_LENGTH_METERS;
-          }
-          const samplePoint = L.point(centerPoint.x + TARGET_STRIPE_SCREEN_LENGTH_PX, centerPoint.y);
-          const sampleLatLng = map.containerPointToLatLng(samplePoint);
-          if (!sampleLatLng) return TARGET_STRIPE_LENGTH_METERS;
-          const distance = map.distance(center, sampleLatLng);
-          if (!Number.isFinite(distance) || distance <= 0) {
-            return TARGET_STRIPE_LENGTH_METERS;
-          }
-          const clamped = Math.max(
-            MIN_STRIPE_LENGTH_METERS,
-            Math.min(MAX_STRIPE_LENGTH_METERS, distance)
-          );
-          return clamped;
-        } catch (err) {
-          return TARGET_STRIPE_LENGTH_METERS;
-        }
-      }
-
-      function computeRouteOverlapGraphics(routes) {
-        if (!Array.isArray(routes) || routes.length === 0) {
-          return { overlaps: [], nonOverlap: [] };
-        }
-
-        const colorByRoute = new Map();
-        const densifiedByShape = new Map();
-        const segmentFlagsByShape = new Map();
-        const shapeToRoute = new Map();
-        const shapeMetadata = [];
-        const bucketMap = new Map();
-        const boundaryReplacementsByShape = new Map();
-
-        routes.forEach((route, idx) => {
-          const routeId = route.routeId;
-          colorByRoute.set(routeId, route.color);
-          const shapeId = `${String(routeId)}__${idx}`;
-          shapeToRoute.set(shapeId, routeId);
-          shapeMetadata.push({ shapeId, routeId });
-          const pathPoints = densifyPolyline(route.points, SEGMENT_SAMPLING_DISTANCE_METERS);
-          densifiedByShape.set(shapeId, pathPoints);
-          const segmentFlags = new Array(Math.max(0, pathPoints.length - 1)).fill(false);
-          segmentFlagsByShape.set(shapeId, segmentFlags);
-          for (let i = 0; i < pathPoints.length - 1; i++) {
-            const start = pathPoints[i];
-            const end = pathPoints[i + 1];
-            const length = distanceMeters(start, end);
-            if (!Number.isFinite(length) || length < MIN_SEGMENT_LENGTH_METERS) continue;
-            const mid = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
-            const bearing = normalizeBearing(bearingDegrees(start, end));
-            const segment = { routeId, shapeId, index: i, start, end, mid, length, bearing };
-            const bucketKey = createSegmentBucketKey(segment);
-            if (!bucketMap.has(bucketKey)) bucketMap.set(bucketKey, []);
-            bucketMap.get(bucketKey).push(segment);
-          }
-        });
-
-        const overlaps = [];
-        bucketMap.forEach(segmentList => {
-          const clusters = clusterSegments(segmentList);
-          clusters.forEach(cluster => {
-            const routesInCluster = new Set(cluster.map(seg => seg.routeId));
-            if (routesInCluster.size < 2) return;
-
-            const segmentsGroupedByShape = new Map();
-            cluster.forEach(seg => {
-              if (!segmentsGroupedByShape.has(seg.shapeId)) segmentsGroupedByShape.set(seg.shapeId, []);
-              segmentsGroupedByShape.get(seg.shapeId).push(seg);
-            });
-
-            let baseShapeId = null;
-            let maxSegmentCount = -1;
-            segmentsGroupedByShape.forEach((list, shapeId) => {
-              if (list.length > maxSegmentCount) {
-                maxSegmentCount = list.length;
-                baseShapeId = shapeId;
-              }
-            });
-            if (baseShapeId === null) return;
-
-            const baseSegments = segmentsGroupedByShape.get(baseShapeId).slice().sort((a, b) => a.index - b.index);
-            if (!baseSegments.length) return;
-
-            let currentRun = [baseSegments[0]];
-            const runs = [];
-            for (let i = 1; i < baseSegments.length; i++) {
-              const prev = baseSegments[i - 1];
-              const curr = baseSegments[i];
-              if (curr.index === prev.index + 1) {
-                currentRun.push(curr);
-              } else {
-                runs.push(currentRun);
-                currentRun = [curr];
-              }
-            }
-            if (currentRun.length) runs.push(currentRun);
-
-            const otherSegments = cluster.filter(seg => seg.shapeId !== baseShapeId);
-            runs.forEach(runSegments => {
-              const matchingByShape = new Map();
-              const baseMatchInfo = new Map();
-              runSegments.forEach(seg => {
-                baseMatchInfo.set(seg.index, {
-                  segment: seg,
-                  matchShapes: new Set(),
-                  matchSegments: new Map()
-                });
-              });
-
-              otherSegments.forEach(seg => {
-                for (const baseSeg of runSegments) {
-                  if (angleDifference(baseSeg.bearing, seg.bearing) <= ANGLE_TOLERANCE_DEGREES &&
-                      distanceMeters(baseSeg.mid, seg.mid) <= OVERLAP_DISTANCE_TOLERANCE_METERS) {
-                    if (!matchingByShape.has(seg.shapeId)) matchingByShape.set(seg.shapeId, []);
-                    matchingByShape.get(seg.shapeId).push(seg);
-                    const info = baseMatchInfo.get(baseSeg.index);
-                    if (info) {
-                      info.matchShapes.add(seg.shapeId);
-                      if (!info.matchSegments.has(seg.shapeId)) {
-                        info.matchSegments.set(seg.shapeId, new Set());
-                      }
-                      info.matchSegments.get(seg.shapeId).add(seg.index);
-                    }
-                    break;
-                  }
-                }
-              });
-
-              const matchedBaseSegments = runSegments.filter(seg => {
-                const info = baseMatchInfo.get(seg.index);
-                return info && info.matchShapes.size > 0;
-              });
-              if (!matchedBaseSegments.length) return;
-
-              matchingByShape.set(baseShapeId, matchedBaseSegments.slice());
-              if (matchingByShape.size <= 1) return;
-
-              const densifiedPath = densifiedByShape.get(baseShapeId);
-              if (!densifiedPath || densifiedPath.length < 2) return;
-
-              matchingByShape.forEach((segmentsForShape, shapeId) => {
-                const flags = segmentFlagsByShape.get(shapeId);
-                if (!flags) return;
-                segmentsForShape.sort((a, b) => a.index - b.index);
-                segmentsForShape.forEach(seg => {
-                  if (seg.index >= 0 && seg.index < flags.length) {
-                    flags[seg.index] = true;
-                  }
-                });
-              });
-
-              const sortedMatched = matchedBaseSegments.slice().sort((a, b) => a.index - b.index);
-              const matchedRuns = [];
-              let currentMatched = [];
-              sortedMatched.forEach(seg => {
-                if (!currentMatched.length) {
-                  currentMatched.push(seg);
-                  return;
-                }
-                const prev = currentMatched[currentMatched.length - 1];
-                if (seg.index === prev.index + 1) {
-                  currentMatched.push(seg);
-                } else {
-                  matchedRuns.push(currentMatched);
-                  currentMatched = [seg];
-                }
-              });
-              if (currentMatched.length) matchedRuns.push(currentMatched);
-
-              matchedRuns.forEach(matchedRunSegments => {
-                const startIndex = matchedRunSegments[0].index;
-                const endIndex = matchedRunSegments[matchedRunSegments.length - 1].index + 1;
-                const path = densifiedPath.slice(startIndex, Math.min(endIndex + 1, densifiedPath.length));
-                if (path.length < 2) return;
-
-                const relevantShapeIds = new Set([baseShapeId]);
-                matchedRunSegments.forEach(seg => {
-                  const info = baseMatchInfo.get(seg.index);
-                  if (!info) return;
-                  info.matchShapes.forEach(shapeId => relevantShapeIds.add(shapeId));
-                });
-
-                const colorInfos = [];
-                const seenRoutes = new Set();
-                relevantShapeIds.forEach(shapeId => {
-                  const routeId = shapeToRoute.get(shapeId);
-                  if (routeId == null) return;
-                  if (seenRoutes.has(routeId)) return;
-                  seenRoutes.add(routeId);
-                  colorInfos.push({ routeId, color: colorByRoute.get(routeId) || '#000000' });
-                });
-
-                if (colorInfos.length <= 1) return;
-
-                const shapeSegmentIndices = new Map();
-                shapeSegmentIndices.set(baseShapeId, new Set(matchedRunSegments.map(seg => seg.index)));
-                matchedRunSegments.forEach(seg => {
-                  const info = baseMatchInfo.get(seg.index);
-                  if (!info || !info.matchSegments) return;
-                  info.matchSegments.forEach((indexSet, shapeId) => {
-                    if (!relevantShapeIds.has(shapeId)) return;
-                    if (!shapeSegmentIndices.has(shapeId)) shapeSegmentIndices.set(shapeId, new Set());
-                    indexSet.forEach(idx => {
-                      if (Number.isFinite(idx)) {
-                        shapeSegmentIndices.get(shapeId).add(Math.floor(idx));
-                      }
-                    });
-                  });
-                });
-
-                const shapeInfos = [];
-                shapeSegmentIndices.forEach((indexSet, shapeId) => {
-                  if (!relevantShapeIds.has(shapeId)) return;
-                  const routeId = shapeToRoute.get(shapeId);
-                  if (routeId == null) return;
-                  const densifiedPoints = densifiedByShape.get(shapeId);
-                  if (!densifiedPoints || densifiedPoints.length < 2) return;
-
-                  const sortedIndices = Array.from(indexSet).filter(idx => Number.isFinite(idx)).sort((a, b) => a - b);
-                  if (!sortedIndices.length) return;
-
-                  const maxSegmentIndex = Math.max(0, densifiedPoints.length - 2);
-                  const firstSegmentIndex = Math.max(0, Math.min(maxSegmentIndex, sortedIndices[0]));
-                  const lastSegmentIndex = Math.max(0, Math.min(maxSegmentIndex, sortedIndices[sortedIndices.length - 1]));
-                  const startPointIndex = Math.max(0, Math.min(densifiedPoints.length - 1, firstSegmentIndex));
-                  const endPointIndex = Math.max(0, Math.min(densifiedPoints.length - 1, lastSegmentIndex + 1));
-
-                  let pathPoints = [];
-                  sortedIndices.forEach(segIndex => {
-                    const clampedIndex = Math.max(0, Math.min(maxSegmentIndex, segIndex));
-                    const start = densifiedPoints[clampedIndex];
-                    const end = densifiedPoints[clampedIndex + 1];
-                    if (!start || !end) return;
-                    if (!pathPoints.length) {
-                      pathPoints.push([start[0], start[1]]);
-                    } else {
-                      const last = pathPoints[pathPoints.length - 1];
-                      if (Math.abs(last[0] - start[0]) > 1e-12 || Math.abs(last[1] - start[1]) > 1e-12) {
-                        pathPoints.push([start[0], start[1]]);
-                      }
-                    }
-                    pathPoints.push([end[0], end[1]]);
-                  });
-
-                  if (pathPoints.length < 2) {
-                    const fallback = densifiedPoints.slice(startPointIndex, endPointIndex + 1);
-                    if (fallback.length < 2) return;
-                    pathPoints = fallback.map(pt => [pt[0], pt[1]]);
-                  }
-
-                  const forwardScore = distanceMeters(pathPoints[0], path[0]) + distanceMeters(pathPoints[pathPoints.length - 1], path[path.length - 1]);
-                  const reverseScore = distanceMeters(pathPoints[pathPoints.length - 1], path[0]) + distanceMeters(pathPoints[0], path[path.length - 1]);
-                  const orientedPath = Number.isFinite(forwardScore) && Number.isFinite(reverseScore) && reverseScore + 1e-6 < forwardScore
-                    ? pathPoints.slice().reverse()
-                    : pathPoints.slice();
-
-                  const cumulativeDistances = computeCumulativeDistances(orientedPath);
-                  const totalLength = cumulativeDistances.length ? cumulativeDistances[cumulativeDistances.length - 1] : 0;
-
-                  shapeInfos.push({
-                    shapeId,
-                    routeId,
-                    startPointIndex,
-                    endPointIndex,
-                    pathPoints: orientedPath,
-                    cumulativeDistances,
-                    totalLength
-                  });
-                });
-
-                if (!shapeInfos.length) {
-                  overlaps.push({ path, colorInfos });
-                  return;
-                }
-
-                const baseInfo = shapeInfos.find(info => info.shapeId === baseShapeId);
-                const referencePath = baseInfo ? baseInfo.pathPoints : path.map(pt => [pt[0], pt[1]]);
-                const referenceDistances = baseInfo ? baseInfo.cumulativeDistances : computeCumulativeDistances(referencePath);
-                const averagedPath = buildAveragedPath(referencePath, referenceDistances, shapeInfos);
-                const sanitizedPath = Array.isArray(averagedPath) && averagedPath.length >= 2
-                  ? averagedPath.map(pt => [pt[0], pt[1]])
-                  : referencePath.map(pt => [pt[0], pt[1]]);
-
-                shapeInfos.forEach(info => {
-                  let replacements = boundaryReplacementsByShape.get(info.shapeId);
-                  if (!replacements) {
-                    replacements = new Map();
-                    boundaryReplacementsByShape.set(info.shapeId, replacements);
-                  }
-                  const pathStart = Array.isArray(info.pathPoints) && info.pathPoints.length > 0
-                    ? info.pathPoints[0]
-                    : null;
-                  const pathEnd = Array.isArray(info.pathPoints) && info.pathPoints.length > 0
-                    ? info.pathPoints[info.pathPoints.length - 1]
-                    : null;
-                  mergeReplacementPoint(replacements, info.startPointIndex, sanitizedPath[0], pathStart);
-                  mergeReplacementPoint(
-                    replacements,
-                    info.endPointIndex,
-                    sanitizedPath[sanitizedPath.length - 1],
-                    pathEnd
-                  );
-                });
-
-                overlaps.push({ path: sanitizedPath, colorInfos });
-              });
-            });
-          });
-        });
-
-        const nonOverlap = [];
-        shapeMetadata.forEach(({ shapeId, routeId }) => {
-          const pathPoints = densifiedByShape.get(shapeId);
-          if (!pathPoints || pathPoints.length < 2) return;
-          const flags = segmentFlagsByShape.get(shapeId) || [];
-          const replacements = boundaryReplacementsByShape.get(shapeId) || null;
-          let currentPath = [];
-          for (let i = 0; i < pathPoints.length - 1; i++) {
-            if (!flags[i]) {
-              if (currentPath.length === 0) {
-                currentPath.push(getAdjustedPointForIndex(replacements, i, pathPoints[i]));
-              }
-              currentPath.push(getAdjustedPointForIndex(replacements, i + 1, pathPoints[i + 1]));
-            } else {
-              if (currentPath.length >= 2) {
-                nonOverlap.push({ routeId, color: colorByRoute.get(routeId), path: currentPath });
-              }
-              currentPath = [];
-            }
-          }
-          if (currentPath.length >= 2) {
-            nonOverlap.push({ routeId, color: colorByRoute.get(routeId), path: currentPath });
-          }
-        });
-
-        return { overlaps, nonOverlap };
-      }
-
-      function drawStripedPolyline(points, colorInfos, weight = 6, config = null, precomputedColors = null) {
-        if (!Array.isArray(points) || points.length < 2) return;
-
-        const normalizedColors = Array.isArray(precomputedColors) ? precomputedColors : normalizeColorInfos(colorInfos);
-        if (!normalizedColors.length) return;
-
-        const totalColors = normalizedColors.length;
-        const baseOptions = {
-          weight,
-          opacity: 1,
-          lineCap: 'butt',
-          lineJoin: 'miter',
-          smoothFactor: 0
-        };
-
-        if (totalColors === 1) {
-          const single = normalizedColors[0];
-          const layer = L.polyline(points, Object.assign({}, baseOptions, {
-            color: single.color || '#000000'
-          })).addTo(map);
-          routeLayers.push(layer);
-          if (config) {
-            config.colorCount = totalColors;
-            config.nextColorIndex = 0;
-            const existingLength = Number.isFinite(config.segmentLength) && config.segmentLength > 0
-              ? config.segmentLength
-              : TARGET_STRIPE_LENGTH_METERS;
-            config.segmentLength = Math.max(MIN_STRIPE_LENGTH_METERS, Math.min(MAX_STRIPE_LENGTH_METERS, existingLength));
-            config.previousSegmentLength = config.segmentLength;
-            config.partialMeters = 0;
-          }
-          return;
-        }
-
-        const totalLength = computePolylineLength(points);
-        if (!Number.isFinite(totalLength) || totalLength <= 0) {
-          normalizedColors.forEach(info => {
-            const layer = L.polyline(points, Object.assign({}, baseOptions, {
-              color: info.color || '#000000'
-            })).addTo(map);
-            routeLayers.push(layer);
-          });
-          if (config) {
-            config.colorCount = totalColors;
-            config.nextColorIndex = 0;
-            config.segmentLength = Math.max(MIN_STRIPE_LENGTH_METERS, TARGET_STRIPE_LENGTH_METERS);
-            config.previousSegmentLength = config.segmentLength;
-            config.partialMeters = 0;
-          }
-          return;
-        }
-
-        let stripeLengthHint = config && Number.isFinite(config.segmentLength) && config.segmentLength > 0
-          ? config.segmentLength
-          : computeAdaptiveStripeBaseLengthMeters();
-
-        if (!Number.isFinite(stripeLengthHint) || stripeLengthHint <= 0) {
-          stripeLengthHint = TARGET_STRIPE_LENGTH_METERS;
-        }
-
-        stripeLengthHint = Math.max(
-          MIN_STRIPE_LENGTH_METERS,
-          Math.min(MAX_STRIPE_LENGTH_METERS, stripeLengthHint)
-        );
-
-        let previousStripeLength = stripeLengthHint;
-        if (config && Number.isFinite(config.previousSegmentLength) && config.previousSegmentLength > 0) {
-          previousStripeLength = config.previousSegmentLength;
-        }
-
-        let startColorIndex = 0;
-        if (config && Number.isFinite(config.nextColorIndex)) {
-          const rawIndex = Math.floor(config.nextColorIndex);
-          startColorIndex = ((rawIndex % totalColors) + totalColors) % totalColors;
-        }
-
-        let partialMeters = 0;
-        if (config && Number.isFinite(config.partialMeters) && config.partialMeters > 0) {
-          const clampedPrevious = Math.max(1e-6, previousStripeLength);
-          const ratio = Math.min(1, Math.max(0, config.partialMeters / clampedPrevious));
-          partialMeters = ratio * stripeLengthHint;
-        }
-
-        if (config && config.colorCount !== totalColors) {
-          startColorIndex = 0;
-          partialMeters = 0;
-          previousStripeLength = stripeLengthHint;
-        }
-
-        const { segments, endColorIndex, endOffset } = createStripeSegments(
-          points,
-          stripeLengthHint,
-          totalColors,
-          startColorIndex,
-          partialMeters
-        );
-
-        if (!segments.length) {
-          normalizedColors.forEach(info => {
-            const layer = L.polyline(points, Object.assign({}, baseOptions, {
-              color: info.color || '#000000'
-            })).addTo(map);
-            routeLayers.push(layer);
-          });
-          if (config) {
-            config.colorCount = totalColors;
-            config.segmentLength = stripeLengthHint;
-            config.previousSegmentLength = stripeLengthHint;
-            config.nextColorIndex = startColorIndex;
-            config.partialMeters = partialMeters;
-          }
-          return;
-        }
-
-        segments.forEach(segment => {
-          if (!segment || !Array.isArray(segment.points) || segment.points.length < 2) return;
-          const info = normalizedColors[segment.colorIndex % totalColors];
-          const layer = L.polyline(segment.points, Object.assign({}, baseOptions, {
-            color: info.color || '#000000'
-          })).addTo(map);
-          routeLayers.push(layer);
-        });
-
-        if (config) {
-          config.colorCount = totalColors;
-          config.segmentLength = stripeLengthHint;
-          config.nextColorIndex = endColorIndex;
-          const sanitizedOffset = Number.isFinite(endOffset) ? Math.max(0, Math.min(stripeLengthHint, endOffset)) : 0;
-          config.partialMeters = sanitizedOffset;
-          config.previousSegmentLength = stripeLengthHint;
-        }
-      }
-
       function renderRouteVisualization(visualization) {
-        routeLayers.forEach(layer => map.removeLayer(layer));
+        routeLayers.forEach(layer => {
+          if (layer && typeof layer._stripeCleanup === 'function') {
+            layer._stripeCleanup();
+          }
+          if (layer) {
+            map.removeLayer(layer);
+          }
+        });
         routeLayers = [];
 
         if (!visualization) {
@@ -1881,40 +1450,27 @@
           });
         }
 
-        const adaptiveBase = computeAdaptiveStripeBaseLengthMeters();
-        const baseSegmentLength = Math.max(
-          MIN_SEGMENT_LENGTH_METERS,
-          Number.isFinite(adaptiveBase) && adaptiveBase > 0 ? adaptiveBase : TARGET_STRIPE_LENGTH_METERS
-        );
-
         if (Array.isArray(overlaps) && overlaps.length > 0) {
-          const stripeConfigs = new Map();
           overlaps.forEach(section => {
             if (!section || !Array.isArray(section.path) || section.path.length < 2) return;
             const normalized = section.normalizedColorInfos || normalizeColorInfos(section.colorInfos);
             if (!normalized.length) return;
             section.normalizedColorInfos = normalized;
-            const key = colorInfoKeyFromNormalizedInfos(normalized);
-            let config = stripeConfigs.get(key);
-            if (!config) {
-              config = {
-                segmentLength: baseSegmentLength,
-                previousSegmentLength: baseSegmentLength,
-                nextColorIndex: 0,
-                colorCount: normalized.length,
-                partialMeters: 0
-              };
-              stripeConfigs.set(key, config);
-            } else {
-              config.previousSegmentLength = config.segmentLength;
-              config.segmentLength = baseSegmentLength;
-              if (config.colorCount !== normalized.length) {
-                config.nextColorIndex = 0;
-                config.partialMeters = 0;
-              }
-              config.colorCount = normalized.length;
+            const colorOrder = normalized.map(info => info.color || '#000000');
+            const latlngs = section.path.map(pt => L.latLng(pt[0], pt[1]));
+            if (latlngs.length < 2) return;
+            const group = addStripedGroup(map, latlngs, colorOrder, {
+              stripePx: 18,
+              weight: 8,
+              densifyStepM: 12,
+              opacity: 1,
+              lineCap: 'butt',
+              lineJoin: 'miter'
+            });
+            if (group) {
+              group.addTo(map);
+              routeLayers.push(group);
             }
-            drawStripedPolyline(section.path, section.colorInfos, 6, config, normalized);
           });
         }
 
