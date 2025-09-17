@@ -1083,7 +1083,10 @@
             const otherSegments = cluster.filter(seg => seg.shapeId !== baseShapeId);
             runs.forEach(runSegments => {
               const matchingByShape = new Map();
-              matchingByShape.set(baseShapeId, runSegments.slice());
+              const baseMatchInfo = new Map();
+              runSegments.forEach(seg => {
+                baseMatchInfo.set(seg.index, { segment: seg, matchShapes: new Set() });
+              });
 
               otherSegments.forEach(seg => {
                 for (const baseSeg of runSegments) {
@@ -1091,20 +1094,24 @@
                       distanceMeters(baseSeg.mid, seg.mid) <= OVERLAP_DISTANCE_TOLERANCE_METERS) {
                     if (!matchingByShape.has(seg.shapeId)) matchingByShape.set(seg.shapeId, []);
                     matchingByShape.get(seg.shapeId).push(seg);
+                    const info = baseMatchInfo.get(baseSeg.index);
+                    if (info) info.matchShapes.add(seg.shapeId);
                     break;
                   }
                 }
               });
 
+              const matchedBaseSegments = runSegments.filter(seg => {
+                const info = baseMatchInfo.get(seg.index);
+                return info && info.matchShapes.size > 0;
+              });
+              if (!matchedBaseSegments.length) return;
+
+              matchingByShape.set(baseShapeId, matchedBaseSegments.slice());
               if (matchingByShape.size <= 1) return;
 
               const densifiedPath = densifiedByShape.get(baseShapeId);
               if (!densifiedPath || densifiedPath.length < 2) return;
-
-              const startIndex = runSegments[0].index;
-              const endIndex = runSegments[runSegments.length - 1].index + 1;
-              const path = densifiedPath.slice(startIndex, Math.min(endIndex + 1, densifiedPath.length));
-              if (path.length < 2) return;
 
               matchingByShape.forEach((segmentsForShape, shapeId) => {
                 const flags = segmentFlagsByShape.get(shapeId);
@@ -1117,19 +1124,51 @@
                 });
               });
 
-              const colorInfos = [];
-              const seenRoutes = new Set();
-              matchingByShape.forEach((_, shapeId) => {
-                const routeId = shapeToRoute.get(shapeId);
-                if (routeId == null) return;
-                if (seenRoutes.has(routeId)) return;
-                seenRoutes.add(routeId);
-                colorInfos.push({ routeId, color: colorByRoute.get(routeId) || '#000000' });
+              const sortedMatched = matchedBaseSegments.slice().sort((a, b) => a.index - b.index);
+              const matchedRuns = [];
+              let currentMatched = [];
+              sortedMatched.forEach(seg => {
+                if (!currentMatched.length) {
+                  currentMatched.push(seg);
+                  return;
+                }
+                const prev = currentMatched[currentMatched.length - 1];
+                if (seg.index === prev.index + 1) {
+                  currentMatched.push(seg);
+                } else {
+                  matchedRuns.push(currentMatched);
+                  currentMatched = [seg];
+                }
               });
+              if (currentMatched.length) matchedRuns.push(currentMatched);
 
-              if (colorInfos.length > 1) {
-                overlaps.push({ path, colorInfos });
-              }
+              matchedRuns.forEach(matchedRunSegments => {
+                const startIndex = matchedRunSegments[0].index;
+                const endIndex = matchedRunSegments[matchedRunSegments.length - 1].index + 1;
+                const path = densifiedPath.slice(startIndex, Math.min(endIndex + 1, densifiedPath.length));
+                if (path.length < 2) return;
+
+                const relevantShapeIds = new Set([baseShapeId]);
+                matchedRunSegments.forEach(seg => {
+                  const info = baseMatchInfo.get(seg.index);
+                  if (!info) return;
+                  info.matchShapes.forEach(shapeId => relevantShapeIds.add(shapeId));
+                });
+
+                const colorInfos = [];
+                const seenRoutes = new Set();
+                relevantShapeIds.forEach(shapeId => {
+                  const routeId = shapeToRoute.get(shapeId);
+                  if (routeId == null) return;
+                  if (seenRoutes.has(routeId)) return;
+                  seenRoutes.add(routeId);
+                  colorInfos.push({ routeId, color: colorByRoute.get(routeId) || '#000000' });
+                });
+
+                if (colorInfos.length > 1) {
+                  overlaps.push({ path, colorInfos });
+                }
+              });
             });
           });
         });
