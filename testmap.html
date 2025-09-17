@@ -316,6 +316,7 @@
       const ANGLE_TOLERANCE_DEGREES = 18;
       const LAT_LNG_BUCKET_SIZE = 0.00018;
       const MIN_SEGMENT_LENGTH_METERS = 0.5;
+      const TARGET_STRIPE_LENGTH_METERS = 30;
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
@@ -1083,6 +1084,39 @@
         return Array.from(groupsMap.values());
       }
 
+      function normalizeColorInfos(colorInfos) {
+        if (!Array.isArray(colorInfos)) return [];
+        const unique = [];
+        const seen = new Set();
+        colorInfos.forEach(info => {
+          if (!info) return;
+          const color = typeof info.color === 'string' && info.color ? info.color : '#000000';
+          const routeId = info.routeId;
+          const key = routeId != null ? `id:${routeId}` : `color:${color}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          unique.push({ routeId, color });
+        });
+        unique.sort((a, b) => {
+          const idA = a.routeId;
+          const idB = b.routeId;
+          if (typeof idA === 'number' && typeof idB === 'number') {
+            return idA - idB;
+          }
+          return String(idA).localeCompare(String(idB));
+        });
+        return unique;
+      }
+
+      function colorInfoKeyFromNormalizedInfos(normalizedInfos) {
+        if (!Array.isArray(normalizedInfos) || !normalizedInfos.length) return '';
+        return normalizedInfos.map(info => {
+          const id = info.routeId != null ? info.routeId : 'null';
+          const color = info.color || '#000000';
+          return `${id}:${color}`;
+        }).join('|');
+      }
+
       function computeRouteOverlapGraphics(routes) {
         if (!Array.isArray(routes) || routes.length === 0) {
           return { overlaps: [], nonOverlap: [] };
@@ -1279,36 +1313,15 @@
         return { overlaps, nonOverlap };
       }
 
-      function drawStripedPolyline(points, colorInfos, weight = 6) {
+      function drawStripedPolyline(points, colorInfos, weight = 6, config = null, precomputedColors = null) {
         if (!Array.isArray(points) || points.length < 2) return;
-        if (!Array.isArray(colorInfos) || colorInfos.length === 0) return;
 
-        const uniqueColors = [];
-        const seenRoutes = new Set();
-        colorInfos.forEach(info => {
-          if (!info) return;
-          const key = info.routeId != null ? info.routeId : info.color;
-          if (!seenRoutes.has(key)) {
-            seenRoutes.add(key);
-            uniqueColors.push(info);
-          }
-        });
-        if (!uniqueColors.length) return;
+        const normalizedColors = Array.isArray(precomputedColors) ? precomputedColors : normalizeColorInfos(colorInfos);
+        if (!normalizedColors.length) return;
 
-        const sortedColors = uniqueColors.sort((a, b) => {
-          const idA = a.routeId;
-          const idB = b.routeId;
-          if (typeof idA === 'number' && typeof idB === 'number') {
-            return idA - idB;
-          }
-          return String(idA).localeCompare(String(idB));
-        });
-
-        const totalColors = sortedColors.length;
-        if (totalColors === 0) return;
-
+        const totalColors = normalizedColors.length;
         if (totalColors === 1) {
-          const single = sortedColors[0];
+          const single = normalizedColors[0];
           const layer = L.polyline(points, {
             color: single.color || '#000000',
             weight,
@@ -1317,12 +1330,15 @@
             lineJoin: 'round'
           }).addTo(map);
           routeLayers.push(layer);
+          if (config && config.colorCount === totalColors) {
+            config.nextColorIndex = 0;
+          }
           return;
         }
 
         const totalLength = computePolylineLength(points);
         if (!Number.isFinite(totalLength) || totalLength <= 0) {
-          sortedColors.forEach(info => {
+          normalizedColors.forEach(info => {
             const layer = L.polyline(points, {
               color: info.color || '#000000',
               weight,
@@ -1332,13 +1348,51 @@
             }).addTo(map);
             routeLayers.push(layer);
           });
+          if (config && config.colorCount === totalColors) {
+            config.nextColorIndex = 0;
+          }
           return;
         }
 
-        const TARGET_STRIPE_LENGTH_METERS = 30;
-        const cycles = Math.max(1, Math.ceil(totalLength / (TARGET_STRIPE_LENGTH_METERS * totalColors)));
-        const stripesCount = cycles * totalColors;
-        const segmentLength = totalLength / Math.max(1, stripesCount);
+        let stripesCount;
+        let segmentLength;
+        let startColorIndex = 0;
+        const hasValidConfig = config && Number.isFinite(config.segmentLength) && config.segmentLength > 0 && Number.isFinite(config.colorCount) && config.colorCount === totalColors;
+
+        if (hasValidConfig) {
+          const desiredSegmentLength = config.segmentLength;
+          stripesCount = Math.max(1, Math.round(totalLength / desiredSegmentLength));
+          stripesCount = Math.max(stripesCount, totalColors);
+          const remainder = stripesCount % totalColors;
+          if (remainder !== 0) {
+            stripesCount += totalColors - remainder;
+          }
+          segmentLength = totalLength / Math.max(stripesCount, 1);
+          const rawIndex = Number.isFinite(config.nextColorIndex) ? config.nextColorIndex : 0;
+          startColorIndex = ((rawIndex % totalColors) + totalColors) % totalColors;
+        } else {
+          const cycles = Math.max(1, Math.ceil(totalLength / (TARGET_STRIPE_LENGTH_METERS * totalColors)));
+          stripesCount = cycles * totalColors;
+          segmentLength = totalLength / Math.max(stripesCount, 1);
+        }
+
+        if (!Number.isFinite(segmentLength) || segmentLength <= 0) {
+          normalizedColors.forEach(info => {
+            const layer = L.polyline(points, {
+              color: info.color || '#000000',
+              weight,
+              opacity: 1,
+              lineCap: 'butt',
+              lineJoin: 'round'
+            }).addTo(map);
+            routeLayers.push(layer);
+          });
+          if (hasValidConfig) {
+            config.nextColorIndex = startColorIndex;
+          }
+          return;
+        }
+
         let segments = splitPolylineByLength(points, segmentLength);
 
         if (segments.length > stripesCount) {
@@ -1357,7 +1411,7 @@
         }
 
         if (!segments.length) {
-          sortedColors.forEach(info => {
+          normalizedColors.forEach(info => {
             const layer = L.polyline(points, {
               color: info.color || '#000000',
               weight,
@@ -1367,13 +1421,16 @@
             }).addTo(map);
             routeLayers.push(layer);
           });
+          if (hasValidConfig) {
+            config.nextColorIndex = startColorIndex;
+          }
           return;
         }
 
-        let colorIndex = 0;
+        let colorIndex = startColorIndex;
         segments.forEach(segment => {
           if (!segment || segment.length < 2) return;
-          const info = sortedColors[colorIndex % totalColors];
+          const info = normalizedColors[colorIndex % totalColors];
           const layer = L.polyline(segment, {
             color: info.color || '#000000',
             weight,
@@ -1384,6 +1441,10 @@
           routeLayers.push(layer);
           colorIndex = (colorIndex + 1) % totalColors;
         });
+
+        if (hasValidConfig) {
+          config.nextColorIndex = colorIndex;
+        }
       }
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
@@ -1454,8 +1515,42 @@
                               }).addTo(map);
                               routeLayers.push(layer);
                           });
+
+                          const overlapTotals = new Map();
                           overlaps.forEach(section => {
-                              drawStripedPolyline(section.path, section.colorInfos, 6);
+                              if (!section || !Array.isArray(section.path) || section.path.length < 2) return;
+                              const normalized = normalizeColorInfos(section.colorInfos);
+                              if (!normalized.length) return;
+                              section.normalizedColorInfos = normalized;
+                              const key = colorInfoKeyFromNormalizedInfos(normalized);
+                              const length = computePolylineLength(section.path);
+                              if (!Number.isFinite(length) || length <= 0) return;
+                              if (!overlapTotals.has(key)) {
+                                  overlapTotals.set(key, { totalLength: 0, colorCount: normalized.length });
+                              }
+                              const entry = overlapTotals.get(key);
+                              entry.totalLength += length;
+                          });
+
+                          const stripeConfigs = new Map();
+                          overlapTotals.forEach((info, key) => {
+                              if (!info) return;
+                              const { totalLength, colorCount } = info;
+                              if (!Number.isFinite(totalLength) || totalLength <= 0) return;
+                              if (!Number.isFinite(colorCount) || colorCount <= 0) return;
+                              const cycles = Math.max(1, Math.ceil(totalLength / (TARGET_STRIPE_LENGTH_METERS * colorCount)));
+                              const stripesCount = cycles * colorCount;
+                              const segmentLength = totalLength / Math.max(stripesCount, 1);
+                              stripeConfigs.set(key, { segmentLength, nextColorIndex: 0, colorCount });
+                          });
+
+                          overlaps.forEach(section => {
+                              if (!section || !Array.isArray(section.path) || section.path.length < 2) return;
+                              const normalized = section.normalizedColorInfos || normalizeColorInfos(section.colorInfos);
+                              if (!normalized.length) return;
+                              const key = colorInfoKeyFromNormalizedInfos(normalized);
+                              const config = stripeConfigs.get(key) || null;
+                              drawStripedPolyline(section.path, section.colorInfos, 6, config, normalized);
                           });
                       }
                       if (bounds) {
