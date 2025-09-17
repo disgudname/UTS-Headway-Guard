@@ -491,7 +491,20 @@
       function updateRouteLegend(displayedRoutes = []) {
         const legend = document.getElementById("routeLegend");
         if (!legend) return;
-        if (!kioskMode || adminKioskMode || displayedRoutes.length === 0) {
+        const shouldShowLegend = kioskMode || adminKioskMode;
+        if (!shouldShowLegend) {
+          legend.style.display = "none";
+          legend.innerHTML = "";
+          return;
+        }
+
+        // Admin kiosk mode should surface every visible route, including those hidden from the public map.
+        // Public kiosk mode must continue to hide routes flagged as non-public.
+        const routesToRender = adminKioskMode
+          ? displayedRoutes
+          : displayedRoutes.filter(route => isRoutePublicById(route.routeId ?? route.routeID ?? route.id));
+
+        if (routesToRender.length === 0) {
           legend.style.display = "none";
           legend.innerHTML = "";
           return;
@@ -505,7 +518,7 @@
         title.textContent = "Routes";
         legend.appendChild(title);
 
-        displayedRoutes.forEach(route => {
+        routesToRender.forEach(route => {
           const item = document.createElement("div");
           item.className = "legend-item";
 
@@ -889,7 +902,10 @@
                                   legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
                                   const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
                                   const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
+                                  const numericRouteId = Number(route.RouteID);
+                                  const legendRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
                                   displayedRoutes.set(route.RouteID, {
+                                      routeId: legendRouteId,
                                       color: routeColor,
                                       name: legendName,
                                       description: legendDescription
