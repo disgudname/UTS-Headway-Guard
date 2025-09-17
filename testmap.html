@@ -311,6 +311,12 @@
       // Tracks which routes the API designates as public-facing.
       let routeVisibility = {};
 
+      const OVERLAP_DISTANCE_TOLERANCE_METERS = 15;
+      const SEGMENT_SAMPLING_DISTANCE_METERS = 12;
+      const ANGLE_TOLERANCE_DEGREES = 18;
+      const LAT_LNG_BUCKET_SIZE = 0.00018;
+      const MIN_SEGMENT_LENGTH_METERS = 0.5;
+
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
       function isRouteSelected(routeID) {
@@ -859,6 +865,346 @@
           .catch(error => console.error("Error fetching route colors:", error));
       }
 
+      function toRadians(degrees) {
+        return degrees * Math.PI / 180;
+      }
+
+      function distanceMeters(a, b) {
+        if (!a || !b || a.length < 2 || b.length < 2) return Infinity;
+        const lat1 = toRadians(a[0]);
+        const lat2 = toRadians(b[0]);
+        const dLat = lat2 - lat1;
+        const dLng = toRadians(b[1] - a[1]);
+        const sinDLat = Math.sin(dLat / 2);
+        const sinDLng = Math.sin(dLng / 2);
+        const aa = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+        const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(Math.max(0, 1 - aa)));
+        return 6371000 * c;
+      }
+
+      function bearingDegrees(a, b) {
+        if (!a || !b || a.length < 2 || b.length < 2) return 0;
+        const lat1 = toRadians(a[0]);
+        const lat2 = toRadians(b[0]);
+        const dLng = toRadians(b[1] - a[1]);
+        const y = Math.sin(dLng) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+        const raw = Math.atan2(y, x);
+        const degrees = (raw * 180 / Math.PI + 360) % 360;
+        return degrees;
+      }
+
+      function normalizeBearing(angle) {
+        if (!Number.isFinite(angle)) return 0;
+        const normalized = ((angle % 360) + 360) % 360;
+        return normalized >= 180 ? normalized - 180 : normalized;
+      }
+
+      function angleDifference(a, b) {
+        if (!Number.isFinite(a) || !Number.isFinite(b)) return 180;
+        const diff = Math.abs(a - b);
+        return Math.min(diff, 180 - diff);
+      }
+
+      function densifyPolyline(points, maxSegmentLengthMeters) {
+        if (!Array.isArray(points) || points.length === 0) return [];
+        const result = [];
+        const maxSegment = Math.max(1, maxSegmentLengthMeters || SEGMENT_SAMPLING_DISTANCE_METERS);
+        result.push(points[0]);
+        for (let i = 1; i < points.length; i++) {
+          const start = points[i - 1];
+          const end = points[i];
+          if (!start || !end) continue;
+          const dist = distanceMeters(start, end);
+          if (!Number.isFinite(dist) || dist === 0) {
+            const lastPoint = result[result.length - 1];
+            if (!lastPoint || lastPoint[0] !== end[0] || lastPoint[1] !== end[1]) {
+              result.push(end);
+            }
+            continue;
+          }
+          const segments = Math.max(1, Math.ceil(dist / maxSegment));
+          for (let step = 1; step <= segments; step++) {
+            const fraction = step / segments;
+            const lat = start[0] + (end[0] - start[0]) * fraction;
+            const lng = start[1] + (end[1] - start[1]) * fraction;
+            const lastPoint = result[result.length - 1];
+            if (!lastPoint || Math.abs(lastPoint[0] - lat) > 1e-12 || Math.abs(lastPoint[1] - lng) > 1e-12) {
+              result.push([lat, lng]);
+            }
+          }
+        }
+        return result;
+      }
+
+      function createSegmentBucketKey(segment) {
+        const latIdx = Math.round(segment.mid[0] / LAT_LNG_BUCKET_SIZE);
+        const lngIdx = Math.round(segment.mid[1] / LAT_LNG_BUCKET_SIZE);
+        const angleIdx = Math.round(segment.bearing / ANGLE_TOLERANCE_DEGREES);
+        return `${latIdx}|${lngIdx}|${angleIdx}`;
+      }
+
+      function clusterSegments(segments) {
+        if (!Array.isArray(segments) || segments.length === 0) return [];
+        const parents = segments.map((_, idx) => idx);
+
+        function find(idx) {
+          if (parents[idx] !== idx) {
+            parents[idx] = find(parents[idx]);
+          }
+          return parents[idx];
+        }
+
+        function union(a, b) {
+          const rootA = find(a);
+          const rootB = find(b);
+          if (rootA === rootB) return;
+          parents[rootB] = rootA;
+        }
+
+        for (let i = 0; i < segments.length; i++) {
+          for (let j = i + 1; j < segments.length; j++) {
+            const segA = segments[i];
+            const segB = segments[j];
+            if (!segA || !segB) continue;
+            if (segA.routeId === segB.routeId) continue;
+            const angleDiff = angleDifference(segA.bearing, segB.bearing);
+            if (angleDiff > ANGLE_TOLERANCE_DEGREES) continue;
+            const midDist = distanceMeters(segA.mid, segB.mid);
+            if (midDist > OVERLAP_DISTANCE_TOLERANCE_METERS) continue;
+            union(i, j);
+          }
+        }
+
+        const indicesByShape = new Map();
+        segments.forEach((seg, idx) => {
+          if (!seg || !seg.shapeId) return;
+          const key = seg.shapeId;
+          if (!indicesByShape.has(key)) indicesByShape.set(key, []);
+          indicesByShape.get(key).push(idx);
+        });
+        indicesByShape.forEach(indexList => {
+          indexList.sort((a, b) => segments[a].index - segments[b].index);
+          for (let k = 1; k < indexList.length; k++) {
+            const prevSeg = segments[indexList[k - 1]];
+            const currSeg = segments[indexList[k]];
+            if (prevSeg && currSeg && Math.abs(currSeg.index - prevSeg.index) === 1) {
+              union(indexList[k - 1], indexList[k]);
+            }
+          }
+        });
+
+        const groupsMap = new Map();
+        segments.forEach((seg, idx) => {
+          if (!seg) return;
+          const root = find(idx);
+          if (!groupsMap.has(root)) groupsMap.set(root, []);
+          groupsMap.get(root).push(seg);
+        });
+        return Array.from(groupsMap.values());
+      }
+
+      function computeRouteOverlapGraphics(routes) {
+        if (!Array.isArray(routes) || routes.length === 0) {
+          return { overlaps: [], nonOverlap: [] };
+        }
+
+        const colorByRoute = new Map();
+        const densifiedByShape = new Map();
+        const segmentFlagsByShape = new Map();
+        const shapeToRoute = new Map();
+        const shapeMetadata = [];
+        const bucketMap = new Map();
+
+        routes.forEach((route, idx) => {
+          const routeId = route.routeId;
+          colorByRoute.set(routeId, route.color);
+          const shapeId = `${String(routeId)}__${idx}`;
+          shapeToRoute.set(shapeId, routeId);
+          shapeMetadata.push({ shapeId, routeId });
+          const pathPoints = densifyPolyline(route.points, SEGMENT_SAMPLING_DISTANCE_METERS);
+          densifiedByShape.set(shapeId, pathPoints);
+          const segmentFlags = new Array(Math.max(0, pathPoints.length - 1)).fill(false);
+          segmentFlagsByShape.set(shapeId, segmentFlags);
+          for (let i = 0; i < pathPoints.length - 1; i++) {
+            const start = pathPoints[i];
+            const end = pathPoints[i + 1];
+            const length = distanceMeters(start, end);
+            if (!Number.isFinite(length) || length < MIN_SEGMENT_LENGTH_METERS) continue;
+            const mid = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
+            const bearing = normalizeBearing(bearingDegrees(start, end));
+            const segment = { routeId, shapeId, index: i, start, end, mid, length, bearing };
+            const bucketKey = createSegmentBucketKey(segment);
+            if (!bucketMap.has(bucketKey)) bucketMap.set(bucketKey, []);
+            bucketMap.get(bucketKey).push(segment);
+          }
+        });
+
+        const overlaps = [];
+        bucketMap.forEach(segmentList => {
+          const clusters = clusterSegments(segmentList);
+          clusters.forEach(cluster => {
+            const routesInCluster = new Set(cluster.map(seg => seg.routeId));
+            if (routesInCluster.size < 2) return;
+
+            const segmentsGroupedByShape = new Map();
+            cluster.forEach(seg => {
+              if (!segmentsGroupedByShape.has(seg.shapeId)) segmentsGroupedByShape.set(seg.shapeId, []);
+              segmentsGroupedByShape.get(seg.shapeId).push(seg);
+            });
+
+            let baseShapeId = null;
+            let maxSegmentCount = -1;
+            segmentsGroupedByShape.forEach((list, shapeId) => {
+              if (list.length > maxSegmentCount) {
+                maxSegmentCount = list.length;
+                baseShapeId = shapeId;
+              }
+            });
+            if (baseShapeId === null) return;
+
+            const baseSegments = segmentsGroupedByShape.get(baseShapeId).slice().sort((a, b) => a.index - b.index);
+            if (!baseSegments.length) return;
+
+            let currentRun = [baseSegments[0]];
+            const runs = [];
+            for (let i = 1; i < baseSegments.length; i++) {
+              const prev = baseSegments[i - 1];
+              const curr = baseSegments[i];
+              if (curr.index === prev.index + 1) {
+                currentRun.push(curr);
+              } else {
+                runs.push(currentRun);
+                currentRun = [curr];
+              }
+            }
+            if (currentRun.length) runs.push(currentRun);
+
+            const otherSegments = cluster.filter(seg => seg.shapeId !== baseShapeId);
+            runs.forEach(runSegments => {
+              const matchingByShape = new Map();
+              matchingByShape.set(baseShapeId, runSegments.slice());
+
+              otherSegments.forEach(seg => {
+                for (const baseSeg of runSegments) {
+                  if (angleDifference(baseSeg.bearing, seg.bearing) <= ANGLE_TOLERANCE_DEGREES &&
+                      distanceMeters(baseSeg.mid, seg.mid) <= OVERLAP_DISTANCE_TOLERANCE_METERS) {
+                    if (!matchingByShape.has(seg.shapeId)) matchingByShape.set(seg.shapeId, []);
+                    matchingByShape.get(seg.shapeId).push(seg);
+                    break;
+                  }
+                }
+              });
+
+              if (matchingByShape.size <= 1) return;
+
+              const densifiedPath = densifiedByShape.get(baseShapeId);
+              if (!densifiedPath || densifiedPath.length < 2) return;
+
+              const startIndex = runSegments[0].index;
+              const endIndex = runSegments[runSegments.length - 1].index + 1;
+              const path = densifiedPath.slice(startIndex, Math.min(endIndex + 1, densifiedPath.length));
+              if (path.length < 2) return;
+
+              matchingByShape.forEach((segmentsForShape, shapeId) => {
+                const flags = segmentFlagsByShape.get(shapeId);
+                if (!flags) return;
+                segmentsForShape.sort((a, b) => a.index - b.index);
+                segmentsForShape.forEach(seg => {
+                  if (seg.index >= 0 && seg.index < flags.length) {
+                    flags[seg.index] = true;
+                  }
+                });
+              });
+
+              const colorInfos = [];
+              const seenRoutes = new Set();
+              matchingByShape.forEach((_, shapeId) => {
+                const routeId = shapeToRoute.get(shapeId);
+                if (routeId == null) return;
+                if (seenRoutes.has(routeId)) return;
+                seenRoutes.add(routeId);
+                colorInfos.push({ routeId, color: colorByRoute.get(routeId) || '#000000' });
+              });
+
+              if (colorInfos.length > 1) {
+                overlaps.push({ path, colorInfos });
+              }
+            });
+          });
+        });
+
+        const nonOverlap = [];
+        shapeMetadata.forEach(({ shapeId, routeId }) => {
+          const pathPoints = densifiedByShape.get(shapeId);
+          if (!pathPoints || pathPoints.length < 2) return;
+          const flags = segmentFlagsByShape.get(shapeId) || [];
+          let currentPath = [];
+          for (let i = 0; i < pathPoints.length - 1; i++) {
+            if (!flags[i]) {
+              if (currentPath.length === 0) {
+                currentPath.push(pathPoints[i]);
+              }
+              currentPath.push(pathPoints[i + 1]);
+            } else {
+              if (currentPath.length >= 2) {
+                nonOverlap.push({ routeId, color: colorByRoute.get(routeId), path: currentPath });
+              }
+              currentPath = [];
+            }
+          }
+          if (currentPath.length >= 2) {
+            nonOverlap.push({ routeId, color: colorByRoute.get(routeId), path: currentPath });
+          }
+        });
+
+        return { overlaps, nonOverlap };
+      }
+
+      function drawStripedPolyline(points, colorInfos, weight = 6) {
+        if (!Array.isArray(points) || points.length < 2) return;
+        if (!Array.isArray(colorInfos) || colorInfos.length === 0) return;
+
+        const uniqueColors = [];
+        const seenRoutes = new Set();
+        colorInfos.forEach(info => {
+          if (!info) return;
+          const key = info.routeId != null ? info.routeId : info.color;
+          if (!seenRoutes.has(key)) {
+            seenRoutes.add(key);
+            uniqueColors.push(info);
+          }
+        });
+        if (!uniqueColors.length) return;
+
+        const sortedColors = uniqueColors.sort((a, b) => {
+          const idA = a.routeId;
+          const idB = b.routeId;
+          if (typeof idA === 'number' && typeof idB === 'number') {
+            return idA - idB;
+          }
+          return String(idA).localeCompare(String(idB));
+        });
+
+        const stripeLength = 16;
+        const totalColors = sortedColors.length;
+        sortedColors.forEach((info, index) => {
+          const options = {
+            color: info.color || '#000000',
+            weight,
+            opacity: 1,
+            lineCap: 'butt',
+            lineJoin: 'round'
+          };
+          if (totalColors > 1) {
+            options.dashArray = `${stripeLength} ${stripeLength * (totalColors - 1)}`;
+            options.dashOffset = `${stripeLength * index}`;
+          }
+          const layer = L.polyline(points, options).addTo(map);
+          routeLayers.push(layer);
+        });
+      }
+
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
       function fetchRoutePaths() {
           const currentBaseURL = baseURL;
@@ -872,6 +1218,7 @@
                   let bounds = null;
                   const displayedRoutes = new Map();
                   if (Array.isArray(data)) {
+                      const selectedRoutesForDrawing = [];
                       data.forEach(route => {
                           setRouteVisibility(route);
                           allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
@@ -881,29 +1228,30 @@
                               const polyBounds = L.latLngBounds(decodedPolyline);
                               bounds = bounds ? bounds.extend(polyBounds) : polyBounds;
 
+                              const storedRoute = allRoutes[route.RouteID] || {};
+                              const legendNameCandidates = [
+                                  storedRoute.Description,
+                                  route.Description,
+                                  storedRoute.Name,
+                                  route.Name,
+                                  storedRoute.RouteName,
+                                  route.RouteName
+                              ];
+                              let legendName = legendNameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+                              legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
+                              const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
+                              const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
+                              const numericRouteId = Number(route.RouteID);
+                              const effectiveRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
+                              const legendRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
+
                               if (isRouteSelected(route.RouteID)) {
-                                  let routeColor = getRouteColor(route.RouteID);
-                                  const routeLayer = L.polyline(decodedPolyline, {
+                                  const routeColor = getRouteColor(route.RouteID);
+                                  selectedRoutesForDrawing.push({
+                                      routeId: effectiveRouteId,
                                       color: routeColor,
-                                      weight: 6,
-                                      opacity: 1
-                                  }).addTo(map);
-                                  routeLayers.push(routeLayer);
-                                  const storedRoute = allRoutes[route.RouteID] || {};
-                                  const legendNameCandidates = [
-                                      storedRoute.Description,
-                                      route.Description,
-                                      storedRoute.Name,
-                                      route.Name,
-                                      storedRoute.RouteName,
-                                      route.RouteName
-                                  ];
-                                  let legendName = legendNameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
-                                  legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
-                                  const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
-                                  const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
-                                  const numericRouteId = Number(route.RouteID);
-                                  const legendRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
+                                      points: decodedPolyline
+                                  });
                                   displayedRoutes.set(route.RouteID, {
                                       routeId: legendRouteId,
                                       color: routeColor,
@@ -913,6 +1261,22 @@
                               }
                           }
                       });
+
+                      if (selectedRoutesForDrawing.length > 0) {
+                          const { overlaps, nonOverlap } = computeRouteOverlapGraphics(selectedRoutesForDrawing);
+                          nonOverlap.forEach(segment => {
+                              if (!segment.path || segment.path.length < 2) return;
+                              const layer = L.polyline(segment.path, {
+                                  color: segment.color || '#000000',
+                                  weight: 6,
+                                  opacity: 1
+                              }).addTo(map);
+                              routeLayers.push(layer);
+                          });
+                          overlaps.forEach(section => {
+                              drawStripedPolyline(section.path, section.colorInfos, 6);
+                          });
+                      }
                       if (bounds) {
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
