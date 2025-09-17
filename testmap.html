@@ -320,7 +320,7 @@
       const TARGET_STRIPE_LENGTH_METERS = 30;
       const TARGET_STRIPE_SCREEN_LENGTH_PX = 18;
       const MIN_STRIPE_LENGTH_METERS = 20;
-      const MAX_STRIPE_LENGTH_METERS = 2000;
+      const MAX_STRIPE_LENGTH_METERS = 500000;
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
@@ -1027,6 +1027,89 @@
         return segments;
       }
 
+      function createStripeSegments(points, stripeLengthMeters, totalColors, startColorIndex = 0, startOffsetMeters = 0) {
+        const sanitizedColors = Number.isFinite(totalColors) && totalColors > 0 ? Math.floor(totalColors) : 0;
+        if (!Array.isArray(points) || points.length < 2 || !Number.isFinite(stripeLengthMeters) || stripeLengthMeters <= 0 || sanitizedColors === 0) {
+          return { segments: [], endColorIndex: 0, endOffset: 0 };
+        }
+
+        const EPSILON = 1e-6;
+        const normalizedStripeLength = Math.max(EPSILON, stripeLengthMeters);
+        const normalizedStartColor = ((Math.floor(startColorIndex) % sanitizedColors) + sanitizedColors) % sanitizedColors;
+        const initialOffset = Math.min(
+          Math.max(Number.isFinite(startOffsetMeters) ? startOffsetMeters : 0, 0),
+          normalizedStripeLength - EPSILON
+        );
+
+        const segments = [];
+        let currentColorIndex = normalizedStartColor;
+        let consumedInColor = initialOffset;
+        let currentPoints = [points[0]];
+
+        for (let i = 1; i < points.length; i++) {
+          let prevPoint = points[i - 1];
+          const nextPoint = points[i];
+          if (!prevPoint || !nextPoint) continue;
+
+          let remainingDistance = distanceMeters(prevPoint, nextPoint);
+          if (!Number.isFinite(remainingDistance) || remainingDistance <= EPSILON) {
+            const lastPoint = currentPoints[currentPoints.length - 1];
+            if (!lastPoint || Math.abs(lastPoint[0] - nextPoint[0]) > EPSILON || Math.abs(lastPoint[1] - nextPoint[1]) > EPSILON) {
+              currentPoints.push(nextPoint);
+            }
+            continue;
+          }
+
+          while (remainingDistance > EPSILON) {
+            const remainingForColor = normalizedStripeLength - consumedInColor;
+            if (remainingForColor <= EPSILON) {
+              if (currentPoints.length > 1) {
+                segments.push({ colorIndex: currentColorIndex, points: currentPoints });
+              }
+              currentColorIndex = (currentColorIndex + 1) % sanitizedColors;
+              consumedInColor = 0;
+              currentPoints = [prevPoint];
+              continue;
+            }
+
+            if (remainingDistance <= remainingForColor + EPSILON) {
+              currentPoints.push(nextPoint);
+              consumedInColor += remainingDistance;
+              remainingDistance = 0;
+              prevPoint = nextPoint;
+              if (consumedInColor >= normalizedStripeLength - EPSILON) {
+                segments.push({ colorIndex: currentColorIndex, points: currentPoints });
+                currentColorIndex = (currentColorIndex + 1) % sanitizedColors;
+                consumedInColor = 0;
+                currentPoints = [nextPoint];
+              }
+            } else {
+              const distanceNeeded = Math.max(remainingForColor, EPSILON);
+              const fraction = distanceNeeded / remainingDistance;
+              const interpolatedPoint = interpolatePoint(prevPoint, nextPoint, fraction);
+              currentPoints.push(interpolatedPoint);
+              segments.push({ colorIndex: currentColorIndex, points: currentPoints });
+              currentColorIndex = (currentColorIndex + 1) % sanitizedColors;
+              consumedInColor = 0;
+              currentPoints = [interpolatedPoint];
+              prevPoint = interpolatedPoint;
+              remainingDistance = Math.max(0, remainingDistance - distanceNeeded);
+            }
+          }
+        }
+
+        if (currentPoints.length > 1) {
+          segments.push({ colorIndex: currentColorIndex, points: currentPoints });
+        }
+
+        const endOffset = consumedInColor >= normalizedStripeLength - EPSILON ? 0 : consumedInColor;
+        const endColorIndex = consumedInColor >= normalizedStripeLength - EPSILON
+          ? (currentColorIndex + 1) % sanitizedColors
+          : currentColorIndex;
+
+        return { segments, endColorIndex, endOffset };
+      }
+
       function createSegmentBucketKey(segment) {
         const latIdx = Math.round(segment.mid[0] / LAT_LNG_BUCKET_SIZE);
         const lngIdx = Math.round(segment.mid[1] / LAT_LNG_BUCKET_SIZE);
@@ -1358,22 +1441,29 @@
         if (!normalizedColors.length) return;
 
         const totalColors = normalizedColors.length;
+        const baseOptions = {
+          weight,
+          opacity: 1,
+          lineCap: 'butt',
+          lineJoin: 'miter',
+          smoothFactor: 0
+        };
+
         if (totalColors === 1) {
           const single = normalizedColors[0];
-          const layer = L.polyline(points, {
-            color: single.color || '#000000',
-            weight,
-            opacity: 1,
-            lineCap: 'butt',
-            lineJoin: 'round'
-          }).addTo(map);
+          const layer = L.polyline(points, Object.assign({}, baseOptions, {
+            color: single.color || '#000000'
+          })).addTo(map);
           routeLayers.push(layer);
           if (config) {
             config.colorCount = totalColors;
             config.nextColorIndex = 0;
-            if (Number.isFinite(config.segmentLength) && config.segmentLength > 0) {
-              config.segmentLength = Math.max(config.segmentLength, MIN_SEGMENT_LENGTH_METERS);
-            }
+            const existingLength = Number.isFinite(config.segmentLength) && config.segmentLength > 0
+              ? config.segmentLength
+              : TARGET_STRIPE_LENGTH_METERS;
+            config.segmentLength = Math.max(MIN_STRIPE_LENGTH_METERS, Math.min(MAX_STRIPE_LENGTH_METERS, existingLength));
+            config.previousSegmentLength = config.segmentLength;
+            config.partialMeters = 0;
           }
           return;
         }
@@ -1381,45 +1471,37 @@
         const totalLength = computePolylineLength(points);
         if (!Number.isFinite(totalLength) || totalLength <= 0) {
           normalizedColors.forEach(info => {
-            const layer = L.polyline(points, {
-              color: info.color || '#000000',
-              weight,
-              opacity: 1,
-              lineCap: 'butt',
-              lineJoin: 'round'
-            }).addTo(map);
+            const layer = L.polyline(points, Object.assign({}, baseOptions, {
+              color: info.color || '#000000'
+            })).addTo(map);
             routeLayers.push(layer);
           });
           if (config) {
             config.colorCount = totalColors;
             config.nextColorIndex = 0;
+            config.segmentLength = Math.max(MIN_STRIPE_LENGTH_METERS, TARGET_STRIPE_LENGTH_METERS);
+            config.previousSegmentLength = config.segmentLength;
+            config.partialMeters = 0;
           }
           return;
         }
 
-        let segmentLengthHint = config && Number.isFinite(config.segmentLength) && config.segmentLength > 0
+        let stripeLengthHint = config && Number.isFinite(config.segmentLength) && config.segmentLength > 0
           ? config.segmentLength
           : computeAdaptiveStripeBaseLengthMeters();
 
-        if (!Number.isFinite(segmentLengthHint) || segmentLengthHint <= 0) {
-          segmentLengthHint = TARGET_STRIPE_LENGTH_METERS;
+        if (!Number.isFinite(stripeLengthHint) || stripeLengthHint <= 0) {
+          stripeLengthHint = TARGET_STRIPE_LENGTH_METERS;
         }
 
-        segmentLengthHint = Math.max(segmentLengthHint, MIN_SEGMENT_LENGTH_METERS);
+        stripeLengthHint = Math.max(
+          MIN_STRIPE_LENGTH_METERS,
+          Math.min(MAX_STRIPE_LENGTH_METERS, stripeLengthHint)
+        );
 
-        let stripesCount = Math.max(totalColors, Math.round(totalLength / segmentLengthHint));
-        const remainder = stripesCount % totalColors;
-        if (remainder !== 0) {
-          stripesCount += totalColors - remainder;
-        }
-        stripesCount = Math.max(totalColors, stripesCount);
-
-        let segmentLength = totalLength / Math.max(stripesCount, 1);
-        if (!Number.isFinite(segmentLength) || segmentLength <= 0) {
-          segmentLength = segmentLengthHint;
-        }
-        if (segmentLength < MIN_SEGMENT_LENGTH_METERS) {
-          segmentLength = MIN_SEGMENT_LENGTH_METERS;
+        let previousStripeLength = stripeLengthHint;
+        if (config && Number.isFinite(config.previousSegmentLength) && config.previousSegmentLength > 0) {
+          previousStripeLength = config.previousSegmentLength;
         }
 
         let startColorIndex = 0;
@@ -1428,61 +1510,60 @@
           startColorIndex = ((rawIndex % totalColors) + totalColors) % totalColors;
         }
 
-        let segments = splitPolylineByLength(points, segmentLength);
-
-        if (segments.length > stripesCount) {
-          const truncated = segments.slice(0, stripesCount);
-          if (truncated.length) {
-            const lastSegment = truncated[truncated.length - 1];
-            for (let i = stripesCount; i < segments.length; i++) {
-              const extra = segments[i];
-              if (!extra || extra.length < 2) continue;
-              for (let j = 1; j < extra.length; j++) {
-                lastSegment.push(extra[j]);
-              }
-            }
-          }
-          segments = truncated;
+        let partialMeters = 0;
+        if (config && Number.isFinite(config.partialMeters) && config.partialMeters > 0) {
+          const clampedPrevious = Math.max(1e-6, previousStripeLength);
+          const ratio = Math.min(1, Math.max(0, config.partialMeters / clampedPrevious));
+          partialMeters = ratio * stripeLengthHint;
         }
+
+        if (config && config.colorCount !== totalColors) {
+          startColorIndex = 0;
+          partialMeters = 0;
+          previousStripeLength = stripeLengthHint;
+        }
+
+        const { segments, endColorIndex, endOffset } = createStripeSegments(
+          points,
+          stripeLengthHint,
+          totalColors,
+          startColorIndex,
+          partialMeters
+        );
 
         if (!segments.length) {
           normalizedColors.forEach(info => {
-            const layer = L.polyline(points, {
-              color: info.color || '#000000',
-              weight,
-              opacity: 1,
-              lineCap: 'butt',
-              lineJoin: 'round'
-            }).addTo(map);
+            const layer = L.polyline(points, Object.assign({}, baseOptions, {
+              color: info.color || '#000000'
+            })).addTo(map);
             routeLayers.push(layer);
           });
           if (config) {
             config.colorCount = totalColors;
-            config.segmentLength = segmentLengthHint;
+            config.segmentLength = stripeLengthHint;
+            config.previousSegmentLength = stripeLengthHint;
             config.nextColorIndex = startColorIndex;
+            config.partialMeters = partialMeters;
           }
           return;
         }
 
-        let colorIndex = startColorIndex;
         segments.forEach(segment => {
-          if (!segment || segment.length < 2) return;
-          const info = normalizedColors[colorIndex % totalColors];
-          const layer = L.polyline(segment, {
-            color: info.color || '#000000',
-            weight,
-            opacity: 1,
-            lineCap: 'butt',
-            lineJoin: 'round'
-          }).addTo(map);
+          if (!segment || !Array.isArray(segment.points) || segment.points.length < 2) return;
+          const info = normalizedColors[segment.colorIndex % totalColors];
+          const layer = L.polyline(segment.points, Object.assign({}, baseOptions, {
+            color: info.color || '#000000'
+          })).addTo(map);
           routeLayers.push(layer);
-          colorIndex = (colorIndex + 1) % totalColors;
         });
 
         if (config) {
           config.colorCount = totalColors;
-          config.segmentLength = segmentLengthHint;
-          config.nextColorIndex = colorIndex;
+          config.segmentLength = stripeLengthHint;
+          config.nextColorIndex = endColorIndex;
+          const sanitizedOffset = Number.isFinite(endOffset) ? Math.max(0, Math.min(stripeLengthHint, endOffset)) : 0;
+          config.partialMeters = sanitizedOffset;
+          config.previousSegmentLength = stripeLengthHint;
         }
       }
 
@@ -1503,7 +1584,10 @@
             const layer = L.polyline(segment.path, {
               color: segment.color || '#000000',
               weight: 6,
-              opacity: 1
+              opacity: 1,
+              lineCap: 'butt',
+              lineJoin: 'miter',
+              smoothFactor: 0
             }).addTo(map);
             routeLayers.push(layer);
           });
@@ -1525,10 +1609,21 @@
             const key = colorInfoKeyFromNormalizedInfos(normalized);
             let config = stripeConfigs.get(key);
             if (!config) {
-              config = { segmentLength: baseSegmentLength, nextColorIndex: 0, colorCount: normalized.length };
+              config = {
+                segmentLength: baseSegmentLength,
+                previousSegmentLength: baseSegmentLength,
+                nextColorIndex: 0,
+                colorCount: normalized.length,
+                partialMeters: 0
+              };
               stripeConfigs.set(key, config);
             } else {
+              config.previousSegmentLength = config.segmentLength;
               config.segmentLength = baseSegmentLength;
+              if (config.colorCount !== normalized.length) {
+                config.nextColorIndex = 0;
+                config.partialMeters = 0;
+              }
               config.colorCount = normalized.length;
             }
             drawStripedPolyline(section.path, section.colorInfos, 6, config, normalized);
