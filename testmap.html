@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Live Map - Headway Guard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+    <style>
+      .custom-popup {
+        position: absolute;
+        background: #232D4B;
+        border: 4px solid white;
+        border-radius: 15px;
+        padding: 10px;
+        pointer-events: auto;
+        transform: translate(-50%, -100%);
+        white-space: nowrap;
+        z-index: 1000;
+        color: white;
+        text-transform: uppercase;
+      }
+      .custom-popup-arrow {
+        position: absolute;
+        left: 50%;
+        bottom: -10px;
+        width: 0;
+        height: 0;
+        border-left: 10px solid transparent;
+        border-right: 10px solid transparent;
+        border-top: 10px solid white;
+        transform: translateX(-50%);
+      }
+      .custom-popup-close {
+        position: absolute;
+        bottom: 5px;
+        right: 5px;
+        cursor: pointer;
+        background: #f00;
+        color: #fff;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        line-height: 20px;
+        text-align: center;
+        font-size: 14px;
+      }
+      .route-pill {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 20px;
+        color: white;
+        font-weight: bold;
+        margin-top: 10px;
+        text-align: center;
+        border: 2px solid #FFFFFF;
+      }
+      @font-face {
+        font-family: 'FGDC';
+        src: url('FGDC.ttf') format('truetype');
+      }
+      body, .custom-popup {
+        font-family: 'FGDC', sans-serif;
+        font-size: 14px;
+      }
+      #map {
+        height: 100%;
+        width: 100%;
+      }
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      /* Route Selector styling */
+      #routeSelector {
+        width: 300px;
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 1100;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 10px;
+        border-radius: 5px;
+        max-height: 90vh;
+        overflow-y: auto;
+        transition: transform 0.3s ease;
+		font-size: 21px;
+      }
+      #routeSelector.hidden {
+        transform: translateX(320px);
+      }
+      #routeSelector h3 {
+        margin-top: 0;
+      }
+      /* Updated button styles for route selector (including speed toggle) */
+      #routeSelector button {
+        margin: 5px 2px;
+        padding: 5px 10px;
+        font-size: 24px;
+        font-family: 'FGDC', sans-serif;
+        background-color: #E57200;
+        color: black;
+        border: none;
+        border-radius: 20px;
+        cursor: pointer;
+      }
+      #routeSelector label {
+        display: block;
+        margin-bottom: 5px;
+        cursor: pointer;
+      }
+      #routeSelector .color-box {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      /* Tab styling */
+      #routeSelectorTab {
+        position: fixed;
+        top: 50%;
+        right: 0;
+        width: 30px;
+        height: 60px;
+        background: #ccc;
+        border-top-left-radius: 10px;
+        border-bottom-left-radius: 10px;
+        cursor: pointer;
+        display: block;
+        transform: translateY(-50%);
+        z-index: 1150;
+        text-align: center;
+        line-height: 60px;
+        font-size: 20px;
+        user-select: none;
+        transition: right 0.3s ease;
+      }
+      #routeLegend {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 1100;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 12px 16px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        max-width: 320px;
+        display: none;
+        font-size: 20px;
+      }
+      #routeLegend .legend-title {
+        font-weight: bold;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      #routeLegend .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      #routeLegend .legend-item:last-child {
+        margin-bottom: 0;
+      }
+      #routeLegend .legend-color {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #FFFFFF;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+        flex-shrink: 0;
+      }
+      #routeLegend .legend-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      #routeLegend .legend-name {
+        font-weight: bold;
+      }
+      #routeLegend .legend-description {
+        font-size: 16px;
+        color: #1b1b1b;
+      }
+      @media (max-width: 600px) {
+        #routeSelector { width: 80%; right: 10%; font-size: 18px; }
+        #routeSelector.hidden { transform: translateX(calc(100% + 20px)); }
+        #routeSelector button { font-size: 20px; }
+        #routeSelector label { font-size: 18px; }
+        #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
+      }
+      .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
+      .cookie-banner{position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:white;padding:10px;text-align:center;font-size:14px;z-index:1200;}
+      .cookie-banner button{margin-left:10px;}
+    </style>
+    <script>
+      // Manually set these variables.
+      // adminMode: true for admin view (with speed/block bubbles and unit numbers).
+      //            Can be disabled via URL param `adminMode=false`.
+      //            In public mode (adminMode=false) the route selector is still shown
+      //            but only for routes that are public-facing.
+      // kioskMode: true to hide the route selector/tab and suppress vehicle overlays for a public display.
+      // adminKioskMode: true to hide the route selector/tab while retaining admin overlays (previous kiosk behavior).
+      // showSpeed/showBlockNumbers: only one may be true at a time.
+      let adminMode = true; // shows unit numbers and speed/block bubbles
+      let kioskMode = false;
+      let adminKioskMode = false;
+      let showSpeed = false; // default to showing block numbers
+      let showBlockNumbers = true;
+
+      const params = new URLSearchParams(window.location.search);
+      const kioskParam = params.get('kioskMode');
+      if (kioskParam !== null) {
+        kioskMode = kioskParam.toLowerCase() === 'true';
+      }
+      const adminKioskParam = params.get('adminKioskMode');
+      if (adminKioskParam !== null) {
+        adminKioskMode = adminKioskParam.toLowerCase() === 'true';
+      }
+      const adminParam = params.get('adminMode');
+      if (adminParam !== null) {
+        adminMode = adminParam.toLowerCase() === 'true';
+      }
+      
+      const outOfServiceRouteColor = '#000000';
+      
+      let map;
+      let markers = {};
+      let routeColors = {};
+      let routeLayers = [];
+      let stopMarkers = [];
+      let nameBubbles = {};
+      let busBlocks = {};
+      let previousBusData = {};
+      let cachedEtas = {};
+      let customPopups = [];
+      let allRouteBounds = null;
+      let mapHasFitAllRoutes = false;
+      let refreshIntervals = [];
+
+      let agencies = [];
+      let baseURL = '';
+
+      async function loadAgencies() {
+        try {
+          const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
+          const contentType = response.headers.get('content-type') || '';
+          let clients = [];
+          if (contentType.includes('application/json')) {
+            clients = await response.json();
+          } else {
+            const text = await response.text();
+            const parser = new DOMParser();
+            const xml = parser.parseFromString(text, 'application/xml');
+            clients = Array.from(xml.getElementsByTagName('Client')).map(c => ({
+              Name: c.getElementsByTagName('Name')[0]?.textContent.trim(),
+              WebAddress: c.getElementsByTagName('WebAddress')[0]?.textContent.trim()
+            }));
+          }
+          agencies = clients.map(c => {
+            const name = c.Name?.trim();
+            const webAddress = c.WebAddress?.trim();
+            if (!name || !webAddress) return null;
+            const url = webAddress.startsWith('http')
+              ? webAddress.replace(/^http:\/\//i, 'https://')
+              : `https://${webAddress}`;
+            return { name, url };
+          }).filter(Boolean);
+          agencies.sort((a, b) => a.name.localeCompare(b.name));
+          const uvaIndex = agencies.findIndex(a => a.name === 'University of Virginia');
+          if (uvaIndex > -1) {
+            const uva = agencies.splice(uvaIndex, 1)[0];
+            agencies.unshift(uva);
+          }
+          const consent = localStorage.getItem('agencyConsent') === 'true';
+          const storedAgency = consent ? localStorage.getItem('selectedAgency') : null;
+          if (storedAgency && agencies.some(a => a.url === storedAgency)) {
+            baseURL = storedAgency;
+          } else {
+            baseURL = agencies[0]?.url || '';
+          }
+          updateRouteSelector(activeRoutes, true);
+        } catch (e) {
+          console.error('Failed to load agencies', e);
+        }
+      }
+
+      function positionRouteTab() {
+        const panel = document.getElementById("routeSelector");
+        const tab = document.getElementById("routeSelectorTab");
+        if (!panel || !tab) return;
+        const panelStyle = window.getComputedStyle(panel);
+        const gap = parseFloat(panelStyle.right) || 0;
+        const offset = panel.offsetWidth + gap;
+        tab.style.right = panel.classList.contains("hidden") ? "0" : offset + "px";
+      }
+
+      window.addEventListener("load", positionRouteTab);
+      window.addEventListener("resize", positionRouteTab);
+
+      // Global storage for routes from GetRoutes.
+      let allRoutes = {};
+      // Global object to store user selections (for admin mode).
+      let routeSelections = {};
+      // Tracks routes that currently have at least one vehicle assigned.
+      let activeRoutes = new Set();
+      // Tracks which routes the API designates as public-facing.
+      let routeVisibility = {};
+
+      // Routes default to visible if they currently have vehicles unless the user
+      // overrides the selection via the route selector.
+      function isRouteSelected(routeID) {
+        if (!canDisplayRoute(routeID)) return false;
+        const id = Number(routeID);
+        if (Number.isNaN(id)) return false;
+        if (routeSelections.hasOwnProperty(id)) return routeSelections[id];
+        return activeRoutes.has(id);
+      }
+
+      function setRouteVisibility(route) {
+        if (!route || typeof route.RouteID === 'undefined') return;
+        const id = Number(route.RouteID);
+        if (Number.isNaN(id)) return;
+        routeVisibility[id] = route.IsVisibleOnMap !== false;
+      }
+
+      function isRoutePublicById(routeID) {
+        const id = Number(routeID);
+        if (Number.isNaN(id) || id === 0) return false;
+        if (Object.prototype.hasOwnProperty.call(routeVisibility, id)) {
+          return routeVisibility[id];
+        }
+        return true;
+      }
+
+      function canDisplayRoute(routeID) {
+        const id = Number(routeID);
+        if (Number.isNaN(id)) return false;
+        if (id === 0) {
+          return adminKioskMode || (!kioskMode && adminMode);
+        }
+        if (adminKioskMode) return true;
+        if (kioskMode) return isRoutePublicById(id);
+        if (adminMode) return true;
+        return isRoutePublicById(id);
+      }
+
+      // Toggle between displaying speed or block numbers.
+      function toggleSpeedOrBlock() {
+        if (showSpeed) {
+          showSpeed = false;
+          showBlockNumbers = true;
+        } else {
+          showSpeed = true;
+          showBlockNumbers = false;
+        }
+        document.getElementById("toggleDisplayButton").innerHTML = showSpeed ? "Show Block Numbers" : "Show Speed";
+        refreshMap();
+      }
+
+      // updateRouteSelector rebuilds the route selector panel.
+      // The list (excluding Out of Service) is alphabetized and defaults to
+      // checking only routes that currently have vehicles.
+      function updateRouteSelector(activeRoutes, forceUpdate = false) {
+        const container = document.getElementById("routeSelector");
+        if (!container) return;
+        // If the agency dropdown is currently focused (open), skip rebuilding
+        // the selector to avoid closing the dropdown.
+        const agencyDropdown = document.getElementById('agencySelect');
+        if (!forceUpdate && agencyDropdown && document.activeElement === agencyDropdown) {
+          return;
+        }
+        let html = "";
+        html += "<label for='agencySelect'>Select System:</label>";
+        html += "<select id='agencySelect' onchange='changeAgency(this.value)'>";
+        agencies.forEach(a => {
+          html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
+        });
+        html += "</select><br/><br/>";
+        if (adminMode) {
+          // Add the speed/block toggle button in admin mode only.
+          html += "<div style='margin-bottom:10px;'><button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button></div>";
+        }
+        html += "<h3>Select Routes</h3>" +
+          "<button onclick='selectAllRoutes()'>Select All</button>" +
+          "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
+
+        if (adminMode && canDisplayRoute(0)) {
+          // Add Out of Service option (routeID 0) at the top for admin mode.
+          let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
+          html += `<label>
+            <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
+            <span class="color-box" style="background:${outOfServiceRouteColor};"></span> Out of Service
+          </label>`;
+        }
+
+        // Get an array of route IDs (excluding 0) from allRoutes.
+        let routeIDs = Object.keys(allRoutes)
+          .map(id => Number(id))
+          .filter(id => !Number.isNaN(id) && id !== 0 && canDisplayRoute(id));
+        // Sort alphabetically by route Description (case-insensitive).
+        routeIDs.sort((a, b) => {
+          let descA = allRoutes[a].Description.toUpperCase();
+          let descB = allRoutes[b].Description.toUpperCase();
+          if (descA < descB) return -1;
+          if (descA > descB) return 1;
+          return 0;
+        });
+        // Append sorted routes.
+        routeIDs.forEach(routeID => {
+          let route = allRoutes[routeID];
+          let checked = routeSelections.hasOwnProperty(routeID) ? routeSelections[routeID] : activeRoutes.has(routeID);
+          let displayName = route.Description;
+          if (route.InfoText && route.InfoText.trim() !== "") {
+            displayName += ` &ndash; ${route.InfoText.trim()}`;
+          }
+          html += `<label>
+            <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? "checked" : ""}>
+            <span class="color-box" style="background:${route.MapLineColor};"></span> ${displayName}
+          </label>`;
+        });
+        container.innerHTML = html;
+        // Attach event listeners to update routeSelections.
+        let outChk = document.getElementById("route_0");
+        if (outChk) {
+          outChk.addEventListener("change", function() {
+            routeSelections[0] = outChk.checked;
+            refreshMap();
+          });
+        }
+        routeIDs.forEach(routeID => {
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) return;
+          let chk = document.getElementById("route_" + routeID);
+          if (chk) {
+            chk.addEventListener("change", function() {
+              routeSelections[routeID] = chk.checked;
+              refreshMap();
+            });
+          }
+        });
+      }
+
+      function selectAllRoutes() {
+        if (adminMode && canDisplayRoute(0)) {
+          let outChk = document.getElementById("route_0");
+          if (outChk) outChk.checked = true;
+          routeSelections[0] = true;
+        }
+        for (let routeID in allRoutes) {
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
+          let chk = document.getElementById("route_" + routeID);
+          if (chk) chk.checked = true;
+          routeSelections[routeID] = true;
+        }
+        refreshMap();
+      }
+
+      function deselectAllRoutes() {
+        if (adminMode && canDisplayRoute(0)) {
+          let outChk = document.getElementById("route_0");
+          if (outChk) outChk.checked = false;
+          routeSelections[0] = false;
+        }
+        for (let routeID in allRoutes) {
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
+          let chk = document.getElementById("route_" + routeID);
+          if (chk) chk.checked = false;
+          routeSelections[routeID] = false;
+        }
+        refreshMap();
+      }
+
+      // togglePanel toggles the route selector panel's visibility.
+      function togglePanel() {
+        let panel = document.getElementById("routeSelector");
+        let tab = document.getElementById("routeSelectorTab");
+        if (panel.classList.contains("hidden")) {
+          panel.classList.remove("hidden");
+          tab.innerHTML = "&#9664;"; // left arrow
+        } else {
+          panel.classList.add("hidden");
+          tab.innerHTML = "&#9654;"; // right arrow
+        }
+        positionRouteTab();
+      }
+
+      function updateRouteLegend(displayedRoutes = []) {
+        const legend = document.getElementById("routeLegend");
+        if (!legend) return;
+        const shouldShowLegend = kioskMode || adminKioskMode;
+        if (!shouldShowLegend) {
+          legend.style.display = "none";
+          legend.innerHTML = "";
+          return;
+        }
+
+        // Admin kiosk mode should surface every visible route, including those hidden from the public map.
+        // Public kiosk mode must continue to hide routes flagged as non-public.
+        const routesToRender = adminKioskMode
+          ? displayedRoutes
+          : displayedRoutes.filter(route => isRoutePublicById(route.routeId ?? route.routeID ?? route.id));
+
+        if (routesToRender.length === 0) {
+          legend.style.display = "none";
+          legend.innerHTML = "";
+          return;
+        }
+
+        legend.style.display = "block";
+        legend.innerHTML = "";
+
+        const title = document.createElement("div");
+        title.className = "legend-title";
+        title.textContent = "Routes";
+        legend.appendChild(title);
+
+        routesToRender.forEach(route => {
+          const item = document.createElement("div");
+          item.className = "legend-item";
+
+          const color = document.createElement("span");
+          color.className = "legend-color";
+          color.style.backgroundColor = route.color || "#000000";
+          item.appendChild(color);
+
+          const textContainer = document.createElement("div");
+          textContainer.className = "legend-text";
+
+          const name = document.createElement("div");
+          name.className = "legend-name";
+          name.textContent = route.name;
+          textContainer.appendChild(name);
+
+          if (route.description) {
+            const description = document.createElement("div");
+            description.className = "legend-description";
+            description.textContent = route.description;
+            textContainer.appendChild(description);
+          }
+
+          item.appendChild(textContainer);
+          legend.appendChild(item);
+        });
+      }
+
+      // refreshMap updates route paths and bus locations.
+      function refreshMap() {
+        fetchBusLocations().then(fetchRoutePaths);
+      }
+
+      function clearRefreshIntervals() {
+        refreshIntervals.forEach(clearInterval);
+        refreshIntervals = [];
+      }
+
+      function startRefreshIntervals() {
+        refreshIntervals.push(setInterval(fetchBusLocations, 4000));
+        refreshIntervals.push(setInterval(fetchBusStops, 60000));
+        refreshIntervals.push(setInterval(fetchBlockAssignments, 60000));
+        refreshIntervals.push(setInterval(() => {
+          fetchStopArrivalTimes().then(allEtas => {
+            cachedEtas = allEtas;
+            updateCustomPopups();
+          });
+        }, 15000));
+        refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
+      }
+
+      function showCookieBanner() {
+        if (kioskMode || adminKioskMode) {
+          return;
+        }
+        if (localStorage.getItem('agencyConsent') !== 'true') {
+          const banner = document.getElementById('cookieBanner');
+          banner.style.display = 'block';
+          document.getElementById('cookieAccept').addEventListener('click', () => {
+            localStorage.setItem('agencyConsent', 'true');
+            localStorage.setItem('selectedAgency', baseURL);
+            banner.style.display = 'none';
+          });
+        }
+      }
+
+      function changeAgency(url) {
+        if (localStorage.getItem('agencyConsent') === 'true') {
+          localStorage.setItem('selectedAgency', url);
+        }
+        clearRefreshIntervals();
+        baseURL = url;
+        Object.values(markers).forEach(m => map.removeLayer(m));
+        markers = {};
+        Object.values(nameBubbles).forEach(b => {
+          if (b.speedMarker) map.removeLayer(b.speedMarker);
+          if (b.nameMarker) map.removeLayer(b.nameMarker);
+          if (b.blockMarker) map.removeLayer(b.blockMarker);
+        });
+        nameBubbles = {};
+        stopMarkers.forEach(m => map.removeLayer(m));
+        stopMarkers = [];
+        routeLayers.forEach(l => map.removeLayer(l));
+        routeLayers = [];
+        busBlocks = {};
+        previousBusData = {};
+        cachedEtas = {};
+        customPopups.forEach(p => p.remove());
+        customPopups = [];
+        allRoutes = {};
+        routeSelections = {};
+        activeRoutes = new Set();
+        routeColors = {};
+        routeVisibility = {};
+        allRouteBounds = null;
+        mapHasFitAllRoutes = false;
+        updateRouteLegend([]);
+        updateRouteSelector(new Set(), true);
+        fetchRouteColors().then(() => {
+          fetchBusStops();
+          fetchBlockAssignments();
+          fetchBusLocations().then(fetchRoutePaths);
+          fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; updateCustomPopups(); });
+          startRefreshIntervals();
+        });
+      }
+
+      function getRouteColor(routeID) {
+        if (routeID === 0) return outOfServiceRouteColor;
+        return routeColors[routeID] || '#000000';
+      }
+
+      function initMap() {
+          map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
+          const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          });
+          cartoLight.addTo(map);
+          
+          fetchRouteColors().then(() => {
+              if (kioskMode || adminKioskMode) {
+                document.getElementById("routeSelector").style.display = "none";
+                document.getElementById("routeSelectorTab").style.display = "none";
+              }
+              fetchStopArrivalTimes().then(allEtas => {
+                  cachedEtas = allEtas;
+                  updateCustomPopups();
+              });
+              fetchBusStops();
+              fetchBlockAssignments();
+              fetchBusLocations().then(fetchRoutePaths);
+              startRefreshIntervals();
+          });
+          fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
+          map.on('move', updatePopupPositions);
+          map.on('zoom', updatePopupPositions);
+      }
+
+      function fetchBusStops() {
+          const currentBaseURL = baseURL;
+          const stopsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
+          fetch(stopsApiUrl)
+              .then(response => response.json())
+              .then(data => {
+                  if (currentBaseURL !== baseURL) return;
+                  let stopsArray = data.stops || data;
+                  if (stopsArray && Array.isArray(stopsArray)) {
+                      stopMarkers.forEach(marker => map.removeLayer(marker));
+                      stopMarkers = [];
+                      const groupedStops = {};
+                      stopsArray.forEach(stop => {
+                          const key = `${stop.Latitude},${stop.Longitude}`;
+                          if (!groupedStops[key]) groupedStops[key] = [];
+                          groupedStops[key].push(stop);
+                      });
+                      Object.keys(groupedStops).forEach(key => {
+                          const [latitude, longitude] = key.split(',').map(Number);
+                          const stopPosition = [latitude, longitude];
+                          const stopMarker = L.circleMarker(stopPosition, {
+                              radius: 6,
+                              color: "#000000",
+                              fillColor: "#FFFFFF",
+                              fillOpacity: 1,
+                              weight: 3
+                          }).addTo(map);
+                          const routeStopIds = groupedStops[key].map(stop => stop.RouteStopID);
+                          const unifiedStopId = groupedStops[key][0].StopID || groupedStops[key][0].StopId;
+                          const etas = [];
+                          routeStopIds.forEach(routeStopId => {
+                              if (cachedEtas[routeStopId]) {
+                                  cachedEtas[routeStopId].forEach(eta => etas.push(eta));
+                              }
+                          });
+                          const stopNames = groupedStops[key][0].Description;
+                          const etaText = etas.length > 0
+                            ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
+                                  .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`).join('')
+                            : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
+                          stopMarker.on('click', () => {
+                              createCustomPopup(stopPosition, stopNames, etaText, routeStopIds, unifiedStopId);
+                          });
+                          stopMarkers.push(stopMarker);
+                      });
+                      stopMarkers.forEach(marker => marker.bringToFront());
+                  }
+              })
+              .catch(error => console.error("Error fetching bus stops:", error));
+      }
+
+      function createCustomPopup(position, stopName, etaText, routeStopIds, stopId) {
+          customPopups.forEach(popup => popup.remove());
+          customPopups = [];
+          const popupElement = document.createElement('div');
+          popupElement.className = 'custom-popup';
+          const etaTable = `
+            <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
+              <thead>
+                <tr>
+                  <th style="border-bottom: 1px solid white; padding: 5px;">Route</th>
+                  <th style="border-bottom: 1px solid white; padding: 5px;">ETA</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${etaText}
+              </tbody>
+            </table>
+          `;
+          popupElement.innerHTML = `
+            <button class="custom-popup-close">&times;</button>
+            <span style="font-size: 16px; font-weight: bold;">${stopName}</span><br>
+            <span>Stop ID: ${stopId}</span><br>
+            ${etaTable}
+            <div class="custom-popup-arrow"></div>
+          `;
+          document.body.appendChild(popupElement);
+          popupElement.dataset.position = `${position[0]},${position[1]}`;
+          popupElement.dataset.stopName = stopName.replace('Stop Name: ', '');
+          popupElement.dataset.routeStopIds = JSON.stringify(routeStopIds);
+          popupElement.dataset.stopId = stopId;
+          updatePopupPosition(popupElement, position);
+          popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
+              popupElement.remove();
+              customPopups = customPopups.filter(popup => popup !== popupElement);
+          });
+          customPopups.push(popupElement);
+      }
+
+      function updatePopupPosition(popupElement, position) {
+          const mapPos = map.latLngToContainerPoint(position);
+          popupElement.style.left = `${mapPos.x}px`;
+          popupElement.style.top = `${mapPos.y}px`;
+      }
+
+      function updatePopupPositions() {
+          customPopups.forEach(popupElement => {
+              const position = popupElement.dataset.position;
+              if (position) {
+                  const [latitude, longitude] = position.split(',').map(Number);
+                  updatePopupPosition(popupElement, [latitude, longitude]);
+              }
+          });
+      }
+
+      function updateCustomPopups() {
+          customPopups.forEach(popupElement => {
+              const position = popupElement.dataset.position;
+              if (position) {
+                  const routeStopIds = JSON.parse(popupElement.dataset.routeStopIds);
+                  const etas = [];
+                  routeStopIds.forEach(routeStopId => {
+                      if (cachedEtas[routeStopId]) {
+                          cachedEtas[routeStopId].forEach(eta => etas.push(eta));
+                      }
+                  });
+                  const etaText = etas.length > 0
+                    ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
+                          .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`).join('')
+                    : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
+                  const etaTable = `
+                    <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
+                      <thead>
+                        <tr>
+                          <th style="border-bottom: 1px solid white; padding: 5px;">Route</th>
+                          <th style="border-bottom: 1px solid white; padding: 5px;">ETA</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${etaText}
+                      </tbody>
+                    </table>
+                  `;
+                  const stopId = popupElement.dataset.stopId;
+                  popupElement.innerHTML = `
+                    <button class="custom-popup-close">&times;</button>
+                    <span style="font-size: 16px; font-weight: bold;">${popupElement.dataset.stopName}</span><br>
+                    <span>Stop ID: ${stopId}</span><br>
+                    ${etaTable}
+                    <div class="custom-popup-arrow"></div>
+                  `;
+                  popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
+                      popupElement.remove();
+                      customPopups = customPopups.filter(popup => popup !== popupElement);
+                  });
+              }
+          });
+      }
+
+      function fetchStopArrivalTimes() {
+          const currentBaseURL = baseURL;
+          const arrivalTimesApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681`;
+          return fetch(arrivalTimesApiUrl)
+              .then(response => response.json())
+              .then(data => {
+                  if (currentBaseURL !== baseURL) return {};
+                  let allEtas = {};
+                  data.forEach(arrival => {
+                      if (!allEtas[arrival.RouteStopId]) {
+                          allEtas[arrival.RouteStopId] = [];
+                      }
+                      arrival.Times.forEach(time => {
+                          const etaMinutes = Math.round(time.Seconds / 60);
+                          allEtas[arrival.RouteStopId].push({
+                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription.slice(0, -5)),
+                              etaMinutes: etaMinutes,
+                              RouteId: arrival.RouteId
+                          });
+                      });
+                  });
+                  return allEtas;
+              })
+              .catch(error => {
+                  console.error("Error fetching stop arrival times:", error);
+                  return {};
+              });
+      }
+
+      // Fetch routes from GetRoutes.
+      function fetchRouteColors() {
+        console.log('Fetching route colors...');
+        const routesApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681`;
+        return fetch(routesApiUrl)
+          .then(response => response.json())
+          .then(data => {
+            if (Array.isArray(data)) {
+              data.forEach(route => {
+                setRouteVisibility(route);
+                allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
+                if (canDisplayRoute(route.RouteID)) {
+                  routeColors[route.RouteID] = route.MapLineColor;
+                  console.log(`Route ID: ${route.RouteID}, Color: ${route.MapLineColor}`);
+                } else {
+                  delete routeColors[route.RouteID];
+                  console.log(`Route ID: ${route.RouteID} hidden due to display settings`);
+                }
+              });
+            }
+          })
+          .catch(error => console.error("Error fetching route colors:", error));
+      }
+
+      // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
+      function fetchRoutePaths() {
+          const currentBaseURL = baseURL;
+          const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
+          fetch(routePathsApiUrl)
+              .then(response => response.json())
+              .then(data => {
+                  if (currentBaseURL !== baseURL) return;
+                  routeLayers.forEach(layer => map.removeLayer(layer));
+                  routeLayers = [];
+                  let bounds = null;
+                  const displayedRoutes = new Map();
+                  if (Array.isArray(data)) {
+                      data.forEach(route => {
+                          setRouteVisibility(route);
+                          allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
+                          const routeAllowed = canDisplayRoute(route.RouteID);
+                          if (route.EncodedPolyline && routeAllowed) {
+                              const decodedPolyline = polyline.decode(route.EncodedPolyline);
+                              const polyBounds = L.latLngBounds(decodedPolyline);
+                              bounds = bounds ? bounds.extend(polyBounds) : polyBounds;
+
+                              if (isRouteSelected(route.RouteID)) {
+                                  let routeColor = getRouteColor(route.RouteID);
+                                  const routeLayer = L.polyline(decodedPolyline, {
+                                      color: routeColor,
+                                      weight: 6,
+                                      opacity: 1
+                                  }).addTo(map);
+                                  routeLayers.push(routeLayer);
+                                  const storedRoute = allRoutes[route.RouteID] || {};
+                                  const legendNameCandidates = [
+                                      storedRoute.Description,
+                                      route.Description,
+                                      storedRoute.Name,
+                                      route.Name,
+                                      storedRoute.RouteName,
+                                      route.RouteName
+                                  ];
+                                  let legendName = legendNameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+                                  legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
+                                  const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
+                                  const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
+                                  const numericRouteId = Number(route.RouteID);
+                                  const legendRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
+                                  displayedRoutes.set(route.RouteID, {
+                                      routeId: legendRouteId,
+                                      color: routeColor,
+                                      name: legendName,
+                                      description: legendDescription
+                                  });
+                              }
+                          }
+                      });
+                      if (bounds) {
+                          allRouteBounds = bounds;
+                          if (!mapHasFitAllRoutes) {
+                              if (!kioskMode && !adminKioskMode) {
+                                  map.fitBounds(allRouteBounds, { padding: [20, 20] });
+                              }
+                              mapHasFitAllRoutes = true;
+                          }
+                      }
+                      updateRouteSelector(activeRoutes);
+                      stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
+                  }
+                  updateRouteLegend(Array.from(displayedRoutes.values()));
+              })
+              .catch(error => {
+                  console.error("Error fetching route paths:", error);
+                  updateRouteLegend([]);
+              });
+      }
+
+      function fetchBlockAssignments() {
+          const currentBaseURL = baseURL;
+          const d = new Date();
+          const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+          const schedUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
+          fetch(schedUrl)
+              .then(response => response.json())
+              .then(sched => {
+                  if (currentBaseURL !== baseURL) return;
+                  const ids = (sched || []).map(s => s.ScheduleVehicleCalendarID).join(',');
+                  if (!ids) {
+                      busBlocks = {};
+                      return;
+                  }
+                  const blockUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString=${ids}`;
+                  return fetch(blockUrl).then(r => r.json());
+              })
+              .then(data => {
+                  if (currentBaseURL !== baseURL || !data) return;
+                  const groups = data?.BlockGroups || [];
+                  const alias = {
+                      "[01]": "[01]/[04]",
+                      "[03]": "[05]/[03]",
+                      "[04]": "[01]/[04]",
+                      "[05]": "[05]/[03]",
+                      "[06]": "[22]/[06]",
+                      "[10]": "[20]/[10]",
+                      "[15]": "[26]/[15]",
+                      "[16] AM": "[21]/[16] AM",
+                      "[17]": "[23]/[17]",
+                      "[18] AM": "[24]/[18] AM",
+                      "[20] AM": "[20]/[10]",
+                      "[21] AM": "[21]/[16] AM",
+                      "[22] AM": "[22]/[06]",
+                      "[23]": "[23]/[17]",
+                      "[24] AM": "[24]/[18] AM",
+                      "[26] AM": "[26]/[15]"
+                  };
+                  let mapping = {};
+                  groups.forEach(g => {
+                      const block = (g.BlockGroupId || '').trim();
+                      const vehicleId = g.Blocks?.[0]?.Trips?.[0]?.VehicleID ?? g.VehicleId;
+                      if (block && block.includes('[') && vehicleId != null) {
+                          mapping[vehicleId] = alias[block] || block;
+                      }
+                  });
+                  busBlocks = mapping;
+              })
+              .catch(error => console.error("Error fetching block assignments:", error));
+      }
+
+      function fetchBusLocations() {
+          const currentBaseURL = baseURL;
+          const apiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
+          return fetch(apiUrl)
+              .then(response => {
+                  if (!response.ok) throw new Error("Network response was not ok: " + response.statusText);
+                  return response.json();
+              })
+              .then(data => {
+                  if (currentBaseURL !== baseURL) return;
+                  if (Array.isArray(data)) {
+                      let currentBusData = {};
+                      let activeRoutesSet = new Set();
+                      let vehicles = [];
+
+                      // First pass: gather vehicles and determine active routes.
+                      data.forEach(vehicle => {
+                          const vehicleID = vehicle.VehicleID;
+                          const newPosition = [vehicle.Latitude, vehicle.Longitude];
+                          const isMoving = vehicle.GroundSpeed > 0;
+                          const busName = vehicle.Name;
+                          let routeID = vehicle.RouteID;
+                          if (!routeID && adminMode) {
+                              routeID = 0;
+                          } else if (!routeID) {
+                              return;
+                          }
+                          const numericRouteId = Number(routeID);
+                          const effectiveRouteId = Number.isNaN(numericRouteId) ? routeID : numericRouteId;
+                          if (!canDisplayRoute(effectiveRouteId)) return;
+                          if (!adminMode && !routeColors.hasOwnProperty(effectiveRouteId)) return;
+                          activeRoutesSet.add(effectiveRouteId);
+                          vehicles.push({
+                              vehicleID,
+                              newPosition,
+                              isMoving,
+                              busName,
+                              routeID: effectiveRouteId,
+                              heading: vehicle.Heading,
+                              groundSpeed: vehicle.GroundSpeed
+                          });
+                      });
+
+                      // Update global activeRoutes and rebuild selector before rendering.
+                      activeRoutes = activeRoutesSet;
+                      updateRouteSelector(activeRoutesSet);
+
+                      // Second pass: render only selected routes.
+                      vehicles.forEach(v => {
+                          const { vehicleID, newPosition, isMoving, busName, routeID, heading, groundSpeed } = v;
+                          if (!isRouteSelected(routeID)) return;
+                          currentBusData[vehicleID] = true;
+                          const svgIcon = `
+                              <svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg">
+                                <g>
+                                  <circle cx="20" cy="20" r="15" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                  ${isMoving ? `
+                                    <line x1="20" y1="10" x2="20" y2="22" stroke="${getContrastColor(getRouteColor(routeID))}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
+                                    <polygon points="15,22 25,22 20,30" fill="${getContrastColor(getRouteColor(routeID))}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
+                                  ` : `
+                                    <rect x="14" y="14" width="12" height="12" fill="${getContrastColor(getRouteColor(routeID))}" />
+                                  `}
+                                </g>
+                              </svg>`;
+                          const busIcon = L.divIcon({
+                              html: svgIcon,
+                              className: '',
+                              iconSize: [40, 40],
+                              iconAnchor: [20, 20]
+                          });
+                          if (markers[vehicleID]) {
+                              animateMarkerTo(markers[vehicleID], newPosition);
+                              markers[vehicleID].setIcon(busIcon);
+                              markers[vehicleID].routeID = routeID;
+                          } else {
+                              markers[vehicleID] = L.marker(newPosition, { icon: busIcon });
+                              markers[vehicleID].routeID = routeID;
+                              markers[vehicleID].addTo(map);
+                          }
+                          if (adminMode && showSpeed && !kioskMode) {
+                              const speedBubble = `
+                                  <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
+                                      <g>
+                                          <rect x="0" y="0" width="60" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                          <text x="30" y="15" font-size="12" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${Math.round(groundSpeed)} MPH</text>
+                                      </g>
+                                  </svg>`;
+                              const speedIcon = L.divIcon({
+                                  html: speedBubble,
+                                  className: '',
+                                  iconSize: [60, 20],
+                                  iconAnchor: [30, -15]
+                              });
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
+                                  nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
+                              } else {
+                                  nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false }).addTo(map);
+                              }
+                          } else {
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
+                                  map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                                  delete nameBubbles[vehicleID].speedMarker;
+                              }
+                          }
+                          if (adminMode && !kioskMode) {
+                              const bubbleWidth = Math.max(40, busName.length * 10);
+                              const nameBubble = `
+                                  <svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg">
+                                      <g>
+                                          <rect x="0" y="5" width="${bubbleWidth}" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                          <text x="${bubbleWidth / 2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${busName}</text>
+                                      </g>
+                                  </svg>`;
+                              const nameIcon = L.divIcon({
+                                  html: nameBubble,
+                                  className: '',
+                                  iconSize: [bubbleWidth, 30],
+                                  iconAnchor: [bubbleWidth / 2, 40]
+                              });
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
+                                  nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
+                              } else {
+                                  nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                                  nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false }).addTo(map);
+                              }
+
+                              const blockName = busBlocks[vehicleID];
+                              if (showBlockNumbers && blockName && blockName.includes('[')) {
+                                  const canvas = document.createElement('canvas');
+                                  const ctx = canvas.getContext('2d');
+                                  ctx.font = 'bold 14px FGDC';
+                                  const textWidth = ctx.measureText(blockName).width;
+                                  const blockWidth = Math.max(40, textWidth + 20);
+                                  const blockBubble = `
+                                      <svg width="${blockWidth}" height="30" viewBox="0 0 ${blockWidth} 30" xmlns="http://www.w3.org/2000/svg">
+                                          <g>
+                                              <rect x="0" y="5" width="${blockWidth}" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                              <text x="${blockWidth / 2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${blockName}</text>
+                                          </g>
+                                      </svg>`;
+                                  const blockIcon = L.divIcon({
+                                      html: blockBubble,
+                                      className: '',
+                                      iconSize: [blockWidth, 30],
+                                      // Position the block number bubble so it touches but doesn't overlap the bus icon
+                                      iconAnchor: [blockWidth / 2, -13]
+                                  });
+                                  if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                      animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
+                                      nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
+                                  } else {
+                                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false }).addTo(map);
+                                  }
+                              } else {
+                                  if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                      map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                                      delete nameBubbles[vehicleID].blockMarker;
+                                  }
+                              }
+                          } else {
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
+                                  map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                                  delete nameBubbles[vehicleID].nameMarker;
+                              }
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                  map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                                  delete nameBubbles[vehicleID].blockMarker;
+                              }
+                          }
+                      });
+
+                      Object.keys(markers).forEach(vehicleID => {
+                          if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
+                              map.removeLayer(markers[vehicleID]);
+                              delete markers[vehicleID];
+                              if (nameBubbles[vehicleID]) {
+                                  if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                                  if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                                  if (nameBubbles[vehicleID].blockMarker) map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                                  delete nameBubbles[vehicleID];
+                              }
+                          }
+                      });
+                      previousBusData = currentBusData;
+                  }
+              })
+              .catch(error => console.error("Error fetching bus locations:", error));
+      }
+
+      function getContrastColor(hexColor) {
+          hexColor = hexColor.replace('#', '');
+          const r = parseInt(hexColor.substring(0, 2), 16);
+          const g = parseInt(hexColor.substring(2, 4), 16);
+          const b = parseInt(hexColor.substring(4, 6), 16);
+          const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+          return luminance > 0.565 ? 'black' : 'white';
+      }
+
+      function animateMarkerTo(marker, newPosition) {
+        const startPos = marker.getLatLng();
+        const endPos = L.latLng(newPosition);
+        const duration = 1000;
+        const startTime = performance.now();
+        function animate(time) {
+          const elapsed = time - startTime;
+          const t = Math.min(elapsed / duration, 1);
+          const currentPos = L.latLng(
+            startPos.lat + t * (endPos.lat - startPos.lat),
+            startPos.lng + t * (endPos.lng - startPos.lng)
+          );
+          marker.setLatLng(currentPos);
+          if (t < 1) requestAnimationFrame(animate);
+        }
+        requestAnimationFrame(animate);
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        loadAgencies().then(() => {
+          initMap();
+          showCookieBanner();
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="routeLegend" aria-live="polite"></div>
+    <div id="routeSelector"></div>
+    <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
+    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+    <div id="cookieBanner" class="cookie-banner" style="display:none;">
+      This site stores your selected transit agency on your device to remember your preference.
+      <button id="cookieAccept">OK</button>
+    </div>
+  </body>
+</html>
