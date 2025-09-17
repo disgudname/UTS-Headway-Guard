@@ -960,6 +960,139 @@
         return total;
       }
 
+      function computeCumulativeDistances(points) {
+        if (!Array.isArray(points) || points.length === 0) return [];
+        const cumulative = [0];
+        for (let i = 1; i < points.length; i++) {
+          const prevTotal = cumulative[i - 1];
+          const segmentLength = distanceMeters(points[i - 1], points[i]);
+          cumulative.push(prevTotal + (Number.isFinite(segmentLength) && segmentLength > 0 ? segmentLength : 0));
+        }
+        return cumulative;
+      }
+
+      function getPointAtDistanceOnPath(points, targetDistance, cumulativeDistances = null) {
+        if (!Array.isArray(points) || points.length === 0) return null;
+        const cumulative = Array.isArray(cumulativeDistances) && cumulativeDistances.length === points.length
+          ? cumulativeDistances
+          : computeCumulativeDistances(points);
+        if (cumulative.length === 0) return points[0];
+        const totalLength = cumulative[cumulative.length - 1];
+        if (!Number.isFinite(totalLength) || totalLength <= 0) {
+          const first = points[0];
+          return [first[0], first[1]];
+        }
+        const target = Math.max(0, Math.min(totalLength, Number.isFinite(targetDistance) ? targetDistance : 0));
+        let index = 0;
+        while (index < cumulative.length && cumulative[index] < target) {
+          index++;
+        }
+        if (index <= 0) {
+          const first = points[0];
+          return [first[0], first[1]];
+        }
+        if (index >= cumulative.length) {
+          const last = points[points.length - 1];
+          return [last[0], last[1]];
+        }
+        if (Math.abs(cumulative[index] - target) <= 1e-9) {
+          const exact = points[index];
+          return [exact[0], exact[1]];
+        }
+        const prevIndex = index - 1;
+        const prevDistance = cumulative[prevIndex];
+        const segmentLength = cumulative[index] - prevDistance;
+        if (!Number.isFinite(segmentLength) || segmentLength <= 0) {
+          const point = points[index];
+          return [point[0], point[1]];
+        }
+        const t = (target - prevDistance) / segmentLength;
+        const start = points[prevIndex];
+        const end = points[index];
+        const lat = start[0] + (end[0] - start[0]) * t;
+        const lng = start[1] + (end[1] - start[1]) * t;
+        return [lat, lng];
+      }
+
+      function buildAveragedPath(referencePoints, referenceDistances, shapeInfos) {
+        if (!Array.isArray(referencePoints) || referencePoints.length < 2) {
+          return Array.isArray(referencePoints)
+            ? referencePoints.map(pt => [pt[0], pt[1]])
+            : [];
+        }
+        const sanitizedDistances = Array.isArray(referenceDistances) && referenceDistances.length === referencePoints.length
+          ? referenceDistances
+          : computeCumulativeDistances(referencePoints);
+        if (sanitizedDistances.length !== referencePoints.length) {
+          return referencePoints.map(pt => [pt[0], pt[1]]);
+        }
+        const totalReferenceLength = sanitizedDistances[sanitizedDistances.length - 1];
+        if (!Number.isFinite(totalReferenceLength) || totalReferenceLength <= 0) {
+          return referencePoints.map(pt => [pt[0], pt[1]]);
+        }
+        return referencePoints.map((refPoint, idx) => {
+          const distanceAlong = sanitizedDistances[idx];
+          const ratio = totalReferenceLength > 0 ? distanceAlong / totalReferenceLength : 0;
+          const contributions = [];
+          shapeInfos.forEach(info => {
+            if (!info || !Array.isArray(info.pathPoints) || info.pathPoints.length === 0) return;
+            const totalLength = Number.isFinite(info.totalLength) ? info.totalLength : 0;
+            if (totalLength <= 0) {
+              const first = info.pathPoints[0];
+              contributions.push([first[0], first[1]]);
+              return;
+            }
+            const targetDistance = ratio * totalLength;
+            const point = getPointAtDistanceOnPath(info.pathPoints, targetDistance, info.cumulativeDistances);
+            if (Array.isArray(point) && point.length === 2 && Number.isFinite(point[0]) && Number.isFinite(point[1])) {
+              contributions.push(point);
+            }
+          });
+          if (!contributions.length) {
+            return [refPoint[0], refPoint[1]];
+          }
+          const summed = contributions.reduce((acc, coord) => {
+            acc[0] += coord[0];
+            acc[1] += coord[1];
+            return acc;
+          }, [0, 0]);
+          return [
+            summed[0] / contributions.length,
+            summed[1] / contributions.length
+          ];
+        });
+      }
+
+      function mergeReplacementPoint(replacements, index, point) {
+        if (!(replacements instanceof Map)) return;
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(point) || point.length < 2) return;
+        const sanitized = [point[0], point[1]];
+        if (replacements.has(index)) {
+          const existing = replacements.get(index);
+          if (Array.isArray(existing) && existing.length === 2) {
+            replacements.set(index, [
+              (existing[0] + sanitized[0]) / 2,
+              (existing[1] + sanitized[1]) / 2
+            ]);
+            return;
+          }
+        }
+        replacements.set(index, sanitized);
+      }
+
+      function getAdjustedPointForIndex(replacements, index, originalPoint) {
+        if (!Array.isArray(originalPoint) || originalPoint.length < 2) return originalPoint;
+        if (!(replacements instanceof Map) || !Number.isFinite(index)) {
+          return [originalPoint[0], originalPoint[1]];
+        }
+        const replacement = replacements.get(index);
+        if (!replacement || !Array.isArray(replacement) || replacement.length < 2) {
+          return [originalPoint[0], originalPoint[1]];
+        }
+        return [replacement[0], replacement[1]];
+      }
+
       function interpolatePoint(a, b, fraction) {
         if (!Array.isArray(a) || !Array.isArray(b)) return a;
         const t = Math.min(1, Math.max(0, Number.isFinite(fraction) ? fraction : 0));
@@ -1249,6 +1382,7 @@
         const shapeToRoute = new Map();
         const shapeMetadata = [];
         const bucketMap = new Map();
+        const boundaryReplacementsByShape = new Map();
 
         routes.forEach((route, idx) => {
           const routeId = route.routeId;
@@ -1319,7 +1453,11 @@
               const matchingByShape = new Map();
               const baseMatchInfo = new Map();
               runSegments.forEach(seg => {
-                baseMatchInfo.set(seg.index, { segment: seg, matchShapes: new Set() });
+                baseMatchInfo.set(seg.index, {
+                  segment: seg,
+                  matchShapes: new Set(),
+                  matchSegments: new Map()
+                });
               });
 
               otherSegments.forEach(seg => {
@@ -1329,7 +1467,13 @@
                     if (!matchingByShape.has(seg.shapeId)) matchingByShape.set(seg.shapeId, []);
                     matchingByShape.get(seg.shapeId).push(seg);
                     const info = baseMatchInfo.get(baseSeg.index);
-                    if (info) info.matchShapes.add(seg.shapeId);
+                    if (info) {
+                      info.matchShapes.add(seg.shapeId);
+                      if (!info.matchSegments.has(seg.shapeId)) {
+                        info.matchSegments.set(seg.shapeId, new Set());
+                      }
+                      info.matchSegments.get(seg.shapeId).add(seg.index);
+                    }
                     break;
                   }
                 }
@@ -1399,9 +1543,108 @@
                   colorInfos.push({ routeId, color: colorByRoute.get(routeId) || '#000000' });
                 });
 
-                if (colorInfos.length > 1) {
+                if (colorInfos.length <= 1) return;
+
+                const shapeSegmentIndices = new Map();
+                shapeSegmentIndices.set(baseShapeId, new Set(matchedRunSegments.map(seg => seg.index)));
+                matchedRunSegments.forEach(seg => {
+                  const info = baseMatchInfo.get(seg.index);
+                  if (!info || !info.matchSegments) return;
+                  info.matchSegments.forEach((indexSet, shapeId) => {
+                    if (!relevantShapeIds.has(shapeId)) return;
+                    if (!shapeSegmentIndices.has(shapeId)) shapeSegmentIndices.set(shapeId, new Set());
+                    indexSet.forEach(idx => {
+                      if (Number.isFinite(idx)) {
+                        shapeSegmentIndices.get(shapeId).add(Math.floor(idx));
+                      }
+                    });
+                  });
+                });
+
+                const shapeInfos = [];
+                shapeSegmentIndices.forEach((indexSet, shapeId) => {
+                  if (!relevantShapeIds.has(shapeId)) return;
+                  const routeId = shapeToRoute.get(shapeId);
+                  if (routeId == null) return;
+                  const densifiedPoints = densifiedByShape.get(shapeId);
+                  if (!densifiedPoints || densifiedPoints.length < 2) return;
+
+                  const sortedIndices = Array.from(indexSet).filter(idx => Number.isFinite(idx)).sort((a, b) => a - b);
+                  if (!sortedIndices.length) return;
+
+                  const maxSegmentIndex = Math.max(0, densifiedPoints.length - 2);
+                  const firstSegmentIndex = Math.max(0, Math.min(maxSegmentIndex, sortedIndices[0]));
+                  const lastSegmentIndex = Math.max(0, Math.min(maxSegmentIndex, sortedIndices[sortedIndices.length - 1]));
+                  const startPointIndex = Math.max(0, Math.min(densifiedPoints.length - 1, firstSegmentIndex));
+                  const endPointIndex = Math.max(0, Math.min(densifiedPoints.length - 1, lastSegmentIndex + 1));
+
+                  let pathPoints = [];
+                  sortedIndices.forEach(segIndex => {
+                    const clampedIndex = Math.max(0, Math.min(maxSegmentIndex, segIndex));
+                    const start = densifiedPoints[clampedIndex];
+                    const end = densifiedPoints[clampedIndex + 1];
+                    if (!start || !end) return;
+                    if (!pathPoints.length) {
+                      pathPoints.push([start[0], start[1]]);
+                    } else {
+                      const last = pathPoints[pathPoints.length - 1];
+                      if (Math.abs(last[0] - start[0]) > 1e-12 || Math.abs(last[1] - start[1]) > 1e-12) {
+                        pathPoints.push([start[0], start[1]]);
+                      }
+                    }
+                    pathPoints.push([end[0], end[1]]);
+                  });
+
+                  if (pathPoints.length < 2) {
+                    const fallback = densifiedPoints.slice(startPointIndex, endPointIndex + 1);
+                    if (fallback.length < 2) return;
+                    pathPoints = fallback.map(pt => [pt[0], pt[1]]);
+                  }
+
+                  const forwardScore = distanceMeters(pathPoints[0], path[0]) + distanceMeters(pathPoints[pathPoints.length - 1], path[path.length - 1]);
+                  const reverseScore = distanceMeters(pathPoints[pathPoints.length - 1], path[0]) + distanceMeters(pathPoints[0], path[path.length - 1]);
+                  const orientedPath = Number.isFinite(forwardScore) && Number.isFinite(reverseScore) && reverseScore + 1e-6 < forwardScore
+                    ? pathPoints.slice().reverse()
+                    : pathPoints.slice();
+
+                  const cumulativeDistances = computeCumulativeDistances(orientedPath);
+                  const totalLength = cumulativeDistances.length ? cumulativeDistances[cumulativeDistances.length - 1] : 0;
+
+                  shapeInfos.push({
+                    shapeId,
+                    routeId,
+                    startPointIndex,
+                    endPointIndex,
+                    pathPoints: orientedPath,
+                    cumulativeDistances,
+                    totalLength
+                  });
+                });
+
+                if (!shapeInfos.length) {
                   overlaps.push({ path, colorInfos });
+                  return;
                 }
+
+                const baseInfo = shapeInfos.find(info => info.shapeId === baseShapeId);
+                const referencePath = baseInfo ? baseInfo.pathPoints : path.map(pt => [pt[0], pt[1]]);
+                const referenceDistances = baseInfo ? baseInfo.cumulativeDistances : computeCumulativeDistances(referencePath);
+                const averagedPath = buildAveragedPath(referencePath, referenceDistances, shapeInfos);
+                const sanitizedPath = Array.isArray(averagedPath) && averagedPath.length >= 2
+                  ? averagedPath.map(pt => [pt[0], pt[1]])
+                  : referencePath.map(pt => [pt[0], pt[1]]);
+
+                shapeInfos.forEach(info => {
+                  let replacements = boundaryReplacementsByShape.get(info.shapeId);
+                  if (!replacements) {
+                    replacements = new Map();
+                    boundaryReplacementsByShape.set(info.shapeId, replacements);
+                  }
+                  mergeReplacementPoint(replacements, info.startPointIndex, sanitizedPath[0]);
+                  mergeReplacementPoint(replacements, info.endPointIndex, sanitizedPath[sanitizedPath.length - 1]);
+                });
+
+                overlaps.push({ path: sanitizedPath, colorInfos });
               });
             });
           });
@@ -1412,13 +1655,14 @@
           const pathPoints = densifiedByShape.get(shapeId);
           if (!pathPoints || pathPoints.length < 2) return;
           const flags = segmentFlagsByShape.get(shapeId) || [];
+          const replacements = boundaryReplacementsByShape.get(shapeId) || null;
           let currentPath = [];
           for (let i = 0; i < pathPoints.length - 1; i++) {
             if (!flags[i]) {
               if (currentPath.length === 0) {
-                currentPath.push(pathPoints[i]);
+                currentPath.push(getAdjustedPointForIndex(replacements, i, pathPoints[i]));
               }
-              currentPath.push(pathPoints[i + 1]);
+              currentPath.push(getAdjustedPointForIndex(replacements, i + 1, pathPoints[i + 1]));
             } else {
               if (currentPath.length >= 2) {
                 nonOverlap.push({ routeId, color: colorByRoute.get(routeId), path: currentPath });
