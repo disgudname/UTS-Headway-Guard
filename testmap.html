@@ -1278,15 +1278,17 @@
           if (!clusters.length) {
             return [refPoint[0], refPoint[1]];
           }
-          const summedCenters = clusters.reduce((acc, cluster) => {
-            acc[0] += cluster.center[0];
-            acc[1] += cluster.center[1];
+          let totalWeight = 0;
+          const weightedSum = clusters.reduce((acc, cluster) => {
+            const weight = Math.max(1, Number.isFinite(cluster.count) ? cluster.count : 1);
+            acc[0] += cluster.center[0] * weight;
+            acc[1] += cluster.center[1] * weight;
+            totalWeight += weight;
             return acc;
           }, [0, 0]);
-          return [
-            summedCenters[0] / clusters.length,
-            summedCenters[1] / clusters.length
-          ];
+          return totalWeight > 0
+            ? [weightedSum[0] / totalWeight, weightedSum[1] / totalWeight]
+            : [refPoint[0], refPoint[1]];
         });
       }
 
