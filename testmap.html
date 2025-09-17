@@ -937,6 +937,85 @@
         return result;
       }
 
+      function computePolylineLength(points) {
+        if (!Array.isArray(points) || points.length < 2) return 0;
+        let total = 0;
+        for (let i = 1; i < points.length; i++) {
+          const dist = distanceMeters(points[i - 1], points[i]);
+          if (Number.isFinite(dist)) {
+            total += dist;
+          }
+        }
+        return total;
+      }
+
+      function interpolatePoint(a, b, fraction) {
+        if (!Array.isArray(a) || !Array.isArray(b)) return a;
+        const t = Math.min(1, Math.max(0, Number.isFinite(fraction) ? fraction : 0));
+        const lat = a[0] + (b[0] - a[0]) * t;
+        const lng = a[1] + (b[1] - a[1]) * t;
+        return [lat, lng];
+      }
+
+      function splitPolylineByLength(points, segmentLengthMeters) {
+        if (!Array.isArray(points) || points.length < 2 || !Number.isFinite(segmentLengthMeters) || segmentLengthMeters <= 0) {
+          return [];
+        }
+
+        const EPSILON = 1e-9;
+        const segments = [];
+        let currentSegment = [points[0]];
+        let distanceIntoSegment = 0;
+        let previousPoint = points[0];
+
+        for (let i = 1; i < points.length; i++) {
+          const nextPoint = points[i];
+          if (!nextPoint) continue;
+
+          let remainingDistance = distanceMeters(previousPoint, nextPoint);
+          if (!Number.isFinite(remainingDistance) || remainingDistance <= EPSILON) {
+            const lastPoint = currentSegment[currentSegment.length - 1];
+            if (!lastPoint || Math.abs(lastPoint[0] - nextPoint[0]) > EPSILON || Math.abs(lastPoint[1] - nextPoint[1]) > EPSILON) {
+              currentSegment.push(nextPoint);
+            }
+            previousPoint = nextPoint;
+            continue;
+          }
+
+          let startPoint = previousPoint;
+          while (distanceIntoSegment + remainingDistance >= segmentLengthMeters - EPSILON) {
+            const distanceNeeded = segmentLengthMeters - distanceIntoSegment;
+            const fraction = Math.min(1, distanceNeeded / remainingDistance);
+            const interpolatedPoint = interpolatePoint(startPoint, nextPoint, fraction);
+            currentSegment.push(interpolatedPoint);
+            segments.push(currentSegment);
+            currentSegment = [interpolatedPoint];
+            startPoint = interpolatedPoint;
+            remainingDistance = Math.max(0, remainingDistance - distanceNeeded);
+            distanceIntoSegment = 0;
+          }
+
+          if (remainingDistance > EPSILON) {
+            distanceIntoSegment += remainingDistance;
+            const lastPoint = currentSegment[currentSegment.length - 1];
+            if (!lastPoint || Math.abs(lastPoint[0] - nextPoint[0]) > EPSILON || Math.abs(lastPoint[1] - nextPoint[1]) > EPSILON) {
+              currentSegment.push(nextPoint);
+            }
+          } else {
+            currentSegment = [nextPoint];
+            distanceIntoSegment = 0;
+          }
+
+          previousPoint = nextPoint;
+        }
+
+        if (currentSegment.length > 1) {
+          segments.push(currentSegment);
+        }
+
+        return segments;
+      }
+
       function createSegmentBucketKey(segment) {
         const latIdx = Math.round(segment.mid[0] / LAT_LNG_BUCKET_SIZE);
         const lngIdx = Math.round(segment.mid[1] / LAT_LNG_BUCKET_SIZE);
@@ -1225,22 +1304,85 @@
           return String(idA).localeCompare(String(idB));
         });
 
-        const stripeLength = 16;
         const totalColors = sortedColors.length;
-        sortedColors.forEach((info, index) => {
-          const options = {
+        if (totalColors === 0) return;
+
+        if (totalColors === 1) {
+          const single = sortedColors[0];
+          const layer = L.polyline(points, {
+            color: single.color || '#000000',
+            weight,
+            opacity: 1,
+            lineCap: 'butt',
+            lineJoin: 'round'
+          }).addTo(map);
+          routeLayers.push(layer);
+          return;
+        }
+
+        const totalLength = computePolylineLength(points);
+        if (!Number.isFinite(totalLength) || totalLength <= 0) {
+          sortedColors.forEach(info => {
+            const layer = L.polyline(points, {
+              color: info.color || '#000000',
+              weight,
+              opacity: 1,
+              lineCap: 'butt',
+              lineJoin: 'round'
+            }).addTo(map);
+            routeLayers.push(layer);
+          });
+          return;
+        }
+
+        const TARGET_STRIPE_LENGTH_METERS = 30;
+        const cycles = Math.max(1, Math.ceil(totalLength / (TARGET_STRIPE_LENGTH_METERS * totalColors)));
+        const stripesCount = cycles * totalColors;
+        const segmentLength = totalLength / Math.max(1, stripesCount);
+        let segments = splitPolylineByLength(points, segmentLength);
+
+        if (segments.length > stripesCount) {
+          const truncated = segments.slice(0, stripesCount);
+          if (truncated.length) {
+            const lastSegment = truncated[truncated.length - 1];
+            for (let i = stripesCount; i < segments.length; i++) {
+              const extra = segments[i];
+              if (!extra || extra.length < 2) continue;
+              for (let j = 1; j < extra.length; j++) {
+                lastSegment.push(extra[j]);
+              }
+            }
+          }
+          segments = truncated;
+        }
+
+        if (!segments.length) {
+          sortedColors.forEach(info => {
+            const layer = L.polyline(points, {
+              color: info.color || '#000000',
+              weight,
+              opacity: 1,
+              lineCap: 'butt',
+              lineJoin: 'round'
+            }).addTo(map);
+            routeLayers.push(layer);
+          });
+          return;
+        }
+
+        let colorIndex = 0;
+        segments.forEach(segment => {
+          if (!segment || segment.length < 2) return;
+          const info = sortedColors[colorIndex % totalColors];
+          const layer = L.polyline(segment, {
             color: info.color || '#000000',
             weight,
             opacity: 1,
             lineCap: 'butt',
             lineJoin: 'round'
-          };
-          if (totalColors > 1) {
-            options.dashArray = `${stripeLength} ${stripeLength * (totalColors - 1)}`;
-            options.dashOffset = `${stripeLength * index}`;
-          }
-          const layer = L.polyline(points, options).addTo(map);
+          }).addTo(map);
           routeLayers.push(layer);
+          colorIndex = (colorIndex + 1) % totalColors;
         });
       }
 
