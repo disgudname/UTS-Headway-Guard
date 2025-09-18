@@ -645,6 +645,7 @@ MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 TESTMAP_HTML = (BASE_DIR / "testmap.html").read_text(encoding="utf-8")
 MADMAP_HTML = (BASE_DIR / "madmap.html").read_text(encoding="utf-8")
 METROMAP_HTML = (BASE_DIR / "metromap.html").read_text(encoding="utf-8")
+UTS_SCHEMATIC_HTML = (BASE_DIR / "uts-schematic.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
 SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
 LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
@@ -1557,6 +1558,13 @@ async def madmap_page():
 @app.get("/metromap")
 async def metromap_page():
     return HTMLResponse(METROMAP_HTML)
+
+# ---------------------------
+# UTS SCHEMATIC PAGE
+# ---------------------------
+@app.get("/uts-schematic")
+async def uts_schematic_page():
+    return HTMLResponse(UTS_SCHEMATIC_HTML)
 
 # ---------------------------
 # DEBUG PAGE
