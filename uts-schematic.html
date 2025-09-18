@@ -243,6 +243,12 @@
             'GetRoutes.txt'
         ];
 
+        const VEHICLE_POINTS_URL = `${TRANSLOC_BASE}/GetMapVehiclePoints?APIKey=${TRANSLOC_API_KEY}&returnVehiclesNotAssignedToRoute=true`;
+        const VEHICLE_POINTS_SOURCES = [
+            VEHICLE_POINTS_URL,
+            'GetMapVehiclePoints.txt'
+        ];
+
         const SIMPLIFY_TOLERANCE_METERS = 12;
         const NODE_MERGE_DISTANCE = 10;
         const STOP_GROUP_DISTANCE = 10;
@@ -333,7 +339,62 @@
             return [];
         }
 
+        function normalizeVehiclePayload(payload) {
+            if (Array.isArray(payload)) {
+                return payload;
+            }
+            if (payload && Array.isArray(payload.d)) {
+                return payload.d;
+            }
+            if (payload && Array.isArray(payload.Vehicles)) {
+                return payload.Vehicles;
+            }
+            return [];
+        }
+
+        function normalizeRouteDisplayName(name) {
+            if (typeof name !== 'string') {
+                return 'Route';
+            }
+            const stripped = name
+                .replace(/\b(AM|PM|Inbound|Outbound|Clockwise|Counterclockwise|CW|CCW|Northbound|Southbound|Eastbound|Westbound)\b/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            const fallback = name.trim();
+            return stripped || fallback || 'Route';
+        }
+
+        function computeRouteGroupKey(name, color) {
+            const normalizedName = normalizeRouteDisplayName(name).toLowerCase();
+            const normalizedColor = normalizeColor(color).toLowerCase();
+            return `${normalizedName}|${normalizedColor}`;
+        }
+
+        async function fetchActiveRouteIds() {
+            try {
+                const { data } = await fetchJsonWithFallback(VEHICLE_POINTS_SOURCES);
+                const vehicles = normalizeVehiclePayload(data);
+                const active = new Set();
+                for (const vehicle of vehicles) {
+                    const rawRouteId = vehicle?.RouteID ?? vehicle?.RouteId ?? vehicle?.routeId ?? vehicle?.Route;
+                    const numericRouteId = Number(rawRouteId);
+                    if (Number.isFinite(numericRouteId) && numericRouteId > 0) {
+                        active.add(numericRouteId);
+                    }
+                }
+                return active;
+            } catch (error) {
+                console.warn('Failed to load vehicle assignments', error);
+                return new Set();
+            }
+        }
+
         async function loadData() {
+            const activeRouteIds = await fetchActiveRouteIds();
+            if (!activeRouteIds.size) {
+                throw new Error('No routes currently have vehicles assigned or vehicle data is unavailable.');
+            }
+
             const { data: polylinePayload, url: polylineSource } = await fetchJsonWithFallback(ROUTE_DATA_SOURCES);
             const polylineJson = normalizeRoutePayload(polylinePayload);
 
@@ -352,9 +413,14 @@
             const routeInfoMap = new Map(routeInfoJson.map((item) => [item.RouteID, item]));
 
             const allLatLngs = [];
-            const processedRoutes = [];
+            const rawRoutes = [];
 
             for (const route of polylineJson) {
+                const numericRouteId = Number(route.RouteID);
+                if (!Number.isFinite(numericRouteId) || !activeRouteIds.has(numericRouteId)) {
+                    continue;
+                }
+
                 const routeInfo = routeInfoMap.get(route.RouteID);
                 const hideLine = route.HideRouteLine ?? routeInfo?.HideRouteLine ?? false;
                 const isVisible = (route.IsVisibleOnMap ?? routeInfo?.IsVisibleOnMap ?? true) && !hideLine;
@@ -381,23 +447,22 @@
                     ? route.Stops.filter((stop) => isFinite(stop.Latitude) && isFinite(stop.Longitude))
                     : [];
 
-                const meta = {
-                    id: route.RouteID,
-                    name: (routeInfo?.Description || route.Description || `Route ${route.RouteID}`).trim(),
-                    color: normalizeColor(routeInfo?.MapLineColor || route.MapLineColor || '#000000')
-                };
+                const baseName = (routeInfo?.Description || route.Description || `Route ${route.RouteID}`).trim();
+                const color = normalizeColor(routeInfo?.MapLineColor || route.MapLineColor || '#000000');
+                const displayName = normalizeRouteDisplayName(baseName);
+                const groupKey = computeRouteGroupKey(baseName, color);
 
-                processedRoutes.push({
-                    id: route.RouteID,
-                    name: meta.name,
-                    color: meta.color,
+                rawRoutes.push({
+                    routeId: numericRouteId,
+                    name: displayName,
+                    color,
+                    groupKey,
                     decoded,
                     rawStops: routeStops.map((stop) => ({
                         id: stop.RouteStopID ?? `${route.RouteID}-${stop.AddressID ?? stop.GtfsId ?? stop.Description}`,
                         name: (stop.Description || stop.Line1 || stop.Line2 || 'Stop').trim(),
                         lat: stop.Latitude,
-                        lon: stop.Longitude,
-                        routeId: route.RouteID
+                        lon: stop.Longitude
                     }))
                 });
 
@@ -406,18 +471,18 @@
                         allLatLngs.push({ lat: stop.Latitude, lon: stop.Longitude });
                     }
                 });
-
-                state.routeMeta.set(route.RouteID, meta);
             }
 
-            if (!processedRoutes.length) {
-                throw new Error('No visible routes returned by the feed.');
+            if (!rawRoutes.length) {
+                throw new Error('No active routes returned by the feed.');
             }
 
             const { centerLat, centerLon } = computeGeographicCenter(allLatLngs);
             const projection = createProjection(centerLat, centerLon);
 
-            const projectedRoutes = processedRoutes.map((route) => {
+            const routeGroups = new Map();
+
+            rawRoutes.forEach((route) => {
                 const projectedPoints = route.decoded.map(([lat, lon]) => projection.toPoint(lat, lon));
                 const simplified = simplifyPath(removeDuplicatePoints(projectedPoints), SIMPLIFY_TOLERANCE_METERS);
 
@@ -426,22 +491,56 @@
                     name: stop.name,
                     lat: stop.lat,
                     lon: stop.lon,
-                    routeId: stop.routeId,
+                    routeId: route.groupKey,
                     position: projection.toPoint(stop.lat, stop.lon)
                 }));
 
-                return {
-                    id: route.id,
-                    name: route.name,
-                    color: route.color,
-                    points: simplified,
-                    stops: projectedStops
-                };
+                let group = routeGroups.get(route.groupKey);
+                if (!group) {
+                    group = {
+                        id: route.groupKey,
+                        name: route.name,
+                        color: route.color,
+                        segments: [],
+                        stops: [],
+                        componentRouteIds: new Set()
+                    };
+                    routeGroups.set(route.groupKey, group);
+                }
+
+                group.segments.push(simplified);
+                projectedStops.forEach((stop) => group.stops.push(stop));
+                group.componentRouteIds.add(route.routeId);
             });
 
-            const groupedStops = groupStops(projectedRoutes.flatMap((route) => route.stops));
+            const aggregatedRoutes = Array.from(routeGroups.values()).map((group) => ({
+                id: group.id,
+                name: group.name,
+                color: group.color,
+                segments: group.segments,
+                stops: group.stops,
+                componentRouteIds: Array.from(group.componentRouteIds).sort((a, b) => a - b)
+            }));
 
-            return { routes: projectedRoutes, stopGroups: groupedStops };
+            if (!aggregatedRoutes.length) {
+                throw new Error('No active routes with geometry available.');
+            }
+
+            state.routeMeta = new Map(
+                aggregatedRoutes.map((route) => [
+                    route.id,
+                    {
+                        id: route.id,
+                        name: route.name,
+                        color: route.color,
+                        componentRouteIds: route.componentRouteIds
+                    }
+                ])
+            );
+
+            const groupedStops = groupStops(aggregatedRoutes.flatMap((route) => route.stops));
+
+            return { routes: aggregatedRoutes, stopGroups: groupedStops };
         }
 
         function normalizeColor(color) {
@@ -649,7 +748,7 @@
             return groups.map((group) => ({
                 id: group.id,
                 name: Array.from(group.names).sort().join(' / '),
-                routeIds: Array.from(group.routeIds).sort((a, b) => a - b),
+                routeIds: Array.from(group.routeIds).sort((a, b) => String(a).localeCompare(String(b))),
                 original: clonePoint(group.original),
                 position: clonePoint(group.original),
                 lat: group.lat,
@@ -674,34 +773,41 @@
             }
 
             for (const route of routes) {
-                const points = route.points;
-                for (let i = 0; i < points.length - 1; i++) {
-                    const a = points[i];
-                    const b = points[i + 1];
-                    if (distanceSquared(a, b) < 1e-4) {
+                const segments = Array.isArray(route.segments) && route.segments.length
+                    ? route.segments
+                    : (route.points ? [route.points] : []);
+                for (const points of segments) {
+                    if (!points || points.length < 2) {
                         continue;
                     }
-                    const startId = findOrCreateNode(a);
-                    const endId = findOrCreateNode(b);
-                    if (startId === endId) {
-                        continue;
+                    for (let i = 0; i < points.length - 1; i++) {
+                        const a = points[i];
+                        const b = points[i + 1];
+                        if (distanceSquared(a, b) < 1e-4) {
+                            continue;
+                        }
+                        const startId = findOrCreateNode(a);
+                        const endId = findOrCreateNode(b);
+                        if (startId === endId) {
+                            continue;
+                        }
+                        const key = startId < endId ? `${startId}-${endId}` : `${endId}-${startId}`;
+                        let edge = edgeMap.get(key);
+                        if (!edge) {
+                            edge = {
+                                id: edges.length,
+                                start: startId,
+                                end: endId,
+                                routes: new Set(),
+                                snapped: null
+                            };
+                            edgeMap.set(key, edge);
+                            edges.push(edge);
+                            nodes[startId].edges.add(edge.id);
+                            nodes[endId].edges.add(edge.id);
+                        }
+                        edge.routes.add(route.id);
                     }
-                    const key = startId < endId ? `${startId}-${endId}` : `${endId}-${startId}`;
-                    let edge = edgeMap.get(key);
-                    if (!edge) {
-                        edge = {
-                            id: edges.length,
-                            start: startId,
-                            end: endId,
-                            routes: new Set(),
-                            snapped: null
-                        };
-                        edgeMap.set(key, edge);
-                        edges.push(edge);
-                        nodes[startId].edges.add(edge.id);
-                        nodes[endId].edges.add(edge.id);
-                    }
-                    edge.routes.add(route.id);
                 }
             }
 
@@ -907,7 +1013,16 @@
                     continue;
                 }
                 const centerline = edge.snapped.map(clonePoint);
-                const routes = Array.from(edge.routes).sort((a, b) => a - b);
+                const routes = Array.from(edge.routes).sort((a, b) => {
+                    const metaA = state.routeMeta.get(a);
+                    const metaB = state.routeMeta.get(b);
+                    if (metaA && metaB) {
+                        return metaA.name.localeCompare(metaB.name, undefined, { sensitivity: 'base' });
+                    }
+                    if (metaA) return -1;
+                    if (metaB) return 1;
+                    return String(a).localeCompare(String(b));
+                });
                 routes.forEach((routeId, index) => {
                     const meta = state.routeMeta.get(routeId) || { color: '#000000' };
                     const pathEl = document.createElementNS(svgNS, 'path');
@@ -1053,6 +1168,12 @@
                 const label = document.createElement('span');
                 label.textContent = meta.name;
                 item.appendChild(label);
+                if (Array.isArray(meta.componentRouteIds) && meta.componentRouteIds.length) {
+                    const idList = meta.componentRouteIds.join(', ');
+                    item.title = meta.componentRouteIds.length > 1
+                        ? `Includes routes ${idList}`
+                        : `Route ${idList}`;
+                }
                 item.addEventListener('pointerenter', () => applyHighlight(new Set([meta.id])));
                 item.addEventListener('pointerleave', () => clearHighlight());
                 item.addEventListener('focus', () => applyHighlight(new Set([meta.id])));
@@ -1304,7 +1425,7 @@
         }
 
         function applyHighlight(routeIds) {
-            const sorted = Array.from(routeIds).sort((a, b) => a - b);
+            const sorted = Array.from(routeIds, (id) => String(id)).sort((a, b) => a.localeCompare(b));
             const key = sorted.join(',');
             if (key === state.activeHighlightKey) {
                 return;
@@ -1314,7 +1435,8 @@
 
             state.routePaths.forEach((item) => {
                 const element = item.pathElement;
-                if (highlightSet.has(item.routeId)) {
+                const routeKey = String(item.routeId);
+                if (highlightSet.has(routeKey)) {
                     element.classList.add('is-highlight');
                     element.classList.remove('is-dim');
                 } else {
@@ -1324,7 +1446,7 @@
             });
 
             state.stopElements.forEach(({ stop, element }) => {
-                const matches = stop.routeIds.some((id) => highlightSet.has(id));
+                const matches = stop.routeIds.some((id) => highlightSet.has(String(id)));
                 if (matches) {
                     element.classList.add('is-highlight');
                     element.classList.remove('is-dim');
@@ -1335,7 +1457,8 @@
             });
 
             document.querySelectorAll('.legend-item').forEach((item) => {
-                if (highlightSet.has(Number(item.dataset.route))) {
+                const routeKey = item.dataset.route;
+                if (routeKey && highlightSet.has(routeKey)) {
                     item.classList.add('is-highlight');
                     item.classList.remove('is-dim');
                 } else {
@@ -1376,7 +1499,20 @@
 
             const routes = document.createElement('div');
             routes.textContent = stop.routeIds
-                .map((routeId) => state.routeMeta.get(routeId)?.name || `Route ${routeId}`)
+                .map((routeId) => {
+                    const meta = state.routeMeta.get(routeId);
+                    if (!meta) {
+                        return `Route ${routeId}`;
+                    }
+                    const ids = Array.isArray(meta.componentRouteIds) ? meta.componentRouteIds : [];
+                    if (ids.length > 1) {
+                        return `${meta.name} (${ids.join(', ')})`;
+                    }
+                    if (ids.length === 1) {
+                        return `${meta.name} (${ids[0]})`;
+                    }
+                    return meta.name;
+                })
                 .join(', ');
             tooltipEl.appendChild(routes);
 
