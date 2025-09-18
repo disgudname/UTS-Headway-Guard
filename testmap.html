@@ -971,7 +971,7 @@
 
           if (allSegments.length === 0) return;
 
-          const tree = new RBush();
+          const tree = rbush();
           tree.load(treeItems);
 
           allSegments.forEach(segment => {
