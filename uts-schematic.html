@@ -227,12 +227,19 @@
         </section>
     </main>
     <script type="module">
+        const TRANSLOC_BASE = 'https://uva.transloc.com/Services/JSONPRelay.svc';
+        const TRANSLOC_API_KEY = '8882812681';
+
+        const ROUTE_POLYLINE_URL = `${TRANSLOC_BASE}/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=${TRANSLOC_API_KEY}`;
+        const ROUTE_INFO_URL = `${TRANSLOC_BASE}/GetRoutes?APIKey=${TRANSLOC_API_KEY}`;
+
         const ROUTE_DATA_SOURCES = [
-            '/v1/transloc/routes',
+            ROUTE_POLYLINE_URL,
             'GetRoutesForMapWithScheduleWithEncodedLine.txt'
         ];
         const ROUTE_INFO_SOURCES = [
-            '/v1/transloc/routes',
+            ROUTE_POLYLINE_URL,
+            ROUTE_INFO_URL,
             'GetRoutes.txt'
         ];
 
