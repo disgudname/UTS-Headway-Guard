@@ -110,6 +110,10 @@ VEH_LOG_DIRS = [
 ]
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
 
+SCHEMATIC_FILE_NAME = "uts_schematic.json"
+SCHEMATIC_TMP_NAME = "uts_schematic.json.tmp"
+SCHEMATIC_LOCK = asyncio.Lock()
+
 # Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
 SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
@@ -764,6 +768,205 @@ def save_config() -> None:
         except Exception as e:
             print(f"[save_config] error writing {path}: {e}")
     propagate_file(CONFIG_NAME, payload)
+
+
+def _iso_now() -> str:
+    return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
+
+
+def default_schema() -> Dict[str, Any]:
+    now = _iso_now()
+    return {"meta": {"version": 1, "updatedAt": now}, "nodes": {}, "links": [], "routes": []}
+
+
+def _write_schema_sync(schema: Dict[str, Any]) -> None:
+    payload = json.dumps(schema, indent=2)
+    errors: list[tuple[str, Exception]] = []
+    wrote = False
+    for base in DATA_DIRS:
+        path = base / SCHEMATIC_FILE_NAME
+        tmp_path = base / SCHEMATIC_TMP_NAME
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_text(payload, encoding="utf-8")
+            os.replace(tmp_path, path)
+            wrote = True
+        except Exception as e:
+            errors.append((str(path), e))
+    if not wrote:
+        joined = "; ".join(f"{p}: {err}" for p, err in errors) or "unknown error"
+        raise RuntimeError(f"failed to write schematic: {joined}")
+    for p, err in errors:
+        print(f"[schema] warning writing {p}: {err}")
+
+
+def _read_schema_sync() -> Dict[str, Any]:
+    schema: Optional[Dict[str, Any]] = None
+    for base in DATA_DIRS:
+        path = base / SCHEMATIC_FILE_NAME
+        if not path.exists():
+            continue
+        try:
+            schema = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except Exception as e:
+            print(f"[schema] error reading {path}: {e}")
+    if not isinstance(schema, dict):
+        schema = default_schema()
+        _write_schema_sync(schema)
+        return schema
+    meta = schema.get("meta")
+    if not isinstance(meta, dict):
+        schema["meta"] = {"version": 1, "updatedAt": _iso_now()}
+    else:
+        meta.setdefault("version", 1)
+        meta.setdefault("updatedAt", _iso_now())
+    if not isinstance(schema.get("nodes"), dict):
+        schema["nodes"] = {}
+    if not isinstance(schema.get("links"), list):
+        schema["links"] = []
+    if not isinstance(schema.get("routes"), list):
+        schema["routes"] = []
+    return schema
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def validate_schema_payload(payload: Any) -> tuple[Optional[Dict[str, Any]], list[str]]:
+    if not isinstance(payload, dict):
+        return None, ["Schema must be an object"]
+    errors: list[str] = []
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+    nodes_input = payload.get("nodes")
+    if not isinstance(nodes_input, dict):
+        errors.append('"nodes" must be an object')
+        nodes_input = {}
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for node_id_raw, node_raw in nodes_input.items():
+        node_id = str(node_id_raw)
+        if not isinstance(node_raw, dict):
+            errors.append(f"Node {node_id} must be an object")
+            continue
+        node = dict(node_raw)
+        if not _is_number(node.get("x")) or not _is_number(node.get("y")):
+            errors.append(f"Node {node_id} must have numeric x/y")
+        node_type = node.get("type")
+        if node_type not in {"stop", "bend"}:
+            errors.append('Node {node_id} must have type "stop" or "bend"'.format(node_id=node_id))
+        name = node.get("name")
+        if not isinstance(name, str):
+            errors.append(f"Node {node_id} must have a name")
+        nodes[node_id] = node
+    links_input = payload.get("links")
+    if not isinstance(links_input, list):
+        errors.append('"links" must be an array')
+        links_input = []
+    links: List[Dict[str, Any]] = []
+    seen_link_ids: set[str] = set()
+    link_pairs: set[str] = set()
+    for link_raw in links_input:
+        if not isinstance(link_raw, dict):
+            errors.append("Link entries must be objects")
+            continue
+        link = dict(link_raw)
+        lid = link.get("id")
+        if not isinstance(lid, str) or not lid:
+            errors.append("Link id must be a string")
+        elif lid in seen_link_ids:
+            errors.append(f"Duplicate link id {lid}")
+        else:
+            seen_link_ids.add(lid)
+        a_raw = link.get("a")
+        b_raw = link.get("b")
+        a = str(a_raw) if a_raw is not None else None
+        b = str(b_raw) if b_raw is not None else None
+        link["a"] = a
+        link["b"] = b
+        if a not in nodes:
+            errors.append(f"Link {lid or '?'} references unknown node {a_raw}")
+        if b not in nodes:
+            errors.append(f"Link {lid or '?'} references unknown node {b_raw}")
+        if a is not None and b is not None:
+            if a == b:
+                errors.append(f"Link {lid or '?'} must connect two different nodes")
+            else:
+                key = "::".join(sorted([a, b]))
+                if key in link_pairs:
+                    errors.append(f"Duplicate link between {a} and {b}")
+                else:
+                    link_pairs.add(key)
+        links.append(link)
+    routes_input = payload.get("routes")
+    if not isinstance(routes_input, list):
+        errors.append('"routes" must be an array')
+        routes_input = []
+    routes: List[Dict[str, Any]] = []
+    for route_raw in routes_input:
+        if not isinstance(route_raw, dict):
+            errors.append("Route entries must be objects")
+            continue
+        route = dict(route_raw)
+        rid = route.get("id")
+        if not isinstance(rid, str) or not rid:
+            errors.append("Route id must be a string")
+        path_input = route.get("path")
+        if not isinstance(path_input, list):
+            errors.append(f"Route {rid or '?'} must have a path array")
+            path = []
+        else:
+            path = []
+            for node_id in path_input:
+                node_id_str = str(node_id)
+                if node_id_str not in nodes:
+                    errors.append(f"Route {rid or '?'} references missing node {node_id}")
+                path.append(node_id_str)
+        route["path"] = path
+        stops_input = route.get("stops")
+        if stops_input is None:
+            route["stops"] = []
+        elif not isinstance(stops_input, list):
+            errors.append(f"Route {rid or '?'} stops must be an array")
+            route["stops"] = []
+        else:
+            cleaned_stops: List[Dict[str, Any]] = []
+            for stop in stops_input:
+                if not isinstance(stop, dict):
+                    errors.append(f"Route {rid or '?'} stop entries must be objects")
+                    continue
+                stop_clean = dict(stop)
+                node_ref = stop_clean.get("node")
+                if node_ref is not None:
+                    node_ref_str = str(node_ref)
+                    if node_ref_str not in nodes:
+                        errors.append(f"Route {rid or '?'} stop references missing node {node_ref}")
+                    stop_clean["node"] = node_ref_str
+                cleaned_stops.append(stop_clean)
+            route["stops"] = cleaned_stops
+        routes.append(route)
+    schema: Dict[str, Any] = {
+        "meta": dict(meta),
+        "nodes": nodes,
+        "links": links,
+        "routes": routes,
+    }
+    for k, v in payload.items():
+        if k not in schema:
+            schema[k] = v
+    return schema, errors
+
+
+async def read_schematic() -> Dict[str, Any]:
+    async with SCHEMATIC_LOCK:
+        return await asyncio.to_thread(_read_schema_sync)
+
+
+async def write_schematic(schema: Dict[str, Any]) -> None:
+    async with SCHEMATIC_LOCK:
+        await asyncio.to_thread(_write_schema_sync, schema)
 
 load_config()
 
@@ -1501,6 +1704,35 @@ async def stream_api_calls():
         finally:
             API_CALL_SUBS.discard(q)
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+# ---------------------------
+# UTS SCHEMATIC STORAGE API
+# ---------------------------
+
+
+@app.get("/api/schema")
+async def get_schematic():
+    try:
+        return await read_schematic()
+    except Exception as e:
+        print(f"[schema] read error: {e}")
+        raise HTTPException(status_code=500, detail="failed to load schematic")
+
+
+@app.post("/api/schema")
+async def save_schematic(payload: Dict[str, Any]):
+    schema, errors = validate_schema_payload(payload)
+    if schema is None or errors:
+        return JSONResponse({"ok": False, "errors": errors or ["Schema must be an object"]}, status_code=400)
+    meta = schema.setdefault("meta", {})
+    meta["version"] = 1
+    meta["updatedAt"] = _iso_now()
+    try:
+        await write_schematic(schema)
+    except Exception as e:
+        print(f"[schema] write error: {e}")
+        raise HTTPException(status_code=500, detail="failed to save schematic")
+    return {"ok": True, "updatedAt": meta["updatedAt"]}
 
 # ---------------------------
 # Static assets
