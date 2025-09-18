@@ -1,3 +1,4 @@
 # Ignore generated vehicle logs
 vehicle_log.jsonl
 __pycache__/
+node_modules/
