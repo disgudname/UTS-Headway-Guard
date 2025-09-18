@@ -250,6 +250,13 @@
         ];
 
         const SIMPLIFY_TOLERANCE_METERS = 12;
+        const DENSIFY_SPACING_METERS = 7;
+        const CORRIDOR_ANGULAR_TOLERANCE_DEG = 5;
+        const CORRIDOR_ANGULAR_TOLERANCE_RAD = (CORRIDOR_ANGULAR_TOLERANCE_DEG * Math.PI) / 180;
+        const CORRIDOR_DISTANCE_TOLERANCE_METERS = 7;
+        const CORRIDOR_OVERLAP_THRESHOLD = 0.7;
+        const SEGMENT_INDEX_CELL_SIZE = 150;
+        const NODE_QUANTIZATION_METERS = 5;
         const NODE_MERGE_DISTANCE = 10;
         const STOP_GROUP_DISTANCE = 10;
         const MIN_DIAGONAL_LENGTH = 5;
@@ -485,7 +492,13 @@
 
             rawRoutes.forEach((route) => {
                 const projectedPoints = route.decoded.map(([lat, lon]) => projection.toPoint(lat, lon));
-                const simplified = simplifyPath(removeDuplicatePoints(projectedPoints), SIMPLIFY_TOLERANCE_METERS);
+                const cleanedPoints = removeDuplicatePoints(projectedPoints);
+                const simplified = simplifyPath(cleanedPoints, SIMPLIFY_TOLERANCE_METERS);
+                const densified = densifyPath(simplified, DENSIFY_SPACING_METERS);
+
+                if (!densified || densified.length < 2) {
+                    return;
+                }
 
                 const projectedStops = route.rawStops.map((stop) => ({
                     id: stop.id,
@@ -503,18 +516,34 @@
                         name: route.name,
                         color: route.color,
                         segments: [],
+                        candidateSegments: [],
+                        corridors: [],
                         stops: [],
                         componentRouteIds: new Set()
                     };
                     routeGroups.set(route.groupKey, group);
                 }
 
-                if (!hasEquivalentPolyline(group.segments, simplified)) {
-                    group.segments.push(simplified);
-                }
+                const segmentDescriptor = createSegmentDescriptor(simplified, densified, route.routeId);
+                group.candidateSegments.push(segmentDescriptor);
                 projectedStops.forEach((stop) => group.stops.push(stop));
                 group.componentRouteIds.add(route.routeId);
             });
+
+            for (const group of routeGroups.values()) {
+                if (group.candidateSegments.length) {
+                    const corridors = clusterSegmentsIntoCorridors(group.candidateSegments);
+                    group.corridors = corridors;
+                    group.segments = corridors.map((corridor) => corridor.centerline.map(clonePoint));
+                } else {
+                    group.corridors = [];
+                    group.segments = [];
+                }
+
+                if (group.stops.length && group.segments.length) {
+                    snapStopsToCorridors(group.stops, group.segments);
+                }
+            }
 
             const aggregatedRoutes = Array.from(routeGroups.values()).map((group) => ({
                 id: group.id,
@@ -522,7 +551,8 @@
                 color: group.color,
                 segments: group.segments,
                 stops: group.stops,
-                componentRouteIds: Array.from(group.componentRouteIds).sort((a, b) => a - b)
+                componentRouteIds: Array.from(group.componentRouteIds).sort((a, b) => a - b),
+                corridorMembers: group.corridors.map((corridor) => Array.from(corridor.memberRouteIds).sort((a, b) => a - b))
             }));
 
             if (!aggregatedRoutes.length) {
@@ -685,6 +715,183 @@
                 simplified.push(clonePoint(points[index]));
                 simplifySegment(points, index, last, sqTol, simplified);
             }
+        }
+
+        function densifyPath(points, spacing) {
+            if (!Array.isArray(points) || points.length < 2 || !isFinite(spacing) || spacing <= 0) {
+                return Array.isArray(points) ? points.map(clonePoint) : [];
+            }
+            const densified = [clonePoint(points[0])];
+            let distanceSinceLast = 0;
+
+            for (let i = 0; i < points.length - 1; i++) {
+                const start = points[i];
+                const end = points[i + 1];
+                const dx = end.x - start.x;
+                const dy = end.y - start.y;
+                const segmentLength = Math.hypot(dx, dy);
+                if (segmentLength < 1e-6) {
+                    continue;
+                }
+
+                let traversed = 0;
+                while (distanceSinceLast + (segmentLength - traversed) >= spacing) {
+                    const distanceToNext = spacing - distanceSinceLast;
+                    traversed += distanceToNext;
+                    const t = traversed / segmentLength;
+                    densified.push({
+                        x: start.x + dx * t,
+                        y: start.y + dy * t
+                    });
+                    distanceSinceLast = 0;
+                }
+                distanceSinceLast += segmentLength - traversed;
+            }
+
+            const lastPoint = points[points.length - 1];
+            const tail = densified[densified.length - 1];
+            if (distanceSquared(tail, lastPoint) > 1e-6) {
+                densified.push(clonePoint(lastPoint));
+            }
+
+            return densified;
+        }
+
+        function computeBoundingBox(points) {
+            if (!Array.isArray(points) || !points.length) {
+                return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+            }
+            let minX = points[0].x;
+            let maxX = points[0].x;
+            let minY = points[0].y;
+            let maxY = points[0].y;
+            for (let i = 1; i < points.length; i++) {
+                const p = points[i];
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+            }
+            return { minX, minY, maxX, maxY };
+        }
+
+        function expandBounds(bounds, padding) {
+            if (!bounds) {
+                return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+            }
+            return {
+                minX: bounds.minX - padding,
+                minY: bounds.minY - padding,
+                maxX: bounds.maxX + padding,
+                maxY: bounds.maxY + padding
+            };
+        }
+
+        function computeSegmentDirection(points) {
+            if (!Array.isArray(points) || points.length < 2) {
+                return 0;
+            }
+            let start = points[0];
+            let end = points[points.length - 1];
+            let index = points.length - 1;
+            while (index > 0 && distanceSquared(start, end) < 1e-6) {
+                index--;
+                end = points[index];
+            }
+            if (distanceSquared(start, end) < 1e-6) {
+                return 0;
+            }
+            return Math.atan2(end.y - start.y, end.x - start.x);
+        }
+
+        function computePolylineSegments(points) {
+            const segments = [];
+            if (!Array.isArray(points) || points.length < 2) {
+                return segments;
+            }
+            for (let i = 0; i < points.length - 1; i++) {
+                const a = points[i];
+                const b = points[i + 1];
+                if (distanceSquared(a, b) < 1e-6) {
+                    continue;
+                }
+                segments.push({ a, b });
+            }
+            return segments;
+        }
+
+        function distancePointToSegments(point, segments) {
+            if (!Array.isArray(segments) || !segments.length) {
+                return Infinity;
+            }
+            let minSq = Infinity;
+            for (const segment of segments) {
+                const distSq = pointToSegmentDistanceSquared(point, segment.a, segment.b);
+                if (distSq < minSq) {
+                    minSq = distSq;
+                }
+            }
+            return minSq === Infinity ? Infinity : Math.sqrt(minSq);
+        }
+
+        function meanDistancePointsToSegments(points, segments) {
+            if (!Array.isArray(points) || !points.length) {
+                return Infinity;
+            }
+            if (!Array.isArray(segments) || !segments.length) {
+                return Infinity;
+            }
+            let total = 0;
+            for (const point of points) {
+                total += distancePointToSegments(point, segments);
+            }
+            return total / points.length;
+        }
+
+        function computeOverlapFraction(points, segments, tolerance, spacing) {
+            if (!Array.isArray(points) || points.length < 2) {
+                return 0;
+            }
+            if (!Array.isArray(segments) || !segments.length) {
+                return 0;
+            }
+            let overlapped = 0;
+            let total = 0;
+            for (let i = 0; i < points.length - 1; i++) {
+                const a = points[i];
+                const b = points[i + 1];
+                const segmentLength = Math.hypot(b.x - a.x, b.y - a.y);
+                if (segmentLength < 1e-6) {
+                    continue;
+                }
+                total += segmentLength;
+                const samples = Math.max(1, Math.round(segmentLength / spacing));
+                const step = segmentLength / samples;
+                for (let s = 0; s < samples; s++) {
+                    const t = (s + 0.5) / samples;
+                    const samplePoint = {
+                        x: a.x + (b.x - a.x) * t,
+                        y: a.y + (b.y - a.y) * t
+                    };
+                    const distance = distancePointToSegments(samplePoint, segments);
+                    if (distance <= tolerance) {
+                        overlapped += step;
+                    }
+                }
+            }
+            if (total < 1e-6) {
+                return 0;
+            }
+            return overlapped / total;
+        }
+
+        function angularDifferenceRadians(a, b) {
+            const twoPi = Math.PI * 2;
+            let diff = Math.abs(a - b) % twoPi;
+            if (diff > Math.PI) {
+                diff = twoPi - diff;
+            }
+            return diff;
         }
 
         function hasEquivalentPolyline(existing, candidate, tolerance = POLYLINE_DUPLICATE_TOLERANCE) {
@@ -876,6 +1083,287 @@
             return dx * dx + dy * dy;
         }
 
+        function normalizeUndirectedAngle(angle) {
+            const twoPi = Math.PI * 2;
+            let normalized = angle % twoPi;
+            if (normalized < 0) {
+                normalized += twoPi;
+            }
+            if (normalized >= Math.PI) {
+                normalized -= Math.PI;
+            }
+            return normalized;
+        }
+
+        function createSegmentDescriptor(simplified, densified, sourceRouteId) {
+            const forward = densified.map(clonePoint);
+            const reverse = forward.slice().reverse();
+            const forwardSegments = computePolylineSegments(forward);
+            const reverseSegments = computePolylineSegments(reverse);
+            const bounds = expandBounds(
+                computeBoundingBox(forward),
+                CORRIDOR_DISTANCE_TOLERANCE_METERS * 2
+            );
+
+            return {
+                sourceRouteId,
+                simplified: Array.isArray(simplified) ? simplified.map(clonePoint) : [],
+                forward,
+                reverse,
+                forwardSegments,
+                reverseSegments,
+                forwardDirection: computeSegmentDirection(forward),
+                reverseDirection: computeSegmentDirection(reverse),
+                length: computePolylineLength(forward),
+                bounds
+            };
+        }
+
+        function evaluateSegmentOrientation(segmentA, segmentB, flipB) {
+            const pointsA = segmentA.forward;
+            const segmentsA = segmentA.forwardSegments;
+            const angleA = segmentA.forwardDirection;
+            const pointsB = flipB ? segmentB.reverse : segmentB.forward;
+            const segmentsB = flipB ? segmentB.reverseSegments : segmentB.forwardSegments;
+            const angleB = flipB ? segmentB.reverseDirection : segmentB.forwardDirection;
+
+            if (!pointsA.length || !pointsB.length || !segmentsA.length || !segmentsB.length) {
+                return null;
+            }
+
+            const angleDiff = angularDifferenceRadians(angleA, angleB);
+            if (angleDiff > CORRIDOR_ANGULAR_TOLERANCE_RAD) {
+                return null;
+            }
+
+            const meanAB = meanDistancePointsToSegments(pointsA, segmentsB);
+            const meanBA = meanDistancePointsToSegments(pointsB, segmentsA);
+            if (!isFinite(meanAB) || !isFinite(meanBA)) {
+                return null;
+            }
+
+            const meanDistance = (meanAB + meanBA) / 2;
+
+            const shorterPoints = segmentA.length <= segmentB.length ? pointsA : pointsB;
+            const longerSegments = segmentA.length <= segmentB.length ? segmentsB : segmentsA;
+            const overlap = computeOverlapFraction(
+                shorterPoints,
+                longerSegments,
+                CORRIDOR_DISTANCE_TOLERANCE_METERS,
+                DENSIFY_SPACING_METERS
+            );
+
+            return {
+                flipB,
+                meanDistance,
+                overlap,
+                angleDiff
+            };
+        }
+
+        function compareSegmentPair(segmentA, segmentB) {
+            const evaluations = [
+                evaluateSegmentOrientation(segmentA, segmentB, false),
+                evaluateSegmentOrientation(segmentA, segmentB, true)
+            ].filter(Boolean);
+
+            let best = null;
+            for (const evaluation of evaluations) {
+                if (evaluation.meanDistance > CORRIDOR_DISTANCE_TOLERANCE_METERS) {
+                    continue;
+                }
+                if (evaluation.overlap < CORRIDOR_OVERLAP_THRESHOLD) {
+                    continue;
+                }
+                if (!best || evaluation.meanDistance < best.meanDistance) {
+                    best = evaluation;
+                }
+            }
+
+            if (!best) {
+                return { matched: false };
+            }
+
+            return {
+                matched: true,
+                flipB: best.flipB
+            };
+        }
+
+        function buildSegmentSpatialIndex(segments) {
+            const grid = new Map();
+            const cellSize = Math.max(SEGMENT_INDEX_CELL_SIZE, CORRIDOR_DISTANCE_TOLERANCE_METERS * 2);
+
+            segments.forEach((segment, index) => {
+                const bounds = segment.bounds;
+                const minXCell = Math.floor(bounds.minX / cellSize);
+                const maxXCell = Math.floor(bounds.maxX / cellSize);
+                const minYCell = Math.floor(bounds.minY / cellSize);
+                const maxYCell = Math.floor(bounds.maxY / cellSize);
+                for (let ix = minXCell; ix <= maxXCell; ix++) {
+                    for (let iy = minYCell; iy <= maxYCell; iy++) {
+                        const key = `${ix},${iy}`;
+                        let bucket = grid.get(key);
+                        if (!bucket) {
+                            bucket = [];
+                            grid.set(key, bucket);
+                        }
+                        bucket.push(index);
+                    }
+                }
+            });
+
+            return {
+                query(bounds) {
+                    if (!bounds) {
+                        return [];
+                    }
+                    const minXCell = Math.floor(bounds.minX / cellSize);
+                    const maxXCell = Math.floor(bounds.maxX / cellSize);
+                    const minYCell = Math.floor(bounds.minY / cellSize);
+                    const maxYCell = Math.floor(bounds.maxY / cellSize);
+                    const result = new Set();
+                    for (let ix = minXCell; ix <= maxXCell; ix++) {
+                        for (let iy = minYCell; iy <= maxYCell; iy++) {
+                            const key = `${ix},${iy}`;
+                            const bucket = grid.get(key);
+                            if (!bucket) {
+                                continue;
+                            }
+                            for (const index of bucket) {
+                                result.add(index);
+                            }
+                        }
+                    }
+                    return Array.from(result);
+                }
+            };
+        }
+
+        function computeCorridorCenterline(members) {
+            if (!Array.isArray(members) || !members.length) {
+                return [];
+            }
+            if (members.length === 1) {
+                return members[0].orientedPoints.map(clonePoint);
+            }
+            const lengths = members.map((member) => member.segment.length);
+            const maxLength = Math.max(...lengths, 0);
+            const sampleCount = Math.max(2, Math.round(maxLength / DENSIFY_SPACING_METERS) + 1);
+            const accum = Array.from({ length: sampleCount }, () => ({ x: 0, y: 0 }));
+
+            members.forEach((member) => {
+                const samples = samplePolyline(member.orientedPoints, sampleCount);
+                for (let i = 0; i < sampleCount; i++) {
+                    accum[i].x += samples[i].x;
+                    accum[i].y += samples[i].y;
+                }
+            });
+
+            const count = members.length;
+            const averaged = accum.map((point) => ({
+                x: point.x / count,
+                y: point.y / count
+            }));
+
+            const cleaned = removeDuplicatePoints(averaged, 0.05);
+            if (cleaned.length >= 2) {
+                return cleaned;
+            }
+            if (averaged.length >= 2) {
+                return [clonePoint(averaged[0]), clonePoint(averaged[averaged.length - 1])];
+            }
+            return averaged.map(clonePoint);
+        }
+
+        function clusterSegmentsIntoCorridors(segments) {
+            if (!Array.isArray(segments) || !segments.length) {
+                return [];
+            }
+
+            const adjacency = segments.map(() => []);
+            const spatialIndex = buildSegmentSpatialIndex(segments);
+
+            for (let i = 0; i < segments.length; i++) {
+                const candidates = spatialIndex.query(segments[i].bounds);
+                for (const candidate of candidates) {
+                    if (candidate <= i) {
+                        continue;
+                    }
+                    const comparison = compareSegmentPair(segments[i], segments[candidate]);
+                    if (comparison.matched) {
+                        adjacency[i].push({ index: candidate, flip: comparison.flipB });
+                        adjacency[candidate].push({ index: i, flip: comparison.flipB });
+                    }
+                }
+            }
+
+            const visited = new Array(segments.length).fill(false);
+            const corridors = [];
+
+            for (let i = 0; i < segments.length; i++) {
+                if (visited[i]) {
+                    continue;
+                }
+
+                const queue = [{ index: i, flip: false }];
+                const clusterMembers = [];
+
+                while (queue.length) {
+                    const { index, flip } = queue.shift();
+                    if (visited[index]) {
+                        continue;
+                    }
+                    visited[index] = true;
+                    const segment = segments[index];
+                    clusterMembers.push({
+                        segment,
+                        orientedPoints: flip ? segment.reverse : segment.forward
+                    });
+
+                    const neighbors = adjacency[index];
+                    for (const neighbor of neighbors) {
+                        const nextFlip = flip ? !neighbor.flip : neighbor.flip;
+                        if (!visited[neighbor.index]) {
+                            queue.push({ index: neighbor.index, flip: nextFlip });
+                        }
+                    }
+                }
+
+                const centerline = computeCorridorCenterline(clusterMembers);
+                const memberRouteIds = new Set();
+                clusterMembers.forEach(({ segment }) => memberRouteIds.add(segment.sourceRouteId));
+
+                corridors.push({ centerline, memberRouteIds });
+            }
+
+            return corridors;
+        }
+
+        function snapStopsToCorridors(stops, centerlines) {
+            if (!Array.isArray(stops) || !stops.length) {
+                return;
+            }
+            if (!Array.isArray(centerlines) || !centerlines.length) {
+                return;
+            }
+            for (const stop of stops) {
+                if (!stop.position) {
+                    continue;
+                }
+                let best = null;
+                for (const line of centerlines) {
+                    const projection = closestPointOnPolyline(stop.position, line);
+                    if (projection && (best === null || projection.distanceSq < best.distanceSq)) {
+                        best = projection;
+                    }
+                }
+                if (best) {
+                    stop.position = clonePoint(best.point);
+                }
+            }
+        }
+
         function groupStops(stops) {
             const groups = [];
             const sqTol = STOP_GROUP_DISTANCE * STOP_GROUP_DISTANCE;
@@ -922,21 +1410,85 @@
                 lon: group.lon
             }));
         }
+        function quantizeCoordinate(value, step) {
+            return Math.round(value / step) * step;
+        }
+
+        function quantizePoint(point, step) {
+            return {
+                x: quantizeCoordinate(point.x, step),
+                y: quantizeCoordinate(point.y, step)
+            };
+        }
+
+        function quantizePolyline(points, step) {
+            if (!Array.isArray(points) || !points.length) {
+                return [];
+            }
+            const quantized = [];
+            let prev = null;
+            for (const point of points) {
+                const qp = quantizePoint(point, step);
+                if (!prev || distanceSquared(prev, qp) > 1e-8) {
+                    quantized.push(qp);
+                    prev = qp;
+                }
+            }
+            if (quantized.length < 2 && points.length >= 2) {
+                const first = quantizePoint(points[0], step);
+                const last = quantizePoint(points[points.length - 1], step);
+                if (!quantized.length) {
+                    quantized.push(first);
+                }
+                if (distanceSquared(quantized[quantized.length - 1], last) > 1e-8) {
+                    quantized.push(last);
+                }
+            }
+            return quantized;
+        }
+
         function buildGraph(routes) {
             const nodes = [];
             const edges = [];
             const edgeMap = new Map();
+            const nodeLookup = new Map();
             const sqTol = NODE_MERGE_DISTANCE * NODE_MERGE_DISTANCE;
 
+            function nodeKey(point) {
+                const gx = Math.round(point.x / NODE_QUANTIZATION_METERS);
+                const gy = Math.round(point.y / NODE_QUANTIZATION_METERS);
+                return `${gx},${gy}`;
+            }
+
             function findOrCreateNode(point) {
+                const quantized = quantizePoint(point, NODE_QUANTIZATION_METERS);
+                const key = nodeKey(quantized);
+                const existingId = nodeLookup.get(key);
+                if (existingId !== undefined) {
+                    const existing = nodes[existingId];
+                    if (distanceSquared(existing, quantized) <= sqTol) {
+                        return existingId;
+                    }
+                }
                 for (const node of nodes) {
-                    if (distanceSquared(node, point) <= sqTol) {
+                    if (distanceSquared(node, quantized) <= sqTol) {
+                        nodeLookup.set(key, node.id);
                         return node.id;
                     }
                 }
                 const id = nodes.length;
-                nodes.push({ id, x: point.x, y: point.y, edges: new Set() });
+                nodes.push({ id, x: quantized.x, y: quantized.y, edges: new Set() });
+                nodeLookup.set(key, id);
                 return id;
+            }
+
+            function getEdgeBucket(key) {
+                let bucket = edgeMap.get(key);
+                if (!bucket) {
+                    bucket = [];
+                    edgeMap.set(key, bucket);
+                }
+                return bucket;
             }
 
             for (const route of routes) {
@@ -947,9 +1499,13 @@
                     if (!points || points.length < 2) {
                         continue;
                     }
-                    for (let i = 0; i < points.length - 1; i++) {
-                        const a = points[i];
-                        const b = points[i + 1];
+                    const quantizedPoints = quantizePolyline(points, NODE_QUANTIZATION_METERS);
+                    if (quantizedPoints.length < 2) {
+                        continue;
+                    }
+                    for (let i = 0; i < quantizedPoints.length - 1; i++) {
+                        const a = quantizedPoints[i];
+                        const b = quantizedPoints[i + 1];
                         if (distanceSquared(a, b) < 1e-4) {
                             continue;
                         }
@@ -959,16 +1515,27 @@
                             continue;
                         }
                         const key = startId < endId ? `${startId}-${endId}` : `${endId}-${startId}`;
-                        let edge = edgeMap.get(key);
+                        const bucket = getEdgeBucket(key);
+                        const dx = b.x - a.x;
+                        const dy = b.y - a.y;
+                        const angle = normalizeUndirectedAngle(Math.atan2(dy, dx));
+                        let edge = null;
+                        for (const candidate of bucket) {
+                            if (angularDifferenceRadians(candidate.angle, angle) <= CORRIDOR_ANGULAR_TOLERANCE_RAD) {
+                                edge = candidate;
+                                break;
+                            }
+                        }
                         if (!edge) {
                             edge = {
                                 id: edges.length,
                                 start: startId,
                                 end: endId,
                                 routes: new Set(),
-                                snapped: null
+                                snapped: null,
+                                angle
                             };
-                            edgeMap.set(key, edge);
+                            bucket.push(edge);
                             edges.push(edge);
                             nodes[startId].edges.add(edge.id);
                             nodes[endId].edges.add(edge.id);
