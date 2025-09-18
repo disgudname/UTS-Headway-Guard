@@ -869,18 +869,66 @@
             headingToleranceDeg: 20,
             simplifyTolerancePx: 0.75,
             latLngEqualityMargin: 1e-9,
-            strokeWeight: 6
+            strokeWeight: 6,
+            nodeKeyPrecisionPx: 1,
+            minEndGapRatio: 0.25,
+            confettiThresholdRatio: 0.5
           }, options);
+          const defaultCorridorConfig = {
+            enabled: true,
+            mergeDistanceM: 8,
+            tMerge: 6,
+            tSplit: 10,
+            windowM: 50,
+            minCorridorLenM: 100,
+            coverageThreshold: 0.8,
+            sampleStepM: 10,
+            headingToleranceDeg: 10
+          };
+          const userCorridorConfig = options.corridorConfig || {};
+          const normalizedCorridorConfig = {};
+          Object.keys(userCorridorConfig).forEach(key => {
+            const value = userCorridorConfig[key];
+            switch (key) {
+              case 'merge_distance_m':
+                normalizedCorridorConfig.mergeDistanceM = value;
+                break;
+              case 't_merge':
+                normalizedCorridorConfig.tMerge = value;
+                break;
+              case 't_split':
+                normalizedCorridorConfig.tSplit = value;
+                break;
+              case 'window_m':
+                normalizedCorridorConfig.windowM = value;
+                break;
+              case 'min_corridor_len_m':
+                normalizedCorridorConfig.minCorridorLenM = value;
+                break;
+              case 'coverage_threshold':
+              case 'percent_coverage_threshold':
+                normalizedCorridorConfig.coverageThreshold = value;
+                break;
+              default:
+                normalizedCorridorConfig[key] = value;
+                break;
+            }
+          });
+          this.corridorConfig = Object.assign({}, defaultCorridorConfig, normalizedCorridorConfig);
           this.layers = [];
           this.routeGeometries = new Map();
           this.selectedRoutes = [];
           this.currentZoom = map.getZoom();
+          this.corridorCacheKey = null;
+          this.corridorData = { segments: [], routeMasks: new Map() };
         }
 
         reset() {
           this.clearLayers();
           this.routeGeometries.clear();
           this.selectedRoutes = [];
+          this.corridorCacheKey = null;
+          this.corridorData = { segments: [], routeMasks: new Map() };
         }
 
         clearLayers() {
@@ -934,6 +982,551 @@
           return this.layers.slice();
         }
 
+        buildCorridorCacheKey() {
+          const ids = this.selectedRoutes.slice().sort((a, b) => a - b).join(',');
+          const cfg = this.corridorConfig || {};
+          const cfgKey = [
+            cfg.mergeDistanceM,
+            cfg.tMerge,
+            cfg.tSplit,
+            cfg.windowM,
+            cfg.minCorridorLenM,
+            cfg.coverageThreshold,
+            cfg.sampleStepM,
+            cfg.headingToleranceDeg
+          ].join('|');
+          return `${this.currentZoom}:${ids}:${cfgKey}`;
+        }
+
+        getCorridorData() {
+          const key = this.buildCorridorCacheKey();
+          if (this.corridorCacheKey === key && this.corridorData) {
+            return this.corridorData;
+          }
+          const data = this.computeCorridorData();
+          this.corridorCacheKey = key;
+          this.corridorData = data;
+          return data;
+        }
+
+        computeCorridorData() {
+          const result = { segments: [], routeMasks: new Map() };
+          if (!this.corridorConfig || this.selectedRoutes.length < 2) {
+            return result;
+          }
+
+          const samplesByRoute = new Map();
+          this.selectedRoutes.forEach(routeId => {
+            const latlngs = this.routeGeometries.get(routeId);
+            if (!latlngs || latlngs.length < 2) return;
+            const samples = this.sampleRouteForCorridor(latlngs);
+            if (samples.length > 1) {
+              samplesByRoute.set(routeId, samples);
+            }
+          });
+
+          const segments = [];
+          for (let i = 0; i < this.selectedRoutes.length; i++) {
+            const routeA = this.selectedRoutes[i];
+            const samplesA = samplesByRoute.get(routeA);
+            if (!samplesA) continue;
+            for (let j = i + 1; j < this.selectedRoutes.length; j++) {
+              const routeB = this.selectedRoutes[j];
+              const samplesB = samplesByRoute.get(routeB);
+              if (!samplesB) continue;
+              const pairSegments = this.findCorridorSegmentsForPair(routeA, samplesA, routeB, samplesB);
+              pairSegments.forEach(segment => {
+                segment.id = `corridor_${segments.length}`;
+                segments.push(segment);
+                segment.memberRoutes.forEach(routeId => {
+                  const interval = segment.routeIntervals.get(routeId);
+                  if (!interval) return;
+                  const masks = result.routeMasks.get(routeId) || [];
+                  masks.push({
+                    start: Math.min(interval.startMeters, interval.endMeters),
+                    end: Math.max(interval.startMeters, interval.endMeters)
+                  });
+                  result.routeMasks.set(routeId, masks);
+                });
+              });
+            }
+          }
+
+          result.segments = segments;
+          result.routeMasks.forEach((intervals, routeId) => {
+            result.routeMasks.set(routeId, this.mergeIntervals(intervals));
+          });
+
+          return result;
+        }
+
+        makeNodeKey(point) {
+          const precision = Math.max(0.1, this.options.nodeKeyPrecisionPx || 1);
+          const factor = 1 / precision;
+          const x = Math.round((point.x || 0) * factor) / factor;
+          const y = Math.round((point.y || 0) * factor) / factor;
+          return `${x.toFixed(3)}:${y.toFixed(3)}`;
+        }
+
+        registerNode(nodeMap, endpoint, routes, segment, role) {
+          if (!endpoint) return null;
+          const point = endpoint.point || this.map.project(endpoint.latlng, this.currentZoom);
+          const latlng = endpoint.latlng;
+          const key = this.makeNodeKey(point);
+          let node = nodeMap.get(key);
+          if (!node) {
+            node = {
+              sumX: 0,
+              sumY: 0,
+              sumLat: 0,
+              sumLng: 0,
+              count: 0,
+              routes: new Set(),
+              segments: new Set()
+            };
+            nodeMap.set(key, node);
+          }
+          node.sumX += point.x;
+          node.sumY += point.y;
+          node.sumLat += latlng.lat;
+          node.sumLng += latlng.lng;
+          node.count += 1;
+          if (Array.isArray(routes)) {
+            routes.forEach(routeId => node.routes.add(routeId));
+          }
+          if (segment && segment.id != null) {
+            node.segments.add(segment.id);
+          }
+          if (segment) {
+            if (role === 'start') {
+              segment.startNodeKey = key;
+            } else if (role === 'end') {
+              segment.endNodeKey = key;
+            }
+          }
+          return key;
+        }
+
+        uniqueLatLngSequence(points) {
+          if (!Array.isArray(points)) return [];
+          const result = [];
+          points.forEach(pt => {
+            if (!pt) return;
+            if (result.length === 0 || !this.latLngEquals(result[result.length - 1], pt)) {
+              result.push(pt);
+            }
+          });
+          return result;
+        }
+
+        routeSetsEqual(a, b) {
+          if (!Array.isArray(a) || !Array.isArray(b)) return false;
+          if (a.length !== b.length) return false;
+          for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return false;
+          }
+          return true;
+        }
+
+        hasSegmentGap(a, b) {
+          if (!a || !b) return true;
+          const endMeters = a.end && a.end.cumulativeMeters;
+          const startMeters = b.start && b.start.cumulativeMeters;
+          if (endMeters != null && startMeters != null) {
+            if (Math.abs(startMeters - endMeters) > 1e-3) {
+              return true;
+            }
+          }
+          const endLatLng = a.end && a.end.latlng;
+          const startLatLng = b.start && b.start.latlng;
+          if (endLatLng && startLatLng) {
+            const distance = this.latLngDistance(endLatLng, startLatLng);
+            if (distance > 0.75) {
+              return true;
+            }
+          }
+          return false;
+        }
+
+        buildJunctionNodes(resampledByRoute, segments) {
+          const nodeMap = new Map();
+
+          resampledByRoute.forEach((resampled) => {
+            const routeSegments = (resampled && resampled.segments) ? resampled.segments : [];
+            if (!Array.isArray(routeSegments) || routeSegments.length === 0) return;
+
+            let previous = null;
+            for (let i = 0; i < routeSegments.length; i++) {
+              const segment = routeSegments[i];
+              if (!segment || !Array.isArray(segment.sharedRoutes) || segment.sharedRoutes.length === 0) continue;
+
+              const startRoutes = new Set(segment.sharedRoutes);
+              if (previous && Array.isArray(previous.sharedRoutes)) {
+                previous.sharedRoutes.forEach(r => startRoutes.add(r));
+              }
+
+              const needsStartNode = !previous || !this.routeSetsEqual(previous.sharedRoutes, segment.sharedRoutes) || this.hasSegmentGap(previous, segment);
+              if (needsStartNode) {
+                this.registerNode(nodeMap, segment.start, Array.from(startRoutes), segment, 'start');
+              } else if (previous && previous.endNodeKey) {
+                segment.startNodeKey = previous.endNodeKey;
+              }
+
+              const next = routeSegments[i + 1];
+              const endRoutes = new Set(segment.sharedRoutes);
+              if (next && Array.isArray(next.sharedRoutes)) {
+                next.sharedRoutes.forEach(r => endRoutes.add(r));
+              }
+              const needsEndNode = !next || !this.routeSetsEqual(segment.sharedRoutes, next.sharedRoutes) || this.hasSegmentGap(segment, next);
+              if (needsEndNode) {
+                this.registerNode(nodeMap, segment.end, Array.from(endRoutes), segment, 'end');
+              }
+
+              previous = segment;
+            }
+          });
+
+          segments.forEach(segment => {
+            if (!segment) return;
+            if (!segment.startNodeKey) {
+              this.registerNode(nodeMap, segment.start, segment.sharedRoutes || [], segment, 'start');
+            }
+            if (!segment.endNodeKey) {
+              this.registerNode(nodeMap, segment.end, segment.sharedRoutes || [], segment, 'end');
+            }
+          });
+
+          const nodes = new Map();
+          nodeMap.forEach((value, key) => {
+            const count = value.count || 1;
+            const point = L.point(value.sumX / count, value.sumY / count);
+            const latlng = L.latLng(value.sumLat / count, value.sumLng / count);
+            nodes.set(key, Object.assign(value, { key, point, latlng }));
+          });
+
+          segments.forEach(segment => {
+            if (!segment) return;
+            const startNode = nodes.get(segment.startNodeKey);
+            if (startNode) {
+              segment.start.point = startNode.point;
+              segment.start.latlng = startNode.latlng;
+            }
+            const endNode = nodes.get(segment.endNodeKey);
+            if (endNode) {
+              segment.end.point = endNode.point;
+              segment.end.latlng = endNode.latlng;
+            }
+            segment.lengthPx = this.distance(segment.start.point, segment.end.point);
+            segment.lengthMeters = this.latLngDistance(segment.start.latlng, segment.end.latlng);
+          });
+
+          return { nodes };
+        }
+
+        mergeIntervals(intervals) {
+          if (!Array.isArray(intervals) || intervals.length === 0) return [];
+          const sorted = intervals.slice().sort((a, b) => (a.start || 0) - (b.start || 0));
+          const merged = [];
+          sorted.forEach(interval => {
+            if (!interval) return;
+            const start = interval.start != null ? interval.start : interval[0];
+            const end = interval.end != null ? interval.end : interval[1];
+            if (start == null || end == null) return;
+            if (merged.length === 0) {
+              merged.push({ start, end });
+            } else {
+              const last = merged[merged.length - 1];
+              if (start <= last.end) {
+                last.end = Math.max(last.end, end);
+              } else {
+                merged.push({ start, end });
+              }
+            }
+          });
+          return merged;
+        }
+
+        sampleRouteForCorridor(latlngs) {
+          if (!Array.isArray(latlngs) || latlngs.length < 2) return [];
+          const step = Math.max(1, this.corridorConfig.sampleStepM || 10);
+          const crs = (this.map && this.map.options && this.map.options.crs) || L.CRS.EPSG3857;
+          const projected = latlngs.map(latlng => ({
+            latlng,
+            point: crs.project(latlng)
+          }));
+
+          const samples = [];
+          samples.push({
+            latlng: projected[0].latlng,
+            point: projected[0].point,
+            cumulativeMeters: 0
+          });
+
+          let totalMeters = 0;
+          let nextSample = step;
+
+          for (let i = 1; i < projected.length; i++) {
+            const prev = projected[i - 1];
+            const curr = projected[i];
+            const segLength = this.distance(prev.point, curr.point);
+            if (segLength === 0) continue;
+
+            while (nextSample <= totalMeters + segLength) {
+              const ratio = (nextSample - totalMeters) / segLength;
+              const point = this.interpolatePoint(prev.point, curr.point, ratio);
+              const latlng = this.interpolateLatLng(prev.latlng, curr.latlng, ratio);
+              samples.push({
+                latlng,
+                point,
+                cumulativeMeters: nextSample
+              });
+              nextSample += step;
+            }
+
+            totalMeters += segLength;
+          }
+
+          const last = projected[projected.length - 1];
+          const tail = samples[samples.length - 1];
+          if (!this.latLngEquals(tail.latlng, last.latlng)) {
+            samples.push({
+              latlng: last.latlng,
+              point: last.point,
+              cumulativeMeters: totalMeters
+            });
+          } else {
+            tail.cumulativeMeters = totalMeters;
+          }
+
+          for (let i = 0; i < samples.length; i++) {
+            if (i < samples.length - 1) {
+              const next = samples[i + 1];
+              samples[i].heading = Math.atan2(next.point.y - samples[i].point.y, next.point.x - samples[i].point.x);
+            } else if (samples.length > 1) {
+              samples[i].heading = samples[i - 1].heading;
+            } else {
+              samples[i].heading = 0;
+            }
+          }
+
+          return samples;
+        }
+
+        findCorridorSegmentsForPair(routeA, samplesA, routeB, samplesB) {
+          const results = [];
+          const toleranceRad = ((this.corridorConfig.headingToleranceDeg || 10) * Math.PI) / 180;
+          const maxDistance = Math.max(this.corridorConfig.tSplit || 10, this.corridorConfig.mergeDistanceM || 8) * 2;
+          const searchRadius = maxDistance;
+          const items = samplesB.map((sample, index) => ({
+            minX: sample.point.x - searchRadius,
+            minY: sample.point.y - searchRadius,
+            maxX: sample.point.x + searchRadius,
+            maxY: sample.point.y + searchRadius,
+            index
+          }));
+          const tree = new RBush();
+          tree.load(items);
+
+          const matches = new Array(samplesA.length).fill(null);
+
+          samplesA.forEach((sampleA, idx) => {
+            const bounds = {
+              minX: sampleA.point.x - searchRadius,
+              minY: sampleA.point.y - searchRadius,
+              maxX: sampleA.point.x + searchRadius,
+              maxY: sampleA.point.y + searchRadius
+            };
+            const candidates = tree.search(bounds) || [];
+            let bestIndex = null;
+            let bestDistance = Infinity;
+            candidates.forEach(candidate => {
+              const sampleB = samplesB[candidate.index];
+              if (!sampleB) return;
+              const distance = this.distance(sampleA.point, sampleB.point);
+              if (!(distance <= maxDistance)) return;
+              const headingDiff = this.smallestHeadingDifference(sampleA.heading || 0, sampleB.heading || 0);
+              const antiParallelDiff = Math.abs(Math.PI - headingDiff);
+              if (antiParallelDiff <= toleranceRad && distance < bestDistance) {
+                bestDistance = distance;
+                bestIndex = candidate.index;
+              }
+            });
+            if (bestIndex != null) {
+              matches[idx] = { index: bestIndex, distance: bestDistance };
+            }
+          });
+
+          const coverageThreshold = this.corridorConfig.coverageThreshold || 0.8;
+          const windowCount = Math.max(2, Math.round((this.corridorConfig.windowM || 50) / (this.corridorConfig.sampleStepM || 10)));
+          const tMerge = this.corridorConfig.tMerge || 6;
+          const tSplit = this.corridorConfig.tSplit || 10;
+          const minLen = this.corridorConfig.minCorridorLenM || 100;
+
+          const prefixMatch = new Array(samplesA.length + 1).fill(0);
+          const prefixDistance = new Array(samplesA.length + 1).fill(0);
+          for (let i = 0; i < samplesA.length; i++) {
+            const match = matches[i];
+            prefixMatch[i + 1] = prefixMatch[i] + (match ? 1 : 0);
+            prefixDistance[i + 1] = prefixDistance[i] + (match ? match.distance : 0);
+          }
+
+          const classification = new Array(samplesA.length).fill('UNKNOWN');
+          for (let i = 0; i < samplesA.length; i++) {
+            const end = i;
+            const start = Math.max(0, end - windowCount + 1);
+            const total = end - start + 1;
+            if (total <= 0) continue;
+            const matchCount = prefixMatch[end + 1] - prefixMatch[start];
+            if (matchCount === 0) continue;
+            const coverage = matchCount / total;
+            if (coverage < coverageThreshold) continue;
+            const meanDistance = (prefixDistance[end + 1] - prefixDistance[start]) / matchCount;
+            if (meanDistance <= tMerge) {
+              classification[i] = 'MERGE';
+            } else if (meanDistance >= tSplit) {
+              classification[i] = 'SPLIT';
+            } else {
+              classification[i] = 'NEUTRAL';
+            }
+          }
+
+          let state = 'SEPARATE';
+          let mergeMeters = 0;
+          let splitMeters = 0;
+          let runStart = null;
+          let splitStart = null;
+          let current = null;
+
+          for (let i = 0; i < samplesA.length; i++) {
+            const label = classification[i];
+            const stepMeters = i === 0 ? 0 : Math.max(0, samplesA[i].cumulativeMeters - samplesA[i - 1].cumulativeMeters);
+
+            if (state === 'SEPARATE') {
+              if (label === 'MERGE') {
+                if (runStart == null) runStart = i > 0 ? i - 1 : 0;
+                mergeMeters += stepMeters;
+                if (mergeMeters >= minLen) {
+                  current = {
+                    memberRoutes: [routeA, routeB],
+                    routeIntervals: new Map(),
+                    startIndex: runStart
+                  };
+                  state = 'MERGED';
+                  splitMeters = 0;
+                  splitStart = null;
+                }
+              } else {
+                runStart = null;
+                mergeMeters = 0;
+              }
+            } else if (state === 'MERGED') {
+              if (label === 'SPLIT') {
+                if (splitStart == null) splitStart = i;
+                splitMeters += stepMeters;
+                if (splitMeters >= minLen && current) {
+                  current.endIndex = Math.max(current.startIndex, splitStart - 1);
+                  results.push(current);
+                  current = null;
+                  state = 'SEPARATE';
+                  mergeMeters = 0;
+                  splitMeters = 0;
+                  runStart = null;
+                  splitStart = null;
+                }
+              } else if (label === 'MERGE') {
+                splitMeters = 0;
+                splitStart = null;
+              }
+            }
+          }
+
+          if (state === 'MERGED' && current) {
+            current.endIndex = samplesA.length - 1;
+            results.push(current);
+          }
+
+          const refined = [];
+          results.forEach(segment => {
+            const startIdx = Math.max(0, Math.min(segment.startIndex || 0, segment.endIndex || 0));
+            const endIdx = Math.max(startIdx + 1, segment.endIndex || startIdx + 1);
+            const matchedPairs = [];
+            for (let i = startIdx; i <= endIdx; i++) {
+              const match = matches[i];
+              if (match) {
+                matchedPairs.push({ aIndex: i, bIndex: match.index, distance: match.distance });
+              }
+            }
+            if (matchedPairs.length < 2) return;
+
+            const centerline = [];
+            const memberRoutes = [routeA, routeB].slice().sort((a, b) => a - b);
+            const bIndices = [];
+            matchedPairs.forEach(pair => {
+              const sampleA = samplesA[pair.aIndex];
+              const sampleB = samplesB[pair.bIndex];
+              if (!sampleA || !sampleB) return;
+              const point = L.point(
+                (sampleA.point.x + sampleB.point.x) / 2,
+                (sampleA.point.y + sampleB.point.y) / 2
+              );
+              const latlng = this.interpolateLatLng(sampleA.latlng, sampleB.latlng, 0.5);
+              if (centerline.length === 0 || !this.latLngEquals(centerline[centerline.length - 1], latlng)) {
+                centerline.push(latlng);
+              }
+              bIndices.push(pair.bIndex);
+            });
+
+            if (centerline.length < 2) return;
+
+            const startMetersA = samplesA[startIdx].cumulativeMeters;
+            const endMetersA = samplesA[endIdx].cumulativeMeters;
+            const sortedB = bIndices.sort((a, b) => a - b);
+            const startIdxB = sortedB[0];
+            const endIdxB = sortedB[sortedB.length - 1];
+            const startMetersB = samplesB[startIdxB].cumulativeMeters;
+            const endMetersB = samplesB[endIdxB].cumulativeMeters;
+
+            const corridorSegment = {
+              id: '',
+              memberRoutes,
+              centerline,
+              routeIntervals: new Map([
+                [routeA, { startMeters: startMetersA, endMeters: endMetersA, startIndex: startIdx, endIndex: endIdx }],
+                [routeB, { startMeters: startMetersB, endMeters: endMetersB, startIndex: startIdxB, endIndex: endIdxB }]
+              ])
+            };
+
+            refined.push(corridorSegment);
+          });
+
+          return refined;
+        }
+
+        resampleCorridorSegments(corridorData, zoom, step) {
+          const result = new Map();
+          if (!corridorData || !Array.isArray(corridorData.segments)) {
+            return result;
+          }
+
+          corridorData.segments.forEach(segment => {
+            if (!segment || !Array.isArray(segment.centerline) || segment.centerline.length < 2) return;
+            const corridorId = segment.id || `corridor_${Math.random().toString(36).slice(2)}`;
+            const resampled = this.resampleRoute(corridorId, segment.centerline, zoom, step, []);
+            if (!resampled || !Array.isArray(resampled.segments) || resampled.segments.length === 0) return;
+            resampled.segments.forEach(seg => {
+              seg.routeId = corridorId;
+              seg.lockedSharedRoutes = segment.memberRoutes ? segment.memberRoutes.slice() : [];
+              seg.sharedRoutes = seg.lockedSharedRoutes.slice();
+              seg.key = seg.sharedRoutes.join('|');
+              seg.primaryRoute = corridorId;
+            });
+            result.set(corridorId, resampled);
+          });
+
+          return result;
+        }
+
+
         render() {
           this.clearLayers();
           if (this.selectedRoutes.length === 0) return;
@@ -943,21 +1536,32 @@
           const tolerance = this.options.matchTolerancePx;
           const headingToleranceRad = (this.options.headingToleranceDeg * Math.PI) / 180;
 
+          const corridorData = this.corridorConfig.enabled
+            ? this.getCorridorData()
+            : { segments: [], routeMasks: new Map() };
+          this.corridorData = corridorData;
+
           const resampledByRoute = new Map();
           const allSegments = [];
           const treeItems = [];
+          let segmentCounter = 0;
 
           this.selectedRoutes.forEach(routeId => {
             const latlngs = this.routeGeometries.get(routeId);
-            if (!latlngs || latlngs.length < 2) return;
+            if (!latlngs || latlngs.length < 2) {
+              resampledByRoute.set(routeId, { points: [], segments: [] });
+              return;
+            }
 
-            const resampled = this.resampleRoute(routeId, latlngs, zoom, step);
+            const maskIntervals = corridorData.routeMasks.get(routeId) || [];
+            const resampled = this.resampleRoute(routeId, latlngs, zoom, step, maskIntervals);
+            resampledByRoute.set(routeId, resampled);
             if (!resampled || !Array.isArray(resampled.segments) || resampled.segments.length === 0) {
               return;
             }
 
-            resampledByRoute.set(routeId, resampled);
             resampled.segments.forEach(segment => {
+              segment.id = `seg_${segmentCounter++}`;
               allSegments.push(segment);
               treeItems.push({
                 minX: segment.bounds.minX,
@@ -969,34 +1573,55 @@
             });
           });
 
-          if (allSegments.length === 0) return;
+          if (allSegments.length > 0) {
+            const tree = new RBush();
+            tree.load(treeItems);
 
-          const tree = new RBush();
-          tree.load(treeItems);
+            allSegments.forEach(segment => {
+              const searchBounds = {
+                minX: segment.bounds.minX - tolerance,
+                minY: segment.bounds.minY - tolerance,
+                maxX: segment.bounds.maxX + tolerance,
+                maxY: segment.bounds.maxY + tolerance
+              };
+              const candidates = tree.search(searchBounds) || [];
+              const sharedRoutes = new Set([segment.routeId]);
 
-          allSegments.forEach(segment => {
-            const searchBounds = {
-              minX: segment.bounds.minX - tolerance,
-              minY: segment.bounds.minY - tolerance,
-              maxX: segment.bounds.maxX + tolerance,
-              maxY: segment.bounds.maxY + tolerance
-            };
-            const candidates = tree.search(searchBounds) || [];
-            const sharedRoutes = new Set([segment.routeId]);
+              candidates.forEach(candidate => {
+                const other = candidate.segment;
+                if (!other || other === segment) return;
+                if (this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) {
+                  sharedRoutes.add(other.routeId);
+                }
+              });
 
-            candidates.forEach(candidate => {
-              const other = candidate.segment;
-              if (!other || other === segment) return;
-              if (this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) {
-                sharedRoutes.add(other.routeId);
-              }
+              segment.sharedRoutes = Array.from(sharedRoutes).sort((a, b) => a - b);
+              segment.key = segment.sharedRoutes.join('|');
+              segment.primaryRoute = segment.sharedRoutes[0];
             });
+          }
 
-            segment.sharedRoutes = Array.from(sharedRoutes).sort((a, b) => a - b);
-            segment.key = segment.sharedRoutes.join('|');
-            segment.primaryRoute = segment.sharedRoutes[0];
+          const combinedSegments = allSegments.slice();
+          const corridorResampled = this.resampleCorridorSegments(corridorData, zoom, step);
+          corridorResampled.forEach((resampled, corridorId) => {
+            if (!resampled || !Array.isArray(resampled.segments) || resampled.segments.length === 0) {
+              return;
+            }
+            resampled.segments.forEach(segment => {
+              segment.id = `seg_${segmentCounter++}`;
+              if (Array.isArray(segment.lockedSharedRoutes) && segment.lockedSharedRoutes.length > 0) {
+                segment.sharedRoutes = segment.lockedSharedRoutes.slice();
+                segment.key = segment.sharedRoutes.join('|');
+              }
+              segment.primaryRoute = corridorId;
+              combinedSegments.push(segment);
+            });
+            resampledByRoute.set(corridorId, resampled);
           });
 
+          if (combinedSegments.length === 0) return;
+
+          const nodeData = this.buildJunctionNodes(resampledByRoute, combinedSegments);
           const groups = this.buildGroups(resampledByRoute);
           this.drawGroups(groups);
         }
@@ -1004,47 +1629,62 @@
         buildGroups(resampledByRoute) {
           const groups = [];
           resampledByRoute.forEach((resampled, routeId) => {
+            const routeSegments = (resampled && resampled.segments) ? resampled.segments : [];
+            if (!Array.isArray(routeSegments) || routeSegments.length === 0) return;
+
             let currentGroup = null;
             let lastKey = null;
 
-            resampled.segments.forEach(segment => {
-              if (!segment.sharedRoutes || segment.sharedRoutes.length === 0) return;
-              if (segment.primaryRoute !== routeId) {
+            routeSegments.forEach(segment => {
+              if (!segment || !Array.isArray(segment.sharedRoutes) || segment.sharedRoutes.length === 0) return;
+              if (segment.primaryRoute != null && segment.primaryRoute !== routeId) {
                 if (currentGroup) {
+                  currentGroup.points = this.uniqueLatLngSequence(currentGroup.points);
                   groups.push(currentGroup);
                   currentGroup = null;
-                  lastKey = null;
                 }
+                lastKey = null;
                 return;
               }
 
-              if (!currentGroup || segment.key !== lastKey) {
-                if (currentGroup) groups.push(currentGroup);
+              const startNodeKey = segment.startNodeKey;
+              const startLatLng = segment.start && segment.start.latlng;
+              const endLatLng = segment.end && segment.end.latlng;
+              if (!startLatLng || !endLatLng) return;
+
+              const startBreak = !currentGroup || segment.key !== lastKey || startNodeKey !== currentGroup.endNodeKey;
+              if (startBreak) {
+                if (currentGroup) {
+                  currentGroup.points = this.uniqueLatLngSequence(currentGroup.points);
+                  groups.push(currentGroup);
+                }
                 currentGroup = {
                   key: segment.key,
-                  routes: segment.sharedRoutes,
-                  points: [],
-                  lengthPx: 0
+                  routes: segment.sharedRoutes.slice(),
+                  points: [startLatLng],
+                  lengthPx: 0,
+                  startNodeKey,
+                  endNodeKey: segment.endNodeKey,
+                  segments: [segment]
                 };
-                currentGroup.points.push(segment.start.latlng);
+              } else if (currentGroup && !this.latLngEquals(currentGroup.points[currentGroup.points.length - 1], startLatLng)) {
+                currentGroup.points.push(startLatLng);
               }
 
-              const lastPoint = currentGroup.points[currentGroup.points.length - 1];
-              if (!this.latLngEquals(lastPoint, segment.start.latlng)) {
-                currentGroup.points.push(segment.start.latlng);
+              if (currentGroup) {
+                if (!this.latLngEquals(currentGroup.points[currentGroup.points.length - 1], endLatLng)) {
+                  currentGroup.points.push(endLatLng);
+                }
+                currentGroup.lengthPx += segment.lengthPx || this.distance(segment.start.point, segment.end.point);
+                currentGroup.endNodeKey = segment.endNodeKey;
+                currentGroup.segments.push(segment);
               }
 
-              const endPoint = segment.end.latlng;
-              const tailPoint = currentGroup.points[currentGroup.points.length - 1];
-              if (!this.latLngEquals(tailPoint, endPoint)) {
-                currentGroup.points.push(endPoint);
-              }
-
-              currentGroup.lengthPx += segment.lengthPx;
               lastKey = segment.key;
             });
 
             if (currentGroup) {
+              currentGroup.points = this.uniqueLatLngSequence(currentGroup.points);
               groups.push(currentGroup);
             }
           });
@@ -1057,18 +1697,31 @@
           const dashBase = this.options.dashLengthPx;
           const minDash = this.options.minDashLengthPx;
           const weight = this.options.strokeWeight;
+          const minGapRatio = this.options.minEndGapRatio || 0.25;
+          const confettiRatio = this.options.confettiThresholdRatio || 0.5;
 
           groups.forEach(group => {
             if (!group || !Array.isArray(group.routes) || group.routes.length === 0) return;
-            if (!Array.isArray(group.points) || group.points.length < 2) return;
+            const basePoints = this.uniqueLatLngSequence(group.points || []);
+            if (basePoints.length < 2) return;
 
-            const coords = group.points.map(latlng => [latlng.lat, latlng.lng]);
+            const totalLength = this.computePolylineLength(basePoints);
+            if (!(totalLength > 0)) return;
+
+            const trimAmount = Math.min(totalLength / 2, dashBase * minGapRatio);
+            const trimmed = this.trimPolyline(basePoints, trimAmount, trimAmount);
+            const trimmedPoints = trimmed.points;
+            const effectiveLength = trimmed.length;
+            if (!trimmedPoints || trimmedPoints.length < 2 || !(effectiveLength > 0)) return;
+
             const sortedRoutes = group.routes.slice().sort((a, b) => a - b);
+            const shortThreshold = dashBase;
+            const confettiThreshold = dashBase * confettiRatio;
 
-            if (sortedRoutes.length === 1) {
-              const routeId = sortedRoutes[0];
-              const layer = L.polyline(coords, {
-                color: getRouteColor(routeId),
+            if (sortedRoutes.length === 1 || effectiveLength <= shortThreshold || effectiveLength <= confettiThreshold) {
+              const dominant = sortedRoutes[0];
+              const layer = L.polyline(trimmedPoints, {
+                color: getRouteColor(dominant),
                 weight,
                 opacity: 1,
                 lineCap: 'round',
@@ -1078,12 +1731,10 @@
               return;
             }
 
-            const groupLength = group.lengthPx || 0;
-            if (groupLength <= 0) return;
             const stripeCount = sortedRoutes.length;
             let dashLength = dashBase;
-            if (dashLength * stripeCount > groupLength) {
-              dashLength = groupLength / stripeCount;
+            if (dashLength * stripeCount > effectiveLength) {
+              dashLength = effectiveLength / stripeCount;
             }
             if (!(dashLength > 0)) {
               dashLength = minDash;
@@ -1091,13 +1742,13 @@
             const gapLength = dashLength * (stripeCount - 1);
 
             sortedRoutes.forEach((routeId, index) => {
-              const layer = L.polyline(coords, {
+              const layer = L.polyline(trimmedPoints, {
                 color: getRouteColor(routeId),
                 weight,
                 opacity: 1,
                 dashArray: `${dashLength} ${gapLength}`,
                 dashOffset: `${dashLength * index}`,
-                lineCap: 'butt',
+                lineCap: 'round',
                 lineJoin: 'round'
               }).addTo(this.map);
               newLayers.push(layer);
@@ -1120,48 +1771,48 @@
           }));
         }
 
-        resampleRoute(routeId, latlngs, zoom, step) {
+        resampleRoute(routeId, latlngs, zoom, step, maskIntervals = []) {
           const simplified = this.simplifyLatLngs(latlngs, zoom);
-          if (simplified.length < 2) return null;
+          if (simplified.length < 2) {
+            return { points: [], segments: [] };
+          }
 
           const resampledPoints = [];
           const first = simplified[0];
           resampledPoints.push({
             latlng: first.latlng,
             point: first.point,
-            cumulativeLength: 0
+            cumulativeLength: 0,
+            cumulativeMeters: 0
           });
 
-          let totalTraversed = 0;
-          let distanceSinceLast = 0;
+          let totalLengthPx = 0;
+          let totalLengthMeters = 0;
+          let nextSample = step;
 
           for (let i = 1; i < simplified.length; i++) {
             const prev = simplified[i - 1];
             const curr = simplified[i];
-            const segmentLength = this.distance(prev.point, curr.point);
-            if (segmentLength === 0) continue;
+            const segmentLengthPx = this.distance(prev.point, curr.point);
+            if (segmentLengthPx === 0) continue;
+            const segmentLengthMeters = this.latLngDistance(prev.latlng, curr.latlng);
 
-            let distanceAlongSegment = 0;
-            while (distanceSinceLast + (segmentLength - distanceAlongSegment) >= step) {
-              const remainingToNext = step - distanceSinceLast;
-              const sampleDistance = distanceAlongSegment + remainingToNext;
-              const ratio = sampleDistance / segmentLength;
+            while (nextSample <= totalLengthPx + segmentLengthPx) {
+              const ratio = (nextSample - totalLengthPx) / segmentLengthPx;
               const samplePoint = this.interpolatePoint(prev.point, curr.point, ratio);
-              const sampleLatLng = this.map.unproject(samplePoint, zoom);
-              const absoluteLength = totalTraversed + sampleDistance;
-
+              const sampleLatLng = this.interpolateLatLng(prev.latlng, curr.latlng, ratio);
+              const sampleMeters = totalLengthMeters + (segmentLengthMeters * ratio);
               resampledPoints.push({
                 latlng: sampleLatLng,
                 point: samplePoint,
-                cumulativeLength: absoluteLength
+                cumulativeLength: nextSample,
+                cumulativeMeters: sampleMeters
               });
-
-              distanceSinceLast = 0;
-              distanceAlongSegment = sampleDistance;
+              nextSample += step;
             }
 
-            distanceSinceLast += segmentLength - distanceAlongSegment;
-            totalTraversed += segmentLength;
+            totalLengthPx += segmentLengthPx;
+            totalLengthMeters += segmentLengthMeters;
           }
 
           const last = simplified[simplified.length - 1];
@@ -1170,18 +1821,25 @@
             resampledPoints.push({
               latlng: last.latlng,
               point: last.point,
-              cumulativeLength: totalTraversed
+              cumulativeLength: totalLengthPx,
+              cumulativeMeters: totalLengthMeters
             });
           } else {
-            lastSample.cumulativeLength = totalTraversed;
+            lastSample.cumulativeLength = totalLengthPx;
+            lastSample.cumulativeMeters = totalLengthMeters;
           }
 
           const segments = [];
+          const sortedMasks = Array.isArray(maskIntervals)
+            ? maskIntervals.slice().sort((a, b) => (a.start || 0) - (b.start || 0))
+            : [];
+
           for (let i = 0; i < resampledPoints.length - 1; i++) {
             const start = resampledPoints[i];
             const end = resampledPoints[i + 1];
-            const lengthPx = this.distance(start.point, end.point);
-            if (lengthPx === 0) continue;
+            const lengthPx = end.cumulativeLength - start.cumulativeLength;
+            if (!(lengthPx > 0)) continue;
+            const lengthMeters = end.cumulativeMeters - start.cumulativeMeters;
             const bounds = {
               minX: Math.min(start.point.x, end.point.x),
               minY: Math.min(start.point.y, end.point.y),
@@ -1190,15 +1848,19 @@
             };
             const midpoint = L.point((start.point.x + end.point.x) / 2, (start.point.y + end.point.y) / 2);
             const heading = Math.atan2(end.point.y - start.point.y, end.point.x - start.point.x);
-            segments.push({
+            const segment = {
               routeId,
               start,
               end,
               lengthPx,
+              lengthMeters,
               bounds,
               midpoint,
               heading
-            });
+            };
+            if (!this.segmentWithinMask(segment, sortedMasks)) {
+              segments.push(segment);
+            }
           }
 
           return {
@@ -1212,6 +1874,119 @@
             a.x + (b.x - a.x) * t,
             a.y + (b.y - a.y) * t
           );
+        }
+
+        interpolateLatLng(a, b, t) {
+          return L.latLng(
+            (a.lat || 0) + ((b.lat || 0) - (a.lat || 0)) * t,
+            (a.lng || 0) + ((b.lng || 0) - (a.lng || 0)) * t
+          );
+        }
+
+        latLngDistance(a, b) {
+          if (this.map && typeof this.map.distance === 'function') {
+            return this.map.distance(a, b);
+          }
+          const dx = ((b && b.lat) || 0) - ((a && a.lat) || 0);
+          const dy = ((b && b.lng) || 0) - ((a && a.lng) || 0);
+          return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        segmentWithinMask(segment, intervals) {
+          if (!Array.isArray(intervals) || intervals.length === 0) return false;
+          const startMeters = Math.min(segment.start.cumulativeMeters || 0, segment.end.cumulativeMeters || 0);
+          const endMeters = Math.max(segment.start.cumulativeMeters || 0, segment.end.cumulativeMeters || 0);
+          const lengthMeters = Math.max(1e-6, endMeters - startMeters);
+          for (let i = 0; i < intervals.length; i++) {
+            const interval = intervals[i];
+            if (!interval) continue;
+            const start = interval.start != null ? interval.start : interval[0];
+            const end = interval.end != null ? interval.end : interval[1];
+            if (start == null || end == null) continue;
+            if (end <= startMeters) continue;
+            if (start >= endMeters) continue;
+            const overlap = Math.min(end, endMeters) - Math.max(start, startMeters);
+            if (overlap / lengthMeters >= 0.8) {
+              return true;
+            }
+          }
+          return false;
+        }
+
+        computePolylineLength(latlngs) {
+          if (!Array.isArray(latlngs) || latlngs.length < 2) return 0;
+          const zoom = this.currentZoom;
+          let length = 0;
+          let prevPoint = this.map.project(latlngs[0], zoom);
+          for (let i = 1; i < latlngs.length; i++) {
+            const point = this.map.project(latlngs[i], zoom);
+            length += this.distance(prevPoint, point);
+            prevPoint = point;
+          }
+          return length;
+        }
+
+        trimPolyline(latlngs, trimStart, trimEnd) {
+          if (!Array.isArray(latlngs) || latlngs.length < 2) {
+            return { points: [], length: 0 };
+          }
+          const totalLength = this.computePolylineLength(latlngs);
+          if (!(totalLength > 0)) {
+            return { points: [], length: 0 };
+          }
+
+          const zoom = this.currentZoom;
+          const projected = latlngs.map(latlng => this.map.project(latlng, zoom));
+          const startCut = Math.max(0, Math.min(trimStart || 0, totalLength / 2));
+          const endCut = Math.max(0, Math.min(trimEnd || 0, totalLength - startCut));
+          const targetStart = startCut;
+          const targetEnd = totalLength - endCut;
+          if (targetEnd <= targetStart) {
+            return { points: [], length: 0 };
+          }
+
+          const trimmed = [];
+          let accumulated = 0;
+
+          for (let i = 0; i < projected.length - 1; i++) {
+            const p0 = projected[i];
+            const p1 = projected[i + 1];
+            const l0 = latlngs[i];
+            const l1 = latlngs[i + 1];
+            const segmentLength = this.distance(p0, p1);
+            if (segmentLength === 0) continue;
+
+            const nextAccum = accumulated + segmentLength;
+            if (nextAccum <= targetStart) {
+              accumulated = nextAccum;
+              continue;
+            }
+
+            if (accumulated < targetStart) {
+              const ratio = (targetStart - accumulated) / segmentLength;
+              const point = this.interpolatePoint(p0, p1, ratio);
+              const latlng = this.interpolateLatLng(l0, l1, ratio);
+              trimmed.push({ point, latlng });
+            } else if (trimmed.length === 0) {
+              trimmed.push({ point: p0, latlng: l0 });
+            }
+
+            if (nextAccum >= targetEnd) {
+              const ratio = (targetEnd - accumulated) / segmentLength;
+              const point = this.interpolatePoint(p0, p1, Math.min(1, Math.max(0, ratio)));
+              const latlng = this.interpolateLatLng(l0, l1, Math.min(1, Math.max(0, ratio)));
+              trimmed.push({ point, latlng });
+              break;
+            } else {
+              trimmed.push({ point: p1, latlng: l1 });
+            }
+
+            accumulated = nextAccum;
+          }
+
+          const trimmedLatLngs = this.uniqueLatLngSequence(trimmed.map(item => item.latlng));
+          const trimmedLength = this.computePolylineLength(trimmedLatLngs);
+          return { points: trimmedLatLngs, length: trimmedLength };
         }
 
         distance(a, b) {
