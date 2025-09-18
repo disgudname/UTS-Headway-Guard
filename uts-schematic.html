@@ -276,6 +276,9 @@
         const STOP_RADIUS_PX = 6;
         const STOP_STROKE_PX = 3;
         const TERMINUS_TICK_PX = 12;
+        const TERMINUS_TICK_COLOR = '#111111';
+        const T_JOIN_MIN_LEG = 40;
+        const DEBUG = false;
 
         const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -292,6 +295,7 @@
             routePathLookup: new Map(),
             stopElements: [],
             terminusElements: [],
+            debugGroup: null,
             activeHighlightKey: null,
             scaleUpdatePending: false
         };
@@ -2010,44 +2014,133 @@
                 return { entries, terminalNode: currentNode };
             }
 
-            for (const edge of edges) {
-                if (!edge || visited.has(edge.id)) {
-                    continue;
+            function toCanonicalRouteSet(source) {
+                const result = new Set();
+                if (!source) {
+                    return result;
                 }
-                const routeKey = computeEdgeRouteKey(edge);
-                if (!routeKey) {
-                    continue;
-                }
-                const seenEdges = new Set([edge.id]);
-                const backward = extendDirection(edge.start, edge.id, routeKey, seenEdges);
-                const forward = extendDirection(edge.end, edge.id, routeKey, seenEdges);
+                const iterable = source instanceof Set ? source : new Set(source || []);
+                iterable.forEach((value) => {
+                    result.add(String(value));
+                });
+                return result;
+            }
 
-                const ordered = [];
-                for (let i = backward.entries.length - 1; i >= 0; i--) {
-                    const entry = backward.entries[i];
-                    ordered.push({ edgeId: entry.edgeId, reversed: !entry.reversed });
+            function createChainMembership(routeIds) {
+                const seen = new Map();
+                const members = [];
+                for (const rawId of routeIds) {
+                    const info = getCanonicalRouteInfo(rawId);
+                    const canonicalId = String(info.routeId);
+                    const meta = info.meta || {
+                        id: canonicalId,
+                        name: `Route ${canonicalId}`,
+                        color: '#000000',
+                        componentRouteIds: [],
+                        groupKey: info.groupKey || canonicalId
+                    };
+                    const color = meta.color || '#000000';
+                    const groupKey = info.groupKey || canonicalId;
+                    const uniqueKey = `${groupKey}|${color}`;
+                    if (seen.has(uniqueKey)) {
+                        console.warn(`Duplicate route/color detected in bundle: ${uniqueKey}`);
+                        continue;
+                    }
+                    const member = {
+                        routeId: canonicalId,
+                        meta,
+                        name: meta.name || `Route ${canonicalId}`,
+                        color,
+                        groupKey
+                    };
+                    seen.set(uniqueKey, true);
+                    members.push(member);
                 }
-                ordered.push({ edgeId: edge.id, reversed: false });
-                for (const entry of forward.entries) {
-                    ordered.push({ edgeId: entry.edgeId, reversed: entry.reversed });
-                }
+                members.sort((a, b) => {
+                    const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+                    if (nameCompare !== 0) {
+                        return nameCompare;
+                    }
+                    const colorCompare = a.color.localeCompare(b.color, undefined, { sensitivity: 'base' });
+                    if (colorCompare !== 0) {
+                        return colorCompare;
+                    }
+                    return String(a.routeId).localeCompare(String(b.routeId));
+                });
+                const canonicalIds = members.map((member) => String(member.routeId));
+                return {
+                    members,
+                    routeIds: canonicalIds,
+                    routeSet: new Set(canonicalIds),
+                    routeKey: canonicalIds.join('|')
+                };
+            }
 
-                const nodesSequence = [];
+            function cloneMembers(members) {
+                return members.map((member) => ({
+                    routeId: member.routeId,
+                    meta: member.meta,
+                    name: member.name,
+                    color: member.color,
+                    groupKey: member.groupKey
+                }));
+            }
+
+            function shouldSplitAtNode(nodeId, routeSet, routeKey) {
+                const node = nodes[nodeId];
+                if (!node || !Array.isArray(node.edges)) {
+                    return false;
+                }
+                for (const edgeId of node.edges) {
+                    const candidate = edges[edgeId];
+                    if (!candidate) {
+                        continue;
+                    }
+                    const candidateKey = computeEdgeRouteKey(candidate);
+                    if (!candidateKey || candidateKey === routeKey) {
+                        continue;
+                    }
+                    const candidateSet = toCanonicalRouteSet(candidate.routes);
+                    const intersection = countSetIntersection(routeSet, candidateSet);
+                    if (intersection > 0) {
+                        return true;
+                    }
+                    if (isSubset(routeSet, candidateSet) || isSubset(candidateSet, routeSet)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function computeSplitNodes(nodesSequence, routeSet, routeKey) {
+                if (!Array.isArray(nodesSequence) || nodesSequence.length < 2) {
+                    return [0];
+                }
+                const splits = [0];
+                for (let i = 1; i < nodesSequence.length - 1; i++) {
+                    const nodeId = nodesSequence[i];
+                    if (shouldSplitAtNode(nodeId, routeSet, routeKey)) {
+                        if (splits[splits.length - 1] !== i) {
+                            splits.push(i);
+                        }
+                    }
+                }
+                const lastIndex = nodesSequence.length - 1;
+                if (splits[splits.length - 1] !== lastIndex) {
+                    splits.push(lastIndex);
+                }
+                return splits;
+            }
+
+            function buildSkeletonForSegment(segmentOrdered) {
                 const skeletonPoints = [];
-                for (let index = 0; index < ordered.length; index++) {
-                    const ref = ordered[index];
+                for (let index = 0; index < segmentOrdered.length; index++) {
+                    const ref = segmentOrdered[index];
                     const refEdge = edges[ref.edgeId];
                     if (!refEdge || !Array.isArray(refEdge.snapped) || refEdge.snapped.length < 2) {
                         continue;
                     }
                     const polyline = ref.reversed ? refEdge.snapped.slice().reverse() : refEdge.snapped;
-                    const startNodeId = ref.reversed ? refEdge.end : refEdge.start;
-                    const endNodeId = ref.reversed ? refEdge.start : refEdge.end;
-                    if (!nodesSequence.length) {
-                        nodesSequence.push(startNodeId);
-                    }
-                    nodesSequence.push(endNodeId);
-
                     for (let i = 0; i < polyline.length; i++) {
                         const point = polyline[i];
                         if (!skeletonPoints.length) {
@@ -2061,66 +2154,106 @@
                         skeletonPoints.push(clonePoint(point));
                     }
                 }
-
                 let skeleton = mergeCollinear(skeletonPoints);
                 skeleton = collapseShortSegments(skeleton, SNAP_MIN_SEGMENT_LENGTH);
                 skeleton = mergeCollinear(skeleton);
+                return skeleton;
+            }
 
-                const routeIds = Array.from(edge.routes instanceof Set ? edge.routes : new Set(edge.routes || []), (value) => String(value))
-                    .sort((a, b) => a.localeCompare(b));
+            for (const edge of edges) {
+                if (!edge || visited.has(edge.id)) {
+                    continue;
+                }
+                const edgeRouteKey = computeEdgeRouteKey(edge);
+                if (!edgeRouteKey) {
+                    continue;
+                }
+                const seenEdges = new Set([edge.id]);
+                const backward = extendDirection(edge.start, edge.id, edgeRouteKey, seenEdges);
+                const forward = extendDirection(edge.end, edge.id, edgeRouteKey, seenEdges);
 
-                const members = routeIds.map((routeId) => {
-                    const meta = state.routeMeta.get(routeId) || {
-                        id: routeId,
-                        name: `Route ${routeId}`,
-                        color: '#000000',
-                        componentRouteIds: [],
-                        groupKey: routeId
-                    };
-                    return {
-                        routeId,
-                        meta,
-                        name: meta.name || `Route ${routeId}`,
-                        color: meta.color || '#000000'
-                    };
-                });
+                const ordered = [];
+                for (let i = backward.entries.length - 1; i >= 0; i--) {
+                    const entry = backward.entries[i];
+                    ordered.push({ edgeId: entry.edgeId, reversed: !entry.reversed });
+                }
+                ordered.push({ edgeId: edge.id, reversed: false });
+                for (const entry of forward.entries) {
+                    ordered.push({ edgeId: entry.edgeId, reversed: entry.reversed });
+                }
 
-                members.sort((a, b) => {
-                    const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-                    if (nameCompare !== 0) {
-                        return nameCompare;
+                const nodesSequence = [];
+                for (let index = 0; index < ordered.length; index++) {
+                    const ref = ordered[index];
+                    const refEdge = edges[ref.edgeId];
+                    if (!refEdge) {
+                        continue;
                     }
-                    const colorCompare = a.color.localeCompare(b.color, undefined, { sensitivity: 'base' });
-                    if (colorCompare !== 0) {
-                        return colorCompare;
+                    const startNodeId = ref.reversed ? refEdge.end : refEdge.start;
+                    const endNodeId = ref.reversed ? refEdge.start : refEdge.end;
+                    if (!nodesSequence.length) {
+                        nodesSequence.push(startNodeId);
                     }
-                    return String(a.routeId).localeCompare(String(b.routeId));
-                });
-
-                const chainId = chains.length;
-                const baseNormal = computeInitialChainNormal(skeleton);
-                const chain = {
-                    id: chainId,
-                    routeKey,
-                    routeIds,
-                    routeSet: new Set(routeIds),
-                    edges: ordered,
-                    nodes: nodesSequence,
-                    skeleton,
-                    members,
-                    baseNormal,
-                    segmentData: [],
-                    casingElement: null,
-                    groupElement: null
-                };
-
-                chains.push(chain);
+                    nodesSequence.push(endNodeId);
+                }
 
                 for (const ref of ordered) {
                     visited.add(ref.edgeId);
-                    const mappedEdge = edges[ref.edgeId];
-                    if (mappedEdge) {
-                        mappedEdge.chainId = chainId;
+                }
+
+                const rawRouteIds = Array.from(
+                    edge.routes instanceof Set ? edge.routes : new Set(edge.routes || []),
+                    (value) => String(value)
+                ).sort((a, b) => a.localeCompare(b));
+
+                const membership = createChainMembership(rawRouteIds);
+                if (!membership.members.length || !membership.routeIds.length) {
+                    continue;
+                }
+                const splitNodes = computeSplitNodes(nodesSequence, membership.routeSet, membership.routeKey);
+
+                for (let splitIndex = 0; splitIndex < splitNodes.length - 1; splitIndex++) {
+                    const nodeStart = splitNodes[splitIndex];
+                    const nodeEnd = splitNodes[splitIndex + 1];
+                    if (nodeEnd <= nodeStart) {
+                        continue;
+                    }
+                    const segmentOrdered = ordered.slice(nodeStart, nodeEnd);
+                    if (!segmentOrdered.length) {
+                        continue;
+                    }
+                    const segmentNodes = nodesSequence.slice(nodeStart, nodeEnd + 1);
+                    const skeleton = buildSkeletonForSegment(segmentOrdered);
+                    if (!Array.isArray(skeleton) || skeleton.length < 2) {
+                        continue;
+                    }
+                    const chainId = chains.length;
+                    const chainMembers = cloneMembers(membership.members);
+                    const chainRouteIds = chainMembers.map((member) => String(member.routeId));
+                    const chain = {
+                        id: chainId,
+                        routeKey: membership.routeKey,
+                        routeIds: chainRouteIds,
+                        routeSet: new Set(chainRouteIds),
+                        edges: segmentOrdered,
+                        nodes: segmentNodes,
+                        skeleton,
+                        members: chainMembers,
+                        baseNormal: computeInitialChainNormal(skeleton),
+                        segmentData: [],
+                        casingElement: null,
+                        groupElement: null
+                    };
+                    if (DEBUG) {
+                        chain.debugElements = null;
+                    }
+                    chains.push(chain);
+
+                    for (const ref of segmentOrdered) {
+                        const mappedEdge = edges[ref.edgeId];
+                        if (mappedEdge) {
+                            mappedEdge.chainId = chainId;
+                        }
                     }
                 }
             }
@@ -2135,7 +2268,200 @@
                 }
             }
             console.assert(missing.length === 0, `Edges without chain assignment: ${missing.join(', ')}`);
-            return chains;
+            return dedupeOverlappingChains(graph, chains);
+        }
+
+        function dedupeOverlappingChains(graph, chains) {
+            if (!Array.isArray(chains) || chains.length < 2) {
+                return Array.isArray(chains) ? chains : [];
+            }
+
+            const toRemove = new Set();
+            for (let i = 0; i < chains.length; i++) {
+                const chainA = chains[i];
+                if (!chainA || toRemove.has(chainA.id) || !Array.isArray(chainA.skeleton) || chainA.skeleton.length < 2) {
+                    continue;
+                }
+                for (let j = i + 1; j < chains.length; j++) {
+                    const chainB = chains[j];
+                    if (!chainB || toRemove.has(chainB.id) || !Array.isArray(chainB.skeleton) || chainB.skeleton.length < 2) {
+                        continue;
+                    }
+                    if (!haveMatchingRouteIds(chainA.routeIds, chainB.routeIds)) {
+                        continue;
+                    }
+                    const metrics = evaluateChainSimilarity(chainA.skeleton, chainB.skeleton);
+                    if (!metrics) {
+                        continue;
+                    }
+                    if (metrics.hausdorff <= 6 && metrics.overlap >= 0.9) {
+                        mergeChainGeometry(chainA, chainB, metrics, graph);
+                        toRemove.add(chainB.id);
+                    }
+                }
+            }
+
+            if (!toRemove.size) {
+                return chains;
+            }
+
+            const filtered = [];
+            const idRemap = new Map();
+            chains.forEach((chain) => {
+                if (!chain || toRemove.has(chain.id)) {
+                    return;
+                }
+                const newId = filtered.length;
+                idRemap.set(chain.id, newId);
+                chain.id = newId;
+                chain.routeKey = Array.isArray(chain.routeIds) ? chain.routeIds.join('|') : chain.routeKey;
+                filtered.push(chain);
+            });
+
+            if (graph && Array.isArray(graph.edges)) {
+                graph.edges.forEach((edge) => {
+                    if (!edge || typeof edge.chainId !== 'number') {
+                        return;
+                    }
+                    const remapped = idRemap.get(edge.chainId);
+                    if (typeof remapped === 'number') {
+                        edge.chainId = remapped;
+                    } else if (toRemove.has(edge.chainId)) {
+                        edge.chainId = null;
+                    }
+                });
+            }
+
+            return filtered;
+        }
+
+        function haveMatchingRouteIds(a, b) {
+            if (!Array.isArray(a) || !Array.isArray(b)) {
+                return false;
+            }
+            if (a.length !== b.length) {
+                return false;
+            }
+            for (let index = 0; index < a.length; index++) {
+                if (a[index] !== b[index]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function evaluateChainSimilarity(polylineA, polylineB) {
+            if (!Array.isArray(polylineA) || !Array.isArray(polylineB) || polylineA.length < 2 || polylineB.length < 2) {
+                return null;
+            }
+            const lengthA = computePolylineLength(polylineA);
+            const lengthB = computePolylineLength(polylineB);
+            if (!isFinite(lengthA) || !isFinite(lengthB) || lengthA < 1e-3 || lengthB < 1e-3) {
+                return null;
+            }
+            const sampleCount = Math.max(16, Math.round(Math.max(lengthA, lengthB) / 25));
+            const samplesA = samplePolyline(polylineA, sampleCount);
+            const samplesB = samplePolyline(polylineB, sampleCount);
+            if (!samplesA.length || !samplesB.length) {
+                return null;
+            }
+            const hausdorffAB = directedHausdorff(samplesA, polylineB);
+            const hausdorffBA = directedHausdorff(samplesB, polylineA);
+            const overlapAB = computeOverlapFraction(samplesA, polylineB, 6);
+            const overlapBA = computeOverlapFraction(samplesB, polylineA, 6);
+            const averaged = samplesA.map((point, index) => ({
+                x: (point.x + samplesB[index].x) / 2,
+                y: (point.y + samplesB[index].y) / 2
+            }));
+            return {
+                hausdorff: Math.max(hausdorffAB, hausdorffBA),
+                overlap: Math.min(overlapAB, overlapBA),
+                averaged
+            };
+        }
+
+        function directedHausdorff(samples, polyline) {
+            if (!Array.isArray(polyline) || polyline.length < 2) {
+                return Infinity;
+            }
+            let maxDistanceSq = 0;
+            for (const sample of samples) {
+                let bestSq = Infinity;
+                for (let i = 0; i < polyline.length - 1; i++) {
+                    const distSq = pointToSegmentDistanceSquared(sample, polyline[i], polyline[i + 1]);
+                    if (distSq < bestSq) {
+                        bestSq = distSq;
+                    }
+                    if (bestSq <= maxDistanceSq) {
+                        break;
+                    }
+                }
+                if (bestSq > maxDistanceSq) {
+                    maxDistanceSq = bestSq;
+                }
+            }
+            return Math.sqrt(maxDistanceSq);
+        }
+
+        function computeOverlapFraction(samples, polyline, threshold) {
+            if (!Array.isArray(polyline) || polyline.length < 2 || !samples.length) {
+                return 0;
+            }
+            const thresholdSq = threshold * threshold;
+            let count = 0;
+            for (const sample of samples) {
+                let bestSq = Infinity;
+                for (let i = 0; i < polyline.length - 1; i++) {
+                    const distSq = pointToSegmentDistanceSquared(sample, polyline[i], polyline[i + 1]);
+                    if (distSq < bestSq) {
+                        bestSq = distSq;
+                    }
+                    if (bestSq <= thresholdSq) {
+                        break;
+                    }
+                }
+                if (bestSq <= thresholdSq) {
+                    count++;
+                }
+            }
+            return count / samples.length;
+        }
+
+        function mergeChainGeometry(primary, secondary, metrics, graph) {
+            if (!primary || !metrics) {
+                return;
+            }
+            const averaged = Array.isArray(metrics.averaged) ? metrics.averaged : [];
+            if (averaged.length >= 2) {
+                let merged = mergeCollinear(averaged);
+                merged = collapseShortSegments(merged, SNAP_MIN_SEGMENT_LENGTH);
+                merged = mergeCollinear(merged);
+                if (merged.length >= 2) {
+                    primary.skeleton = merged;
+                    primary.baseNormal = computeInitialChainNormal(merged);
+                    primary.segmentData = [];
+                }
+            }
+            if (primary && Array.isArray(primary.routeIds)) {
+                primary.routeKey = primary.routeIds.join('|');
+                primary.routeSet = new Set(primary.routeIds);
+            }
+            if (primary && Array.isArray(primary.edges) && secondary && Array.isArray(secondary.edges)) {
+                const existing = new Set(primary.edges.map((entry) => entry.edgeId));
+                secondary.edges.forEach((entry) => {
+                    if (!entry) {
+                        return;
+                    }
+                    if (!existing.has(entry.edgeId)) {
+                        primary.edges.push(entry);
+                        existing.add(entry.edgeId);
+                    }
+                    const mappedEdge = graph?.edges?.[entry.edgeId];
+                    if (mappedEdge) {
+                        mappedEdge.chainId = primary.id;
+                    }
+                });
+            }
         }
 
         function cleanChainIntersections(graph, chains) {
@@ -2332,7 +2658,7 @@
                 return false;
             }
 
-            const minLeg = SNAP_MIN_SEGMENT_LENGTH;
+            const minLeg = T_JOIN_MIN_LEG;
             if (segmentLength < minLeg * 2 - 1e-3) {
                 return false;
             }
@@ -2352,7 +2678,7 @@
             };
 
             const branchLength = Math.hypot(junctionPoint.x - branchNeighbor.x, junctionPoint.y - branchNeighbor.y);
-            if (branchLength < minLeg * 0.5) {
+            if (branchLength < minLeg - 1e-3) {
                 return false;
             }
 
@@ -2688,6 +3014,17 @@
             stopsGroup.innerHTML = '';
             terminiGroup.innerHTML = '';
 
+            if (state.debugGroup && state.debugGroup.parentNode) {
+                state.debugGroup.parentNode.removeChild(state.debugGroup);
+            }
+            state.debugGroup = null;
+            if (DEBUG) {
+                const debugLayer = document.createElementNS(svgNS, 'g');
+                debugLayer.classList.add('debug-layer');
+                svg.appendChild(debugLayer);
+                state.debugGroup = debugLayer;
+            }
+
             let chains;
             if (Array.isArray(state.bundleChains) && state.bundleChains.length) {
                 chains = state.bundleChains;
@@ -2697,7 +3034,14 @@
                 alignStopsToChains(state.stopGroups, chains);
                 state.bundleChains = chains;
             }
-            const sortedChains = [...chains].sort((a, b) => a.id - b.id);
+            const sortedChains = [...chains].sort((a, b) => {
+                const keyA = Array.isArray(a.routeIds) ? a.routeIds.join('|') : '';
+                const keyB = Array.isArray(b.routeIds) ? b.routeIds.join('|') : '';
+                if (keyA === keyB) {
+                    return a.id - b.id;
+                }
+                return keyA.localeCompare(keyB);
+            });
 
             const usedRouteIds = new Set();
             sortedChains.forEach((chain) => {
@@ -2777,6 +3121,43 @@
                     });
                 });
 
+                if (DEBUG && state.debugGroup) {
+                    const debugChainGroup = document.createElementNS(svgNS, 'g');
+                    debugChainGroup.classList.add('debug-chain');
+                    const skeletonOverlay = document.createElementNS(svgNS, 'path');
+                    skeletonOverlay.setAttribute('fill', 'none');
+                    skeletonOverlay.setAttribute('stroke', '#bbbbbb');
+                    skeletonOverlay.setAttribute('stroke-width', '1');
+                    skeletonOverlay.setAttribute('stroke-dasharray', '4 4');
+                    skeletonOverlay.setAttribute('vector-effect', 'non-scaling-stroke');
+                    skeletonOverlay.setAttribute('pointer-events', 'none');
+                    debugChainGroup.appendChild(skeletonOverlay);
+
+                    const normalsGroup = document.createElementNS(svgNS, 'g');
+                    normalsGroup.classList.add('debug-normals');
+                    debugChainGroup.appendChild(normalsGroup);
+
+                    const label = document.createElementNS(svgNS, 'text');
+                    label.setAttribute('fill', '#555555');
+                    label.setAttribute('font-size', '10');
+                    label.setAttribute('text-anchor', 'middle');
+                    label.setAttribute('style', 'pointer-events:none;');
+                    label.setAttribute('paint-order', 'stroke');
+                    label.setAttribute('stroke', '#ffffff');
+                    label.setAttribute('stroke-width', '0.5');
+                    debugChainGroup.appendChild(label);
+
+                    state.debugGroup.appendChild(debugChainGroup);
+                    chain.debugElements = {
+                        skeletonPath: skeletonOverlay,
+                        normalsGroup,
+                        label,
+                        group: debugChainGroup
+                    };
+                } else {
+                    chain.debugElements = null;
+                }
+
                 chainFragment.appendChild(groupEl);
             });
             bundlesGroup.appendChild(chainFragment);
@@ -2815,15 +3196,17 @@
 
             const terminusData = computeTermini(state.graph);
             state.terminusElements = terminusData.map((term) => {
-                const meta = state.routeMeta.get(term.routeId) || { color: '#000000' };
                 const path = document.createElementNS(svgNS, 'path');
-                path.setAttribute('stroke', meta.color);
+                path.setAttribute('stroke', TERMINUS_TICK_COLOR);
                 path.setAttribute('stroke-width', ROUTE_LINE_WIDTH_PX);
                 path.setAttribute('vector-effect', 'non-scaling-stroke');
                 path.setAttribute('fill', 'none');
                 path.setAttribute('stroke-linecap', 'round');
-                path.dataset.route = String(term.routeId);
+                path.setAttribute('stroke-linejoin', 'round');
                 path.dataset.chain = String(term.chainId ?? '');
+                if (Array.isArray(term.routeIds) && term.routeIds.length) {
+                    path.dataset.routes = term.routeIds.join('|');
+                }
                 terminiGroup.appendChild(path);
                 return { ...term, element: path };
             });
@@ -2999,6 +3382,42 @@
                 });
 
                 validateChainGeometry(chain, offsets, spacing, tolerance);
+
+                if (DEBUG && chain.debugElements && state.debugGroup) {
+                    const debug = chain.debugElements;
+                    if (debug.skeletonPath) {
+                        debug.skeletonPath.setAttribute('d', skeletonPath);
+                    }
+                    if (debug.label) {
+                        const samples = samplePolyline(chain.skeleton, 3);
+                        const mid = samples.length >= 2 ? samples[Math.floor(samples.length / 2)] : chain.skeleton[Math.floor(chain.skeleton.length / 2)];
+                        if (mid) {
+                            debug.label.setAttribute('x', mid.x.toFixed(2));
+                            debug.label.setAttribute('y', (mid.y - 6).toFixed(2));
+                        }
+                        const orderText = chain.members.map((member) => member.routeId).join(' › ');
+                        debug.label.textContent = `#${chain.id}: ${orderText}`;
+                    }
+                    if (debug.normalsGroup) {
+                        debug.normalsGroup.innerHTML = '';
+                        const tickLength = 6;
+                        for (let i = 0; i < chain.skeleton.length; i++) {
+                            const point = chain.skeleton[i];
+                            const segment = chain.segmentData[Math.min(i, chain.segmentData.length - 1)] ?? null;
+                            const normal = ensureNormal(segment?.normal ?? chain.baseNormal);
+                            const tick = document.createElementNS(svgNS, 'line');
+                            tick.setAttribute('x1', point.x.toFixed(2));
+                            tick.setAttribute('y1', point.y.toFixed(2));
+                            tick.setAttribute('x2', (point.x + normal.x * tickLength).toFixed(2));
+                            tick.setAttribute('y2', (point.y + normal.y * tickLength).toFixed(2));
+                            tick.setAttribute('stroke', '#999999');
+                            tick.setAttribute('stroke-width', '1');
+                            tick.setAttribute('vector-effect', 'non-scaling-stroke');
+                            tick.setAttribute('pointer-events', 'none');
+                            debug.normalsGroup.appendChild(tick);
+                        }
+                    }
+                }
             });
         }
 
@@ -3017,6 +3436,7 @@
             const segments = [];
             let lastNormal = null;
             let lastDir = null;
+            let currentSign = 1;
             for (let i = 0; i < skeleton.length - 1; i++) {
                 const a = skeleton[i];
                 const b = skeleton[i + 1];
@@ -3024,27 +3444,36 @@
                 const dy = b.y - a.y;
                 const length = Math.hypot(dx, dy);
                 if (length < 1e-6) {
-                    segments.push({ dir: { x: 0, y: 0 }, normal: lastNormal ?? baseNormal, length: 0 });
+                    segments.push({ dir: { x: 0, y: 0 }, normal: lastNormal ?? baseNormal, length: 0, sign: currentSign });
                     continue;
                 }
                 const dir = { x: dx / length, y: dy / length };
-                let normal = { x: -dir.y, y: dir.x };
+                let normal = normalizeVector({ x: -dir.y, y: dir.x });
                 if (!lastNormal) {
                     if (dotProduct(normal, baseNormal) < 0) {
                         normal.x *= -1;
                         normal.y *= -1;
+                        currentSign = -1;
+                    } else {
+                        currentSign = 1;
                     }
                 } else {
-                    const dirDot = dotProduct(lastDir, dir);
+                    const dirDot = clamp(dotProduct(lastDir, dir), -1, 1);
                     if (dirDot < -0.999) {
-                        normal = { ...lastNormal };
-                    } else if (dotProduct(lastNormal, normal) < 0) {
+                        currentSign *= -1;
+                    }
+                    normal.x *= currentSign;
+                    normal.y *= currentSign;
+                    if (dotProduct(lastNormal, normal) < 0) {
                         normal.x *= -1;
                         normal.y *= -1;
                     }
                 }
                 const normalized = normalizeVector(normal);
-                segments.push({ dir, normal: normalized, length });
+                if (i === 0) {
+                    chain.baseNormal = normalized;
+                }
+                segments.push({ dir, normal: normalized, length, sign: currentSign });
                 lastNormal = normalized;
                 lastDir = dir;
             }
@@ -3061,23 +3490,20 @@
             for (let i = 0; i < skeleton.length; i++) {
                 const point = skeleton[i];
                 if (i === 0) {
-                    const baseNormal = segments[0]?.normal ?? chain.baseNormal;
-                    const normal = ensureNormal(baseNormal);
-                    result.push({ x: point.x + normal.x * offsetDistance, y: point.y + normal.y * offsetDistance });
+                    const baseNormal = ensureNormal(segments[0]?.normal ?? chain.baseNormal);
+                    result.push({ x: point.x + baseNormal.x * offsetDistance, y: point.y + baseNormal.y * offsetDistance });
                     continue;
                 }
                 if (i === skeleton.length - 1) {
-                    const baseNormal = segments[segments.length - 1]?.normal ?? chain.baseNormal;
-                    const normal = ensureNormal(baseNormal);
-                    result.push({ x: point.x + normal.x * offsetDistance, y: point.y + normal.y * offsetDistance });
+                    const baseNormal = ensureNormal(segments[segments.length - 1]?.normal ?? chain.baseNormal);
+                    result.push({ x: point.x + baseNormal.x * offsetDistance, y: point.y + baseNormal.y * offsetDistance });
                     continue;
                 }
                 const prevSegment = segments[i - 1];
                 const nextSegment = segments[i];
                 if (!prevSegment || !nextSegment) {
-                    const baseNormal = prevSegment?.normal ?? nextSegment?.normal ?? chain.baseNormal;
-                    const normal = ensureNormal(baseNormal);
-                    result.push({ x: point.x + normal.x * offsetDistance, y: point.y + normal.y * offsetDistance });
+                    const baseNormal = ensureNormal(prevSegment?.normal ?? nextSegment?.normal ?? chain.baseNormal);
+                    result.push({ x: point.x + baseNormal.x * offsetDistance, y: point.y + baseNormal.y * offsetDistance });
                     continue;
                 }
                 const dir0 = prevSegment.dir;
@@ -3117,7 +3543,10 @@
                     result.push({ x: point.x + chosen.x * offsetDistance, y: point.y + chosen.y * offsetDistance });
                 }
             }
-            return result;
+            let cleaned = mergeCollinear(result);
+            cleaned = collapseShortSegments(cleaned, SNAP_MIN_SEGMENT_LENGTH);
+            cleaned = mergeCollinear(cleaned);
+            return cleaned;
         }
 
         function findShortInteriorVertex(polylines, minLength) {
@@ -3177,6 +3606,9 @@
                 }
                 if (polylineHasSelfIntersection(poly)) {
                     console.assert(false, `Self-intersection detected on chain ${chain.id} member ${index}`);
+                }
+                if (pathHasShortSegment(poly, SNAP_MIN_SEGMENT_LENGTH - 1e-3)) {
+                    console.assert(false, `Short member segment detected on chain ${chain.id} member ${index}`);
                 }
                 const key = poly.map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join('|');
                 console.assert(!seenPaths.has(key), `Duplicate geometry detected on chain ${chain.id}`);
@@ -3294,41 +3726,65 @@
                     nodeMap.set(edge.end, (nodeMap.get(edge.end) || 0) + 1);
                 }
             }
-            const termini = [];
+            const terminusMap = new Map();
             routeNodeCounts.forEach((nodeMap, routeId) => {
                 nodeMap.forEach((count, nodeId) => {
                     if (count !== 1) {
                         return;
                     }
                     const edge = graph.edges.find((candidate) => candidate.routes.has(routeId) && (candidate.start === nodeId || candidate.end === nodeId));
-                    if (!edge) {
+                    if (!edge || typeof edge.chainId !== 'number') {
                         return;
                     }
                     const chainId = edge.chainId;
-                    let atStart = true;
-                    if (typeof chainId === 'number') {
-                        const chain = state.bundleChains[chainId];
-                        if (chain && Array.isArray(chain.nodes) && chain.nodes.length) {
-                            const firstNode = chain.nodes[0];
-                            const lastNode = chain.nodes[chain.nodes.length - 1];
-                            if (nodeId === lastNode) {
-                                atStart = false;
-                            } else if (nodeId !== firstNode) {
-                                const nodePoint = state.graph.nodes[nodeId];
-                                const startPoint = state.graph.nodes[firstNode];
-                                const endPoint = state.graph.nodes[lastNode];
-                                if (nodePoint && startPoint && endPoint) {
-                                    const distToStart = Math.hypot(nodePoint.x - startPoint.x, nodePoint.y - startPoint.y);
-                                    const distToEnd = Math.hypot(nodePoint.x - endPoint.x, nodePoint.y - endPoint.y);
-                                    atStart = distToStart <= distToEnd;
-                                }
-                            }
+                    const chain = state.bundleChains[chainId];
+                    if (!chain || !Array.isArray(chain.nodes) || chain.nodes.length === 0) {
+                        return;
+                    }
+                    let atStart = null;
+                    const firstNode = chain.nodes[0];
+                    const lastNode = chain.nodes[chain.nodes.length - 1];
+                    if (nodeId === firstNode) {
+                        atStart = true;
+                    } else if (nodeId === lastNode) {
+                        atStart = false;
+                    } else {
+                        const nodePoint = graph.nodes[nodeId];
+                        const startPoint = graph.nodes[firstNode];
+                        const endPoint = graph.nodes[lastNode];
+                        if (nodePoint && startPoint && endPoint) {
+                            const distToStart = Math.hypot(nodePoint.x - startPoint.x, nodePoint.y - startPoint.y);
+                            const distToEnd = Math.hypot(nodePoint.x - endPoint.x, nodePoint.y - endPoint.y);
+                            atStart = distToStart <= distToEnd;
                         }
                     }
-                    termini.push({ routeId, nodeId, chainId, atStart });
+                    if (atStart === null) {
+                        return;
+                    }
+                    const key = `${chainId}:${atStart ? 'start' : 'end'}`;
+                    let entry = terminusMap.get(key);
+                    if (!entry) {
+                        entry = {
+                            chainId,
+                            nodeId,
+                            atStart,
+                            routeIds: new Set()
+                        };
+                        terminusMap.set(key, entry);
+                    }
+                    entry.routeIds.add(String(routeId));
                 });
             });
-            return termini;
+            return Array.from(terminusMap.values()).map((entry) => {
+                const routeIds = Array.from(entry.routeIds).sort((a, b) => a.localeCompare(b));
+                return {
+                    chainId: entry.chainId,
+                    nodeId: entry.nodeId,
+                    atStart: entry.atStart,
+                    routeIds,
+                    routeKey: routeIds.join('|')
+                };
+            });
         }
 
         function updateTermini(unitPerPx) {
