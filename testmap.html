@@ -74,6 +74,9 @@
         inset: 0;
         z-index: 350;
         pointer-events: none;
+        mix-blend-mode: normal;
+        opacity: 1;
+        filter: none;
       }
       html, body {
         height: 100%;
@@ -357,28 +360,69 @@
                 };
               };
 
-          ctx.beginPath();
+          const projectedPoints = [];
           for (let i = 0; i < route.coords.length; i++) {
             const ll = route.coords[i];
+            if (!ll || typeof ll.lat !== 'number' || typeof ll.lng !== 'number') continue;
             const p = toPanePoint(ll.lat, ll.lng);
-            if (i === 0) ctx.moveTo(p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
+            if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+            projectedPoints.push({ x: p.x, y: p.y });
           }
 
-          ctx.lineWidth   = route.width ?? 6;
-          ctx.lineJoin    = 'round';
-          ctx.lineCap     = 'round';
-          ctx.strokeStyle = route.color || '#000';
+          if (projectedPoints.length < 2) return;
 
-          if (route.striped) {
-            ctx.setLineDash([8, 8]);
-            ctx.lineDashOffset = hashPhase(route.id);
-          } else {
-            ctx.setLineDash([]); // solid
-            ctx.lineDashOffset = 0;
+          ctx.save();
+          try {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.filter = 'none';
+
+            const parsedWidth = Number(route.width);
+            const lineWidth = Number.isFinite(parsedWidth) ? parsedWidth : 6;
+            const strokeColor = typeof route.color === 'string' && route.color ? route.color : '#000000';
+            const lineJoin = route.lineJoin || 'round';
+            const lineCap = route.lineCap || 'round';
+
+            ctx.lineWidth = lineWidth;
+            ctx.lineJoin = lineJoin;
+            ctx.lineCap = lineCap;
+            ctx.strokeStyle = strokeColor;
+
+            let dashPattern = [];
+            if (Array.isArray(route.dashPattern)) {
+              dashPattern = route.dashPattern
+                .map(value => Number(value))
+                .filter(value => Number.isFinite(value) && value >= 0);
+            } else if (Array.isArray(route.lineDash)) {
+              dashPattern = route.lineDash
+                .map(value => Number(value))
+                .filter(value => Number.isFinite(value) && value >= 0);
+            } else if (route.striped) {
+              dashPattern = [8, 8];
+            }
+
+            const hasDash = dashPattern.length > 0;
+            const parsedOffset = Number(route.dashOffset);
+            const dashOffset = hasDash
+              ? (Number.isFinite(parsedOffset) ? parsedOffset : hashPhase(route.id))
+              : 0;
+
+            ctx.setLineDash(dashPattern);
+            ctx.lineDashOffset = dashOffset;
+
+            ctx.beginPath();
+            for (let i = 0; i < projectedPoints.length; i++) {
+              const point = projectedPoints[i];
+              if (i === 0) ctx.moveTo(point.x, point.y);
+              else ctx.lineTo(point.x, point.y);
+            }
+
+            ctx.stroke();
+          } finally {
+            ctx.restore();
           }
-
-          ctx.stroke();
         }
 
         function drawFrame() {
@@ -405,8 +449,25 @@
           resizeCanvas();
         }
 
+        function cloneRouteDefinition(route) {
+          if (!route) return null;
+          const { coords, ...rest } = route;
+          const clonedCoords = Array.isArray(coords)
+            ? coords.map(point => {
+                if (!point) return null;
+                const lat = typeof point.lat === 'number' ? point.lat : Number(point.lat);
+                const lng = typeof point.lng === 'number' ? point.lng : Number(point.lng);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+                return { lat, lng };
+              }).filter(Boolean)
+            : [];
+          return { ...rest, coords: clonedCoords };
+        }
+
         function setRoutesInternal(list) {
-          routesToRender = Array.isArray(list) ? list : [];
+          routesToRender = Array.isArray(list)
+            ? list.map(route => cloneRouteDefinition(route)).filter(Boolean)
+            : [];
           attachListenersOnce();
           if (!ensureCanvas()) return;
           resizeCanvas();
@@ -1763,6 +1824,7 @@
         }
 
         const routes = [];
+        let sequenceCounter = 0;
         const { overlaps, nonOverlap } = visualization;
 
         if (Array.isArray(nonOverlap)) {
@@ -1778,12 +1840,15 @@
               })
               .filter(Boolean);
             if (coords.length < 2) return;
+            const sortKey = segment.routeId != null ? segment.routeId : `segment-${index}`;
             routes.push({
               id: `solid-${segment.routeId ?? index}-${index}`,
               color: segment.color || '#000000',
               width: 6,
               striped: false,
-              coords
+              coords,
+              routeSortKey: sortKey,
+              segmentSequence: sequenceCounter++
             });
           });
         }
@@ -1804,21 +1869,53 @@
             const normalized = section.normalizedColorInfos || normalizeColorInfos(section.colorInfos);
             if (!Array.isArray(normalized) || !normalized.length) return;
             section.normalizedColorInfos = normalized;
-            normalized.forEach(info => {
+            normalized.forEach((info, infoIndex) => {
               if (!info) return;
               const routeId = info.routeId != null ? info.routeId : `${info.color || 'route'}-${sectionIndex}`;
+              const sortKey = info.routeId != null ? info.routeId : `overlap-${sectionIndex}-${info.color || infoIndex}`;
               routes.push({
                 id: String(routeId),
                 color: info.color || '#000000',
                 width: 6,
                 striped: true,
-                coords
+                coords,
+                routeSortKey: sortKey,
+                segmentSequence: sequenceCounter++,
+                stripeRank: infoIndex
               });
             });
           });
         }
 
-        RouteCanvas.setRoutes(routes);
+        const sortedRoutes = routes
+          .map(route => ({ ...route }))
+          .sort((a, b) => {
+            const keyA = a.routeSortKey;
+            const keyB = b.routeSortKey;
+            if (typeof keyA === 'number' && typeof keyB === 'number') {
+              if (keyA !== keyB) return keyA - keyB;
+            } else {
+              const strA = String(keyA);
+              const strB = String(keyB);
+              if (strA !== strB) return strA.localeCompare(strB);
+            }
+
+            if (a.striped !== b.striped) {
+              return a.striped ? 1 : -1;
+            }
+
+            if (typeof a.stripeRank === 'number' && typeof b.stripeRank === 'number' && a.stripeRank !== b.stripeRank) {
+              return a.stripeRank - b.stripeRank;
+            }
+
+            return (a.segmentSequence ?? 0) - (b.segmentSequence ?? 0);
+          })
+          .map(route => {
+            const { routeSortKey, segmentSequence, stripeRank, ...rest } = route;
+            return rest;
+          });
+
+        RouteCanvas.setRoutes(sortedRoutes);
         stopMarkers.forEach(marker => marker.bringToFront());
       }
 
