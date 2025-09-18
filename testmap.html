@@ -1011,6 +1011,13 @@
               if (!segment.sharedRoutes || segment.sharedRoutes.length === 0) return;
               if (segment.primaryRoute !== routeId) {
                 if (currentGroup) {
+                  const boundaryLatLng = segment?.start?.latlng;
+                  if (boundaryLatLng) {
+                    const lastPoint = currentGroup.points[currentGroup.points.length - 1];
+                    if (!this.latLngEquals(lastPoint, boundaryLatLng)) {
+                      currentGroup.points.push(boundaryLatLng);
+                    }
+                  }
                   groups.push(currentGroup);
                   currentGroup = null;
                   lastKey = null;
