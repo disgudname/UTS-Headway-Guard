@@ -975,6 +975,33 @@
           const tree = new RBush();
           tree.load(treeItems);
 
+          const ensureOffsetStore = segment => {
+            if (!segment) return null;
+            if (!segment.routeOffsets || typeof segment.routeOffsets !== 'object') {
+              segment.routeOffsets = {};
+            }
+            return segment.routeOffsets;
+          };
+
+          const addOffsetFromSegment = (store, routeId, sourceSegment) => {
+            if (!store || routeId === undefined || routeId === null) return;
+            const key = String(routeId);
+            let min = Infinity;
+            const startCum = Number(sourceSegment?.start?.cumulativeLength);
+            const endCum = Number(sourceSegment?.end?.cumulativeLength);
+            if (Number.isFinite(startCum)) {
+              min = Math.min(min, startCum);
+            }
+            if (Number.isFinite(endCum)) {
+              min = Math.min(min, endCum);
+            }
+            if (!Number.isFinite(min)) return;
+            const existing = store[key];
+            if (!existing || !Number.isFinite(existing.min) || min < existing.min) {
+              store[key] = { min };
+            }
+          };
+
           allSegments.forEach(segment => {
             const searchBounds = {
               minX: segment.bounds.minX - tolerance,
@@ -984,12 +1011,17 @@
             };
             const candidates = tree.search(searchBounds) || [];
             const sharedRoutes = new Set([segment.routeId]);
+            const segmentOffsets = ensureOffsetStore(segment);
+            addOffsetFromSegment(segmentOffsets, segment.routeId, segment);
 
             candidates.forEach(candidate => {
               const other = candidate.segment;
               if (!other || other === segment) return;
               if (this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) {
                 sharedRoutes.add(other.routeId);
+                const otherOffsets = ensureOffsetStore(other);
+                addOffsetFromSegment(segmentOffsets, other.routeId, other);
+                addOffsetFromSegment(otherOffsets, segment.routeId, segment);
               }
             });
 
@@ -1051,6 +1083,20 @@
             const endNode = this.getOrCreateNode(endLatLng, nodeBuckets, nodes);
             if (!startNode || !endNode || startNode === endNode) return;
 
+            const routeOffsets = new Map();
+            if (segment.routeOffsets && typeof segment.routeOffsets === 'object') {
+              Object.entries(segment.routeOffsets).forEach(([routeKey, info]) => {
+                const routeNumeric = Number(routeKey);
+                const minVal = Number(info?.min ?? info);
+                if (Number.isFinite(routeNumeric) && Number.isFinite(minVal)) {
+                  const existing = routeOffsets.get(routeNumeric);
+                  if (!Number.isFinite(existing) || minVal < existing) {
+                    routeOffsets.set(routeNumeric, minVal);
+                  }
+                }
+              });
+            }
+
             const edge = {
               startNode,
               endNode,
@@ -1058,7 +1104,8 @@
               lengthPx,
               startCumulative: segment?.start?.cumulativeLength,
               endCumulative: segment?.end?.cumulativeLength,
-              used: false
+              used: false,
+              routeOffsets
             };
 
             startNode.edges.push(edge);
@@ -1077,6 +1124,7 @@
             let totalLength = 0;
             let minCumulative = Infinity;
             let currentNode = startNode;
+            const groupRouteOffsets = new Map();
 
             this.pushLatLng(pathPoints, currentNode.latlng);
 
@@ -1103,6 +1151,17 @@
                 minCumulative = Math.min(minCumulative, edgeMin);
               }
 
+              if (nextEdge.routeOffsets instanceof Map) {
+                nextEdge.routeOffsets.forEach((value, routeId) => {
+                  const numericValue = Number(value);
+                  if (!Number.isFinite(routeId) || !Number.isFinite(numericValue)) return;
+                  const existing = groupRouteOffsets.get(routeId);
+                  if (!Number.isFinite(existing) || numericValue < existing) {
+                    groupRouteOffsets.set(routeId, numericValue);
+                  }
+                });
+              }
+
               currentNode = nextNode;
             }
 
@@ -1112,7 +1171,8 @@
                 routes: Array.isArray(routes) ? routes.slice() : [],
                 points: pathPoints,
                 lengthPx: totalLength,
-                offsetPx: Number.isFinite(minCumulative) ? minCumulative : 0
+                offsetPx: Number.isFinite(minCumulative) ? minCumulative : 0,
+                routeOffsets: groupRouteOffsets
               });
             }
           };
@@ -1196,6 +1256,30 @@
 
             const coords = group.points.map(latlng => [latlng.lat, latlng.lng]);
             const sortedRoutes = group.routes.slice().sort((a, b) => a - b);
+            const offsetsByRoute = new Map();
+            if (group.routeOffsets instanceof Map) {
+              group.routeOffsets.forEach((value, routeId) => {
+                const numericRoute = Number(routeId);
+                const numericValue = Number(value);
+                if (Number.isFinite(numericRoute) && Number.isFinite(numericValue)) {
+                  const existing = offsetsByRoute.get(numericRoute);
+                  if (!Number.isFinite(existing) || numericValue < existing) {
+                    offsetsByRoute.set(numericRoute, numericValue);
+                  }
+                }
+              });
+            } else if (group.routeOffsets && typeof group.routeOffsets === 'object') {
+              Object.entries(group.routeOffsets).forEach(([routeKey, info]) => {
+                const numericRoute = Number(routeKey);
+                const numericValue = Number(info?.min ?? info);
+                if (Number.isFinite(numericRoute) && Number.isFinite(numericValue)) {
+                  const existing = offsetsByRoute.get(numericRoute);
+                  if (!Number.isFinite(existing) || numericValue < existing) {
+                    offsetsByRoute.set(numericRoute, numericValue);
+                  }
+                }
+              });
+            }
 
             if (sortedRoutes.length === 1) {
               const routeId = sortedRoutes[0];
@@ -1222,13 +1306,45 @@
             }
             const gapLength = dashLength * (stripeCount - 1);
             const patternLength = dashLength + gapLength;
-            const rawOffset = group.offsetPx || 0;
-            const baseOffset = patternLength > 0
-              ? ((rawOffset % patternLength) + patternLength) % patternLength
-              : 0;
+            let baseOffsetValue;
+            const tolerance = 1e-9;
+            let anchorRouteId = null;
+            let anchorOffset = -Infinity;
+            sortedRoutes.forEach(routeId => {
+              const offsetValue = offsetsByRoute.get(routeId);
+              if (Number.isFinite(offsetValue)) {
+                if (
+                  anchorRouteId === null ||
+                  offsetValue > anchorOffset + tolerance ||
+                  (Math.abs(offsetValue - anchorOffset) <= tolerance && routeId < anchorRouteId)
+                ) {
+                  anchorRouteId = routeId;
+                  anchorOffset = offsetValue;
+                }
+              }
+            });
+
+            if (anchorRouteId !== null && Number.isFinite(anchorOffset)) {
+              const anchorIndex = sortedRoutes.indexOf(anchorRouteId);
+              baseOffsetValue = anchorOffset - dashLength * anchorIndex;
+            } else {
+              const rawOffset = Number(group.offsetPx);
+              baseOffsetValue = Number.isFinite(rawOffset) ? rawOffset : 0;
+            }
 
             sortedRoutes.forEach((routeId, index) => {
-              const dashOffsetValue = baseOffset + dashLength * index;
+              let dashOffsetValue = baseOffsetValue + dashLength * index;
+              if (patternLength > 0) {
+                const targetOffset = offsetsByRoute.get(routeId);
+                if (Number.isFinite(targetOffset)) {
+                  const diff = targetOffset - dashOffsetValue;
+                  const adjustment = Math.round(diff / patternLength);
+                  if (Number.isFinite(adjustment) && adjustment !== 0) {
+                    dashOffsetValue += adjustment * patternLength;
+                  }
+                }
+                dashOffsetValue = ((dashOffsetValue % patternLength) + patternLength) % patternLength;
+              }
               const layer = L.polyline(coords, {
                 color: getRouteColor(routeId),
                 weight,
@@ -1328,6 +1444,15 @@
             };
             const midpoint = L.point((start.point.x + end.point.x) / 2, (start.point.y + end.point.y) / 2);
             const heading = Math.atan2(end.point.y - start.point.y, end.point.x - start.point.x);
+            const offsetValues = [];
+            const startCum = Number.isFinite(start?.cumulativeLength) ? start.cumulativeLength : null;
+            const endCum = Number.isFinite(end?.cumulativeLength) ? end.cumulativeLength : null;
+            if (Number.isFinite(startCum)) offsetValues.push(startCum);
+            if (Number.isFinite(endCum)) offsetValues.push(endCum);
+            const routeOffsets = {};
+            if (offsetValues.length > 0) {
+              routeOffsets[routeId] = { min: Math.min(...offsetValues) };
+            }
             segments.push({
               routeId,
               start,
@@ -1335,7 +1460,8 @@
               lengthPx,
               bounds,
               midpoint,
-              heading
+              heading,
+              routeOffsets
             });
           }
 
