@@ -287,6 +287,7 @@
             stopGroups: [],
             viewBox: null,
             baseViewBox: null,
+            bundleChains: [],
             routePaths: [],
             routePathLookup: new Map(),
             stopElements: [],
@@ -305,7 +306,9 @@
                 state.graph = buildGraph(routes);
                 normalizeGraphRouteMembership(state.graph);
                 snapOctilinear(state.graph);
-                alignStopsToGraph(state.stopGroups, state.graph);
+                state.bundleChains = buildBundleChains(state.graph);
+                cleanChainIntersections(state.graph, state.bundleChains);
+                alignStopsToChains(state.stopGroups, state.bundleChains);
 
                 render();
             } catch (error) {
@@ -1929,6 +1932,507 @@
             }
         }
 
+        function computeEdgeRouteKey(edge) {
+            if (!edge) {
+                return '';
+            }
+            if (edge.routeKey) {
+                return edge.routeKey;
+            }
+            const values = edge.routes instanceof Set ? Array.from(edge.routes) : Array.from(edge.routes || []);
+            const canonical = values.map((value) => String(value)).sort((a, b) => a.localeCompare(b));
+            const key = canonical.join('|');
+            edge.routeKey = key;
+            edge.routeOrder = canonical;
+            return key;
+        }
+
+        function buildBundleChains(graph) {
+            if (!graph || !Array.isArray(graph.edges) || !Array.isArray(graph.nodes)) {
+                return [];
+            }
+            const chains = [];
+            const visited = new Set();
+            const nodes = graph.nodes;
+            const edges = graph.edges;
+
+            function getSameRouteNeighbors(nodeId, routeKey, excludeEdgeId) {
+                const node = nodes[nodeId];
+                if (!node || !Array.isArray(node.edges)) {
+                    return [];
+                }
+                const neighbors = [];
+                for (const edgeId of node.edges) {
+                    if (edgeId === excludeEdgeId) {
+                        continue;
+                    }
+                    const candidate = edges[edgeId];
+                    if (!candidate) {
+                        continue;
+                    }
+                    if (computeEdgeRouteKey(candidate) === routeKey) {
+                        neighbors.push(edgeId);
+                    }
+                }
+                return neighbors;
+            }
+
+            function extendDirection(startNode, incomingEdgeId, routeKey, seenEdges) {
+                const entries = [];
+                let currentNode = startNode;
+                let previousEdgeId = incomingEdgeId;
+                const safety = new Set();
+                while (true) {
+                    const neighbors = getSameRouteNeighbors(currentNode, routeKey, previousEdgeId);
+                    if (neighbors.length !== 1) {
+                        break;
+                    }
+                    const nextEdgeId = neighbors[0];
+                    if (seenEdges.has(nextEdgeId)) {
+                        break;
+                    }
+                    const nextEdge = edges[nextEdgeId];
+                    if (!nextEdge) {
+                        break;
+                    }
+                    seenEdges.add(nextEdgeId);
+                    const nextNode = nextEdge.start === currentNode ? nextEdge.end : nextEdge.start;
+                    const reversed = nextEdge.end === currentNode;
+                    entries.push({ edgeId: nextEdgeId, reversed, from: currentNode, to: nextNode });
+                    previousEdgeId = nextEdgeId;
+                    currentNode = nextNode;
+                    const safetyKey = `${currentNode}-${previousEdgeId}`;
+                    if (safety.has(safetyKey)) {
+                        break;
+                    }
+                    safety.add(safetyKey);
+                }
+                return { entries, terminalNode: currentNode };
+            }
+
+            for (const edge of edges) {
+                if (!edge || visited.has(edge.id)) {
+                    continue;
+                }
+                const routeKey = computeEdgeRouteKey(edge);
+                if (!routeKey) {
+                    continue;
+                }
+                const seenEdges = new Set([edge.id]);
+                const backward = extendDirection(edge.start, edge.id, routeKey, seenEdges);
+                const forward = extendDirection(edge.end, edge.id, routeKey, seenEdges);
+
+                const ordered = [];
+                for (let i = backward.entries.length - 1; i >= 0; i--) {
+                    const entry = backward.entries[i];
+                    ordered.push({ edgeId: entry.edgeId, reversed: !entry.reversed });
+                }
+                ordered.push({ edgeId: edge.id, reversed: false });
+                for (const entry of forward.entries) {
+                    ordered.push({ edgeId: entry.edgeId, reversed: entry.reversed });
+                }
+
+                const nodesSequence = [];
+                const skeletonPoints = [];
+                for (let index = 0; index < ordered.length; index++) {
+                    const ref = ordered[index];
+                    const refEdge = edges[ref.edgeId];
+                    if (!refEdge || !Array.isArray(refEdge.snapped) || refEdge.snapped.length < 2) {
+                        continue;
+                    }
+                    const polyline = ref.reversed ? refEdge.snapped.slice().reverse() : refEdge.snapped;
+                    const startNodeId = ref.reversed ? refEdge.end : refEdge.start;
+                    const endNodeId = ref.reversed ? refEdge.start : refEdge.end;
+                    if (!nodesSequence.length) {
+                        nodesSequence.push(startNodeId);
+                    }
+                    nodesSequence.push(endNodeId);
+
+                    for (let i = 0; i < polyline.length; i++) {
+                        const point = polyline[i];
+                        if (!skeletonPoints.length) {
+                            skeletonPoints.push(clonePoint(point));
+                            continue;
+                        }
+                        const last = skeletonPoints[skeletonPoints.length - 1];
+                        if (distanceSquared(last, point) < 1e-6) {
+                            continue;
+                        }
+                        skeletonPoints.push(clonePoint(point));
+                    }
+                }
+
+                let skeleton = mergeCollinear(skeletonPoints);
+                skeleton = collapseShortSegments(skeleton, SNAP_MIN_SEGMENT_LENGTH);
+                skeleton = mergeCollinear(skeleton);
+
+                const routeIds = Array.from(edge.routes instanceof Set ? edge.routes : new Set(edge.routes || []), (value) => String(value))
+                    .sort((a, b) => a.localeCompare(b));
+
+                const members = routeIds.map((routeId) => {
+                    const meta = state.routeMeta.get(routeId) || {
+                        id: routeId,
+                        name: `Route ${routeId}`,
+                        color: '#000000',
+                        componentRouteIds: [],
+                        groupKey: routeId
+                    };
+                    return {
+                        routeId,
+                        meta,
+                        name: meta.name || `Route ${routeId}`,
+                        color: meta.color || '#000000'
+                    };
+                });
+
+                members.sort((a, b) => {
+                    const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+                    if (nameCompare !== 0) {
+                        return nameCompare;
+                    }
+                    const colorCompare = a.color.localeCompare(b.color, undefined, { sensitivity: 'base' });
+                    if (colorCompare !== 0) {
+                        return colorCompare;
+                    }
+                    return String(a.routeId).localeCompare(String(b.routeId));
+                });
+
+                const chainId = chains.length;
+                const baseNormal = computeInitialChainNormal(skeleton);
+                const chain = {
+                    id: chainId,
+                    routeKey,
+                    routeIds,
+                    routeSet: new Set(routeIds),
+                    edges: ordered,
+                    nodes: nodesSequence,
+                    skeleton,
+                    members,
+                    baseNormal,
+                    segmentData: [],
+                    casingElement: null,
+                    groupElement: null
+                };
+
+                chains.push(chain);
+
+                for (const ref of ordered) {
+                    visited.add(ref.edgeId);
+                    const mappedEdge = edges[ref.edgeId];
+                    if (mappedEdge) {
+                        mappedEdge.chainId = chainId;
+                    }
+                }
+            }
+
+            const missing = [];
+            for (const edge of graph.edges) {
+                if (!edge) {
+                    continue;
+                }
+                if (!visited.has(edge.id)) {
+                    missing.push(edge.id);
+                }
+            }
+            console.assert(missing.length === 0, `Edges without chain assignment: ${missing.join(', ')}`);
+            return chains;
+        }
+
+        function cleanChainIntersections(graph, chains) {
+            if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(chains)) {
+                return;
+            }
+
+            const nodeToEntries = new Map();
+            for (const chain of chains) {
+                if (!chain || !Array.isArray(chain.nodes)) {
+                    continue;
+                }
+                for (let i = 0; i < chain.nodes.length; i++) {
+                    const nodeId = chain.nodes[i];
+                    if (typeof nodeId !== 'number' || !Number.isFinite(nodeId)) {
+                        continue;
+                    }
+                    let bucket = nodeToEntries.get(nodeId);
+                    if (!bucket) {
+                        bucket = [];
+                        nodeToEntries.set(nodeId, bucket);
+                    }
+                    bucket.push({ chain, nodeIndex: i });
+                }
+            }
+
+            const processed = new Set();
+            nodeToEntries.forEach((entries, nodeId) => {
+                if (!Array.isArray(entries) || entries.length < 2) {
+                    return;
+                }
+
+                const branchEntries = entries.filter((entry) => {
+                    const chain = entry.chain;
+                    if (!chain || !Array.isArray(chain.nodes) || chain.nodes.length < 2) {
+                        return false;
+                    }
+                    return entry.nodeIndex === 0 || entry.nodeIndex === chain.nodes.length - 1;
+                });
+
+                const throughEntries = entries.filter((entry) => {
+                    const chain = entry.chain;
+                    if (!chain || !Array.isArray(chain.nodes) || chain.nodes.length < 3) {
+                        return false;
+                    }
+                    return entry.nodeIndex > 0 && entry.nodeIndex < chain.nodes.length - 1;
+                });
+
+                if (!branchEntries.length || !throughEntries.length) {
+                    return;
+                }
+
+                for (const branchEntry of branchEntries) {
+                    const key = `${branchEntry.chain.id}:${nodeId}`;
+                    if (processed.has(key)) {
+                        continue;
+                    }
+
+                    const throughEntry = selectThroughCandidate(branchEntry.chain, throughEntries);
+                    if (!throughEntry) {
+                        continue;
+                    }
+
+                    const branchRoutes = branchEntry.chain?.routeSet;
+                    const throughRoutes = throughEntry.chain?.routeSet;
+                    if (branchRoutes && throughRoutes && setsEqual(branchRoutes, throughRoutes)) {
+                        continue;
+                    }
+
+                    if (adjustBranchAndThroughAtJunction(branchEntry, throughEntry)) {
+                        processed.add(key);
+                    }
+                }
+            });
+        }
+
+        function selectThroughCandidate(branchChain, candidates) {
+            if (!branchChain || !Array.isArray(candidates) || !candidates.length) {
+                return null;
+            }
+            let best = null;
+            let bestScore = -Infinity;
+            const branchRoutes = branchChain.routeSet;
+            const branchRouteCount = Array.isArray(branchChain.routeIds)
+                ? branchChain.routeIds.length
+                : branchRoutes?.size ?? 0;
+            for (const entry of candidates) {
+                const chain = entry.chain;
+                if (!chain) {
+                    continue;
+                }
+                const throughRoutes = chain.routeSet;
+                const intersection = countSetIntersection(branchRoutes, throughRoutes);
+                const subsetBonus = isSubset(branchRoutes, throughRoutes) ? 1000 : 0;
+                const throughRouteCount = Array.isArray(chain.routeIds)
+                    ? chain.routeIds.length
+                    : throughRoutes?.size ?? 0;
+                const sizePenalty = Math.abs(throughRouteCount - branchRouteCount) * 0.01;
+                const score = subsetBonus + intersection - sizePenalty;
+                if (!best || score > bestScore || (score === bestScore && chain.id < best.chain.id)) {
+                    best = entry;
+                    bestScore = score;
+                }
+            }
+            return best;
+        }
+
+        function countSetIntersection(a, b) {
+            if (!a || !b) {
+                return 0;
+            }
+            let count = 0;
+            a.forEach((value) => {
+                if (b.has(value)) {
+                    count++;
+                }
+            });
+            return count;
+        }
+
+        function isSubset(a, b) {
+            if (!a || !b) {
+                return false;
+            }
+            for (const value of a) {
+                if (!b.has(value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function setsEqual(a, b) {
+            if (a === b) {
+                return true;
+            }
+            if (!a || !b || a.size !== b.size) {
+                return false;
+            }
+            for (const value of a) {
+                if (!b.has(value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function adjustBranchAndThroughAtJunction(branchEntry, throughEntry) {
+            const branchChain = branchEntry?.chain;
+            const throughChain = throughEntry?.chain;
+            if (!branchChain || !throughChain) {
+                return false;
+            }
+            const branchSkeleton = branchChain.skeleton;
+            const throughSkeleton = throughChain.skeleton;
+            if (!Array.isArray(branchSkeleton) || branchSkeleton.length < 2) {
+                return false;
+            }
+            if (!Array.isArray(throughSkeleton) || throughSkeleton.length < 2) {
+                return false;
+            }
+
+            const branchIsStart = branchEntry.nodeIndex === 0;
+            const branchPointIndex = branchIsStart ? 0 : branchSkeleton.length - 1;
+            const neighborIndex = branchIsStart ? 1 : branchSkeleton.length - 2;
+            if (neighborIndex < 0 || neighborIndex >= branchSkeleton.length || neighborIndex === branchPointIndex) {
+                return false;
+            }
+            const branchNeighbor = branchSkeleton[neighborIndex];
+            const branchPoint = branchSkeleton[branchPointIndex];
+            if (!branchNeighbor || !branchPoint) {
+                return false;
+            }
+
+            const projection = closestPointOnPolyline(branchPoint, throughSkeleton);
+            if (!projection || typeof projection.segmentIndex !== 'number') {
+                return false;
+            }
+            const segmentIndex = projection.segmentIndex;
+            if (segmentIndex < 0 || segmentIndex >= throughSkeleton.length - 1) {
+                return false;
+            }
+
+            const start = throughSkeleton[segmentIndex];
+            const end = throughSkeleton[segmentIndex + 1];
+            if (!start || !end) {
+                return false;
+            }
+
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const segmentLength = Math.hypot(dx, dy);
+            if (segmentLength < 1e-3) {
+                return false;
+            }
+
+            const minLeg = SNAP_MIN_SEGMENT_LENGTH;
+            if (segmentLength < minLeg * 2 - 1e-3) {
+                return false;
+            }
+
+            let t = typeof projection.t === 'number' ? projection.t : 0.5;
+            t = clamp(t, 0, 1);
+            const minT = minLeg / segmentLength;
+            const maxT = 1 - minT;
+            if (minT >= maxT) {
+                return false;
+            }
+            t = clamp(t, minT, maxT);
+
+            const junctionPoint = {
+                x: start.x + dx * t,
+                y: start.y + dy * t
+            };
+
+            const branchLength = Math.hypot(junctionPoint.x - branchNeighbor.x, junctionPoint.y - branchNeighbor.y);
+            if (branchLength < minLeg * 0.5) {
+                return false;
+            }
+
+            const startDistance = Math.hypot(junctionPoint.x - start.x, junctionPoint.y - start.y);
+            const endDistance = Math.hypot(junctionPoint.x - end.x, junctionPoint.y - end.y);
+            if (startDistance < minLeg - 1e-3 || endDistance < minLeg - 1e-3) {
+                return false;
+            }
+
+            const existingIndex = findPointIndex(throughSkeleton, junctionPoint, 0.75);
+            if (existingIndex >= 0) {
+                throughSkeleton[existingIndex] = { x: junctionPoint.x, y: junctionPoint.y };
+            } else {
+                throughSkeleton.splice(segmentIndex + 1, 0, { x: junctionPoint.x, y: junctionPoint.y });
+            }
+
+            branchSkeleton[branchPointIndex] = { x: junctionPoint.x, y: junctionPoint.y };
+
+            branchChain.baseNormal = null;
+            branchChain.segmentData = [];
+            throughChain.baseNormal = null;
+            throughChain.segmentData = [];
+
+            return true;
+        }
+
+        function findPointIndex(points, target, tolerance = 1e-3) {
+            if (!Array.isArray(points)) {
+                return -1;
+            }
+            const tol = Math.max(tolerance, 1e-6);
+            const tolSq = tol * tol;
+            for (let i = 0; i < points.length; i++) {
+                const point = points[i];
+                if (!point) {
+                    continue;
+                }
+                if (distanceSquared(point, target) <= tolSq) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        function computeInitialChainNormal(points) {
+            if (!Array.isArray(points) || points.length < 2) {
+                return { x: 0, y: -1 };
+            }
+            for (let i = 0; i < points.length - 1; i++) {
+                const a = points[i];
+                const b = points[i + 1];
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const length = Math.hypot(dx, dy);
+                if (length >= SNAP_MIN_SEGMENT_LENGTH * 0.5) {
+                    return normalizeVector({ x: -dy / length, y: dx / length });
+                }
+            }
+            const first = points[0];
+            const last = points[points.length - 1];
+            const dx = last.x - first.x;
+            const dy = last.y - first.y;
+            const length = Math.hypot(dx, dy);
+            if (length > 1e-6) {
+                return normalizeVector({ x: -dy / length, y: dx / length });
+            }
+            return { x: 0, y: -1 };
+        }
+
+        function normalizeVector(vector) {
+            if (!vector) {
+                return { x: 0, y: 0 };
+            }
+            const length = Math.hypot(vector.x, vector.y);
+            if (length < 1e-6) {
+                return { x: 0, y: 0 };
+            }
+            return { x: vector.x / length, y: vector.y / length };
+        }
+
         function computeOctilinearPath(start, end) {
             if (!start || !end) {
                 return [];
@@ -2105,34 +2609,35 @@
             return Math.abs(dx - dy) < tolerance;
         }
 
-        function alignStopsToGraph(stopGroups, graph) {
+        function alignStopsToChains(stopGroups, chains) {
+            if (!Array.isArray(stopGroups) || !Array.isArray(chains)) {
+                return;
+            }
             for (const group of stopGroups) {
                 let best = null;
-                for (const edge of graph.edges) {
-                    if (!intersectsRouteSet(edge.routes, group.routeIds)) {
+                for (const chain of chains) {
+                    if (!chain || !Array.isArray(chain.skeleton) || chain.skeleton.length < 2) {
                         continue;
                     }
-                    const projection = closestPointOnPolyline(group.original, edge.snapped);
+                    const routeMatch = Array.isArray(group.routeIds)
+                        ? group.routeIds.some((routeId) => chain.routeSet.has(String(routeId)))
+                        : false;
+                    if (!routeMatch) {
+                        continue;
+                    }
+                    const projection = closestPointOnPolyline(group.original, chain.skeleton);
                     if (projection && (best === null || projection.distanceSq < best.distanceSq)) {
-                        best = { ...projection, edgeId: edge.id };
+                        best = { ...projection, chainId: chain.id };
                     }
                 }
                 if (best) {
                     group.position = best.point;
-                    group.edgeId = best.edgeId;
+                    group.chainId = best.chainId;
                 } else {
                     group.position = clonePoint(group.original);
+                    group.chainId = null;
                 }
             }
-        }
-
-        function intersectsRouteSet(edgeRoutes, routeIds) {
-            for (const routeId of routeIds) {
-                if (edgeRoutes.has(routeId)) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         function closestPointOnPolyline(point, polyline) {
@@ -2183,27 +2688,21 @@
             stopsGroup.innerHTML = '';
             terminiGroup.innerHTML = '';
 
-            const usedRouteIds = new Set();
-            const edgeRouteEntries = new Map();
-            for (const edge of state.graph.edges) {
-                const entryMap = new Map();
-                if (edge.routes && typeof edge.routes[Symbol.iterator] === 'function') {
-                    for (const routeId of edge.routes) {
-                        const info = getCanonicalRouteInfo(routeId);
-                        if (!entryMap.has(info.groupKey)) {
-                            entryMap.set(info.groupKey, info);
-                        }
-                    }
-                }
-                const uniqueEntries = Array.from(entryMap.values()).sort((a, b) => {
-                    const nameA = a.meta?.name ?? `Route ${a.routeId}`;
-                    const nameB = b.meta?.name ?? `Route ${b.routeId}`;
-                    return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
-                });
-                edgeRouteEntries.set(edge.id, uniqueEntries);
-                edge.routes = new Set(uniqueEntries.map((info) => info.routeId));
-                uniqueEntries.forEach((info) => usedRouteIds.add(info.routeId));
+            let chains;
+            if (Array.isArray(state.bundleChains) && state.bundleChains.length) {
+                chains = state.bundleChains;
+            } else {
+                chains = buildBundleChains(state.graph);
+                cleanChainIntersections(state.graph, chains);
+                alignStopsToChains(state.stopGroups, chains);
+                state.bundleChains = chains;
             }
+            const sortedChains = [...chains].sort((a, b) => a.id - b.id);
+
+            const usedRouteIds = new Set();
+            sortedChains.forEach((chain) => {
+                chain.routeIds.forEach((routeId) => usedRouteIds.add(routeId));
+            });
 
             renderLegend(usedRouteIds);
 
@@ -2224,63 +2723,51 @@
             state.routePaths = [];
             state.routePathLookup.clear();
 
-            for (const edge of state.graph.edges) {
-                if (!edge.snapped || edge.snapped.length < 2) {
-                    continue;
-                }
-                const entries = edgeRouteEntries.get(edge.id) || [];
-                if (!entries.length) {
-                    continue;
-                }
-                const centerline = edge.snapped.map(clonePoint);
-                const bundleCount = entries.length;
-                entries.forEach((entry, index) => {
-                    const meta = entry.meta ?? state.routeMeta.get(entry.routeId) ?? {
-                        id: entry.routeId,
-                        name: `Route ${entry.routeId}`,
-                        color: '#000000',
-                        componentRouteIds: [],
-                        groupKey: entry.groupKey
-                    };
-                    if (!state.routeMeta.has(entry.routeId)) {
-                        state.routeMeta.set(entry.routeId, meta);
-                    } else {
-                        const existingMeta = state.routeMeta.get(entry.routeId);
-                        if (existingMeta && !existingMeta.groupKey) {
-                            existingMeta.groupKey = entry.groupKey;
-                        }
-                    }
+            const chainFragment = document.createDocumentFragment();
+            sortedChains.forEach((chain) => {
+                const groupEl = document.createElementNS(svgNS, 'g');
+                groupEl.classList.add('bundle-chain');
+                groupEl.dataset.chain = String(chain.id);
+
+                const casing = document.createElementNS(svgNS, 'path');
+                casing.classList.add('bundle-casing');
+                casing.setAttribute('fill', 'none');
+                casing.setAttribute('stroke', '#ffffff');
+                casing.setAttribute('stroke-width', ROUTE_LINE_WIDTH_PX + 2 * ROUTE_GAP_PX);
+                casing.setAttribute('vector-effect', 'non-scaling-stroke');
+                casing.setAttribute('stroke-linecap', 'round');
+                casing.setAttribute('stroke-linejoin', 'round');
+                groupEl.appendChild(casing);
+                chain.casingElement = casing;
+                chain.groupElement = groupEl;
+
+                chain.members.forEach((member, index) => {
                     const pathEl = document.createElementNS(svgNS, 'path');
                     pathEl.classList.add('route-path');
-                    pathEl.dataset.route = String(entry.routeId);
-                    pathEl.dataset.edge = String(edge.id);
-                    pathEl.dataset.groupKey = String(entry.groupKey);
-                    pathEl.setAttribute('stroke', meta.color || '#000000');
+                    pathEl.dataset.route = String(member.routeId);
+                    pathEl.dataset.chain = String(chain.id);
+                    pathEl.setAttribute('stroke', member.color);
                     pathEl.setAttribute('stroke-width', ROUTE_LINE_WIDTH_PX);
                     pathEl.setAttribute('vector-effect', 'non-scaling-stroke');
                     pathEl.setAttribute('fill', 'none');
                     pathEl.setAttribute('stroke-linecap', 'round');
                     pathEl.setAttribute('stroke-linejoin', 'round');
-                    bundlesGroup.appendChild(pathEl);
+                    groupEl.appendChild(pathEl);
 
                     const item = {
-                        routeId: entry.routeId,
-                        groupKey: entry.groupKey,
-                        edgeId: edge.id,
-                        orderIndex: index,
+                        routeId: member.routeId,
+                        chainId: chain.id,
                         bundleIndex: index,
-                        bundleCount,
-                        routeCount: bundleCount,
-                        centerline,
+                        bundleCount: chain.members.length,
+                        centerline: chain.skeleton,
                         pathElement: pathEl,
-                        startNode: edge.start,
-                        endNode: edge.end,
-                        offsetPoints: null
+                        offsetPoints: null,
+                        meta: member.meta
                     };
                     state.routePaths.push(item);
-                    state.routePathLookup.set(`${entry.routeId}-${edge.id}`, item);
+                    state.routePathLookup.set(`${member.routeId}-${chain.id}`, item);
 
-                    pathEl.addEventListener('pointerenter', () => applyHighlight(new Set([entry.routeId])));
+                    pathEl.addEventListener('pointerenter', () => applyHighlight(new Set([member.routeId])));
                     pathEl.addEventListener('pointerleave', (event) => {
                         const related = event.relatedTarget;
                         if (related && (related.closest('.route-path') || related.closest('.stop-circle') || related.closest('.legend-item'))) {
@@ -2289,7 +2776,10 @@
                         clearHighlight();
                     });
                 });
-            }
+
+                chainFragment.appendChild(groupEl);
+            });
+            bundlesGroup.appendChild(chainFragment);
 
             state.stopElements = state.stopGroups.map((stop) => {
                 const circle = document.createElementNS(svgNS, 'circle');
@@ -2302,6 +2792,9 @@
                 circle.setAttribute('vector-effect', 'non-scaling-stroke');
                 circle.dataset.stop = stop.id;
                 circle.dataset.routes = stop.routeIds.join(',');
+                if (typeof stop.chainId === 'number') {
+                    circle.dataset.chain = String(stop.chainId);
+                }
                 stopsGroup.appendChild(circle);
 
                 circle.addEventListener('pointerenter', (event) => {
@@ -2330,6 +2823,7 @@
                 path.setAttribute('fill', 'none');
                 path.setAttribute('stroke-linecap', 'round');
                 path.dataset.route = String(term.routeId);
+                path.dataset.chain = String(term.chainId ?? '');
                 terminiGroup.appendChild(path);
                 return { ...term, element: path };
             });
@@ -2413,63 +2907,6 @@
             legendList.appendChild(fragment);
         }
 
-        function offsetPolyline(points, offset) {
-            if (Math.abs(offset) < 1e-6) {
-                return points.map(clonePoint);
-            }
-            const segments = [];
-            for (let i = 0; i < points.length - 1; i++) {
-                const p0 = points[i];
-                const p1 = points[i + 1];
-                const dx = p1.x - p0.x;
-                const dy = p1.y - p0.y;
-                const len = Math.hypot(dx, dy);
-                if (len < 1e-6) {
-                    continue;
-                }
-                const ux = dx / len;
-                const uy = dy / len;
-                const nx = -uy;
-                const ny = ux;
-                const offX = nx * offset;
-                const offY = ny * offset;
-                segments.push({
-                    start: { x: p0.x + offX, y: p0.y + offY },
-                    end: { x: p1.x + offX, y: p1.y + offY }
-                });
-            }
-
-            if (!segments.length) {
-                return points.map(clonePoint);
-            }
-
-            const result = [segments[0].start];
-            for (let i = 1; i < segments.length; i++) {
-                const prev = segments[i - 1];
-                const next = segments[i];
-                const intersection = lineIntersection(prev.start, prev.end, next.start, next.end);
-                if (intersection) {
-                    result.push(intersection);
-                } else {
-                    result.push(prev.end);
-                }
-            }
-            result.push(segments[segments.length - 1].end);
-            return result;
-        }
-
-        function lineIntersection(p1, p2, p3, p4) {
-            const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
-            if (Math.abs(denom) < 1e-6) {
-                return null;
-            }
-            const det1 = p1.x * p2.y - p1.y * p2.x;
-            const det2 = p3.x * p4.y - p3.y * p4.x;
-            const x = (det1 * (p3.x - p4.x) - (p1.x - p2.x) * det2) / denom;
-            const y = (det1 * (p3.y - p4.y) - (p1.y - p2.y) * det2) / denom;
-            return { x, y };
-        }
-
         function pointsToPath(points) {
             if (!points.length) {
                 return '';
@@ -2497,36 +2934,331 @@
                 return;
             }
             const unitPerPx = state.viewBox.width / rect.width;
-            updateRoutePaths(unitPerPx);
+            updateBundlePaths(unitPerPx);
             updateStopAppearance(unitPerPx);
             updateTermini(unitPerPx);
         }
 
-        function updateRoutePaths(unitPerPx) {
+        function updateBundlePaths(unitPerPx) {
             const spacing = (ROUTE_LINE_WIDTH_PX + ROUTE_GAP_PX) * unitPerPx;
-            const edgeGroupKeys = new Map();
-            state.routePaths.forEach((item) => {
-                const groupKey = item.groupKey ?? String(item.routeId);
-                let set = edgeGroupKeys.get(item.edgeId);
-                if (!set) {
-                    set = new Set();
-                    edgeGroupKeys.set(item.edgeId, set);
+            const minLegLength = SNAP_MIN_SEGMENT_LENGTH * unitPerPx;
+            const tolerance = 0.5 * unitPerPx;
+
+            state.bundleChains.forEach((chain) => {
+                if (!chain || !Array.isArray(chain.skeleton) || chain.skeleton.length < 2) {
+                    chain?.members?.forEach((member) => {
+                        const item = state.routePathLookup.get(`${member.routeId}-${chain.id}`);
+                        if (item) {
+                            item.offsetPoints = [];
+                            item.pathElement.setAttribute('d', '');
+                        }
+                    });
+                    if (chain?.casingElement) {
+                        chain.casingElement.setAttribute('d', '');
+                    }
+                    return;
                 }
-                set.add(groupKey);
+
+                const skeletonPath = pointsToPath(chain.skeleton);
+                if (chain.casingElement) {
+                    chain.casingElement.setAttribute('d', skeletonPath);
+                }
+
+                prepareChainGeometry(chain);
+
+                const offsets = [];
+                const memberCount = chain.members.length;
+                let attempts = 0;
+                let needsRetry = false;
+                do {
+                    offsets.length = 0;
+                    needsRetry = false;
+                    for (let i = 0; i < memberCount; i++) {
+                        const offsetDistance = (i - (memberCount - 1) / 2) * spacing;
+                        const offsetPoints = computeOffsetPolylineForChain(chain, offsetDistance);
+                        offsets.push(offsetPoints);
+                    }
+                    const shortIndex = findShortInteriorVertex(offsets, minLegLength);
+                    if (shortIndex !== null && removeIntermediateVertex(chain, shortIndex)) {
+                        prepareChainGeometry(chain);
+                        needsRetry = true;
+                    }
+                    attempts++;
+                } while (needsRetry && attempts < 5);
+
+                chain.members.forEach((member, index) => {
+                    const key = `${member.routeId}-${chain.id}`;
+                    const item = state.routePathLookup.get(key);
+                    if (!item) {
+                        return;
+                    }
+                    const offsetPoints = offsets[index] || [];
+                    item.offsetPoints = offsetPoints;
+                    const d = pointsToPath(offsetPoints);
+                    item.pathElement.setAttribute('d', d);
+                });
+
+                validateChainGeometry(chain, offsets, spacing, tolerance);
+            });
+        }
+
+        function prepareChainGeometry(chain) {
+            if (!chain || !Array.isArray(chain.skeleton) || chain.skeleton.length < 2) {
+                chain.segmentData = [];
+                return;
+            }
+            const skeleton = chain.skeleton;
+            let baseNormal = chain.baseNormal;
+            if (!baseNormal || (!isFinite(baseNormal.x) && !isFinite(baseNormal.y))) {
+                baseNormal = computeInitialChainNormal(skeleton);
+                chain.baseNormal = baseNormal;
+            }
+            baseNormal = normalizeVector(baseNormal);
+            const segments = [];
+            let lastNormal = null;
+            let lastDir = null;
+            for (let i = 0; i < skeleton.length - 1; i++) {
+                const a = skeleton[i];
+                const b = skeleton[i + 1];
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const length = Math.hypot(dx, dy);
+                if (length < 1e-6) {
+                    segments.push({ dir: { x: 0, y: 0 }, normal: lastNormal ?? baseNormal, length: 0 });
+                    continue;
+                }
+                const dir = { x: dx / length, y: dy / length };
+                let normal = { x: -dir.y, y: dir.x };
+                if (!lastNormal) {
+                    if (dotProduct(normal, baseNormal) < 0) {
+                        normal.x *= -1;
+                        normal.y *= -1;
+                    }
+                } else {
+                    const dirDot = dotProduct(lastDir, dir);
+                    if (dirDot < -0.999) {
+                        normal = { ...lastNormal };
+                    } else if (dotProduct(lastNormal, normal) < 0) {
+                        normal.x *= -1;
+                        normal.y *= -1;
+                    }
+                }
+                const normalized = normalizeVector(normal);
+                segments.push({ dir, normal: normalized, length });
+                lastNormal = normalized;
+                lastDir = dir;
+            }
+            chain.segmentData = segments;
+        }
+
+        function computeOffsetPolylineForChain(chain, offsetDistance) {
+            if (!chain || !Array.isArray(chain.skeleton) || chain.skeleton.length < 2) {
+                return [];
+            }
+            const skeleton = chain.skeleton;
+            const segments = chain.segmentData || [];
+            const result = [];
+            for (let i = 0; i < skeleton.length; i++) {
+                const point = skeleton[i];
+                if (i === 0) {
+                    const baseNormal = segments[0]?.normal ?? chain.baseNormal;
+                    const normal = ensureNormal(baseNormal);
+                    result.push({ x: point.x + normal.x * offsetDistance, y: point.y + normal.y * offsetDistance });
+                    continue;
+                }
+                if (i === skeleton.length - 1) {
+                    const baseNormal = segments[segments.length - 1]?.normal ?? chain.baseNormal;
+                    const normal = ensureNormal(baseNormal);
+                    result.push({ x: point.x + normal.x * offsetDistance, y: point.y + normal.y * offsetDistance });
+                    continue;
+                }
+                const prevSegment = segments[i - 1];
+                const nextSegment = segments[i];
+                if (!prevSegment || !nextSegment) {
+                    const baseNormal = prevSegment?.normal ?? nextSegment?.normal ?? chain.baseNormal;
+                    const normal = ensureNormal(baseNormal);
+                    result.push({ x: point.x + normal.x * offsetDistance, y: point.y + normal.y * offsetDistance });
+                    continue;
+                }
+                const dir0 = prevSegment.dir;
+                const dir1 = nextSegment.dir;
+                const normal0 = prevSegment.normal;
+                const normal1 = nextSegment.normal;
+                const cross = dir0.x * dir1.y - dir0.y * dir1.x;
+                const dot = clamp(dotProduct(dir0, dir1), -1, 1);
+                const angle = Math.atan2(cross, dot);
+                const absAngle = Math.abs(angle);
+                if (absAngle < 1e-3) {
+                    const sum = { x: normal0.x + normal1.x, y: normal0.y + normal1.y };
+                    const normalized = normalizeVector(sum);
+                    const chosen = (Math.abs(normalized.x) > 1e-6 || Math.abs(normalized.y) > 1e-6) ? normalized : ensureNormal(normal0);
+                    result.push({ x: point.x + chosen.x * offsetDistance, y: point.y + chosen.y * offsetDistance });
+                    continue;
+                }
+                const sinHalf = Math.sin(absAngle / 2) || 1e-6;
+                const miterLength = offsetDistance / sinHalf;
+                const limit = Math.abs(offsetDistance) * 4;
+                if (Math.abs(miterLength) > limit) {
+                    const sum = { x: normal0.x + normal1.x, y: normal0.y + normal1.y };
+                    const normalized = normalizeVector(sum);
+                    const chosen = (Math.abs(normalized.x) > 1e-6 || Math.abs(normalized.y) > 1e-6) ? normalized : ensureNormal(normal0);
+                    result.push({ x: point.x + chosen.x * offsetDistance, y: point.y + chosen.y * offsetDistance });
+                    continue;
+                }
+                const line1Point = { x: point.x + normal0.x * offsetDistance, y: point.y + normal0.y * offsetDistance };
+                const line2Point = { x: point.x + normal1.x * offsetDistance, y: point.y + normal1.y * offsetDistance };
+                const intersection = intersectLines(line1Point, dir0, line2Point, dir1);
+                if (intersection) {
+                    result.push(intersection);
+                } else {
+                    const sum = { x: normal0.x + normal1.x, y: normal0.y + normal1.y };
+                    const normalized = normalizeVector(sum);
+                    const chosen = (Math.abs(normalized.x) > 1e-6 || Math.abs(normalized.y) > 1e-6) ? normalized : ensureNormal(normal0);
+                    result.push({ x: point.x + chosen.x * offsetDistance, y: point.y + chosen.y * offsetDistance });
+                }
+            }
+            return result;
+        }
+
+        function findShortInteriorVertex(polylines, minLength) {
+            if (!Array.isArray(polylines) || !polylines.length) {
+                return null;
+            }
+            const reference = polylines[0];
+            if (!Array.isArray(reference) || reference.length < 3) {
+                return null;
+            }
+            const minSq = minLength * minLength;
+            const count = reference.length;
+            for (let index = 1; index < count - 1; index++) {
+                for (const poly of polylines) {
+                    if (!poly || poly.length !== count) {
+                        return null;
+                    }
+                    const prev = poly[index - 1];
+                    const curr = poly[index];
+                    const next = poly[index + 1];
+                    if (!prev || !curr || !next) {
+                        continue;
+                    }
+                    if (distanceSquared(prev, curr) < minSq || distanceSquared(curr, next) < minSq) {
+                        return index;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function removeIntermediateVertex(chain, index) {
+            if (!chain || !Array.isArray(chain.skeleton)) {
+                return false;
+            }
+            if (index <= 0 || index >= chain.skeleton.length - 1) {
+                return false;
+            }
+            chain.skeleton.splice(index, 1);
+            if (chain.skeleton.length < 2) {
+                return false;
+            }
+            const merged = mergeCollinear(chain.skeleton);
+            chain.skeleton.length = 0;
+            merged.forEach((point) => chain.skeleton.push(point));
+            return true;
+        }
+
+        function validateChainGeometry(chain, polylines, spacing, tolerance) {
+            if (!Array.isArray(polylines) || !polylines.length) {
+                return;
+            }
+            const seenPaths = new Set();
+            polylines.forEach((poly, index) => {
+                if (!poly) {
+                    return;
+                }
+                if (polylineHasSelfIntersection(poly)) {
+                    console.assert(false, `Self-intersection detected on chain ${chain.id} member ${index}`);
+                }
+                const key = poly.map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`).join('|');
+                console.assert(!seenPaths.has(key), `Duplicate geometry detected on chain ${chain.id}`);
+                seenPaths.add(key);
             });
 
-            state.routePaths.forEach((item) => {
-                const groupSet = edgeGroupKeys.get(item.edgeId);
-                const groupCount = groupSet ? groupSet.size : item.bundleCount ?? item.routeCount ?? 1;
-                const index = item.bundleIndex ?? item.orderIndex ?? 0;
-                const offset = groupCount <= 1 ? 0 : (index - (groupCount - 1) / 2) * spacing;
-                const offsetPoints = offsetPolyline(item.centerline, offset);
-                item.offsetPoints = offsetPoints;
-                item.bundleCount = groupCount;
-                item.routeCount = groupCount;
-                const d = pointsToPath(offsetPoints);
-                item.pathElement.setAttribute('d', d);
-            });
+            for (let i = 0; i < polylines.length - 1; i++) {
+                const current = polylines[i];
+                const next = polylines[i + 1];
+                if (!current || !next) {
+                    continue;
+                }
+                const count = Math.min(current.length, next.length);
+                for (let j = 0; j < count; j++) {
+                    const a = current[j];
+                    const b = next[j];
+                    if (!a || !b) {
+                        continue;
+                    }
+                    const distance = Math.hypot(b.x - a.x, b.y - a.y);
+                    console.assert(Math.abs(distance - spacing) <= tolerance + 1e-3, `Inconsistent spacing on chain ${chain.id}`);
+                }
+            }
+        }
+
+        function polylineHasSelfIntersection(points) {
+            if (!Array.isArray(points) || points.length < 4) {
+                return false;
+            }
+            for (let i = 0; i < points.length - 1; i++) {
+                const a1 = points[i];
+                const a2 = points[i + 1];
+                for (let j = i + 2; j < points.length - 1; j++) {
+                    if (i === 0 && j === points.length - 2) {
+                        continue;
+                    }
+                    const b1 = points[j];
+                    const b2 = points[j + 1];
+                    if (segmentsIntersect(a1, a2, b1, b2)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function segmentsIntersect(a1, a2, b1, b2) {
+            const denom = (a2.x - a1.x) * (b2.y - b1.y) - (a2.y - a1.y) * (b2.x - b1.x);
+            if (Math.abs(denom) < 1e-6) {
+                return false;
+            }
+            const ua = ((b1.x - a1.x) * (b2.y - b1.y) - (b1.y - a1.y) * (b2.x - b1.x)) / denom;
+            const ub = ((b1.x - a1.x) * (a2.y - a1.y) - (b1.y - a1.y) * (a2.x - a1.x)) / denom;
+            return ua > 1e-4 && ua < 1 - 1e-4 && ub > 1e-4 && ub < 1 - 1e-4;
+        }
+
+        function intersectLines(point, dir, otherPoint, otherDir) {
+            const cross = dir.x * otherDir.y - dir.y * otherDir.x;
+            if (Math.abs(cross) < 1e-6) {
+                return null;
+            }
+            const diff = { x: otherPoint.x - point.x, y: otherPoint.y - point.y };
+            const t = (diff.x * otherDir.y - diff.y * otherDir.x) / cross;
+            return { x: point.x + dir.x * t, y: point.y + dir.y * t };
+        }
+
+        function dotProduct(a, b) {
+            if (!a || !b) {
+                return 0;
+            }
+            return a.x * b.x + a.y * b.y;
+        }
+
+        function ensureNormal(normal) {
+            if (!normal) {
+                return { x: 0, y: -1 };
+            }
+            const length = Math.hypot(normal.x, normal.y);
+            if (length < 1e-6) {
+                return { x: 0, y: -1 };
+            }
+            return { x: normal.x / length, y: normal.y / length };
         }
 
         function updateStopAppearance(unitPerPx) {
@@ -2534,6 +3266,19 @@
             state.stopElements.forEach(({ element }) => {
                 element.setAttribute('r', radius.toString());
             });
+            const minDistanceSq = Math.pow(8 * unitPerPx, 2);
+            for (let i = 0; i < state.stopElements.length; i++) {
+                const a = state.stopElements[i].stop.position;
+                for (let j = i + 1; j < state.stopElements.length; j++) {
+                    const b = state.stopElements[j].stop.position;
+                    if (!a || !b) {
+                        continue;
+                    }
+                    if (distanceSquared(a, b) < minDistanceSq) {
+                        console.assert(false, `Stops ${state.stopElements[i].stop.id} and ${state.stopElements[j].stop.id} are within 8px.`);
+                    }
+                }
+            }
         }
 
         function computeTermini(graph) {
@@ -2552,17 +3297,35 @@
             const termini = [];
             routeNodeCounts.forEach((nodeMap, routeId) => {
                 nodeMap.forEach((count, nodeId) => {
-                    if (count === 1) {
-                        const edge = state.graph.edges.find((e) => e.routes.has(routeId) && (e.start === nodeId || e.end === nodeId));
-                        if (edge) {
-                            termini.push({
-                                routeId,
-                                nodeId,
-                                edgeId: edge.id,
-                                atStart: edge.start === nodeId
-                            });
+                    if (count !== 1) {
+                        return;
+                    }
+                    const edge = graph.edges.find((candidate) => candidate.routes.has(routeId) && (candidate.start === nodeId || candidate.end === nodeId));
+                    if (!edge) {
+                        return;
+                    }
+                    const chainId = edge.chainId;
+                    let atStart = true;
+                    if (typeof chainId === 'number') {
+                        const chain = state.bundleChains[chainId];
+                        if (chain && Array.isArray(chain.nodes) && chain.nodes.length) {
+                            const firstNode = chain.nodes[0];
+                            const lastNode = chain.nodes[chain.nodes.length - 1];
+                            if (nodeId === lastNode) {
+                                atStart = false;
+                            } else if (nodeId !== firstNode) {
+                                const nodePoint = state.graph.nodes[nodeId];
+                                const startPoint = state.graph.nodes[firstNode];
+                                const endPoint = state.graph.nodes[lastNode];
+                                if (nodePoint && startPoint && endPoint) {
+                                    const distToStart = Math.hypot(nodePoint.x - startPoint.x, nodePoint.y - startPoint.y);
+                                    const distToEnd = Math.hypot(nodePoint.x - endPoint.x, nodePoint.y - endPoint.y);
+                                    atStart = distToStart <= distToEnd;
+                                }
+                            }
                         }
                     }
+                    termini.push({ routeId, nodeId, chainId, atStart });
                 });
             });
             return termini;
@@ -2571,29 +3334,28 @@
         function updateTermini(unitPerPx) {
             const length = TERMINUS_TICK_PX * unitPerPx;
             state.terminusElements.forEach((term) => {
-                const key = `${term.routeId}-${term.edgeId}`;
-                const routePath = state.routePathLookup.get(key);
-                if (!routePath || !routePath.offsetPoints || routePath.offsetPoints.length < 2) {
+                const chain = typeof term.chainId === 'number' ? state.bundleChains[term.chainId] : null;
+                if (!chain || !Array.isArray(chain.skeleton) || chain.skeleton.length < 2) {
                     term.element.setAttribute('d', '');
                     return;
                 }
-                const points = routePath.offsetPoints;
-                const nodePoint = term.atStart ? points[0] : points[points.length - 1];
-                const neighbor = term.atStart ? points[1] : points[points.length - 2];
-                const dir = {
-                    x: nodePoint.x - neighbor.x,
-                    y: nodePoint.y - neighbor.y
-                };
+                const skeleton = chain.skeleton;
+                const nodeIndex = term.atStart ? 0 : skeleton.length - 1;
+                const neighborIndex = term.atStart ? Math.min(1, skeleton.length - 1) : Math.max(skeleton.length - 2, 0);
+                const nodePoint = skeleton[nodeIndex];
+                const neighbor = skeleton[neighborIndex];
+                if (!nodePoint || !neighbor || nodeIndex === neighborIndex) {
+                    term.element.setAttribute('d', '');
+                    return;
+                }
+                const dir = { x: nodePoint.x - neighbor.x, y: nodePoint.y - neighbor.y };
                 const magnitude = Math.hypot(dir.x, dir.y);
                 if (magnitude < 1e-6) {
                     term.element.setAttribute('d', '');
                     return;
                 }
                 const scale = length / magnitude;
-                const endPoint = {
-                    x: nodePoint.x + dir.x * scale,
-                    y: nodePoint.y + dir.y * scale
-                };
+                const endPoint = { x: nodePoint.x + dir.x * scale, y: nodePoint.y + dir.y * scale };
                 term.element.setAttribute('d', `M${nodePoint.x.toFixed(2)} ${nodePoint.y.toFixed(2)} L${endPoint.x.toFixed(2)} ${endPoint.y.toFixed(2)}`);
             });
         }
