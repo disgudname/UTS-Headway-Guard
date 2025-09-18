@@ -253,6 +253,7 @@
         const NODE_MERGE_DISTANCE = 10;
         const STOP_GROUP_DISTANCE = 10;
         const MIN_DIAGONAL_LENGTH = 5;
+        const POLYLINE_DUPLICATE_TOLERANCE = 25;
 
         const ROUTE_LINE_WIDTH_PX = 6;
         const ROUTE_GAP_PX = 2;
@@ -508,7 +509,9 @@
                     routeGroups.set(route.groupKey, group);
                 }
 
-                group.segments.push(simplified);
+                if (!hasEquivalentPolyline(group.segments, simplified)) {
+                    group.segments.push(simplified);
+                }
                 projectedStops.forEach((stop) => group.stops.push(stop));
                 group.componentRouteIds.add(route.routeId);
             });
@@ -682,6 +685,115 @@
                 simplified.push(clonePoint(points[index]));
                 simplifySegment(points, index, last, sqTol, simplified);
             }
+        }
+
+        function hasEquivalentPolyline(existing, candidate, tolerance = POLYLINE_DUPLICATE_TOLERANCE) {
+            if (!Array.isArray(existing) || !candidate) {
+                return false;
+            }
+            for (const polyline of existing) {
+                if (polylinesApproximatelyEqual(polyline, candidate, tolerance)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function polylinesApproximatelyEqual(a, b, tolerance) {
+            if (!Array.isArray(a) || !Array.isArray(b) || !a.length || !b.length) {
+                return false;
+            }
+            const lengthA = computePolylineLength(a);
+            const lengthB = computePolylineLength(b);
+            if (!isFinite(lengthA) || !isFinite(lengthB)) {
+                return false;
+            }
+            if (Math.abs(lengthA - lengthB) > tolerance) {
+                return false;
+            }
+            const sampleCount = Math.max(4, Math.min(12, Math.max(a.length, b.length)));
+            const samplesA = samplePolyline(a, sampleCount);
+            const samplesB = samplePolyline(b, sampleCount);
+            if (!samplesA.length || !samplesB.length) {
+                return false;
+            }
+            const toleranceSq = tolerance * tolerance;
+            const directDiff = maxDistanceSquaredBetweenSamples(samplesA, samplesB);
+            if (directDiff <= toleranceSq) {
+                return true;
+            }
+            const reversedSamplesB = samplePolyline(b.slice().reverse(), sampleCount);
+            const reverseDiff = maxDistanceSquaredBetweenSamples(samplesA, reversedSamplesB);
+            return reverseDiff <= toleranceSq;
+        }
+
+        function computePolylineLength(points) {
+            let total = 0;
+            for (let i = 1; i < points.length; i++) {
+                total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+            }
+            return total;
+        }
+
+        function samplePolyline(points, count) {
+            if (!Array.isArray(points) || !points.length || count <= 0) {
+                return [];
+            }
+            if (points.length === 1 || count === 1) {
+                return [clonePoint(points[0])];
+            }
+            const cumulative = new Array(points.length);
+            cumulative[0] = 0;
+            for (let i = 1; i < points.length; i++) {
+                cumulative[i] = cumulative[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+            }
+            const total = cumulative[cumulative.length - 1];
+            if (total < 1e-6) {
+                return Array.from({ length: count }, () => clonePoint(points[0]));
+            }
+            const samples = [];
+            for (let i = 0; i < count; i++) {
+                const target = i === count - 1 ? total : (total * i) / (count - 1);
+                samples.push(interpolateAlongPolyline(points, cumulative, target));
+            }
+            return samples;
+        }
+
+        function interpolateAlongPolyline(points, cumulative, target) {
+            if (target <= 0) {
+                return clonePoint(points[0]);
+            }
+            const total = cumulative[cumulative.length - 1];
+            if (target >= total) {
+                return clonePoint(points[points.length - 1]);
+            }
+            let index = 0;
+            while (index < cumulative.length - 1 && cumulative[index + 1] < target) {
+                index++;
+            }
+            const nextIndex = Math.min(index + 1, points.length - 1);
+            const start = points[index];
+            const end = points[nextIndex];
+            const segmentStart = cumulative[index];
+            const segmentEnd = cumulative[nextIndex];
+            const segmentLength = Math.max(segmentEnd - segmentStart, 1e-6);
+            const t = (target - segmentStart) / segmentLength;
+            return {
+                x: start.x + (end.x - start.x) * t,
+                y: start.y + (end.y - start.y) * t
+            };
+        }
+
+        function maxDistanceSquaredBetweenSamples(a, b) {
+            const length = Math.min(a.length, b.length);
+            let max = 0;
+            for (let i = 0; i < length; i++) {
+                const distSq = distanceSquared(a[i], b[i]);
+                if (distSq > max) {
+                    max = distSq;
+                }
+            }
+            return max;
         }
 
         function pointToSegmentDistanceSquared(point, a, b) {
