@@ -1,68 +1,158 @@
 # UTS Headway Guard
 
-UTS Headway Guard is a full-featured platform for keeping buses evenly spaced and on schedule.
-It pulls live data from TransLoc and the OpenStreetMap Overpass API, calculates optimal headways, and serves guidance through a FastAPI backend with lightweight web interfaces for drivers, dispatchers and support staff.
+UTS Headway Guard is a full real-time operations platform for the University Transit Service. It polls live vehicle and schedule data, computes optimal headways, highlights safety risks, persists telemetry for after-action review, and serves specialized web tools for drivers, dispatchers, service crews, and digital signage. The backend is a FastAPI service augmented by asyncio tasks and Server-Sent Events streams, while the frontend surfaces lightweight Leaflet dashboards and status boards tailored to each audience.
 
-## Features
-- Aggregates route geometry and live vehicle positions from TransLoc.
-- Fetches and caches OpenStreetMap speed limits and low-clearance data via Overpass.
-- Computes arc-based headways and recommends actions (OK/Ease off/HOLD) to drivers.
-- Exposes REST endpoints for health, routes, vehicles, per-vehicle instructions, and low-clearance warnings.
-- Streams per-route status via Server-Sent Events for live updates.
-- Serves lightweight web clients for drivers, dispatchers, service crew, a live map, daily ridership dashboard, and a replay viewer with overheight alerts for drivers.
-- Logs vehicle positions for later replay and analysis.
-- Displays Red and Blue line daily ridership counts with CSV export.
-- Synchronizes configuration and mileage data across multiple machines with a built-in peer sync mechanism.
+## System architecture
 
-## Requirements
-- Python 3.10+
-- Dependencies listed in `requirements.txt`
+### External data sources
+- **TransLoc JSONP Relay** — primary feeds for routes, live vehicle locations, anti-bunching recommendations, block assignments, ridership counts, vehicle capacities, stop arrivals, and alerts. The service proxies these endpoints so the UI can run without exposing credentials.【F:app.py†L335-L529】【F:ridership.html†L24-L109】【F:arrivalsdisplay.html†L67-L180】
+- **OpenStreetMap Overpass API** — queried once per route to retrieve speed-limit tags and low-clearance structures around the 14th Street bridge. Results are cached in memory so an Overpass outage does not break guidance.【F:app.py†L360-L428】【F:app.py†L430-L478】
+- **RideSystems client catalog** — the live map can enumerate partner agencies through `admin.ridesystems.net` and let dispatch staff monitor other systems from the same UI.【F:map.html†L224-L287】
 
-Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+### Headway computation and safety logic
+- Vehicles are projected to the closest arc length on each route polyline, blending proximity, heading, and previous segment to stabilize the position even when the bus is stopped or reversing.【F:app.py†L430-L506】
+- Segment-level speed caps from Overpass are blended with an exponential moving average of observed speeds to derive a target headway and countdown guidance (green/ease off/hold) for every coach on the loop.【F:app.py†L506-L614】
+- Overheight vehicles and low-clearance structures are tracked so driver tools can warn operators as they approach the 14th Street bridge. The list of monitored buses and radii are configurable at runtime.【F:driver.html†L66-L184】【F:app.py†L685-L723】
 
-## Running
-Start the development server with:
-```bash
-uvicorn app:app --reload --port 8080
-```
+### Background processing
+- An asyncio startup task keeps the in-memory model fresh: it polls routes, vehicles (including unassigned units), block groups, and caches derived data structures (active routes, roster list, speed profiles, headway EMAs, block-to-bus maps). Failures are surfaced through the `/v1/health` endpoint and UI banners.【F:app.py†L877-L1132】
+- A separate vehicle logger captures the full TransLoc payload every few seconds, deduplicates stationary snapshots, annotates block assignments, writes hourly JSONL files, and prunes data beyond the configured retention window.【F:app.py†L1133-L1214】
+- Mileage is accumulated per vehicle per service day (based on America/New_York), carrying the previous day’s odometer forward, recording block history, and exposing reset controls to service crew tools.【F:app.py†L733-L872】【F:app.py†L1564-L1608】
 
-Open the [driver](http://localhost:8080/driver) and [dispatcher](http://localhost:8080/dispatcher) pages in a browser.
+### Persistence and synchronization
+- Data required across restarts is stored under `DATA_DIRS` (defaults to `/data`). The service persists `config.json`, `device_stops.json`, and `mileage.json`, mirroring them to every configured data directory.【F:app.py†L685-L772】【F:app.py†L808-L872】
+- Vehicle log volumes can span multiple mounts via `VEH_LOG_DIRS`; each entry is flushed and fsynced so replay data survives crashes. Hourly files are automatically pruned after the retention window.【F:app.py†L1133-L1178】
+- Multi-machine deployments can list peer instances in `SYNC_PEERS`. When an admin updates configuration, mileage, or device-stop mappings, the service POSTs the change to every peer’s `/sync` endpoint using an optional shared secret so volumes stay in sync.【F:app.py†L689-L723】【F:app.py†L846-L872】【F:app.py†L873-L914】
 
-### Replay
+## API reference
 
-A lightweight logger and replay page are included for reviewing past vehicle positions. The application automatically polls TransLoc every few seconds and appends snapshots to hourly files under `/data/vehicle_logs` (configurable via the `VEH_LOG_DIRS` environment variable), pruning files older than one week. The path listed in `DATA_DIRS` (defaulting to `/data`) is backed by a Fly.io volume (see `fly.toml`) so logs and configuration survive reboots. Open `/replay` in a running server to view the logged data with a timeline and playback controls (pause, play and fast forward).
+### Health and metadata
+- `GET /v1/health` — exposes overall polling status plus the last encountered error and timestamp, enabling UI banners and monitoring.【F:app.py†L875-L883】
 
-### Multi-machine sync
+### Routes and geometry
+- `GET /v1/routes` — active and inactive routes with length, live vehicle counts, and friendly labels assembled from TransLoc description/info text.【F:app.py†L1217-L1241】
+- `GET /v1/routes_all` — complete roster of known routes with active flags for dropdowns.【F:app.py†L1243-L1254】
+- `GET /v1/routes/{route_id}` — color and length metadata for a specific route.【F:app.py†L1256-L1263】
+- `GET /v1/routes/{route_id}/shape` — encoded polyline and line color for map overlays.【F:app.py†L1265-L1272】
+- `GET /v1/transloc/routes` — raw TransLoc route payload cached by the updater for diagnostic clients.【F:app.py†L1334-L1339】
 
-When running multiple Fly machines, each machine has its own volume. Set the `SYNC_PEERS` environment variable to a comma-separated list of peer internal addresses (for example `"machine2.internal:8080"`). When configuration or `mileage.json` is updated on one instance, the app will POST the changes to each peer's `/sync` endpoint to keep volumes in sync.
+### Vehicles and headway guidance
+- `GET /v1/roster/vehicles` — deduplicated list of unit numbers encountered in the feed for driver dropdowns.【F:app.py†L1274-L1280】
+- `GET /v1/vehicles` — on-demand proxy to TransLoc returning vehicles with optional stale/unassigned filtering for kiosk displays.【F:app.py†L1282-L1312】
+- `GET /v1/routes/{route_id}/vehicles_raw` — detailed telemetry (position, EMA, segment speed limit, roadway name, direction) for every vehicle assigned to a route.【F:app.py†L1314-L1354】
+- `GET /v1/routes/{route_id}/status` — structured headway guidance objects (status color, countdown, leader, gap label) consumed by driver and dispatcher UIs.【F:app.py†L1388-L1399】
+- `GET /v1/routes/{route_id}/debug` — merges guidance with raw telemetry for troubleshooting speed limits, projections, and headings.【F:app.py†L1401-L1427】
+- `GET /v1/routes/{route_id}/vehicles/{vehicle_name}/instruction` — human-readable instruction card for a specific coach (handles inactive selections gracefully).【F:app.py†L1429-L1456】
+- `GET /v1/stream/routes/{route_id}` — Server-Sent Events stream that pushes fresh guidance lists on every polling cycle.【F:app.py†L1458-L1473】
 
-## API
+### Dispatch utilities
+- `GET /v1/dispatch/blocks` — aggregates block group schedules, route colors, and route assignment by bus, cached between polls so tables render instantly.【F:app.py†L1356-L1386】
+- `GET /v1/transloc/anti_bunching` — lightweight proxy to TransLoc’s native anti-bunching recommendations for side-by-side comparisons in the dispatcher view.【F:app.py†L1390-L1400】
+- `GET /v1/stream/api_calls` — SSE feed of every outbound API request (method, status code, URL) for live observability dashboards.【F:app.py†L1475-L1486】
 
-Key endpoints exposed by the service:
-- `/v1/health` – service health and last error.
-- `/v1/routes` – active routes with current status.
-- `/v1/routes_all` – all known routes with active flags.
-- `/v1/roster/vehicles` – roster of vehicle names.
-- `/v1/vehicles` – live vehicle positions.
-- `/v1/low_clearances` – low-clearance locations near the bridge.
-- `/v1/routes/{route_id}/status` – headway status for a route.
-- `/v1/routes/{route_id}/vehicles/{vehicle_name}/instruction` – driver instruction for a vehicle.
-- `/v1/stream/routes/{route_id}` – Server-Sent Events stream.
+### Safety and signage
+- `GET /v1/low_clearances` — low-clearance points filtered by maximum height and bridge radius, cached after the first Overpass fetch.【F:app.py†L1402-L1410】
+- `GET /device-stop`, `GET /device-stop/list`, `POST /device-stop`, `DELETE /device-stop/{id}` — CRUD endpoints that map display devices to stop IDs and friendly names for the arrivals signage workflow.【F:app.py†L1612-L1652】
 
-## Configuration
-Runtime settings can be tuned with environment variables such as `TRANSLOC_BASE`, `TRANSLOC_KEY` and `OVERPASS_EP`. See `app.py` for the full list and default values. Changes made through the `/admin` page are persisted to `config.json` within the directory listed in `DATA_DIRS` so they survive redeployments.
+### Service crew mileage
+- `GET /v1/servicecrew` — returns per-bus mileage totals, block assignments, and reset baselines for the requested date (default today).【F:app.py†L1508-L1532】
+- `POST /v1/servicecrew/reset/{bus}` — records a mileage reset for a specific bus at service start.【F:app.py†L1534-L1544】
+- `POST /v1/servicecrew/refresh` & `GET /v1/stream/servicecrew_refresh` — manual refresh hook plus SSE broadcast so kiosks reload instantly after data corrections.【F:app.py†L1546-L1562】
 
-## Docker
-Build and run a containerised instance:
-```bash
-docker build -t uts-headway-guard .
-docker run -p 8080:8080 uts-headway-guard
-```
+### Configuration and synchronization
+- `GET /v1/config` & `POST /v1/config` — expose and mutate runtime tunables (poll intervals, safety thresholds, vehicle lists, API hosts). Saved values persist under every data directory and replicate to peers.【F:app.py†L1488-L1506】
+- `POST /sync` — internal endpoint accepting config, mileage, or device-stop payloads from trusted peers using an optional shared secret.【F:app.py†L914-L934】
+
+### Logs and static assets
+- `GET /vehicle_log/{YYYYMMDD_HH}.jsonl` — download an hourly vehicle snapshot file for offline replay or investigations.【F:app.py†L1488-L1510】
+- `GET /FGDC.ttf` — serves the custom FGDC typeface used across the UI suite.【F:app.py†L1475-L1483】
+- Root-level routes (`/`, `/driver`, `/dispatcher`, `/map`, `/testmap`, `/madmap`, `/metromap`, `/debug`, `/admin`, `/servicecrew`, `/buses`, `/apicalls`, `/ridership`, `/replay`, `/arrivalsdisplay`, `/registerdisplay`, `/transloc_ticker`) render the corresponding HTML dashboards bundled in the repository.【F:app.py†L1488-L1611】
+
+## Web clients
+
+### Unified landing portal
+`/` offers quick navigation cards to every major tool plus shortcuts to GitHub and the admin console so staff can jump between roles easily.【F:index.html†L1-L58】
+
+### Driver anti-bunching console
+The driver view walks operators through selecting their unit and route, then shows:
+- Live guidance card with color-coded orders, countdown timers, and last-update indicators.
+- Embedded clock, map with animated markers, per-vehicle name bubbles, and route outline.
+- Automatic warnings when an overheight coach nears a low-clearance location, including a full-screen red overlay with audible alarms.
+- Periodic health checks and light/dark theme toggle for night operations.【F:driver.html†L1-L414】
+
+### Dispatcher operations board
+Dispatchers receive a split-screen headway dashboard and live map:
+- SSE-driven table listing each bus, block assignment, order, leader, and countdown, including an “only bus” banner when headway control is inactive.
+- Side-by-side comparison with TransLoc’s anti-bunching feed.
+- Block roster panels (current and future), alias expansion, automatic highlighting of extra buses, and mileage-aware sorting.
+- Route selector that prioritizes active lines, status banners tied to health checks, and an embedded `/map` iframe.【F:dispatcher.html†L1-L430】
+
+### Live system maps
+`/map` (and its variants `/madmap`, `/metromap`, `/testmap`) provide rich situational awareness:
+- Dynamic route selector with agency dropdown, select-all/deselect-all helpers, and options to show block numbers or speed readouts on vehicle bubbles.
+- Admin, kiosk, and admin-kiosk modes controlled via query parameters to tailor overlays for public displays or control-room walls.
+- Support for out-of-service vehicles, route legends, pop-up callouts, animated name labels, and persistent selections stored in localStorage.
+- Optional cookie/consent banner for cross-agency monitoring.【F:map.html†L1-L400】
+
+### Service crew dashboard
+A widescreen table summarises miles driven per bus, current block assignments (with aliasing), high-mileage alerts, and links to an embedded kiosk-mode map. Data refreshes continuously and highlights overheight buses with distinctive colors.【F:servicecrew.html†L1-L176】
+
+### Replay explorer
+Investigators can review historical operations with:
+- Date and time pickers, per-route and per-bus filters, and disclaimers clarifying the limitations of TransLoc data.
+- Timeline scrubber with pause, play, and fast-forward controls from 1× to 1000×.
+- Toggleable labels for speed and block numbers, route overlays, and dual selectors for routes and buses to focus playback on relevant fleets.【F:replay.html†L1-L360】
+
+### Ridership daily rollups
+The Red/Blue line dashboard downloads APC entries for a selected day, aggregates AM/PM buckets, tracks the newest datapoint timestamp, and lets staff annotate notes and export the entire table to CSV.【F:ridership.html†L1-L161】
+
+### Bus overview
+`/buses` lists every vehicle with its current block, roadway segment, posted speed limit, actual speed (highlighting speeding coaches), and stale data shading, alongside a live map for context.【F:buses.html†L1-L132】
+
+### Debug and monitoring utilities
+- `/debug` shows per-route guidance merged with raw telemetry for engineering analysis, plus an embedded live map.【F:debug.html†L1-L102】
+- `/apicalls` subscribes to the API call SSE feed to audit outbound HTTP traffic in real time.【F:apicalls.html†L1-L38】
+- `/transloc_ticker` renders a configurable alert ticker suitable for broadcast overlays, honoring URL parameters for duration, colors, and visibility.【F:transloc_ticker.html†L1-L200】
+
+### Digital signage workflow
+- `/arrivalsdisplay` drives stop displays with arrival predictions, vehicle capacity bars, scrolling alert ticker, spoken announcements (with optional audio primer for autoplay policies), stop name banner, and QR codes for remote registration.【F:arrivalsdisplay.html†L1-L240】
+- `/registerdisplay` lets staff map device IDs to stop IDs and friendly names, backed by the `/device-stop` API.【F:registerdisplay.html†L1-L74】
+
+## Data and logging
+- Hourly JSONL vehicle logs live under the first `VEH_LOG_DIR` (default `/data/vehicle_logs`). Files are named `YYYYMMDD_HH.jsonl`, flushed synchronously, and pruned based on `VEH_LOG_RETENTION_MS`. Each record embeds raw TransLoc vehicles plus block assignments and capture timestamp.【F:app.py†L1133-L1214】
+- Daily mileage snapshots are stored in `mileage.json` and include cumulative miles, day totals, reset baselines, last known location, and block history.【F:app.py†L804-L852】
+- Device-to-stop mappings persist to `device_stops.json` so signage stays registered across redeployments.【F:app.py†L685-L723】
+- Sample TransLoc payloads (`GetRoutes*.txt`, `GetVehicles*.txt`, etc.) are included at the repo root to facilitate offline UI development and testing.【F:GetRoutes.txt†L1-L5】
+
+## Configuration and environment variables
+Key tunables may be provided via environment variables or edited live through `/admin`:
+- **TransLoc / Overpass**: `TRANSLOC_BASE`, `TRANSLOC_KEY`, `OVERPASS_EP`.
+- **Polling & headway**: `VEH_REFRESH_S`, `ROUTE_REFRESH_S`, `BLOCK_REFRESH_S`, `STALE_FIX_S`, `ROUTE_GRACE_S`, `URBAN_FACTOR`, `GREEN_FRAC`, `RED_FRAC`, `ONTARGET_TOL_SEC`, `W_LIMIT`, `EMA_ALPHA`, `MIN_SPEED_FLOOR`, `MAX_SPEED_CEIL`, `LEADER_EPS_M`.
+- **Safety**: `DEFAULT_CAP_MPS`, `BRIDGE_LAT`, `BRIDGE_LON`, `LOW_CLEARANCE_SEARCH_M`, `LOW_CLEARANCE_LIMIT_FT`, `BRIDGE_IGNORE_RADIUS_M`, `OVERHEIGHT_BUSES`, `LOW_CLEARANCE_RADIUS`, `BRIDGE_RADIUS`, `ALL_BUSES`.
+- **Data directories**: `DATA_DIRS`, `VEH_LOG_DIRS`, `VEH_LOG_DIR`, `VEH_LOG_INTERVAL_S`, `VEH_LOG_RETENTION_MS`, `VEH_LOG_MIN_MOVE_M`.
+- **Sync & secrets**: `SYNC_PEERS`, `SYNC_SECRET`.
+- **Miscellaneous**: `DEVICE_STOP_FILE`, timezone defaults (`TZ`), and standard FastAPI/Uvicorn settings via `PORT` when running in containers.【F:app.py†L35-L130】【F:app.py†L685-L872】【F:start.sh†L1-L18】
+
+## Running locally
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Start the development server:
+   ```bash
+   uvicorn app:app --reload --port 8080
+   ```
+3. Open the role-specific pages (`/driver`, `/dispatcher`, `/servicecrew`, `/map`, etc.) on http://localhost:8080. The asynchronous updater will begin polling TransLoc immediately, and SSE clients will populate once the first snapshot completes.【F:app.py†L877-L1132】
+
+## Docker and deployment
+- The provided `Dockerfile` builds a slim Python 3.12 image, installs system dependencies (`build-essential`, `curl`), and runs the app under a non-root `appuser`. The container entrypoint delegates to `start.sh` to create/chown shared volumes before exec-ing Uvicorn on `$PORT` (default 8080).【F:Dockerfile†L1-L33】【F:start.sh†L1-L18】
+- `fly.toml` defines a Fly.io deployment that mounts persistent volumes at `/data`, ensuring logs, config, and mileage survive restarts. Multi-machine deployments should configure `SYNC_PEERS` and `SYNC_SECRET` for eventual consistency across regions.【F:fly.toml†L1-L33】【F:app.py†L689-L723】
+
+## Development aids
+- Fonts (`FGDC.ttf`) and HTML assets live alongside `app.py` so the FastAPI static routes can serve them directly without additional build tooling.【F:app.py†L1475-L1510】
+- HTML dashboards rely on Leaflet, polyline decoding, and minimal inline JavaScript so they can be edited without bundlers.
+- Root-level `.txt` files capture historical API responses for regression testing and UI prototyping without hitting production services.【F:GetRoutes.txt†L1-L5】
 
 ---
 
 Disclaimer: All code in this repository was written by OpenAI's Codex.
-
