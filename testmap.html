@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+    <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
     <style>
       .custom-popup {
         position: absolute;
@@ -212,6 +213,8 @@
       let showSpeed = false; // default to showing block numbers
       let showBlockNumbers = true;
 
+      const enableOverlapDashRendering = true;
+
       const params = new URLSearchParams(window.location.search);
       const kioskParam = params.get('kioskMode');
       if (kioskParam !== null) {
@@ -241,6 +244,8 @@
       let allRouteBounds = null;
       let mapHasFitAllRoutes = false;
       let refreshIntervals = [];
+
+      let overlapRenderer = null;
 
       let agencies = [];
       let baseURL = '';
@@ -603,6 +608,9 @@
         stopMarkers = [];
         routeLayers.forEach(l => map.removeLayer(l));
         routeLayers = [];
+        if (overlapRenderer) {
+          overlapRenderer.reset();
+        }
         busBlocks = {};
         previousBusData = {};
         cachedEtas = {};
@@ -637,7 +645,22 @@
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           });
           cartoLight.addTo(map);
-          
+
+          if (enableOverlapDashRendering) {
+            overlapRenderer = new OverlapRouteRenderer(map, {
+              sampleStepPx: 8,
+              dashLengthPx: 16,
+              minDashLengthPx: 0.5,
+              matchTolerancePx: 6,
+              strokeWeight: 6
+            });
+            map.on('zoomend', () => {
+              if (overlapRenderer) {
+                overlapRenderer.handleZoomEnd();
+              }
+            });
+          }
+
           fetchRouteColors().then(() => {
               if (kioskMode || adminKioskMode) {
                 document.getElementById("routeSelector").style.display = "none";
@@ -835,6 +858,397 @@
               });
       }
 
+      class OverlapRouteRenderer {
+        constructor(map, options = {}) {
+          this.map = map;
+          this.options = Object.assign({
+            sampleStepPx: 8,
+            dashLengthPx: 16,
+            minDashLengthPx: 0.5,
+            matchTolerancePx: 6,
+            headingToleranceDeg: 20,
+            simplifyTolerancePx: 0.75,
+            latLngEqualityMargin: 1e-9,
+            strokeWeight: 6
+          }, options);
+          this.layers = [];
+          this.routeGeometries = new Map();
+          this.selectedRoutes = [];
+          this.currentZoom = map.getZoom();
+        }
+
+        reset() {
+          this.clearLayers();
+          this.routeGeometries.clear();
+          this.selectedRoutes = [];
+        }
+
+        clearLayers() {
+          this.layers.forEach(layer => {
+            if (layer && this.map.hasLayer(layer)) {
+              this.map.removeLayer(layer);
+            }
+          });
+          this.layers = [];
+        }
+
+        updateRoutes(routeGeometryMap, selectedRouteIds) {
+          if (!Array.isArray(selectedRouteIds) || selectedRouteIds.length === 0) {
+            this.reset();
+            return this.getLayers();
+          }
+
+          const geometryEntries = routeGeometryMap instanceof Map
+            ? Array.from(routeGeometryMap.entries())
+            : Object.entries(routeGeometryMap || {});
+
+          const geometries = new Map();
+          const numericIds = selectedRouteIds
+            .map(id => Number(id))
+            .filter(id => !Number.isNaN(id));
+
+          const idSet = new Set(numericIds);
+          geometryEntries.forEach(([key, value]) => {
+            const numericKey = Number(key);
+            if (!Number.isNaN(numericKey) && idSet.has(numericKey) && Array.isArray(value)) {
+              geometries.set(numericKey, value);
+            }
+          });
+
+          this.routeGeometries = geometries;
+          this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
+          this.currentZoom = this.map.getZoom();
+          this.render();
+          return this.getLayers();
+        }
+
+        handleZoomEnd() {
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) return;
+          const zoom = this.map.getZoom();
+          if (zoom === this.currentZoom) return;
+          this.currentZoom = zoom;
+          this.render();
+        }
+
+        getLayers() {
+          return this.layers.slice();
+        }
+
+        render() {
+          this.clearLayers();
+          if (this.selectedRoutes.length === 0) return;
+
+          const zoom = this.currentZoom;
+          const step = Math.max(2, this.options.sampleStepPx);
+          const tolerance = this.options.matchTolerancePx;
+          const headingToleranceRad = (this.options.headingToleranceDeg * Math.PI) / 180;
+
+          const resampledByRoute = new Map();
+          const allSegments = [];
+          const treeItems = [];
+
+          this.selectedRoutes.forEach(routeId => {
+            const latlngs = this.routeGeometries.get(routeId);
+            if (!latlngs || latlngs.length < 2) return;
+
+            const resampled = this.resampleRoute(routeId, latlngs, zoom, step);
+            if (!resampled || !Array.isArray(resampled.segments) || resampled.segments.length === 0) {
+              return;
+            }
+
+            resampledByRoute.set(routeId, resampled);
+            resampled.segments.forEach(segment => {
+              allSegments.push(segment);
+              treeItems.push({
+                minX: segment.bounds.minX,
+                minY: segment.bounds.minY,
+                maxX: segment.bounds.maxX,
+                maxY: segment.bounds.maxY,
+                segment
+              });
+            });
+          });
+
+          if (allSegments.length === 0) return;
+
+          const tree = new RBush();
+          tree.load(treeItems);
+
+          allSegments.forEach(segment => {
+            const searchBounds = {
+              minX: segment.bounds.minX - tolerance,
+              minY: segment.bounds.minY - tolerance,
+              maxX: segment.bounds.maxX + tolerance,
+              maxY: segment.bounds.maxY + tolerance
+            };
+            const candidates = tree.search(searchBounds) || [];
+            const sharedRoutes = new Set([segment.routeId]);
+
+            candidates.forEach(candidate => {
+              const other = candidate.segment;
+              if (!other || other === segment) return;
+              if (this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) {
+                sharedRoutes.add(other.routeId);
+              }
+            });
+
+            segment.sharedRoutes = Array.from(sharedRoutes).sort((a, b) => a - b);
+            segment.key = segment.sharedRoutes.join('|');
+            segment.primaryRoute = segment.sharedRoutes[0];
+          });
+
+          const groups = this.buildGroups(resampledByRoute);
+          this.drawGroups(groups);
+        }
+
+        buildGroups(resampledByRoute) {
+          const groups = [];
+          resampledByRoute.forEach((resampled, routeId) => {
+            let currentGroup = null;
+            let lastKey = null;
+
+            resampled.segments.forEach(segment => {
+              if (!segment.sharedRoutes || segment.sharedRoutes.length === 0) return;
+              if (segment.primaryRoute !== routeId) {
+                if (currentGroup) {
+                  groups.push(currentGroup);
+                  currentGroup = null;
+                  lastKey = null;
+                }
+                return;
+              }
+
+              if (!currentGroup || segment.key !== lastKey) {
+                if (currentGroup) groups.push(currentGroup);
+                currentGroup = {
+                  key: segment.key,
+                  routes: segment.sharedRoutes,
+                  points: [],
+                  lengthPx: 0
+                };
+                currentGroup.points.push(segment.start.latlng);
+              }
+
+              const lastPoint = currentGroup.points[currentGroup.points.length - 1];
+              if (!this.latLngEquals(lastPoint, segment.start.latlng)) {
+                currentGroup.points.push(segment.start.latlng);
+              }
+
+              const endPoint = segment.end.latlng;
+              const tailPoint = currentGroup.points[currentGroup.points.length - 1];
+              if (!this.latLngEquals(tailPoint, endPoint)) {
+                currentGroup.points.push(endPoint);
+              }
+
+              currentGroup.lengthPx += segment.lengthPx;
+              lastKey = segment.key;
+            });
+
+            if (currentGroup) {
+              groups.push(currentGroup);
+            }
+          });
+
+          return groups;
+        }
+
+        drawGroups(groups) {
+          const newLayers = [];
+          const dashBase = this.options.dashLengthPx;
+          const minDash = this.options.minDashLengthPx;
+          const weight = this.options.strokeWeight;
+
+          groups.forEach(group => {
+            if (!group || !Array.isArray(group.routes) || group.routes.length === 0) return;
+            if (!Array.isArray(group.points) || group.points.length < 2) return;
+
+            const coords = group.points.map(latlng => [latlng.lat, latlng.lng]);
+            const sortedRoutes = group.routes.slice().sort((a, b) => a - b);
+
+            if (sortedRoutes.length === 1) {
+              const routeId = sortedRoutes[0];
+              const layer = L.polyline(coords, {
+                color: getRouteColor(routeId),
+                weight,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+              }).addTo(this.map);
+              newLayers.push(layer);
+              return;
+            }
+
+            const groupLength = group.lengthPx || 0;
+            if (groupLength <= 0) return;
+            const stripeCount = sortedRoutes.length;
+            let dashLength = dashBase;
+            if (dashLength * stripeCount > groupLength) {
+              dashLength = groupLength / stripeCount;
+            }
+            if (!(dashLength > 0)) {
+              dashLength = minDash;
+            }
+            const gapLength = dashLength * (stripeCount - 1);
+
+            sortedRoutes.forEach((routeId, index) => {
+              const layer = L.polyline(coords, {
+                color: getRouteColor(routeId),
+                weight,
+                opacity: 1,
+                dashArray: `${dashLength} ${gapLength}`,
+                dashOffset: `${dashLength * index}`,
+                lineCap: 'butt',
+                lineJoin: 'round'
+              }).addTo(this.map);
+              newLayers.push(layer);
+            });
+          });
+
+          this.layers = newLayers;
+        }
+
+        simplifyLatLngs(latlngs, zoom) {
+          if (!Array.isArray(latlngs) || latlngs.length === 0) return [];
+          const projected = latlngs.map(latlng => this.map.project(latlng, zoom));
+          let simplified = projected;
+          if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil && L.LineUtil.simplify) {
+            simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
+          }
+          return simplified.map(pt => ({
+            point: L.point(pt.x, pt.y),
+            latlng: this.map.unproject(pt, zoom)
+          }));
+        }
+
+        resampleRoute(routeId, latlngs, zoom, step) {
+          const simplified = this.simplifyLatLngs(latlngs, zoom);
+          if (simplified.length < 2) return null;
+
+          const resampledPoints = [];
+          const first = simplified[0];
+          resampledPoints.push({
+            latlng: first.latlng,
+            point: first.point,
+            cumulativeLength: 0
+          });
+
+          let totalTraversed = 0;
+          let distanceSinceLast = 0;
+
+          for (let i = 1; i < simplified.length; i++) {
+            const prev = simplified[i - 1];
+            const curr = simplified[i];
+            const segmentLength = this.distance(prev.point, curr.point);
+            if (segmentLength === 0) continue;
+
+            let distanceAlongSegment = 0;
+            while (distanceSinceLast + (segmentLength - distanceAlongSegment) >= step) {
+              const remainingToNext = step - distanceSinceLast;
+              const sampleDistance = distanceAlongSegment + remainingToNext;
+              const ratio = sampleDistance / segmentLength;
+              const samplePoint = this.interpolatePoint(prev.point, curr.point, ratio);
+              const sampleLatLng = this.map.unproject(samplePoint, zoom);
+              const absoluteLength = totalTraversed + sampleDistance;
+
+              resampledPoints.push({
+                latlng: sampleLatLng,
+                point: samplePoint,
+                cumulativeLength: absoluteLength
+              });
+
+              distanceSinceLast = 0;
+              distanceAlongSegment = sampleDistance;
+            }
+
+            distanceSinceLast += segmentLength - distanceAlongSegment;
+            totalTraversed += segmentLength;
+          }
+
+          const last = simplified[simplified.length - 1];
+          const lastSample = resampledPoints[resampledPoints.length - 1];
+          if (!this.latLngEquals(lastSample.latlng, last.latlng)) {
+            resampledPoints.push({
+              latlng: last.latlng,
+              point: last.point,
+              cumulativeLength: totalTraversed
+            });
+          } else {
+            lastSample.cumulativeLength = totalTraversed;
+          }
+
+          const segments = [];
+          for (let i = 0; i < resampledPoints.length - 1; i++) {
+            const start = resampledPoints[i];
+            const end = resampledPoints[i + 1];
+            const lengthPx = this.distance(start.point, end.point);
+            if (lengthPx === 0) continue;
+            const bounds = {
+              minX: Math.min(start.point.x, end.point.x),
+              minY: Math.min(start.point.y, end.point.y),
+              maxX: Math.max(start.point.x, end.point.x),
+              maxY: Math.max(start.point.y, end.point.y)
+            };
+            const midpoint = L.point((start.point.x + end.point.x) / 2, (start.point.y + end.point.y) / 2);
+            const heading = Math.atan2(end.point.y - start.point.y, end.point.x - start.point.x);
+            segments.push({
+              routeId,
+              start,
+              end,
+              lengthPx,
+              bounds,
+              midpoint,
+              heading
+            });
+          }
+
+          return {
+            points: resampledPoints,
+            segments
+          };
+        }
+
+        interpolatePoint(a, b, t) {
+          return L.point(
+            a.x + (b.x - a.x) * t,
+            a.y + (b.y - a.y) * t
+          );
+        }
+
+        distance(a, b) {
+          const dx = (b.x || 0) - (a.x || 0);
+          const dy = (b.y || 0) - (a.y || 0);
+          return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        segmentsOverlap(a, b, tolerance, headingToleranceRad) {
+          const midpointDistance = this.distance(a.midpoint, b.midpoint);
+          if (midpointDistance > tolerance) return false;
+
+          const headingDiff = this.smallestHeadingDifference(a.heading, b.heading);
+          if (headingDiff > headingToleranceRad && Math.abs(Math.PI - headingDiff) > headingToleranceRad) {
+            return false;
+          }
+
+          return true;
+        }
+
+        smallestHeadingDifference(a, b) {
+          let diff = Math.abs(a - b);
+          diff = diff % (Math.PI * 2);
+          if (diff > Math.PI) diff = (Math.PI * 2) - diff;
+          return diff;
+        }
+
+        latLngEquals(a, b) {
+          if (!a || !b) return false;
+          if (typeof a.equals === 'function') {
+            return a.equals(b, this.options.latLngEqualityMargin);
+          }
+          return Math.abs(a.lat - b.lat) <= this.options.latLngEqualityMargin &&
+            Math.abs(a.lng - b.lng) <= this.options.latLngEqualityMargin;
+        }
+      }
+
       // Fetch routes from GetRoutes.
       function fetchRouteColors() {
         console.log('Fetching route colors...');
@@ -871,6 +1285,9 @@
                   routeLayers = [];
                   let bounds = null;
                   const displayedRoutes = new Map();
+                  const rendererGeometries = new Map();
+                  const selectedRouteIds = [];
+                  const useOverlapRenderer = enableOverlapDashRendering && overlapRenderer;
                   if (Array.isArray(data)) {
                       data.forEach(route => {
                           setRouteVisibility(route);
@@ -878,17 +1295,27 @@
                           const routeAllowed = canDisplayRoute(route.RouteID);
                           if (route.EncodedPolyline && routeAllowed) {
                               const decodedPolyline = polyline.decode(route.EncodedPolyline);
-                              const polyBounds = L.latLngBounds(decodedPolyline);
+                              const latLngPath = decodedPolyline.map(coords => L.latLng(coords[0], coords[1]));
+                              const polyBounds = L.latLngBounds(latLngPath);
                               bounds = bounds ? bounds.extend(polyBounds) : polyBounds;
 
                               if (isRouteSelected(route.RouteID)) {
-                                  let routeColor = getRouteColor(route.RouteID);
-                                  const routeLayer = L.polyline(decodedPolyline, {
-                                      color: routeColor,
-                                      weight: 6,
-                                      opacity: 1
-                                  }).addTo(map);
-                                  routeLayers.push(routeLayer);
+                                  const numericRouteId = Number(route.RouteID);
+                                  const routeColor = getRouteColor(route.RouteID);
+                                  if (!Number.isNaN(numericRouteId)) {
+                                      const hasUsableGeometry = Array.isArray(latLngPath) && latLngPath.length >= 2;
+                                      selectedRouteIds.push(numericRouteId);
+                                      if (useOverlapRenderer && hasUsableGeometry) {
+                                          rendererGeometries.set(numericRouteId, latLngPath);
+                                      } else if (hasUsableGeometry) {
+                                          const routeLayer = L.polyline(latLngPath, {
+                                              color: routeColor,
+                                              weight: 6,
+                                              opacity: 1
+                                          }).addTo(map);
+                                          routeLayers.push(routeLayer);
+                                      }
+                                  }
                                   const storedRoute = allRoutes[route.RouteID] || {};
                                   const legendNameCandidates = [
                                       storedRoute.Description,
@@ -902,7 +1329,6 @@
                                   legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
                                   const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
                                   const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
-                                  const numericRouteId = Number(route.RouteID);
                                   const legendRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
                                   displayedRoutes.set(route.RouteID, {
                                       routeId: legendRouteId,
@@ -913,6 +1339,10 @@
                               }
                           }
                       });
+                      if (useOverlapRenderer) {
+                          const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIds);
+                          routeLayers = layers;
+                      }
                       if (bounds) {
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
