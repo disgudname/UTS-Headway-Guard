@@ -251,16 +251,16 @@
 
         const SIMPLIFY_TOLERANCE_METERS = 12;
         const DENSIFY_SPACING_METERS = 7;
-        const CORRIDOR_ANGULAR_TOLERANCE_DEG = 5;
+        const CORRIDOR_ANGULAR_TOLERANCE_DEG = 3;
         const CORRIDOR_ANGULAR_TOLERANCE_RAD = (CORRIDOR_ANGULAR_TOLERANCE_DEG * Math.PI) / 180;
-        const CORRIDOR_DISTANCE_TOLERANCE_METERS = 7;
+        const CORRIDOR_DISTANCE_TOLERANCE_METERS = 5;
         const CORRIDOR_OVERLAP_THRESHOLD = 0.7;
         const SEGMENT_INDEX_CELL_SIZE = 150;
-        const NODE_QUANTIZATION_METERS = 5;
-        const NODE_MERGE_DISTANCE = 10;
+        const NODE_QUANTIZATION_METERS = 8;
+        const NODE_MERGE_DISTANCE = 15;
         const STOP_GROUP_DISTANCE = 10;
         const MIN_DIAGONAL_LENGTH = 5;
-        const POLYLINE_DUPLICATE_TOLERANCE = 25;
+        const POLYLINE_DUPLICATE_TOLERANCE = 10;
 
         const ROUTE_LINE_WIDTH_PX = 6;
         const ROUTE_GAP_PX = 2;
@@ -273,6 +273,7 @@
         const state = {
             routes: [],
             routeMeta: new Map(),
+            componentToGroup: new Map(),
             graph: null,
             stopGroups: [],
             viewBox: null,
@@ -287,11 +288,13 @@
 
         async function initialize() {
             try {
-                const { routes, stopGroups } = await loadData();
+                const { routes, stopGroups, componentToGroup } = await loadData();
                 state.routes = routes;
                 state.stopGroups = stopGroups;
+                state.componentToGroup = componentToGroup;
 
                 state.graph = buildGraph(routes);
+                normalizeGraphRouteMembership(state.graph);
                 snapOctilinear(state.graph);
                 alignStopsToGraph(state.stopGroups, state.graph);
 
@@ -559,21 +562,37 @@
                 throw new Error('No active routes with geometry available.');
             }
 
-            state.routeMeta = new Map(
-                aggregatedRoutes.map((route) => [
-                    route.id,
-                    {
-                        id: route.id,
-                        name: route.name,
-                        color: route.color,
-                        componentRouteIds: route.componentRouteIds
+            const componentToGroup = new Map();
+            aggregatedRoutes.forEach((route) => {
+                const groupKey = String(route.id);
+                componentToGroup.set(groupKey, groupKey);
+                route.componentRouteIds.forEach((componentId) => {
+                    const key = String(componentId);
+                    if (!componentToGroup.has(key)) {
+                        componentToGroup.set(key, groupKey);
                     }
-                ])
+                });
+            });
+
+            state.routeMeta = new Map(
+                aggregatedRoutes.map((route) => {
+                    const key = String(route.id);
+                    return [
+                        key,
+                        {
+                            id: key,
+                            name: route.name,
+                            color: route.color,
+                            componentRouteIds: route.componentRouteIds,
+                            groupKey: key
+                        }
+                    ];
+                })
             );
 
             const groupedStops = groupStops(aggregatedRoutes.flatMap((route) => route.stops));
 
-            return { routes: aggregatedRoutes, stopGroups: groupedStops };
+            return { routes: aggregatedRoutes, stopGroups: groupedStops, componentToGroup };
         }
 
         function normalizeColor(color) {
@@ -1169,6 +1188,9 @@
 
             let best = null;
             for (const evaluation of evaluations) {
+                if (evaluation.angleDiff > CORRIDOR_ANGULAR_TOLERANCE_RAD) {
+                    continue;
+                }
                 if (evaluation.meanDistance > CORRIDOR_DISTANCE_TOLERANCE_METERS) {
                     continue;
                 }
@@ -1410,6 +1432,72 @@
                 lon: group.lon
             }));
         }
+
+        function getCanonicalRouteInfo(routeId) {
+            const idStr = String(routeId);
+            let meta = state.routeMeta.get(idStr);
+            if (meta) {
+                const canonicalId = meta.id ?? idStr;
+                const groupKey = meta.groupKey ?? canonicalId;
+                if (!meta.groupKey) {
+                    meta.groupKey = groupKey;
+                }
+                return { routeId: canonicalId, groupKey, meta };
+            }
+
+            const componentMap = state.componentToGroup;
+            if (componentMap && componentMap.has(idStr)) {
+                const mappedKey = String(componentMap.get(idStr));
+                meta = state.routeMeta.get(mappedKey);
+                if (meta) {
+                    const canonicalId = meta.id ?? mappedKey;
+                    const groupKey = meta.groupKey ?? canonicalId;
+                    if (!meta.groupKey) {
+                        meta.groupKey = groupKey;
+                    }
+                    return { routeId: canonicalId, groupKey, meta };
+                }
+                return {
+                    routeId: mappedKey,
+                    groupKey: mappedKey,
+                    meta: {
+                        id: mappedKey,
+                        name: `Route ${mappedKey}`,
+                        color: '#000000',
+                        componentRouteIds: [],
+                        groupKey: mappedKey
+                    }
+                };
+            }
+
+            return {
+                routeId: idStr,
+                groupKey: idStr,
+                meta: {
+                    id: idStr,
+                    name: `Route ${idStr}`,
+                    color: '#000000',
+                    componentRouteIds: [],
+                    groupKey: idStr
+                }
+            };
+        }
+
+        function normalizeGraphRouteMembership(graph) {
+            if (!graph || !Array.isArray(graph.edges)) {
+                return;
+            }
+            for (const edge of graph.edges) {
+                const sourceSet = edge.routes instanceof Set ? edge.routes : new Set(edge.routes || []);
+                const canonicalRoutes = new Set();
+                for (const routeId of sourceSet) {
+                    const info = getCanonicalRouteInfo(routeId);
+                    canonicalRoutes.add(info.routeId);
+                }
+                edge.routes = canonicalRoutes;
+            }
+        }
+
         function quantizeCoordinate(value, step) {
             return Math.round(value / step) * step;
         }
@@ -1719,8 +1807,25 @@
             terminiGroup.innerHTML = '';
 
             const usedRouteIds = new Set();
+            const edgeRouteEntries = new Map();
             for (const edge of state.graph.edges) {
-                edge.routes.forEach((id) => usedRouteIds.add(id));
+                const entryMap = new Map();
+                if (edge.routes && typeof edge.routes[Symbol.iterator] === 'function') {
+                    for (const routeId of edge.routes) {
+                        const info = getCanonicalRouteInfo(routeId);
+                        if (!entryMap.has(info.groupKey)) {
+                            entryMap.set(info.groupKey, info);
+                        }
+                    }
+                }
+                const uniqueEntries = Array.from(entryMap.values()).sort((a, b) => {
+                    const nameA = a.meta?.name ?? `Route ${a.routeId}`;
+                    const nameB = b.meta?.name ?? `Route ${b.routeId}`;
+                    return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+                });
+                edgeRouteEntries.set(edge.id, uniqueEntries);
+                edge.routes = new Set(uniqueEntries.map((info) => info.routeId));
+                uniqueEntries.forEach((info) => usedRouteIds.add(info.routeId));
             }
 
             renderLegend(usedRouteIds);
@@ -1746,24 +1851,34 @@
                 if (!edge.snapped || edge.snapped.length < 2) {
                     continue;
                 }
+                const entries = edgeRouteEntries.get(edge.id) || [];
+                if (!entries.length) {
+                    continue;
+                }
                 const centerline = edge.snapped.map(clonePoint);
-                const routes = Array.from(edge.routes).sort((a, b) => {
-                    const metaA = state.routeMeta.get(a);
-                    const metaB = state.routeMeta.get(b);
-                    if (metaA && metaB) {
-                        return metaA.name.localeCompare(metaB.name, undefined, { sensitivity: 'base' });
+                const bundleCount = entries.length;
+                entries.forEach((entry, index) => {
+                    const meta = entry.meta ?? state.routeMeta.get(entry.routeId) ?? {
+                        id: entry.routeId,
+                        name: `Route ${entry.routeId}`,
+                        color: '#000000',
+                        componentRouteIds: [],
+                        groupKey: entry.groupKey
+                    };
+                    if (!state.routeMeta.has(entry.routeId)) {
+                        state.routeMeta.set(entry.routeId, meta);
+                    } else {
+                        const existingMeta = state.routeMeta.get(entry.routeId);
+                        if (existingMeta && !existingMeta.groupKey) {
+                            existingMeta.groupKey = entry.groupKey;
+                        }
                     }
-                    if (metaA) return -1;
-                    if (metaB) return 1;
-                    return String(a).localeCompare(String(b));
-                });
-                routes.forEach((routeId, index) => {
-                    const meta = state.routeMeta.get(routeId) || { color: '#000000' };
                     const pathEl = document.createElementNS(svgNS, 'path');
                     pathEl.classList.add('route-path');
-                    pathEl.dataset.route = String(routeId);
+                    pathEl.dataset.route = String(entry.routeId);
                     pathEl.dataset.edge = String(edge.id);
-                    pathEl.setAttribute('stroke', meta.color);
+                    pathEl.dataset.groupKey = String(entry.groupKey);
+                    pathEl.setAttribute('stroke', meta.color || '#000000');
                     pathEl.setAttribute('stroke-width', ROUTE_LINE_WIDTH_PX);
                     pathEl.setAttribute('vector-effect', 'non-scaling-stroke');
                     pathEl.setAttribute('fill', 'none');
@@ -1772,10 +1887,13 @@
                     bundlesGroup.appendChild(pathEl);
 
                     const item = {
-                        routeId,
+                        routeId: entry.routeId,
+                        groupKey: entry.groupKey,
                         edgeId: edge.id,
                         orderIndex: index,
-                        routeCount: routes.length,
+                        bundleIndex: index,
+                        bundleCount,
+                        routeCount: bundleCount,
                         centerline,
                         pathElement: pathEl,
                         startNode: edge.start,
@@ -1783,9 +1901,9 @@
                         offsetPoints: null
                     };
                     state.routePaths.push(item);
-                    state.routePathLookup.set(`${routeId}-${edge.id}`, item);
+                    state.routePathLookup.set(`${entry.routeId}-${edge.id}`, item);
 
-                    pathEl.addEventListener('pointerenter', () => applyHighlight(new Set([routeId])));
+                    pathEl.addEventListener('pointerenter', () => applyHighlight(new Set([entry.routeId])));
                     pathEl.addEventListener('pointerleave', (event) => {
                         const related = event.relatedTarget;
                         if (related && (related.closest('.route-path') || related.closest('.stop-circle') || related.closest('.legend-item'))) {
@@ -2009,10 +2127,26 @@
 
         function updateRoutePaths(unitPerPx) {
             const spacing = (ROUTE_LINE_WIDTH_PX + ROUTE_GAP_PX) * unitPerPx;
+            const edgeGroupKeys = new Map();
             state.routePaths.forEach((item) => {
-                const offset = (item.orderIndex - (item.routeCount - 1) / 2) * spacing;
+                const groupKey = item.groupKey ?? String(item.routeId);
+                let set = edgeGroupKeys.get(item.edgeId);
+                if (!set) {
+                    set = new Set();
+                    edgeGroupKeys.set(item.edgeId, set);
+                }
+                set.add(groupKey);
+            });
+
+            state.routePaths.forEach((item) => {
+                const groupSet = edgeGroupKeys.get(item.edgeId);
+                const groupCount = groupSet ? groupSet.size : item.bundleCount ?? item.routeCount ?? 1;
+                const index = item.bundleIndex ?? item.orderIndex ?? 0;
+                const offset = groupCount <= 1 ? 0 : (index - (groupCount - 1) / 2) * spacing;
                 const offsetPoints = offsetPolyline(item.centerline, offset);
                 item.offsetPoints = offsetPoints;
+                item.bundleCount = groupCount;
+                item.routeCount = groupCount;
                 const d = pointsToPath(offsetPoints);
                 item.pathElement.setAttribute('d', d);
             });
