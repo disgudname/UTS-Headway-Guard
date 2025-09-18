@@ -256,11 +256,20 @@
         const CORRIDOR_DISTANCE_TOLERANCE_METERS = 5;
         const CORRIDOR_OVERLAP_THRESHOLD = 0.7;
         const SEGMENT_INDEX_CELL_SIZE = 150;
-        const NODE_QUANTIZATION_METERS = 8;
-        const NODE_MERGE_DISTANCE = 15;
+        const NODE_QUANTIZATION_METERS = 10;
+        const NODE_MERGE_DISTANCE = 18;
         const STOP_GROUP_DISTANCE = 10;
-        const MIN_DIAGONAL_LENGTH = 5;
+        const MIN_DIAGONAL_LENGTH = 40;
         const POLYLINE_DUPLICATE_TOLERANCE = 10;
+
+        const GRAPH_SIMPLIFY_TOLERANCE_METERS = 30;
+        const GRAPH_VERTEX_SPACING_METERS = 25;
+        const GRAPH_COLLINEAR_ANGLE_DEG = 5;
+        const GRAPH_COLLINEAR_ANGLE_RAD = (GRAPH_COLLINEAR_ANGLE_DEG * Math.PI) / 180;
+        const GRAPH_MIN_EDGE_LENGTH = 50;
+        const DEGREE2_MERGE_ANGLE_DEG = 3;
+        const DEGREE2_MERGE_ANGLE_RAD = (DEGREE2_MERGE_ANGLE_DEG * Math.PI) / 180;
+        const SNAP_MIN_SEGMENT_LENGTH = 35;
 
         const ROUTE_LINE_WIDTH_PX = 6;
         const ROUTE_GAP_PX = 2;
@@ -536,11 +545,19 @@
             for (const group of routeGroups.values()) {
                 if (group.candidateSegments.length) {
                     const corridors = clusterSegmentsIntoCorridors(group.candidateSegments);
+                    const graphSegments = [];
+                    corridors.forEach((corridor) => {
+                        const prepared = prepareCenterlineForGraph(corridor.centerline);
+                        corridor.centerlineForGraph = prepared;
+                        graphSegments.push(prepared.map(clonePoint));
+                    });
                     group.corridors = corridors;
                     group.segments = corridors.map((corridor) => corridor.centerline.map(clonePoint));
+                    group.graphSegments = graphSegments;
                 } else {
                     group.corridors = [];
                     group.segments = [];
+                    group.graphSegments = [];
                 }
 
                 if (group.stops.length && group.segments.length) {
@@ -552,7 +569,9 @@
                 id: group.id,
                 name: group.name,
                 color: group.color,
-                segments: group.segments,
+                segments: (group.graphSegments && group.graphSegments.length)
+                    ? group.graphSegments.map((segment) => segment.map(clonePoint))
+                    : group.segments.map((segment) => segment.map(clonePoint)),
                 stops: group.stops,
                 componentRouteIds: Array.from(group.componentRouteIds).sort((a, b) => a - b),
                 corridorMembers: group.corridors.map((corridor) => Array.from(corridor.memberRouteIds).sort((a, b) => a - b))
@@ -734,6 +753,71 @@
                 simplified.push(clonePoint(points[index]));
                 simplifySegment(points, index, last, sqTol, simplified);
             }
+        }
+
+        function removeCloseVertices(points, minDistance) {
+            if (!Array.isArray(points) || points.length === 0) {
+                return [];
+            }
+            if (points.length === 1) {
+                return [clonePoint(points[0])];
+            }
+            const minSq = minDistance * minDistance;
+            const result = [clonePoint(points[0])];
+            for (let i = 1; i < points.length - 1; i++) {
+                const prev = result[result.length - 1];
+                const current = points[i];
+                if (distanceSquared(prev, current) >= minSq) {
+                    result.push(clonePoint(current));
+                }
+            }
+            result.push(clonePoint(points[points.length - 1]));
+            return result;
+        }
+
+        function mergeCollinearByAngle(points, toleranceRadians) {
+            if (!Array.isArray(points) || points.length <= 2) {
+                return Array.isArray(points) ? points.map(clonePoint) : [];
+            }
+            const cleaned = [clonePoint(points[0])];
+            for (let i = 1; i < points.length - 1; i++) {
+                const prev = cleaned[cleaned.length - 1];
+                const current = points[i];
+                const next = points[i + 1];
+                const v1x = current.x - prev.x;
+                const v1y = current.y - prev.y;
+                const v2x = next.x - current.x;
+                const v2y = next.y - current.y;
+                const len1 = Math.hypot(v1x, v1y);
+                const len2 = Math.hypot(v2x, v2y);
+                if (len1 < 1e-6 || len2 < 1e-6) {
+                    continue;
+                }
+                const angle1 = normalizeUndirectedAngle(Math.atan2(v1y, v1x));
+                const angle2 = normalizeUndirectedAngle(Math.atan2(v2y, v2x));
+                const diff = angularDifferenceRadians(angle1, angle2);
+                if (diff <= toleranceRadians) {
+                    continue;
+                }
+                cleaned.push(clonePoint(current));
+            }
+            cleaned.push(clonePoint(points[points.length - 1]));
+            return cleaned;
+        }
+
+        function prepareCenterlineForGraph(centerline) {
+            if (!Array.isArray(centerline) || centerline.length < 2) {
+                return Array.isArray(centerline) ? centerline.map(clonePoint) : [];
+            }
+            let prepared = simplifyPath(centerline, GRAPH_SIMPLIFY_TOLERANCE_METERS);
+            prepared = removeCloseVertices(prepared, GRAPH_VERTEX_SPACING_METERS);
+            prepared = mergeCollinearByAngle(prepared, GRAPH_COLLINEAR_ANGLE_RAD);
+            if (prepared.length < 2) {
+                const first = clonePoint(centerline[0]);
+                const last = clonePoint(centerline[centerline.length - 1]);
+                return [first, last];
+            }
+            return prepared.map(clonePoint);
         }
 
         function densifyPath(points, spacing) {
@@ -1591,44 +1675,61 @@
                     if (quantizedPoints.length < 2) {
                         continue;
                     }
-                    for (let i = 0; i < quantizedPoints.length - 1; i++) {
-                        const a = quantizedPoints[i];
-                        const b = quantizedPoints[i + 1];
-                        if (distanceSquared(a, b) < 1e-4) {
-                            continue;
-                        }
-                        const startId = findOrCreateNode(a);
-                        const endId = findOrCreateNode(b);
-                        if (startId === endId) {
-                            continue;
-                        }
-                        const key = startId < endId ? `${startId}-${endId}` : `${endId}-${startId}`;
-                        const bucket = getEdgeBucket(key);
-                        const dx = b.x - a.x;
-                        const dy = b.y - a.y;
-                        const angle = normalizeUndirectedAngle(Math.atan2(dy, dx));
-                        let edge = null;
-                        for (const candidate of bucket) {
-                            if (angularDifferenceRadians(candidate.angle, angle) <= CORRIDOR_ANGULAR_TOLERANCE_RAD) {
-                                edge = candidate;
-                                break;
+                    let i = 0;
+                    while (i < quantizedPoints.length - 1) {
+                        const startPoint = quantizedPoints[i];
+                        let j = i + 1;
+                        let chosen = null;
+                        while (j < quantizedPoints.length) {
+                            const candidate = quantizedPoints[j];
+                            if (distanceSquared(startPoint, candidate) < 1e-4) {
+                                j++;
+                                continue;
                             }
+                            const length = Math.hypot(candidate.x - startPoint.x, candidate.y - startPoint.y);
+                            if (length < GRAPH_MIN_EDGE_LENGTH && j < quantizedPoints.length - 1) {
+                                j++;
+                                continue;
+                            }
+                            chosen = { point: candidate, length, index: j };
+                            break;
                         }
-                        if (!edge) {
-                            edge = {
-                                id: edges.length,
-                                start: startId,
-                                end: endId,
-                                routes: new Set(),
-                                snapped: null,
-                                angle
-                            };
-                            bucket.push(edge);
-                            edges.push(edge);
-                            nodes[startId].edges.add(edge.id);
-                            nodes[endId].edges.add(edge.id);
+                        if (!chosen) {
+                            break;
                         }
-                        edge.routes.add(route.id);
+                        const endPoint = chosen.point;
+                        const startId = findOrCreateNode(startPoint);
+                        const endId = findOrCreateNode(endPoint);
+                        if (startId !== endId) {
+                            const key = startId < endId ? `${startId}-${endId}` : `${endId}-${startId}`;
+                            const bucket = getEdgeBucket(key);
+                            const dx = endPoint.x - startPoint.x;
+                            const dy = endPoint.y - startPoint.y;
+                            const angle = normalizeUndirectedAngle(Math.atan2(dy, dx));
+                            let edge = null;
+                            for (const candidateEdge of bucket) {
+                                if (angularDifferenceRadians(candidateEdge.angle, angle) <= CORRIDOR_ANGULAR_TOLERANCE_RAD) {
+                                    edge = candidateEdge;
+                                    break;
+                                }
+                            }
+                            if (!edge) {
+                                edge = {
+                                    id: edges.length,
+                                    start: startId,
+                                    end: endId,
+                                    routes: new Set(),
+                                    snapped: null,
+                                    angle
+                                };
+                                bucket.push(edge);
+                                edges.push(edge);
+                                nodes[startId].edges.add(edge.id);
+                                nodes[endId].edges.add(edge.id);
+                            }
+                            edge.routes.add(route.id);
+                        }
+                        i = chosen.index;
                     }
                 }
             }
@@ -1637,18 +1738,201 @@
                 node.edges = Array.from(node.edges);
             });
 
-            return { nodes, edges };
+            const graph = { nodes, edges };
+            const preCoalesceEdgeCount = edges.length;
+            coalesceDegreeTwoRuns(graph);
+            const postCoalesceEdgeCount = graph.edges.length;
+            if (preCoalesceEdgeCount > 0) {
+                const reduction = preCoalesceEdgeCount - postCoalesceEdgeCount;
+                console.assert(
+                    reduction > preCoalesceEdgeCount * 0.1,
+                    `Graph coalescing ineffective: ${preCoalesceEdgeCount} → ${postCoalesceEdgeCount}`
+                );
+            }
+
+            return graph;
+        }
+
+        function coalesceDegreeTwoRuns(graph) {
+            if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
+                return;
+            }
+            const { nodes, edges } = graph;
+            let changed = true;
+            while (changed) {
+                changed = false;
+                for (const node of nodes) {
+                    if (!node || node.removed || !Array.isArray(node.edges) || node.edges.length !== 2) {
+                        continue;
+                    }
+                    const [edgeIdA, edgeIdB] = node.edges;
+                    const edgeA = edges[edgeIdA];
+                    const edgeB = edges[edgeIdB];
+                    if (!edgeA || !edgeB || edgeA.removed || edgeB.removed) {
+                        continue;
+                    }
+                    if (!routeSetsEqual(edgeA.routes, edgeB.routes)) {
+                        continue;
+                    }
+                    const angleA = computeEdgeDirectionAtNode(edgeA, node.id, nodes);
+                    const angleB = computeEdgeDirectionAtNode(edgeB, node.id, nodes);
+                    if (angleA === null || angleB === null) {
+                        continue;
+                    }
+                    if (angularDifferenceRadians(angleA, angleB) > DEGREE2_MERGE_ANGLE_RAD) {
+                        continue;
+                    }
+                    const otherA = edgeA.start === node.id ? edgeA.end : edgeA.start;
+                    const otherB = edgeB.start === node.id ? edgeB.end : edgeB.start;
+                    if (otherA === undefined || otherB === undefined || otherA === otherB) {
+                        continue;
+                    }
+                    removeEdgeReference(node, edgeIdA);
+                    removeEdgeReference(node, edgeIdB);
+                    removeEdgeReference(nodes[otherB], edgeIdB);
+                    edgeB.removed = true;
+                    node.removed = true;
+                    node.edges = [];
+                    edgeA.start = otherA;
+                    edgeA.end = otherB;
+                    addEdgeReference(nodes[otherA], edgeIdA);
+                    addEdgeReference(nodes[otherB], edgeIdA);
+                    const startNode = nodes[edgeA.start];
+                    const endNode = nodes[edgeA.end];
+                    if (startNode && endNode) {
+                        const mergedDx = endNode.x - startNode.x;
+                        const mergedDy = endNode.y - startNode.y;
+                        edgeA.angle = normalizeUndirectedAngle(Math.atan2(mergedDy, mergedDx));
+                    }
+                    changed = true;
+                    break;
+                }
+            }
+
+            const idMap = new Map();
+            const compacted = [];
+            edges.forEach((edge, index) => {
+                if (!edge || edge.removed) {
+                    return;
+                }
+                const newId = compacted.length;
+                idMap.set(index, newId);
+                edge.id = newId;
+                compacted.push(edge);
+            });
+            graph.edges = compacted;
+
+            nodes.forEach((node) => {
+                if (!node) {
+                    return;
+                }
+                if (!Array.isArray(node.edges)) {
+                    node.edges = [];
+                    return;
+                }
+                const unique = new Set();
+                const remapped = [];
+                for (const edgeId of node.edges) {
+                    const mapped = idMap.get(edgeId);
+                    if (mapped === undefined || unique.has(mapped)) {
+                        continue;
+                    }
+                    unique.add(mapped);
+                    remapped.push(mapped);
+                }
+                node.edges = remapped;
+            });
+        }
+
+        function addEdgeReference(node, edgeId) {
+            if (!node) {
+                return;
+            }
+            if (!Array.isArray(node.edges)) {
+                node.edges = [];
+            }
+            if (!node.edges.includes(edgeId)) {
+                node.edges.push(edgeId);
+            }
+        }
+
+        function removeEdgeReference(node, edgeId) {
+            if (!node || !Array.isArray(node.edges)) {
+                return;
+            }
+            const index = node.edges.indexOf(edgeId);
+            if (index !== -1) {
+                node.edges.splice(index, 1);
+            }
+        }
+
+        function routeSetsEqual(a, b) {
+            if (a === b) {
+                return true;
+            }
+            if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) {
+                return false;
+            }
+            for (const value of a) {
+                if (!b.has(value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function computeEdgeDirectionAtNode(edge, nodeId, nodes) {
+            if (!edge) {
+                return null;
+            }
+            const otherId = edge.start === nodeId ? edge.end : edge.start;
+            const node = nodes[nodeId];
+            const other = nodes[otherId];
+            if (!node || !other) {
+                return null;
+            }
+            const dx = other.x - node.x;
+            const dy = other.y - node.y;
+            if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
+                return null;
+            }
+            return normalizeUndirectedAngle(Math.atan2(dy, dx));
         }
 
         function snapOctilinear(graph) {
+            if (!graph || !Array.isArray(graph.edges)) {
+                return;
+            }
             for (const edge of graph.edges) {
+                if (!edge) {
+                    continue;
+                }
                 const start = graph.nodes[edge.start];
                 const end = graph.nodes[edge.end];
                 edge.snapped = computeOctilinearPath(start, end);
+                let passes = 0;
+                while (
+                    edge.snapped &&
+                    edge.snapped.length > 2 &&
+                    pathHasShortSegment(edge.snapped, SNAP_MIN_SEGMENT_LENGTH) &&
+                    passes < 5
+                ) {
+                    console.warn(`Collapsing short snapped segment on edge ${edge.id}`);
+                    edge.snapped = collapseShortSegments(edge.snapped, SNAP_MIN_SEGMENT_LENGTH);
+                    edge.snapped = mergeCollinear(edge.snapped);
+                    passes++;
+                }
+                console.assert(
+                    !pathHasShortSegment(edge.snapped, SNAP_MIN_SEGMENT_LENGTH),
+                    `Edge ${edge.id} retains sub-threshold segments after snapping.`
+                );
             }
         }
 
         function computeOctilinearPath(start, end) {
+            if (!start || !end) {
+                return [];
+            }
             const startPoint = clonePoint(start);
             const endPoint = clonePoint(end);
             const path = [startPoint];
@@ -1657,11 +1941,24 @@
             const dy = endPoint.y - startPoint.y;
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
-            const signX = Math.sign(dx);
-            const signY = Math.sign(dy);
+            const signX = Math.sign(dx) || 1;
+            const signY = Math.sign(dy) || 1;
 
             let diagLength = Math.min(absDx, absDy);
-            if (diagLength < MIN_DIAGONAL_LENGTH) {
+            if (diagLength >= MIN_DIAGONAL_LENGTH) {
+                let adjustedDiag = diagLength;
+                if (absDx > diagLength) {
+                    adjustedDiag = Math.min(adjustedDiag, absDx - SNAP_MIN_SEGMENT_LENGTH);
+                }
+                if (absDy > diagLength) {
+                    adjustedDiag = Math.min(adjustedDiag, absDy - SNAP_MIN_SEGMENT_LENGTH);
+                }
+                if (adjustedDiag >= MIN_DIAGONAL_LENGTH) {
+                    diagLength = adjustedDiag;
+                } else {
+                    diagLength = 0;
+                }
+            } else {
                 diagLength = 0;
             }
 
@@ -1679,27 +1976,33 @@
             const remainingY = dy - signY * diagLength;
 
             if (Math.abs(remainingX) > 1e-6) {
+                const current = path[path.length - 1];
                 const horizontal = {
-                    x: startPoint.x + signX * Math.abs(remainingX),
-                    y: path[path.length - 1].y
+                    x: current.x + signX * Math.abs(remainingX),
+                    y: current.y
                 };
-                if (distanceSquared(horizontal, path[path.length - 1]) > 1e-6 && distanceSquared(horizontal, endPoint) > 1e-6) {
+                if (distanceSquared(horizontal, current) > 1e-6 && distanceSquared(horizontal, endPoint) > 1e-6) {
                     path.push(horizontal);
                 }
             }
 
             if (Math.abs(remainingY) > 1e-6) {
+                const current = path[path.length - 1];
                 const vertical = {
-                    x: path[path.length - 1].x,
-                    y: startPoint.y + signY * Math.abs(remainingY)
+                    x: current.x,
+                    y: current.y + signY * Math.abs(remainingY)
                 };
-                if (distanceSquared(vertical, path[path.length - 1]) > 1e-6 && distanceSquared(vertical, endPoint) > 1e-6) {
+                if (distanceSquared(vertical, current) > 1e-6 && distanceSquared(vertical, endPoint) > 1e-6) {
                     path.push(vertical);
                 }
             }
 
             path.push(endPoint);
-            return mergeCollinear(path);
+
+            let cleaned = mergeCollinear(path);
+            cleaned = collapseShortSegments(cleaned, SNAP_MIN_SEGMENT_LENGTH);
+            cleaned = mergeCollinear(cleaned);
+            return cleaned;
         }
 
         function mergeCollinear(points) {
@@ -1720,12 +2023,86 @@
             return cleaned;
         }
 
+        function collapseShortSegments(points, minLength) {
+            if (!Array.isArray(points) || points.length <= 2) {
+                return Array.isArray(points) ? points.map(clonePoint) : [];
+            }
+            const minSq = minLength * minLength;
+            const result = points.map(clonePoint);
+            let iterations = 0;
+            const maxIterations = result.length * 4;
+            let changed = true;
+            while (changed && iterations < maxIterations) {
+                iterations++;
+                changed = false;
+                for (let i = 0; i < result.length - 1; i++) {
+                    const a = result[i];
+                    const b = result[i + 1];
+                    if (distanceSquared(a, b) >= minSq) {
+                        continue;
+                    }
+                    if (i === 0) {
+                        result.splice(i + 1, 1);
+                    } else if (i + 1 === result.length - 1) {
+                        result.splice(i, 1);
+                    } else {
+                        const prev = result[i - 1];
+                        const next = result[i + 2];
+                        const options = [];
+                        if (prev && isAxisOrDiagonal45(prev, b)) {
+                            options.push({ index: i, length: Math.hypot(b.x - prev.x, b.y - prev.y) });
+                        }
+                        if (next && isAxisOrDiagonal45(a, next)) {
+                            options.push({ index: i + 1, length: Math.hypot(next.x - a.x, next.y - a.y) });
+                        }
+                        if (options.length) {
+                            const preferred = options.find((option) => option.length >= minLength) || options[0];
+                            result.splice(preferred.index, 1);
+                        } else {
+                            result.splice(i + 1, 1);
+                        }
+                    }
+                    changed = true;
+                    break;
+                }
+            }
+            return result;
+        }
+
+        function pathHasShortSegment(points, minLength) {
+            if (!Array.isArray(points) || points.length < 2) {
+                return false;
+            }
+            const minSq = minLength * minLength;
+            for (let i = 0; i < points.length - 1; i++) {
+                if (distanceSquared(points[i], points[i + 1]) < minSq) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         function isCollinear(a, b, c) {
             const dx1 = b.x - a.x;
             const dy1 = b.y - a.y;
             const dx2 = c.x - b.x;
             const dy2 = c.y - b.y;
             return Math.abs(dx1 * dy2 - dy1 * dx2) < 1e-6;
+        }
+
+        function isAxisOrDiagonal45(a, b, tolerance = 1e-3) {
+            if (!a || !b) {
+                return false;
+            }
+            const dx = Math.abs(b.x - a.x);
+            const dy = Math.abs(b.y - a.y);
+            if (dx < tolerance && dy < tolerance) {
+                return true;
+            }
+            if (dx < tolerance || dy < tolerance) {
+                return true;
+            }
+            return Math.abs(dx - dy) < tolerance;
         }
 
         function alignStopsToGraph(stopGroups, graph) {
