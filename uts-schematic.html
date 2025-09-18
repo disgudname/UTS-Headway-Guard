@@ -718,13 +718,44 @@
                 return false;
             }
             const toleranceSq = tolerance * tolerance;
-            const directDiff = maxDistanceSquaredBetweenSamples(samplesA, samplesB);
-            if (directDiff <= toleranceSq) {
+
+            if (maxDistanceSquaredBetweenSamples(samplesA, samplesB) <= toleranceSq) {
                 return true;
             }
+
+            const aligned = computeAverageOffset(samplesA, samplesB);
+            const maxTranslation = tolerance * 4;
+            if (aligned.distance <= maxTranslation) {
+                const translatedDiff = maxDistanceSquaredBetweenSamples(
+                    samplesA,
+                    samplesB,
+                    aligned.offsetX,
+                    aligned.offsetY
+                );
+                if (translatedDiff <= toleranceSq) {
+                    return true;
+                }
+            }
+
             const reversedSamplesB = samplePolyline(b.slice().reverse(), sampleCount);
-            const reverseDiff = maxDistanceSquaredBetweenSamples(samplesA, reversedSamplesB);
-            return reverseDiff <= toleranceSq;
+            if (maxDistanceSquaredBetweenSamples(samplesA, reversedSamplesB) <= toleranceSq) {
+                return true;
+            }
+
+            const reverseAligned = computeAverageOffset(samplesA, reversedSamplesB);
+            if (reverseAligned.distance <= maxTranslation) {
+                const translatedReverseDiff = maxDistanceSquaredBetweenSamples(
+                    samplesA,
+                    reversedSamplesB,
+                    reverseAligned.offsetX,
+                    reverseAligned.offsetY
+                );
+                if (translatedReverseDiff <= toleranceSq) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         function computePolylineLength(points) {
@@ -784,16 +815,40 @@
             };
         }
 
-        function maxDistanceSquaredBetweenSamples(a, b) {
+        function maxDistanceSquaredBetweenSamples(a, b, offsetX = 0, offsetY = 0) {
             const length = Math.min(a.length, b.length);
             let max = 0;
             for (let i = 0; i < length; i++) {
-                const distSq = distanceSquared(a[i], b[i]);
+                const bx = b[i].x + offsetX;
+                const by = b[i].y + offsetY;
+                const dx = a[i].x - bx;
+                const dy = a[i].y - by;
+                const distSq = dx * dx + dy * dy;
                 if (distSq > max) {
                     max = distSq;
                 }
             }
             return max;
+        }
+
+        function computeAverageOffset(samplesA, samplesB) {
+            const length = Math.min(samplesA.length, samplesB.length);
+            if (!length) {
+                return { offsetX: 0, offsetY: 0, distance: 0 };
+            }
+            let sumX = 0;
+            let sumY = 0;
+            for (let i = 0; i < length; i++) {
+                sumX += samplesA[i].x - samplesB[i].x;
+                sumY += samplesA[i].y - samplesB[i].y;
+            }
+            const offsetX = sumX / length;
+            const offsetY = sumY / length;
+            return {
+                offsetX,
+                offsetY,
+                distance: Math.hypot(offsetX, offsetY)
+            };
         }
 
         function pointToSegmentDistanceSquared(point, a, b) {
