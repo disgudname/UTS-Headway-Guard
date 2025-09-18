@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>UTS Metro-Style Schematic</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            background: #ffffff;
+            color: #111111;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        h1 {
+            font-weight: 600;
+            margin: 0;
+            font-size: clamp(1.5rem, 1.2rem + 1vw, 2.2rem);
+        }
+
+        main {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            padding: 1.25rem clamp(1rem, 4vw, 3rem) 2rem;
+            gap: 1.5rem;
+        }
+
+        .map-wrapper {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            min-height: 60vh;
+        }
+
+        .map-container {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 50vh;
+            border: 1px solid #d0d0d0;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            background: #ffffff;
+            box-shadow: 0 10px 35px rgba(17, 17, 17, 0.08);
+        }
+
+        #schematic {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: grab;
+            touch-action: none;
+        }
+
+        #schematic:active {
+            cursor: grabbing;
+        }
+
+        .legend {
+            border: 1px solid #d0d0d0;
+            border-radius: 0.75rem;
+            padding: 1rem 1.25rem;
+            box-shadow: 0 6px 25px rgba(17, 17, 17, 0.07);
+            background: #ffffff;
+        }
+
+        .legend h2 {
+            margin: 0 0 0.75rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .legend ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: grid;
+            gap: 0.5rem 1.25rem;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        }
+
+        .legend li {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.95rem;
+            cursor: pointer;
+            padding: 0.25rem 0.4rem;
+            border-radius: 0.5rem;
+            transition: background 0.2s ease;
+        }
+
+        .legend li:focus-visible {
+            outline: 2px solid #111111;
+            outline-offset: 2px;
+        }
+
+        .legend li:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .legend .swatch {
+            width: 1.25rem;
+            height: 1.25rem;
+            border-radius: 50%;
+            flex: none;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+        }
+
+        .tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(255, 255, 255, 0.95);
+            color: #111111;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+            border-radius: 0.5rem;
+            padding: 0.6rem 0.75rem;
+            box-shadow: 0 12px 30px rgba(17, 17, 17, 0.25);
+            font-size: 0.85rem;
+            line-height: 1.35;
+            transform: translate(-50%, -110%);
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        .tooltip.visible {
+            opacity: 1;
+        }
+
+        .tooltip .title {
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+
+        .legend li.is-highlight,
+        .legend li.is-highlight:hover {
+            background: rgba(0, 0, 0, 0.08);
+        }
+
+        .legend li.is-dim {
+            opacity: 0.35;
+        }
+
+        .route-path {
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: stroke;
+            transition: opacity 0.2s ease;
+        }
+
+        .route-path.is-highlight {
+            opacity: 1;
+        }
+
+        .route-path.is-dim {
+            opacity: 0.25;
+        }
+
+        .stops circle {
+            fill: #ffffff;
+            stroke: #111111;
+            vector-effect: non-scaling-stroke;
+            transition: opacity 0.2s ease;
+        }
+
+        .stops circle.is-highlight {
+            opacity: 1;
+        }
+
+        .stops circle.is-dim {
+            opacity: 0.35;
+        }
+
+        .termini path {
+            fill: none;
+            stroke-linecap: round;
+            vector-effect: non-scaling-stroke;
+        }
+
+        @media (min-width: 960px) {
+            .map-wrapper {
+                flex-direction: row;
+                align-items: stretch;
+            }
+
+            .legend {
+                width: min(320px, 30%);
+                flex: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <header>
+            <h1>University Transit Service Schematic</h1>
+            <p style="margin: 0.35rem 0 0; max-width: 720px; line-height: 1.5;">
+                A DC Metro–style octilinear rendering of Charlottesville's University Transit Service lines. Pan or scroll to explore; hover over a colored line segment to highlight a route, and hover over a stop to see its name and serving routes.
+            </p>
+        </header>
+        <section class="map-wrapper">
+            <div class="map-container">
+                <svg id="schematic" role="img" aria-label="UTS transit schematic" xmlns="http://www.w3.org/2000/svg">
+                    <g class="bundles"></g>
+                    <g class="termini"></g>
+                    <g class="stops"></g>
+                </svg>
+                <div class="tooltip" id="tooltip" role="tooltip" aria-hidden="true"></div>
+            </div>
+            <aside class="legend" aria-label="Route legend">
+                <h2>Routes</h2>
+                <ul id="legend-list"></ul>
+            </aside>
+        </section>
+    </main>
+    <script type="module">
+        const ROUTE_POLYLINE_URL = 'GetRoutesForMapWithScheduleWithEncodedLine.txt';
+        const ROUTE_INFO_URL = 'GetRoutes.txt';
+
+        const SIMPLIFY_TOLERANCE_METERS = 12;
+        const NODE_MERGE_DISTANCE = 10;
+        const STOP_GROUP_DISTANCE = 10;
+        const MIN_DIAGONAL_LENGTH = 5;
+
+        const ROUTE_LINE_WIDTH_PX = 6;
+        const ROUTE_GAP_PX = 2;
+        const STOP_RADIUS_PX = 6;
+        const STOP_STROKE_PX = 3;
+        const TERMINUS_TICK_PX = 12;
+
+        const svgNS = 'http://www.w3.org/2000/svg';
+
+        const state = {
+            routes: [],
+            routeMeta: new Map(),
+            graph: null,
+            stopGroups: [],
+            viewBox: null,
+            baseViewBox: null,
+            routePaths: [],
+            routePathLookup: new Map(),
+            stopElements: [],
+            terminusElements: [],
+            activeHighlightKey: null,
+            scaleUpdatePending: false
+        };
+
+        async function initialize() {
+            try {
+                const { routes, stopGroups } = await loadData();
+                state.routes = routes;
+                state.stopGroups = stopGroups;
+
+                state.graph = buildGraph(routes);
+                snapOctilinear(state.graph);
+                alignStopsToGraph(state.stopGroups, state.graph);
+
+                render();
+            } catch (error) {
+                console.error(error);
+                showError(error.message || 'Failed to render schematic.');
+            }
+        }
+
+        function showError(message) {
+            const container = document.querySelector('.map-container');
+            const notice = document.createElement('div');
+            notice.style.position = 'absolute';
+            notice.style.inset = '1.5rem';
+            notice.style.background = 'rgba(255,255,255,0.92)';
+            notice.style.border = '1px solid rgba(0,0,0,0.15)';
+            notice.style.borderRadius = '0.75rem';
+            notice.style.display = 'flex';
+            notice.style.alignItems = 'center';
+            notice.style.justifyContent = 'center';
+            notice.style.fontSize = '1rem';
+            notice.style.textAlign = 'center';
+            notice.textContent = message;
+            container.appendChild(notice);
+        }
+
+        async function loadData() {
+            const [polylineRes, routeInfoRes] = await Promise.all([
+                fetch(ROUTE_POLYLINE_URL),
+                fetch(ROUTE_INFO_URL)
+            ]);
+
+            if (!polylineRes.ok || !routeInfoRes.ok) {
+                throw new Error('Unable to load transit datasets.');
+            }
+
+            const polylineJson = await polylineRes.json();
+            const routeInfoJson = await routeInfoRes.json();
+
+            const routeInfoMap = new Map(routeInfoJson.map((item) => [item.RouteID, item]));
+
+            const allLatLngs = [];
+            const processedRoutes = [];
+
+            for (const route of polylineJson) {
+                const routeInfo = routeInfoMap.get(route.RouteID);
+                const hideLine = route.HideRouteLine ?? routeInfo?.HideRouteLine ?? false;
+                const isVisible = (route.IsVisibleOnMap ?? routeInfo?.IsVisibleOnMap ?? true) && !hideLine;
+
+                if (!isVisible || !route.EncodedPolyline) {
+                    continue;
+                }
+
+                let decoded;
+                try {
+                    decoded = decodePolyline(route.EncodedPolyline);
+                } catch (err) {
+                    console.warn('Failed to decode polyline for route', route.RouteID, err);
+                    continue;
+                }
+
+                if (decoded.length < 2) {
+                    continue;
+                }
+
+                decoded.forEach(([lat, lon]) => allLatLngs.push({ lat, lon }));
+
+                const routeStops = Array.isArray(route.Stops)
+                    ? route.Stops.filter((stop) => isFinite(stop.Latitude) && isFinite(stop.Longitude))
+                    : [];
+
+                const meta = {
+                    id: route.RouteID,
+                    name: (routeInfo?.Description || route.Description || `Route ${route.RouteID}`).trim(),
+                    color: normalizeColor(routeInfo?.MapLineColor || route.MapLineColor || '#000000')
+                };
+
+                processedRoutes.push({
+                    id: route.RouteID,
+                    name: meta.name,
+                    color: meta.color,
+                    decoded,
+                    rawStops: routeStops.map((stop) => ({
+                        id: stop.RouteStopID ?? `${route.RouteID}-${stop.AddressID ?? stop.GtfsId ?? stop.Description}`,
+                        name: (stop.Description || stop.Line1 || stop.Line2 || 'Stop').trim(),
+                        lat: stop.Latitude,
+                        lon: stop.Longitude,
+                        routeId: route.RouteID
+                    }))
+                });
+
+                routeStops.forEach((stop) => {
+                    if (isFinite(stop.Latitude) && isFinite(stop.Longitude)) {
+                        allLatLngs.push({ lat: stop.Latitude, lon: stop.Longitude });
+                    }
+                });
+
+                state.routeMeta.set(route.RouteID, meta);
+            }
+
+            if (!processedRoutes.length) {
+                throw new Error('No visible routes returned by the feed.');
+            }
+
+            const { centerLat, centerLon } = computeGeographicCenter(allLatLngs);
+            const projection = createProjection(centerLat, centerLon);
+
+            const projectedRoutes = processedRoutes.map((route) => {
+                const projectedPoints = route.decoded.map(([lat, lon]) => projection.toPoint(lat, lon));
+                const simplified = simplifyPath(removeDuplicatePoints(projectedPoints), SIMPLIFY_TOLERANCE_METERS);
+
+                const projectedStops = route.rawStops.map((stop) => ({
+                    id: stop.id,
+                    name: stop.name,
+                    lat: stop.lat,
+                    lon: stop.lon,
+                    routeId: stop.routeId,
+                    position: projection.toPoint(stop.lat, stop.lon)
+                }));
+
+                return {
+                    id: route.id,
+                    name: route.name,
+                    color: route.color,
+                    points: simplified,
+                    stops: projectedStops
+                };
+            });
+
+            const groupedStops = groupStops(projectedRoutes.flatMap((route) => route.stops));
+
+            return { routes: projectedRoutes, stopGroups: groupedStops };
+        }
+
+        function normalizeColor(color) {
+            if (typeof color !== 'string') {
+                return '#000000';
+            }
+            const trimmed = color.trim();
+            if (/^#([0-9a-fA-F]{3}){1,2}$/.test(trimmed)) {
+                return trimmed;
+            }
+            return '#000000';
+        }
+
+        function computeGeographicCenter(points) {
+            if (!points.length) {
+                return { centerLat: 0, centerLon: 0 };
+            }
+            let sumLat = 0;
+            let sumLon = 0;
+            for (const point of points) {
+                sumLat += point.lat;
+                sumLon += point.lon;
+            }
+            return {
+                centerLat: sumLat / points.length,
+                centerLon: sumLon / points.length
+            };
+        }
+
+        function createProjection(lat, lon) {
+            const origin = projectMercator(lat, lon);
+            return {
+                toPoint(latitude, longitude) {
+                    const projected = projectMercator(latitude, longitude);
+                    return {
+                        x: projected.x - origin.x,
+                        y: origin.y - projected.y
+                    };
+                }
+            };
+        }
+
+        function projectMercator(lat, lon) {
+            const radLat = (lat * Math.PI) / 180;
+            const radLon = (lon * Math.PI) / 180;
+            const R = 6378137;
+            return {
+                x: R * radLon,
+                y: R * Math.log(Math.tan(Math.PI / 4 + radLat / 2))
+            };
+        }
+
+        function decodePolyline(str) {
+            let index = 0;
+            const len = str.length;
+            let lat = 0;
+            let lon = 0;
+            const coordinates = [];
+
+            while (index < len) {
+                let result = 0;
+                let shift = 0;
+                let b;
+                do {
+                    if (index >= len) {
+                        throw new Error('Invalid polyline encoding');
+                    }
+                    b = str.charCodeAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                const deltaLat = (result & 1) ? ~(result >> 1) : (result >> 1);
+                lat += deltaLat;
+
+                result = 0;
+                shift = 0;
+                do {
+                    if (index >= len) {
+                        throw new Error('Invalid polyline encoding');
+                    }
+                    b = str.charCodeAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                const deltaLon = (result & 1) ? ~(result >> 1) : (result >> 1);
+                lon += deltaLon;
+
+                coordinates.push([lat * 1e-5, lon * 1e-5]);
+            }
+
+            return coordinates;
+        }
+
+        function removeDuplicatePoints(points, tolerance = 0.2) {
+            if (points.length <= 1) {
+                return points.map(clonePoint);
+            }
+            const result = [];
+            const sqTol = tolerance * tolerance;
+            let prev = points[0];
+            result.push(clonePoint(prev));
+            for (let i = 1; i < points.length; i++) {
+                const point = points[i];
+                if (distanceSquared(point, prev) > sqTol) {
+                    result.push(clonePoint(point));
+                    prev = point;
+                }
+            }
+            return result;
+        }
+
+        function simplifyPath(points, tolerance) {
+            if (points.length <= 2) {
+                return points.map(clonePoint);
+            }
+            const sqTol = tolerance * tolerance;
+            const simplified = [clonePoint(points[0])];
+            simplifySegment(points, 0, points.length - 1, sqTol, simplified);
+            simplified.push(clonePoint(points[points.length - 1]));
+            return simplified;
+        }
+
+        function simplifySegment(points, first, last, sqTol, simplified) {
+            let maxDistSq = 0;
+            let index = -1;
+            const a = points[first];
+            const b = points[last];
+
+            for (let i = first + 1; i < last; i++) {
+                const distSq = pointToSegmentDistanceSquared(points[i], a, b);
+                if (distSq > maxDistSq) {
+                    index = i;
+                    maxDistSq = distSq;
+                }
+            }
+
+            if (maxDistSq > sqTol && index !== -1) {
+                simplifySegment(points, first, index, sqTol, simplified);
+                simplified.push(clonePoint(points[index]));
+                simplifySegment(points, index, last, sqTol, simplified);
+            }
+        }
+
+        function pointToSegmentDistanceSquared(point, a, b) {
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            if (dx === 0 && dy === 0) {
+                return distanceSquared(point, a);
+            }
+            const t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy);
+            const clamped = Math.max(0, Math.min(1, t));
+            const proj = {
+                x: a.x + clamped * dx,
+                y: a.y + clamped * dy
+            };
+            return distanceSquared(point, proj);
+        }
+
+        function clonePoint(point) {
+            return { x: point.x, y: point.y };
+        }
+
+        function distanceSquared(a, b) {
+            const dx = a.x - b.x;
+            const dy = a.y - b.y;
+            return dx * dx + dy * dy;
+        }
+
+        function groupStops(stops) {
+            const groups = [];
+            const sqTol = STOP_GROUP_DISTANCE * STOP_GROUP_DISTANCE;
+
+            for (const stop of stops) {
+                let match = null;
+                for (const group of groups) {
+                    if (distanceSquared(group.original, stop.position) <= sqTol) {
+                        match = group;
+                        break;
+                    }
+                }
+
+                if (!match) {
+                    match = {
+                        id: `group-${groups.length}`,
+                        names: new Set([stop.name]),
+                        routeIds: new Set([stop.routeId]),
+                        original: clonePoint(stop.position),
+                        lat: stop.lat,
+                        lon: stop.lon,
+                        stops: [stop]
+                    };
+                    groups.push(match);
+                } else {
+                    match.names.add(stop.name);
+                    match.routeIds.add(stop.routeId);
+                    match.stops.push(stop);
+                    const count = match.stops.length;
+                    match.original.x = (match.original.x * (count - 1) + stop.position.x) / count;
+                    match.original.y = (match.original.y * (count - 1) + stop.position.y) / count;
+                    match.lat = (match.lat * (count - 1) + stop.lat) / count;
+                    match.lon = (match.lon * (count - 1) + stop.lon) / count;
+                }
+            }
+
+            return groups.map((group) => ({
+                id: group.id,
+                name: Array.from(group.names).sort().join(' / '),
+                routeIds: Array.from(group.routeIds).sort((a, b) => a - b),
+                original: clonePoint(group.original),
+                position: clonePoint(group.original),
+                lat: group.lat,
+                lon: group.lon
+            }));
+        }
+        function buildGraph(routes) {
+            const nodes = [];
+            const edges = [];
+            const edgeMap = new Map();
+            const sqTol = NODE_MERGE_DISTANCE * NODE_MERGE_DISTANCE;
+
+            function findOrCreateNode(point) {
+                for (const node of nodes) {
+                    if (distanceSquared(node, point) <= sqTol) {
+                        return node.id;
+                    }
+                }
+                const id = nodes.length;
+                nodes.push({ id, x: point.x, y: point.y, edges: new Set() });
+                return id;
+            }
+
+            for (const route of routes) {
+                const points = route.points;
+                for (let i = 0; i < points.length - 1; i++) {
+                    const a = points[i];
+                    const b = points[i + 1];
+                    if (distanceSquared(a, b) < 1e-4) {
+                        continue;
+                    }
+                    const startId = findOrCreateNode(a);
+                    const endId = findOrCreateNode(b);
+                    if (startId === endId) {
+                        continue;
+                    }
+                    const key = startId < endId ? `${startId}-${endId}` : `${endId}-${startId}`;
+                    let edge = edgeMap.get(key);
+                    if (!edge) {
+                        edge = {
+                            id: edges.length,
+                            start: startId,
+                            end: endId,
+                            routes: new Set(),
+                            snapped: null
+                        };
+                        edgeMap.set(key, edge);
+                        edges.push(edge);
+                        nodes[startId].edges.add(edge.id);
+                        nodes[endId].edges.add(edge.id);
+                    }
+                    edge.routes.add(route.id);
+                }
+            }
+
+            nodes.forEach((node) => {
+                node.edges = Array.from(node.edges);
+            });
+
+            return { nodes, edges };
+        }
+
+        function snapOctilinear(graph) {
+            for (const edge of graph.edges) {
+                const start = graph.nodes[edge.start];
+                const end = graph.nodes[edge.end];
+                edge.snapped = computeOctilinearPath(start, end);
+            }
+        }
+
+        function computeOctilinearPath(start, end) {
+            const startPoint = clonePoint(start);
+            const endPoint = clonePoint(end);
+            const path = [startPoint];
+
+            const dx = endPoint.x - startPoint.x;
+            const dy = endPoint.y - startPoint.y;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            const signX = Math.sign(dx);
+            const signY = Math.sign(dy);
+
+            let diagLength = Math.min(absDx, absDy);
+            if (diagLength < MIN_DIAGONAL_LENGTH) {
+                diagLength = 0;
+            }
+
+            if (diagLength > 0) {
+                const diagPoint = {
+                    x: startPoint.x + signX * diagLength,
+                    y: startPoint.y + signY * diagLength
+                };
+                if (distanceSquared(diagPoint, path[path.length - 1]) > 1e-6 && distanceSquared(diagPoint, endPoint) > 1e-6) {
+                    path.push(diagPoint);
+                }
+            }
+
+            const remainingX = dx - signX * diagLength;
+            const remainingY = dy - signY * diagLength;
+
+            if (Math.abs(remainingX) > 1e-6) {
+                const horizontal = {
+                    x: startPoint.x + signX * Math.abs(remainingX),
+                    y: path[path.length - 1].y
+                };
+                if (distanceSquared(horizontal, path[path.length - 1]) > 1e-6 && distanceSquared(horizontal, endPoint) > 1e-6) {
+                    path.push(horizontal);
+                }
+            }
+
+            if (Math.abs(remainingY) > 1e-6) {
+                const vertical = {
+                    x: path[path.length - 1].x,
+                    y: startPoint.y + signY * Math.abs(remainingY)
+                };
+                if (distanceSquared(vertical, path[path.length - 1]) > 1e-6 && distanceSquared(vertical, endPoint) > 1e-6) {
+                    path.push(vertical);
+                }
+            }
+
+            path.push(endPoint);
+            return mergeCollinear(path);
+        }
+
+        function mergeCollinear(points) {
+            if (points.length <= 2) {
+                return points.map(clonePoint);
+            }
+            const cleaned = [clonePoint(points[0])];
+            for (let i = 1; i < points.length - 1; i++) {
+                const prev = cleaned[cleaned.length - 1];
+                const current = points[i];
+                const next = points[i + 1];
+                if (isCollinear(prev, current, next)) {
+                    continue;
+                }
+                cleaned.push(clonePoint(current));
+            }
+            cleaned.push(clonePoint(points[points.length - 1]));
+            return cleaned;
+        }
+
+        function isCollinear(a, b, c) {
+            const dx1 = b.x - a.x;
+            const dy1 = b.y - a.y;
+            const dx2 = c.x - b.x;
+            const dy2 = c.y - b.y;
+            return Math.abs(dx1 * dy2 - dy1 * dx2) < 1e-6;
+        }
+
+        function alignStopsToGraph(stopGroups, graph) {
+            for (const group of stopGroups) {
+                let best = null;
+                for (const edge of graph.edges) {
+                    if (!intersectsRouteSet(edge.routes, group.routeIds)) {
+                        continue;
+                    }
+                    const projection = closestPointOnPolyline(group.original, edge.snapped);
+                    if (projection && (best === null || projection.distanceSq < best.distanceSq)) {
+                        best = { ...projection, edgeId: edge.id };
+                    }
+                }
+                if (best) {
+                    group.position = best.point;
+                    group.edgeId = best.edgeId;
+                } else {
+                    group.position = clonePoint(group.original);
+                }
+            }
+        }
+
+        function intersectsRouteSet(edgeRoutes, routeIds) {
+            for (const routeId of routeIds) {
+                if (edgeRoutes.has(routeId)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function closestPointOnPolyline(point, polyline) {
+            if (!polyline || polyline.length === 0) {
+                return null;
+            }
+            let best = null;
+            for (let i = 0; i < polyline.length - 1; i++) {
+                const a = polyline[i];
+                const b = polyline[i + 1];
+                const projection = projectPointToSegment(point, a, b);
+                if (!best || projection.distanceSq < best.distanceSq) {
+                    best = { ...projection, segmentIndex: i };
+                }
+            }
+            return best;
+        }
+
+        function projectPointToSegment(point, a, b) {
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const lengthSq = dx * dx + dy * dy;
+            if (lengthSq === 0) {
+                return {
+                    point: clonePoint(a),
+                    distanceSq: distanceSquared(point, a),
+                    t: 0
+                };
+            }
+            const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq));
+            const proj = {
+                x: a.x + t * dx,
+                y: a.y + t * dy
+            };
+            return {
+                point: proj,
+                distanceSq: distanceSquared(point, proj),
+                t
+            };
+        }
+
+        function render() {
+            const svg = document.getElementById('schematic');
+            const bundlesGroup = svg.querySelector('.bundles');
+            const stopsGroup = svg.querySelector('.stops');
+            const terminiGroup = svg.querySelector('.termini');
+            bundlesGroup.innerHTML = '';
+            stopsGroup.innerHTML = '';
+            terminiGroup.innerHTML = '';
+
+            const usedRouteIds = new Set();
+            for (const edge of state.graph.edges) {
+                edge.routes.forEach((id) => usedRouteIds.add(id));
+            }
+
+            renderLegend(usedRouteIds);
+
+            const bounds = computeBounds(state.graph.edges, state.stopGroups);
+            const padding = Math.max(bounds.width, bounds.height) * 0.05 + 80;
+            const viewBox = {
+                x: bounds.minX - padding,
+                y: bounds.minY - padding,
+                width: bounds.width + padding * 2,
+                height: bounds.height + padding * 2
+            };
+
+            state.viewBox = { ...viewBox };
+            state.baseViewBox = { ...viewBox };
+            svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`);
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+            state.routePaths = [];
+            state.routePathLookup.clear();
+
+            for (const edge of state.graph.edges) {
+                if (!edge.snapped || edge.snapped.length < 2) {
+                    continue;
+                }
+                const centerline = edge.snapped.map(clonePoint);
+                const routes = Array.from(edge.routes).sort((a, b) => a - b);
+                routes.forEach((routeId, index) => {
+                    const meta = state.routeMeta.get(routeId) || { color: '#000000' };
+                    const pathEl = document.createElementNS(svgNS, 'path');
+                    pathEl.classList.add('route-path');
+                    pathEl.dataset.route = String(routeId);
+                    pathEl.dataset.edge = String(edge.id);
+                    pathEl.setAttribute('stroke', meta.color);
+                    pathEl.setAttribute('stroke-width', ROUTE_LINE_WIDTH_PX);
+                    pathEl.setAttribute('vector-effect', 'non-scaling-stroke');
+                    pathEl.setAttribute('fill', 'none');
+                    pathEl.setAttribute('stroke-linecap', 'round');
+                    pathEl.setAttribute('stroke-linejoin', 'round');
+                    bundlesGroup.appendChild(pathEl);
+
+                    const item = {
+                        routeId,
+                        edgeId: edge.id,
+                        orderIndex: index,
+                        routeCount: routes.length,
+                        centerline,
+                        pathElement: pathEl,
+                        startNode: edge.start,
+                        endNode: edge.end,
+                        offsetPoints: null
+                    };
+                    state.routePaths.push(item);
+                    state.routePathLookup.set(`${routeId}-${edge.id}`, item);
+
+                    pathEl.addEventListener('pointerenter', () => applyHighlight(new Set([routeId])));
+                    pathEl.addEventListener('pointerleave', (event) => {
+                        const related = event.relatedTarget;
+                        if (related && (related.closest('.route-path') || related.closest('.stop-circle') || related.closest('.legend-item'))) {
+                            return;
+                        }
+                        clearHighlight();
+                    });
+                });
+            }
+
+            state.stopElements = state.stopGroups.map((stop) => {
+                const circle = document.createElementNS(svgNS, 'circle');
+                circle.classList.add('stop-circle');
+                circle.setAttribute('cx', stop.position.x);
+                circle.setAttribute('cy', stop.position.y);
+                circle.setAttribute('fill', '#ffffff');
+                circle.setAttribute('stroke', '#111111');
+                circle.setAttribute('stroke-width', STOP_STROKE_PX);
+                circle.setAttribute('vector-effect', 'non-scaling-stroke');
+                circle.dataset.stop = stop.id;
+                circle.dataset.routes = stop.routeIds.join(',');
+                stopsGroup.appendChild(circle);
+
+                circle.addEventListener('pointerenter', (event) => {
+                    applyHighlight(new Set(stop.routeIds));
+                    showStopTooltip(stop, event);
+                });
+                circle.addEventListener('pointermove', (event) => updateTooltipPosition(event));
+                circle.addEventListener('pointerleave', (event) => {
+                    const related = event.relatedTarget;
+                    if (!related || (!related.closest('.route-path') && !related.closest('.legend-item') && !related.closest('.stop-circle'))) {
+                        clearHighlight();
+                    }
+                    hideTooltip();
+                });
+
+                return { stop, element: circle };
+            });
+
+            const terminusData = computeTermini(state.graph);
+            state.terminusElements = terminusData.map((term) => {
+                const meta = state.routeMeta.get(term.routeId) || { color: '#000000' };
+                const path = document.createElementNS(svgNS, 'path');
+                path.setAttribute('stroke', meta.color);
+                path.setAttribute('stroke-width', ROUTE_LINE_WIDTH_PX);
+                path.setAttribute('vector-effect', 'non-scaling-stroke');
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke-linecap', 'round');
+                path.dataset.route = String(term.routeId);
+                terminiGroup.appendChild(path);
+                return { ...term, element: path };
+            });
+
+            attachPanZoom(svg);
+            scheduleScaleUpdate();
+            window.addEventListener('resize', scheduleScaleUpdate);
+        }
+        function computeBounds(edges, stops) {
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = -Infinity;
+            let maxY = -Infinity;
+
+            for (const edge of edges) {
+                if (!edge.snapped) continue;
+                for (const point of edge.snapped) {
+                    minX = Math.min(minX, point.x);
+                    minY = Math.min(minY, point.y);
+                    maxX = Math.max(maxX, point.x);
+                    maxY = Math.max(maxY, point.y);
+                }
+            }
+
+            for (const stop of stops) {
+                if (!stop.position) continue;
+                minX = Math.min(minX, stop.position.x);
+                minY = Math.min(minY, stop.position.y);
+                maxX = Math.max(maxX, stop.position.x);
+                maxY = Math.max(maxY, stop.position.y);
+            }
+
+            if (!isFinite(minX) || !isFinite(minY)) {
+                minX = minY = 0;
+                maxX = maxY = 1000;
+            }
+
+            return {
+                minX,
+                minY,
+                maxX,
+                maxY,
+                width: maxX - minX || 1000,
+                height: maxY - minY || 1000
+            };
+        }
+
+        function renderLegend(routeIds) {
+            const legendList = document.getElementById('legend-list');
+            legendList.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            const entries = Array.from(routeIds)
+                .map((id) => state.routeMeta.get(id) || { id, name: `Route ${id}`, color: '#000000' })
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            entries.forEach((meta) => {
+                const item = document.createElement('li');
+                item.classList.add('legend-item');
+                item.dataset.route = String(meta.id);
+                item.tabIndex = 0;
+                const swatch = document.createElement('span');
+                swatch.className = 'swatch';
+                swatch.style.background = meta.color;
+                item.appendChild(swatch);
+                const label = document.createElement('span');
+                label.textContent = meta.name;
+                item.appendChild(label);
+                item.addEventListener('pointerenter', () => applyHighlight(new Set([meta.id])));
+                item.addEventListener('pointerleave', () => clearHighlight());
+                item.addEventListener('focus', () => applyHighlight(new Set([meta.id])));
+                item.addEventListener('blur', () => clearHighlight());
+                fragment.appendChild(item);
+            });
+
+            legendList.appendChild(fragment);
+        }
+
+        function offsetPolyline(points, offset) {
+            if (Math.abs(offset) < 1e-6) {
+                return points.map(clonePoint);
+            }
+            const segments = [];
+            for (let i = 0; i < points.length - 1; i++) {
+                const p0 = points[i];
+                const p1 = points[i + 1];
+                const dx = p1.x - p0.x;
+                const dy = p1.y - p0.y;
+                const len = Math.hypot(dx, dy);
+                if (len < 1e-6) {
+                    continue;
+                }
+                const ux = dx / len;
+                const uy = dy / len;
+                const nx = -uy;
+                const ny = ux;
+                const offX = nx * offset;
+                const offY = ny * offset;
+                segments.push({
+                    start: { x: p0.x + offX, y: p0.y + offY },
+                    end: { x: p1.x + offX, y: p1.y + offY }
+                });
+            }
+
+            if (!segments.length) {
+                return points.map(clonePoint);
+            }
+
+            const result = [segments[0].start];
+            for (let i = 1; i < segments.length; i++) {
+                const prev = segments[i - 1];
+                const next = segments[i];
+                const intersection = lineIntersection(prev.start, prev.end, next.start, next.end);
+                if (intersection) {
+                    result.push(intersection);
+                } else {
+                    result.push(prev.end);
+                }
+            }
+            result.push(segments[segments.length - 1].end);
+            return result;
+        }
+
+        function lineIntersection(p1, p2, p3, p4) {
+            const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+            if (Math.abs(denom) < 1e-6) {
+                return null;
+            }
+            const det1 = p1.x * p2.y - p1.y * p2.x;
+            const det2 = p3.x * p4.y - p3.y * p4.x;
+            const x = (det1 * (p3.x - p4.x) - (p1.x - p2.x) * det2) / denom;
+            const y = (det1 * (p3.y - p4.y) - (p1.y - p2.y) * det2) / denom;
+            return { x, y };
+        }
+
+        function pointsToPath(points) {
+            if (!points.length) {
+                return '';
+            }
+            return points
+                .map((p, index) => `${index === 0 ? 'M' : 'L'}${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
+                .join(' ');
+        }
+
+        function scheduleScaleUpdate() {
+            if (state.scaleUpdatePending) {
+                return;
+            }
+            state.scaleUpdatePending = true;
+            requestAnimationFrame(() => {
+                state.scaleUpdatePending = false;
+                updateScale();
+            });
+        }
+
+        function updateScale() {
+            const svg = document.getElementById('schematic');
+            const rect = svg.getBoundingClientRect();
+            if (!rect.width || !rect.height || !state.viewBox) {
+                return;
+            }
+            const unitPerPx = state.viewBox.width / rect.width;
+            updateRoutePaths(unitPerPx);
+            updateStopAppearance(unitPerPx);
+            updateTermini(unitPerPx);
+        }
+
+        function updateRoutePaths(unitPerPx) {
+            const spacing = (ROUTE_LINE_WIDTH_PX + ROUTE_GAP_PX) * unitPerPx;
+            state.routePaths.forEach((item) => {
+                const offset = (item.orderIndex - (item.routeCount - 1) / 2) * spacing;
+                const offsetPoints = offsetPolyline(item.centerline, offset);
+                item.offsetPoints = offsetPoints;
+                const d = pointsToPath(offsetPoints);
+                item.pathElement.setAttribute('d', d);
+            });
+        }
+
+        function updateStopAppearance(unitPerPx) {
+            const radius = STOP_RADIUS_PX * unitPerPx;
+            state.stopElements.forEach(({ element }) => {
+                element.setAttribute('r', radius.toString());
+            });
+        }
+
+        function computeTermini(graph) {
+            const routeNodeCounts = new Map();
+            for (const edge of graph.edges) {
+                for (const routeId of edge.routes) {
+                    let nodeMap = routeNodeCounts.get(routeId);
+                    if (!nodeMap) {
+                        nodeMap = new Map();
+                        routeNodeCounts.set(routeId, nodeMap);
+                    }
+                    nodeMap.set(edge.start, (nodeMap.get(edge.start) || 0) + 1);
+                    nodeMap.set(edge.end, (nodeMap.get(edge.end) || 0) + 1);
+                }
+            }
+            const termini = [];
+            routeNodeCounts.forEach((nodeMap, routeId) => {
+                nodeMap.forEach((count, nodeId) => {
+                    if (count === 1) {
+                        const edge = state.graph.edges.find((e) => e.routes.has(routeId) && (e.start === nodeId || e.end === nodeId));
+                        if (edge) {
+                            termini.push({
+                                routeId,
+                                nodeId,
+                                edgeId: edge.id,
+                                atStart: edge.start === nodeId
+                            });
+                        }
+                    }
+                });
+            });
+            return termini;
+        }
+
+        function updateTermini(unitPerPx) {
+            const length = TERMINUS_TICK_PX * unitPerPx;
+            state.terminusElements.forEach((term) => {
+                const key = `${term.routeId}-${term.edgeId}`;
+                const routePath = state.routePathLookup.get(key);
+                if (!routePath || !routePath.offsetPoints || routePath.offsetPoints.length < 2) {
+                    term.element.setAttribute('d', '');
+                    return;
+                }
+                const points = routePath.offsetPoints;
+                const nodePoint = term.atStart ? points[0] : points[points.length - 1];
+                const neighbor = term.atStart ? points[1] : points[points.length - 2];
+                const dir = {
+                    x: nodePoint.x - neighbor.x,
+                    y: nodePoint.y - neighbor.y
+                };
+                const magnitude = Math.hypot(dir.x, dir.y);
+                if (magnitude < 1e-6) {
+                    term.element.setAttribute('d', '');
+                    return;
+                }
+                const scale = length / magnitude;
+                const endPoint = {
+                    x: nodePoint.x + dir.x * scale,
+                    y: nodePoint.y + dir.y * scale
+                };
+                term.element.setAttribute('d', `M${nodePoint.x.toFixed(2)} ${nodePoint.y.toFixed(2)} L${endPoint.x.toFixed(2)} ${endPoint.y.toFixed(2)}`);
+            });
+        }
+
+        function attachPanZoom(svg) {
+            let isPanning = false;
+            let panStart = null;
+            let viewBoxStart = null;
+
+            svg.addEventListener('pointerdown', (event) => {
+                if (event.button !== 0) {
+                    return;
+                }
+                isPanning = true;
+                panStart = { x: event.clientX, y: event.clientY };
+                viewBoxStart = { ...state.viewBox };
+                svg.setPointerCapture(event.pointerId);
+            });
+
+            svg.addEventListener('pointermove', (event) => {
+                if (!isPanning || !viewBoxStart) {
+                    return;
+                }
+                const rect = svg.getBoundingClientRect();
+                const unitPerPx = state.viewBox.width / rect.width;
+                const dx = (event.clientX - panStart.x) * unitPerPx;
+                const dy = (event.clientY - panStart.y) * unitPerPx;
+                const nextView = {
+                    ...state.viewBox,
+                    x: viewBoxStart.x - dx,
+                    y: viewBoxStart.y - dy
+                };
+                setViewBox(nextView);
+            });
+
+            svg.addEventListener('pointerup', (event) => {
+                if (!isPanning) return;
+                isPanning = false;
+                svg.releasePointerCapture(event.pointerId);
+            });
+
+            svg.addEventListener('pointerleave', () => {
+                isPanning = false;
+            });
+
+            svg.addEventListener('wheel', (event) => {
+                event.preventDefault();
+                if (!state.viewBox) return;
+                const rect = svg.getBoundingClientRect();
+                const pointX = (event.clientX - rect.left) / rect.width;
+                const pointY = (event.clientY - rect.top) / rect.height;
+                const zoomFactor = event.deltaY > 0 ? 1.1 : 0.9;
+                const aspect = state.baseViewBox.width / state.baseViewBox.height;
+                const newWidth = clamp(state.viewBox.width * zoomFactor, state.baseViewBox.width * 0.15, state.baseViewBox.width * 3);
+                const newHeight = newWidth / aspect;
+                const newX = state.viewBox.x + (state.viewBox.width - newWidth) * pointX;
+                const newY = state.viewBox.y + (state.viewBox.height - newHeight) * pointY;
+                setViewBox({ x: newX, y: newY, width: newWidth, height: newHeight });
+            }, { passive: false });
+        }
+
+        function clamp(value, min, max) {
+            return Math.min(Math.max(value, min), max);
+        }
+
+        function setViewBox(box) {
+            const svg = document.getElementById('schematic');
+            if (!svg) return;
+            state.viewBox = { ...box };
+            const aspect = state.baseViewBox.width / state.baseViewBox.height;
+            state.viewBox.height = state.viewBox.width / aspect;
+            svg.setAttribute('viewBox', `${state.viewBox.x} ${state.viewBox.y} ${state.viewBox.width} ${state.viewBox.height}`);
+            scheduleScaleUpdate();
+        }
+
+        function applyHighlight(routeIds) {
+            const sorted = Array.from(routeIds).sort((a, b) => a - b);
+            const key = sorted.join(',');
+            if (key === state.activeHighlightKey) {
+                return;
+            }
+            state.activeHighlightKey = key;
+            const highlightSet = new Set(sorted);
+
+            state.routePaths.forEach((item) => {
+                const element = item.pathElement;
+                if (highlightSet.has(item.routeId)) {
+                    element.classList.add('is-highlight');
+                    element.classList.remove('is-dim');
+                } else {
+                    element.classList.add('is-dim');
+                    element.classList.remove('is-highlight');
+                }
+            });
+
+            state.stopElements.forEach(({ stop, element }) => {
+                const matches = stop.routeIds.some((id) => highlightSet.has(id));
+                if (matches) {
+                    element.classList.add('is-highlight');
+                    element.classList.remove('is-dim');
+                } else {
+                    element.classList.add('is-dim');
+                    element.classList.remove('is-highlight');
+                }
+            });
+
+            document.querySelectorAll('.legend-item').forEach((item) => {
+                if (highlightSet.has(Number(item.dataset.route))) {
+                    item.classList.add('is-highlight');
+                    item.classList.remove('is-dim');
+                } else {
+                    item.classList.add('is-dim');
+                    item.classList.remove('is-highlight');
+                }
+            });
+        }
+
+        function clearHighlight() {
+            if (state.activeHighlightKey === null) {
+                return;
+            }
+            state.activeHighlightKey = null;
+            state.routePaths.forEach((item) => {
+                item.pathElement.classList.remove('is-highlight', 'is-dim');
+            });
+            state.stopElements.forEach(({ element }) => {
+                element.classList.remove('is-highlight', 'is-dim');
+            });
+            document.querySelectorAll('.legend-item').forEach((item) => {
+                item.classList.remove('is-highlight', 'is-dim');
+            });
+        }
+
+        const tooltipEl = document.getElementById('tooltip');
+        const mapContainer = document.querySelector('.map-container');
+
+        function showStopTooltip(stop, event) {
+            tooltipEl.innerHTML = '';
+            tooltipEl.classList.add('visible');
+            tooltipEl.setAttribute('aria-hidden', 'false');
+
+            const title = document.createElement('div');
+            title.className = 'title';
+            title.textContent = stop.name;
+            tooltipEl.appendChild(title);
+
+            const routes = document.createElement('div');
+            routes.textContent = stop.routeIds
+                .map((routeId) => state.routeMeta.get(routeId)?.name || `Route ${routeId}`)
+                .join(', ');
+            tooltipEl.appendChild(routes);
+
+            updateTooltipPosition(event);
+        }
+
+        function updateTooltipPosition(event) {
+            if (!tooltipEl.classList.contains('visible')) {
+                return;
+            }
+            const rect = mapContainer.getBoundingClientRect();
+            const offsetX = event.clientX - rect.left;
+            const offsetY = event.clientY - rect.top - 20;
+            tooltipEl.style.left = `${offsetX}px`;
+            tooltipEl.style.top = `${offsetY}px`;
+        }
+
+        function hideTooltip() {
+            tooltipEl.classList.remove('visible');
+            tooltipEl.setAttribute('aria-hidden', 'true');
+        }
+
+        initialize();
+    </script>
+</body>
+</html>
