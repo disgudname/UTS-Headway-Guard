@@ -959,6 +959,241 @@ def validate_schema_payload(payload: Any) -> tuple[Optional[Dict[str, Any]], lis
     return schema, errors
 
 
+def _stop_display_name(stop: Dict[str, Any]) -> str:
+    for key in ("SignVerbiage", "Description", "Line1", "Line2"):
+        val = stop.get(key)
+        if isinstance(val, str):
+            name = val.strip()
+            if name:
+                return name
+    rstop = stop.get("RouteStopID")
+    if rstop:
+        return f"Stop {rstop}"
+    return "Stop"
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _stop_key(lat: float, lon: float) -> tuple[float, float]:
+    return (round(lat, 6), round(lon, 6))
+
+
+def build_schematic_from_routes(routes_raw: List[Dict[str, Any]]) -> Dict[str, Any]:
+    stops_by_key: Dict[tuple[float, float], Dict[str, Any]] = {}
+    for route in routes_raw or []:
+        rid = route.get("RouteID")
+        stops = route.get("Stops")
+        if rid is None or not isinstance(stops, list):
+            continue
+        rid_str = str(rid)
+        for stop in stops:
+            lat = _safe_float(stop.get("Latitude"))
+            lon = _safe_float(stop.get("Longitude"))
+            if lat is None or lon is None:
+                continue
+            key = _stop_key(lat, lon)
+            entry = stops_by_key.setdefault(key, {
+                "lat": lat,
+                "lon": lon,
+                "names": [],
+                "name_set": set(),
+                "routes": set(),
+                "route_stop_pairs": set(),
+                "route_stop_ids": [],
+            })
+            name = _stop_display_name(stop)
+            if name:
+                norm = re.sub(r"\s+", " ", name).strip()
+                if norm and norm.lower() not in entry["name_set"]:
+                    entry["names"].append(norm)
+                    entry["name_set"].add(norm.lower())
+            entry["routes"].add(rid_str)
+            rstop = stop.get("RouteStopID")
+            if rstop is not None:
+                pair = (rid_str, rstop)
+                if pair not in entry["route_stop_pairs"]:
+                    entry["route_stop_pairs"].add(pair)
+                    entry["route_stop_ids"].append({"route": rid_str, "routeStopId": rstop})
+
+    stop_entries = []
+    for key, entry in stops_by_key.items():
+        names = entry["names"] or ["Stop"]
+        names.sort(key=lambda s: s.lower())
+        stop_entries.append({
+            "key": key,
+            "lat": entry["lat"],
+            "lon": entry["lon"],
+            "names": names,
+            "routes": sorted(entry["routes"], key=lambda r: (len(r), r)),
+            "route_stop_ids": sorted(entry["route_stop_ids"], key=lambda rs: (rs["route"], rs["routeStopId"]))
+        })
+
+    if not stop_entries:
+        raise ValueError("no stops with coordinates in TransLoc payload")
+
+    min_lat = min(entry["lat"] for entry in stop_entries)
+    max_lat = max(entry["lat"] for entry in stop_entries)
+    min_lon = min(entry["lon"] for entry in stop_entries)
+    max_lon = max(entry["lon"] for entry in stop_entries)
+    lat_span = max_lat - min_lat
+    lon_span = max_lon - min_lon
+
+    view_width = 1600.0
+    view_height = 1200.0
+    pad_x = 80.0
+    pad_y = 80.0
+    usable_w = max(view_width - pad_x * 2, 100.0)
+    usable_h = max(view_height - pad_y * 2, 100.0)
+
+    def project(lat: float, lon: float) -> tuple[float, float]:
+        if lon_span < 1e-9:
+            x_ratio = 0.5
+        else:
+            x_ratio = (lon - min_lon) / lon_span
+        if lat_span < 1e-9:
+            y_ratio = 0.5
+        else:
+            y_ratio = (max_lat - lat) / lat_span
+        x = pad_x + x_ratio * usable_w
+        y = pad_y + y_ratio * usable_h
+        return x, y
+
+    stop_entries.sort(key=lambda entry: (entry["names"][0].lower(), entry["lat"], entry["lon"]))
+
+    nodes: Dict[str, Dict[str, Any]] = {}
+    node_lookup: Dict[tuple[float, float], str] = {}
+    for idx, entry in enumerate(stop_entries, 1):
+        node_id = f"STOP:{idx:03d}"
+        primary = entry["names"][0]
+        aliases = entry["names"][1:]
+        x, y = project(entry["lat"], entry["lon"])
+        node_data: Dict[str, Any] = {
+            "name": primary,
+            "type": "stop",
+            "x": x,
+            "y": y,
+            "lat": entry["lat"],
+            "lon": entry["lon"],
+        }
+        if aliases:
+            node_data["aliases"] = aliases
+        if entry["routes"]:
+            node_data["routes"] = entry["routes"]
+        if entry["route_stop_ids"]:
+            node_data["routeStops"] = entry["route_stop_ids"]
+        nodes[node_id] = node_data
+        node_lookup[entry["key"]] = node_id
+
+    def route_sort_key(route: Dict[str, Any]):
+        rid = route.get("id")
+        try:
+            return (0, int(rid))
+        except (TypeError, ValueError):
+            return (1, str(rid))
+
+    routes_out: List[Dict[str, Any]] = []
+    for route in routes_raw or []:
+        rid = route.get("RouteID")
+        stops = route.get("Stops")
+        if rid is None or not isinstance(stops, list) or not stops:
+            continue
+        rid_str = str(rid)
+        desc = route.get("Description")
+        info = (route.get("InfoText") or "").strip()
+        base_name = desc.strip() if isinstance(desc, str) else f"Route {rid_str}"
+        display_name = f"{base_name} — {info}" if info else base_name
+        color_raw = route.get("MapLineColor") or route.get("Color") or route.get("RouteColor")
+        color = color_raw.strip() if isinstance(color_raw, str) else None
+        if color and not color.startswith("#"):
+            color = f"#{color}"
+        ordered_stops = sorted(
+            stops,
+            key=lambda s: (
+                s.get("Order") if isinstance(s.get("Order"), (int, float)) else 0,
+                s.get("RouteStopID") if s.get("RouteStopID") is not None else 0,
+            ),
+        )
+        path_nodes: List[str] = []
+        stop_refs: List[Dict[str, Any]] = []
+        for stop in ordered_stops:
+            lat = _safe_float(stop.get("Latitude"))
+            lon = _safe_float(stop.get("Longitude"))
+            if lat is None or lon is None:
+                continue
+            node_id = node_lookup.get(_stop_key(lat, lon))
+            if not node_id:
+                continue
+            if not path_nodes or path_nodes[-1] != node_id:
+                path_nodes.append(node_id)
+            ref: Dict[str, Any] = {"node": node_id}
+            rstop = stop.get("RouteStopID")
+            if rstop is not None:
+                ref["routeStopId"] = rstop
+            order_val = stop.get("Order")
+            if isinstance(order_val, (int, float)):
+                ref["order"] = order_val
+            stop_name = _stop_display_name(stop)
+            if stop_name:
+                ref["name"] = stop_name
+            stop_refs.append(ref)
+        if not path_nodes:
+            continue
+        route_entry: Dict[str, Any] = {
+            "id": rid_str,
+            "name": display_name,
+            "color": color,
+            "path": path_nodes,
+            "stops": stop_refs,
+        }
+        for attr in ("IsVisibleOnMap", "IsCheckLineOnlyOnMap", "HideRouteLine", "IsRunning"):
+            if attr in route and route[attr] is not None:
+                key = attr[0].lower() + attr[1:]
+                route_entry[key] = bool(route[attr])
+        gtfs = route.get("GtfsId")
+        if gtfs:
+            route_entry["gtfsId"] = gtfs
+        routes_out.append(route_entry)
+
+    routes_out.sort(key=route_sort_key)
+
+    links: List[Dict[str, Any]] = []
+    link_map: Dict[tuple[str, str], str] = {}
+    for route in routes_out:
+        for a, b in zip(route["path"], route["path"][1:]):
+            if a == b:
+                continue
+            key = tuple(sorted((a, b)))
+            if key in link_map:
+                continue
+            link_id = f"L{len(link_map) + 1:03d}"
+            link_map[key] = link_id
+            links.append({"id": link_id, "a": a, "b": b})
+
+    links.sort(key=lambda link: link["id"])
+
+    schema: Dict[str, Any] = {
+        "meta": {
+            "version": 1,
+            "updatedAt": _iso_now(),
+            "source": "transloc",
+            "sourceBase": TRANSLOC_BASE,
+            "stopCount": len(nodes),
+            "routeCount": len(routes_out),
+        },
+        "nodes": nodes,
+        "links": links,
+        "routes": routes_out,
+    }
+    return schema
+
+
 async def read_schematic() -> Dict[str, Any]:
     async with SCHEMATIC_LOCK:
         return await asyncio.to_thread(_read_schema_sync)
@@ -1733,6 +1968,31 @@ async def save_schematic(payload: Dict[str, Any]):
         print(f"[schema] write error: {e}")
         raise HTTPException(status_code=500, detail="failed to save schematic")
     return {"ok": True, "updatedAt": meta["updatedAt"]}
+
+
+@app.post("/api/import-stops")
+async def import_stops_route():
+    try:
+        async with httpx.AsyncClient() as client:
+            routes_raw = await fetch_routes_with_shapes(client)
+    except httpx.HTTPError as e:
+        print(f"[import-stops] http error: {e}")
+        raise HTTPException(status_code=502, detail="failed to fetch stops from TransLoc")
+    except Exception as e:
+        print(f"[import-stops] unexpected error: {e}")
+        raise HTTPException(status_code=500, detail="unexpected error fetching stops")
+    if not isinstance(routes_raw, list) or not routes_raw:
+        raise HTTPException(status_code=502, detail="no routes returned from TransLoc")
+    try:
+        schema = build_schematic_from_routes(routes_raw)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        print(f"[import-stops] build error: {e}")
+        raise HTTPException(status_code=500, detail="failed to build schematic from stops")
+    async with state.lock:
+        state.routes_raw = routes_raw
+    return schema
 
 # ---------------------------
 # Static assets
