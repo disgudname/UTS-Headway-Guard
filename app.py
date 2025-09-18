@@ -981,12 +981,35 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+def _normalize_stop_id(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        return s or None
+    if isinstance(value, (int,)):
+        return str(value)
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if value.is_integer():
+            return str(int(value))
+        return str(value)
+    try:
+        s = str(value).strip()
+    except Exception:
+        return None
+    return s or None
+
+
 def _stop_key(lat: float, lon: float) -> tuple[float, float]:
     return (round(lat, 6), round(lon, 6))
 
 
 def build_schematic_from_routes(routes_raw: List[Dict[str, Any]]) -> Dict[str, Any]:
-    stops_by_key: Dict[tuple[float, float], Dict[str, Any]] = {}
+    stop_records: List[Dict[str, Any]] = []
+    coord_lookup: Dict[tuple[float, float], List[Dict[str, Any]]] = {}
+    address_lookup: Dict[str, Dict[str, Any]] = {}
     for route in routes_raw or []:
         rid = route.get("RouteID")
         stops = route.get("Stops")
@@ -994,63 +1017,115 @@ def build_schematic_from_routes(routes_raw: List[Dict[str, Any]]) -> Dict[str, A
             continue
         rid_str = str(rid)
         for stop in stops:
+            address_id = _normalize_stop_id(stop.get("AddressID"))
             lat = _safe_float(stop.get("Latitude"))
             lon = _safe_float(stop.get("Longitude"))
             if lat is None or lon is None:
-                continue
-            key = _stop_key(lat, lon)
-            entry = stops_by_key.setdefault(key, {
-                "lat": lat,
-                "lon": lon,
-                "names": [],
-                "name_set": set(),
-                "routes": set(),
-                "route_stop_pairs": set(),
-                "route_stop_ids": [],
-            })
+                if not address_id:
+                    continue
+            coord_key = _stop_key(lat, lon) if lat is not None and lon is not None else None
+            entry: Optional[Dict[str, Any]] = address_lookup.get(address_id) if address_id else None
+            if entry is None and coord_key is not None:
+                for candidate in coord_lookup.get(coord_key, []):
+                    existing_addr = candidate.get("address_id")
+                    if existing_addr and address_id and existing_addr != address_id:
+                        continue
+                    entry = candidate
+                    break
+            if entry is None:
+                if lat is None or lon is None:
+                    continue
+                entry = {
+                    "lat": lat,
+                    "lon": lon,
+                    "names": [],
+                    "name_set": set(),
+                    "routes": set(),
+                    "route_stop_pairs": set(),
+                    "route_stop_ids": [],
+                    "coord_keys": set(),
+                    "address_id": address_id,
+                }
+                stop_records.append(entry)
+            if coord_key is not None:
+                entry.setdefault("coord_keys", set()).add(coord_key)
+                bucket = coord_lookup.setdefault(coord_key, [])
+                if entry not in bucket:
+                    bucket.append(entry)
+            if address_id:
+                entry["address_id"] = address_id
+                address_lookup[address_id] = entry
             name = _stop_display_name(stop)
             if name:
                 norm = re.sub(r"\s+", " ", name).strip()
-                if norm and norm.lower() not in entry["name_set"]:
-                    entry["names"].append(norm)
+                if norm and norm.lower() not in entry.setdefault("name_set", set()):
+                    entry.setdefault("names", []).append(norm)
                     entry["name_set"].add(norm.lower())
-            entry["routes"].add(rid_str)
+            entry.setdefault("routes", set()).add(rid_str)
             rstop = stop.get("RouteStopID")
             if rstop is not None:
                 pair = (rid_str, rstop)
-                if pair not in entry["route_stop_pairs"]:
-                    entry["route_stop_pairs"].add(pair)
-                    entry["route_stop_ids"].append({"route": rid_str, "routeStopId": rstop})
+                route_pairs = entry.setdefault("route_stop_pairs", set())
+                if pair not in route_pairs:
+                    route_pairs.add(pair)
+                    payload: Dict[str, Any] = {"route": rid_str, "routeStopId": rstop}
+                    if address_id:
+                        payload["addressId"] = address_id
+                    entry.setdefault("route_stop_ids", []).append(payload)
 
-    stop_entries = []
-    for key, entry in stops_by_key.items():
-        names = entry["names"] or ["Stop"]
-        names.sort(key=lambda s: s.lower())
-        stop_entries.append({
-            "key": key,
-            "lat": entry["lat"],
-            "lon": entry["lon"],
-            "names": names,
-            "routes": sorted(entry["routes"], key=lambda r: (len(r), r)),
-            "route_stop_ids": sorted(entry["route_stop_ids"], key=lambda rs: (rs["route"], rs["routeStopId"]))
-        })
-
-    if not stop_entries:
+    if not stop_records:
         raise ValueError("no stops with coordinates in TransLoc payload")
 
-    min_lat = min(entry["lat"] for entry in stop_entries)
-    max_lat = max(entry["lat"] for entry in stop_entries)
-    min_lon = min(entry["lon"] for entry in stop_entries)
-    max_lon = max(entry["lon"] for entry in stop_entries)
-    lat_span = max_lat - min_lat
-    lon_span = max_lon - min_lon
+    for entry in stop_records:
+        names = entry.get("names") or ["Stop"]
+        names.sort(key=lambda s: s.lower())
+        entry["names"] = names
+        entry["routes"] = sorted(entry.get("routes", []), key=lambda r: (len(r), r))
+        entry["route_stop_ids"] = sorted(
+            entry.get("route_stop_ids", []),
+            key=lambda rs: (rs.get("route"), rs.get("routeStopId"))
+        )
 
-    view_width = 1600.0
-    view_height = 1200.0
-    pad_x = 80.0
-    pad_y = 80.0
-    usable_w = max(view_width - pad_x * 2, 100.0)
-    usable_h = max(view_height - pad_y * 2, 100.0)
+    stop_records.sort(key=lambda entry: (entry["names"][0].lower(), entry.get("lat", 0.0), entry.get("lon", 0.0)))
+
+    nodes: Dict[str, Dict[str, Any]] = {}
+    node_lookup: Dict[Any, str] = {}
+    fallback_counter = 1
+    for entry in stop_records:
+        lat_val = entry.get("lat")
+        lon_val = entry.get("lon")
+        if lat_val is None or lon_val is None:
+            continue
+        address_id = entry.get("address_id")
+        if address_id:
+            node_id = address_id
+        else:
+            node_id = f"STOP:{fallback_counter:03d}"
+            fallback_counter += 1
+        names = entry["names"]
+        primary = names[0]
+        aliases = names[1:]
+        node_data: Dict[str, Any] = {
+            "name": primary,
+            "type": "stop",
+            "x": 0.0,
+            "y": 0.0,
+            "lat": lat_val,
+            "lon": lon_val,
+        }
+        if aliases:
+            node_data["aliases"] = aliases
+        if entry.get("routes"):
+            node_data["routes"] = entry["routes"]
+        if entry.get("route_stop_ids"):
+            node_data["routeStops"] = entry["route_stop_ids"]
+        if address_id:
+            node_data["addressId"] = address_id
+        nodes[node_id] = node_data
+        for coord_key in entry.get("coord_keys", set()):
+            node_lookup[coord_key] = node_id
+        if address_id:
+            node_lookup[f"addr:{address_id}"] = node_id
 
     def project(lat: float, lon: float) -> tuple[float, float]:
         if lon_span < 1e-9:
@@ -1065,31 +1140,28 @@ def build_schematic_from_routes(routes_raw: List[Dict[str, Any]]) -> Dict[str, A
         y = pad_y + y_ratio * usable_h
         return x, y
 
-    stop_entries.sort(key=lambda entry: (entry["names"][0].lower(), entry["lat"], entry["lon"]))
+    min_lat = min(entry["lat"] for entry in stop_records if entry.get("lat") is not None)
+    max_lat = max(entry["lat"] for entry in stop_records if entry.get("lat") is not None)
+    min_lon = min(entry["lon"] for entry in stop_records if entry.get("lon") is not None)
+    max_lon = max(entry["lon"] for entry in stop_records if entry.get("lon") is not None)
+    lat_span = max_lat - min_lat
+    lon_span = max_lon - min_lon
 
-    nodes: Dict[str, Dict[str, Any]] = {}
-    node_lookup: Dict[tuple[float, float], str] = {}
-    for idx, entry in enumerate(stop_entries, 1):
-        node_id = f"STOP:{idx:03d}"
-        primary = entry["names"][0]
-        aliases = entry["names"][1:]
-        x, y = project(entry["lat"], entry["lon"])
-        node_data: Dict[str, Any] = {
-            "name": primary,
-            "type": "stop",
-            "x": x,
-            "y": y,
-            "lat": entry["lat"],
-            "lon": entry["lon"],
-        }
-        if aliases:
-            node_data["aliases"] = aliases
-        if entry["routes"]:
-            node_data["routes"] = entry["routes"]
-        if entry["route_stop_ids"]:
-            node_data["routeStops"] = entry["route_stop_ids"]
-        nodes[node_id] = node_data
-        node_lookup[entry["key"]] = node_id
+    view_width = 1600.0
+    view_height = 1200.0
+    pad_x = 80.0
+    pad_y = 80.0
+    usable_w = max(view_width - pad_x * 2, 100.0)
+    usable_h = max(view_height - pad_y * 2, 100.0)
+
+    for node_id, node in nodes.items():
+        lat = node.get("lat")
+        lon = node.get("lon")
+        if lat is None or lon is None:
+            continue
+        x, y = project(lat, lon)
+        node["x"] = x
+        node["y"] = y
 
     def route_sort_key(route: Dict[str, Any]):
         rid = route.get("id")
@@ -1123,16 +1195,23 @@ def build_schematic_from_routes(routes_raw: List[Dict[str, Any]]) -> Dict[str, A
         path_nodes: List[str] = []
         stop_refs: List[Dict[str, Any]] = []
         for stop in ordered_stops:
+            address_id = _normalize_stop_id(stop.get("AddressID"))
             lat = _safe_float(stop.get("Latitude"))
             lon = _safe_float(stop.get("Longitude"))
-            if lat is None or lon is None:
-                continue
-            node_id = node_lookup.get(_stop_key(lat, lon))
+            node_id: Optional[str] = None
+            if address_id:
+                node_id = node_lookup.get(f"addr:{address_id}")
+            if node_id is None:
+                if lat is None or lon is None:
+                    continue
+                node_id = node_lookup.get(_stop_key(lat, lon))
             if not node_id:
                 continue
             if not path_nodes or path_nodes[-1] != node_id:
                 path_nodes.append(node_id)
             ref: Dict[str, Any] = {"node": node_id}
+            if address_id:
+                ref["addressId"] = address_id
             rstop = stop.get("RouteStopID")
             if rstop is not None:
                 ref["routeStopId"] = rstop
