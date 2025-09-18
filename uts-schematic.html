@@ -227,8 +227,14 @@
         </section>
     </main>
     <script type="module">
-        const ROUTE_POLYLINE_URL = 'GetRoutesForMapWithScheduleWithEncodedLine.txt';
-        const ROUTE_INFO_URL = 'GetRoutes.txt';
+        const ROUTE_DATA_SOURCES = [
+            '/v1/transloc/routes',
+            'GetRoutesForMapWithScheduleWithEncodedLine.txt'
+        ];
+        const ROUTE_INFO_SOURCES = [
+            '/v1/transloc/routes',
+            'GetRoutes.txt'
+        ];
 
         const SIMPLIFY_TOLERANCE_METERS = 12;
         const NODE_MERGE_DISTANCE = 10;
@@ -292,18 +298,49 @@
             container.appendChild(notice);
         }
 
-        async function loadData() {
-            const [polylineRes, routeInfoRes] = await Promise.all([
-                fetch(ROUTE_POLYLINE_URL),
-                fetch(ROUTE_INFO_URL)
-            ]);
+        async function fetchJsonWithFallback(urls) {
+            let lastError = null;
+            for (const url of urls) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        lastError = new Error(`HTTP ${response.status} fetching ${url}`);
+                        continue;
+                    }
+                    const data = await response.json();
+                    return { data, url };
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            throw lastError ?? new Error('Unable to load transit datasets.');
+        }
 
-            if (!polylineRes.ok || !routeInfoRes.ok) {
-                throw new Error('Unable to load transit datasets.');
+        function normalizeRoutePayload(payload) {
+            if (Array.isArray(payload)) {
+                return payload;
+            }
+            if (payload && Array.isArray(payload.d)) {
+                return payload.d;
+            }
+            return [];
+        }
+
+        async function loadData() {
+            const { data: polylinePayload, url: polylineSource } = await fetchJsonWithFallback(ROUTE_DATA_SOURCES);
+            const polylineJson = normalizeRoutePayload(polylinePayload);
+
+            if (!polylineJson.length) {
+                throw new Error('No route geometry returned by the feed.');
             }
 
-            const polylineJson = await polylineRes.json();
-            const routeInfoJson = await routeInfoRes.json();
+            let routeInfoJson;
+            if (polylineSource === ROUTE_INFO_SOURCES[0]) {
+                routeInfoJson = polylineJson;
+            } else {
+                const { data: infoPayload } = await fetchJsonWithFallback(ROUTE_INFO_SOURCES);
+                routeInfoJson = normalizeRoutePayload(infoPayload);
+            }
 
             const routeInfoMap = new Map(routeInfoJson.map((item) => [item.RouteID, item]));
 
