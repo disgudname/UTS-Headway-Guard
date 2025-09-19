@@ -1616,6 +1616,12 @@
               stopsPane.style.zIndex = 450;
               stopsPane.style.pointerEvents = 'auto';
           }
+          map.createPane('busesPane');
+          const busesPane = map.getPane('busesPane');
+          if (busesPane) {
+              busesPane.style.zIndex = 500;
+              busesPane.style.pointerEvents = 'none';
+          }
           const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           });
@@ -3364,7 +3370,7 @@
                               markers[vehicleID].setIcon(busIcon);
                               markers[vehicleID].routeID = routeID;
                           } else {
-                              markers[vehicleID] = L.marker(newPosition, { icon: busIcon });
+                              markers[vehicleID] = L.marker(newPosition, { icon: busIcon, pane: 'busesPane', interactive: false });
                               markers[vehicleID].routeID = routeID;
                               markers[vehicleID].addTo(map);
                           }
@@ -3387,7 +3393,7 @@
                                   nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
                               } else {
                                   nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false }).addTo(map);
+                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                               }
                           } else {
                               if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
@@ -3415,7 +3421,7 @@
                                   nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
                               } else {
                                   nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                  nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false }).addTo(map);
+                                  nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                               }
 
                               const blockName = busBlocks[vehicleID];
@@ -3444,7 +3450,7 @@
                                       nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
                                   } else {
                                       nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false }).addTo(map);
+                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                                   }
                               } else {
                                   if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
