@@ -1742,6 +1742,8 @@
             return;
           }
 
+          this.clearLayers();
+
           const step = Number.isFinite(this.options.sampleStepPx) && this.options.sampleStepPx > 0
             ? this.options.sampleStepPx
             : 8;
