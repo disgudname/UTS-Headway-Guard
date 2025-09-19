@@ -242,6 +242,137 @@
 
       const enableOverlapDashRendering = true;
 
+      const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
+        updateWhenZooming: false,
+        updateWhenIdle: true
+      });
+      let sharedRouteRenderer = null;
+      let routePaneName = 'overlayPane';
+
+      function mergeRouteLayerOptions(overrides = {}, rendererOverride = null, paneOverride = null) {
+        const base = Object.assign({}, ROUTE_LAYER_BASE_OPTIONS);
+        const renderer = rendererOverride || sharedRouteRenderer;
+        if (renderer) {
+          base.renderer = renderer;
+        }
+        const pane = paneOverride || routePaneName;
+        if (typeof pane === 'string' && pane) {
+          base.pane = pane;
+        }
+        return Object.assign(base, overrides || {});
+      }
+
+      function auditPaneStyles(options = {}) {
+        const { sanitize = false } = options || {};
+        const panes = map && map._panes ? map._panes : null;
+        const results = [];
+        if (!panes) {
+          return results;
+        }
+        Object.entries(panes).forEach(([paneKey, paneElement]) => {
+          if (!paneElement || !paneElement.style) return;
+          const transform = paneElement.style.transform || '';
+          const willChange = paneElement.style.willChange || '';
+          const hasCustomTransform = /scale|rotate|matrix|skew/i.test(transform);
+          const hasCustomWillChange = willChange && willChange !== 'auto';
+          if (sanitize) {
+            if (hasCustomTransform) {
+              paneElement.style.transform = '';
+            }
+            if (hasCustomWillChange) {
+              paneElement.style.willChange = '';
+            }
+          }
+          results.push({
+            pane: paneKey,
+            transform,
+            willChange,
+            hasCustomTransform,
+            hasCustomWillChange
+          });
+        });
+        return results;
+      }
+
+      function ensureContainerHasNoTransforms(element) {
+        if (!element) return [];
+        const cleared = [];
+        element.style.transform = 'none';
+        element.style.willChange = '';
+        let current = element.parentElement;
+        while (current && current !== document.body && current !== document.documentElement) {
+          const computed = window.getComputedStyle(current);
+          if (computed && computed.transform && computed.transform !== 'none') {
+            cleared.push({ element: current.tagName, previousTransform: computed.transform });
+            current.style.transform = 'none';
+          }
+          if (current.style && current.style.willChange) {
+            cleared.push({ element: current.tagName, previousWillChange: current.style.willChange });
+            current.style.willChange = '';
+          }
+          current = current.parentElement;
+        }
+        return cleared;
+      }
+
+      function isPixelGeometryCachedAcrossZooms() {
+        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.hasPersistentPixelCache === 'function') {
+          return overlapRenderer.hasPersistentPixelCache();
+        }
+        return false;
+      }
+
+      function logZoomDiagnostics(stage, extra = {}) {
+        const zoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+        const paneAudit = auditPaneStyles({ sanitize: false });
+        const panesWithCustomStyles = paneAudit.filter(entry => entry.hasCustomTransform || entry.hasCustomWillChange);
+        console.debug(`[routes:${stage}]`, Object.assign({
+          zoom,
+          routeLayerCount: Array.isArray(routeLayers) ? routeLayers.length : 0,
+          cachedPixelPointsReused: isPixelGeometryCachedAcrossZooms(),
+          panesWithCustomStyles
+        }, extra || {}));
+      }
+
+      function collectRoutePathTransformIssues() {
+        const layers = Array.isArray(routeLayers) ? routeLayers : [];
+        const issues = [];
+        if (typeof window === 'undefined') {
+          return issues;
+        }
+        layers.forEach(layer => {
+          const path = layer && layer._path;
+          if (!path) return;
+          let parent = path.parentElement;
+          while (parent && parent !== document.body && parent !== document.documentElement) {
+            const inlineTransform = parent.style ? parent.style.transform || '' : '';
+            let computedTransform = '';
+            try {
+              const computed = window.getComputedStyle(parent);
+              if (computed && computed.transform && computed.transform !== 'none') {
+                computedTransform = computed.transform;
+              }
+            } catch (error) {
+              computedTransform = '';
+            }
+            const transformToCheck = inlineTransform || computedTransform;
+            if (transformToCheck && transformToCheck !== 'none' && /scale|rotate|matrix|skew/i.test(transformToCheck)) {
+              issues.push({
+                layerId: layer && layer._leaflet_id ? layer._leaflet_id : null,
+                parentTag: parent.tagName,
+                transform: transformToCheck
+              });
+              break;
+            }
+            if (parent.classList && parent.classList.contains('leaflet-map-pane')) {
+              break;
+            }
+            parent = parent.parentElement;
+          }
+        });
+        return issues;
+      }
+
       const params = new URLSearchParams(window.location.search);
       const kioskParam = params.get('kioskMode');
       if (kioskParam !== null) {
@@ -815,18 +946,36 @@
       }
 
       function initMap() {
-          map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
-          const initialZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-          if (Number.isFinite(initialZoom)) {
-              setRouteWeightBaseline(initialZoom);
-          } else {
-              resetRouteWeightBaseline();
+          const mapElement = document.getElementById('map');
+          const containerTransformFixes = ensureContainerHasNoTransforms(mapElement);
+          map = L.map('map', { zoomControl: false, crs: L.CRS.EPSG3857 }).setView([38.03799212281404, -78.50981502838886], 15);
+          routePaneName = 'routesPane';
+          map.createPane(routePaneName);
+          const routesPane = map.getPane(routePaneName);
+          if (routesPane) {
+              routesPane.style.zIndex = 425;
+              routesPane.style.pointerEvents = 'none';
           }
           map.createPane('stopsPane');
           const stopsPane = map.getPane('stopsPane');
           if (stopsPane) {
               stopsPane.style.zIndex = 450;
               stopsPane.style.pointerEvents = 'auto';
+          }
+          sharedRouteRenderer = L.svg({ padding: 0, pane: routePaneName });
+          if (sharedRouteRenderer) {
+              map.addLayer(sharedRouteRenderer);
+          }
+          const paneAuditAfterInit = auditPaneStyles({ sanitize: true });
+          console.debug('[routes:init]', {
+              containerTransformFixes,
+              sanitizedPaneStyles: paneAuditAfterInit.filter(entry => entry.hasCustomTransform || entry.hasCustomWillChange)
+          });
+          const initialZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+          if (Number.isFinite(initialZoom)) {
+              setRouteWeightBaseline(initialZoom);
+          } else {
+              resetRouteWeightBaseline();
           }
           const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -842,7 +991,9 @@
               strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
               minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
               maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
-              referenceZoom: routeWeightReferenceZoom
+              referenceZoom: routeWeightReferenceZoom,
+              renderer: sharedRouteRenderer,
+              pane: routePaneName
             });
             lastOverlapZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
           }
@@ -862,14 +1013,16 @@
               startRefreshIntervals();
           });
           fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
-          map.on('move', updatePopupPositions);
-          map.on('zoom', updatePopupPositions);
+          map.on('zoom', event => {
+              const targetZoom = typeof event?.zoom === 'number' ? event.zoom : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
+              logZoomDiagnostics('zoom', { targetZoom });
+          });
           map.on('zoomstart', () => {
               const startZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
               zoomDebugState.zoomStart = startZoom;
               const referenceZoom = getActiveReferenceZoom();
               const computedWeight = computeDebugStrokeWeight(startZoom);
-              console.debug('[routes:zoomstart]', {
+              logZoomDiagnostics('zoomstart', {
                   oldZoom: startZoom,
                   newZoom: null,
                   referenceZoom,
@@ -911,7 +1064,8 @@
 
               const referenceZoom = getActiveReferenceZoom();
               const computedWeight = computeDebugStrokeWeight(currentZoom);
-              console.debug('[routes:zoomend]', {
+              const pathTransformIssues = collectRoutePathTransformIssues();
+              logZoomDiagnostics('zoomend', {
                   oldZoom: previousZoom,
                   newZoom: currentZoom,
                   referenceZoom,
@@ -919,7 +1073,8 @@
                   handlers: {
                       overlapRenderer: overlapRendererHandled,
                       simpleStrokeUpdate
-                  }
+                  },
+                  pathTransformIssues: pathTransformIssues
               });
               if (Number.isFinite(currentZoom) && (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom))) {
                   setRouteWeightBaseline(currentZoom);
@@ -927,16 +1082,17 @@
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
+              updatePopupPositions();
               zoomDebugState.zoomStart = null;
           });
           map.on('moveend', () => {
-              if (!routeWeightBaselinePending && Number.isFinite(routeWeightReferenceZoom)) {
-                  return;
-              }
               const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-              if (Number.isFinite(currentZoom)) {
-                  setRouteWeightBaseline(currentZoom);
+              if (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom)) {
+                  if (Number.isFinite(currentZoom)) {
+                      setRouteWeightBaseline(currentZoom);
+                  }
               }
+              updatePopupPositions();
           });
       }
 
@@ -1429,12 +1585,18 @@
       }
 
       function updatePopupPosition(popupElement, position) {
+          if (!map || typeof map?.latLngToContainerPoint !== 'function') {
+              return;
+          }
           const mapPos = map.latLngToContainerPoint(position);
           popupElement.style.left = `${mapPos.x}px`;
           popupElement.style.top = `${mapPos.y}px`;
       }
 
       function updatePopupPositions() {
+          if (!map || typeof map?.latLngToContainerPoint !== 'function') {
+              return;
+          }
           customPopups.forEach(popupElement => {
               const position = popupElement.dataset.position;
               if (position) {
@@ -1535,6 +1697,8 @@
           this.maxStrokeWeight = Number.isFinite(this.options.maxStrokeWeight)
             ? this.options.maxStrokeWeight
             : Infinity;
+          this.renderer = options.renderer || null;
+          this.routePaneName = typeof options.pane === 'string' && options.pane ? options.pane : routePaneName;
         }
 
         setReferenceZoom(zoom) {
@@ -1988,13 +2152,13 @@
 
             if (sortedRoutes.length === 1) {
               const routeId = sortedRoutes[0];
-              const layer = L.polyline(coords, {
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
                 color: getRouteColor(routeId),
                 weight,
                 opacity: 1,
                 lineCap: 'round',
                 lineJoin: 'round'
-              }).addTo(this.map);
+              }, this.renderer, this.routePaneName)).addTo(this.map);
               newLayers.push(layer);
               return;
             }
@@ -2050,7 +2214,7 @@
                 }
                 dashOffsetValue = ((dashOffsetValue % patternLength) + patternLength) % patternLength;
               }
-              const layer = L.polyline(coords, {
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
                 color: getRouteColor(routeId),
                 weight,
                 opacity: 1,
@@ -2058,7 +2222,7 @@
                 dashOffset: `${dashOffsetValue}`,
                 lineCap: 'butt',
                 lineJoin: 'round'
-              }).addTo(this.map);
+              }, this.renderer, this.routePaneName)).addTo(this.map);
               newLayers.push(layer);
             });
           });
@@ -2215,6 +2379,10 @@
           }
           return Math.abs(a.lat - b.lat) <= this.options.latLngEqualityMargin &&
             Math.abs(a.lng - b.lng) <= this.options.latLngEqualityMargin;
+        }
+
+        hasPersistentPixelCache() {
+          return false;
         }
       }
 
@@ -2406,11 +2574,13 @@
                           } else {
                               const currentStrokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
                               simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
-                                  const routeLayer = L.polyline(latLngPath, {
+                              const routeLayer = L.polyline(latLngPath, mergeRouteLayerOptions({
                                       color: routeColor,
                                       weight: currentStrokeWeight,
-                                      opacity: 1
-                                  }).addTo(map);
+                                      opacity: 1,
+                                      lineCap: 'round',
+                                      lineJoin: 'round'
+                                  })).addTo(map);
                                   routeLayers.push(routeLayer);
                               });
                           }
