@@ -1124,6 +1124,9 @@
               updatePopupPositions();
               zoomDebugState.zoomStart = null;
           });
+          map.on('move', () => {
+              syncRendererView(sharedRouteRenderer, map);
+          });
           map.on('moveend', () => {
               const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
               if (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom)) {
