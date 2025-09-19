@@ -129,6 +129,57 @@
         margin: 0;
         padding: 0;
       }
+      .loading-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(71, 85, 105, 0.55);
+        color: #f1f5f9;
+        font-family: 'FGDC', sans-serif;
+        font-size: 18px;
+        letter-spacing: 0.3rem;
+        text-transform: uppercase;
+        z-index: 3000;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+        backdrop-filter: blur(2px);
+      }
+      .loading-overlay.is-visible {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: all;
+      }
+      .loading-overlay__inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .loading-overlay__spinner {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 4px solid rgba(241, 245, 249, 0.35);
+        border-top-color: #f8fafc;
+        animation: loading-overlay-spin 1s linear infinite;
+      }
+      .loading-overlay__text {
+        font-size: 16px;
+        letter-spacing: 0.35rem;
+      }
+      @keyframes loading-overlay-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
       /* Route Selector styling */
       .selector-panel {
         width: 340px;
@@ -775,6 +826,34 @@
       let refreshIntervals = [];
 
       let overlapRenderer = null;
+
+      let activeAgencyLoadCount = 0;
+
+      function showLoadingOverlay() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (!overlay) return;
+        overlay.classList.add('is-visible');
+        overlay.setAttribute('aria-busy', 'true');
+      }
+
+      function hideLoadingOverlay() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (!overlay) return;
+        overlay.classList.remove('is-visible');
+        overlay.setAttribute('aria-busy', 'false');
+      }
+
+      function beginAgencyLoad() {
+        activeAgencyLoadCount += 1;
+        showLoadingOverlay();
+      }
+
+      function completeAgencyLoad() {
+        activeAgencyLoadCount = Math.max(0, activeAgencyLoadCount - 1);
+        if (activeAgencyLoadCount === 0) {
+          hideLoadingOverlay();
+        }
+      }
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
       const STOP_MARKER_ICON_SIZE = 24;
@@ -1440,10 +1519,28 @@
         }
       }
 
+      function loadAgencyData() {
+        return fetchRouteColors().then(() => {
+          const stopArrivalsPromise = fetchStopArrivalTimes().then(allEtas => {
+            cachedEtas = allEtas || {};
+            updateCustomPopups();
+            return allEtas;
+          });
+          const tasks = [
+            fetchBusStops(),
+            fetchBlockAssignments(),
+            fetchBusLocations().then(() => fetchRoutePaths()),
+            stopArrivalsPromise
+          ];
+          return Promise.allSettled(tasks);
+        });
+      }
+
       function changeAgency(url) {
         if (localStorage.getItem('agencyConsent') === 'true') {
           localStorage.setItem('selectedAgency', url);
         }
+        beginAgencyLoad();
         clearRefreshIntervals();
         baseURL = url;
         Object.values(markers).forEach(m => map.removeLayer(m));
@@ -1485,13 +1582,16 @@
         mapHasFitAllRoutes = false;
         updateRouteLegend([]);
         updateRouteSelector(new Set(), true);
-        fetchRouteColors().then(() => {
-          fetchBusStops();
-          fetchBlockAssignments();
-          fetchBusLocations().then(fetchRoutePaths);
-          fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; updateCustomPopups(); });
-          startRefreshIntervals();
-        });
+        loadAgencyData()
+          .then(() => {
+            startRefreshIntervals();
+          })
+          .catch(error => {
+            console.error('Error loading agency data:', error);
+          })
+          .finally(() => {
+            completeAgencyLoad();
+          });
       }
 
       function getRouteColor(routeID) {
@@ -1540,29 +1640,18 @@
             });
           }
 
-          fetchRouteColors().then(() => {
-              if (kioskMode || adminKioskMode) {
-                document.getElementById("routeSelector").style.display = "none";
-                document.getElementById("routeSelectorTab").style.display = "none";
-                const controlPanel = document.getElementById("controlPanel");
-                if (controlPanel) {
-                  controlPanel.style.display = "none";
-                }
-                const controlPanelTab = document.getElementById("controlPanelTab");
-                if (controlPanelTab) {
-                  controlPanelTab.style.display = "none";
-                }
-              }
-              fetchStopArrivalTimes().then(allEtas => {
-                  cachedEtas = allEtas;
-                  updateCustomPopups();
-              });
-              fetchBusStops();
-              fetchBlockAssignments();
-              fetchBusLocations().then(fetchRoutePaths);
-              startRefreshIntervals();
-          });
-          fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
+          if (kioskMode || adminKioskMode) {
+            document.getElementById("routeSelector").style.display = "none";
+            document.getElementById("routeSelectorTab").style.display = "none";
+            const controlPanel = document.getElementById("controlPanel");
+            if (controlPanel) {
+              controlPanel.style.display = "none";
+            }
+            const controlPanelTab = document.getElementById("controlPanelTab");
+            if (controlPanelTab) {
+              controlPanelTab.style.display = "none";
+            }
+          }
           map.on('zoom', () => {
               updatePopupPositions();
           });
@@ -1580,7 +1669,7 @@
       function fetchBusStops() {
           const currentBaseURL = baseURL;
           const stopsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
-          fetch(stopsApiUrl)
+          return fetch(stopsApiUrl)
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return;
@@ -2933,7 +3022,7 @@
       function fetchRoutePaths() {
           const currentBaseURL = baseURL;
           const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
-          fetch(routePathsApiUrl)
+          return fetch(routePathsApiUrl)
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return;
@@ -3143,7 +3232,7 @@
           const d = new Date();
           const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
           const schedUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
-          fetch(schedUrl)
+          return fetch(schedUrl)
               .then(response => response.json())
               .then(sched => {
                   if (currentBaseURL !== baseURL) return;
@@ -3428,10 +3517,22 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
-        loadAgencies().then(() => {
-          initMap();
-          showCookieBanner();
-        });
+        beginAgencyLoad();
+        loadAgencies()
+          .then(() => {
+            initMap();
+            showCookieBanner();
+            return loadAgencyData()
+              .then(() => {
+                startRefreshIntervals();
+              });
+          })
+          .catch(error => {
+            console.error('Error during initial load:', error);
+          })
+          .finally(() => {
+            completeAgencyLoad();
+          });
       });
     </script>
   </head>
@@ -3446,6 +3547,12 @@
     <div id="cookieBanner" class="cookie-banner" style="display:none;">
       This site stores your selected transit agency on your device to remember your preference.
       <button id="cookieAccept">OK</button>
+    </div>
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="false">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading agency data…</div>
+      </div>
     </div>
   </body>
 </html>
