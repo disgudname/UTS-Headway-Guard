@@ -1879,7 +1879,11 @@
           });
           const etaRows = etas.length > 0
               ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
-                    .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`)
+                    .map(eta => {
+                        const routeColor = getRouteColor(eta.RouteId);
+                        const textColor = getContrastColor(routeColor);
+                        return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
+                    })
                     .join('')
               : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
           return `
