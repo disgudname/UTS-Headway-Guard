@@ -296,6 +296,34 @@
       };
       let lastRouteSelectorSignature = null;
 
+      const DEFAULT_ROUTE_STROKE_WEIGHT = 6;
+      const MIN_ROUTE_STROKE_WEIGHT = 2;
+      const MAX_ROUTE_STROKE_WEIGHT = 24;
+      let routeWeightReferenceZoom = 15;
+
+      function computeRouteStrokeWeight(zoom) {
+        const baseWeight = DEFAULT_ROUTE_STROKE_WEIGHT;
+        const minWeight = MIN_ROUTE_STROKE_WEIGHT;
+        const maxWeight = MAX_ROUTE_STROKE_WEIGHT;
+        const targetZoom = Number.isFinite(zoom)
+          ? zoom
+          : (map && typeof map?.getZoom === 'function' ? map.getZoom() : routeWeightReferenceZoom);
+        const referenceZoom = Number.isFinite(routeWeightReferenceZoom) ? routeWeightReferenceZoom : targetZoom;
+        let scale = 1;
+        if (Number.isFinite(targetZoom) && Number.isFinite(referenceZoom)) {
+          if (map && typeof map.getZoomScale === 'function') {
+            scale = map.getZoomScale(targetZoom, referenceZoom);
+          } else {
+            scale = Math.pow(2, targetZoom - referenceZoom);
+          }
+        }
+        const computed = baseWeight * scale;
+        if (!Number.isFinite(computed)) {
+          return baseWeight;
+        }
+        return Math.max(minWeight, Math.min(maxWeight, computed));
+      }
+
       async function loadAgencies() {
         try {
           const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
@@ -750,6 +778,10 @@
 
       function initMap() {
           map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
+          const initialZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+          if (Number.isFinite(initialZoom)) {
+              routeWeightReferenceZoom = initialZoom;
+          }
           map.createPane('stopsPane');
           const stopsPane = map.getPane('stopsPane');
           if (stopsPane) {
@@ -767,7 +799,10 @@
               dashLengthPx: 16,
               minDashLengthPx: 0.5,
               matchTolerancePx: 6,
-              strokeWeight: 6
+              strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+              minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+              maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+              referenceZoom: routeWeightReferenceZoom
             });
             lastOverlapZoom = map.getZoom();
             map.on('moveend', () => {
@@ -808,7 +843,11 @@
                       routeLayers = layers;
                   }
               } else {
+                  const updatedWeight = computeRouteStrokeWeight();
                   routeLayers.forEach(layer => {
+                      if (layer && typeof layer.setStyle === 'function') {
+                          layer.setStyle({ weight: updatedWeight });
+                      }
                       if (layer && typeof layer.redraw === 'function') {
                           layer.redraw();
                       }
@@ -1396,13 +1435,25 @@
             headingToleranceDeg: 20,
             simplifyTolerancePx: 0.75,
             latLngEqualityMargin: 1e-9,
-            strokeWeight: 6,
-            groupNodeMergeMargin: 1e-6
+            strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+            groupNodeMergeMargin: 1e-6,
+            minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+            maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+            referenceZoom: null
           }, options);
           this.layers = [];
           this.routeGeometries = new Map();
           this.selectedRoutes = [];
           this.currentZoom = map.getZoom();
+          this.referenceZoom = Number.isFinite(this.options.referenceZoom)
+            ? this.options.referenceZoom
+            : (Number.isFinite(this.currentZoom) ? this.currentZoom : null);
+          this.minStrokeWeight = Number.isFinite(this.options.minStrokeWeight)
+            ? this.options.minStrokeWeight
+            : 1;
+          this.maxStrokeWeight = Number.isFinite(this.options.maxStrokeWeight)
+            ? this.options.maxStrokeWeight
+            : Infinity;
         }
 
         reset() {
@@ -1445,7 +1496,13 @@
 
           this.routeGeometries = geometries;
           this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
-          this.currentZoom = this.map.getZoom();
+          const mapZoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          if (Number.isFinite(mapZoom)) {
+            this.currentZoom = mapZoom;
+            if (!Number.isFinite(this.referenceZoom)) {
+              this.referenceZoom = mapZoom;
+            }
+          }
           this.render();
           return this.getLayers();
         }
@@ -1460,6 +1517,10 @@
             return this.getLayers();
           }
 
+          if (!Number.isFinite(this.referenceZoom)) {
+            this.referenceZoom = zoom;
+          }
+
           if (zoom === this.currentZoom) {
             return this.getLayers();
           }
@@ -1471,6 +1532,29 @@
 
         getLayers() {
           return this.layers.slice();
+        }
+
+        computeStrokeWeight(zoom = this.currentZoom) {
+          const baseWeight = Number.isFinite(this.options.strokeWeight) ? this.options.strokeWeight : DEFAULT_ROUTE_STROKE_WEIGHT;
+          const minWeight = Number.isFinite(this.minStrokeWeight) ? this.minStrokeWeight : 1;
+          const maxWeight = Number.isFinite(this.maxStrokeWeight) ? this.maxStrokeWeight : Infinity;
+          if (!Number.isFinite(zoom)) {
+            return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+          }
+          const referenceZoom = Number.isFinite(this.referenceZoom) ? this.referenceZoom : zoom;
+          let scale = 1;
+          if (Number.isFinite(referenceZoom)) {
+            if (this.map && typeof this.map.getZoomScale === 'function') {
+              scale = this.map.getZoomScale(zoom, referenceZoom);
+            } else {
+              scale = Math.pow(2, zoom - referenceZoom);
+            }
+          }
+          const computed = baseWeight * scale;
+          if (!Number.isFinite(computed)) {
+            return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+          }
+          return Math.max(minWeight, Math.min(maxWeight, computed));
         }
 
         render() {
@@ -1786,7 +1870,7 @@
           const newLayers = [];
           const dashBase = this.options.dashLengthPx;
           const minDash = this.options.minDashLengthPx;
-          const weight = this.options.strokeWeight;
+          const weight = this.computeStrokeWeight();
 
           groups.forEach(group => {
             if (!group || !Array.isArray(group.routes) || group.routes.length === 0) return;
@@ -2237,10 +2321,11 @@
                               const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted);
                               routeLayers = layers;
                           } else {
+                              const currentStrokeWeight = computeRouteStrokeWeight();
                               simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
                                   const routeLayer = L.polyline(latLngPath, {
                                       color: routeColor,
-                                      weight: 6,
+                                      weight: currentStrokeWeight,
                                       opacity: 1
                                   }).addTo(map);
                                   routeLayers.push(routeLayer);
