@@ -3041,6 +3041,7 @@
                   });
                   const hasActiveServiceRoutes = activeRoutesForBounds.size > 0;
                   let bounds = null;
+                  let fallbackBounds = null;
                   const displayedRoutes = new Map();
                   const rendererGeometries = new Map();
                   const simpleGeometries = [];
@@ -3100,6 +3101,7 @@
                                       latLngPath,
                                       bounds: polyBounds
                                   });
+                                  cacheEntry = routePolylineCache.get(numericRouteId);
                                   if (isSelected) {
                                       geometryChanged = true;
                                   }
@@ -3112,16 +3114,27 @@
                                   }
                               }
 
-                              if (shouldIncludeInBounds) {
-                                  if (polyBounds) {
-                                      bounds = bounds ? bounds.extend(polyBounds) : L.latLngBounds(polyBounds);
-                                  } else if (Array.isArray(latLngPath) && latLngPath.length >= 2) {
-                                      const computedBounds = L.latLngBounds(latLngPath);
-                                      bounds = bounds ? bounds.extend(computedBounds) : computedBounds;
+                              let candidateBounds = polyBounds;
+                              if (!candidateBounds && Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                  candidateBounds = L.latLngBounds(latLngPath);
+                                  if (cacheEntry) {
+                                      cacheEntry.bounds = candidateBounds;
+                                  } else {
                                       const existing = routePolylineCache.get(numericRouteId);
                                       if (existing) {
-                                          existing.bounds = computedBounds;
+                                          existing.bounds = candidateBounds;
                                       }
+                                  }
+                              }
+
+                              if (candidateBounds) {
+                                  fallbackBounds = fallbackBounds
+                                      ? fallbackBounds.extend(candidateBounds)
+                                      : L.latLngBounds(candidateBounds);
+                                  if (shouldIncludeInBounds) {
+                                      bounds = bounds
+                                          ? bounds.extend(candidateBounds)
+                                          : L.latLngBounds(candidateBounds);
                                   }
                               }
 
@@ -3223,6 +3236,9 @@
                       updateCustomPopups();
                       if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
                           renderBusStops(stopDataCache);
+                      }
+                      if (!bounds && fallbackBounds) {
+                          bounds = fallbackBounds;
                       }
                       if (bounds) {
                           allRouteBounds = bounds;
