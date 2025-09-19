@@ -243,7 +243,7 @@
       const enableOverlapDashRendering = true;
 
       const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
-        updateWhenZooming: false,
+        updateWhenZooming: true,
         updateWhenIdle: true
       });
       let sharedRouteRenderer = null;
@@ -371,6 +371,43 @@
           }
         });
         return issues;
+      }
+
+      function syncRendererView(renderer, mapInstance) {
+        if (!renderer || typeof window === 'undefined') {
+          return { updated: false, reason: 'no-renderer' };
+        }
+        const container = renderer._container;
+        const mapRef = mapInstance || (typeof map !== 'undefined' ? map : null);
+        if (!mapRef || typeof mapRef.getZoom !== 'function') {
+          return { updated: false, reason: 'no-map' };
+        }
+        const zoom = mapRef.getZoom();
+        if (!Number.isFinite(zoom)) {
+          return { updated: false, reason: 'invalid-zoom' };
+        }
+
+        const previousZoom = typeof renderer._zoom === 'number' ? renderer._zoom : null;
+        renderer._zoom = zoom;
+
+        if (typeof renderer._update === 'function') {
+          renderer._update();
+          return { updated: true, previousZoom };
+        }
+
+        if (container && typeof mapRef._getMapPanePos === 'function') {
+          const pos = mapRef._getMapPanePos();
+          const x = Number.isFinite(pos?.x) ? pos.x : 0;
+          const y = Number.isFinite(pos?.y) ? pos.y : 0;
+          if (typeof L !== 'undefined' && L.DomUtil && typeof L.DomUtil.setPosition === 'function') {
+            L.DomUtil.setPosition(container, L.point(x, y));
+          } else {
+            container.style.transform = `translate3d(${x}px, ${y}px, 0px)`;
+          }
+          return { updated: true, previousZoom };
+        }
+
+        return { updated: false, reason: 'no-container' };
       }
 
       const params = new URLSearchParams(window.location.search);
@@ -1065,6 +1102,7 @@
               const referenceZoom = getActiveReferenceZoom();
               const computedWeight = computeDebugStrokeWeight(currentZoom);
               const pathTransformIssues = collectRoutePathTransformIssues();
+              const rendererSyncState = syncRendererView(sharedRouteRenderer, map);
               logZoomDiagnostics('zoomend', {
                   oldZoom: previousZoom,
                   newZoom: currentZoom,
@@ -1074,7 +1112,8 @@
                       overlapRenderer: overlapRendererHandled,
                       simpleStrokeUpdate
                   },
-                  pathTransformIssues: pathTransformIssues
+                  pathTransformIssues: pathTransformIssues,
+                  rendererSyncState
               });
               if (Number.isFinite(currentZoom) && (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom))) {
                   setRouteWeightBaseline(currentZoom);
@@ -1092,6 +1131,7 @@
                       setRouteWeightBaseline(currentZoom);
                   }
               }
+              syncRendererView(sharedRouteRenderer, map);
               updatePopupPositions();
           });
       }
