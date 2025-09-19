@@ -314,6 +314,8 @@
 
       let overlapRenderer = null;
       const zoomDebugState = { zoomStart: null };
+      const routeZoomState = { lastProcessedZoom: null };
+      const ZOOM_COMPARISON_EPSILON = 1e-9;
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
       const STOP_MARKER_ICON_SIZE = 24;
@@ -366,12 +368,25 @@
         return computeRouteStrokeWeight(targetZoom);
       }
 
-      function handleRouteZoomChange(targetZoom) {
+      function handleRouteZoomChange(targetZoom, options = {}) {
+        const { force = false } = options || {};
         const zoom = Number.isFinite(targetZoom)
           ? targetZoom
           : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
         if (!Number.isFinite(zoom)) {
-          return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom: null };
+          return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom: null, skipped: true };
+        }
+
+        if (!force) {
+          const zoomAnimationActive = !!(map?._animatingZoom || (map?._zoomAnimated && map?._zooming));
+          if (zoomAnimationActive) {
+            return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom, skipped: true };
+          }
+        }
+
+        const lastZoom = routeZoomState.lastProcessedZoom;
+        if (Number.isFinite(lastZoom) && Math.abs(lastZoom - zoom) <= ZOOM_COMPARISON_EPSILON) {
+          return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom, skipped: true };
         }
 
         let overlapRendererHandled = false;
@@ -396,7 +411,9 @@
           });
         }
 
-        return { overlapRendererHandled, simpleStrokeUpdate, zoom };
+        routeZoomState.lastProcessedZoom = zoom;
+
+        return { overlapRendererHandled, simpleStrokeUpdate, zoom, skipped: false };
       }
 
       async function loadAgencies() {
@@ -810,6 +827,7 @@
         stopMarkers = [];
         routeLayers.forEach(l => map.removeLayer(l));
         routeLayers = [];
+        routeZoomState.lastProcessedZoom = null;
         routePolylineCache.clear();
         lastRouteRenderState = {
           selectionKey: '',
@@ -912,7 +930,8 @@
                   handlers: {
                       overlapRenderer: result.overlapRendererHandled,
                       simpleStrokeUpdate: result.simpleStrokeUpdate
-                  }
+                  },
+                  skipped: !!result.skipped
               });
           });
           map.on('zoomstart', () => {
@@ -932,7 +951,7 @@
           map.on('zoomend', () => {
               const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
               const previousZoom = zoomDebugState.zoomStart;
-              const result = handleRouteZoomChange(currentZoom);
+              const result = handleRouteZoomChange(currentZoom, { force: true });
               const computedWeight = computeDebugStrokeWeight(result.zoom);
               logZoomDiagnostics('zoomend', {
                   oldZoom: previousZoom,
@@ -941,7 +960,8 @@
                   handlers: {
                       overlapRenderer: result.overlapRendererHandled,
                       simpleStrokeUpdate: result.simpleStrokeUpdate
-                  }
+                  },
+                  skipped: !!result.skipped
               });
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
@@ -2530,6 +2550,8 @@
                                   routeLayers.push(routeLayer);
                               });
                           }
+                          const mapZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+                          routeZoomState.lastProcessedZoom = Number.isFinite(mapZoom) ? mapZoom : null;
                       }
 
                       lastRouteRenderState = {
