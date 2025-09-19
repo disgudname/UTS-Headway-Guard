@@ -380,6 +380,24 @@
         padding: 12px 20px;
         letter-spacing: 0.3px;
       }
+      #routeSelector .display-mode-group {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 10px;
+      }
+      #routeSelector .display-mode-button {
+        width: 100%;
+      }
+      #routeSelector .display-mode-button.is-active {
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
+        border-color: rgba(229, 114, 0, 0.35);
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
+      }
+      #routeSelector .display-mode-button.is-active:hover {
+        box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
+        background: linear-gradient(135deg, #f4841a, #ffad55);
+      }
       #routeSelector .chip-button {
         padding: 8px 14px;
         font-size: 14px;
@@ -621,12 +639,16 @@
       //            but only for routes that are public-facing.
       // kioskMode: true to hide the route selector/tab and suppress vehicle overlays for a public display.
       // adminKioskMode: true to hide the route selector/tab while retaining admin overlays (previous kiosk behavior).
-      // showSpeed/showBlockNumbers: only one may be true at a time.
+      // displayMode selects whether admin overlays show speed, block numbers, or neither.
+      const DISPLAY_MODES = Object.freeze({
+        SPEED: 'speed',
+        BLOCK: 'block',
+        NONE: 'none'
+      });
       let adminMode = true; // shows unit numbers and speed/block bubbles
       let kioskMode = false;
       let adminKioskMode = false;
-      let showSpeed = false; // default to showing block numbers
-      let showBlockNumbers = true;
+      let displayMode = DISPLAY_MODES.BLOCK;
 
       const enableOverlapDashRendering = true;
 
@@ -861,20 +883,44 @@
         return isRoutePublicById(id);
       }
 
-      // Toggle between displaying speed or block numbers.
-      function toggleSpeedOrBlock() {
-        if (showSpeed) {
-          showSpeed = false;
-          showBlockNumbers = true;
-        } else {
-          showSpeed = true;
-          showBlockNumbers = false;
+      function setDisplayMode(mode) {
+        const normalizedMode = typeof mode === 'string' ? mode.toLowerCase() : '';
+        const validModes = Object.values(DISPLAY_MODES);
+        if (!validModes.includes(normalizedMode)) return;
+        const modeChanged = displayMode !== normalizedMode;
+        displayMode = normalizedMode;
+        updateDisplayModeButtons();
+        if (modeChanged) {
+          updateDisplayModeOverlays();
+          refreshMap();
         }
-        const toggleButton = document.getElementById("toggleDisplayButton");
-        if (toggleButton) {
-          toggleButton.innerHTML = showSpeed ? "Show Block Numbers" : "Show Speed";
-        }
-        refreshMap();
+      }
+
+      function updateDisplayModeButtons() {
+        const buttonContainer = document.getElementById('displayModeButtons');
+        if (!buttonContainer) return;
+        const buttons = buttonContainer.querySelectorAll('button[data-mode]');
+        buttons.forEach(button => {
+          const buttonMode = (button.dataset.mode || '').toLowerCase();
+          const isActive = buttonMode === displayMode;
+          button.classList.toggle('is-active', isActive);
+        });
+      }
+
+      function updateDisplayModeOverlays() {
+        if (!map || typeof map.removeLayer !== 'function') return;
+        Object.keys(nameBubbles).forEach(vehicleID => {
+          const bubble = nameBubbles[vehicleID];
+          if (!bubble) return;
+          if (bubble.speedMarker && displayMode !== DISPLAY_MODES.SPEED) {
+            map.removeLayer(bubble.speedMarker);
+            delete bubble.speedMarker;
+          }
+          if (bubble.blockMarker && displayMode !== DISPLAY_MODES.BLOCK) {
+            map.removeLayer(bubble.blockMarker);
+            delete bubble.blockMarker;
+          }
+        });
       }
 
       function applyRouteOptionState(inputElement) {
@@ -954,8 +1000,7 @@
           adminMode ? '1' : '0',
           kioskMode ? '1' : '0',
           adminKioskMode ? '1' : '0',
-          showSpeed ? '1' : '0',
-          showBlockNumbers ? '1' : '0',
+          displayMode || '',
           agenciesSignature,
           outOfServiceChecked === null ? 'na' : (outOfServiceChecked ? '1' : '0'),
           routeSignatureParts.join('|')
@@ -990,9 +1035,18 @@
         if (adminMode) {
           html += `
             <div class="selector-group">
-              <button type="button" class="pill-button accent full-width" id="toggleDisplayButton" onclick="toggleSpeedOrBlock()">
-                ${showSpeed ? "Show Block Numbers" : "Show Speed"}
-              </button>
+              <div class="selector-label">Vehicle Labels</div>
+              <div class="display-mode-group" id="displayModeButtons">
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.SPEED ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.SPEED}" onclick="setDisplayMode('${DISPLAY_MODES.SPEED}')">
+                  Show Vehicle Speed
+                </button>
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.BLOCK ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.BLOCK}" onclick="setDisplayMode('${DISPLAY_MODES.BLOCK}')">
+                  Show Vehicle Block Numbers
+                </button>
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.NONE ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.NONE}" onclick="setDisplayMode('${DISPLAY_MODES.NONE}')">
+                  Show Neither
+                </button>
+              </div>
             </div>
           `;
         }
@@ -1059,6 +1113,7 @@
         `;
 
         container.innerHTML = html;
+        updateDisplayModeButtons();
 
         let outChk = document.getElementById("route_0");
         if (outChk) {
@@ -3057,7 +3112,7 @@
                               markers[vehicleID].routeID = routeID;
                               markers[vehicleID].addTo(map);
                           }
-                          if (adminMode && showSpeed && !kioskMode) {
+                          if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
                               const speedBubble = `
                                   <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
                                       <g>
@@ -3108,7 +3163,7 @@
                               }
 
                               const blockName = busBlocks[vehicleID];
-                              if (showBlockNumbers && blockName && blockName.includes('[')) {
+                              if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
                                   const canvas = document.createElement('canvas');
                                   const ctx = canvas.getContext('2d');
                                   ctx.font = 'bold 14px FGDC';
