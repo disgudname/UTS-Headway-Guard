@@ -251,6 +251,15 @@
       let agencies = [];
       let baseURL = '';
 
+      let routePolylineCache = new Map();
+      let lastRouteRenderState = {
+        selectionKey: '',
+        colorSignature: '',
+        geometrySignature: '',
+        useOverlapRenderer: false
+      };
+      let lastRouteSelectorSignature = null;
+
       async function loadAgencies() {
         try {
           const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
@@ -371,15 +380,75 @@
       // updateRouteSelector rebuilds the route selector panel.
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
-      function updateRouteSelector(activeRoutes, forceUpdate = false) {
+      function updateRouteSelector(activeRoutesParam, forceUpdate = false) {
         const container = document.getElementById("routeSelector");
         if (!container) return;
-        // If the agency dropdown is currently focused (open), skip rebuilding
-        // the selector to avoid closing the dropdown.
+
+        const activeRoutesSet = activeRoutesParam instanceof Set
+          ? activeRoutesParam
+          : new Set(Array.isArray(activeRoutesParam) ? activeRoutesParam : []);
+
+        if (forceUpdate) {
+          lastRouteSelectorSignature = null;
+        }
+
         const agencyDropdown = document.getElementById('agencySelect');
         if (!forceUpdate && agencyDropdown && document.activeElement === agencyDropdown) {
           return;
         }
+
+        let routeIDs = Object.keys(allRoutes)
+          .map(id => Number(id))
+          .filter(id => !Number.isNaN(id) && id !== 0 && canDisplayRoute(id));
+
+        routeIDs.sort((a, b) => {
+          let descA = (allRoutes[a]?.Description || '').toUpperCase();
+          let descB = (allRoutes[b]?.Description || '').toUpperCase();
+          if (descA < descB) return -1;
+          if (descA > descB) return 1;
+          return 0;
+        });
+
+        const agenciesSignature = agencies
+          .map(a => `${a.url || ''}::${a.name || ''}`)
+          .join('|');
+
+        const routeSignatureParts = routeIDs.map(routeID => {
+          const route = allRoutes[routeID] || {};
+          const checked = Object.prototype.hasOwnProperty.call(routeSelections, routeID)
+            ? routeSelections[routeID]
+            : activeRoutesSet.has(routeID);
+          const infoText = typeof route.InfoText === 'string' ? route.InfoText.trim() : '';
+          const desc = typeof route.Description === 'string' ? route.Description.trim() : '';
+          const color = route.MapLineColor || '';
+          return `${routeID}:${checked ? 1 : 0}:${color}:${desc}:${infoText}`;
+        });
+
+        const outOfServiceChecked = adminMode && canDisplayRoute(0)
+          ? (Object.prototype.hasOwnProperty.call(routeSelections, 0)
+            ? routeSelections[0]
+            : activeRoutesSet.has(0))
+          : null;
+
+        const signatureParts = [
+          baseURL,
+          adminMode ? '1' : '0',
+          kioskMode ? '1' : '0',
+          adminKioskMode ? '1' : '0',
+          showSpeed ? '1' : '0',
+          showBlockNumbers ? '1' : '0',
+          agenciesSignature,
+          outOfServiceChecked === null ? 'na' : (outOfServiceChecked ? '1' : '0'),
+          routeSignatureParts.join('|')
+        ];
+
+        const signature = signatureParts.join('||');
+        if (!forceUpdate && signature === lastRouteSelectorSignature) {
+          positionRouteTab();
+          return;
+        }
+        lastRouteSelectorSignature = signature;
+
         let html = "";
         html += "<label for='agencySelect'>Select System:</label>";
         html += "<select id='agencySelect' onchange='changeAgency(this.value)'>";
@@ -388,7 +457,6 @@
         });
         html += "</select><br/><br/>";
         if (adminMode) {
-          // Add the speed/block toggle button in admin mode only.
           html += "<div style='margin-bottom:10px;'><button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button></div>";
         }
         html += "<h3>Select Routes</h3>" +
@@ -396,31 +464,19 @@
           "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
 
         if (adminMode && canDisplayRoute(0)) {
-          // Add Out of Service option (routeID 0) at the top for admin mode.
-          let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
+          let outChecked = Object.prototype.hasOwnProperty.call(routeSelections, 0) ? routeSelections[0] : activeRoutesSet.has(0);
           html += `<label>
             <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
             <span class="color-box" style="background:${outOfServiceRouteColor};"></span> Out of Service
           </label>`;
         }
 
-        // Get an array of route IDs (excluding 0) from allRoutes.
-        let routeIDs = Object.keys(allRoutes)
-          .map(id => Number(id))
-          .filter(id => !Number.isNaN(id) && id !== 0 && canDisplayRoute(id));
-        // Sort alphabetically by route Description (case-insensitive).
-        routeIDs.sort((a, b) => {
-          let descA = allRoutes[a].Description.toUpperCase();
-          let descB = allRoutes[b].Description.toUpperCase();
-          if (descA < descB) return -1;
-          if (descA > descB) return 1;
-          return 0;
-        });
-        // Append sorted routes.
         routeIDs.forEach(routeID => {
-          let route = allRoutes[routeID];
-          let checked = routeSelections.hasOwnProperty(routeID) ? routeSelections[routeID] : activeRoutes.has(routeID);
-          let displayName = route.Description;
+          const route = allRoutes[routeID] || {};
+          const checked = Object.prototype.hasOwnProperty.call(routeSelections, routeID)
+            ? routeSelections[routeID]
+            : activeRoutesSet.has(routeID);
+          let displayName = route.Description || '';
           if (route.InfoText && route.InfoText.trim() !== "") {
             displayName += ` &ndash; ${route.InfoText.trim()}`;
           }
@@ -429,8 +485,9 @@
             <span class="color-box" style="background:${route.MapLineColor};"></span> ${displayName}
           </label>`;
         });
+
         container.innerHTML = html;
-        // Attach event listeners to update routeSelections.
+
         let outChk = document.getElementById("route_0");
         if (outChk) {
           outChk.addEventListener("change", function() {
@@ -448,6 +505,8 @@
             });
           }
         });
+
+        positionRouteTab();
       }
 
       function selectAllRoutes() {
@@ -609,6 +668,14 @@
         stopMarkers = [];
         routeLayers.forEach(l => map.removeLayer(l));
         routeLayers = [];
+        routePolylineCache.clear();
+        lastRouteRenderState = {
+          selectionKey: '',
+          colorSignature: '',
+          geometrySignature: '',
+          useOverlapRenderer: !!(enableOverlapDashRendering && overlapRenderer)
+        };
+        lastRouteSelectorSignature = null;
         if (overlapRenderer) {
           overlapRenderer.reset();
         }
@@ -1578,14 +1645,16 @@
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return;
-                  routeLayers.forEach(layer => map.removeLayer(layer));
-                  routeLayers = [];
                   let bounds = null;
                   const displayedRoutes = new Map();
                   const rendererGeometries = new Map();
+                  const simpleGeometries = [];
                   const selectedRouteIds = [];
                   const updatedRouteStopAddressMap = {};
                   const useOverlapRenderer = enableOverlapDashRendering && overlapRenderer;
+                  const seenRouteIds = new Set();
+                  let geometryChanged = false;
+
                   if (Array.isArray(data)) {
                       data.forEach(route => {
                           setRouteVisibility(route);
@@ -1599,30 +1668,67 @@
                                   }
                               });
                           }
-                          const routeAllowed = canDisplayRoute(route.RouteID);
-                          if (route.EncodedPolyline && routeAllowed) {
-                              const decodedPolyline = polyline.decode(route.EncodedPolyline);
-                              const latLngPath = decodedPolyline.map(coords => L.latLng(coords[0], coords[1]));
-                              const polyBounds = L.latLngBounds(latLngPath);
-                              bounds = bounds ? bounds.extend(polyBounds) : polyBounds;
 
-                              if (isRouteSelected(route.RouteID)) {
-                                  const numericRouteId = Number(route.RouteID);
-                                  const routeColor = getRouteColor(route.RouteID);
-                                  if (!Number.isNaN(numericRouteId)) {
-                                      const hasUsableGeometry = Array.isArray(latLngPath) && latLngPath.length >= 2;
-                                      selectedRouteIds.push(numericRouteId);
-                                      if (useOverlapRenderer && hasUsableGeometry) {
-                                          rendererGeometries.set(numericRouteId, latLngPath);
-                                      } else if (hasUsableGeometry) {
-                                          const routeLayer = L.polyline(latLngPath, {
-                                              color: routeColor,
-                                              weight: 6,
-                                              opacity: 1
-                                          }).addTo(map);
-                                          routeLayers.push(routeLayer);
-                                      }
+                          const routeAllowed = canDisplayRoute(route.RouteID);
+                          const numericRouteId = Number(route.RouteID);
+                          const isNumericRoute = !Number.isNaN(numericRouteId);
+                          if (isNumericRoute && route.EncodedPolyline) {
+                              seenRouteIds.add(numericRouteId);
+                          }
+
+                          if (!routeAllowed) {
+                              return;
+                          }
+
+                          const isSelected = isRouteSelected(route.RouteID);
+                          if (route.EncodedPolyline && isNumericRoute) {
+                              let cacheEntry = routePolylineCache.get(numericRouteId);
+                              let latLngPath;
+                              let polyBounds = null;
+
+                              if (!cacheEntry || cacheEntry.encoded !== route.EncodedPolyline) {
+                                  const decodedPolyline = polyline.decode(route.EncodedPolyline);
+                                  latLngPath = decodedPolyline.map(coords => L.latLng(coords[0], coords[1]));
+                                  if (Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                      polyBounds = L.latLngBounds(latLngPath);
                                   }
+                                  routePolylineCache.set(numericRouteId, {
+                                      encoded: route.EncodedPolyline,
+                                      latLngPath,
+                                      bounds: polyBounds
+                                  });
+                                  if (isSelected) {
+                                      geometryChanged = true;
+                                  }
+                              } else {
+                                  latLngPath = cacheEntry.latLngPath;
+                                  polyBounds = cacheEntry.bounds || null;
+                                  if (!polyBounds && Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                      polyBounds = L.latLngBounds(latLngPath);
+                                      cacheEntry.bounds = polyBounds;
+                                  }
+                              }
+
+                              if (polyBounds) {
+                                  bounds = bounds ? bounds.extend(polyBounds) : L.latLngBounds(polyBounds);
+                              } else if (Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                  const computedBounds = L.latLngBounds(latLngPath);
+                                  bounds = bounds ? bounds.extend(computedBounds) : computedBounds;
+                                  const existing = routePolylineCache.get(numericRouteId);
+                                  if (existing) {
+                                      existing.bounds = computedBounds;
+                                  }
+                              }
+
+                              if (isSelected && Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                  const routeColor = getRouteColor(route.RouteID);
+                                  selectedRouteIds.push(numericRouteId);
+                                  if (useOverlapRenderer) {
+                                      rendererGeometries.set(numericRouteId, latLngPath);
+                                  } else {
+                                      simpleGeometries.push({ routeId: numericRouteId, latLngPath, routeColor });
+                                  }
+
                                   const storedRoute = allRoutes[route.RouteID] || {};
                                   const legendNameCandidates = [
                                       storedRoute.Description,
@@ -1636,7 +1742,7 @@
                                   legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
                                   const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
                                   const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
-                                  const legendRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
+                                  const legendRouteId = isNumericRoute ? numericRouteId : route.RouteID;
                                   displayedRoutes.set(route.RouteID, {
                                       routeId: legendRouteId,
                                       color: routeColor,
@@ -1644,12 +1750,66 @@
                                       description: legendDescription
                                   });
                               }
+                          } else if (isSelected && isNumericRoute) {
+                              if (routePolylineCache.has(numericRouteId)) {
+                                  routePolylineCache.delete(numericRouteId);
+                              }
+                              geometryChanged = true;
                           }
                       });
-                      if (useOverlapRenderer) {
-                          const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIds);
-                          routeLayers = layers;
+
+                      const previousSelectedIds = new Set(lastRouteRenderState.selectionKey
+                          ? lastRouteRenderState.selectionKey.split('|').filter(Boolean).map(id => Number(id))
+                          : []);
+                      Array.from(routePolylineCache.keys()).forEach(routeId => {
+                          if (!seenRouteIds.has(routeId)) {
+                              if (previousSelectedIds.has(routeId)) {
+                                  geometryChanged = true;
+                              }
+                              routePolylineCache.delete(routeId);
+                          }
+                      });
+
+                      const selectedRouteIdsSorted = selectedRouteIds.slice().sort((a, b) => a - b);
+                      const selectionKey = selectedRouteIdsSorted.join('|');
+                      const colorSignature = selectedRouteIdsSorted.map(id => `${id}:${getRouteColor(id)}`).join('|');
+                      const geometrySignature = selectedRouteIdsSorted
+                          .map(id => `${id}:${routePolylineCache.get(id)?.encoded || ''}`)
+                          .join('|');
+                      const rendererFlag = !!useOverlapRenderer;
+
+                      let shouldRender = routeLayers.length === 0 ||
+                        rendererFlag !== lastRouteRenderState.useOverlapRenderer ||
+                        selectionKey !== lastRouteRenderState.selectionKey ||
+                        colorSignature !== lastRouteRenderState.colorSignature ||
+                        geometrySignature !== lastRouteRenderState.geometrySignature ||
+                        geometryChanged;
+
+                      if (shouldRender) {
+                          routeLayers.forEach(layer => map.removeLayer(layer));
+                          routeLayers = [];
+                          if (useOverlapRenderer) {
+                              const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted);
+                              routeLayers = layers;
+                          } else {
+                              simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
+                                  const routeLayer = L.polyline(latLngPath, {
+                                      color: routeColor,
+                                      weight: 6,
+                                      opacity: 1
+                                  }).addTo(map);
+                                  routeLayers.push(routeLayer);
+                              });
+                          }
                       }
+
+                      lastRouteRenderState = {
+                          selectionKey,
+                          colorSignature,
+                          geometrySignature,
+                          useOverlapRenderer: rendererFlag
+                      };
+
                       routeStopAddressMap = updatedRouteStopAddressMap;
                       updateCustomPopups();
                       if (bounds) {
@@ -1926,8 +2086,26 @@
       }
 
       function animateMarkerTo(marker, newPosition) {
+        if (!marker || !newPosition) return;
+        const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
+        const endPos = hasArrayPosition ? L.latLng(newPosition) : L.latLng(newPosition?.lat, newPosition?.lng);
+        if (!endPos || Number.isNaN(endPos.lat) || Number.isNaN(endPos.lng)) return;
+
         const startPos = marker.getLatLng();
-        const endPos = L.latLng(newPosition);
+        if (!startPos) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const positionsMatch = typeof startPos.equals === 'function'
+          ? startPos.equals(endPos, 1e-7)
+          : (Math.abs(startPos.lat - endPos.lat) < 1e-7 && Math.abs(startPos.lng - endPos.lng) < 1e-7);
+
+        if (positionsMatch) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
         const duration = 1000;
         const startTime = performance.now();
         function animate(time) {
