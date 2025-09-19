@@ -282,22 +282,6 @@
         return Object.assign(base, overrides || {});
       }
 
-      function isPixelGeometryCachedAcrossZooms() {
-        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.hasPersistentPixelCache === 'function') {
-          return overlapRenderer.hasPersistentPixelCache();
-        }
-        return false;
-      }
-
-      function logZoomDiagnostics(stage, extra = {}) {
-        const zoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-        console.debug(`[routes:${stage}]`, Object.assign({
-          zoom,
-          routeLayerCount: Array.isArray(routeLayers) ? routeLayers.length : 0,
-          cachedPixelPointsReused: isPixelGeometryCachedAcrossZooms()
-        }, extra || {}));
-      }
-
       const params = new URLSearchParams(window.location.search);
       const kioskParam = params.get('kioskMode');
       if (kioskParam !== null) {
@@ -332,9 +316,6 @@
       let refreshIntervals = [];
 
       let overlapRenderer = null;
-      const zoomDebugState = { zoomStart: null };
-      const routeZoomState = { lastProcessedZoom: null };
-      const ZOOM_COMPARISON_EPSILON = 1e-9;
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
       const STOP_MARKER_ICON_SIZE = 24;
@@ -378,61 +359,6 @@
           return Math.max(minWeight, Math.min(maxWeight, baseWeight));
         }
         return Math.max(minWeight, Math.min(maxWeight, computed));
-      }
-
-      function computeDebugStrokeWeight(zoom) {
-        const targetZoom = Number.isFinite(zoom)
-          ? zoom
-          : (map && typeof map?.getZoom === 'function' ? map.getZoom() : null);
-        return computeRouteStrokeWeight(targetZoom);
-      }
-
-      function handleRouteZoomChange(targetZoom, options = {}) {
-        const { force = false } = options || {};
-        const zoom = Number.isFinite(targetZoom)
-          ? targetZoom
-          : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
-        if (!Number.isFinite(zoom)) {
-          return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom: null, skipped: true };
-        }
-
-        if (!force) {
-          const zoomAnimationActive = !!(map?._animatingZoom || (map?._zoomAnimated && map?._zooming));
-          if (zoomAnimationActive) {
-            return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom, skipped: true };
-          }
-        }
-
-        const lastZoom = routeZoomState.lastProcessedZoom;
-        if (Number.isFinite(lastZoom) && Math.abs(lastZoom - zoom) <= ZOOM_COMPARISON_EPSILON) {
-          return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom, skipped: true };
-        }
-
-        let overlapRendererHandled = false;
-        let simpleStrokeUpdate = false;
-
-        if (enableOverlapDashRendering && overlapRenderer) {
-          const layers = overlapRenderer.handleZoomFrame(zoom);
-          if (Array.isArray(layers)) {
-            routeLayers = layers;
-            overlapRendererHandled = true;
-          }
-        } else {
-          const updatedWeight = computeRouteStrokeWeight(zoom);
-          routeLayers.forEach(layer => {
-            if (layer && typeof layer.setStyle === 'function') {
-              layer.setStyle({ weight: updatedWeight });
-              simpleStrokeUpdate = true;
-            }
-            if (layer && typeof layer.redraw === 'function') {
-              layer.redraw();
-            }
-          });
-        }
-
-        routeZoomState.lastProcessedZoom = zoom;
-
-        return { overlapRendererHandled, simpleStrokeUpdate, zoom, skipped: false };
       }
 
       async function loadAgencies() {
@@ -846,7 +772,6 @@
         stopMarkers = [];
         routeLayers.forEach(l => map.removeLayer(l));
         routeLayers = [];
-        routeZoomState.lastProcessedZoom = null;
         routePolylineCache.clear();
         lastRouteRenderState = {
           selectionKey: '',
@@ -922,6 +847,11 @@
               renderer: sharedRouteRenderer,
               pane: routePaneName
             });
+            map.on('zoomend', () => {
+              if (overlapRenderer) {
+                overlapRenderer.handleZoomEnd();
+              }
+            });
           }
 
           fetchRouteColors().then(() => {
@@ -939,59 +869,16 @@
               startRefreshIntervals();
           });
           fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
-          map.on('zoom', event => {
-              const targetZoom = typeof event?.zoom === 'number' ? event.zoom : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
-              const result = handleRouteZoomChange(targetZoom);
-              const computedWeight = computeDebugStrokeWeight(result.zoom);
-              logZoomDiagnostics('zoom', {
-                  targetZoom: result.zoom,
-                  computedWeight,
-                  handlers: {
-                      overlapRenderer: result.overlapRendererHandled,
-                      simpleStrokeUpdate: result.simpleStrokeUpdate
-                  },
-                  skipped: !!result.skipped
-              });
-          });
-          map.on('zoomstart', () => {
-              const startZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-              zoomDebugState.zoomStart = startZoom;
-              const computedWeight = computeDebugStrokeWeight(startZoom);
-              logZoomDiagnostics('zoomstart', {
-                  oldZoom: startZoom,
-                  newZoom: null,
-                  computedWeight,
-                  handlers: {
-                      overlapRenderer: false,
-                      simpleStrokeUpdate: false
-                  }
-              });
-          });
-          map.on('zoomend', () => {
-              const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-              const previousZoom = zoomDebugState.zoomStart;
-              const result = handleRouteZoomChange(currentZoom, { force: true });
-              const computedWeight = computeDebugStrokeWeight(result.zoom);
-              logZoomDiagnostics('zoomend', {
-                  oldZoom: previousZoom,
-                  newZoom: result.zoom,
-                  computedWeight,
-                  handlers: {
-                      overlapRenderer: result.overlapRendererHandled,
-                      simpleStrokeUpdate: result.simpleStrokeUpdate
-                  },
-                  skipped: !!result.skipped
-              });
-              if (stopDataCache.length > 0) {
-                  renderBusStops(stopDataCache);
-              }
+          map.on('zoom', () => {
               updatePopupPositions();
-              zoomDebugState.zoomStart = null;
           });
           map.on('move', () => {
               updatePopupPositions();
           });
-          map.on('moveend', () => {
+          map.on('zoomend', () => {
+              if (stopDataCache.length > 0) {
+                  renderBusStops(stopDataCache);
+              }
               updatePopupPositions();
           });
       }
@@ -2515,8 +2402,6 @@
                                   routeLayers.push(routeLayer);
                               });
                           }
-                          const mapZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-                          routeZoomState.lastProcessedZoom = Number.isFinite(mapZoom) ? mapZoom : null;
                       }
 
                       lastRouteRenderState = {
