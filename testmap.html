@@ -250,6 +250,25 @@
       let sharedRouteRenderer = null;
       let routePaneName = 'overlayPane';
 
+      function createSpatialIndex(options = {}) {
+        if (typeof rbush === 'function') {
+          try {
+            return rbush(options.maxEntries);
+          } catch (error) {
+            console.error('Failed to create rbush index via rbush()', error);
+          }
+        }
+        if (typeof RBush === 'function') {
+          try {
+            return new RBush(options.maxEntries);
+          } catch (error) {
+            console.error('Failed to create rbush index via new RBush()', error);
+          }
+        }
+        console.error('RBush spatial index library is not available. Route overlap rendering will be disabled.');
+        return null;
+      }
+
       function mergeRouteLayerOptions(overrides = {}, rendererOverride = null, paneOverride = null) {
         const base = Object.assign({}, ROUTE_LAYER_BASE_OPTIONS);
         const renderer = rendererOverride || sharedRouteRenderer;
@@ -1475,7 +1494,16 @@
               groupedData.push(groupInfo);
           });
 
-          stopMarkers.forEach(marker => marker.bringToFront());
+          stopMarkers.forEach(marker => {
+              if (!marker) return;
+              if (typeof marker.bringToFront === 'function') {
+                  marker.bringToFront();
+                  return;
+              }
+              if (typeof marker.setZIndexOffset === 'function') {
+                  marker.setZIndexOffset(1000);
+              }
+          });
 
           if (customPopups.length > 0) {
               const groupByKey = new Map();
@@ -1785,7 +1813,14 @@
             return;
           }
 
-          const tree = rbush();
+          const tree = createSpatialIndex({ maxEntries: this.options.maxEntries });
+          if (!tree || typeof tree.load !== 'function' || typeof tree.search !== 'function') {
+            console.error('RBush spatial index instance is invalid; skipping overlap rendering.');
+            this.clearLayers();
+            return;
+          }
+
+          tree.clear?.();
           tree.load(spatialItems);
           this.populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad);
 
