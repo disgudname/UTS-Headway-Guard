@@ -3018,7 +3018,7 @@
           .catch(error => console.error("Error fetching route colors:", error));
       }
 
-      // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
+      // Fetch route paths from GetRoutesForMapWithSchedule and center map on relevant routes.
       function fetchRoutePaths() {
           const currentBaseURL = baseURL;
           const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
@@ -3026,6 +3026,14 @@
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return;
+                  const activeRoutesForBounds = new Set();
+                  activeRoutes.forEach(routeId => {
+                      const numericRouteId = Number(routeId);
+                      if (Number.isFinite(numericRouteId) && numericRouteId !== 0) {
+                          activeRoutesForBounds.add(numericRouteId);
+                      }
+                  });
+                  const hasActiveServiceRoutes = activeRoutesForBounds.size > 0;
                   let bounds = null;
                   const displayedRoutes = new Map();
                   const rendererGeometries = new Map();
@@ -3070,6 +3078,7 @@
 
                           const isSelected = isRouteSelected(route.RouteID);
                           if (route.EncodedPolyline && isNumericRoute) {
+                              const shouldIncludeInBounds = !hasActiveServiceRoutes || activeRoutesForBounds.has(numericRouteId);
                               let cacheEntry = routePolylineCache.get(numericRouteId);
                               let latLngPath;
                               let polyBounds = null;
@@ -3097,14 +3106,16 @@
                                   }
                               }
 
-                              if (polyBounds) {
-                                  bounds = bounds ? bounds.extend(polyBounds) : L.latLngBounds(polyBounds);
-                              } else if (Array.isArray(latLngPath) && latLngPath.length >= 2) {
-                                  const computedBounds = L.latLngBounds(latLngPath);
-                                  bounds = bounds ? bounds.extend(computedBounds) : computedBounds;
-                                  const existing = routePolylineCache.get(numericRouteId);
-                                  if (existing) {
-                                      existing.bounds = computedBounds;
+                              if (shouldIncludeInBounds) {
+                                  if (polyBounds) {
+                                      bounds = bounds ? bounds.extend(polyBounds) : L.latLngBounds(polyBounds);
+                                  } else if (Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                      const computedBounds = L.latLngBounds(latLngPath);
+                                      bounds = bounds ? bounds.extend(computedBounds) : computedBounds;
+                                      const existing = routePolylineCache.get(numericRouteId);
+                                      if (existing) {
+                                          existing.bounds = computedBounds;
+                                      }
                                   }
                               }
 
