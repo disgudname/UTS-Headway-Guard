@@ -130,11 +130,10 @@
         padding: 0;
       }
       /* Route Selector styling */
-      #routeSelector {
+      .selector-panel {
         width: 340px;
         position: fixed;
         top: 10px;
-        right: 10px;
         z-index: 1100;
         background: var(--panel-surface);
         border-radius: 18px;
@@ -149,12 +148,18 @@
         font-size: 16px;
         color: var(--panel-text-color);
       }
+      #routeSelector {
+        right: 10px;
+      }
+      #controlPanel {
+        left: 10px;
+      }
       #routeSelector.hidden {
         transform: translateX(calc(100% + 24px));
         opacity: 0;
         pointer-events: none;
       }
-      #routeSelector .selector-header {
+      .selector-panel .selector-header {
         background: linear-gradient(135deg, var(--navy), var(--navy-dark));
         color: #f8fafc;
         padding: 16px 20px 18px;
@@ -163,12 +168,12 @@
         flex-direction: column;
         gap: 16px;
       }
-      #routeSelector .selector-header-text {
+      .selector-panel .selector-header-text {
         display: flex;
         flex-direction: column;
         gap: 6px;
       }
-      #routeSelector .selector-logo {
+      .selector-panel .selector-logo {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -177,24 +182,24 @@
         background: rgba(15, 23, 42, 0.35);
         border: 1px solid rgba(255, 255, 255, 0.12);
       }
-      #routeSelector .selector-logo img {
+      .selector-panel .selector-logo img {
         display: block;
         max-width: 100%;
         max-height: 120px;
         height: auto;
       }
-      #routeSelector .selector-title {
+      .selector-panel .selector-title {
         margin: 0;
         font-size: 22px;
         letter-spacing: 0.4px;
       }
-      #routeSelector .selector-subtitle {
+      .selector-panel .selector-subtitle {
         margin-top: 6px;
         font-size: 13px;
         opacity: 0.75;
         letter-spacing: 0.3px;
       }
-      #routeSelector .selector-content {
+      .selector-panel .selector-content {
         flex: 1;
         min-height: 0;
         overflow-y: auto;
@@ -203,21 +208,21 @@
         flex-direction: column;
         gap: 18px;
       }
-      #routeSelector .selector-content::-webkit-scrollbar {
+      .selector-panel .selector-content::-webkit-scrollbar {
         width: 8px;
       }
-      #routeSelector .selector-content::-webkit-scrollbar-track {
+      .selector-panel .selector-content::-webkit-scrollbar-track {
         background: rgba(35, 45, 75, 0.08);
         border-radius: 12px;
       }
-      #routeSelector .selector-content::-webkit-scrollbar-thumb {
+      .selector-panel .selector-content::-webkit-scrollbar-thumb {
         background: rgba(35, 45, 75, 0.35);
         border-radius: 12px;
       }
-      #routeSelector .selector-content::-webkit-scrollbar-thumb:hover {
+      .selector-panel .selector-content::-webkit-scrollbar-thumb:hover {
         background: rgba(229, 114, 0, 0.6);
       }
-      #routeSelector .selector-group {
+      .selector-panel .selector-group {
         background: var(--panel-highlight);
         border-radius: 14px;
         padding: 14px 16px;
@@ -225,16 +230,16 @@
         flex-direction: column;
         gap: 10px;
       }
-      #routeSelector .selector-label {
+      .selector-panel .selector-label {
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 1.6px;
         color: rgba(35, 45, 75, 0.75);
       }
-      #routeSelector .selector-control {
+      .selector-panel .selector-control {
         position: relative;
       }
-      #routeSelector .selector-control::after {
+      .selector-panel .selector-control::after {
         content: '\25BC';
         position: absolute;
         right: 16px;
@@ -245,7 +250,7 @@
         color: rgba(35, 45, 75, 0.65);
         opacity: 0.6;
       }
-      #routeSelector select {
+      .selector-panel select {
         width: 100%;
         padding: 10px 42px 10px 14px;
         border-radius: 12px;
@@ -260,39 +265,39 @@
         -webkit-appearance: none;
         -moz-appearance: none;
       }
-      #routeSelector select:focus {
+      .selector-panel select:focus {
         outline: none;
         border-color: rgba(229, 114, 0, 0.8);
         box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.2);
       }
-      #routeSelector .selector-section {
+      .selector-panel .selector-section {
         display: flex;
         flex-direction: column;
         gap: 14px;
       }
-      #routeSelector .selector-section-heading {
+      .selector-panel .selector-section-heading {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
       }
-      #routeSelector .selector-section-heading h3 {
+      .selector-panel .selector-section-heading h3 {
         margin: 0;
         font-size: 18px;
         color: #232D4B;
       }
-      #routeSelector .selector-actions {
+      .selector-panel .selector-actions {
         display: flex;
         gap: 10px;
         flex-wrap: wrap;
         justify-content: flex-end;
       }
-      #routeSelector .route-list {
+      .selector-panel .route-list {
         display: flex;
         flex-direction: column;
         gap: 10px;
       }
-      #routeSelector label.route-option {
+      .selector-panel label.route-option {
         display: flex;
         align-items: flex-start;
         gap: 12px;
@@ -303,20 +308,20 @@
         transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
         cursor: pointer;
       }
-      #routeSelector label.route-option:hover {
+      .selector-panel label.route-option:hover {
         transform: translateY(-1px);
         box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
         border-color: rgba(35, 45, 75, 0.25);
       }
-      #routeSelector label.route-option.is-active {
+      .selector-panel label.route-option.is-active {
         background: rgba(229, 114, 0, 0.14);
         border-color: rgba(229, 114, 0, 0.55);
         box-shadow: 0 16px 32px rgba(229, 114, 0, 0.24);
       }
-      #routeSelector label.route-option--out {
+      .selector-panel label.route-option--out {
         background: rgba(35, 45, 75, 0.08);
       }
-      #routeSelector label.route-option input[type="checkbox"] {
+      .selector-panel label.route-option input[type="checkbox"] {
         margin-top: 2px;
         width: 18px;
         height: 18px;
@@ -324,12 +329,12 @@
         flex-shrink: 0;
         cursor: pointer;
       }
-      #routeSelector label.route-option input[type="checkbox"]:focus-visible {
+      .selector-panel label.route-option input[type="checkbox"]:focus-visible {
         outline: none;
         box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.3);
         border-radius: 4px;
       }
-      #routeSelector .route-option-swatch {
+      .selector-panel .route-option-swatch {
         display: inline-flex;
         width: 16px;
         height: 16px;
@@ -339,27 +344,27 @@
         box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.2);
         flex-shrink: 0;
       }
-      #routeSelector label.route-option input[type="checkbox"]:checked + .route-option-swatch {
+      .selector-panel label.route-option input[type="checkbox"]:checked + .route-option-swatch {
         transform: scale(1.1);
         box-shadow: 0 0 0 2px rgba(229, 114, 0, 0.4);
       }
-      #routeSelector .route-option-text {
+      .selector-panel .route-option-text {
         display: flex;
         flex-direction: column;
         gap: 4px;
         font-size: 15px;
         line-height: 1.3;
       }
-      #routeSelector .route-option-name {
+      .selector-panel .route-option-name {
         font-weight: 600;
         color: #111827;
         letter-spacing: 0.2px;
       }
-      #routeSelector .route-option-detail {
+      .selector-panel .route-option-detail {
         font-size: 12px;
         color: var(--panel-muted-text);
       }
-      #routeSelector button {
+      .selector-panel button {
         border: none;
         border-radius: 999px;
         padding: 10px 16px;
@@ -376,56 +381,56 @@
         justify-content: center;
         gap: 8px;
       }
-      #routeSelector button:hover {
+      .selector-panel button:hover {
         transform: translateY(-1px);
         box-shadow: 0 10px 20px rgba(35, 45, 75, 0.18);
         background: rgba(35, 45, 75, 0.18);
       }
-      #routeSelector button:focus-visible {
+      .selector-panel button:focus-visible {
         outline: none;
         box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.35);
       }
-      #routeSelector button:active {
+      .selector-panel button:active {
         transform: translateY(0);
       }
-      #routeSelector button.accent {
+      .selector-panel button.accent {
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));
         color: #1f1300;
         border-color: rgba(229, 114, 0, 0.35);
         box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
       }
-      #routeSelector button.accent:hover {
+      .selector-panel button.accent:hover {
         box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
         background: linear-gradient(135deg, #f4841a, #ffad55);
       }
-      #routeSelector .pill-button {
+      .selector-panel .pill-button {
         font-size: 17px;
         padding: 12px 20px;
         letter-spacing: 0.3px;
       }
-      #routeSelector .display-mode-group {
+      .selector-panel .display-mode-group {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
         gap: 10px;
       }
-      #routeSelector .display-mode-button {
+      .selector-panel .display-mode-button {
         width: 100%;
       }
-      #routeSelector .display-mode-button.is-active {
+      .selector-panel .display-mode-button.is-active {
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));
         color: #1f1300;
         border-color: rgba(229, 114, 0, 0.35);
         box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
       }
-      #routeSelector .display-mode-button.is-active:hover {
+      .selector-panel .display-mode-button.is-active:hover {
         box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
         background: linear-gradient(135deg, #f4841a, #ffad55);
       }
-      #routeSelector .chip-button {
+      .selector-panel .chip-button {
         padding: 8px 14px;
         font-size: 14px;
       }
-      #routeSelector .full-width {
+      .selector-panel .full-width {
         width: 100%;
       }
       #routeSelectorTab {
@@ -541,30 +546,35 @@
         color: var(--panel-muted-text);
       }
       @media (max-width: 600px) {
-        #routeSelector {
+        .selector-panel {
           width: calc(100% - 32px);
-          right: 16px;
           top: 16px;
+        }
+        #routeSelector {
+          right: 16px;
+        }
+        #controlPanel {
+          left: 16px;
         }
         #routeSelector.hidden {
           transform: translateX(calc(100% + 20px));
         }
-        #routeSelector .selector-content {
+        .selector-panel .selector-content {
           padding: 16px;
         }
-        #routeSelector .selector-title {
+        .selector-panel .selector-title {
           font-size: 20px;
         }
-        #routeSelector .selector-subtitle {
+        .selector-panel .selector-subtitle {
           font-size: 12px;
         }
-        #routeSelector .selector-section-heading h3 {
+        .selector-panel .selector-section-heading h3 {
           font-size: 16px;
         }
-        #routeSelector button {
+        .selector-panel button {
           font-size: 14px;
         }
-        #routeSelector .pill-button {
+        .selector-panel .pill-button {
           font-size: 16px;
         }
         #routeSelectorTab {
@@ -957,6 +967,83 @@
         }
       }
 
+      function escapeAttribute(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function updateControlPanel() {
+        const panel = document.getElementById('controlPanel');
+        if (!panel) return;
+
+        const selectedAgency = agencies.find(a => a.url === baseURL);
+        const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
+        let logoHtml = '';
+        if (sanitizedBaseURL) {
+          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
+          const safeLogoSrc = escapeAttribute(agencyLogoUrl);
+          const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
+          const safeLogoAltText = escapeAttribute(logoAltText);
+          logoHtml = `
+            <div class="selector-logo">
+              <img src="${safeLogoSrc}" alt="${safeLogoAltText}" loading="lazy" onerror="this.closest('.selector-logo').style.display='none';">
+            </div>
+          `;
+        }
+
+        let html = `
+          <div class="selector-header">
+            <div class="selector-header-text">
+              <div class="selector-title">System Controls</div>
+              <div class="selector-subtitle">Choose a transit system and label style.</div>
+            </div>
+            ${logoHtml}
+          </div>
+          <div class="selector-content">
+            <div class="selector-group">
+              <label class="selector-label" for="agencySelect">Select System</label>
+              <div class="selector-control">
+                <select id="agencySelect" onchange="changeAgency(this.value)">
+        `;
+        agencies.forEach(a => {
+          html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
+        });
+        html += `
+                </select>
+              </div>
+            </div>
+        `;
+
+        if (adminMode) {
+          html += `
+            <div class="selector-group">
+              <div class="selector-label">Vehicle Labels</div>
+              <div class="display-mode-group" id="displayModeButtons">
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.SPEED ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.SPEED}" onclick="setDisplayMode('${DISPLAY_MODES.SPEED}')">
+                  Show Speed
+                </button>
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.BLOCK ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.BLOCK}" onclick="setDisplayMode('${DISPLAY_MODES.BLOCK}')">
+                  Show Blocks
+                </button>
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.NONE ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.NONE}" onclick="setDisplayMode('${DISPLAY_MODES.NONE}')">
+                  Show None
+                </button>
+              </div>
+            </div>
+          `;
+        }
+
+        html += `
+          </div>
+        `;
+
+        panel.innerHTML = html;
+        updateDisplayModeButtons();
+      }
+
       // updateRouteSelector rebuilds the route selector panel.
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
@@ -1036,11 +1123,6 @@
         }
         lastRouteSelectorSignature = signature;
 
-        const escapeAttribute = value => String(value || '')
-          .replace(/&/g, '&amp;')
-          .replace(/"/g, '&quot;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
         const selectedAgency = agencies.find(a => a.url === baseURL);
         const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
         let logoHtml = '';
@@ -1065,38 +1147,6 @@
             ${logoHtml}
           </div>
           <div class="selector-content">
-            <div class="selector-group">
-              <label class="selector-label" for="agencySelect">Select System</label>
-              <div class="selector-control">
-                <select id="agencySelect" onchange="changeAgency(this.value)">
-        `;
-        agencies.forEach(a => {
-          html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
-        });
-        html += `
-                </select>
-              </div>
-            </div>
-        `;
-        if (adminMode) {
-          html += `
-            <div class="selector-group">
-              <div class="selector-label">Vehicle Labels</div>
-              <div class="display-mode-group" id="displayModeButtons">
-                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.SPEED ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.SPEED}" onclick="setDisplayMode('${DISPLAY_MODES.SPEED}')">
-                  Show Vehicle Speed
-                </button>
-                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.BLOCK ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.BLOCK}" onclick="setDisplayMode('${DISPLAY_MODES.BLOCK}')">
-                  Show Vehicle Block Numbers
-                </button>
-                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.NONE ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.NONE}" onclick="setDisplayMode('${DISPLAY_MODES.NONE}')">
-                  Show Neither
-                </button>
-              </div>
-            </div>
-          `;
-        }
-        html += `
             <div class="selector-section">
               <div class="selector-section-heading">
                 <h3>Select Routes</h3>
@@ -1159,7 +1209,7 @@
         `;
 
         container.innerHTML = html;
-        updateDisplayModeButtons();
+        updateControlPanel();
 
         let outChk = document.getElementById("route_0");
         if (outChk) {
@@ -3328,7 +3378,8 @@
   <body>
     <div id="map"></div>
     <div id="routeLegend" aria-live="polite"></div>
-    <div id="routeSelector"></div>
+    <div id="controlPanel" class="selector-panel"></div>
+    <div id="routeSelector" class="selector-panel"></div>
     <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
     <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
     <div id="cookieBanner" class="cookie-banner" style="display:none;">
