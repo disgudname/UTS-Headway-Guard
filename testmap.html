@@ -1256,10 +1256,14 @@
           popupElement.dataset.stopId = primaryStopIdText || '';
           popupElement.dataset.groupKey = groupKey;
 
+          const stopNameLine = (!multipleStops && sanitizedStopName)
+              ? `<span class="stop-entry-title">${sanitizedStopName}</span><br>`
+              : '';
           const stopIdLine = primaryStopIdText ? `<span>Stop ID: ${primaryStopIdText}</span><br>` : '';
 
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
+            ${stopNameLine}
             ${stopIdLine}
             ${entriesHtml}
             <div class="custom-popup-arrow"></div>
