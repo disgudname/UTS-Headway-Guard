@@ -1275,6 +1275,7 @@
                 <h3>Select Routes</h3>
                 <div class="selector-actions">
                   <button type="button" class="chip-button accent" onclick="selectAllRoutes()">Select All</button>
+                  <button type="button" class="chip-button" onclick="selectActiveRoutes()">Select Active</button>
                   <button type="button" class="chip-button" onclick="deselectAllRoutes()">Deselect All</button>
                 </div>
               </div>
@@ -1377,6 +1378,36 @@
           }
           routeSelections[routeID] = true;
         }
+        refreshMap();
+      }
+
+      function selectActiveRoutes() {
+        const activeSet = activeRoutes instanceof Set
+          ? activeRoutes
+          : new Set(Array.isArray(activeRoutes) ? activeRoutes : []);
+
+        if (adminMode && canDisplayRoute(0)) {
+          const outChk = document.getElementById("route_0");
+          const shouldSelectOut = activeSet.has(0);
+          if (outChk) {
+            outChk.checked = shouldSelectOut;
+            applyRouteOptionState(outChk);
+          }
+          routeSelections[0] = shouldSelectOut;
+        }
+
+        for (let routeID in allRoutes) {
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
+          const numericRouteId = Number(routeID);
+          const chk = document.getElementById("route_" + routeID);
+          const shouldSelect = activeSet.has(numericRouteId);
+          if (chk) {
+            chk.checked = shouldSelect;
+            applyRouteOptionState(chk);
+          }
+          routeSelections[numericRouteId] = shouldSelect;
+        }
+
         refreshMap();
       }
 
