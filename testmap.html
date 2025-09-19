@@ -1544,6 +1544,14 @@
               if (kioskMode || adminKioskMode) {
                 document.getElementById("routeSelector").style.display = "none";
                 document.getElementById("routeSelectorTab").style.display = "none";
+                const controlPanel = document.getElementById("controlPanel");
+                if (controlPanel) {
+                  controlPanel.style.display = "none";
+                }
+                const controlPanelTab = document.getElementById("controlPanelTab");
+                if (controlPanelTab) {
+                  controlPanelTab.style.display = "none";
+                }
               }
               fetchStopArrivalTimes().then(allEtas => {
                   cachedEtas = allEtas;
