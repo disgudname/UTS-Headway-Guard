@@ -276,6 +276,7 @@
       let refreshIntervals = [];
 
       let overlapRenderer = null;
+      let lastOverlapZoom = null;
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
       const STOP_MARKER_ICON_SIZE = 24;
@@ -768,13 +769,16 @@
               matchTolerancePx: 6,
               strokeWeight: 6
             });
-            let lastOverlapZoom = map.getZoom();
+            lastOverlapZoom = map.getZoom();
             map.on('moveend', () => {
               if (!overlapRenderer) return;
               const currentZoom = map.getZoom();
               if (typeof currentZoom === 'number' && currentZoom !== lastOverlapZoom) {
                 lastOverlapZoom = currentZoom;
-                overlapRenderer.handleZoomEnd();
+                const layers = overlapRenderer.handleZoomEnd();
+                if (Array.isArray(layers)) {
+                  routeLayers = layers;
+                }
               }
             });
           }
@@ -797,6 +801,19 @@
           map.on('move', updatePopupPositions);
           map.on('zoom', updatePopupPositions);
           map.on('zoomend', () => {
+              if (enableOverlapDashRendering && overlapRenderer) {
+                  lastOverlapZoom = map.getZoom();
+                  const layers = overlapRenderer.handleZoomEnd();
+                  if (Array.isArray(layers)) {
+                      routeLayers = layers;
+                  }
+              } else {
+                  routeLayers.forEach(layer => {
+                      if (layer && typeof layer.redraw === 'function') {
+                          layer.redraw();
+                      }
+                  });
+              }
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
@@ -1434,11 +1451,22 @@
         }
 
         handleZoomEnd() {
-          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) return;
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            return this.getLayers();
+          }
+
           const zoom = this.map.getZoom();
-          if (zoom === this.currentZoom) return;
+          if (!Number.isFinite(zoom)) {
+            return this.getLayers();
+          }
+
+          if (zoom === this.currentZoom) {
+            return this.getLayers();
+          }
+
           this.currentZoom = zoom;
           this.render();
+          return this.getLayers();
         }
 
         getLayers() {
