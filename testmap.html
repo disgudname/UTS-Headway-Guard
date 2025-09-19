@@ -297,29 +297,48 @@
       let lastRouteSelectorSignature = null;
 
       const DEFAULT_ROUTE_STROKE_WEIGHT = 6;
-      const MIN_ROUTE_STROKE_WEIGHT = 2;
-      const MAX_ROUTE_STROKE_WEIGHT = 24;
-      let routeWeightReferenceZoom = 15;
+      const MIN_ROUTE_STROKE_WEIGHT = 3;
+      const MAX_ROUTE_STROKE_WEIGHT = 12;
+      const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
+      const ROUTE_WEIGHT_STEP_PER_ZOOM = 1.25;
+      let routeWeightReferenceZoom = null;
+      let routeWeightBaselinePending = false;
 
-      function computeRouteStrokeWeight(zoom) {
+      function setRouteWeightBaseline(zoom) {
+        if (!Number.isFinite(zoom)) {
+          return;
+        }
+        routeWeightReferenceZoom = zoom;
+        routeWeightBaselinePending = false;
+        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.setReferenceZoom === 'function') {
+          overlapRenderer.setReferenceZoom(zoom);
+        }
+      }
+
+      function resetRouteWeightBaseline() {
+        routeWeightReferenceZoom = null;
+        routeWeightBaselinePending = true;
+        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.setReferenceZoom === 'function') {
+          overlapRenderer.setReferenceZoom(null);
+        }
+      }
+
+      function computeRouteStrokeWeight(zoom, referenceZoom = routeWeightReferenceZoom) {
         const baseWeight = DEFAULT_ROUTE_STROKE_WEIGHT;
         const minWeight = MIN_ROUTE_STROKE_WEIGHT;
         const maxWeight = MAX_ROUTE_STROKE_WEIGHT;
         const targetZoom = Number.isFinite(zoom)
           ? zoom
-          : (map && typeof map?.getZoom === 'function' ? map.getZoom() : routeWeightReferenceZoom);
-        const referenceZoom = Number.isFinite(routeWeightReferenceZoom) ? routeWeightReferenceZoom : targetZoom;
-        let scale = 1;
-        if (Number.isFinite(targetZoom) && Number.isFinite(referenceZoom)) {
-          if (map && typeof map.getZoomScale === 'function') {
-            scale = map.getZoomScale(targetZoom, referenceZoom);
-          } else {
-            scale = Math.pow(2, targetZoom - referenceZoom);
-          }
+          : (map && typeof map?.getZoom === 'function' ? map.getZoom() : null);
+        if (!Number.isFinite(targetZoom)) {
+          return Math.max(minWeight, Math.min(maxWeight, baseWeight));
         }
-        const computed = baseWeight * scale;
+        const baselineZoom = Number.isFinite(referenceZoom) ? referenceZoom : targetZoom;
+        const zoomDeltaRaw = targetZoom - baselineZoom;
+        const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
+        const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
         if (!Number.isFinite(computed)) {
-          return baseWeight;
+          return Math.max(minWeight, Math.min(maxWeight, baseWeight));
         }
         return Math.max(minWeight, Math.min(maxWeight, computed));
       }
@@ -760,6 +779,7 @@
         routeVisibility = {};
         allRouteBounds = null;
         mapHasFitAllRoutes = false;
+        resetRouteWeightBaseline();
         updateRouteLegend([]);
         updateRouteSelector(new Set(), true);
         fetchRouteColors().then(() => {
@@ -780,7 +800,9 @@
           map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
           const initialZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
           if (Number.isFinite(initialZoom)) {
-              routeWeightReferenceZoom = initialZoom;
+              setRouteWeightBaseline(initialZoom);
+          } else {
+              resetRouteWeightBaseline();
           }
           map.createPane('stopsPane');
           const stopsPane = map.getPane('stopsPane');
@@ -804,10 +826,10 @@
               maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
               referenceZoom: routeWeightReferenceZoom
             });
-            lastOverlapZoom = map.getZoom();
+            lastOverlapZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
             map.on('moveend', () => {
               if (!overlapRenderer) return;
-              const currentZoom = map.getZoom();
+              const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
               if (typeof currentZoom === 'number' && currentZoom !== lastOverlapZoom) {
                 lastOverlapZoom = currentZoom;
                 const layers = overlapRenderer.handleZoomEnd();
@@ -836,14 +858,15 @@
           map.on('move', updatePopupPositions);
           map.on('zoom', updatePopupPositions);
           map.on('zoomend', () => {
+              const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
               if (enableOverlapDashRendering && overlapRenderer) {
-                  lastOverlapZoom = map.getZoom();
+                  lastOverlapZoom = currentZoom;
                   const layers = overlapRenderer.handleZoomEnd();
                   if (Array.isArray(layers)) {
                       routeLayers = layers;
                   }
               } else {
-                  const updatedWeight = computeRouteStrokeWeight();
+                  const updatedWeight = computeRouteStrokeWeight(currentZoom);
                   routeLayers.forEach(layer => {
                       if (layer && typeof layer.setStyle === 'function') {
                           layer.setStyle({ weight: updatedWeight });
@@ -853,8 +876,20 @@
                       }
                   });
               }
+              if (Number.isFinite(currentZoom) && (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom))) {
+                  setRouteWeightBaseline(currentZoom);
+              }
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
+              }
+          });
+          map.on('moveend', () => {
+              if (!routeWeightBaselinePending && Number.isFinite(routeWeightReferenceZoom)) {
+                  return;
+              }
+              const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+              if (Number.isFinite(currentZoom)) {
+                  setRouteWeightBaseline(currentZoom);
               }
           });
       }
@@ -1456,6 +1491,14 @@
             : Infinity;
         }
 
+        setReferenceZoom(zoom) {
+          if (Number.isFinite(zoom)) {
+            this.referenceZoom = zoom;
+          } else {
+            this.referenceZoom = null;
+          }
+        }
+
         reset() {
           this.clearLayers();
           this.routeGeometries.clear();
@@ -1534,23 +1577,17 @@
           return this.layers.slice();
         }
 
-        computeStrokeWeight(zoom = this.currentZoom) {
+        computeStrokeWeight(zoom = this.currentZoom, referenceZoom = this.referenceZoom) {
           const baseWeight = Number.isFinite(this.options.strokeWeight) ? this.options.strokeWeight : DEFAULT_ROUTE_STROKE_WEIGHT;
-          const minWeight = Number.isFinite(this.minStrokeWeight) ? this.minStrokeWeight : 1;
-          const maxWeight = Number.isFinite(this.maxStrokeWeight) ? this.maxStrokeWeight : Infinity;
+          const minWeight = Number.isFinite(this.minStrokeWeight) ? this.minStrokeWeight : MIN_ROUTE_STROKE_WEIGHT;
+          const maxWeight = Number.isFinite(this.maxStrokeWeight) ? this.maxStrokeWeight : MAX_ROUTE_STROKE_WEIGHT;
           if (!Number.isFinite(zoom)) {
             return Math.max(minWeight, Math.min(maxWeight, baseWeight));
           }
-          const referenceZoom = Number.isFinite(this.referenceZoom) ? this.referenceZoom : zoom;
-          let scale = 1;
-          if (Number.isFinite(referenceZoom)) {
-            if (this.map && typeof this.map.getZoomScale === 'function') {
-              scale = this.map.getZoomScale(zoom, referenceZoom);
-            } else {
-              scale = Math.pow(2, zoom - referenceZoom);
-            }
-          }
-          const computed = baseWeight * scale;
+          const baselineZoom = Number.isFinite(referenceZoom) ? referenceZoom : zoom;
+          const zoomDeltaRaw = zoom - baselineZoom;
+          const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
+          const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
           if (!Number.isFinite(computed)) {
             return Math.max(minWeight, Math.min(maxWeight, baseWeight));
           }
@@ -2321,7 +2358,7 @@
                               const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted);
                               routeLayers = layers;
                           } else {
-                              const currentStrokeWeight = computeRouteStrokeWeight();
+                              const currentStrokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
                               simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
                                   const routeLayer = L.polyline(latLngPath, {
                                       color: routeColor,
@@ -2350,7 +2387,13 @@
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
                               if (!kioskMode && !adminKioskMode) {
+                                  resetRouteWeightBaseline();
                                   map.fitBounds(allRouteBounds, { padding: [20, 20] });
+                              } else {
+                                  const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+                                  if (Number.isFinite(currentZoom)) {
+                                      setRouteWeightBaseline(currentZoom);
+                                  }
                               }
                               mapHasFitAllRoutes = true;
                           }
