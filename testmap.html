@@ -770,10 +770,17 @@
           .filter(id => !Number.isNaN(id) && id !== 0 && canDisplayRoute(id));
 
         routeIDs.sort((a, b) => {
-          let descA = (allRoutes[a]?.Description || '').toUpperCase();
-          let descB = (allRoutes[b]?.Description || '').toUpperCase();
-          if (descA < descB) return -1;
-          if (descA > descB) return 1;
+          const aHasVehicle = activeRoutesSet.has(a);
+          const bHasVehicle = activeRoutesSet.has(b);
+          if (aHasVehicle !== bHasVehicle) {
+            return aHasVehicle ? -1 : 1;
+          }
+          const routeA = allRoutes[a] || {};
+          const routeB = allRoutes[b] || {};
+          const nameA = (routeA.Description || routeA.RouteName || `Route ${routeA.RouteID || a}` || '').trim().toUpperCase();
+          const nameB = (routeB.Description || routeB.RouteName || `Route ${routeB.RouteID || b}` || '').trim().toUpperCase();
+          if (nameA < nameB) return -1;
+          if (nameA > nameB) return 1;
           return 0;
         });
 
@@ -789,7 +796,8 @@
           const infoText = typeof route.InfoText === 'string' ? route.InfoText.trim() : '';
           const desc = typeof route.Description === 'string' ? route.Description.trim() : '';
           const color = route.MapLineColor || '';
-          return `${routeID}:${checked ? 1 : 0}:${color}:${desc}:${infoText}`;
+          const hasActiveVehicle = activeRoutesSet.has(routeID);
+          return `${routeID}:${checked ? 1 : 0}:${color}:${desc}:${infoText}:${hasActiveVehicle ? 1 : 0}`;
         });
 
         const outOfServiceChecked = adminMode && canDisplayRoute(0)
@@ -879,6 +887,15 @@
           const routeNameRaw = (route.Description || route.RouteName || '').trim();
           const routeName = routeNameRaw !== '' ? routeNameRaw : `Route ${route.RouteID || routeID}`;
           const infoText = typeof route.InfoText === 'string' ? route.InfoText.trim() : '';
+          const hasActiveVehicle = activeRoutesSet.has(routeID);
+          const detailLines = [];
+          if (infoText) {
+            detailLines.push(infoText);
+          }
+          if (!hasActiveVehicle) {
+            detailLines.push('No buses currently assigned');
+          }
+          const detailHtml = detailLines.map(text => `<span class="route-option-detail">${text}</span>`).join('');
           const color = route.MapLineColor || '#A0AEC0';
           html += `
                 <label class="route-option">
@@ -886,7 +903,7 @@
                   <span class="color-box route-option-swatch" style="background:${color};"></span>
                   <span class="route-option-text">
                     <span class="route-option-name">${routeName}</span>
-                    ${infoText ? `<span class="route-option-detail">${infoText}</span>` : ''}
+                    ${detailHtml}
                   </span>
                 </label>
           `;
