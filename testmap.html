@@ -277,6 +277,7 @@
 
       let overlapRenderer = null;
       let lastOverlapZoom = null;
+      const zoomDebugState = { zoomStart: null };
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
       const STOP_MARKER_ICON_SIZE = 24;
@@ -300,7 +301,7 @@
       const MIN_ROUTE_STROKE_WEIGHT = 3;
       const MAX_ROUTE_STROKE_WEIGHT = 12;
       const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
-      const ROUTE_WEIGHT_STEP_PER_ZOOM = 1.25;
+      const ROUTE_WEIGHT_STEP_PER_ZOOM = 0; // Maintain a zoom-stable stroke weight.
       let routeWeightReferenceZoom = null;
       let routeWeightBaselinePending = false;
 
@@ -341,6 +342,23 @@
           return Math.max(minWeight, Math.min(maxWeight, baseWeight));
         }
         return Math.max(minWeight, Math.min(maxWeight, computed));
+      }
+
+      function getActiveReferenceZoom() {
+        if (enableOverlapDashRendering && overlapRenderer && Number.isFinite(overlapRenderer.referenceZoom)) {
+          return overlapRenderer.referenceZoom;
+        }
+        return routeWeightReferenceZoom;
+      }
+
+      function computeDebugStrokeWeight(zoom) {
+        const targetZoom = Number.isFinite(zoom)
+          ? zoom
+          : (map && typeof map?.getZoom === 'function' ? map.getZoom() : null);
+        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.computeStrokeWeight === 'function') {
+          return overlapRenderer.computeStrokeWeight(targetZoom, getActiveReferenceZoom());
+        }
+        return computeRouteStrokeWeight(targetZoom, getActiveReferenceZoom());
       }
 
       async function loadAgencies() {
@@ -827,17 +845,6 @@
               referenceZoom: routeWeightReferenceZoom
             });
             lastOverlapZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-            map.on('moveend', () => {
-              if (!overlapRenderer) return;
-              const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-              if (typeof currentZoom === 'number' && currentZoom !== lastOverlapZoom) {
-                lastOverlapZoom = currentZoom;
-                const layers = overlapRenderer.handleZoomEnd();
-                if (Array.isArray(layers)) {
-                  routeLayers = layers;
-                }
-              }
-            });
           }
 
           fetchRouteColors().then(() => {
@@ -857,31 +864,70 @@
           fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
           map.on('move', updatePopupPositions);
           map.on('zoom', updatePopupPositions);
+          map.on('zoomstart', () => {
+              const startZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+              zoomDebugState.zoomStart = startZoom;
+              const referenceZoom = getActiveReferenceZoom();
+              const computedWeight = computeDebugStrokeWeight(startZoom);
+              console.debug('[routes:zoomstart]', {
+                  oldZoom: startZoom,
+                  newZoom: null,
+                  referenceZoom,
+                  computedWeight,
+                  handlers: {
+                      overlapRenderer: false,
+                      simpleStrokeUpdate: false
+                  }
+              });
+          });
           map.on('zoomend', () => {
               const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-              if (enableOverlapDashRendering && overlapRenderer) {
-                  lastOverlapZoom = currentZoom;
-                  const layers = overlapRenderer.handleZoomEnd();
-                  if (Array.isArray(layers)) {
-                      routeLayers = layers;
+              const previousZoom = zoomDebugState.zoomStart;
+              let overlapRendererHandled = false;
+              let simpleStrokeUpdate = false;
+
+              if (enableOverlapDashRendering && overlapRenderer && Number.isFinite(currentZoom)) {
+                  const zoomChanged = !Number.isFinite(lastOverlapZoom) || currentZoom !== lastOverlapZoom;
+                  if (zoomChanged) {
+                      const layers = overlapRenderer.handleZoomEnd();
+                      if (Array.isArray(layers)) {
+                          routeLayers = layers;
+                      }
+                      overlapRendererHandled = true;
                   }
-              } else {
+                  lastOverlapZoom = currentZoom;
+              } else if (!enableOverlapDashRendering || !overlapRenderer) {
                   const updatedWeight = computeRouteStrokeWeight(currentZoom);
                   routeLayers.forEach(layer => {
                       if (layer && typeof layer.setStyle === 'function') {
                           layer.setStyle({ weight: updatedWeight });
+                          simpleStrokeUpdate = true;
                       }
                       if (layer && typeof layer.redraw === 'function') {
                           layer.redraw();
                       }
                   });
               }
+
+              const referenceZoom = getActiveReferenceZoom();
+              const computedWeight = computeDebugStrokeWeight(currentZoom);
+              console.debug('[routes:zoomend]', {
+                  oldZoom: previousZoom,
+                  newZoom: currentZoom,
+                  referenceZoom,
+                  computedWeight,
+                  handlers: {
+                      overlapRenderer: overlapRendererHandled,
+                      simpleStrokeUpdate
+                  }
+              });
               if (Number.isFinite(currentZoom) && (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom))) {
                   setRouteWeightBaseline(currentZoom);
               }
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
+              zoomDebugState.zoomStart = null;
           });
           map.on('moveend', () => {
               if (!routeWeightBaselinePending && Number.isFinite(routeWeightReferenceZoom)) {
