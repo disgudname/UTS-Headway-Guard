@@ -179,8 +179,9 @@
         justify-content: center;
         padding: 10px;
         border-radius: 12px;
-        background: rgba(15, 23, 42, 0.35);
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: #ffffff;
+        border: 1px solid rgba(35, 45, 75, 0.15);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
       }
       .selector-panel .selector-logo img {
         display: block;
@@ -1123,28 +1124,12 @@
         }
         lastRouteSelectorSignature = signature;
 
-        const selectedAgency = agencies.find(a => a.url === baseURL);
-        const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
-        let logoHtml = '';
-        if (sanitizedBaseURL) {
-          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
-          const safeLogoSrc = escapeAttribute(agencyLogoUrl);
-          const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
-          const safeLogoAltText = escapeAttribute(logoAltText);
-          logoHtml = `
-            <div class="selector-logo">
-              <img src="${safeLogoSrc}" alt="${safeLogoAltText}" loading="lazy" onerror="this.closest('.selector-logo').style.display='none';">
-            </div>
-          `;
-        }
-
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
               <div class="selector-title">Route Controls</div>
               <div class="selector-subtitle">Tailor the live map to the routes you care about.</div>
             </div>
-            ${logoHtml}
           </div>
           <div class="selector-content">
             <div class="selector-section">
