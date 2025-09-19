@@ -373,7 +373,7 @@
         return issues;
       }
 
-      function syncRendererView(renderer, mapInstance) {
+      function syncRendererView(renderer, mapInstance, options = {}) {
         if (!renderer || typeof window === 'undefined') {
           return { updated: false, reason: 'no-renderer' };
         }
@@ -382,6 +382,7 @@
         if (!mapRef || typeof mapRef.getZoom !== 'function') {
           return { updated: false, reason: 'no-map' };
         }
+        const { allowDuringZoom = false } = options || {};
         const zoom = mapRef.getZoom();
         if (!Number.isFinite(zoom)) {
           return { updated: false, reason: 'invalid-zoom' };
@@ -389,6 +390,11 @@
 
         const previousZoom = typeof renderer._zoom === 'number' ? renderer._zoom : null;
         renderer._zoom = zoom;
+
+        const zoomAnimating = !!(mapRef && (mapRef._animatingZoom || mapRef._zoomAnimated && mapRef._zooming));
+        if (zoomAnimating && !allowDuringZoom) {
+          return { updated: false, previousZoom, reason: 'animating-zoom' };
+        }
 
         if (typeof renderer._update === 'function') {
           renderer._update();
@@ -1061,7 +1067,7 @@
               if (sharedRouteRenderer && typeof sharedRouteRenderer._handleZoomAnim === 'function') {
                   sharedRouteRenderer._handleZoomAnim(event);
               } else {
-                  syncRendererView(sharedRouteRenderer, map);
+                  syncRendererView(sharedRouteRenderer, map, { allowDuringZoom: true });
               }
           });
           map.on('zoomstart', () => {
