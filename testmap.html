@@ -159,6 +159,29 @@
         color: #f8fafc;
         padding: 16px 20px 18px;
         box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      #routeSelector .selector-header-text {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      #routeSelector .selector-logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      #routeSelector .selector-logo img {
+        display: block;
+        max-width: 100%;
+        max-height: 120px;
+        height: auto;
       }
       #routeSelector .selector-title {
         margin: 0;
@@ -1013,10 +1036,33 @@
         }
         lastRouteSelectorSignature = signature;
 
+        const escapeAttribute = value => String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        const selectedAgency = agencies.find(a => a.url === baseURL);
+        const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
+        let logoHtml = '';
+        if (sanitizedBaseURL) {
+          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
+          const safeLogoSrc = escapeAttribute(agencyLogoUrl);
+          const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
+          const safeLogoAltText = escapeAttribute(logoAltText);
+          logoHtml = `
+            <div class="selector-logo">
+              <img src="${safeLogoSrc}" alt="${safeLogoAltText}" loading="lazy" onerror="this.closest('.selector-logo').style.display='none';">
+            </div>
+          `;
+        }
+
         let html = `
           <div class="selector-header">
-            <div class="selector-title">Route Controls</div>
-            <div class="selector-subtitle">Tailor the live map to the routes you care about.</div>
+            <div class="selector-header-text">
+              <div class="selector-title">Route Controls</div>
+              <div class="selector-subtitle">Tailor the live map to the routes you care about.</div>
+            </div>
+            ${logoHtml}
           </div>
           <div class="selector-content">
             <div class="selector-group">
