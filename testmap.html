@@ -313,7 +313,6 @@
       let refreshIntervals = [];
 
       let overlapRenderer = null;
-      let lastOverlapZoom = null;
       const zoomDebugState = { zoomStart: null };
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
@@ -338,30 +337,10 @@
       const MIN_ROUTE_STROKE_WEIGHT = 3;
       const MAX_ROUTE_STROKE_WEIGHT = 12;
       const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
-      const ROUTE_WEIGHT_STEP_PER_ZOOM = 0; // Maintain a zoom-stable stroke weight.
-      let routeWeightReferenceZoom = null;
-      let routeWeightBaselinePending = false;
+      const ROUTE_WEIGHT_BASE_ZOOM = 15;
+      const ROUTE_WEIGHT_STEP_PER_ZOOM = 1;
 
-      function setRouteWeightBaseline(zoom) {
-        if (!Number.isFinite(zoom)) {
-          return;
-        }
-        routeWeightReferenceZoom = zoom;
-        routeWeightBaselinePending = false;
-        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.setReferenceZoom === 'function') {
-          overlapRenderer.setReferenceZoom(zoom);
-        }
-      }
-
-      function resetRouteWeightBaseline() {
-        routeWeightReferenceZoom = null;
-        routeWeightBaselinePending = true;
-        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.setReferenceZoom === 'function') {
-          overlapRenderer.setReferenceZoom(null);
-        }
-      }
-
-      function computeRouteStrokeWeight(zoom, referenceZoom = routeWeightReferenceZoom) {
+      function computeRouteStrokeWeight(zoom) {
         const baseWeight = DEFAULT_ROUTE_STROKE_WEIGHT;
         const minWeight = MIN_ROUTE_STROKE_WEIGHT;
         const maxWeight = MAX_ROUTE_STROKE_WEIGHT;
@@ -371,8 +350,7 @@
         if (!Number.isFinite(targetZoom)) {
           return Math.max(minWeight, Math.min(maxWeight, baseWeight));
         }
-        const baselineZoom = Number.isFinite(referenceZoom) ? referenceZoom : targetZoom;
-        const zoomDeltaRaw = targetZoom - baselineZoom;
+        const zoomDeltaRaw = targetZoom - ROUTE_WEIGHT_BASE_ZOOM;
         const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
         const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
         if (!Number.isFinite(computed)) {
@@ -381,21 +359,44 @@
         return Math.max(minWeight, Math.min(maxWeight, computed));
       }
 
-      function getActiveReferenceZoom() {
-        if (enableOverlapDashRendering && overlapRenderer && Number.isFinite(overlapRenderer.referenceZoom)) {
-          return overlapRenderer.referenceZoom;
-        }
-        return routeWeightReferenceZoom;
-      }
-
       function computeDebugStrokeWeight(zoom) {
         const targetZoom = Number.isFinite(zoom)
           ? zoom
           : (map && typeof map?.getZoom === 'function' ? map.getZoom() : null);
-        if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.computeStrokeWeight === 'function') {
-          return overlapRenderer.computeStrokeWeight(targetZoom, getActiveReferenceZoom());
+        return computeRouteStrokeWeight(targetZoom);
+      }
+
+      function handleRouteZoomChange(targetZoom) {
+        const zoom = Number.isFinite(targetZoom)
+          ? targetZoom
+          : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
+        if (!Number.isFinite(zoom)) {
+          return { overlapRendererHandled: false, simpleStrokeUpdate: false, zoom: null };
         }
-        return computeRouteStrokeWeight(targetZoom, getActiveReferenceZoom());
+
+        let overlapRendererHandled = false;
+        let simpleStrokeUpdate = false;
+
+        if (enableOverlapDashRendering && overlapRenderer) {
+          const layers = overlapRenderer.handleZoomFrame(zoom);
+          if (Array.isArray(layers)) {
+            routeLayers = layers;
+            overlapRendererHandled = true;
+          }
+        } else {
+          const updatedWeight = computeRouteStrokeWeight(zoom);
+          routeLayers.forEach(layer => {
+            if (layer && typeof layer.setStyle === 'function') {
+              layer.setStyle({ weight: updatedWeight });
+              simpleStrokeUpdate = true;
+            }
+            if (layer && typeof layer.redraw === 'function') {
+              layer.redraw();
+            }
+          });
+        }
+
+        return { overlapRendererHandled, simpleStrokeUpdate, zoom };
       }
 
       async function loadAgencies() {
@@ -834,7 +835,6 @@
         routeVisibility = {};
         allRouteBounds = null;
         mapHasFitAllRoutes = false;
-        resetRouteWeightBaseline();
         updateRouteLegend([]);
         updateRouteSelector(new Set(), true);
         fetchRouteColors().then(() => {
@@ -868,12 +868,6 @@
               stopsPane.style.zIndex = 450;
               stopsPane.style.pointerEvents = 'auto';
           }
-          const initialZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-          if (Number.isFinite(initialZoom)) {
-              setRouteWeightBaseline(initialZoom);
-          } else {
-              resetRouteWeightBaseline();
-          }
           const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           });
@@ -888,11 +882,9 @@
               strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
               minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
               maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
-              referenceZoom: routeWeightReferenceZoom,
               renderer: sharedRouteRenderer,
               pane: routePaneName
             });
-            lastOverlapZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
           }
 
           fetchRouteColors().then(() => {
@@ -912,17 +904,24 @@
           fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
           map.on('zoom', event => {
               const targetZoom = typeof event?.zoom === 'number' ? event.zoom : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
-              logZoomDiagnostics('zoom', { targetZoom });
+              const result = handleRouteZoomChange(targetZoom);
+              const computedWeight = computeDebugStrokeWeight(result.zoom);
+              logZoomDiagnostics('zoom', {
+                  targetZoom: result.zoom,
+                  computedWeight,
+                  handlers: {
+                      overlapRenderer: result.overlapRendererHandled,
+                      simpleStrokeUpdate: result.simpleStrokeUpdate
+                  }
+              });
           });
           map.on('zoomstart', () => {
               const startZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
               zoomDebugState.zoomStart = startZoom;
-              const referenceZoom = getActiveReferenceZoom();
               const computedWeight = computeDebugStrokeWeight(startZoom);
               logZoomDiagnostics('zoomstart', {
                   oldZoom: startZoom,
                   newZoom: null,
-                  referenceZoom,
                   computedWeight,
                   handlers: {
                       overlapRenderer: false,
@@ -933,47 +932,17 @@
           map.on('zoomend', () => {
               const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
               const previousZoom = zoomDebugState.zoomStart;
-              let overlapRendererHandled = false;
-              let simpleStrokeUpdate = false;
-
-              if (enableOverlapDashRendering && overlapRenderer && Number.isFinite(currentZoom)) {
-                  const zoomChanged = !Number.isFinite(lastOverlapZoom) || currentZoom !== lastOverlapZoom;
-                  if (zoomChanged) {
-                      const layers = overlapRenderer.handleZoomEnd();
-                      if (Array.isArray(layers)) {
-                          routeLayers = layers;
-                      }
-                      overlapRendererHandled = true;
-                  }
-                  lastOverlapZoom = currentZoom;
-              } else if (!enableOverlapDashRendering || !overlapRenderer) {
-                  const updatedWeight = computeRouteStrokeWeight(currentZoom);
-                  routeLayers.forEach(layer => {
-                      if (layer && typeof layer.setStyle === 'function') {
-                          layer.setStyle({ weight: updatedWeight });
-                          simpleStrokeUpdate = true;
-                      }
-                      if (layer && typeof layer.redraw === 'function') {
-                          layer.redraw();
-                      }
-                  });
-              }
-
-              const referenceZoom = getActiveReferenceZoom();
-              const computedWeight = computeDebugStrokeWeight(currentZoom);
+              const result = handleRouteZoomChange(currentZoom);
+              const computedWeight = computeDebugStrokeWeight(result.zoom);
               logZoomDiagnostics('zoomend', {
                   oldZoom: previousZoom,
-                  newZoom: currentZoom,
-                  referenceZoom,
+                  newZoom: result.zoom,
                   computedWeight,
                   handlers: {
-                      overlapRenderer: overlapRendererHandled,
-                      simpleStrokeUpdate
+                      overlapRenderer: result.overlapRendererHandled,
+                      simpleStrokeUpdate: result.simpleStrokeUpdate
                   }
               });
-              if (Number.isFinite(currentZoom) && (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom))) {
-                  setRouteWeightBaseline(currentZoom);
-              }
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
@@ -984,12 +953,6 @@
               updatePopupPositions();
           });
           map.on('moveend', () => {
-              const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-              if (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom)) {
-                  if (Number.isFinite(currentZoom)) {
-                      setRouteWeightBaseline(currentZoom);
-                  }
-              }
               updatePopupPositions();
           });
       }
@@ -1639,16 +1602,12 @@
             strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
             groupNodeMergeMargin: 1e-6,
             minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
-            maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
-            referenceZoom: null
+            maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT
           }, options);
           this.layers = [];
           this.routeGeometries = new Map();
           this.selectedRoutes = [];
           this.currentZoom = map.getZoom();
-          this.referenceZoom = Number.isFinite(this.options.referenceZoom)
-            ? this.options.referenceZoom
-            : (Number.isFinite(this.currentZoom) ? this.currentZoom : null);
           this.minStrokeWeight = Number.isFinite(this.options.minStrokeWeight)
             ? this.options.minStrokeWeight
             : 1;
@@ -1657,20 +1616,22 @@
             : Infinity;
           this.renderer = options.renderer || null;
           this.routePaneName = typeof options.pane === 'string' && options.pane ? options.pane : routePaneName;
-        }
-
-        setReferenceZoom(zoom) {
-          if (Number.isFinite(zoom)) {
-            this.referenceZoom = zoom;
-          } else {
-            this.referenceZoom = null;
-          }
+          this.pixelCacheZoom = null;
+          this.pixelGeometryCache = new Map();
         }
 
         reset() {
           this.clearLayers();
           this.routeGeometries.clear();
           this.selectedRoutes = [];
+          this.clearPixelCache();
+        }
+
+        clearPixelCache() {
+          if (this.pixelGeometryCache) {
+            this.pixelGeometryCache.clear();
+          }
+          this.pixelCacheZoom = null;
         }
 
         clearLayers() {
@@ -1707,33 +1668,31 @@
 
           this.routeGeometries = geometries;
           this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
+          this.clearPixelCache();
           const mapZoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
           if (Number.isFinite(mapZoom)) {
             this.currentZoom = mapZoom;
-            if (!Number.isFinite(this.referenceZoom)) {
-              this.referenceZoom = mapZoom;
-            }
           }
           this.render();
           return this.getLayers();
         }
 
-        handleZoomEnd() {
+        handleZoomFrame(targetZoom) {
           if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            this.clearPixelCache();
             return this.getLayers();
           }
 
-          const zoom = this.map.getZoom();
+          const zoom = Number.isFinite(targetZoom)
+            ? targetZoom
+            : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
           if (!Number.isFinite(zoom)) {
             return this.getLayers();
           }
 
-          if (!Number.isFinite(this.referenceZoom)) {
-            this.referenceZoom = zoom;
-          }
-
-          if (zoom === this.currentZoom) {
-            return this.getLayers();
+          if (this.pixelCacheZoom !== zoom) {
+            this.clearPixelCache();
+            this.pixelCacheZoom = zoom;
           }
 
           this.currentZoom = zoom;
@@ -1741,25 +1700,53 @@
           return this.getLayers();
         }
 
+        handleZoomEnd() {
+          const zoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          return this.handleZoomFrame(zoom);
+        }
+
         getLayers() {
           return this.layers.slice();
         }
 
-        computeStrokeWeight(zoom = this.currentZoom, referenceZoom = this.referenceZoom) {
-          const baseWeight = Number.isFinite(this.options.strokeWeight) ? this.options.strokeWeight : DEFAULT_ROUTE_STROKE_WEIGHT;
+        computeStrokeWeight(zoom = this.currentZoom) {
           const minWeight = Number.isFinite(this.minStrokeWeight) ? this.minStrokeWeight : MIN_ROUTE_STROKE_WEIGHT;
           const maxWeight = Number.isFinite(this.maxStrokeWeight) ? this.maxStrokeWeight : MAX_ROUTE_STROKE_WEIGHT;
-          if (!Number.isFinite(zoom)) {
-            return Math.max(minWeight, Math.min(maxWeight, baseWeight));
-          }
-          const baselineZoom = Number.isFinite(referenceZoom) ? referenceZoom : zoom;
-          const zoomDeltaRaw = zoom - baselineZoom;
-          const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
-          const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
+          const computed = computeRouteStrokeWeight(zoom);
           if (!Number.isFinite(computed)) {
-            return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+            const fallback = Number.isFinite(this.options.strokeWeight) ? this.options.strokeWeight : DEFAULT_ROUTE_STROKE_WEIGHT;
+            return Math.max(minWeight, Math.min(maxWeight, fallback));
           }
           return Math.max(minWeight, Math.min(maxWeight, computed));
+        }
+
+        resetResampledSegmentMetadata(resampled) {
+          if (!resampled || !Array.isArray(resampled.segments)) return;
+          resampled.segments.forEach(segment => {
+            if (!segment) return;
+            segment.sharedRoutes = undefined;
+            segment.key = undefined;
+            segment.primaryRoute = undefined;
+            segment.routeOffsets = {};
+          });
+        }
+
+        getResampledGeometry(routeId, latlngs, zoom, step) {
+          if (!Number.isFinite(zoom) || !Array.isArray(latlngs) || latlngs.length < 2) return null;
+          if (this.pixelCacheZoom !== zoom) {
+            this.clearPixelCache();
+            this.pixelCacheZoom = zoom;
+          }
+          let cached = this.pixelGeometryCache.get(routeId);
+          if (!cached) {
+            cached = this.resampleRoute(routeId, latlngs, zoom, step);
+            if (cached && Array.isArray(cached.segments)) {
+              this.pixelGeometryCache.set(routeId, cached);
+            }
+          } else {
+            this.resetResampledSegmentMetadata(cached);
+          }
+          return cached;
         }
 
         render() {
@@ -1767,6 +1754,7 @@
           if (this.selectedRoutes.length === 0) return;
 
           const zoom = this.currentZoom;
+          if (!Number.isFinite(zoom)) return;
           const step = Math.max(2, this.options.sampleStepPx);
           const tolerance = this.options.matchTolerancePx;
           const headingToleranceRad = (this.options.headingToleranceDeg * Math.PI) / 180;
@@ -1779,7 +1767,7 @@
             const latlngs = this.routeGeometries.get(routeId);
             if (!latlngs || latlngs.length < 2) return;
 
-            const resampled = this.resampleRoute(routeId, latlngs, zoom, step);
+            const resampled = this.getResampledGeometry(routeId, latlngs, zoom, step);
             if (!resampled || !Array.isArray(resampled.segments) || resampled.segments.length === 0) {
               return;
             }
@@ -2340,7 +2328,7 @@
         }
 
         hasPersistentPixelCache() {
-          return false;
+          return Number.isFinite(this.pixelCacheZoom) && this.pixelGeometryCache && this.pixelGeometryCache.size > 0;
         }
       }
 
@@ -2561,13 +2549,7 @@
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
                               if (!kioskMode && !adminKioskMode) {
-                                  resetRouteWeightBaseline();
                                   map.fitBounds(allRouteBounds, { padding: [20, 20] });
-                              } else {
-                                  const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-                                  if (Number.isFinite(currentZoom)) {
-                                      setRouteWeightBaseline(currentZoom);
-                                  }
                               }
                               mapHasFitAllRoutes = true;
                           }
