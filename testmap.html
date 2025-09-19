@@ -159,6 +159,11 @@
         opacity: 0;
         pointer-events: none;
       }
+      #controlPanel.hidden {
+        transform: translateX(calc(-100% - 24px));
+        opacity: 0;
+        pointer-events: none;
+      }
       .selector-panel .selector-header {
         background: linear-gradient(135deg, var(--navy), var(--navy-dark));
         color: #f8fafc;
@@ -434,15 +439,12 @@
       .selector-panel .full-width {
         width: 100%;
       }
-      #routeSelectorTab {
+      .panel-toggle {
         position: fixed;
         top: 50%;
-        right: 0;
         width: 34px;
         height: 70px;
         background: linear-gradient(180deg, var(--navy), var(--navy-darker));
-        border-top-left-radius: 14px;
-        border-bottom-left-radius: 14px;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -452,17 +454,27 @@
         text-align: center;
         font-size: 22px;
         user-select: none;
-        transition: right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+        transition: left 0.3s ease, right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
         color: #f8fafc;
         box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
         border: 1px solid rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
       }
-      #routeSelectorTab:hover {
+      .panel-toggle--right {
+        right: 0;
+        border-top-left-radius: 14px;
+        border-bottom-left-radius: 14px;
+      }
+      .panel-toggle--left {
+        left: 0;
+        border-top-right-radius: 14px;
+        border-bottom-right-radius: 14px;
+      }
+      .panel-toggle:hover {
         background: linear-gradient(180deg, #2d3a5e, #253355);
         box-shadow: 0 16px 32px rgba(15, 23, 42, 0.3);
       }
-      #routeSelectorTab:focus-visible {
+      .panel-toggle:focus-visible {
         outline: none;
         box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(15, 23, 42, 0.3);
       }
@@ -560,6 +572,9 @@
         #routeSelector.hidden {
           transform: translateX(calc(100% + 20px));
         }
+        #controlPanel.hidden {
+          transform: translateX(calc(-100% - 20px));
+        }
         .selector-panel .selector-content {
           padding: 16px;
         }
@@ -578,7 +593,7 @@
         .selector-panel .pill-button {
           font-size: 16px;
         }
-        #routeSelectorTab {
+        .panel-toggle {
           width: 40px;
           height: 80px;
           font-size: 28px;
@@ -849,26 +864,69 @@
         }
       }
 
-      function positionRouteTab() {
-        const panel = document.getElementById("routeSelector");
-        const tab = document.getElementById("routeSelectorTab");
+      function positionPanelTab(panelId, tabId, side = 'right') {
+        const panel = document.getElementById(panelId);
+        const tab = document.getElementById(tabId);
         if (!panel || !tab) return;
-        const panelStyle = window.getComputedStyle(panel);
-        const gap = parseFloat(panelStyle.right) || 0;
-        const offset = panel.offsetWidth + gap;
-        if (panel.classList.contains("hidden")) {
-          tab.style.right = "0";
-          return;
+
+        const panelRect = panel.getBoundingClientRect();
+        const tabRect = tab.getBoundingClientRect();
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const tabHeight = tabRect.height || tab.offsetHeight || parseFloat(window.getComputedStyle(tab).height) || 0;
+        if (Number.isFinite(panelRect?.top) && Number.isFinite(panelRect?.height)) {
+          const panelCenter = panelRect.top + panelRect.height / 2;
+          if (Number.isFinite(panelCenter)) {
+            const halfTab = Number.isFinite(tabHeight) ? tabHeight / 2 : 0;
+            let targetTop = panelCenter;
+            if (Number.isFinite(viewportHeight) && halfTab > 0) {
+              const minTop = halfTab + 8;
+              const maxTop = viewportHeight - halfTab - 8;
+              if (Number.isFinite(minTop) && Number.isFinite(maxTop)) {
+                targetTop = Math.min(Math.max(panelCenter, minTop), Math.max(minTop, maxTop));
+              }
+            }
+            if (Number.isFinite(targetTop)) {
+              tab.style.top = `${targetTop}px`;
+            }
+          }
         }
+
+        const panelStyle = window.getComputedStyle(panel);
+        const gap = side === 'right'
+          ? (parseFloat(panelStyle.right) || 0)
+          : (parseFloat(panelStyle.left) || 0);
+        const offset = panel.offsetWidth + gap;
         const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-        const tabWidth = tab.offsetWidth || parseFloat(window.getComputedStyle(tab).width) || 0;
-        const maxRight = Math.max(0, viewportWidth - tabWidth);
-        const clampedOffset = Math.min(offset, maxRight);
-        tab.style.right = clampedOffset + "px";
+        const tabWidth = tabRect.width || tab.offsetWidth || parseFloat(window.getComputedStyle(tab).width) || 0;
+
+        if (side === 'right') {
+          if (panel.classList.contains('hidden')) {
+            tab.style.right = '0';
+          } else {
+            const maxRight = Math.max(0, viewportWidth - tabWidth);
+            const clampedOffset = Math.min(offset, maxRight);
+            tab.style.right = `${clampedOffset}px`;
+          }
+          tab.style.left = '';
+        } else {
+          if (panel.classList.contains('hidden')) {
+            tab.style.left = '0';
+          } else {
+            const maxLeft = Math.max(0, viewportWidth - tabWidth);
+            const clampedOffset = Math.min(offset, maxLeft);
+            tab.style.left = `${clampedOffset}px`;
+          }
+          tab.style.right = '';
+        }
       }
 
-      window.addEventListener("load", positionRouteTab);
-      window.addEventListener("resize", positionRouteTab);
+      function positionAllPanelTabs() {
+        positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
+        positionPanelTab('controlPanel', 'controlPanelTab', 'left');
+      }
+
+      window.addEventListener("load", positionAllPanelTabs);
+      window.addEventListener("resize", positionAllPanelTabs);
 
       // Global storage for routes from GetRoutes.
       let allRoutes = {};
@@ -1043,6 +1101,7 @@
 
         panel.innerHTML = html;
         updateDisplayModeButtons();
+        positionAllPanelTabs();
       }
 
       // updateRouteSelector rebuilds the route selector panel.
@@ -1119,7 +1178,7 @@
 
         const signature = signatureParts.join('||');
         if (!forceUpdate && signature === lastRouteSelectorSignature) {
-          positionRouteTab();
+          positionAllPanelTabs();
           return;
         }
         lastRouteSelectorSignature = signature;
@@ -1218,7 +1277,7 @@
           }
         });
 
-        positionRouteTab();
+        positionAllPanelTabs();
       }
 
       function selectAllRoutes() {
@@ -1263,18 +1322,22 @@
         refreshMap();
       }
 
-      // togglePanel toggles the route selector panel's visibility.
-      function togglePanel() {
-        let panel = document.getElementById("routeSelector");
-        let tab = document.getElementById("routeSelectorTab");
-        if (panel.classList.contains("hidden")) {
-          panel.classList.remove("hidden");
-          tab.innerHTML = "&#9664;"; // left arrow
-        } else {
-          panel.classList.add("hidden");
-          tab.innerHTML = "&#9654;"; // right arrow
-        }
-        positionRouteTab();
+      // togglePanelVisibility toggles the provided panel's visibility and updates its tab arrow.
+      function togglePanelVisibility(panelId, tabId, expandedArrow, collapsedArrow) {
+        const panel = document.getElementById(panelId);
+        const tab = document.getElementById(tabId);
+        if (!panel || !tab) return;
+        const isHidden = panel.classList.toggle('hidden');
+        tab.innerHTML = isHidden ? collapsedArrow : expandedArrow;
+        positionAllPanelTabs();
+      }
+
+      function toggleRoutePanel() {
+        togglePanelVisibility('routeSelector', 'routeSelectorTab', '&#9664;', '&#9654;');
+      }
+
+      function toggleControlPanel() {
+        togglePanelVisibility('controlPanel', 'controlPanelTab', '&#9654;', '&#9664;');
       }
 
       function updateRouteLegend(displayedRoutes = []) {
@@ -3365,7 +3428,8 @@
     <div id="routeLegend" aria-live="polite"></div>
     <div id="controlPanel" class="selector-panel"></div>
     <div id="routeSelector" class="selector-panel"></div>
-    <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
+    <div id="controlPanelTab" class="panel-toggle panel-toggle--left" onclick="toggleControlPanel()" title="Toggle system controls">&#9654;</div>
+    <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">&#9664;</div>
     <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
     <div id="cookieBanner" class="cookie-banner" style="display:none;">
       This site stores your selected transit agency on your device to remember your preference.
