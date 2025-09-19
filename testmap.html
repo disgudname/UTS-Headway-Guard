@@ -10,16 +10,20 @@
     <style>
       .custom-popup {
         position: absolute;
-        background: #232D4B;
-        border: 4px solid white;
-        border-radius: 15px;
-        padding: 10px;
+        background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+        border: 3px solid rgba(255, 255, 255, 0.92);
+        border-radius: 16px;
+        padding: 12px 14px;
         pointer-events: auto;
         transform: translate(-50%, -100%);
         white-space: nowrap;
         z-index: 1000;
-        color: white;
+        color: #f8fafc;
         text-transform: uppercase;
+        font-family: 'FGDC', sans-serif;
+        font-size: 14px;
+        letter-spacing: 0.35px;
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.38);
       }
       .custom-popup-arrow {
         position: absolute;
@@ -29,7 +33,7 @@
         height: 0;
         border-left: 10px solid transparent;
         border-right: 10px solid transparent;
-        border-top: 10px solid white;
+        border-top: 10px solid rgba(255, 255, 255, 0.92);
         transform: translateX(-50%);
       }
       .custom-popup-close {
@@ -37,25 +41,33 @@
         bottom: 5px;
         right: 5px;
         cursor: pointer;
-        background: #f00;
-        color: #fff;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
         border: none;
         border-radius: 50%;
         width: 20px;
         height: 20px;
         line-height: 20px;
         text-align: center;
-        font-size: 14px;
+        font-size: 13px;
+        box-shadow: 0 10px 20px rgba(229, 114, 0, 0.35);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .custom-popup-close:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.4);
       }
       .route-pill {
         display: inline-block;
-        padding: 5px 10px;
-        border-radius: 20px;
-        color: white;
+        padding: 5px 12px;
+        border-radius: 999px;
+        color: #1f1300;
         font-weight: bold;
         margin-top: 10px;
         text-align: center;
-        border: 2px solid #FFFFFF;
+        border: none;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
       }
       .stop-marker-container {
         display: flex;
@@ -88,9 +100,25 @@
         font-family: 'FGDC';
         src: url('FGDC.ttf') format('truetype');
       }
-      body, .custom-popup {
+      :root {
+        --navy: #232D4B;
+        --navy-dark: #1b274a;
+        --navy-darker: #1a2441;
+        --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+        --panel-border-color: rgba(35, 45, 75, 0.12);
+        --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+        --panel-highlight: rgba(35, 45, 75, 0.06);
+        --panel-text-color: #1f2937;
+        --panel-heading-color: #232D4B;
+        --panel-muted-text: #4b5563;
+        --accent: #E57200;
+        --accent-bright: #ff9c3e;
+        --accent-soft: rgba(229, 114, 0, 0.28);
+      }
+      body {
         font-family: 'FGDC', sans-serif;
         font-size: 14px;
+        color: var(--panel-text-color);
       }
       #map {
         height: 100%;
@@ -108,10 +136,10 @@
         top: 10px;
         right: 10px;
         z-index: 1100;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+        background: var(--panel-surface);
         border-radius: 18px;
-        border: 1px solid rgba(35, 45, 75, 0.12);
-        box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+        border: 1px solid var(--panel-border-color);
+        box-shadow: var(--panel-shadow);
         max-height: 90vh;
         display: flex;
         flex-direction: column;
@@ -119,7 +147,7 @@
         backdrop-filter: blur(12px);
         transition: transform 0.35s ease, box-shadow 0.3s ease, opacity 0.3s ease;
         font-size: 16px;
-        color: #1f2937;
+        color: var(--panel-text-color);
       }
       #routeSelector.hidden {
         transform: translateX(calc(100% + 24px));
@@ -127,7 +155,7 @@
         pointer-events: none;
       }
       #routeSelector .selector-header {
-        background: linear-gradient(135deg, #232D4B, #1b274a);
+        background: linear-gradient(135deg, var(--navy), var(--navy-dark));
         color: #f8fafc;
         padding: 16px 20px 18px;
         box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
@@ -167,7 +195,7 @@
         background: rgba(229, 114, 0, 0.6);
       }
       #routeSelector .selector-group {
-        background: rgba(35, 45, 75, 0.06);
+        background: var(--panel-highlight);
         border-radius: 14px;
         padding: 14px 16px;
         display: flex;
@@ -178,7 +206,7 @@
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 1.6px;
-        color: #27324f;
+        color: rgba(35, 45, 75, 0.75);
       }
       #routeSelector .selector-control {
         position: relative;
@@ -191,7 +219,7 @@
         transform: translateY(-50%);
         pointer-events: none;
         font-size: 12px;
-        color: #27324f;
+        color: rgba(35, 45, 75, 0.65);
         opacity: 0.6;
       }
       #routeSelector select {
@@ -203,7 +231,7 @@
         box-shadow: 0 6px 18px rgba(17, 24, 39, 0.1);
         font-size: 16px;
         font-family: 'FGDC', sans-serif;
-        color: #111827;
+        color: var(--panel-text-color);
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
         appearance: none;
         -webkit-appearance: none;
@@ -246,7 +274,7 @@
         align-items: flex-start;
         gap: 12px;
         padding: 12px 14px;
-        background: rgba(35, 45, 75, 0.05);
+        background: var(--panel-highlight);
         border-radius: 14px;
         border: 1px solid transparent;
         transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
@@ -269,7 +297,7 @@
         margin-top: 2px;
         width: 18px;
         height: 18px;
-        accent-color: #E57200;
+        accent-color: var(--accent);
         flex-shrink: 0;
         cursor: pointer;
       }
@@ -306,7 +334,7 @@
       }
       #routeSelector .route-option-detail {
         font-size: 12px;
-        color: #4b5563;
+        color: var(--panel-muted-text);
       }
       #routeSelector button {
         border: none;
@@ -338,7 +366,7 @@
         transform: translateY(0);
       }
       #routeSelector button.accent {
-        background: linear-gradient(135deg, #E57200, #ff9c3e);
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
         color: #1f1300;
         border-color: rgba(229, 114, 0, 0.35);
         box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
@@ -365,7 +393,7 @@
         right: 0;
         width: 34px;
         height: 70px;
-        background: linear-gradient(180deg, #232D4B, #1a2441);
+        background: linear-gradient(180deg, var(--navy), var(--navy-darker));
         border-top-left-radius: 14px;
         border-bottom-left-radius: 14px;
         cursor: pointer;
@@ -380,58 +408,96 @@
         transition: right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
         color: #f8fafc;
         box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
       }
       #routeSelectorTab:hover {
         background: linear-gradient(180deg, #2d3a5e, #253355);
         box-shadow: 0 16px 32px rgba(15, 23, 42, 0.3);
+      }
+      #routeSelectorTab:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(15, 23, 42, 0.3);
       }
       #routeLegend {
         position: fixed;
         top: 10px;
         left: 10px;
         z-index: 1100;
-        background: rgba(255, 255, 255, 0.9);
-        padding: 12px 16px;
-        border-radius: 8px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        background: var(--panel-surface);
+        padding: 18px 20px 20px;
+        border-radius: 18px;
+        border: 1px solid var(--panel-border-color);
+        box-shadow: var(--panel-shadow);
         max-width: 320px;
         display: none;
-        font-size: 20px;
+        max-height: 70vh;
+        overflow-y: auto;
+        font-size: 16px;
+        color: var(--panel-text-color);
+        backdrop-filter: blur(12px);
+        transition: transform 0.3s ease, opacity 0.3s ease, box-shadow 0.3s ease;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(35, 45, 75, 0.35) rgba(35, 45, 75, 0.08);
+      }
+      #routeLegend::-webkit-scrollbar {
+        width: 8px;
+      }
+      #routeLegend::-webkit-scrollbar-track {
+        background: rgba(35, 45, 75, 0.08);
+        border-radius: 12px;
+      }
+      #routeLegend::-webkit-scrollbar-thumb {
+        background: rgba(35, 45, 75, 0.35);
+        border-radius: 12px;
       }
       #routeLegend .legend-title {
-        font-weight: bold;
-        margin-bottom: 8px;
+        font-weight: 600;
+        margin: 0 0 12px;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.6px;
+        color: var(--panel-heading-color);
+        font-size: 18px;
       }
       #routeLegend .legend-item {
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin-bottom: 8px;
+        gap: 12px;
+        padding: 12px 14px;
+        background: var(--panel-highlight);
+        border-radius: 14px;
+        border: 1px solid transparent;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
       }
-      #routeLegend .legend-item:last-child {
-        margin-bottom: 0;
+      #routeLegend .legend-item + .legend-item {
+        margin-top: 12px;
+      }
+      #routeLegend .legend-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.14);
+        border-color: rgba(35, 45, 75, 0.2);
       }
       #routeLegend .legend-color {
         width: 18px;
         height: 18px;
         border-radius: 50%;
-        border: 2px solid #FFFFFF;
-        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.2);
         flex-shrink: 0;
       }
       #routeLegend .legend-text {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 3px;
       }
       #routeLegend .legend-name {
-        font-weight: bold;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        color: var(--panel-heading-color);
       }
       #routeLegend .legend-description {
-        font-size: 16px;
-        color: #1b1b1b;
+        font-size: 13px;
+        color: var(--panel-muted-text);
       }
       @media (max-width: 600px) {
         #routeSelector {
@@ -465,10 +531,87 @@
           height: 80px;
           font-size: 28px;
         }
+        #routeLegend {
+          left: 16px;
+          right: 16px;
+          top: auto;
+          bottom: 88px;
+          max-width: none;
+          max-height: 45vh;
+        }
+        .credit {
+          bottom: 16px;
+          right: 16px;
+          left: auto;
+          font-size: 12px;
+          padding: 8px 14px;
+          letter-spacing: 0.2px;
+        }
+        .cookie-banner {
+          padding: 14px 16px;
+        }
       }
-      .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
-      .cookie-banner{position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:white;padding:10px;text-align:center;font-size:14px;z-index:1200;}
-      .cookie-banner button{margin-left:10px;}
+      .credit {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        font-size: 13px;
+        color: rgba(35, 45, 75, 0.8);
+        background: var(--panel-surface);
+        border-radius: 999px;
+        padding: 10px 16px;
+        border: 1px solid var(--panel-border-color);
+        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.2);
+        letter-spacing: 0.25px;
+        text-transform: uppercase;
+        backdrop-filter: blur(10px);
+        pointer-events: none;
+      }
+      .cookie-banner {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(135deg, rgba(35, 45, 75, 0.95), rgba(27, 39, 74, 0.95));
+        color: #f8fafc;
+        padding: 16px 20px;
+        font-size: 14px;
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        box-shadow: 0 -16px 36px rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(14px);
+        letter-spacing: 0.25px;
+        text-align: center;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .cookie-banner button {
+        margin-left: 0;
+        border: none;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
+        padding: 10px 20px;
+        font-family: 'FGDC', sans-serif;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .cookie-banner button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 16px 30px rgba(229, 114, 0, 0.42);
+      }
+      .cookie-banner button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 30px rgba(229, 114, 0, 0.42);
+      }
     </style>
     <script>
       // Manually set these variables.
