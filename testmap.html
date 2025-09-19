@@ -657,7 +657,15 @@
         const panelStyle = window.getComputedStyle(panel);
         const gap = parseFloat(panelStyle.right) || 0;
         const offset = panel.offsetWidth + gap;
-        tab.style.right = panel.classList.contains("hidden") ? "0" : offset + "px";
+        if (panel.classList.contains("hidden")) {
+          tab.style.right = "0";
+          return;
+        }
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        const tabWidth = tab.offsetWidth || parseFloat(window.getComputedStyle(tab).width) || 0;
+        const maxRight = Math.max(0, viewportWidth - tabWidth);
+        const clampedOffset = Math.min(offset, maxRight);
+        tab.style.right = clampedOffset + "px";
       }
 
       window.addEventListener("load", positionRouteTab);
