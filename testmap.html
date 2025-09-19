@@ -236,6 +236,7 @@
       let routeColors = {};
       let routeLayers = [];
       let stopMarkers = [];
+      let stopDataCache = [];
       let routeStopAddressMap = {};
       let nameBubbles = {};
       let busBlocks = {};
@@ -247,6 +248,8 @@
       let refreshIntervals = [];
 
       let overlapRenderer = null;
+
+      const STOP_GROUPING_PIXEL_DISTANCE = 20;
 
       let agencies = [];
       let baseURL = '';
@@ -753,6 +756,11 @@
           fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
           map.on('move', updatePopupPositions);
           map.on('zoom', updatePopupPositions);
+          map.on('zoomend', () => {
+              if (stopDataCache.length > 0) {
+                  renderBusStops(stopDataCache);
+              }
+          });
       }
 
       function fetchBusStops() {
@@ -764,49 +772,199 @@
                   if (currentBaseURL !== baseURL) return;
                   let stopsArray = data.stops || data;
                   if (stopsArray && Array.isArray(stopsArray)) {
-                      stopMarkers.forEach(marker => map.removeLayer(marker));
-                      stopMarkers = [];
-                      const groupedStops = {};
-                      stopsArray.forEach(stop => {
-                          const key = `${stop.Latitude},${stop.Longitude}`;
-                          if (!groupedStops[key]) groupedStops[key] = [];
-                          groupedStops[key].push(stop);
-                      });
-                      Object.keys(groupedStops).forEach(key => {
-                          const [latitude, longitude] = key.split(',').map(Number);
-                          const stopPosition = [latitude, longitude];
-                          const stopMarker = L.circleMarker(stopPosition, {
-                              radius: 6,
-                              color: "#000000",
-                              fillColor: "#FFFFFF",
-                              fillOpacity: 1,
-                              pane: 'stopsPane',
-                              weight: 3
-                          }).addTo(map);
-                          const routeStopIds = groupedStops[key]
-                              .map(stop => stop.RouteStopID ?? stop.RouteStopId)
-                              .filter(routeStopId => routeStopId !== undefined && routeStopId !== null);
-                          const unifiedStopId = groupedStops[key][0].StopID ?? groupedStops[key][0].StopId ?? '';
-                          const etas = [];
-                          routeStopIds.forEach(routeStopId => {
-                              if (cachedEtas[routeStopId]) {
-                                  cachedEtas[routeStopId].forEach(eta => etas.push(eta));
-                              }
-                          });
-                          const stopNames = groupedStops[key][0].Description;
-                          const etaText = etas.length > 0
-                            ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
-                                  .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`).join('')
-                            : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
-                          stopMarker.on('click', () => {
-                              createCustomPopup(stopPosition, stopNames, etaText, routeStopIds, unifiedStopId);
-                          });
-                          stopMarkers.push(stopMarker);
-                      });
-                      stopMarkers.forEach(marker => marker.bringToFront());
+                      stopDataCache = stopsArray;
+                      renderBusStops(stopDataCache);
                   }
               })
               .catch(error => console.error("Error fetching bus stops:", error));
+      }
+
+      function groupStopsByPixelDistance(stops, thresholdPx) {
+          if (!Array.isArray(stops) || stops.length === 0) {
+              return [];
+          }
+
+          const validStops = stops.map(stop => {
+              const latitude = parseFloat(stop.Latitude ?? stop.latitude ?? stop.lat);
+              const longitude = parseFloat(stop.Longitude ?? stop.longitude ?? stop.lon);
+              if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+                  return null;
+              }
+              return { latitude, longitude, stop };
+          }).filter(entry => entry !== null);
+
+          if (!map) {
+              return validStops.map(entry => ({
+                  latitude: entry.latitude,
+                  longitude: entry.longitude,
+                  stops: [entry.stop]
+              }));
+          }
+
+          const groups = [];
+          validStops.forEach(({ latitude, longitude, stop }) => {
+              const stopPoint = map.latLngToLayerPoint([latitude, longitude]);
+              let targetGroup = null;
+              for (const group of groups) {
+                  const groupPoint = map.latLngToLayerPoint([group.latitude, group.longitude]);
+                  if (stopPoint.distanceTo(groupPoint) <= thresholdPx) {
+                      targetGroup = group;
+                      break;
+                  }
+              }
+              if (targetGroup) {
+                  targetGroup.stops.push(stop);
+                  const totalStops = targetGroup.stops.length;
+                  targetGroup.latitude = (targetGroup.latitude * (totalStops - 1) + latitude) / totalStops;
+                  targetGroup.longitude = (targetGroup.longitude * (totalStops - 1) + longitude) / totalStops;
+              } else {
+                  groups.push({
+                      latitude,
+                      longitude,
+                      stops: [stop]
+                  });
+              }
+          });
+
+          return groups;
+      }
+
+      function buildEtaTableHtml(routeStopIds) {
+          const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
+          const etas = [];
+          normalizedRouteStopIds.forEach(routeStopId => {
+              if (cachedEtas[routeStopId]) {
+                  cachedEtas[routeStopId].forEach(eta => etas.push(eta));
+              }
+          });
+          const etaRows = etas.length > 0
+              ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
+                    .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`)
+                    .join('')
+              : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
+          return `
+            <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
+              <thead>
+                <tr>
+                  <th style="border-bottom: 1px solid white; padding: 5px;">Route</th>
+                  <th style="border-bottom: 1px solid white; padding: 5px;">ETA</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${etaRows}
+              </tbody>
+            </table>
+          `;
+      }
+
+      function setPopupContent(popupElement, stopName, routeStopIds, fallbackStopId) {
+          const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
+          const fallbackStopIdText = fallbackStopId !== undefined && fallbackStopId !== null ? `${fallbackStopId}` : '';
+          const sanitizedStopName = typeof stopName === 'string' ? stopName.replace('Stop Name: ', '') : '';
+          const etaTable = buildEtaTableHtml(normalizedRouteStopIds);
+          const displayStopId = determineDisplayStopId(normalizedRouteStopIds, fallbackStopIdText);
+          const stopIdText = displayStopId !== undefined && displayStopId !== null && `${displayStopId}`.trim() !== ''
+              ? `${displayStopId}`
+              : '';
+
+          const groupKey = `${JSON.stringify(normalizedRouteStopIds)}|${fallbackStopIdText}`;
+
+          popupElement.dataset.routeStopIds = JSON.stringify(normalizedRouteStopIds);
+          popupElement.dataset.stopName = sanitizedStopName;
+          popupElement.dataset.fallbackStopId = fallbackStopIdText;
+          popupElement.dataset.stopId = stopIdText;
+          popupElement.dataset.groupKey = groupKey;
+
+          popupElement.innerHTML = `
+            <button class="custom-popup-close">&times;</button>
+            <span style="font-size: 16px; font-weight: bold;">${sanitizedStopName}</span><br>
+            <span>Stop ID: ${stopIdText}</span><br>
+            ${etaTable}
+            <div class="custom-popup-arrow"></div>
+          `;
+
+          popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
+              popupElement.remove();
+              customPopups = customPopups.filter(popup => popup !== popupElement);
+          });
+      }
+
+      function renderBusStops(stopsArray) {
+          if (!Array.isArray(stopsArray) || !map) {
+              return;
+          }
+
+          stopMarkers.forEach(marker => map.removeLayer(marker));
+          stopMarkers = [];
+
+          const groupedStops = groupStopsByPixelDistance(stopsArray, STOP_GROUPING_PIXEL_DISTANCE);
+          const groupedData = [];
+
+          groupedStops.forEach(group => {
+              const stopPosition = [group.latitude, group.longitude];
+              const stopMarker = L.circleMarker(stopPosition, {
+                  radius: 6,
+                  color: "#000000",
+                  fillColor: "#FFFFFF",
+                  fillOpacity: 1,
+                  pane: 'stopsPane',
+                  weight: 3
+              }).addTo(map);
+
+              const routeStopIds = Array.from(new Set(group.stops
+                  .map(stop => stop.RouteStopID ?? stop.RouteStopId)
+                  .filter(routeStopId => routeStopId !== undefined && routeStopId !== null)
+                  .map(routeStopId => `${routeStopId}`)))
+                  .sort();
+
+              const fallbackStopIds = Array.from(new Set(group.stops
+                  .map(stop => stop.StopID ?? stop.StopId)
+                  .filter(stopId => stopId !== undefined && stopId !== null && `${stopId}`.trim() !== '')
+                  .map(stopId => `${stopId}`)));
+
+              const stopNames = Array.from(new Set(group.stops
+                  .map(stop => stop.Description)
+                  .filter(description => description !== undefined && description !== null && `${description}`.trim() !== '')));
+
+              const displayStopName = stopNames.length > 0 ? stopNames.join(' / ') : 'Stop';
+              const fallbackStopIdText = fallbackStopIds.join(', ');
+              const groupKey = `${JSON.stringify(routeStopIds)}|${fallbackStopIdText}`;
+
+              stopMarker.on('click', () => {
+                  createCustomPopup(stopPosition, displayStopName, routeStopIds, fallbackStopIdText);
+              });
+
+              stopMarkers.push(stopMarker);
+              groupedData.push({
+                  position: stopPosition,
+                  stopName: displayStopName,
+                  routeStopIds,
+                  fallbackStopId: fallbackStopIdText,
+                  groupKey
+              });
+          });
+
+          stopMarkers.forEach(marker => marker.bringToFront());
+
+          if (customPopups.length > 0) {
+              const groupByKey = new Map();
+              groupedData.forEach(groupInfo => {
+                  groupByKey.set(groupInfo.groupKey, groupInfo);
+              });
+
+              customPopups = customPopups.filter(popupElement => {
+                  const key = popupElement.dataset.groupKey || `${popupElement.dataset.routeStopIds || '[]'}|${popupElement.dataset.fallbackStopId || ''}`;
+                  const matchingGroup = groupByKey.get(key);
+                  if (matchingGroup) {
+                      popupElement.dataset.position = `${matchingGroup.position[0]},${matchingGroup.position[1]}`;
+                      setPopupContent(popupElement, matchingGroup.stopName, matchingGroup.routeStopIds, matchingGroup.fallbackStopId);
+                      updatePopupPosition(popupElement, matchingGroup.position);
+                      return true;
+                  }
+                  popupElement.remove();
+                  return false;
+              });
+          }
       }
 
       function determineDisplayStopId(routeStopIds, fallbackStopId) {
@@ -828,46 +986,15 @@
           return '';
       }
 
-      function createCustomPopup(position, stopName, etaText, routeStopIds, fallbackStopId) {
+      function createCustomPopup(position, stopName, routeStopIds, fallbackStopId) {
           customPopups.forEach(popup => popup.remove());
           customPopups = [];
           const popupElement = document.createElement('div');
           popupElement.className = 'custom-popup';
-          const etaTable = `
-            <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
-              <thead>
-                <tr>
-                  <th style="border-bottom: 1px solid white; padding: 5px;">Route</th>
-                  <th style="border-bottom: 1px solid white; padding: 5px;">ETA</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${etaText}
-              </tbody>
-            </table>
-          `;
-          const displayStopId = determineDisplayStopId(routeStopIds, fallbackStopId);
-          const stopIdText = displayStopId !== undefined && displayStopId !== null && `${displayStopId}`.trim() !== ''
-            ? `${displayStopId}`
-            : '';
-          popupElement.innerHTML = `
-            <button class="custom-popup-close">&times;</button>
-            <span style="font-size: 16px; font-weight: bold;">${stopName}</span><br>
-            <span>Stop ID: ${stopIdText}</span><br>
-            ${etaTable}
-            <div class="custom-popup-arrow"></div>
-          `;
           document.body.appendChild(popupElement);
           popupElement.dataset.position = `${position[0]},${position[1]}`;
-          popupElement.dataset.stopName = stopName.replace('Stop Name: ', '');
-          popupElement.dataset.routeStopIds = JSON.stringify(routeStopIds);
-          popupElement.dataset.stopId = stopIdText;
-          popupElement.dataset.fallbackStopId = fallbackStopId !== undefined && fallbackStopId !== null ? `${fallbackStopId}` : '';
+          setPopupContent(popupElement, stopName, routeStopIds, fallbackStopId);
           updatePopupPosition(popupElement, position);
-          popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
-              popupElement.remove();
-              customPopups = customPopups.filter(popup => popup !== popupElement);
-          });
           customPopups.push(popupElement);
       }
 
@@ -891,47 +1018,15 @@
           customPopups.forEach(popupElement => {
               const position = popupElement.dataset.position;
               if (position) {
-                  const routeStopIds = JSON.parse(popupElement.dataset.routeStopIds);
-                  const etas = [];
-                  routeStopIds.forEach(routeStopId => {
-                      if (cachedEtas[routeStopId]) {
-                          cachedEtas[routeStopId].forEach(eta => etas.push(eta));
-                      }
-                  });
-                  const etaText = etas.length > 0
-                    ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
-                          .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`).join('')
-                    : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
-                  const etaTable = `
-                    <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
-                      <thead>
-                        <tr>
-                          <th style="border-bottom: 1px solid white; padding: 5px;">Route</th>
-                          <th style="border-bottom: 1px solid white; padding: 5px;">ETA</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${etaText}
-                      </tbody>
-                    </table>
-                  `;
+                  let routeStopIds = [];
+                  try {
+                      routeStopIds = JSON.parse(popupElement.dataset.routeStopIds || '[]');
+                  } catch (error) {
+                      routeStopIds = [];
+                  }
                   const fallbackStopId = popupElement.dataset.fallbackStopId;
-                  const displayStopId = determineDisplayStopId(routeStopIds, fallbackStopId);
-                  const stopIdText = displayStopId !== undefined && displayStopId !== null && `${displayStopId}`.trim() !== ''
-                    ? `${displayStopId}`
-                    : '';
-                  popupElement.dataset.stopId = stopIdText;
-                  popupElement.innerHTML = `
-                    <button class="custom-popup-close">&times;</button>
-                    <span style="font-size: 16px; font-weight: bold;">${popupElement.dataset.stopName}</span><br>
-                    <span>Stop ID: ${stopIdText}</span><br>
-                    ${etaTable}
-                    <div class="custom-popup-arrow"></div>
-                  `;
-                  popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
-                      popupElement.remove();
-                      customPopups = customPopups.filter(popup => popup !== popupElement);
-                  });
+                  const stopName = popupElement.dataset.stopName;
+                  setPopupContent(popupElement, stopName, routeStopIds, fallbackStopId);
               }
           });
       }
