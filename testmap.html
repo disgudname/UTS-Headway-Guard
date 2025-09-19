@@ -2198,7 +2198,7 @@
                       arrival.Times.forEach(time => {
                           const etaMinutes = Math.round(time.Seconds / 60);
                           allEtas[arrival.RouteStopId].push({
-                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription.slice(0, -5)),
+                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription),
                               etaMinutes: etaMinutes,
                               RouteId: arrival.RouteId
                           });
