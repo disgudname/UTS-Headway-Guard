@@ -992,6 +992,9 @@
           if (routesPane) {
               routesPane.style.zIndex = 425;
               routesPane.style.pointerEvents = 'none';
+              if (!routesPane.classList.contains('leaflet-zoom-animated')) {
+                  routesPane.classList.add('leaflet-zoom-animated');
+              }
           }
           map.createPane('stopsPane');
           const stopsPane = map.getPane('stopsPane');
@@ -1053,6 +1056,13 @@
           map.on('zoom', event => {
               const targetZoom = typeof event?.zoom === 'number' ? event.zoom : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
               logZoomDiagnostics('zoom', { targetZoom });
+          });
+          map.on('zoomanim', event => {
+              if (sharedRouteRenderer && typeof sharedRouteRenderer._handleZoomAnim === 'function') {
+                  sharedRouteRenderer._handleZoomAnim(event);
+              } else {
+                  syncRendererView(sharedRouteRenderer, map);
+              }
           });
           map.on('zoomstart', () => {
               const startZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
