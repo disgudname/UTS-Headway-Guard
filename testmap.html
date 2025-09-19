@@ -236,6 +236,7 @@
       let routeColors = {};
       let routeLayers = [];
       let stopMarkers = [];
+      let routeStopAddressMap = {};
       let nameBubbles = {};
       let busBlocks = {};
       let previousBusData = {};
@@ -618,6 +619,7 @@
         customPopups = [];
         allRoutes = {};
         routeSelections = {};
+        routeStopAddressMap = {};
         activeRoutes = new Set();
         routeColors = {};
         routeVisibility = {};
@@ -707,8 +709,10 @@
                               fillOpacity: 1,
                               weight: 3
                           }).addTo(map);
-                          const routeStopIds = groupedStops[key].map(stop => stop.RouteStopID);
-                          const unifiedStopId = groupedStops[key][0].StopID || groupedStops[key][0].StopId;
+                          const routeStopIds = groupedStops[key]
+                              .map(stop => stop.RouteStopID ?? stop.RouteStopId)
+                              .filter(routeStopId => routeStopId !== undefined && routeStopId !== null);
+                          const unifiedStopId = groupedStops[key][0].StopID ?? groupedStops[key][0].StopId ?? '';
                           const etas = [];
                           routeStopIds.forEach(routeStopId => {
                               if (cachedEtas[routeStopId]) {
@@ -731,7 +735,26 @@
               .catch(error => console.error("Error fetching bus stops:", error));
       }
 
-      function createCustomPopup(position, stopName, etaText, routeStopIds, stopId) {
+      function determineDisplayStopId(routeStopIds, fallbackStopId) {
+          if (Array.isArray(routeStopIds)) {
+              const uniqueAddressIds = Array.from(new Set(routeStopIds
+                  .map(routeStopId => routeStopAddressMap[routeStopId])
+                  .filter(addressId => addressId !== undefined && addressId !== null && `${addressId}`.trim() !== '')
+                  .map(addressId => `${addressId}`)));
+              if (uniqueAddressIds.length === 1) {
+                  return uniqueAddressIds[0];
+              }
+              if (uniqueAddressIds.length > 1) {
+                  return uniqueAddressIds.join(', ');
+              }
+          }
+          if (fallbackStopId !== undefined && fallbackStopId !== null && `${fallbackStopId}`.trim() !== '') {
+              return `${fallbackStopId}`;
+          }
+          return '';
+      }
+
+      function createCustomPopup(position, stopName, etaText, routeStopIds, fallbackStopId) {
           customPopups.forEach(popup => popup.remove());
           customPopups = [];
           const popupElement = document.createElement('div');
@@ -749,10 +772,14 @@
               </tbody>
             </table>
           `;
+          const displayStopId = determineDisplayStopId(routeStopIds, fallbackStopId);
+          const stopIdText = displayStopId !== undefined && displayStopId !== null && `${displayStopId}`.trim() !== ''
+            ? `${displayStopId}`
+            : '';
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
             <span style="font-size: 16px; font-weight: bold;">${stopName}</span><br>
-            <span>Stop ID: ${stopId}</span><br>
+            <span>Stop ID: ${stopIdText}</span><br>
             ${etaTable}
             <div class="custom-popup-arrow"></div>
           `;
@@ -760,7 +787,8 @@
           popupElement.dataset.position = `${position[0]},${position[1]}`;
           popupElement.dataset.stopName = stopName.replace('Stop Name: ', '');
           popupElement.dataset.routeStopIds = JSON.stringify(routeStopIds);
-          popupElement.dataset.stopId = stopId;
+          popupElement.dataset.stopId = stopIdText;
+          popupElement.dataset.fallbackStopId = fallbackStopId !== undefined && fallbackStopId !== null ? `${fallbackStopId}` : '';
           updatePopupPosition(popupElement, position);
           popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
               popupElement.remove();
@@ -813,11 +841,16 @@
                       </tbody>
                     </table>
                   `;
-                  const stopId = popupElement.dataset.stopId;
+                  const fallbackStopId = popupElement.dataset.fallbackStopId;
+                  const displayStopId = determineDisplayStopId(routeStopIds, fallbackStopId);
+                  const stopIdText = displayStopId !== undefined && displayStopId !== null && `${displayStopId}`.trim() !== ''
+                    ? `${displayStopId}`
+                    : '';
+                  popupElement.dataset.stopId = stopIdText;
                   popupElement.innerHTML = `
                     <button class="custom-popup-close">&times;</button>
                     <span style="font-size: 16px; font-weight: bold;">${popupElement.dataset.stopName}</span><br>
-                    <span>Stop ID: ${stopId}</span><br>
+                    <span>Stop ID: ${stopIdText}</span><br>
                     ${etaTable}
                     <div class="custom-popup-arrow"></div>
                   `;
@@ -1551,11 +1584,21 @@
                   const displayedRoutes = new Map();
                   const rendererGeometries = new Map();
                   const selectedRouteIds = [];
+                  const updatedRouteStopAddressMap = {};
                   const useOverlapRenderer = enableOverlapDashRendering && overlapRenderer;
                   if (Array.isArray(data)) {
                       data.forEach(route => {
                           setRouteVisibility(route);
                           allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
+                          if (Array.isArray(route.Stops)) {
+                              route.Stops.forEach(stop => {
+                                  const routeStopId = Number(stop.RouteStopID ?? stop.RouteStopId);
+                                  const addressId = stop.AddressID ?? stop.AddressId;
+                                  if (!Number.isNaN(routeStopId) && addressId !== undefined && addressId !== null && `${addressId}`.trim() !== '') {
+                                      updatedRouteStopAddressMap[routeStopId] = `${addressId}`;
+                                  }
+                              });
+                          }
                           const routeAllowed = canDisplayRoute(route.RouteID);
                           if (route.EncodedPolyline && routeAllowed) {
                               const decodedPolyline = polyline.decode(route.EncodedPolyline);
@@ -1607,6 +1650,8 @@
                           const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIds);
                           routeLayers = layers;
                       }
+                      routeStopAddressMap = updatedRouteStopAddressMap;
+                      updateCustomPopups();
                       if (bounds) {
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
