@@ -1450,9 +1450,98 @@
         togglePanelVisibility('controlPanel', 'controlPanelTab', '&#9654;', '&#9664;');
       }
 
+      function getLegendRouteIdCandidate(route) {
+        if (!route || typeof route !== 'object') {
+          return null;
+        }
+        const candidateKeys = ['routeId', 'routeID', 'RouteID', 'RouteId', 'id', 'Id'];
+        for (const key of candidateKeys) {
+          if (!Object.prototype.hasOwnProperty.call(route, key)) {
+            continue;
+          }
+          const value = route[key];
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+          }
+          if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (trimmed !== '') {
+              return trimmed;
+            }
+          }
+        }
+        return null;
+      }
+
+      function buildLegendEntry(routeIdLike, ...sources) {
+        const numericRouteId = Number(routeIdLike);
+        if (!Number.isFinite(numericRouteId)) {
+          return null;
+        }
+
+        const combinedSources = Array.isArray(sources) ? sources.slice() : [];
+        const storedRoute = allRoutes[numericRouteId];
+        if (storedRoute && !combinedSources.includes(storedRoute)) {
+          combinedSources.push(storedRoute);
+        }
+
+        const validSources = combinedSources.filter(source => source && typeof source === 'object');
+
+        let legendColor = validSources
+          .map(source => source.color || source.MapLineColor)
+          .find(value => typeof value === 'string' && value.trim() !== '');
+        if (!legendColor) {
+          const fallbackColor = getRouteColor(numericRouteId);
+          legendColor = (typeof fallbackColor === 'string' && fallbackColor.trim() !== '')
+            ? fallbackColor
+            : '#000000';
+        }
+
+        const nameCandidates = [];
+        validSources.forEach(source => {
+          ['name', 'Description', 'Name', 'RouteName'].forEach(key => {
+            const value = source[key];
+            if (typeof value === 'string') {
+              const trimmed = value.trim();
+              if (trimmed) {
+                nameCandidates.push(trimmed);
+              }
+            }
+          });
+        });
+        let legendName = nameCandidates.find(value => value.length > 0);
+        if (!legendName) {
+          const fallbackIdSource = validSources.find(source => typeof source.RouteID !== 'undefined');
+          const fallbackId = fallbackIdSource?.RouteID ?? numericRouteId;
+          legendName = `Route ${fallbackId}`;
+        }
+
+        const descriptionCandidates = [];
+        validSources.forEach(source => {
+          ['description', 'InfoText', 'RouteDescription', 'DescriptionText'].forEach(key => {
+            const value = source[key];
+            if (typeof value === 'string') {
+              const trimmed = value.trim();
+              if (trimmed) {
+                descriptionCandidates.push(trimmed);
+              }
+            }
+          });
+        });
+        const legendDescription = descriptionCandidates.find(value => value.length > 0) || '';
+
+        return {
+          routeId: numericRouteId,
+          color: legendColor,
+          name: legendName,
+          description: legendDescription
+        };
+      }
+
       function updateRouteLegend(displayedRoutes = []) {
         const legend = document.getElementById("routeLegend");
         if (!legend) return;
+
         const shouldShowLegend = kioskMode || adminKioskMode;
         if (!shouldShowLegend) {
           legend.style.display = "none";
@@ -1460,11 +1549,47 @@
           return;
         }
 
+        const normalizedFromDisplay = Array.isArray(displayedRoutes)
+          ? displayedRoutes
+              .map(route => {
+                if (!route || typeof route !== 'object') {
+                  return null;
+                }
+                const candidateId = getLegendRouteIdCandidate(route);
+                if (candidateId === null) {
+                  return null;
+                }
+                return buildLegendEntry(candidateId, route);
+              })
+              .filter(entry => entry !== null)
+          : [];
+
+        let legendRoutes = normalizedFromDisplay;
+
+        if (legendRoutes.length === 0) {
+          const fallbackRoutes = [];
+          const selectedRoutes = getSelectedRouteIdSet();
+          selectedRoutes.forEach(routeId => {
+            const entry = buildLegendEntry(routeId, allRoutes[routeId]);
+            if (entry) {
+              fallbackRoutes.push(entry);
+            }
+          });
+          legendRoutes = fallbackRoutes;
+        }
+
+        const dedupedLegendRoutes = new Map();
+        legendRoutes.forEach(entry => {
+          if (!entry) return;
+          dedupedLegendRoutes.set(entry.routeId, entry);
+        });
+        legendRoutes = Array.from(dedupedLegendRoutes.values());
+
         // Admin kiosk mode should surface every visible route, including those hidden from the public map.
         // Public kiosk mode must continue to hide routes flagged as non-public.
         const routesToRender = adminKioskMode
-          ? displayedRoutes
-          : displayedRoutes.filter(route => isRoutePublicById(route.routeId ?? route.routeID ?? route.id));
+          ? legendRoutes
+          : legendRoutes.filter(route => isRoutePublicById(route.routeId));
 
         if (routesToRender.length === 0) {
           legend.style.display = "none";
