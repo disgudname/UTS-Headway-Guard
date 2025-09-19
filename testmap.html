@@ -1343,6 +1343,54 @@
           return routeIds;
       }
 
+      function collectRouteIdsForStop(stop) {
+          const routeIds = new Set();
+          if (!stop) {
+              return routeIds;
+          }
+
+          const addRouteId = value => {
+              if (value === undefined || value === null) {
+                  return;
+              }
+              let candidate = value;
+              if (typeof candidate === 'string') {
+                  candidate = candidate.trim();
+                  if (candidate === '') {
+                      return;
+                  }
+              }
+              const numericRouteId = Number(candidate);
+              if (!Number.isNaN(numericRouteId)) {
+                  routeIds.add(numericRouteId);
+              }
+          };
+
+          addRouteId(stop.RouteID ?? stop.RouteId);
+
+          const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
+          if (routeStopId) {
+              addRouteId(routeStopRouteMap[routeStopId]);
+          }
+
+          const routeIdsList = Array.isArray(stop.RouteIDs ?? stop.RouteIds)
+              ? (stop.RouteIDs ?? stop.RouteIds)
+              : [];
+          routeIdsList.forEach(routeIdValue => addRouteId(routeIdValue));
+
+          const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
+          routesArray.forEach(routeInfo => {
+              addRouteId(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id ?? routeInfo);
+          });
+
+          const singleRoute = stop.Route ?? stop.route;
+          if (singleRoute && typeof singleRoute === 'object') {
+              addRouteId(singleRoute.RouteID ?? singleRoute.RouteId ?? singleRoute.Id);
+          }
+
+          return routeIds;
+      }
+
       function buildStopMarkerGradient(routeIds) {
           const colors = Array.from(new Set((Array.isArray(routeIds) ? routeIds : [])
               .map(routeId => getRouteColor(routeId))
@@ -1485,9 +1533,25 @@
           stopMarkers.forEach(marker => map.removeLayer(marker));
           stopMarkers = [];
 
-          const groupedStops = groupStopsByPixelDistance(stopsArray, STOP_GROUPING_PIXEL_DISTANCE);
-          const groupedData = [];
           const selectedRouteIdsSet = getSelectedRouteIdSet();
+
+          const stopsForSelectedRoutes = selectedRouteIdsSet.size > 0
+              ? stopsArray.filter(stop => {
+                  const routeIds = collectRouteIdsForStop(stop);
+                  if (routeIds.size === 0) {
+                      return false;
+                  }
+                  for (const routeId of routeIds) {
+                      if (selectedRouteIdsSet.has(routeId)) {
+                          return true;
+                      }
+                  }
+                  return false;
+              })
+              : [];
+
+          const groupedStops = groupStopsByPixelDistance(stopsForSelectedRoutes, STOP_GROUPING_PIXEL_DISTANCE);
+          const groupedData = [];
 
           groupedStops.forEach(group => {
               const stopEntries = buildStopEntriesFromStops(group.stops);
@@ -1506,16 +1570,8 @@
 
               if (allRouteIdsForMarker.size === 0) {
                   group.stops.forEach(stop => {
-                      const routeIdFromStop = Number(stop.RouteID ?? stop.RouteId);
-                      if (!Number.isNaN(routeIdFromStop)) {
-                          allRouteIdsForMarker.add(routeIdFromStop);
-                      }
-                      const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
-                      routesArray.forEach(routeInfo => {
-                          const candidateRouteId = Number(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id);
-                          if (!Number.isNaN(candidateRouteId)) {
-                              allRouteIdsForMarker.add(candidateRouteId);
-                          }
+                      collectRouteIdsForStop(stop).forEach(routeId => {
+                          allRouteIdsForMarker.add(routeId);
                       });
                   });
               }
