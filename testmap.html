@@ -244,7 +244,8 @@
 
       const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
         updateWhenZooming: true,
-        updateWhenIdle: true
+        updateWhenIdle: true,
+        interactive: false
       });
       let sharedRouteRenderer = null;
       let routePaneName = 'overlayPane';
@@ -262,59 +263,6 @@
         return Object.assign(base, overrides || {});
       }
 
-      function auditPaneStyles(options = {}) {
-        const { sanitize = false } = options || {};
-        const panes = map && map._panes ? map._panes : null;
-        const results = [];
-        if (!panes) {
-          return results;
-        }
-        Object.entries(panes).forEach(([paneKey, paneElement]) => {
-          if (!paneElement || !paneElement.style) return;
-          const transform = paneElement.style.transform || '';
-          const willChange = paneElement.style.willChange || '';
-          const hasCustomTransform = /scale|rotate|matrix|skew/i.test(transform);
-          const hasCustomWillChange = willChange && willChange !== 'auto';
-          if (sanitize) {
-            if (hasCustomTransform) {
-              paneElement.style.transform = '';
-            }
-            if (hasCustomWillChange) {
-              paneElement.style.willChange = '';
-            }
-          }
-          results.push({
-            pane: paneKey,
-            transform,
-            willChange,
-            hasCustomTransform,
-            hasCustomWillChange
-          });
-        });
-        return results;
-      }
-
-      function ensureContainerHasNoTransforms(element) {
-        if (!element) return [];
-        const cleared = [];
-        element.style.transform = 'none';
-        element.style.willChange = '';
-        let current = element.parentElement;
-        while (current && current !== document.body && current !== document.documentElement) {
-          const computed = window.getComputedStyle(current);
-          if (computed && computed.transform && computed.transform !== 'none') {
-            cleared.push({ element: current.tagName, previousTransform: computed.transform });
-            current.style.transform = 'none';
-          }
-          if (current.style && current.style.willChange) {
-            cleared.push({ element: current.tagName, previousWillChange: current.style.willChange });
-            current.style.willChange = '';
-          }
-          current = current.parentElement;
-        }
-        return cleared;
-      }
-
       function isPixelGeometryCachedAcrossZooms() {
         if (enableOverlapDashRendering && overlapRenderer && typeof overlapRenderer.hasPersistentPixelCache === 'function') {
           return overlapRenderer.hasPersistentPixelCache();
@@ -324,96 +272,11 @@
 
       function logZoomDiagnostics(stage, extra = {}) {
         const zoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-        const paneAudit = auditPaneStyles({ sanitize: false });
-        const panesWithCustomStyles = paneAudit.filter(entry => entry.hasCustomTransform || entry.hasCustomWillChange);
         console.debug(`[routes:${stage}]`, Object.assign({
           zoom,
           routeLayerCount: Array.isArray(routeLayers) ? routeLayers.length : 0,
-          cachedPixelPointsReused: isPixelGeometryCachedAcrossZooms(),
-          panesWithCustomStyles
+          cachedPixelPointsReused: isPixelGeometryCachedAcrossZooms()
         }, extra || {}));
-      }
-
-      function collectRoutePathTransformIssues() {
-        const layers = Array.isArray(routeLayers) ? routeLayers : [];
-        const issues = [];
-        if (typeof window === 'undefined') {
-          return issues;
-        }
-        layers.forEach(layer => {
-          const path = layer && layer._path;
-          if (!path) return;
-          let parent = path.parentElement;
-          while (parent && parent !== document.body && parent !== document.documentElement) {
-            const inlineTransform = parent.style ? parent.style.transform || '' : '';
-            let computedTransform = '';
-            try {
-              const computed = window.getComputedStyle(parent);
-              if (computed && computed.transform && computed.transform !== 'none') {
-                computedTransform = computed.transform;
-              }
-            } catch (error) {
-              computedTransform = '';
-            }
-            const transformToCheck = inlineTransform || computedTransform;
-            if (transformToCheck && transformToCheck !== 'none' && /scale|rotate|matrix|skew/i.test(transformToCheck)) {
-              issues.push({
-                layerId: layer && layer._leaflet_id ? layer._leaflet_id : null,
-                parentTag: parent.tagName,
-                transform: transformToCheck
-              });
-              break;
-            }
-            if (parent.classList && parent.classList.contains('leaflet-map-pane')) {
-              break;
-            }
-            parent = parent.parentElement;
-          }
-        });
-        return issues;
-      }
-
-      function syncRendererView(renderer, mapInstance, options = {}) {
-        if (!renderer || typeof window === 'undefined') {
-          return { updated: false, reason: 'no-renderer' };
-        }
-        const container = renderer._container;
-        const mapRef = mapInstance || (typeof map !== 'undefined' ? map : null);
-        if (!mapRef || typeof mapRef.getZoom !== 'function') {
-          return { updated: false, reason: 'no-map' };
-        }
-        const { allowDuringZoom = false } = options || {};
-        const zoom = mapRef.getZoom();
-        if (!Number.isFinite(zoom)) {
-          return { updated: false, reason: 'invalid-zoom' };
-        }
-
-        const previousZoom = typeof renderer._zoom === 'number' ? renderer._zoom : null;
-        renderer._zoom = zoom;
-
-        const zoomAnimating = !!(mapRef && (mapRef._animatingZoom || mapRef._zoomAnimated && mapRef._zooming));
-        if (zoomAnimating && !allowDuringZoom) {
-          return { updated: false, previousZoom, reason: 'animating-zoom' };
-        }
-
-        if (typeof renderer._update === 'function') {
-          renderer._update();
-          return { updated: true, previousZoom };
-        }
-
-        if (container && typeof mapRef._getMapPanePos === 'function') {
-          const pos = mapRef._getMapPanePos();
-          const x = Number.isFinite(pos?.x) ? pos.x : 0;
-          const y = Number.isFinite(pos?.y) ? pos.y : 0;
-          if (typeof L !== 'undefined' && L.DomUtil && typeof L.DomUtil.setPosition === 'function') {
-            L.DomUtil.setPosition(container, L.point(x, y));
-          } else {
-            container.style.transform = `translate3d(${x}px, ${y}px, 0px)`;
-          }
-          return { updated: true, previousZoom };
-        }
-
-        return { updated: false, reason: 'no-container' };
       }
 
       const params = new URLSearchParams(window.location.search);
@@ -989,18 +852,15 @@
       }
 
       function initMap() {
-          const mapElement = document.getElementById('map');
-          const containerTransformFixes = ensureContainerHasNoTransforms(mapElement);
-          map = L.map('map', { zoomControl: false, crs: L.CRS.EPSG3857 }).setView([38.03799212281404, -78.50981502838886], 15);
-          routePaneName = 'routesPane';
-          map.createPane(routePaneName);
-          const routesPane = map.getPane(routePaneName);
-          if (routesPane) {
-              routesPane.style.zIndex = 425;
-              routesPane.style.pointerEvents = 'none';
-              if (!routesPane.classList.contains('leaflet-zoom-animated')) {
-                  routesPane.classList.add('leaflet-zoom-animated');
-              }
+          map = L.map('map', {
+              zoomControl: false,
+              crs: L.CRS.EPSG3857,
+              zoomAnimation: true,
+              markerZoomAnimation: true
+          }).setView([38.03799212281404, -78.50981502838886], 15);
+          sharedRouteRenderer = L.svg({ padding: 0 });
+          if (sharedRouteRenderer) {
+              map.addLayer(sharedRouteRenderer);
           }
           map.createPane('stopsPane');
           const stopsPane = map.getPane('stopsPane');
@@ -1008,15 +868,6 @@
               stopsPane.style.zIndex = 450;
               stopsPane.style.pointerEvents = 'auto';
           }
-          sharedRouteRenderer = L.svg({ padding: 0, pane: routePaneName });
-          if (sharedRouteRenderer) {
-              map.addLayer(sharedRouteRenderer);
-          }
-          const paneAuditAfterInit = auditPaneStyles({ sanitize: true });
-          console.debug('[routes:init]', {
-              containerTransformFixes,
-              sanitizedPaneStyles: paneAuditAfterInit.filter(entry => entry.hasCustomTransform || entry.hasCustomWillChange)
-          });
           const initialZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
           if (Number.isFinite(initialZoom)) {
               setRouteWeightBaseline(initialZoom);
@@ -1062,13 +913,6 @@
           map.on('zoom', event => {
               const targetZoom = typeof event?.zoom === 'number' ? event.zoom : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
               logZoomDiagnostics('zoom', { targetZoom });
-          });
-          map.on('zoomanim', event => {
-              if (sharedRouteRenderer && typeof sharedRouteRenderer._handleZoomAnim === 'function') {
-                  sharedRouteRenderer._handleZoomAnim(event);
-              } else {
-                  syncRendererView(sharedRouteRenderer, map, { allowDuringZoom: true });
-              }
           });
           map.on('zoomstart', () => {
               const startZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
@@ -1117,8 +961,6 @@
 
               const referenceZoom = getActiveReferenceZoom();
               const computedWeight = computeDebugStrokeWeight(currentZoom);
-              const pathTransformIssues = collectRoutePathTransformIssues();
-              const rendererSyncState = syncRendererView(sharedRouteRenderer, map);
               logZoomDiagnostics('zoomend', {
                   oldZoom: previousZoom,
                   newZoom: currentZoom,
@@ -1127,9 +969,7 @@
                   handlers: {
                       overlapRenderer: overlapRendererHandled,
                       simpleStrokeUpdate
-                  },
-                  pathTransformIssues: pathTransformIssues,
-                  rendererSyncState
+                  }
               });
               if (Number.isFinite(currentZoom) && (routeWeightBaselinePending || !Number.isFinite(routeWeightReferenceZoom))) {
                   setRouteWeightBaseline(currentZoom);
@@ -1141,7 +981,7 @@
               zoomDebugState.zoomStart = null;
           });
           map.on('move', () => {
-              syncRendererView(sharedRouteRenderer, map);
+              updatePopupPositions();
           });
           map.on('moveend', () => {
               const currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
@@ -1150,7 +990,6 @@
                       setRouteWeightBaseline(currentZoom);
                   }
               }
-              syncRendererView(sharedRouteRenderer, map);
               updatePopupPositions();
           });
       }
@@ -1710,6 +1549,10 @@
 
       function updatePopupPositions() {
           if (!map || typeof map?.latLngToContainerPoint !== 'function') {
+              return;
+          }
+          const zooming = !!(map?._animatingZoom || (map?._zoomAnimated && map?._zooming));
+          if (zooming) {
               return;
           }
           customPopups.forEach(popupElement => {
