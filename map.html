@@ -10,16 +10,20 @@
     <style>
       .custom-popup {
         position: absolute;
-        background: #232D4B;
-        border: 4px solid white;
-        border-radius: 15px;
-        padding: 10px;
+        background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+        border: 3px solid rgba(255, 255, 255, 0.92);
+        border-radius: 16px;
+        padding: 12px 14px;
         pointer-events: auto;
         transform: translate(-50%, -100%);
         white-space: nowrap;
         z-index: 1000;
-        color: white;
+        color: #f8fafc;
         text-transform: uppercase;
+        font-family: 'FGDC', sans-serif;
+        font-size: 14px;
+        letter-spacing: 0.35px;
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.38);
       }
       .custom-popup-arrow {
         position: absolute;
@@ -29,7 +33,7 @@
         height: 0;
         border-left: 10px solid transparent;
         border-right: 10px solid transparent;
-        border-top: 10px solid white;
+        border-top: 10px solid rgba(255, 255, 255, 0.92);
         transform: translateX(-50%);
       }
       .custom-popup-close {
@@ -37,33 +41,104 @@
         bottom: 5px;
         right: 5px;
         cursor: pointer;
-        background: #f00;
-        color: #fff;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
         border: none;
         border-radius: 50%;
         width: 20px;
         height: 20px;
         line-height: 20px;
         text-align: center;
-        font-size: 14px;
+        font-size: 13px;
+        box-shadow: 0 10px 20px rgba(229, 114, 0, 0.35);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .custom-popup-close:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.4);
       }
       .route-pill {
         display: inline-block;
-        padding: 5px 10px;
-        border-radius: 20px;
-        color: white;
+        padding: 5px 12px;
+        border-radius: 999px;
+        color: #1f1300;
         font-weight: bold;
         margin-top: 10px;
         text-align: center;
-        border: 2px solid #FFFFFF;
+        border: none;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        box-shadow: 0 12px 24px var(--route-pill-shadow-color, rgba(229, 114, 0, 0.35));
+      }
+      .stop-marker-container {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        line-height: 0;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+      }
+      .stop-marker-outer {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        width: var(--stop-marker-size, 24px);
+        height: var(--stop-marker-size, 24px);
+        border-radius: 50%;
+        border: 2px solid var(--stop-marker-border-color, rgba(15,23,42,0.55));
+        background: var(--stop-marker-gradient, #ffffff);
+        box-shadow: 0 0 0 var(--stop-marker-outline-size, 0px) var(--stop-marker-outline-color, transparent),
+                    0 12px 24px rgba(15,23,42,0.28);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .stop-marker-container:hover .stop-marker-outer,
+      .stop-marker-container:focus-visible .stop-marker-outer {
+        transform: translateY(-2px) scale(1.05);
+        box-shadow: 0 0 0 var(--stop-marker-outline-size, 0px) var(--stop-marker-outline-color, transparent),
+                    0 18px 32px rgba(15,23,42,0.32);
+      }
+      .stop-entry + .stop-entry {
+        margin-top: 12px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      .stop-entry-title {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 4px;
+      }
+      .stop-entry-id {
+        display: block;
+        font-size: 12px;
+        opacity: 0.9;
+        margin-bottom: 6px;
       }
       @font-face {
         font-family: 'FGDC';
         src: url('FGDC.ttf') format('truetype');
       }
-      body, .custom-popup {
+      :root {
+        --navy: #232D4B;
+        --navy-dark: #1b274a;
+        --navy-darker: #1a2441;
+        --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+        --panel-border-color: rgba(35, 45, 75, 0.12);
+        --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+        --panel-highlight: rgba(35, 45, 75, 0.06);
+        --panel-text-color: #1f2937;
+        --panel-heading-color: #232D4B;
+        --panel-muted-text: #4b5563;
+        --accent: #E57200;
+        --accent-bright: #ff9c3e;
+        --accent-soft: rgba(229, 114, 0, 0.28);
+      }
+      body {
         font-family: 'FGDC', sans-serif;
         font-size: 14px;
+        color: var(--panel-text-color);
       }
       #map {
         height: 100%;
@@ -74,129 +149,610 @@
         margin: 0;
         padding: 0;
       }
+      .loading-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(71, 85, 105, 0.55);
+        color: #f1f5f9;
+        font-family: 'FGDC', sans-serif;
+        font-size: 18px;
+        letter-spacing: 0.3rem;
+        text-transform: uppercase;
+        z-index: 3000;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+        backdrop-filter: blur(2px);
+      }
+      .loading-overlay.is-visible {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: all;
+      }
+      .loading-overlay__inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .loading-overlay__spinner {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 4px solid rgba(241, 245, 249, 0.35);
+        border-top-color: #f8fafc;
+        animation: loading-overlay-spin 1s linear infinite;
+      }
+      .loading-overlay__text {
+        font-size: 16px;
+        letter-spacing: 0.35rem;
+      }
+      @keyframes loading-overlay-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
       /* Route Selector styling */
-      #routeSelector {
-        width: 300px;
+      .selector-panel {
+        width: 340px;
         position: fixed;
         top: 10px;
-        right: 10px;
         z-index: 1100;
-        background: rgba(255, 255, 255, 0.9);
-        padding: 10px;
-        border-radius: 5px;
+        background: var(--panel-surface);
+        border-radius: 18px;
+        border: 1px solid var(--panel-border-color);
+        box-shadow: var(--panel-shadow);
         max-height: 90vh;
-        overflow-y: auto;
-        transition: transform 0.3s ease;
-		font-size: 21px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        backdrop-filter: blur(12px);
+        transition: transform 0.35s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+        font-size: 16px;
+        color: var(--panel-text-color);
+      }
+      #routeSelector {
+        right: 10px;
+      }
+      #controlPanel {
+        left: 10px;
       }
       #routeSelector.hidden {
-        transform: translateX(320px);
+        transform: translateX(calc(100% + 24px));
+        opacity: 0;
+        pointer-events: none;
       }
-      #routeSelector h3 {
-        margin-top: 0;
+      #controlPanel.hidden {
+        transform: translateX(calc(-100% - 24px));
+        opacity: 0;
+        pointer-events: none;
       }
-      /* Updated button styles for route selector (including speed toggle) */
-      #routeSelector button {
-        margin: 5px 2px;
-        padding: 5px 10px;
-        font-size: 24px;
-        font-family: 'FGDC', sans-serif;
-        background-color: #E57200;
-        color: black;
-        border: none;
-        border-radius: 20px;
-        cursor: pointer;
+      .selector-panel .selector-header {
+        background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+        color: #f8fafc;
+        padding: 16px 20px 18px;
+        box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
       }
-      #routeSelector label {
+      .selector-panel .selector-header-text {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .selector-panel .selector-logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        border-radius: 12px;
+        background: #ffffff;
+        border: 1px solid rgba(35, 45, 75, 0.15);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+      }
+      .selector-panel .selector-logo img {
         display: block;
-        margin-bottom: 5px;
+        max-width: 100%;
+        max-height: 120px;
+        height: auto;
+      }
+      .selector-panel .selector-title {
+        margin: 0;
+        font-size: 22px;
+        letter-spacing: 0.4px;
+      }
+      .selector-panel .selector-subtitle {
+        margin-top: 6px;
+        font-size: 13px;
+        opacity: 0.75;
+        letter-spacing: 0.3px;
+      }
+      .selector-panel .selector-content {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 18px 20px 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .selector-panel .selector-content::-webkit-scrollbar {
+        width: 8px;
+      }
+      .selector-panel .selector-content::-webkit-scrollbar-track {
+        background: rgba(35, 45, 75, 0.08);
+        border-radius: 12px;
+      }
+      .selector-panel .selector-content::-webkit-scrollbar-thumb {
+        background: rgba(35, 45, 75, 0.35);
+        border-radius: 12px;
+      }
+      .selector-panel .selector-content::-webkit-scrollbar-thumb:hover {
+        background: rgba(229, 114, 0, 0.6);
+      }
+      .selector-panel .selector-group {
+        background: var(--panel-highlight);
+        border-radius: 14px;
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .selector-panel .selector-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1.6px;
+        color: rgba(35, 45, 75, 0.75);
+      }
+      .selector-panel .selector-control {
+        position: relative;
+      }
+      .selector-panel .selector-control::after {
+        content: '\25BC';
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        pointer-events: none;
+        font-size: 12px;
+        color: rgba(35, 45, 75, 0.65);
+        opacity: 0.6;
+      }
+      .selector-panel select {
+        width: 100%;
+        padding: 10px 42px 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(35, 45, 75, 0.25);
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 6px 18px rgba(17, 24, 39, 0.1);
+        font-size: 16px;
+        font-family: 'FGDC', sans-serif;
+        color: var(--panel-text-color);
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+      }
+      .selector-panel select:focus {
+        outline: none;
+        border-color: rgba(229, 114, 0, 0.8);
+        box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.2);
+      }
+      .selector-panel .selector-section {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .selector-panel .selector-section-heading {
+        display: flex;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 12px;
+        width: 100%;
+      }
+      .selector-panel .selector-section-heading h3 {
+        margin: 0;
+        font-size: 18px;
+        color: #232D4B;
+        flex: 1 1 100%;
+      }
+      .selector-panel .selector-actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 10px;
+        width: 100%;
+        flex: 1 1 100%;
+        margin-top: 4px;
+      }
+      .selector-panel .selector-actions .pill-button {
+        width: 100%;
+      }
+      .selector-panel .route-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .selector-panel label.route-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+        background: var(--panel-highlight);
+        border-radius: 14px;
+        border: 1px solid transparent;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
         cursor: pointer;
       }
-      #routeSelector .color-box {
-        display: inline-block;
-        width: 12px;
-        height: 12px;
-        margin-right: 5px;
-        vertical-align: middle;
+      .selector-panel label.route-option:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+        border-color: rgba(35, 45, 75, 0.25);
       }
-      /* Tab styling */
-      #routeSelectorTab {
+      .selector-panel label.route-option.is-active {
+        background: rgba(229, 114, 0, 0.14);
+        border-color: rgba(229, 114, 0, 0.55);
+        box-shadow: 0 16px 32px rgba(229, 114, 0, 0.24);
+      }
+      .selector-panel label.route-option--out {
+        background: rgba(35, 45, 75, 0.08);
+      }
+      .selector-panel label.route-option input[type="checkbox"] {
+        margin-top: 2px;
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent);
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+      .selector-panel label.route-option input[type="checkbox"]:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.3);
+        border-radius: 4px;
+      }
+      .selector-panel .route-option-swatch {
+        display: inline-flex;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        margin-top: 2px;
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.2);
+        flex-shrink: 0;
+      }
+      .selector-panel label.route-option input[type="checkbox"]:checked + .route-option-swatch {
+        transform: scale(1.1);
+        box-shadow: 0 0 0 2px rgba(229, 114, 0, 0.4);
+      }
+      .selector-panel .route-option-text {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 15px;
+        line-height: 1.3;
+      }
+      .selector-panel .route-option-name {
+        font-weight: 600;
+        color: #111827;
+        letter-spacing: 0.2px;
+      }
+      .selector-panel .route-option-detail {
+        font-size: 12px;
+        color: var(--panel-muted-text);
+      }
+      .selector-panel button {
+        border: none;
+        border-radius: 999px;
+        padding: 10px 16px;
+        font-size: 15px;
+        font-family: 'FGDC', sans-serif;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+        background: rgba(35, 45, 75, 0.1);
+        color: #1b2540;
+        border: 1px solid rgba(35, 45, 75, 0.18);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .selector-panel button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px rgba(35, 45, 75, 0.18);
+        background: rgba(35, 45, 75, 0.18);
+      }
+      .selector-panel button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.35);
+      }
+      .selector-panel button:active {
+        transform: translateY(0);
+      }
+      .selector-panel button.accent {
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
+        border-color: rgba(229, 114, 0, 0.35);
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
+      }
+      .selector-panel button.accent:hover {
+        box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
+        background: linear-gradient(135deg, #f4841a, #ffad55);
+      }
+      .selector-panel .pill-button {
+        font-size: 17px;
+        padding: 12px 20px;
+        letter-spacing: 0.3px;
+      }
+      .selector-panel .display-mode-group {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 10px;
+      }
+      .selector-panel .display-mode-button {
+        width: 100%;
+      }
+      .selector-panel .display-mode-button.is-active {
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
+        border-color: rgba(229, 114, 0, 0.35);
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
+      }
+      .selector-panel .display-mode-button.is-active:hover {
+        box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
+        background: linear-gradient(135deg, #f4841a, #ffad55);
+      }
+      .selector-panel .full-width {
+        width: 100%;
+      }
+      .panel-toggle {
         position: fixed;
         top: 50%;
-        right: 0;
-        width: 30px;
-        height: 60px;
-        background: #ccc;
-        border-top-left-radius: 10px;
-        border-bottom-left-radius: 10px;
+        width: 34px;
+        height: 70px;
+        background: linear-gradient(180deg, var(--navy), var(--navy-darker));
         cursor: pointer;
-        display: block;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         transform: translateY(-50%);
         z-index: 1150;
         text-align: center;
-        line-height: 60px;
-        font-size: 20px;
+        font-size: 22px;
         user-select: none;
-        transition: right 0.3s ease;
+        transition: left 0.3s ease, right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+        color: #f8fafc;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+      }
+      .panel-toggle--right {
+        right: 0;
+        border-top-left-radius: 14px;
+        border-bottom-left-radius: 14px;
+      }
+      .panel-toggle--left {
+        left: 0;
+        border-top-right-radius: 14px;
+        border-bottom-right-radius: 14px;
+      }
+      .panel-toggle:hover {
+        background: linear-gradient(180deg, #2d3a5e, #253355);
+        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.3);
+      }
+      .panel-toggle:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(15, 23, 42, 0.3);
       }
       #routeLegend {
         position: fixed;
         top: 10px;
         left: 10px;
         z-index: 1100;
-        background: rgba(255, 255, 255, 0.9);
-        padding: 12px 16px;
-        border-radius: 8px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        background: var(--panel-surface);
+        padding: 18px 20px 20px;
+        border-radius: 18px;
+        border: 1px solid var(--panel-border-color);
+        box-shadow: var(--panel-shadow);
         max-width: 320px;
         display: none;
-        font-size: 20px;
+        max-height: 70vh;
+        overflow-y: auto;
+        font-size: 16px;
+        color: var(--panel-text-color);
+        backdrop-filter: blur(12px);
+        transition: transform 0.3s ease, opacity 0.3s ease, box-shadow 0.3s ease;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(35, 45, 75, 0.35) rgba(35, 45, 75, 0.08);
+      }
+      #routeLegend::-webkit-scrollbar {
+        width: 8px;
+      }
+      #routeLegend::-webkit-scrollbar-track {
+        background: rgba(35, 45, 75, 0.08);
+        border-radius: 12px;
+      }
+      #routeLegend::-webkit-scrollbar-thumb {
+        background: rgba(35, 45, 75, 0.35);
+        border-radius: 12px;
       }
       #routeLegend .legend-title {
-        font-weight: bold;
-        margin-bottom: 8px;
+        font-weight: 600;
+        margin: 0 0 12px;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.6px;
+        color: var(--panel-heading-color);
+        font-size: 18px;
       }
       #routeLegend .legend-item {
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin-bottom: 8px;
+        gap: 12px;
+        padding: 12px 14px;
+        background: var(--panel-highlight);
+        border-radius: 14px;
+        border: 1px solid transparent;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
       }
-      #routeLegend .legend-item:last-child {
-        margin-bottom: 0;
+      #routeLegend .legend-item + .legend-item {
+        margin-top: 12px;
+      }
+      #routeLegend .legend-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, 0.14);
+        border-color: rgba(35, 45, 75, 0.2);
       }
       #routeLegend .legend-color {
         width: 18px;
         height: 18px;
         border-radius: 50%;
-        border: 2px solid #FFFFFF;
-        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.2);
         flex-shrink: 0;
       }
       #routeLegend .legend-text {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 3px;
       }
       #routeLegend .legend-name {
-        font-weight: bold;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        color: var(--panel-heading-color);
       }
       #routeLegend .legend-description {
-        font-size: 16px;
-        color: #1b1b1b;
+        font-size: 13px;
+        color: var(--panel-muted-text);
       }
       @media (max-width: 600px) {
-        #routeSelector { width: 80%; right: 10%; font-size: 18px; }
-        #routeSelector.hidden { transform: translateX(calc(100% + 20px)); }
-        #routeSelector button { font-size: 20px; }
-        #routeSelector label { font-size: 18px; }
-        #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
+        .selector-panel {
+          width: calc(100% - 32px);
+          top: 16px;
+        }
+        #routeSelector {
+          right: 16px;
+        }
+        #controlPanel {
+          left: 16px;
+        }
+        #routeSelector.hidden {
+          transform: translateX(calc(100% + 20px));
+        }
+        #controlPanel.hidden {
+          transform: translateX(calc(-100% - 20px));
+        }
+        .selector-panel .selector-content {
+          padding: 16px;
+        }
+        .selector-panel .selector-title {
+          font-size: 20px;
+        }
+        .selector-panel .selector-subtitle {
+          font-size: 12px;
+        }
+        .selector-panel .selector-section-heading h3 {
+          font-size: 16px;
+        }
+        .selector-panel button {
+          font-size: 14px;
+        }
+        .selector-panel .pill-button {
+          font-size: 16px;
+        }
+        .panel-toggle {
+          width: 40px;
+          height: 80px;
+          font-size: 28px;
+        }
+        #routeLegend {
+          left: 16px;
+          right: 16px;
+          top: auto;
+          bottom: 88px;
+          max-width: none;
+          max-height: 45vh;
+        }
+        .credit {
+          bottom: 16px;
+          right: 16px;
+          left: auto;
+          font-size: 12px;
+          padding: 8px 14px;
+          letter-spacing: 0.2px;
+        }
+        .cookie-banner {
+          padding: 14px 16px;
+        }
       }
-      .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
-      .cookie-banner{position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.8);color:white;padding:10px;text-align:center;font-size:14px;z-index:1200;}
-      .cookie-banner button{margin-left:10px;}
+      .credit {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        font-size: 13px;
+        color: rgba(35, 45, 75, 0.8);
+        background: var(--panel-surface);
+        border-radius: 999px;
+        padding: 10px 16px;
+        border: 1px solid var(--panel-border-color);
+        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.2);
+        letter-spacing: 0.25px;
+        text-transform: uppercase;
+        backdrop-filter: blur(10px);
+        pointer-events: none;
+      }
+      .cookie-banner {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: linear-gradient(135deg, rgba(35, 45, 75, 0.95), rgba(27, 39, 74, 0.95));
+        color: #f8fafc;
+        padding: 16px 20px;
+        font-size: 14px;
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        box-shadow: 0 -16px 36px rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(14px);
+        letter-spacing: 0.25px;
+        text-align: center;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      .cookie-banner button {
+        margin-left: 0;
+        border: none;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
+        padding: 10px 20px;
+        font-family: 'FGDC', sans-serif;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .cookie-banner button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 16px 30px rgba(229, 114, 0, 0.42);
+      }
+      .cookie-banner button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 30px rgba(229, 114, 0, 0.42);
+      }
     </style>
     <script>
       // Manually set these variables.
@@ -206,14 +762,59 @@
       //            but only for routes that are public-facing.
       // kioskMode: true to hide the route selector/tab and suppress vehicle overlays for a public display.
       // adminKioskMode: true to hide the route selector/tab while retaining admin overlays (previous kiosk behavior).
-      // showSpeed/showBlockNumbers: only one may be true at a time.
+      // displayMode selects whether admin overlays show speed, block numbers, or neither.
+      const DISPLAY_MODES = Object.freeze({
+        SPEED: 'speed',
+        BLOCK: 'block',
+        NONE: 'none'
+      });
       let adminMode = true; // shows unit numbers and speed/block bubbles
       let kioskMode = false;
       let adminKioskMode = false;
-      let showSpeed = false; // default to showing block numbers
-      let showBlockNumbers = true;
+      let displayMode = DISPLAY_MODES.BLOCK;
 
       const enableOverlapDashRendering = true;
+
+      const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
+        updateWhenZooming: true,
+        updateWhenIdle: true,
+        interactive: false
+      });
+      let sharedRouteRenderer = null;
+      let routePaneName = 'overlayPane';
+      let lastRenderedLegendRoutes = [];
+
+      function createSpatialIndex(options = {}) {
+        if (typeof rbush === 'function') {
+          try {
+            return rbush(options.maxEntries);
+          } catch (error) {
+            console.error('Failed to create rbush index via rbush()', error);
+          }
+        }
+        if (typeof RBush === 'function') {
+          try {
+            return new RBush(options.maxEntries);
+          } catch (error) {
+            console.error('Failed to create rbush index via new RBush()', error);
+          }
+        }
+        console.error('RBush spatial index library is not available. Route overlap rendering will be disabled.');
+        return null;
+      }
+
+      function mergeRouteLayerOptions(overrides = {}, rendererOverride = null, paneOverride = null) {
+        const base = Object.assign({}, ROUTE_LAYER_BASE_OPTIONS);
+        const renderer = rendererOverride || sharedRouteRenderer;
+        if (renderer) {
+          base.renderer = renderer;
+        }
+        const pane = paneOverride || routePaneName;
+        if (typeof pane === 'string' && pane) {
+          base.pane = pane;
+        }
+        return Object.assign(base, overrides || {});
+      }
 
       const params = new URLSearchParams(window.location.search);
       const kioskParam = params.get('kioskMode');
@@ -236,6 +837,9 @@
       let routeColors = {};
       let routeLayers = [];
       let stopMarkers = [];
+      let stopDataCache = [];
+      let routeStopAddressMap = {};
+      let routeStopRouteMap = {};
       let nameBubbles = {};
       let busBlocks = {};
       let previousBusData = {};
@@ -247,8 +851,77 @@
 
       let overlapRenderer = null;
 
+      let activeAgencyLoadCount = 0;
+
+      function showLoadingOverlay() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (!overlay) return;
+        overlay.classList.add('is-visible');
+        overlay.setAttribute('aria-busy', 'true');
+      }
+
+      function hideLoadingOverlay() {
+        const overlay = document.getElementById('loadingOverlay');
+        if (!overlay) return;
+        overlay.classList.remove('is-visible');
+        overlay.setAttribute('aria-busy', 'false');
+      }
+
+      function beginAgencyLoad() {
+        activeAgencyLoadCount += 1;
+        showLoadingOverlay();
+      }
+
+      function completeAgencyLoad() {
+        activeAgencyLoadCount = Math.max(0, activeAgencyLoadCount - 1);
+        if (activeAgencyLoadCount === 0) {
+          hideLoadingOverlay();
+        }
+      }
+
+      const STOP_GROUPING_PIXEL_DISTANCE = 20;
+      const STOP_MARKER_ICON_SIZE = 24;
+      const STOP_MARKER_BORDER_COLOR = 'rgba(15,23,42,0.55)';
+      const STOP_MARKER_OUTLINE_COLOR = '#FFFFFF';
+      const STOP_MARKER_OUTLINE_WIDTH = 2;
+
       let agencies = [];
       let baseURL = '';
+
+      let routePolylineCache = new Map();
+      let lastRouteRenderState = {
+        selectionKey: '',
+        colorSignature: '',
+        geometrySignature: '',
+        useOverlapRenderer: false
+      };
+      let lastRouteSelectorSignature = null;
+
+      const DEFAULT_ROUTE_STROKE_WEIGHT = 6;
+      const MIN_ROUTE_STROKE_WEIGHT = 3;
+      const MAX_ROUTE_STROKE_WEIGHT = 12;
+      const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
+      const ROUTE_WEIGHT_BASE_ZOOM = 15;
+      const ROUTE_WEIGHT_STEP_PER_ZOOM = 1;
+
+      function computeRouteStrokeWeight(zoom) {
+        const baseWeight = DEFAULT_ROUTE_STROKE_WEIGHT;
+        const minWeight = MIN_ROUTE_STROKE_WEIGHT;
+        const maxWeight = MAX_ROUTE_STROKE_WEIGHT;
+        const targetZoom = Number.isFinite(zoom)
+          ? zoom
+          : (map && typeof map?.getZoom === 'function' ? map.getZoom() : null);
+        if (!Number.isFinite(targetZoom)) {
+          return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+        }
+        const zoomDeltaRaw = targetZoom - ROUTE_WEIGHT_BASE_ZOOM;
+        const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
+        const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
+        if (!Number.isFinite(computed)) {
+          return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+        }
+        return Math.max(minWeight, Math.min(maxWeight, computed));
+      }
 
       async function loadAgencies() {
         try {
@@ -288,24 +961,76 @@
           } else {
             baseURL = agencies[0]?.url || '';
           }
+          updateControlPanel();
           updateRouteSelector(activeRoutes, true);
         } catch (e) {
           console.error('Failed to load agencies', e);
         }
       }
 
-      function positionRouteTab() {
-        const panel = document.getElementById("routeSelector");
-        const tab = document.getElementById("routeSelectorTab");
+      function positionPanelTab(panelId, tabId, side = 'right') {
+        const panel = document.getElementById(panelId);
+        const tab = document.getElementById(tabId);
         if (!panel || !tab) return;
+
+        const panelRect = panel.getBoundingClientRect();
+        const tabRect = tab.getBoundingClientRect();
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const tabHeight = tabRect.height || tab.offsetHeight || parseFloat(window.getComputedStyle(tab).height) || 0;
+        if (Number.isFinite(panelRect?.top) && Number.isFinite(panelRect?.height)) {
+          const panelCenter = panelRect.top + panelRect.height / 2;
+          if (Number.isFinite(panelCenter)) {
+            const halfTab = Number.isFinite(tabHeight) ? tabHeight / 2 : 0;
+            let targetTop = panelCenter;
+            if (Number.isFinite(viewportHeight) && halfTab > 0) {
+              const minTop = halfTab + 8;
+              const maxTop = viewportHeight - halfTab - 8;
+              if (Number.isFinite(minTop) && Number.isFinite(maxTop)) {
+                targetTop = Math.min(Math.max(panelCenter, minTop), Math.max(minTop, maxTop));
+              }
+            }
+            if (Number.isFinite(targetTop)) {
+              tab.style.top = `${targetTop}px`;
+            }
+          }
+        }
+
         const panelStyle = window.getComputedStyle(panel);
-        const gap = parseFloat(panelStyle.right) || 0;
+        const gap = side === 'right'
+          ? (parseFloat(panelStyle.right) || 0)
+          : (parseFloat(panelStyle.left) || 0);
         const offset = panel.offsetWidth + gap;
-        tab.style.right = panel.classList.contains("hidden") ? "0" : offset + "px";
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        const tabWidth = tabRect.width || tab.offsetWidth || parseFloat(window.getComputedStyle(tab).width) || 0;
+
+        if (side === 'right') {
+          if (panel.classList.contains('hidden')) {
+            tab.style.right = '0';
+          } else {
+            const maxRight = Math.max(0, viewportWidth - tabWidth);
+            const clampedOffset = Math.min(offset, maxRight);
+            tab.style.right = `${clampedOffset}px`;
+          }
+          tab.style.left = '';
+        } else {
+          if (panel.classList.contains('hidden')) {
+            tab.style.left = '0';
+          } else {
+            const maxLeft = Math.max(0, viewportWidth - tabWidth);
+            const clampedOffset = Math.min(offset, maxLeft);
+            tab.style.left = `${clampedOffset}px`;
+          }
+          tab.style.right = '';
+        }
       }
 
-      window.addEventListener("load", positionRouteTab);
-      window.addEventListener("resize", positionRouteTab);
+      function positionAllPanelTabs() {
+        positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
+        positionPanelTab('controlPanel', 'controlPanelTab', 'left');
+      }
+
+      window.addEventListener("load", positionAllPanelTabs);
+      window.addEventListener("resize", positionAllPanelTabs);
 
       // Global storage for routes from GetRoutes.
       let allRoutes = {};
@@ -324,6 +1049,37 @@
         if (Number.isNaN(id)) return false;
         if (routeSelections.hasOwnProperty(id)) return routeSelections[id];
         return activeRoutes.has(id);
+      }
+
+      function normalizeRouteIdForComparison(routeId) {
+        if (routeId === undefined || routeId === null) return null;
+        const numericId = Number(routeId);
+        if (Number.isFinite(numericId)) {
+          return `${numericId}`;
+        }
+        if (typeof routeId === 'string') {
+          const trimmed = routeId.trim().toLowerCase();
+          return trimmed !== '' ? trimmed : null;
+        }
+        const stringValue = String(routeId).trim().toLowerCase();
+        return stringValue !== '' ? stringValue : null;
+      }
+
+      function routeHasActiveVehicles(routeId) {
+        const normalizedRouteId = normalizeRouteIdForComparison(routeId);
+        if (!normalizedRouteId) return false;
+        let activeValues = [];
+        if (activeRoutes instanceof Set) {
+          activeValues = Array.from(activeRoutes);
+        } else if (Array.isArray(activeRoutes)) {
+          activeValues = activeRoutes.slice();
+        } else {
+          return false;
+        }
+        return activeValues.some(activeRouteId => {
+          const normalizedActive = normalizeRouteIdForComparison(activeRouteId);
+          return normalizedActive !== null && normalizedActive === normalizedRouteId;
+        });
       }
 
       function setRouteVisibility(route) {
@@ -354,88 +1110,315 @@
         return isRoutePublicById(id);
       }
 
-      // Toggle between displaying speed or block numbers.
-      function toggleSpeedOrBlock() {
-        if (showSpeed) {
-          showSpeed = false;
-          showBlockNumbers = true;
-        } else {
-          showSpeed = true;
-          showBlockNumbers = false;
+      function setDisplayMode(mode) {
+        const normalizedMode = typeof mode === 'string' ? mode.toLowerCase() : '';
+        const validModes = Object.values(DISPLAY_MODES);
+        if (!validModes.includes(normalizedMode)) return;
+        const modeChanged = displayMode !== normalizedMode;
+        displayMode = normalizedMode;
+        updateDisplayModeButtons();
+        if (modeChanged) {
+          updateDisplayModeOverlays();
+          refreshMap();
         }
-        document.getElementById("toggleDisplayButton").innerHTML = showSpeed ? "Show Block Numbers" : "Show Speed";
-        refreshMap();
+      }
+
+      function updateDisplayModeButtons() {
+        const buttonContainer = document.getElementById('displayModeButtons');
+        if (!buttonContainer) return;
+        const buttons = buttonContainer.querySelectorAll('button[data-mode]');
+        buttons.forEach(button => {
+          const buttonMode = (button.dataset.mode || '').toLowerCase();
+          const isActive = buttonMode === displayMode;
+          button.classList.toggle('is-active', isActive);
+        });
+      }
+
+      function updateDisplayModeOverlays() {
+        if (!map || typeof map.removeLayer !== 'function') return;
+        Object.keys(nameBubbles).forEach(vehicleID => {
+          const bubble = nameBubbles[vehicleID];
+          if (!bubble) return;
+          if (bubble.speedMarker && displayMode !== DISPLAY_MODES.SPEED) {
+            map.removeLayer(bubble.speedMarker);
+            delete bubble.speedMarker;
+          }
+          if (bubble.blockMarker && displayMode !== DISPLAY_MODES.BLOCK) {
+            map.removeLayer(bubble.blockMarker);
+            delete bubble.blockMarker;
+          }
+        });
+      }
+
+      function applyRouteOptionState(inputElement) {
+        if (!inputElement || typeof inputElement.closest !== 'function') return;
+        const parentLabel = inputElement.closest('label.route-option');
+        if (!parentLabel) return;
+        if (inputElement.checked) {
+          parentLabel.classList.add('is-active');
+        } else {
+          parentLabel.classList.remove('is-active');
+        }
+      }
+
+      function escapeAttribute(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      function updateControlPanel() {
+        const panel = document.getElementById('controlPanel');
+        if (!panel) return;
+
+        const selectedAgency = agencies.find(a => a.url === baseURL);
+        const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
+        let logoHtml = '';
+        if (sanitizedBaseURL) {
+          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
+          const safeLogoSrc = escapeAttribute(agencyLogoUrl);
+          const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
+          const safeLogoAltText = escapeAttribute(logoAltText);
+          logoHtml = `
+            <div class="selector-logo">
+              <img src="${safeLogoSrc}" alt="${safeLogoAltText}" loading="lazy" onerror="this.closest('.selector-logo').style.display='none';">
+            </div>
+          `;
+        }
+
+        let html = `
+          <div class="selector-header">
+            <div class="selector-header-text">
+              <div class="selector-title">System Controls</div>
+              <div class="selector-subtitle">Choose a transit system and label style.</div>
+            </div>
+            ${logoHtml}
+          </div>
+          <div class="selector-content">
+            <div class="selector-group">
+              <label class="selector-label" for="agencySelect">Select System</label>
+              <div class="selector-control">
+                <select id="agencySelect" onchange="changeAgency(this.value)">
+        `;
+        agencies.forEach(a => {
+          html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
+        });
+        html += `
+                </select>
+              </div>
+            </div>
+        `;
+
+        if (adminMode) {
+          html += `
+            <div class="selector-group">
+              <div class="selector-label">Vehicle Labels</div>
+              <div class="display-mode-group" id="displayModeButtons">
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.SPEED ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.SPEED}" onclick="setDisplayMode('${DISPLAY_MODES.SPEED}')">
+                  Show Speed
+                </button>
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.BLOCK ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.BLOCK}" onclick="setDisplayMode('${DISPLAY_MODES.BLOCK}')">
+                  Show Blocks
+                </button>
+                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.NONE ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.NONE}" onclick="setDisplayMode('${DISPLAY_MODES.NONE}')">
+                  Show None
+                </button>
+              </div>
+            </div>
+          `;
+        }
+
+        html += `
+          </div>
+        `;
+
+        panel.innerHTML = html;
+        updateDisplayModeButtons();
+        positionAllPanelTabs();
       }
 
       // updateRouteSelector rebuilds the route selector panel.
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
-      function updateRouteSelector(activeRoutes, forceUpdate = false) {
+      function updateRouteSelector(activeRoutesParam, forceUpdate = false) {
         const container = document.getElementById("routeSelector");
         if (!container) return;
-        // If the agency dropdown is currently focused (open), skip rebuilding
-        // the selector to avoid closing the dropdown.
+
+        const activeRoutesSet = activeRoutesParam instanceof Set
+          ? activeRoutesParam
+          : new Set(Array.isArray(activeRoutesParam) ? activeRoutesParam : []);
+
+        if (forceUpdate) {
+          lastRouteSelectorSignature = null;
+        }
+
         const agencyDropdown = document.getElementById('agencySelect');
         if (!forceUpdate && agencyDropdown && document.activeElement === agencyDropdown) {
           return;
         }
-        let html = "";
-        html += "<label for='agencySelect'>Select System:</label>";
-        html += "<select id='agencySelect' onchange='changeAgency(this.value)'>";
-        agencies.forEach(a => {
-          html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
-        });
-        html += "</select><br/><br/>";
-        if (adminMode) {
-          // Add the speed/block toggle button in admin mode only.
-          html += "<div style='margin-bottom:10px;'><button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button></div>";
-        }
-        html += "<h3>Select Routes</h3>" +
-          "<button onclick='selectAllRoutes()'>Select All</button>" +
-          "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
 
-        if (adminMode && canDisplayRoute(0)) {
-          // Add Out of Service option (routeID 0) at the top for admin mode.
-          let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
-          html += `<label>
-            <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
-            <span class="color-box" style="background:${outOfServiceRouteColor};"></span> Out of Service
-          </label>`;
-        }
-
-        // Get an array of route IDs (excluding 0) from allRoutes.
         let routeIDs = Object.keys(allRoutes)
           .map(id => Number(id))
           .filter(id => !Number.isNaN(id) && id !== 0 && canDisplayRoute(id));
-        // Sort alphabetically by route Description (case-insensitive).
+
         routeIDs.sort((a, b) => {
-          let descA = allRoutes[a].Description.toUpperCase();
-          let descB = allRoutes[b].Description.toUpperCase();
-          if (descA < descB) return -1;
-          if (descA > descB) return 1;
+          const aHasVehicle = activeRoutesSet.has(a);
+          const bHasVehicle = activeRoutesSet.has(b);
+          if (aHasVehicle !== bHasVehicle) {
+            return aHasVehicle ? -1 : 1;
+          }
+          const routeA = allRoutes[a] || {};
+          const routeB = allRoutes[b] || {};
+          const nameA = (routeA.Description || routeA.RouteName || `Route ${routeA.RouteID || a}` || '').trim().toUpperCase();
+          const nameB = (routeB.Description || routeB.RouteName || `Route ${routeB.RouteID || b}` || '').trim().toUpperCase();
+          if (nameA < nameB) return -1;
+          if (nameA > nameB) return 1;
           return 0;
         });
-        // Append sorted routes.
-        routeIDs.forEach(routeID => {
-          let route = allRoutes[routeID];
-          let checked = routeSelections.hasOwnProperty(routeID) ? routeSelections[routeID] : activeRoutes.has(routeID);
-          let displayName = route.Description;
-          if (route.InfoText && route.InfoText.trim() !== "") {
-            displayName += ` &ndash; ${route.InfoText.trim()}`;
-          }
-          html += `<label>
-            <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? "checked" : ""}>
-            <span class="color-box" style="background:${route.MapLineColor};"></span> ${displayName}
-          </label>`;
+
+        const agenciesSignature = agencies
+          .map(a => `${a.url || ''}::${a.name || ''}`)
+          .join('|');
+
+        const routeSignatureParts = routeIDs.map(routeID => {
+          const route = allRoutes[routeID] || {};
+          const checked = Object.prototype.hasOwnProperty.call(routeSelections, routeID)
+            ? routeSelections[routeID]
+            : activeRoutesSet.has(routeID);
+          const infoText = typeof route.InfoText === 'string' ? route.InfoText.trim() : '';
+          const desc = typeof route.Description === 'string' ? route.Description.trim() : '';
+          const color = route.MapLineColor || '';
+          const hasActiveVehicle = activeRoutesSet.has(routeID);
+          return `${routeID}:${checked ? 1 : 0}:${color}:${desc}:${infoText}:${hasActiveVehicle ? 1 : 0}`;
         });
+
+        const outOfServiceChecked = adminMode && canDisplayRoute(0)
+          ? (Object.prototype.hasOwnProperty.call(routeSelections, 0)
+            ? routeSelections[0]
+            : activeRoutesSet.has(0))
+          : null;
+
+        const signatureParts = [
+          baseURL,
+          adminMode ? '1' : '0',
+          kioskMode ? '1' : '0',
+          adminKioskMode ? '1' : '0',
+          displayMode || '',
+          agenciesSignature,
+          outOfServiceChecked === null ? 'na' : (outOfServiceChecked ? '1' : '0'),
+          routeSignatureParts.join('|')
+        ];
+
+        const signature = signatureParts.join('||');
+        if (!forceUpdate && signature === lastRouteSelectorSignature) {
+          positionAllPanelTabs();
+          return;
+        }
+        lastRouteSelectorSignature = signature;
+
+        const previousContent = container.querySelector('.selector-content');
+        const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
+        const activeElement = document.activeElement;
+        const focusedElementId = activeElement && container.contains(activeElement) && activeElement.id
+          ? activeElement.id
+          : null;
+
+        let html = `
+          <div class="selector-header">
+            <div class="selector-header-text">
+              <div class="selector-title">Route Controls</div>
+              <div class="selector-subtitle">Tailor the live map to the routes you care about.</div>
+            </div>
+          </div>
+          <div class="selector-content">
+            <div class="selector-section">
+              <div class="selector-group selector-group--route-actions">
+                <div class="selector-label">Select Routes</div>
+                <div class="display-mode-group route-action-buttons">
+                  <button type="button" class="pill-button" onclick="selectAllRoutes()">Select All</button>
+                  <button type="button" class="pill-button" onclick="selectActiveRoutes()">Select Active</button>
+                  <button type="button" class="pill-button" onclick="deselectAllRoutes()">Deselect All</button>
+                </div>
+              </div>
+              <div class="route-list">
+        `;
+
+        if (adminMode && canDisplayRoute(0)) {
+          let outChecked = Object.prototype.hasOwnProperty.call(routeSelections, 0) ? routeSelections[0] : activeRoutesSet.has(0);
+          html += `
+                <label class="route-option route-option--out">
+                  <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
+                  <span class="color-box route-option-swatch" style="background:${outOfServiceRouteColor};"></span>
+                  <span class="route-option-text">
+                    <span class="route-option-name">Out of Service</span>
+                    <span class="route-option-detail">Vehicles without an assigned route</span>
+                  </span>
+                </label>
+          `;
+        }
+
+        routeIDs.forEach(routeID => {
+          const route = allRoutes[routeID] || {};
+          const checked = Object.prototype.hasOwnProperty.call(routeSelections, routeID)
+            ? routeSelections[routeID]
+            : activeRoutesSet.has(routeID);
+          const routeNameRaw = (route.Description || route.RouteName || '').trim();
+          const routeName = routeNameRaw !== '' ? routeNameRaw : `Route ${route.RouteID || routeID}`;
+          const infoText = typeof route.InfoText === 'string' ? route.InfoText.trim() : '';
+          const hasActiveVehicle = activeRoutesSet.has(routeID);
+          const detailLines = [];
+          if (infoText) {
+            detailLines.push(infoText);
+          }
+          if (!hasActiveVehicle) {
+            detailLines.push('No buses currently assigned');
+          }
+          const detailHtml = detailLines.map(text => `<span class="route-option-detail">${text}</span>`).join('');
+          const color = route.MapLineColor || '#A0AEC0';
+          html += `
+                <label class="route-option">
+                  <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? "checked" : ""}>
+                  <span class="color-box route-option-swatch" style="background:${color};"></span>
+                  <span class="route-option-text">
+                    <span class="route-option-name">${routeName}</span>
+                    ${detailHtml}
+                  </span>
+                </label>
+          `;
+        });
+
+        html += `
+              </div>
+            </div>
+          </div>
+        `;
+
         container.innerHTML = html;
-        // Attach event listeners to update routeSelections.
+
+        const newContent = container.querySelector('.selector-content');
+        if (newContent) {
+          newContent.scrollTop = previousScrollTop;
+        }
+        if (focusedElementId) {
+          const replacementElement = document.getElementById(focusedElementId);
+          if (replacementElement && typeof replacementElement.focus === 'function') {
+            try {
+              replacementElement.focus({ preventScroll: true });
+            } catch (error) {
+              replacementElement.focus();
+            }
+          }
+        }
         let outChk = document.getElementById("route_0");
         if (outChk) {
           outChk.addEventListener("change", function() {
             routeSelections[0] = outChk.checked;
+            applyRouteOptionState(outChk);
             refreshMap();
           });
+          applyRouteOptionState(outChk);
         }
         routeIDs.forEach(routeID => {
           if (!canDisplayRoute(routeID) || Number(routeID) === 0) return;
@@ -443,93 +1426,123 @@
           if (chk) {
             chk.addEventListener("change", function() {
               routeSelections[routeID] = chk.checked;
+              applyRouteOptionState(chk);
               refreshMap();
             });
+            applyRouteOptionState(chk);
           }
         });
+
+        positionAllPanelTabs();
       }
 
       function selectAllRoutes() {
         if (adminMode && canDisplayRoute(0)) {
           let outChk = document.getElementById("route_0");
-          if (outChk) outChk.checked = true;
+          if (outChk) {
+            outChk.checked = true;
+            applyRouteOptionState(outChk);
+          }
           routeSelections[0] = true;
         }
         for (let routeID in allRoutes) {
           if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
           let chk = document.getElementById("route_" + routeID);
-          if (chk) chk.checked = true;
+          if (chk) {
+            chk.checked = true;
+            applyRouteOptionState(chk);
+          }
           routeSelections[routeID] = true;
         }
+        refreshMap();
+      }
+
+      function selectActiveRoutes() {
+        const activeSet = activeRoutes instanceof Set
+          ? activeRoutes
+          : new Set(Array.isArray(activeRoutes) ? activeRoutes : []);
+
+        if (adminMode && canDisplayRoute(0)) {
+          const outChk = document.getElementById("route_0");
+          const shouldSelectOut = activeSet.has(0);
+          if (outChk) {
+            outChk.checked = shouldSelectOut;
+            applyRouteOptionState(outChk);
+          }
+          routeSelections[0] = shouldSelectOut;
+        }
+
+        for (let routeID in allRoutes) {
+          if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
+          const numericRouteId = Number(routeID);
+          const chk = document.getElementById("route_" + routeID);
+          const shouldSelect = activeSet.has(numericRouteId);
+          if (chk) {
+            chk.checked = shouldSelect;
+            applyRouteOptionState(chk);
+          }
+          routeSelections[numericRouteId] = shouldSelect;
+        }
+
         refreshMap();
       }
 
       function deselectAllRoutes() {
         if (adminMode && canDisplayRoute(0)) {
           let outChk = document.getElementById("route_0");
-          if (outChk) outChk.checked = false;
+          if (outChk) {
+            outChk.checked = false;
+            applyRouteOptionState(outChk);
+          }
           routeSelections[0] = false;
         }
         for (let routeID in allRoutes) {
           if (!canDisplayRoute(routeID) || Number(routeID) === 0) continue;
           let chk = document.getElementById("route_" + routeID);
-          if (chk) chk.checked = false;
+          if (chk) {
+            chk.checked = false;
+            applyRouteOptionState(chk);
+          }
           routeSelections[routeID] = false;
         }
         refreshMap();
       }
 
-      // togglePanel toggles the route selector panel's visibility.
-      function togglePanel() {
-        let panel = document.getElementById("routeSelector");
-        let tab = document.getElementById("routeSelectorTab");
-        if (panel.classList.contains("hidden")) {
-          panel.classList.remove("hidden");
-          tab.innerHTML = "&#9664;"; // left arrow
-        } else {
-          panel.classList.add("hidden");
-          tab.innerHTML = "&#9654;"; // right arrow
-        }
-        positionRouteTab();
+      // togglePanelVisibility toggles the provided panel's visibility and updates its tab arrow.
+      function togglePanelVisibility(panelId, tabId, expandedArrow, collapsedArrow) {
+        const panel = document.getElementById(panelId);
+        const tab = document.getElementById(tabId);
+        if (!panel || !tab) return;
+        const isHidden = panel.classList.toggle('hidden');
+        tab.innerHTML = isHidden ? collapsedArrow : expandedArrow;
+        positionAllPanelTabs();
       }
 
-      function updateRouteLegend(displayedRoutes = []) {
-        const legend = document.getElementById("routeLegend");
-        if (!legend) return;
-        const shouldShowLegend = kioskMode || adminKioskMode;
-        if (!shouldShowLegend) {
-          legend.style.display = "none";
-          legend.innerHTML = "";
-          return;
-        }
+      function toggleRoutePanel() {
+        togglePanelVisibility('routeSelector', 'routeSelectorTab', '&#9664;', '&#9654;');
+      }
 
-        // Admin kiosk mode should surface every visible route, including those hidden from the public map.
-        // Public kiosk mode must continue to hide routes flagged as non-public.
-        const routesToRender = adminKioskMode
-          ? displayedRoutes
-          : displayedRoutes.filter(route => isRoutePublicById(route.routeId ?? route.routeID ?? route.id));
+      function toggleControlPanel() {
+        togglePanelVisibility('controlPanel', 'controlPanelTab', '&#9654;', '&#9664;');
+      }
 
-        if (routesToRender.length === 0) {
-          legend.style.display = "none";
-          legend.innerHTML = "";
-          return;
-        }
-
-        legend.style.display = "block";
-        legend.innerHTML = "";
+      function renderRouteLegendContent(legendElement, routes) {
+        if (!legendElement) return;
+        legendElement.style.display = "block";
+        legendElement.innerHTML = "";
 
         const title = document.createElement("div");
         title.className = "legend-title";
         title.textContent = "Routes";
-        legend.appendChild(title);
+        legendElement.appendChild(title);
 
-        routesToRender.forEach(route => {
+        routes.forEach(route => {
           const item = document.createElement("div");
           item.className = "legend-item";
 
           const color = document.createElement("span");
           color.className = "legend-color";
-          color.style.backgroundColor = route.color || "#000000";
+          color.style.backgroundColor = route.color;
           item.appendChild(color);
 
           const textContainer = document.createElement("div");
@@ -548,13 +1561,283 @@
           }
 
           item.appendChild(textContainer);
-          legend.appendChild(item);
+          legendElement.appendChild(item);
         });
+      }
+
+      function createOutOfServiceLegendEntry() {
+        return {
+          routeId: 0,
+          name: 'Out of Service',
+          description: 'Vehicles without an assigned route',
+          color: outOfServiceRouteColor
+        };
+      }
+
+      function extractLegendRouteIdentifiers(route) {
+        const rawRouteId = route && typeof route === 'object'
+          ? (route.routeId ?? route.routeID ?? route.id ?? null)
+          : null;
+        const numericId = Number(rawRouteId);
+        if (Number.isFinite(numericId)) {
+          return {
+            rawRouteId,
+            numericId,
+            stringId: null
+          };
+        }
+        const stringId = rawRouteId !== null && rawRouteId !== undefined
+          ? String(rawRouteId).trim()
+          : '';
+        return {
+          rawRouteId,
+          numericId: null,
+          stringId
+        };
+      }
+
+      function buildLegendRouteKey(route) {
+        const identifiers = extractLegendRouteIdentifiers(route);
+        if (Number.isFinite(identifiers.numericId)) {
+          return `num:${identifiers.numericId}`;
+        }
+        if (identifiers.stringId) {
+          return `str:${identifiers.stringId.toLowerCase()}`;
+        }
+        if (route && typeof route.name === 'string' && route.name.trim() !== '') {
+          return `name:${route.name.trim().toLowerCase()}`;
+        }
+        return null;
+      }
+
+      function compareLegendRoutes(a, b) {
+        const aIdentifiers = extractLegendRouteIdentifiers(a);
+        const bIdentifiers = extractLegendRouteIdentifiers(b);
+        const aHasNumeric = Number.isFinite(aIdentifiers.numericId);
+        const bHasNumeric = Number.isFinite(bIdentifiers.numericId);
+        if (aHasNumeric && bHasNumeric) {
+          return aIdentifiers.numericId - bIdentifiers.numericId;
+        }
+        if (aHasNumeric) return -1;
+        if (bHasNumeric) return 1;
+        const aLabel = aIdentifiers.stringId || (typeof a?.name === 'string' ? a.name.trim() : '');
+        const bLabel = bIdentifiers.stringId || (typeof b?.name === 'string' ? b.name.trim() : '');
+        return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      function mergeLegendRoutes(primaryRoutes, additionalRoutes) {
+        const mergedMap = new Map();
+        let autoKeyCounter = 0;
+
+        const appendRoute = (route, shouldOverride = false) => {
+          if (!route || typeof route !== 'object') return;
+          const key = buildLegendRouteKey(route);
+          const mapKey = key !== null ? key : `auto:${autoKeyCounter++}`;
+          if (mergedMap.has(mapKey)) {
+            if (shouldOverride) {
+              mergedMap.set(mapKey, route);
+            }
+            return;
+          }
+          mergedMap.set(mapKey, route);
+        };
+
+        (Array.isArray(primaryRoutes) ? primaryRoutes : []).forEach(route => appendRoute(route, true));
+        (Array.isArray(additionalRoutes) ? additionalRoutes : []).forEach(route => appendRoute(route, false));
+
+        const mergedRoutes = Array.from(mergedMap.values());
+        mergedRoutes.sort(compareLegendRoutes);
+        return mergedRoutes;
+      }
+
+      function buildLegendEntryFromState(routeId) {
+        const numericRouteId = Number(routeId);
+        if (!Number.isFinite(numericRouteId)) return null;
+        if (numericRouteId === 0) {
+          return createOutOfServiceLegendEntry();
+        }
+
+        const storedRoute = allRoutes?.[numericRouteId] || allRoutes?.[`${numericRouteId}`] || {};
+        const routeIdLabel = `${numericRouteId}`;
+
+        const nameCandidates = [
+          storedRoute.Description,
+          storedRoute.Name,
+          storedRoute.RouteName
+        ];
+        const legendName = nameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const name = legendName ? legendName.trim() : (routeIdLabel ? `Route ${routeIdLabel}` : 'Route');
+
+        const descriptionCandidates = [
+          storedRoute.InfoText,
+          storedRoute.Description,
+          storedRoute.RouteDescription
+        ];
+        const legendDescription = descriptionCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const description = legendDescription ? legendDescription.trim() : '';
+
+        const color = getRouteColor(numericRouteId);
+
+        return {
+          routeId: numericRouteId,
+          name,
+          description,
+          color
+        };
+      }
+
+      function deriveLegendRoutesFromState(options = {}) {
+        const { includeAllAvailableRoutes = false } = options || {};
+        const legendEntries = [];
+        const seenRouteIds = new Set();
+
+        const addRouteId = candidateId => {
+          const numericRouteId = Number(candidateId);
+          if (!Number.isFinite(numericRouteId)) return;
+          if (seenRouteIds.has(numericRouteId)) return;
+          if (!canDisplayRoute(numericRouteId)) return;
+          if (!includeAllAvailableRoutes && !isRouteSelected(numericRouteId)) return;
+
+          const legendEntry = buildLegendEntryFromState(numericRouteId);
+          if (!legendEntry) return;
+
+          seenRouteIds.add(numericRouteId);
+          legendEntries.push(legendEntry);
+        };
+
+        if (includeAllAvailableRoutes) {
+          Object.keys(allRoutes).forEach(routeIdKey => {
+            if (!Object.prototype.hasOwnProperty.call(allRoutes, routeIdKey)) return;
+            addRouteId(routeIdKey);
+          });
+        } else {
+          if (activeRoutes instanceof Set) {
+            activeRoutes.forEach(addRouteId);
+          } else if (Array.isArray(activeRoutes)) {
+            activeRoutes.forEach(addRouteId);
+          }
+
+          Object.keys(routeSelections).forEach(routeIdKey => {
+            if (!Object.prototype.hasOwnProperty.call(routeSelections, routeIdKey)) return;
+            if (!routeSelections[routeIdKey]) return;
+            addRouteId(routeIdKey);
+          });
+        }
+
+        legendEntries.sort((a, b) => a.routeId - b.routeId);
+
+        return legendEntries;
+      }
+
+      function updateRouteLegend(displayedRoutes = [], options = {}) {
+        const legend = document.getElementById("routeLegend");
+        if (!legend) return;
+
+        const { forceHide = false, preserveOnEmpty = false } = options || {};
+        const shouldShowLegend = kioskMode || adminKioskMode;
+
+        if (!shouldShowLegend || forceHide) {
+          legend.style.display = "none";
+          legend.innerHTML = "";
+          lastRenderedLegendRoutes = [];
+          return;
+        }
+
+        const normalizedRoutes = Array.isArray(displayedRoutes) ? displayedRoutes : [];
+        const filteredRoutes = normalizedRoutes.filter(route => {
+          const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
+          if (adminKioskMode) {
+            return routeHasActiveVehicles(candidateId);
+          }
+          return isRoutePublicById(candidateId);
+        });
+
+        const sanitizedRoutes = filteredRoutes.map(route => {
+          const rawRouteId = route.routeId ?? route.routeID ?? route.id;
+          const routeIdLabel = rawRouteId === undefined || rawRouteId === null ? "" : `${rawRouteId}`;
+          const rawName = typeof route.name === "string" ? route.name : "";
+          const name = rawName.trim() !== "" ? rawName.trim() : (routeIdLabel ? `Route ${routeIdLabel}` : "Route");
+          const rawDescription = typeof route.description === "string" ? route.description : "";
+          const description = rawDescription.trim();
+          const color = typeof route.color === "string" && route.color.trim() !== "" ? route.color : "#000000";
+          return {
+            routeId: rawRouteId,
+            name,
+            description,
+            color
+          };
+        });
+
+        const shouldIncludeOutOfServiceLegend = isRouteSelected(0) && routeHasActiveVehicles(0);
+        if (shouldIncludeOutOfServiceLegend) {
+          const hasOutOfServiceEntry = sanitizedRoutes.some(route => {
+            const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
+            return Number(candidateId) === 0;
+          });
+          if (!hasOutOfServiceEntry) {
+            sanitizedRoutes.push(createOutOfServiceLegendEntry());
+          }
+        }
+
+        const filterAdminLegendRoutes = routes => {
+          if (!adminKioskMode) {
+            return Array.isArray(routes) ? routes : [];
+          }
+          if (!Array.isArray(routes)) return [];
+          return routes.filter(route => {
+            const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
+            return routeHasActiveVehicles(candidateId);
+          });
+        };
+
+        let routesToRender = filterAdminLegendRoutes(sanitizedRoutes);
+
+        if (routesToRender.length === 0) {
+          let fallbackRoutes = deriveLegendRoutesFromState({
+            includeAllAvailableRoutes: adminKioskMode
+          });
+          fallbackRoutes = filterAdminLegendRoutes(fallbackRoutes);
+          if (fallbackRoutes.length > 0) {
+            routesToRender = fallbackRoutes;
+          } else if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
+            renderRouteLegendContent(legend, lastRenderedLegendRoutes);
+            return;
+          } else {
+            legend.style.display = "none";
+            legend.innerHTML = "";
+            lastRenderedLegendRoutes = [];
+            return;
+          }
+        } else if (adminKioskMode) {
+          let additionalRoutes = deriveLegendRoutesFromState({ includeAllAvailableRoutes: true });
+          additionalRoutes = filterAdminLegendRoutes(additionalRoutes);
+          if (additionalRoutes.length > 0) {
+            routesToRender = mergeLegendRoutes(routesToRender, additionalRoutes);
+          }
+          routesToRender = filterAdminLegendRoutes(routesToRender);
+        }
+
+        if (routesToRender.length === 0) {
+          if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
+            renderRouteLegendContent(legend, lastRenderedLegendRoutes);
+          } else {
+            legend.style.display = "none";
+            legend.innerHTML = "";
+            lastRenderedLegendRoutes = [];
+          }
+          return;
+        }
+
+        lastRenderedLegendRoutes = routesToRender;
+        renderRouteLegendContent(legend, routesToRender);
       }
 
       // refreshMap updates route paths and bus locations.
       function refreshMap() {
         fetchBusLocations().then(fetchRoutePaths);
+        if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
+          renderBusStops(stopDataCache);
+        }
       }
 
       function clearRefreshIntervals() {
@@ -590,12 +1873,31 @@
         }
       }
 
+      function loadAgencyData() {
+        return fetchRouteColors().then(() => {
+          const stopArrivalsPromise = fetchStopArrivalTimes().then(allEtas => {
+            cachedEtas = allEtas || {};
+            updateCustomPopups();
+            return allEtas;
+          });
+          const tasks = [
+            fetchBusStops(),
+            fetchBlockAssignments(),
+            fetchBusLocations().then(() => fetchRoutePaths()),
+            stopArrivalsPromise
+          ];
+          return Promise.allSettled(tasks);
+        });
+      }
+
       function changeAgency(url) {
         if (localStorage.getItem('agencyConsent') === 'true') {
           localStorage.setItem('selectedAgency', url);
         }
+        beginAgencyLoad();
         clearRefreshIntervals();
         baseURL = url;
+        updateControlPanel();
         Object.values(markers).forEach(m => map.removeLayer(m));
         markers = {};
         Object.values(nameBubbles).forEach(b => {
@@ -608,6 +1910,14 @@
         stopMarkers = [];
         routeLayers.forEach(l => map.removeLayer(l));
         routeLayers = [];
+        routePolylineCache.clear();
+        lastRouteRenderState = {
+          selectionKey: '',
+          colorSignature: '',
+          geometrySignature: '',
+          useOverlapRenderer: !!(enableOverlapDashRendering && overlapRenderer)
+        };
+        lastRouteSelectorSignature = null;
         if (overlapRenderer) {
           overlapRenderer.reset();
         }
@@ -618,20 +1928,25 @@
         customPopups = [];
         allRoutes = {};
         routeSelections = {};
+        routeStopAddressMap = {};
+        routeStopRouteMap = {};
         activeRoutes = new Set();
         routeColors = {};
         routeVisibility = {};
         allRouteBounds = null;
         mapHasFitAllRoutes = false;
-        updateRouteLegend([]);
+        updateRouteLegend([], { forceHide: true });
         updateRouteSelector(new Set(), true);
-        fetchRouteColors().then(() => {
-          fetchBusStops();
-          fetchBlockAssignments();
-          fetchBusLocations().then(fetchRoutePaths);
-          fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; updateCustomPopups(); });
-          startRefreshIntervals();
-        });
+        loadAgencyData()
+          .then(() => {
+            startRefreshIntervals();
+          })
+          .catch(error => {
+            console.error('Error loading agency data:', error);
+          })
+          .finally(() => {
+            completeAgencyLoad();
+          });
       }
 
       function getRouteColor(routeID) {
@@ -640,7 +1955,28 @@
       }
 
       function initMap() {
-          map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
+          map = L.map('map', {
+              zoomControl: false,
+              crs: L.CRS.EPSG3857,
+              zoomAnimation: true,
+              markerZoomAnimation: true
+          }).setView([38.03799212281404, -78.50981502838886], 15);
+          sharedRouteRenderer = L.svg({ padding: 0 });
+          if (sharedRouteRenderer) {
+              map.addLayer(sharedRouteRenderer);
+          }
+          map.createPane('stopsPane');
+          const stopsPane = map.getPane('stopsPane');
+          if (stopsPane) {
+              stopsPane.style.zIndex = 450;
+              stopsPane.style.pointerEvents = 'auto';
+          }
+          map.createPane('busesPane');
+          const busesPane = map.getPane('busesPane');
+          if (busesPane) {
+              busesPane.style.zIndex = 500;
+              busesPane.style.pointerEvents = 'none';
+          }
           const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           });
@@ -652,7 +1988,11 @@
               dashLengthPx: 16,
               minDashLengthPx: 0.5,
               matchTolerancePx: 6,
-              strokeWeight: 6
+              strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+              minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+              maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+              renderer: sharedRouteRenderer,
+              pane: routePaneName
             });
             map.on('zoomend', () => {
               if (overlapRenderer) {
@@ -661,82 +2001,398 @@
             });
           }
 
-          fetchRouteColors().then(() => {
-              if (kioskMode || adminKioskMode) {
-                document.getElementById("routeSelector").style.display = "none";
-                document.getElementById("routeSelectorTab").style.display = "none";
-              }
-              fetchStopArrivalTimes().then(allEtas => {
-                  cachedEtas = allEtas;
-                  updateCustomPopups();
-              });
-              fetchBusStops();
-              fetchBlockAssignments();
-              fetchBusLocations().then(fetchRoutePaths);
-              startRefreshIntervals();
+          if (kioskMode || adminKioskMode) {
+            document.getElementById("routeSelector").style.display = "none";
+            document.getElementById("routeSelectorTab").style.display = "none";
+            const controlPanel = document.getElementById("controlPanel");
+            if (controlPanel) {
+              controlPanel.style.display = "none";
+            }
+            const controlPanelTab = document.getElementById("controlPanelTab");
+            if (controlPanelTab) {
+              controlPanelTab.style.display = "none";
+            }
+          }
+          map.on('zoom', () => {
+              updatePopupPositions();
           });
-          fetchStopArrivalTimes().then(allEtas => { cachedEtas = allEtas; });
-          map.on('move', updatePopupPositions);
-          map.on('zoom', updatePopupPositions);
+          map.on('move', () => {
+              updatePopupPositions();
+          });
+          map.on('zoomend', () => {
+              if (stopDataCache.length > 0) {
+                  renderBusStops(stopDataCache);
+              }
+              updatePopupPositions();
+          });
       }
 
       function fetchBusStops() {
           const currentBaseURL = baseURL;
           const stopsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
-          fetch(stopsApiUrl)
+          return fetch(stopsApiUrl)
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return;
                   let stopsArray = data.stops || data;
                   if (stopsArray && Array.isArray(stopsArray)) {
-                      stopMarkers.forEach(marker => map.removeLayer(marker));
-                      stopMarkers = [];
-                      const groupedStops = {};
-                      stopsArray.forEach(stop => {
-                          const key = `${stop.Latitude},${stop.Longitude}`;
-                          if (!groupedStops[key]) groupedStops[key] = [];
-                          groupedStops[key].push(stop);
-                      });
-                      Object.keys(groupedStops).forEach(key => {
-                          const [latitude, longitude] = key.split(',').map(Number);
-                          const stopPosition = [latitude, longitude];
-                          const stopMarker = L.circleMarker(stopPosition, {
-                              radius: 6,
-                              color: "#000000",
-                              fillColor: "#FFFFFF",
-                              fillOpacity: 1,
-                              weight: 3
-                          }).addTo(map);
-                          const routeStopIds = groupedStops[key].map(stop => stop.RouteStopID);
-                          const unifiedStopId = groupedStops[key][0].StopID || groupedStops[key][0].StopId;
-                          const etas = [];
-                          routeStopIds.forEach(routeStopId => {
-                              if (cachedEtas[routeStopId]) {
-                                  cachedEtas[routeStopId].forEach(eta => etas.push(eta));
-                              }
-                          });
-                          const stopNames = groupedStops[key][0].Description;
-                          const etaText = etas.length > 0
-                            ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
-                                  .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`).join('')
-                            : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
-                          stopMarker.on('click', () => {
-                              createCustomPopup(stopPosition, stopNames, etaText, routeStopIds, unifiedStopId);
-                          });
-                          stopMarkers.push(stopMarker);
-                      });
-                      stopMarkers.forEach(marker => marker.bringToFront());
+                      stopDataCache = stopsArray;
+                      renderBusStops(stopDataCache);
                   }
               })
               .catch(error => console.error("Error fetching bus stops:", error));
       }
 
-      function createCustomPopup(position, stopName, etaText, routeStopIds, stopId) {
-          customPopups.forEach(popup => popup.remove());
-          customPopups = [];
-          const popupElement = document.createElement('div');
-          popupElement.className = 'custom-popup';
-          const etaTable = `
+      function groupStopsByPixelDistance(stops, thresholdPx) {
+          if (!Array.isArray(stops) || stops.length === 0) {
+              return [];
+          }
+
+          const validStops = stops.map(stop => {
+              const latitude = parseFloat(stop.Latitude ?? stop.latitude ?? stop.lat);
+              const longitude = parseFloat(stop.Longitude ?? stop.longitude ?? stop.lon);
+              if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+                  return null;
+              }
+              return { latitude, longitude, stop };
+          }).filter(entry => entry !== null);
+
+          if (!map) {
+              return validStops.map(entry => ({
+                  latitude: entry.latitude,
+                  longitude: entry.longitude,
+                  stops: [entry.stop]
+              }));
+          }
+
+          const groups = [];
+          validStops.forEach(({ latitude, longitude, stop }) => {
+              const stopPoint = map.latLngToLayerPoint([latitude, longitude]);
+              let targetGroup = null;
+              for (const group of groups) {
+                  const groupPoint = map.latLngToLayerPoint([group.latitude, group.longitude]);
+                  if (stopPoint.distanceTo(groupPoint) <= thresholdPx) {
+                      targetGroup = group;
+                      break;
+                  }
+              }
+              if (targetGroup) {
+                  targetGroup.stops.push(stop);
+                  const totalStops = targetGroup.stops.length;
+                  targetGroup.latitude = (targetGroup.latitude * (totalStops - 1) + latitude) / totalStops;
+                  targetGroup.longitude = (targetGroup.longitude * (totalStops - 1) + longitude) / totalStops;
+              } else {
+                  groups.push({
+                      latitude,
+                      longitude,
+                      stops: [stop]
+                  });
+              }
+          });
+
+          return groups;
+      }
+
+      function sanitizeStopName(name) {
+          if (typeof name !== 'string') {
+              return '';
+          }
+          return name.replace(/^Stop Name:\s*/i, '').trim();
+      }
+
+      function normalizeIdentifier(value) {
+          if (value === undefined || value === null) {
+              return null;
+          }
+          const str = `${value}`.trim();
+          return str === '' ? null : str;
+      }
+
+      function getSelectedRouteIdSet() {
+          const selected = new Set();
+          Object.keys(allRoutes).forEach(routeId => {
+              const numericId = Number(routeId);
+              if (!Number.isNaN(numericId) && isRouteSelected(numericId)) {
+                  selected.add(numericId);
+              }
+          });
+          return selected;
+      }
+
+      function buildStopEntriesFromStops(stops) {
+          if (!Array.isArray(stops)) {
+              return [];
+          }
+
+          const entriesByKey = new Map();
+          stops.forEach(stop => {
+              if (!stop) {
+                  return;
+              }
+
+              const latitude = stop.Latitude ?? stop.latitude ?? stop.lat;
+              const longitude = stop.Longitude ?? stop.longitude ?? stop.lon;
+              const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
+              const addressIdFromStop = normalizeIdentifier(stop.AddressID ?? stop.AddressId);
+              const addressIdFromMap = routeStopId ? normalizeIdentifier(routeStopAddressMap[routeStopId]) : null;
+              const fallbackStopId = normalizeIdentifier(stop.StopID ?? stop.StopId);
+
+              const key = addressIdFromStop
+                  || addressIdFromMap
+                  || (routeStopId ? `ROUTESTOP_${routeStopId}`
+                      : (fallbackStopId ? `STOP_${fallbackStopId}`
+                          : `LOC_${latitude}_${longitude}`));
+
+              if (!entriesByKey.has(key)) {
+                  entriesByKey.set(key, {
+                      addressId: addressIdFromStop || addressIdFromMap || null,
+                      routeStopIds: new Set(),
+                      stopIds: new Set(),
+                      names: new Set(),
+                      routeIds: new Set()
+                  });
+              }
+
+              const entry = entriesByKey.get(key);
+
+              if (routeStopId) {
+                  entry.routeStopIds.add(routeStopId);
+              }
+
+              if (fallbackStopId) {
+                  entry.stopIds.add(fallbackStopId);
+              }
+
+              const descriptionCandidates = [
+                  stop.Description,
+                  stop.Name,
+                  stop.StopName,
+                  stop.Line1,
+                  stop.SignVerbiage
+              ];
+              const name = descriptionCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+              if (name) {
+                  entry.names.add(sanitizeStopName(name));
+              }
+
+              const routeIdRaw = stop.RouteID ?? stop.RouteId;
+              const routeIdNumeric = Number(routeIdRaw);
+              if (!Number.isNaN(routeIdNumeric)) {
+                  entry.routeIds.add(routeIdNumeric);
+              }
+
+              const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
+              routesArray.forEach(routeInfo => {
+                  const candidateRouteId = Number(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id);
+                  if (!Number.isNaN(candidateRouteId)) {
+                      entry.routeIds.add(candidateRouteId);
+                  }
+              });
+
+              const routeIdsList = Array.isArray(stop.RouteIDs ?? stop.RouteIds)
+                  ? (stop.RouteIDs ?? stop.RouteIds)
+                  : [];
+              routeIdsList.forEach(routeIdValue => {
+                  const numericRouteId = Number(routeIdValue);
+                  if (!Number.isNaN(numericRouteId)) {
+                      entry.routeIds.add(numericRouteId);
+                  }
+              });
+          });
+
+          return Array.from(entriesByKey.values()).map(entry => ({
+              addressId: entry.addressId,
+              routeStopIds: Array.from(entry.routeStopIds),
+              stopIdText: Array.from(entry.stopIds).join(', '),
+              displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
+              routeIds: Array.from(entry.routeIds)
+          }));
+      }
+
+      function collectRouteIdsForEntry(entry) {
+          const routeIds = new Set();
+          if (!entry) {
+              return routeIds;
+          }
+          if (Array.isArray(entry.routeIds)) {
+              entry.routeIds.forEach(routeId => {
+                  const numeric = Number(routeId);
+                  if (!Number.isNaN(numeric)) {
+                      routeIds.add(numeric);
+                  }
+              });
+          }
+          if (Array.isArray(entry.routeStopIds)) {
+              entry.routeStopIds.forEach(routeStopId => {
+                  const mapped = routeStopRouteMap[routeStopId];
+                  const numeric = Number(mapped);
+                  if (!Number.isNaN(numeric)) {
+                      routeIds.add(numeric);
+                  }
+              });
+          }
+          return routeIds;
+      }
+
+      function collectRouteIdsForStop(stop) {
+          const routeIds = new Set();
+          if (!stop) {
+              return routeIds;
+          }
+
+          const addRouteId = value => {
+              if (value === undefined || value === null) {
+                  return;
+              }
+              let candidate = value;
+              if (typeof candidate === 'string') {
+                  candidate = candidate.trim();
+                  if (candidate === '') {
+                      return;
+                  }
+              }
+              const numericRouteId = Number(candidate);
+              if (!Number.isNaN(numericRouteId)) {
+                  routeIds.add(numericRouteId);
+              }
+          };
+
+          addRouteId(stop.RouteID ?? stop.RouteId);
+
+          const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
+          if (routeStopId) {
+              addRouteId(routeStopRouteMap[routeStopId]);
+          }
+
+          const routeIdsList = Array.isArray(stop.RouteIDs ?? stop.RouteIds)
+              ? (stop.RouteIDs ?? stop.RouteIds)
+              : [];
+          routeIdsList.forEach(routeIdValue => addRouteId(routeIdValue));
+
+          const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
+          routesArray.forEach(routeInfo => {
+              addRouteId(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id ?? routeInfo);
+          });
+
+          const singleRoute = stop.Route ?? stop.route;
+          if (singleRoute && typeof singleRoute === 'object') {
+              addRouteId(singleRoute.RouteID ?? singleRoute.RouteId ?? singleRoute.Id);
+          }
+
+          return routeIds;
+      }
+
+      function buildStopMarkerGradient(routeIds) {
+          const colors = Array.from(new Set((Array.isArray(routeIds) ? routeIds : [])
+              .map(routeId => getRouteColor(routeId))
+              .filter(color => typeof color === 'string' && color.trim() !== '')));
+
+          if (colors.length === 0) {
+              return '#FFFFFF';
+          }
+          if (colors.length === 1) {
+              return colors[0];
+          }
+
+          const segmentSize = 360 / colors.length;
+          const segments = colors.map((color, index) => {
+              const start = segmentSize * index;
+              const end = segmentSize * (index + 1);
+              return `${color} ${start}deg ${end}deg`;
+          });
+          return `conic-gradient(${segments.join(', ')})`;
+      }
+
+      function createStopMarkerIcon(routeIds) {
+          const gradient = buildStopMarkerGradient(routeIds);
+          const size = STOP_MARKER_ICON_SIZE;
+          const outline = Math.max(0, Number(STOP_MARKER_OUTLINE_WIDTH) || 0);
+          const html = `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`;
+          return L.divIcon({
+              className: 'stop-marker-container leaflet-div-icon',
+              html,
+              iconSize: [size, size],
+              iconAnchor: [size / 2, size / 2]
+          });
+      }
+
+      function createStopGroupKey(routeStopIds, fallbackStopIdText) {
+          const normalizedIds = Array.isArray(routeStopIds)
+              ? Array.from(new Set(routeStopIds
+                  .map(id => `${id}`)
+                  .map(value => value.trim())
+                  .filter(value => value !== '' && value.toLowerCase() !== 'undefined' && value.toLowerCase() !== 'null')))
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+              : [];
+          return `${JSON.stringify(normalizedIds)}|${fallbackStopIdText || ''}`;
+      }
+
+      function getColorWithAlpha(color, alpha) {
+          const safeAlpha = Math.min(1, Math.max(0, Number(alpha) || 0));
+          if (typeof color !== 'string' || color.trim() === '') {
+              return `rgba(0, 0, 0, ${safeAlpha})`;
+          }
+
+          const trimmed = color.trim();
+          if (trimmed.startsWith('#')) {
+              let hex = trimmed.slice(1);
+              if (hex.length === 3 || hex.length === 4) {
+                  hex = hex.split('').map(char => char + char).join('');
+              }
+              if (hex.length === 6 || hex.length === 8) {
+                  const r = parseInt(hex.slice(0, 2), 16);
+                  const g = parseInt(hex.slice(2, 4), 16);
+                  const b = parseInt(hex.slice(4, 6), 16);
+                  const baseAlpha = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1;
+                  if ([r, g, b, baseAlpha].some(value => Number.isNaN(value))) {
+                      return `rgba(0, 0, 0, ${safeAlpha})`;
+                  }
+                  const combinedAlpha = Math.round(Math.min(1, Math.max(0, baseAlpha * safeAlpha)) * 1000) / 1000;
+                  return `rgba(${r}, ${g}, ${b}, ${combinedAlpha})`;
+              }
+          } else {
+              const rgbaMatch = trimmed.match(/rgba?\(([^)]+)\)/i);
+              if (rgbaMatch) {
+                  const parts = rgbaMatch[1].split(',').map(part => part.trim());
+                  if (parts.length >= 3) {
+                      const r = parseFloat(parts[0]);
+                      const g = parseFloat(parts[1]);
+                      const b = parseFloat(parts[2]);
+                      if ([r, g, b].some(value => Number.isNaN(value))) {
+                          return `rgba(0, 0, 0, ${safeAlpha})`;
+                      }
+                      let baseAlpha = parts.length >= 4 ? parseFloat(parts[3]) : 1;
+                      if (Number.isNaN(baseAlpha)) {
+                          baseAlpha = 1;
+                      }
+                      const combinedAlpha = Math.round(Math.min(1, Math.max(0, baseAlpha * safeAlpha)) * 1000) / 1000;
+                      return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${combinedAlpha})`;
+                  }
+              }
+          }
+
+          return `rgba(0, 0, 0, ${safeAlpha})`;
+      }
+
+      function buildEtaTableHtml(routeStopIds) {
+          const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
+          const etas = [];
+          normalizedRouteStopIds.forEach(routeStopId => {
+              if (cachedEtas[routeStopId]) {
+                  cachedEtas[routeStopId].forEach(eta => etas.push(eta));
+              }
+          });
+          const etaRows = etas.length > 0
+              ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
+                    .map(eta => {
+                        const routeColor = getRouteColor(eta.RouteId);
+                        const textColor = getContrastColor(routeColor);
+                        const shadowColor = getColorWithAlpha(routeColor, 0.35);
+                        return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
+                    })
+                    .join('')
+              : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
+          return `
             <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
               <thead>
                 <tr>
@@ -745,37 +2401,295 @@
                 </tr>
               </thead>
               <tbody>
-                ${etaText}
+                ${etaRows}
               </tbody>
             </table>
           `;
+      }
+
+      function buildStopEntriesSectionHtml(stopEntries, multipleStops) {
+          if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
+              return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
+          }
+
+          if (!multipleStops) {
+              const entry = stopEntries[0];
+              return buildEtaTableHtml(entry?.routeStopIds || []);
+          }
+
+          return stopEntries.map(entry => {
+              const entryTitle = entry.displayName ? `<span class="stop-entry-title">${sanitizeStopName(entry.displayName)}</span>` : '';
+              const entryIdLine = entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
+              const entryAddressIdText = normalizeIdentifier(entry?.addressId);
+              const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Address ID: ${entryAddressIdText}</span>` : '';
+              const tableHtml = buildEtaTableHtml(entry.routeStopIds || []);
+              return `<div class="stop-entry">${entryTitle}${entryIdLine}${entryAddressLine}${tableHtml}</div>`;
+          }).join('');
+      }
+
+      function setPopupContent(popupElement, groupInfo) {
+          if (!popupElement || !groupInfo) {
+              return;
+          }
+
+          const stopEntries = Array.isArray(groupInfo.stopEntries) ? groupInfo.stopEntries : [];
+          const aggregatedRouteStopIds = Array.isArray(groupInfo.aggregatedRouteStopIds)
+              ? groupInfo.aggregatedRouteStopIds
+              : [];
+          const fallbackStopIdText = typeof groupInfo.fallbackStopId === 'string'
+              ? groupInfo.fallbackStopId
+              : normalizeIdentifier(groupInfo.fallbackStopId) || '';
+          const sanitizedStopName = sanitizeStopName(groupInfo.stopName || '');
+          const multipleStops = stopEntries.length > 1;
+          const primaryStopIdText = !multipleStops
+              ? (stopEntries[0]?.stopIdText || fallbackStopIdText)
+              : '';
+          const entriesHtml = buildStopEntriesSectionHtml(stopEntries, multipleStops);
+          const groupKey = groupInfo.groupKey || createStopGroupKey(aggregatedRouteStopIds, fallbackStopIdText);
+          const primaryAddressIdText = !multipleStops
+              ? normalizeIdentifier(stopEntries[0]?.addressId)
+              : '';
+
+          popupElement.dataset.routeStopIds = JSON.stringify(aggregatedRouteStopIds);
+          popupElement.dataset.stopEntries = JSON.stringify(stopEntries);
+          popupElement.dataset.stopName = sanitizedStopName;
+          popupElement.dataset.fallbackStopId = fallbackStopIdText;
+          popupElement.dataset.stopId = primaryStopIdText || '';
+          popupElement.dataset.addressId = primaryAddressIdText || '';
+          popupElement.dataset.groupKey = groupKey;
+
+          const stopNameLine = (!multipleStops && sanitizedStopName)
+              ? `<span class="stop-entry-title">${sanitizedStopName}</span><br>`
+              : '';
+          const addressIdLine = primaryAddressIdText ? `<span class="stop-entry-id">Address ID: ${primaryAddressIdText}</span><br>` : '';
+          const stopIdLine = primaryStopIdText ? `<span class="stop-entry-id">Stop ID: ${primaryStopIdText}</span><br>` : '';
+
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
-            <span style="font-size: 16px; font-weight: bold;">${stopName}</span><br>
-            <span>Stop ID: ${stopId}</span><br>
-            ${etaTable}
+            ${stopNameLine}
+            ${addressIdLine}
+            ${stopIdLine}
+            ${entriesHtml}
             <div class="custom-popup-arrow"></div>
           `;
-          document.body.appendChild(popupElement);
-          popupElement.dataset.position = `${position[0]},${position[1]}`;
-          popupElement.dataset.stopName = stopName.replace('Stop Name: ', '');
-          popupElement.dataset.routeStopIds = JSON.stringify(routeStopIds);
-          popupElement.dataset.stopId = stopId;
-          updatePopupPosition(popupElement, position);
+
           popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
               popupElement.remove();
               customPopups = customPopups.filter(popup => popup !== popupElement);
           });
+      }
+
+      function renderBusStops(stopsArray) {
+          if (!Array.isArray(stopsArray) || !map) {
+              return;
+          }
+
+          stopMarkers.forEach(marker => map.removeLayer(marker));
+          stopMarkers = [];
+
+          const selectedRouteIdsSet = getSelectedRouteIdSet();
+
+          const stopsForSelectedRoutes = selectedRouteIdsSet.size > 0
+              ? stopsArray.filter(stop => {
+                  const routeIds = collectRouteIdsForStop(stop);
+                  if (routeIds.size === 0) {
+                      return false;
+                  }
+                  for (const routeId of routeIds) {
+                      if (selectedRouteIdsSet.has(routeId)) {
+                          return true;
+                      }
+                  }
+                  return false;
+              })
+              : [];
+
+          const groupedStops = groupStopsByPixelDistance(stopsForSelectedRoutes, STOP_GROUPING_PIXEL_DISTANCE);
+          const groupedData = [];
+
+          groupedStops.forEach(group => {
+              const stopEntries = buildStopEntriesFromStops(group.stops);
+              if (stopEntries.length === 0) {
+                  return;
+              }
+
+              const allRouteIdsForMarker = new Set();
+              stopEntries.forEach(entry => {
+                  collectRouteIdsForEntry(entry).forEach(routeId => {
+                      if (!Number.isNaN(routeId)) {
+                          allRouteIdsForMarker.add(routeId);
+                      }
+                  });
+              });
+
+              if (allRouteIdsForMarker.size === 0) {
+                  group.stops.forEach(stop => {
+                      collectRouteIdsForStop(stop).forEach(routeId => {
+                          allRouteIdsForMarker.add(routeId);
+                      });
+                  });
+              }
+
+              const servesSelectedRoute = selectedRouteIdsSet.size > 0
+                  ? Array.from(allRouteIdsForMarker).some(routeId => selectedRouteIdsSet.has(routeId))
+                  : false;
+
+              if (!servesSelectedRoute) {
+                  return;
+              }
+
+              const stopPosition = [group.latitude, group.longitude];
+              const aggregatedRouteStopIds = Array.from(new Set(stopEntries.flatMap(entry => entry.routeStopIds)))
+                  .map(id => `${id}`)
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+              const fallbackStopIdSet = new Set();
+              stopEntries.forEach(entry => {
+                  if (typeof entry.stopIdText === 'string' && entry.stopIdText.trim() !== '') {
+                      entry.stopIdText.split(',').forEach(value => {
+                          const trimmed = value.trim();
+                          if (trimmed) {
+                              fallbackStopIdSet.add(trimmed);
+                          }
+                      });
+                  }
+              });
+              const fallbackStopIdText = Array.from(fallbackStopIdSet)
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                  .join(', ');
+              const displayStopName = Array.from(new Set(stopEntries
+                  .map(entry => sanitizeStopName(entry.displayName))
+                  .filter(Boolean)))
+                  .join(' / ') || 'Stop';
+              const groupKey = createStopGroupKey(aggregatedRouteStopIds, fallbackStopIdText);
+              const markerRouteIds = Array.from(allRouteIdsForMarker)
+                  .filter(routeId => selectedRouteIdsSet.has(routeId))
+                  .sort((a, b) => a - b);
+              const markerIcon = createStopMarkerIcon(markerRouteIds);
+
+              const groupInfo = {
+                  position: stopPosition,
+                  stopName: displayStopName,
+                  fallbackStopId: fallbackStopIdText,
+                  stopEntries,
+                  aggregatedRouteStopIds,
+                  groupKey
+              };
+
+              const stopMarker = L.marker(stopPosition, {
+                  icon: markerIcon,
+                  pane: 'stopsPane'
+              }).addTo(map);
+
+              stopMarker.on('click', () => {
+                  createCustomPopup(groupInfo);
+              });
+
+              stopMarkers.push(stopMarker);
+              groupedData.push(groupInfo);
+          });
+
+          stopMarkers.forEach(marker => {
+              if (!marker) return;
+              if (typeof marker.bringToFront === 'function') {
+                  marker.bringToFront();
+                  return;
+              }
+              if (typeof marker.setZIndexOffset === 'function') {
+                  marker.setZIndexOffset(1000);
+              }
+          });
+
+          if (customPopups.length > 0) {
+              const groupByKey = new Map();
+              groupedData.forEach(groupInfo => {
+                  groupByKey.set(groupInfo.groupKey, groupInfo);
+              });
+
+              customPopups = customPopups.filter(popupElement => {
+                  let parsedRouteStopIds = [];
+                  try {
+                      parsedRouteStopIds = JSON.parse(popupElement.dataset.routeStopIds || '[]');
+                  } catch (error) {
+                      parsedRouteStopIds = [];
+                  }
+                  const fallbackId = popupElement.dataset.fallbackStopId || '';
+                  const key = popupElement.dataset.groupKey || createStopGroupKey(parsedRouteStopIds, fallbackId);
+                  const matchingGroup = groupByKey.get(key);
+                  if (matchingGroup) {
+                      popupElement.dataset.position = `${matchingGroup.position[0]},${matchingGroup.position[1]}`;
+                      setPopupContent(popupElement, matchingGroup);
+                      updatePopupPosition(popupElement, matchingGroup.position);
+                      return true;
+                  }
+                  popupElement.remove();
+                  return false;
+              });
+          }
+      }
+
+      function createCustomPopup(groupInfo) {
+          if (!groupInfo || !Array.isArray(groupInfo.position) || groupInfo.position.length !== 2) {
+              return;
+          }
+          const position = groupInfo.position;
+          customPopups.forEach(popup => popup.remove());
+          customPopups = [];
+          const popupElement = document.createElement('div');
+          popupElement.className = 'custom-popup';
+          document.body.appendChild(popupElement);
+          popupElement.dataset.position = `${position[0]},${position[1]}`;
+          setPopupContent(popupElement, groupInfo);
+          updatePopupPosition(popupElement, position);
           customPopups.push(popupElement);
+          if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(() => centerPopupOnMap(popupElement));
+          } else {
+              centerPopupOnMap(popupElement);
+          }
       }
 
       function updatePopupPosition(popupElement, position) {
+          if (!map || typeof map?.latLngToContainerPoint !== 'function') {
+              return;
+          }
           const mapPos = map.latLngToContainerPoint(position);
           popupElement.style.left = `${mapPos.x}px`;
           popupElement.style.top = `${mapPos.y}px`;
       }
 
+      function centerPopupOnMap(popupElement) {
+          if (!popupElement || !map || typeof map?.panBy !== 'function') {
+              return;
+          }
+          const mapContainer = typeof map.getContainer === 'function' ? map.getContainer() : null;
+          if (!mapContainer) {
+              return;
+          }
+          const mapRect = mapContainer.getBoundingClientRect();
+          const popupRect = popupElement.getBoundingClientRect();
+          if (mapRect.width === 0 || mapRect.height === 0 || popupRect.width === 0 || popupRect.height === 0) {
+              return;
+          }
+          const mapCenterX = mapRect.width / 2;
+          const mapCenterY = mapRect.height / 2;
+          const popupCenterX = (popupRect.left - mapRect.left) + (popupRect.width / 2);
+          const popupCenterY = (popupRect.top - mapRect.top) + (popupRect.height / 2);
+          const deltaX = popupCenterX - mapCenterX;
+          const deltaY = popupCenterY - mapCenterY;
+          if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) {
+              return;
+          }
+          map.panBy([deltaX, deltaY], { animate: true, duration: 0.35, easeLinearity: 0.25 });
+      }
+
       function updatePopupPositions() {
+          if (!map || typeof map?.latLngToContainerPoint !== 'function') {
+              return;
+          }
+          const zooming = !!(map?._animatingZoom || (map?._zoomAnimated && map?._zooming));
+          if (zooming) {
+              return;
+          }
           customPopups.forEach(popupElement => {
               const position = popupElement.dataset.position;
               if (position) {
@@ -789,42 +2703,30 @@
           customPopups.forEach(popupElement => {
               const position = popupElement.dataset.position;
               if (position) {
-                  const routeStopIds = JSON.parse(popupElement.dataset.routeStopIds);
-                  const etas = [];
-                  routeStopIds.forEach(routeStopId => {
-                      if (cachedEtas[routeStopId]) {
-                          cachedEtas[routeStopId].forEach(eta => etas.push(eta));
-                      }
-                  });
-                  const etaText = etas.length > 0
-                    ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
-                          .map(eta => `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background-color: ${getRouteColor(eta.RouteId)}; color: ${getContrastColor(getRouteColor(eta.RouteId))};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`).join('')
-                    : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
-                  const etaTable = `
-                    <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
-                      <thead>
-                        <tr>
-                          <th style="border-bottom: 1px solid white; padding: 5px;">Route</th>
-                          <th style="border-bottom: 1px solid white; padding: 5px;">ETA</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${etaText}
-                      </tbody>
-                    </table>
-                  `;
-                  const stopId = popupElement.dataset.stopId;
-                  popupElement.innerHTML = `
-                    <button class="custom-popup-close">&times;</button>
-                    <span style="font-size: 16px; font-weight: bold;">${popupElement.dataset.stopName}</span><br>
-                    <span>Stop ID: ${stopId}</span><br>
-                    ${etaTable}
-                    <div class="custom-popup-arrow"></div>
-                  `;
-                  popupElement.querySelector('.custom-popup-close').addEventListener('click', () => {
-                      popupElement.remove();
-                      customPopups = customPopups.filter(popup => popup !== popupElement);
-                  });
+                  let routeStopIds = [];
+                  let stopEntries = [];
+                  try {
+                      routeStopIds = JSON.parse(popupElement.dataset.routeStopIds || '[]');
+                  } catch (error) {
+                      routeStopIds = [];
+                  }
+                  try {
+                      stopEntries = JSON.parse(popupElement.dataset.stopEntries || '[]');
+                  } catch (error) {
+                      stopEntries = [];
+                  }
+                  const fallbackStopId = popupElement.dataset.fallbackStopId || '';
+                  const stopName = popupElement.dataset.stopName || '';
+                  const groupKey = popupElement.dataset.groupKey || createStopGroupKey(routeStopIds, fallbackStopId);
+                  const groupInfo = {
+                      position: position.split(',').map(Number),
+                      stopName,
+                      fallbackStopId,
+                      stopEntries,
+                      aggregatedRouteStopIds: routeStopIds,
+                      groupKey
+                  };
+                  setPopupContent(popupElement, groupInfo);
               }
           });
       }
@@ -844,7 +2746,7 @@
                       arrival.Times.forEach(time => {
                           const etaMinutes = Math.round(time.Seconds / 60);
                           allEtas[arrival.RouteStopId].push({
-                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription.slice(0, -5)),
+                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription),
                               etaMinutes: etaMinutes,
                               RouteId: arrival.RouteId
                           });
@@ -858,6 +2760,7 @@
               });
       }
 
+
       class OverlapRouteRenderer {
         constructor(map, options = {}) {
           this.map = map;
@@ -869,13 +2772,16 @@
             headingToleranceDeg: 20,
             simplifyTolerancePx: 0.75,
             latLngEqualityMargin: 1e-9,
-            strokeWeight: 6,
-            groupNodeMergeMargin: 1e-6
+            strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+            minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+            maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT
           }, options);
           this.layers = [];
           this.routeGeometries = new Map();
           this.selectedRoutes = [];
-          this.currentZoom = map.getZoom();
+          this.currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+          this.renderer = options.renderer || null;
+          this.routePaneName = typeof options.pane === 'string' && options.pane ? options.pane : routePaneName;
         }
 
         reset() {
@@ -903,352 +2809,354 @@
             ? Array.from(routeGeometryMap.entries())
             : Object.entries(routeGeometryMap || {});
 
-          const geometries = new Map();
-          const numericIds = selectedRouteIds
-            .map(id => Number(id))
-            .filter(id => !Number.isNaN(id));
+          const desiredIds = new Set(
+            selectedRouteIds
+              .map(id => Number(id))
+              .filter(id => !Number.isNaN(id))
+          );
 
-          const idSet = new Set(numericIds);
+          const nextGeometries = new Map();
           geometryEntries.forEach(([key, value]) => {
             const numericKey = Number(key);
-            if (!Number.isNaN(numericKey) && idSet.has(numericKey) && Array.isArray(value)) {
-              geometries.set(numericKey, value);
+            if (!Number.isNaN(numericKey) && desiredIds.has(numericKey) && Array.isArray(value)) {
+              nextGeometries.set(numericKey, value);
             }
           });
 
-          this.routeGeometries = geometries;
+          this.routeGeometries = nextGeometries;
           this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
-          this.currentZoom = this.map.getZoom();
+
+          const mapZoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          if (Number.isFinite(mapZoom)) {
+            this.currentZoom = mapZoom;
+          }
+
+          this.render();
+          return this.getLayers();
+        }
+
+        handleZoomFrame(targetZoom) {
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            return this.getLayers();
+          }
+
+          const zoom = Number.isFinite(targetZoom)
+            ? targetZoom
+            : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+          if (!Number.isFinite(zoom)) {
+            return this.getLayers();
+          }
+
+          this.currentZoom = zoom;
           this.render();
           return this.getLayers();
         }
 
         handleZoomEnd() {
-          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) return;
-          const zoom = this.map.getZoom();
-          if (zoom === this.currentZoom) return;
-          this.currentZoom = zoom;
-          this.render();
+          const zoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          return this.handleZoomFrame(zoom);
         }
 
         getLayers() {
           return this.layers.slice();
         }
 
+        hasPersistentPixelCache() {
+          return false;
+        }
+
+        computeStrokeWeight(zoom = this.currentZoom) {
+          const minWeight = Number.isFinite(this.options.minStrokeWeight)
+            ? this.options.minStrokeWeight
+            : MIN_ROUTE_STROKE_WEIGHT;
+          const maxWeight = Number.isFinite(this.options.maxStrokeWeight)
+            ? this.options.maxStrokeWeight
+            : MAX_ROUTE_STROKE_WEIGHT;
+          const computed = computeRouteStrokeWeight(zoom);
+          if (!Number.isFinite(computed)) {
+            return Math.max(minWeight, Math.min(maxWeight, DEFAULT_ROUTE_STROKE_WEIGHT));
+          }
+          return Math.max(minWeight, Math.min(maxWeight, computed));
+        }
+
         render() {
+          if (!this.map) return;
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            this.clearLayers();
+            return;
+          }
+
+          const zoom = Number.isFinite(this.currentZoom)
+            ? this.currentZoom
+            : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+          if (!Number.isFinite(zoom)) {
+            this.clearLayers();
+            return;
+          }
+
           this.clearLayers();
-          if (this.selectedRoutes.length === 0) return;
 
-          const zoom = this.currentZoom;
-          const step = Math.max(2, this.options.sampleStepPx);
-          const tolerance = this.options.matchTolerancePx;
-          const headingToleranceRad = (this.options.headingToleranceDeg * Math.PI) / 180;
+          const step = Number.isFinite(this.options.sampleStepPx) && this.options.sampleStepPx > 0
+            ? this.options.sampleStepPx
+            : 8;
+          const tolerance = Number.isFinite(this.options.matchTolerancePx)
+            ? this.options.matchTolerancePx
+            : 6;
+          const headingToleranceRad = (Number.isFinite(this.options.headingToleranceDeg)
+            ? this.options.headingToleranceDeg
+            : 20) * Math.PI / 180;
 
-          const resampledByRoute = new Map();
-          const allSegments = [];
-          const treeItems = [];
+          const segmentsByRoute = new Map();
+          const spatialItems = [];
 
-          this.selectedRoutes.forEach(routeId => {
-            const latlngs = this.routeGeometries.get(routeId);
-            if (!latlngs || latlngs.length < 2) return;
-
-            const resampled = this.resampleRoute(routeId, latlngs, zoom, step);
-            if (!resampled || !Array.isArray(resampled.segments) || resampled.segments.length === 0) {
+          this.routeGeometries.forEach((latlngs, routeId) => {
+            if (!Array.isArray(latlngs) || latlngs.length < 2) {
               return;
             }
 
-            resampledByRoute.set(routeId, resampled);
-            resampled.segments.forEach(segment => {
-              allSegments.push(segment);
-              treeItems.push({
-                minX: segment.bounds.minX,
-                minY: segment.bounds.minY,
-                maxX: segment.bounds.maxX,
-                maxY: segment.bounds.maxY,
+            const segments = this.resampleRoute(routeId, latlngs, zoom, step);
+            if (!Array.isArray(segments) || segments.length === 0) {
+              return;
+            }
+
+            segmentsByRoute.set(routeId, segments);
+
+            segments.forEach(segment => {
+              spatialItems.push({
+                minX: segment.bounds.minX - tolerance,
+                minY: segment.bounds.minY - tolerance,
+                maxX: segment.bounds.maxX + tolerance,
+                maxY: segment.bounds.maxY + tolerance,
                 segment
               });
             });
           });
 
-          if (allSegments.length === 0) return;
+          if (spatialItems.length === 0) {
+            this.clearLayers();
+            return;
+          }
 
-          const tree = new RBush();
-          tree.load(treeItems);
+          const tree = createSpatialIndex({ maxEntries: this.options.maxEntries });
+          if (!tree || typeof tree.load !== 'function' || typeof tree.search !== 'function') {
+            console.error('RBush spatial index instance is invalid; skipping overlap rendering.');
+            this.clearLayers();
+            return;
+          }
 
-          const ensureOffsetStore = segment => {
-            if (!segment) return null;
-            if (!segment.routeOffsets || typeof segment.routeOffsets !== 'object') {
-              segment.routeOffsets = {};
-            }
-            return segment.routeOffsets;
-          };
+          tree.clear?.();
+          tree.load(spatialItems);
+          this.populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad);
 
-          const addOffsetFromSegment = (store, routeId, sourceSegment) => {
-            if (!store || routeId === undefined || routeId === null) return;
-            const key = String(routeId);
-            let min = Infinity;
-            const startCum = Number(sourceSegment?.start?.cumulativeLength);
-            const endCum = Number(sourceSegment?.end?.cumulativeLength);
-            if (Number.isFinite(startCum)) {
-              min = Math.min(min, startCum);
-            }
-            if (Number.isFinite(endCum)) {
-              min = Math.min(min, endCum);
-            }
-            if (!Number.isFinite(min)) return;
-            const existing = store[key];
-            if (!existing || !Number.isFinite(existing.min) || min < existing.min) {
-              store[key] = { min };
-            }
-          };
-
-          allSegments.forEach(segment => {
-            const searchBounds = {
-              minX: segment.bounds.minX - tolerance,
-              minY: segment.bounds.minY - tolerance,
-              maxX: segment.bounds.maxX + tolerance,
-              maxY: segment.bounds.maxY + tolerance
-            };
-            const candidates = tree.search(searchBounds) || [];
-            const sharedRoutes = new Set([segment.routeId]);
-            const segmentOffsets = ensureOffsetStore(segment);
-            addOffsetFromSegment(segmentOffsets, segment.routeId, segment);
-
-            candidates.forEach(candidate => {
-              const other = candidate.segment;
-              if (!other || other === segment) return;
-              if (this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) {
-                sharedRoutes.add(other.routeId);
-                const otherOffsets = ensureOffsetStore(other);
-                addOffsetFromSegment(segmentOffsets, other.routeId, other);
-                addOffsetFromSegment(otherOffsets, segment.routeId, segment);
-              }
-            });
-
-            segment.sharedRoutes = Array.from(sharedRoutes).sort((a, b) => a - b);
-            segment.key = segment.sharedRoutes.join('|');
-            segment.primaryRoute = segment.sharedRoutes[0];
-          });
-
-          const groups = this.buildGroups(resampledByRoute);
+          const groups = this.buildGroups(segmentsByRoute, zoom);
           this.drawGroups(groups);
         }
 
-        buildGroups(resampledByRoute) {
-          const segmentsByKey = new Map();
+        populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad) {
+          const processedPairs = new Set();
 
-          resampledByRoute.forEach((resampled, routeId) => {
-            if (!resampled || !Array.isArray(resampled.segments)) return;
+          spatialItems.forEach(item => {
+            const segment = item.segment;
+            if (!segment) return;
 
-            resampled.segments.forEach(segment => {
-              if (!segment || !Array.isArray(segment.sharedRoutes) || segment.sharedRoutes.length === 0) return;
-              if (segment.primaryRoute !== routeId) return;
+            const candidates = tree.search(item);
+            candidates.forEach(candidate => {
+              const other = candidate.segment;
+              if (!other || other === segment) return;
+              if (other.routeId === segment.routeId) return;
 
-              const key = segment.key || segment.sharedRoutes.join('|');
-              if (!segmentsByKey.has(key)) {
-                segmentsByKey.set(key, {
-                  key,
-                  routes: segment.sharedRoutes.slice(),
-                  segments: []
-                });
-              }
-              segmentsByKey.get(key).segments.push(segment);
+              const pairKey = segment.routeId < other.routeId
+                ? `${segment.routeId}:${segment.index}|${other.routeId}:${other.index}`
+                : `${other.routeId}:${other.index}|${segment.routeId}:${segment.index}`;
+              if (processedPairs.has(pairKey)) return;
+
+              processedPairs.add(pairKey);
+              if (!this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) return;
+
+              segment.sharedRoutes.add(other.routeId);
+              other.sharedRoutes.add(segment.routeId);
+
+              this.applyRouteOffset(segment, other);
+              this.applyRouteOffset(other, segment);
             });
           });
+        }
 
+        applyRouteOffset(target, source) {
+          if (!target || !source) return;
+          if (!target.routeOffsets) {
+            target.routeOffsets = {};
+          }
+
+          const sourceOffset = this.extractRouteOffset(source, source.routeId);
+          if (!Number.isFinite(sourceOffset)) {
+            return;
+          }
+
+          const existing = target.routeOffsets[source.routeId];
+          const candidate = Number.isFinite(existing?.min) ? Math.min(existing.min, sourceOffset) : sourceOffset;
+          target.routeOffsets[source.routeId] = { min: candidate };
+        }
+
+        extractRouteOffset(segment, routeId) {
+          if (!segment) return null;
+          const offsets = segment.routeOffsets || {};
+          const direct = offsets[routeId];
+          if (direct && Number.isFinite(direct.min)) {
+            return direct.min;
+          }
+
+          const values = [];
+          const startVal = Number(segment.start?.cumulativeLength);
+          if (Number.isFinite(startVal)) values.push(startVal);
+          const endVal = Number(segment.end?.cumulativeLength);
+          if (Number.isFinite(endVal)) values.push(endVal);
+          return values.length > 0 ? Math.min(...values) : null;
+        }
+
+        buildGroups(segmentsByRoute, zoom) {
           const groups = [];
-          segmentsByKey.forEach(({ key, routes, segments }) => {
-            const merged = this.mergeSegmentsIntoGroups(key, routes, segments);
-            merged.forEach(group => groups.push(group));
+
+          segmentsByRoute.forEach((segments, routeId) => {
+            const ordered = segments.slice().sort((a, b) => {
+              const aOffset = Number(a.start?.cumulativeLength) || 0;
+              const bOffset = Number(b.start?.cumulativeLength) || 0;
+              return aOffset - bOffset;
+            });
+
+            let current = null;
+
+            ordered.forEach(segment => {
+              const sharedRoutes = Array.from(segment.sharedRoutes || []).sort((a, b) => a - b);
+              if (sharedRoutes.length === 0) return;
+
+              const primary = sharedRoutes[0];
+              if (primary !== routeId) {
+                return;
+              }
+
+              const needsNewGroup = !current
+                || !this.sameRouteSet(current.routes, sharedRoutes)
+                || !this.latLngsClose(current.lastLatLng, segment.start.latlng);
+
+              if (needsNewGroup) {
+                if (current) {
+                  const finalized = this.finalizeGroup(current, zoom);
+                  if (finalized) {
+                    groups.push(finalized);
+                  }
+                }
+
+                current = {
+                  routes: sharedRoutes,
+                  segments: [],
+                  points: [],
+                  offsets: new Map(),
+                  lastLatLng: null
+                };
+              }
+
+              current.segments.push(segment);
+
+              if (current.points.length === 0) {
+                current.points.push(segment.start.latlng);
+              } else if (!this.latLngsClose(current.points[current.points.length - 1], segment.start.latlng)) {
+                current.points.push(segment.start.latlng);
+              }
+              current.points.push(segment.end.latlng);
+              current.lastLatLng = segment.end.latlng;
+
+              const routeOffsets = segment.routeOffsets || {};
+              current.routes.forEach(routeKey => {
+                const candidate = Number(routeOffsets?.[routeKey]?.min ?? routeOffsets?.[routeKey]);
+                if (Number.isFinite(candidate)) {
+                  const existing = current.offsets.get(routeKey);
+                  if (!Number.isFinite(existing) || candidate < existing) {
+                    current.offsets.set(routeKey, candidate);
+                  }
+                }
+              });
+            });
+
+            if (current) {
+              const finalized = this.finalizeGroup(current, zoom);
+              if (finalized) {
+                groups.push(finalized);
+              }
+              current = null;
+            }
           });
 
           return groups;
         }
 
-        mergeSegmentsIntoGroups(key, routes, segments) {
-          if (!Array.isArray(segments) || segments.length === 0) return [];
+        finalizeGroup(group, zoom) {
+          const points = this.collapsePoints(group.points || []);
+          if (points.length < 2) {
+            return null;
+          }
 
-          const nodes = [];
-          const nodeBuckets = new Map();
-          const edges = [];
+          const lengthPx = group.segments.reduce((sum, segment) => {
+            const value = Number(segment.lengthPx);
+            return sum + (Number.isFinite(value) ? value : 0);
+          }, 0);
 
-          segments.forEach(segment => {
-            if (!segment) return;
-            const lengthPx = segment.lengthPx || 0;
-            const startLatLng = segment?.start?.latlng;
-            const endLatLng = segment?.end?.latlng;
-            if (!(lengthPx > 0) || !startLatLng || !endLatLng) return;
+          const primaryRoute = group.routes[0];
+          const offsetCandidates = group.segments
+            .map(segment => Number(segment.routeOffsets?.[primaryRoute]?.min ?? segment.routeOffsets?.[primaryRoute]))
+            .filter(value => Number.isFinite(value));
+          const offsetPx = offsetCandidates.length > 0 ? Math.min(...offsetCandidates) : 0;
 
-            const startNode = this.getOrCreateNode(startLatLng, nodeBuckets, nodes);
-            const endNode = this.getOrCreateNode(endLatLng, nodeBuckets, nodes);
-            if (!startNode || !endNode || startNode === endNode) return;
-
-            const routeOffsets = new Map();
-            if (segment.routeOffsets && typeof segment.routeOffsets === 'object') {
-              Object.entries(segment.routeOffsets).forEach(([routeKey, info]) => {
-                const routeNumeric = Number(routeKey);
-                const minVal = Number(info?.min ?? info);
-                if (Number.isFinite(routeNumeric) && Number.isFinite(minVal)) {
-                  const existing = routeOffsets.get(routeNumeric);
-                  if (!Number.isFinite(existing) || minVal < existing) {
-                    routeOffsets.set(routeNumeric, minVal);
-                  }
-                }
-              });
+          const offsetMap = new Map();
+          group.offsets.forEach((value, key) => {
+            if (Number.isFinite(value)) {
+              offsetMap.set(key, value);
             }
-
-            const edge = {
-              startNode,
-              endNode,
-              latlngs: [startLatLng, endLatLng],
-              lengthPx,
-              startCumulative: segment?.start?.cumulativeLength,
-              endCumulative: segment?.end?.cumulativeLength,
-              used: false,
-              routeOffsets
-            };
-
-            startNode.edges.push(edge);
-            endNode.edges.push(edge);
-            edges.push(edge);
           });
 
-          if (edges.length === 0) return [];
-
-          const builtGroups = [];
-          const visitFromNode = startNode => {
-            if (!startNode) return;
-            if (!startNode.edges.some(edge => !edge.used)) return;
-
-            const pathPoints = [];
-            let totalLength = 0;
-            let minCumulative = Infinity;
-            let currentNode = startNode;
-            const groupRouteOffsets = new Map();
-
-            this.pushLatLng(pathPoints, currentNode.latlng);
-
-            while (true) {
-              const nextEdge = currentNode.edges.find(edge => !edge.used);
-              if (!nextEdge) break;
-              nextEdge.used = true;
-
-              const isForward = nextEdge.startNode === currentNode;
-              const nextNode = isForward ? nextEdge.endNode : nextEdge.startNode;
-              const latlngs = isForward ? nextEdge.latlngs : nextEdge.latlngs.slice().reverse();
-
-              for (let i = 1; i < latlngs.length; i++) {
-                this.pushLatLng(pathPoints, latlngs[i]);
-              }
-
-              totalLength += nextEdge.lengthPx;
-
-              const edgeMin = Math.min(
-                Number.isFinite(nextEdge.startCumulative) ? nextEdge.startCumulative : Infinity,
-                Number.isFinite(nextEdge.endCumulative) ? nextEdge.endCumulative : Infinity
-              );
-              if (Number.isFinite(edgeMin)) {
-                minCumulative = Math.min(minCumulative, edgeMin);
-              }
-
-              if (nextEdge.routeOffsets instanceof Map) {
-                nextEdge.routeOffsets.forEach((value, routeId) => {
-                  const numericValue = Number(value);
-                  if (!Number.isFinite(routeId) || !Number.isFinite(numericValue)) return;
-                  const existing = groupRouteOffsets.get(routeId);
-                  if (!Number.isFinite(existing) || numericValue < existing) {
-                    groupRouteOffsets.set(routeId, numericValue);
-                  }
-                });
-              }
-
-              currentNode = nextNode;
-            }
-
-            if (totalLength > 0 && pathPoints.length >= 2) {
-              builtGroups.push({
-                key,
-                routes: Array.isArray(routes) ? routes.slice() : [],
-                points: pathPoints,
-                lengthPx: totalLength,
-                offsetPx: Number.isFinite(minCumulative) ? minCumulative : 0,
-                routeOffsets: groupRouteOffsets
-              });
-            }
+          return {
+            routes: group.routes.slice(),
+            points,
+            lengthPx,
+            offsetPx,
+            routeOffsets: offsetMap
           };
+        }
 
-          nodes.forEach(node => {
-            if (node.edges.length <= 1 && node.edges.some(edge => !edge.used)) {
-              visitFromNode(node);
+        collapsePoints(points) {
+          const collapsed = [];
+          points.forEach(point => {
+            if (collapsed.length === 0 || !this.latLngsClose(collapsed[collapsed.length - 1], point)) {
+              collapsed.push(point);
             }
           });
-
-          nodes.forEach(node => {
-            if (node.edges.some(edge => !edge.used)) {
-              visitFromNode(node);
-            }
-          });
-
-          return builtGroups;
+          return collapsed;
         }
 
-        getOrCreateNode(latlng, bucketMap, nodes) {
-          if (!latlng) return null;
-          const bucketKey = this.latLngBucketKey(latlng);
-          let bucket = bucketMap.get(bucketKey);
-          if (!bucket) {
-            bucket = [];
-            bucketMap.set(bucketKey, bucket);
+        sameRouteSet(a, b) {
+          if (!Array.isArray(a) || !Array.isArray(b)) return false;
+          if (a.length !== b.length) return false;
+          for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return false;
           }
-
-          for (const node of bucket) {
-            if (this.latLngsClose(node.latlng, latlng)) {
-              return node;
-            }
-          }
-
-          const node = { latlng, edges: [] };
-          bucket.push(node);
-          nodes.push(node);
-          return node;
+          return true;
         }
 
-        latLngBucketKey(latlng) {
-          const margin = this.options.groupNodeMergeMargin || 1e-6;
-          const scale = Math.max(1, Math.round(1 / margin));
-          if (!latlng) return '0:0';
-          const lat = typeof latlng.lat === 'number' ? latlng.lat : latlng?.latlng?.lat;
-          const lng = typeof latlng.lng === 'number' ? latlng.lng : latlng?.latlng?.lng;
-          if (typeof lat !== 'number' || typeof lng !== 'number') {
-            return '0:0';
-          }
-          return `${Math.round(lat * scale)}:${Math.round(lng * scale)}`;
-        }
-
-        latLngsClose(a, b, margin = this.options.groupNodeMergeMargin || 1e-6) {
+        latLngsClose(a, b) {
           if (!a || !b) return false;
-          const tolerance = margin > 0 ? margin : 1e-6;
-          return Math.abs((a.lat ?? a?.latlng?.lat ?? 0) - (b.lat ?? b?.latlng?.lat ?? 0)) <= tolerance &&
-            Math.abs((a.lng ?? a?.latlng?.lng ?? 0) - (b.lng ?? b?.latlng?.lng ?? 0)) <= tolerance;
-        }
-
-        pushLatLng(points, latlng) {
-          if (!latlng) return;
-          if (points.length === 0) {
-            points.push(latlng);
-            return;
-          }
-          const last = points[points.length - 1];
-          if (!this.latLngsClose(last, latlng)) {
-            points.push(latlng);
-          }
+          const tolerance = this.options.latLngEqualityMargin || 1e-9;
+          const latA = a.lat ?? a?.latlng?.lat ?? 0;
+          const lngA = a.lng ?? a?.latlng?.lng ?? 0;
+          const latB = b.lat ?? b?.latlng?.lat ?? 0;
+          const lngB = b.lng ?? b?.latlng?.lng ?? 0;
+          return Math.abs(latA - latB) <= tolerance && Math.abs(lngA - lngB) <= tolerance;
         }
 
         drawGroups(groups) {
           const newLayers = [];
           const dashBase = this.options.dashLengthPx;
           const minDash = this.options.minDashLengthPx;
-          const weight = this.options.strokeWeight;
+          const weight = this.computeStrokeWeight();
 
           groups.forEach(group => {
             if (!group || !Array.isArray(group.routes) || group.routes.length === 0) return;
@@ -1257,6 +3165,7 @@
             const coords = group.points.map(latlng => [latlng.lat, latlng.lng]);
             const sortedRoutes = group.routes.slice().sort((a, b) => a - b);
             const offsetsByRoute = new Map();
+
             if (group.routeOffsets instanceof Map) {
               group.routeOffsets.forEach((value, routeId) => {
                 const numericRoute = Number(routeId);
@@ -1283,19 +3192,19 @@
 
             if (sortedRoutes.length === 1) {
               const routeId = sortedRoutes[0];
-              const layer = L.polyline(coords, {
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
                 color: getRouteColor(routeId),
                 weight,
                 opacity: 1,
                 lineCap: 'round',
                 lineJoin: 'round'
-              }).addTo(this.map);
+              }, this.renderer, this.routePaneName)).addTo(this.map);
               newLayers.push(layer);
               return;
             }
 
             const groupLength = group.lengthPx || 0;
-            if (groupLength <= 0) return;
+            if (!(groupLength > 0)) return;
             const stripeCount = sortedRoutes.length;
             let dashLength = dashBase;
             if (dashLength * stripeCount > groupLength) {
@@ -1304,12 +3213,15 @@
             if (!(dashLength > 0)) {
               dashLength = minDash;
             }
+
             const gapLength = dashLength * (stripeCount - 1);
             const patternLength = dashLength + gapLength;
+
             let baseOffsetValue;
             const tolerance = 1e-9;
             let anchorRouteId = null;
             let anchorOffset = -Infinity;
+
             sortedRoutes.forEach(routeId => {
               const offsetValue = offsetsByRoute.get(routeId);
               if (Number.isFinite(offsetValue)) {
@@ -1345,7 +3257,8 @@
                 }
                 dashOffsetValue = ((dashOffsetValue % patternLength) + patternLength) % patternLength;
               }
-              const layer = L.polyline(coords, {
+
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
                 color: getRouteColor(routeId),
                 weight,
                 opacity: 1,
@@ -1353,7 +3266,7 @@
                 dashOffset: `${dashOffsetValue}`,
                 lineCap: 'butt',
                 lineJoin: 'round'
-              }).addTo(this.map);
+              }, this.renderer, this.routePaneName)).addTo(this.map);
               newLayers.push(layer);
             });
           });
@@ -1362,12 +3275,16 @@
         }
 
         simplifyLatLngs(latlngs, zoom) {
-          if (!Array.isArray(latlngs) || latlngs.length === 0) return [];
+          if (!Array.isArray(latlngs) || latlngs.length === 0) {
+            return [];
+          }
+
           const projected = latlngs.map(latlng => this.map.project(latlng, zoom));
           let simplified = projected;
           if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil && L.LineUtil.simplify) {
             simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
           }
+
           return simplified.map(pt => ({
             point: L.point(pt.x, pt.y),
             latlng: this.map.unproject(pt, zoom)
@@ -1376,99 +3293,108 @@
 
         resampleRoute(routeId, latlngs, zoom, step) {
           const simplified = this.simplifyLatLngs(latlngs, zoom);
-          if (simplified.length < 2) return null;
+          if (simplified.length < 2) {
+            return [];
+          }
 
-          const resampledPoints = [];
+          const samples = [];
           const first = simplified[0];
-          resampledPoints.push({
+          samples.push({
             latlng: first.latlng,
             point: first.point,
             cumulativeLength: 0
           });
 
-          let totalTraversed = 0;
+          let traversed = 0;
           let distanceSinceLast = 0;
 
           for (let i = 1; i < simplified.length; i++) {
             const prev = simplified[i - 1];
             const curr = simplified[i];
             const segmentLength = this.distance(prev.point, curr.point);
-            if (segmentLength === 0) continue;
-
-            let distanceAlongSegment = 0;
-            while (distanceSinceLast + (segmentLength - distanceAlongSegment) >= step) {
-              const remainingToNext = step - distanceSinceLast;
-              const sampleDistance = distanceAlongSegment + remainingToNext;
-              const ratio = sampleDistance / segmentLength;
-              const samplePoint = this.interpolatePoint(prev.point, curr.point, ratio);
-              const sampleLatLng = this.map.unproject(samplePoint, zoom);
-              const absoluteLength = totalTraversed + sampleDistance;
-
-              resampledPoints.push({
-                latlng: sampleLatLng,
-                point: samplePoint,
-                cumulativeLength: absoluteLength
-              });
-
-              distanceSinceLast = 0;
-              distanceAlongSegment = sampleDistance;
+            if (segmentLength === 0) {
+              continue;
             }
 
-            distanceSinceLast += segmentLength - distanceAlongSegment;
-            totalTraversed += segmentLength;
+            let consumed = 0;
+            while (distanceSinceLast + (segmentLength - consumed) >= step) {
+              const remaining = step - distanceSinceLast;
+              consumed += remaining;
+              const ratio = consumed / segmentLength;
+              const samplePoint = this.interpolatePoint(prev.point, curr.point, ratio);
+              const sampleLatLng = this.map.unproject(samplePoint, zoom);
+              traversed += remaining;
+              samples.push({
+                latlng: sampleLatLng,
+                point: samplePoint,
+                cumulativeLength: traversed
+              });
+              distanceSinceLast = 0;
+            }
+
+            const leftover = segmentLength - consumed;
+            traversed += leftover;
+            distanceSinceLast += leftover;
           }
 
           const last = simplified[simplified.length - 1];
-          const lastSample = resampledPoints[resampledPoints.length - 1];
-          if (!this.latLngEquals(lastSample.latlng, last.latlng)) {
-            resampledPoints.push({
+          const lastSample = samples[samples.length - 1];
+          if (!this.latLngsClose(lastSample.latlng, last.latlng)) {
+            samples.push({
               latlng: last.latlng,
               point: last.point,
-              cumulativeLength: totalTraversed
+              cumulativeLength: traversed
             });
           } else {
-            lastSample.cumulativeLength = totalTraversed;
+            lastSample.cumulativeLength = traversed;
           }
 
           const segments = [];
-          for (let i = 0; i < resampledPoints.length - 1; i++) {
-            const start = resampledPoints[i];
-            const end = resampledPoints[i + 1];
+          for (let i = 0; i < samples.length - 1; i++) {
+            const start = samples[i];
+            const end = samples[i + 1];
             const lengthPx = this.distance(start.point, end.point);
-            if (lengthPx === 0) continue;
+            if (!(lengthPx > 0)) {
+              continue;
+            }
+
             const bounds = {
               minX: Math.min(start.point.x, end.point.x),
               minY: Math.min(start.point.y, end.point.y),
               maxX: Math.max(start.point.x, end.point.x),
               maxY: Math.max(start.point.y, end.point.y)
             };
-            const midpoint = L.point((start.point.x + end.point.x) / 2, (start.point.y + end.point.y) / 2);
+            const midpoint = L.point(
+              (start.point.x + end.point.x) / 2,
+              (start.point.y + end.point.y) / 2
+            );
             const heading = Math.atan2(end.point.y - start.point.y, end.point.x - start.point.x);
             const offsetValues = [];
-            const startCum = Number.isFinite(start?.cumulativeLength) ? start.cumulativeLength : null;
-            const endCum = Number.isFinite(end?.cumulativeLength) ? end.cumulativeLength : null;
-            if (Number.isFinite(startCum)) offsetValues.push(startCum);
-            if (Number.isFinite(endCum)) offsetValues.push(endCum);
+            const startOffset = Number(start.cumulativeLength);
+            if (Number.isFinite(startOffset)) offsetValues.push(startOffset);
+            const endOffset = Number(end.cumulativeLength);
+            if (Number.isFinite(endOffset)) offsetValues.push(endOffset);
+
             const routeOffsets = {};
             if (offsetValues.length > 0) {
               routeOffsets[routeId] = { min: Math.min(...offsetValues) };
             }
+
             segments.push({
               routeId,
+              index: segments.length,
               start,
               end,
               lengthPx,
               bounds,
               midpoint,
               heading,
-              routeOffsets
+              routeOffsets,
+              sharedRoutes: new Set([routeId])
             });
           }
 
-          return {
-            points: resampledPoints,
-            segments
-          };
+          return segments;
         }
 
         interpolatePoint(a, b, t) {
@@ -1479,21 +3405,33 @@
         }
 
         distance(a, b) {
-          const dx = (b.x || 0) - (a.x || 0);
-          const dy = (b.y || 0) - (a.y || 0);
+          const ax = a?.x ?? 0;
+          const ay = a?.y ?? 0;
+          const bx = b?.x ?? 0;
+          const by = b?.y ?? 0;
+          const dx = bx - ax;
+          const dy = by - ay;
           return Math.sqrt(dx * dx + dy * dy);
         }
 
         segmentsOverlap(a, b, tolerance, headingToleranceRad) {
           const midpointDistance = this.distance(a.midpoint, b.midpoint);
-          if (midpointDistance > tolerance) return false;
+          if (midpointDistance > tolerance) {
+            return false;
+          }
 
           const headingDiff = this.smallestHeadingDifference(a.heading, b.heading);
           if (headingDiff > headingToleranceRad && Math.abs(Math.PI - headingDiff) > headingToleranceRad) {
             return false;
           }
 
-          return true;
+          const startDistance = this.distance(a.start.point, b.start.point);
+          const endDistance = this.distance(a.end.point, b.end.point);
+          const crossStart = this.distance(a.start.point, b.end.point);
+          const crossEnd = this.distance(a.end.point, b.start.point);
+          const closeEnough = Math.min(startDistance, endDistance, crossStart, crossEnd) <= tolerance * 2;
+
+          return closeEnough;
         }
 
         smallestHeadingDifference(a, b) {
@@ -1502,17 +3440,7 @@
           if (diff > Math.PI) diff = (Math.PI * 2) - diff;
           return diff;
         }
-
-        latLngEquals(a, b) {
-          if (!a || !b) return false;
-          if (typeof a.equals === 'function') {
-            return a.equals(b, this.options.latLngEqualityMargin);
-          }
-          return Math.abs(a.lat - b.lat) <= this.options.latLngEqualityMargin &&
-            Math.abs(a.lng - b.lng) <= this.options.latLngEqualityMargin;
-        }
       }
-
       // Fetch routes from GetRoutes.
       function fetchRouteColors() {
         console.log('Fetching route colors...');
@@ -1537,49 +3465,129 @@
           .catch(error => console.error("Error fetching route colors:", error));
       }
 
-      // Fetch route paths from GetRoutesForMapWithSchedule and center map on all routes.
+      // Fetch route paths from GetRoutesForMapWithSchedule and center map on relevant routes.
       function fetchRoutePaths() {
           const currentBaseURL = baseURL;
           const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
-          fetch(routePathsApiUrl)
+          return fetch(routePathsApiUrl)
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return;
-                  routeLayers.forEach(layer => map.removeLayer(layer));
-                  routeLayers = [];
+                  const activeRoutesForBounds = new Set();
+                  activeRoutes.forEach(routeId => {
+                      const numericRouteId = Number(routeId);
+                      if (Number.isFinite(numericRouteId) && numericRouteId !== 0) {
+                          activeRoutesForBounds.add(numericRouteId);
+                      }
+                  });
+                  const hasActiveServiceRoutes = activeRoutesForBounds.size > 0;
                   let bounds = null;
+                  let fallbackBounds = null;
                   const displayedRoutes = new Map();
                   const rendererGeometries = new Map();
+                  const simpleGeometries = [];
                   const selectedRouteIds = [];
+                  const updatedRouteStopAddressMap = {};
+                  const updatedRouteStopRouteMap = {};
                   const useOverlapRenderer = enableOverlapDashRendering && overlapRenderer;
+                  const seenRouteIds = new Set();
+                  let geometryChanged = false;
+
                   if (Array.isArray(data)) {
                       data.forEach(route => {
                           setRouteVisibility(route);
                           allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
-                          const routeAllowed = canDisplayRoute(route.RouteID);
-                          if (route.EncodedPolyline && routeAllowed) {
-                              const decodedPolyline = polyline.decode(route.EncodedPolyline);
-                              const latLngPath = decodedPolyline.map(coords => L.latLng(coords[0], coords[1]));
-                              const polyBounds = L.latLngBounds(latLngPath);
-                              bounds = bounds ? bounds.extend(polyBounds) : polyBounds;
+                  const numericRouteId = Number(route.RouteID);
+                  const isNumericRoute = !Number.isNaN(numericRouteId);
 
-                              if (isRouteSelected(route.RouteID)) {
-                                  const numericRouteId = Number(route.RouteID);
-                                  const routeColor = getRouteColor(route.RouteID);
-                                  if (!Number.isNaN(numericRouteId)) {
-                                      const hasUsableGeometry = Array.isArray(latLngPath) && latLngPath.length >= 2;
-                                      selectedRouteIds.push(numericRouteId);
-                                      if (useOverlapRenderer && hasUsableGeometry) {
-                                          rendererGeometries.set(numericRouteId, latLngPath);
-                                      } else if (hasUsableGeometry) {
-                                          const routeLayer = L.polyline(latLngPath, {
-                                              color: routeColor,
-                                              weight: 6,
-                                              opacity: 1
-                                          }).addTo(map);
-                                          routeLayers.push(routeLayer);
+                  if (Array.isArray(route.Stops)) {
+                      route.Stops.forEach(stop => {
+                          const routeStopId = Number(stop.RouteStopID ?? stop.RouteStopId);
+                          const addressId = stop.AddressID ?? stop.AddressId;
+                          if (!Number.isNaN(routeStopId)) {
+                              if (isNumericRoute) {
+                                  updatedRouteStopRouteMap[routeStopId] = numericRouteId;
+                              }
+                              if (addressId !== undefined && addressId !== null && `${addressId}`.trim() !== '') {
+                                  updatedRouteStopAddressMap[routeStopId] = `${addressId}`;
+                              }
+                          }
+                      });
+                  }
+
+                  const routeAllowed = canDisplayRoute(route.RouteID);
+                          if (isNumericRoute && route.EncodedPolyline) {
+                              seenRouteIds.add(numericRouteId);
+                          }
+
+                          if (!routeAllowed) {
+                              return;
+                          }
+
+                          const isSelected = isRouteSelected(route.RouteID);
+                          if (route.EncodedPolyline && isNumericRoute) {
+                              const shouldIncludeInBounds = !hasActiveServiceRoutes || activeRoutesForBounds.has(numericRouteId);
+                              let cacheEntry = routePolylineCache.get(numericRouteId);
+                              let latLngPath;
+                              let polyBounds = null;
+
+                              if (!cacheEntry || cacheEntry.encoded !== route.EncodedPolyline) {
+                                  const decodedPolyline = polyline.decode(route.EncodedPolyline);
+                                  latLngPath = decodedPolyline.map(coords => L.latLng(coords[0], coords[1]));
+                                  if (Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                      polyBounds = L.latLngBounds(latLngPath);
+                                  }
+                                  routePolylineCache.set(numericRouteId, {
+                                      encoded: route.EncodedPolyline,
+                                      latLngPath,
+                                      bounds: polyBounds
+                                  });
+                                  cacheEntry = routePolylineCache.get(numericRouteId);
+                                  if (isSelected) {
+                                      geometryChanged = true;
+                                  }
+                              } else {
+                                  latLngPath = cacheEntry.latLngPath;
+                                  polyBounds = cacheEntry.bounds || null;
+                                  if (!polyBounds && Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                      polyBounds = L.latLngBounds(latLngPath);
+                                      cacheEntry.bounds = polyBounds;
+                                  }
+                              }
+
+                              let candidateBounds = polyBounds;
+                              if (!candidateBounds && Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                  candidateBounds = L.latLngBounds(latLngPath);
+                                  if (cacheEntry) {
+                                      cacheEntry.bounds = candidateBounds;
+                                  } else {
+                                      const existing = routePolylineCache.get(numericRouteId);
+                                      if (existing) {
+                                          existing.bounds = candidateBounds;
                                       }
                                   }
+                              }
+
+                              if (candidateBounds) {
+                                  fallbackBounds = fallbackBounds
+                                      ? fallbackBounds.extend(candidateBounds)
+                                      : L.latLngBounds(candidateBounds);
+                                  if (shouldIncludeInBounds) {
+                                      bounds = bounds
+                                          ? bounds.extend(candidateBounds)
+                                          : L.latLngBounds(candidateBounds);
+                                  }
+                              }
+
+                              if (isSelected && Array.isArray(latLngPath) && latLngPath.length >= 2) {
+                                  const routeColor = getRouteColor(route.RouteID);
+                                  selectedRouteIds.push(numericRouteId);
+                                  if (useOverlapRenderer) {
+                                      rendererGeometries.set(numericRouteId, latLngPath);
+                                  } else {
+                                      simpleGeometries.push({ routeId: numericRouteId, latLngPath, routeColor });
+                                  }
+
                                   const storedRoute = allRoutes[route.RouteID] || {};
                                   const legendNameCandidates = [
                                       storedRoute.Description,
@@ -1593,7 +3601,7 @@
                                   legendName = legendName ? legendName.trim() : `Route ${route.RouteID}`;
                                   const rawDescription = storedRoute.InfoText ?? route.InfoText ?? '';
                                   const legendDescription = typeof rawDescription === 'string' ? rawDescription.trim() : '';
-                                  const legendRouteId = Number.isNaN(numericRouteId) ? route.RouteID : numericRouteId;
+                                  const legendRouteId = isNumericRoute ? numericRouteId : route.RouteID;
                                   displayedRoutes.set(route.RouteID, {
                                       routeId: legendRouteId,
                                       color: routeColor,
@@ -1601,11 +3609,77 @@
                                       description: legendDescription
                                   });
                               }
+                          } else if (isSelected && isNumericRoute) {
+                              if (routePolylineCache.has(numericRouteId)) {
+                                  routePolylineCache.delete(numericRouteId);
+                              }
+                              geometryChanged = true;
                           }
                       });
-                      if (useOverlapRenderer) {
-                          const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIds);
-                          routeLayers = layers;
+
+                      const previousSelectedIds = new Set(lastRouteRenderState.selectionKey
+                          ? lastRouteRenderState.selectionKey.split('|').filter(Boolean).map(id => Number(id))
+                          : []);
+                      Array.from(routePolylineCache.keys()).forEach(routeId => {
+                          if (!seenRouteIds.has(routeId)) {
+                              if (previousSelectedIds.has(routeId)) {
+                                  geometryChanged = true;
+                              }
+                              routePolylineCache.delete(routeId);
+                          }
+                      });
+
+                      const selectedRouteIdsSorted = selectedRouteIds.slice().sort((a, b) => a - b);
+                      const selectionKey = selectedRouteIdsSorted.join('|');
+                      const colorSignature = selectedRouteIdsSorted.map(id => `${id}:${getRouteColor(id)}`).join('|');
+                      const geometrySignature = selectedRouteIdsSorted
+                          .map(id => `${id}:${routePolylineCache.get(id)?.encoded || ''}`)
+                          .join('|');
+                      const rendererFlag = !!useOverlapRenderer;
+
+                      let shouldRender = routeLayers.length === 0 ||
+                        rendererFlag !== lastRouteRenderState.useOverlapRenderer ||
+                        selectionKey !== lastRouteRenderState.selectionKey ||
+                        colorSignature !== lastRouteRenderState.colorSignature ||
+                        geometrySignature !== lastRouteRenderState.geometrySignature ||
+                        geometryChanged;
+
+                      if (shouldRender) {
+                          routeLayers.forEach(layer => map.removeLayer(layer));
+                          routeLayers = [];
+                          if (useOverlapRenderer) {
+                              const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted);
+                              routeLayers = layers;
+                          } else {
+                              const currentStrokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
+                              simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
+                              const routeLayer = L.polyline(latLngPath, mergeRouteLayerOptions({
+                                      color: routeColor,
+                                      weight: currentStrokeWeight,
+                                      opacity: 1,
+                                      lineCap: 'round',
+                                      lineJoin: 'round'
+                                  })).addTo(map);
+                                  routeLayers.push(routeLayer);
+                              });
+                          }
+                      }
+
+                      lastRouteRenderState = {
+                          selectionKey,
+                          colorSignature,
+                          geometrySignature,
+                          useOverlapRenderer: rendererFlag
+                      };
+
+                      routeStopAddressMap = updatedRouteStopAddressMap;
+                      routeStopRouteMap = updatedRouteStopRouteMap;
+                      updateCustomPopups();
+                      if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
+                          renderBusStops(stopDataCache);
+                      }
+                      if (!bounds && fallbackBounds) {
+                          bounds = fallbackBounds;
                       }
                       if (bounds) {
                           allRouteBounds = bounds;
@@ -1619,11 +3693,15 @@
                       updateRouteSelector(activeRoutes);
                       stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
                   }
-                  updateRouteLegend(Array.from(displayedRoutes.values()));
+                  updateRouteLegend(Array.from(displayedRoutes.values()), { preserveOnEmpty: true });
               })
               .catch(error => {
                   console.error("Error fetching route paths:", error);
-                  updateRouteLegend([]);
+                  if (kioskMode || adminKioskMode) {
+                      updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
+                  } else {
+                      updateRouteLegend([], { forceHide: true });
+                  }
               });
       }
 
@@ -1632,7 +3710,7 @@
           const d = new Date();
           const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
           const schedUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
-          fetch(schedUrl)
+          return fetch(schedUrl)
               .then(response => response.json())
               .then(sched => {
                   if (currentBaseURL !== baseURL) return;
@@ -1753,11 +3831,11 @@
                               markers[vehicleID].setIcon(busIcon);
                               markers[vehicleID].routeID = routeID;
                           } else {
-                              markers[vehicleID] = L.marker(newPosition, { icon: busIcon });
+                              markers[vehicleID] = L.marker(newPosition, { icon: busIcon, pane: 'busesPane', interactive: false });
                               markers[vehicleID].routeID = routeID;
                               markers[vehicleID].addTo(map);
                           }
-                          if (adminMode && showSpeed && !kioskMode) {
+                          if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
                               const speedBubble = `
                                   <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
                                       <g>
@@ -1776,7 +3854,7 @@
                                   nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
                               } else {
                                   nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false }).addTo(map);
+                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                               }
                           } else {
                               if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
@@ -1804,11 +3882,11 @@
                                   nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
                               } else {
                                   nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                  nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false }).addTo(map);
+                                  nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                               }
 
                               const blockName = busBlocks[vehicleID];
-                              if (showBlockNumbers && blockName && blockName.includes('[')) {
+                              if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
                                   const canvas = document.createElement('canvas');
                                   const ctx = canvas.getContext('2d');
                                   ctx.font = 'bold 14px FGDC';
@@ -1833,7 +3911,7 @@
                                       nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
                                   } else {
                                       nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false }).addTo(map);
+                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                                   }
                               } else {
                                   if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
@@ -1881,8 +3959,26 @@
       }
 
       function animateMarkerTo(marker, newPosition) {
+        if (!marker || !newPosition) return;
+        const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
+        const endPos = hasArrayPosition ? L.latLng(newPosition) : L.latLng(newPosition?.lat, newPosition?.lng);
+        if (!endPos || Number.isNaN(endPos.lat) || Number.isNaN(endPos.lng)) return;
+
         const startPos = marker.getLatLng();
-        const endPos = L.latLng(newPosition);
+        if (!startPos) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const positionsMatch = typeof startPos.equals === 'function'
+          ? startPos.equals(endPos, 1e-7)
+          : (Math.abs(startPos.lat - endPos.lat) < 1e-7 && Math.abs(startPos.lng - endPos.lng) < 1e-7);
+
+        if (positionsMatch) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
         const duration = 1000;
         const startTime = performance.now();
         function animate(time) {
@@ -1899,22 +3995,42 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
-        loadAgencies().then(() => {
-          initMap();
-          showCookieBanner();
-        });
+        beginAgencyLoad();
+        loadAgencies()
+          .then(() => {
+            initMap();
+            showCookieBanner();
+            return loadAgencyData()
+              .then(() => {
+                startRefreshIntervals();
+              });
+          })
+          .catch(error => {
+            console.error('Error during initial load:', error);
+          })
+          .finally(() => {
+            completeAgencyLoad();
+          });
       });
     </script>
   </head>
   <body>
     <div id="map"></div>
     <div id="routeLegend" aria-live="polite"></div>
-    <div id="routeSelector"></div>
-    <div id="routeSelectorTab" onclick="togglePanel()">&#9664;</div>
+    <div id="controlPanel" class="selector-panel"></div>
+    <div id="routeSelector" class="selector-panel"></div>
+    <div id="controlPanelTab" class="panel-toggle panel-toggle--left" onclick="toggleControlPanel()" title="Toggle system controls">&#9654;</div>
+    <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">&#9664;</div>
     <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
     <div id="cookieBanner" class="cookie-banner" style="display:none;">
       This site stores your selected transit agency on your device to remember your preference.
       <button id="cookieAccept">OK</button>
+    </div>
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="false">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading agency data…</div>
+      </div>
     </div>
   </body>
 </html>
