@@ -118,6 +118,17 @@ The Red/Blue line dashboard downloads APC entries for a selected day, aggregates
 - `/arrivalsdisplay` drives stop displays with arrival predictions, vehicle capacity bars, scrolling alert ticker, spoken announcements (with optional audio primer for autoplay policies), stop name banner, and QR codes for remote registration.【F:arrivalsdisplay.html†L1-L240】
 - `/registerdisplay` lets staff map device IDs to stop IDs and friendly names, backed by the `/device-stop` API.【F:registerdisplay.html†L1-L74】
 
+### Page URL parameters
+
+| Page(s) | Query parameters |
+| --- | --- |
+| `/`, `/index`, `/driver`, `/dispatcher`, `/servicecrew`, `/admin`, `/buses`, `/apicalls`, `/ridership`, `/replay`, `/debug`, `/madmap`, `/metromap`, `/registerdisplay`, `/404` | None – these dashboards ignore query strings and rely on in-app controls.【203a89†L1-L7】 |
+| `/map` | `kioskMode` (`true`/`false`) hides the route selector and suppresses admin overlays for kiosk displays; `adminMode` (`true`/`false`) toggles block/speed bubbles and exposes non-public routes; `adminKioskMode` (`true`/`false`) hides the selector while retaining admin overlays.【F:map.html†L202-L230】 |
+| `/testmap` | Same as `/map`: `kioskMode`, `adminMode`, and `adminKioskMode` drive whether the selector is visible and whether admin overlays render.【F:testmap.html†L763-L831】 |
+| `/testmap-minimal` | `baseURL` forces a specific RideSystems host instead of auto-discovering UVA; `routeId` chooses a specific route (numeric) when multiple shapes are available.【F:testmap-minimal.html†L24-L303】 |
+| `/arrivalsdisplay` | `showInactiveAlerts=true` keeps expired alerts in the ticker; `voice` selects a Web Speech voice name for announcements when available.【F:arrivalsdisplay.html†L71-L133】 |
+| `/transloc_ticker` | Styling knobs: `height`, `bg`, `fg`, `sepfg`, `size`, `sepsize`, `duration`, `pad`. Content switches: `showInactive`/`showInactiveAlerts` (truthy to include inactive alerts), `source=alerts|arrivals`, `stops` (TransLoc stop list when `source=arrivals`), `sep` (separator text), `refresh` (poll interval in ms).【F:transloc_ticker.html†L170-L515】 |
+
 ## Data and logging
 - Hourly JSONL vehicle logs live under the first `VEH_LOG_DIR` (default `/data/vehicle_logs`). Files are named `YYYYMMDD_HH.jsonl`, flushed synchronously, and pruned based on `VEH_LOG_RETENTION_MS`. Each record embeds raw TransLoc vehicles plus block assignments and capture timestamp.【F:app.py†L1133-L1214】
 - Daily mileage snapshots are stored in `mileage.json` and include cumulative miles, day totals, reset baselines, last known location, and block history.【F:app.py†L804-L852】
