@@ -3394,7 +3394,11 @@
               })
               .catch(error => {
                   console.error("Error fetching route paths:", error);
-                  updateRouteLegend([], { forceHide: true });
+                  if (kioskMode || adminKioskMode) {
+                      updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
+                  } else {
+                      updateRouteLegend([], { forceHide: true });
+                  }
               });
       }
 
