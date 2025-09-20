@@ -727,7 +727,7 @@
     let activeBuses = new Set();
     let showSpeed = true; // default to showing speed
     let showBlockNumbers = false;
-    let showLabels = true;
+    let showNameBubbles = true;
     let lastPositions = {};
     let currentFrameIndex = 0;
     const outOfServiceRouteColor = '#000000';
@@ -1005,20 +1005,31 @@
       if (mode === 'block') {
         showSpeed = false;
         showBlockNumbers = true;
-      } else {
+      } else if (mode === 'speed') {
         showSpeed = true;
         showBlockNumbers = false;
+      } else if (mode === 'none') {
+        showSpeed = false;
+        showBlockNumbers = false;
+      } else {
+        return;
       }
       updateRouteSelector(activeRoutes);
       refreshReplay();
     }
 
     function toggleSpeedOrBlock() {
-      setReplayDisplayMode(showSpeed ? 'block' : 'speed');
+      if (showSpeed) {
+        setReplayDisplayMode('block');
+      } else if (showBlockNumbers) {
+        setReplayDisplayMode('none');
+      } else {
+        setReplayDisplayMode('speed');
+      }
     }
 
-    function toggleLabels() {
-      showLabels = !showLabels;
+    function toggleNameBubbles() {
+      showNameBubbles = !showNameBubbles;
       updateRouteSelector(activeRoutes);
       refreshReplay();
     }
@@ -1210,11 +1221,12 @@
               <div class="display-mode-group">
                 <button type="button" class="pill-button ${showSpeed ? 'is-active' : ''}" onclick="setReplayDisplayMode('speed')">Show Speed</button>
                 <button type="button" class="pill-button ${showBlockNumbers ? 'is-active' : ''}" onclick="setReplayDisplayMode('block')">Show Blocks</button>
+                <button type="button" class="pill-button ${(!showSpeed && !showBlockNumbers) ? 'is-active' : ''}" onclick="setReplayDisplayMode('none')">Show None</button>
               </div>
             </div>
             <div class="selector-group">
               <div class="selector-label">Name Bubbles</div>
-              <button type="button" class="pill-button ${showLabels ? 'is-active' : ''}" onclick="toggleLabels()">${showLabels ? 'Hide Labels' : 'Show Labels'}</button>
+              <button type="button" class="pill-button ${showNameBubbles ? 'is-active' : ''}" onclick="toggleNameBubbles()">${showNameBubbles ? 'Hide Name Bubbles' : 'Show Name Bubbles'}</button>
             </div>
             <div class="selector-group selector-group--route-actions">
               <div class="selector-label">Route Shortcuts</div>
@@ -1601,7 +1613,7 @@
         }
         markers[vehicle.VehicleID] = marker;
 
-        if (showLabels && showSpeed) {
+        if (showSpeed) {
           const speedBubble = `
             <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
               <g>
@@ -1620,7 +1632,7 @@
           speedMarkers[vehicle.VehicleID] = sm;
         }
 
-        if (showLabels && showBlockNumbers) {
+        if (showBlockNumbers) {
           const blockName = blocks[vehicle.VehicleID];
           if (blockName && blockName.includes('[')) {
             const ctx = document.createElement('canvas').getContext('2d');
@@ -1647,7 +1659,7 @@
         }
 
         const busName = vehicle.Name ? vehicle.Name.slice(0, -2) : '';
-        if (showLabels && busName) {
+        if (showNameBubbles && busName) {
           const bubbleWidth = Math.max(40, busName.length * 10);
           const nameBubble = `
             <svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg">
