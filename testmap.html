@@ -1534,6 +1534,82 @@
         });
       }
 
+      function extractLegendRouteIdentifiers(route) {
+        const rawRouteId = route && typeof route === 'object'
+          ? (route.routeId ?? route.routeID ?? route.id ?? null)
+          : null;
+        const numericId = Number(rawRouteId);
+        if (Number.isFinite(numericId)) {
+          return {
+            rawRouteId,
+            numericId,
+            stringId: null
+          };
+        }
+        const stringId = rawRouteId !== null && rawRouteId !== undefined
+          ? String(rawRouteId).trim()
+          : '';
+        return {
+          rawRouteId,
+          numericId: null,
+          stringId
+        };
+      }
+
+      function buildLegendRouteKey(route) {
+        const identifiers = extractLegendRouteIdentifiers(route);
+        if (Number.isFinite(identifiers.numericId)) {
+          return `num:${identifiers.numericId}`;
+        }
+        if (identifiers.stringId) {
+          return `str:${identifiers.stringId.toLowerCase()}`;
+        }
+        if (route && typeof route.name === 'string' && route.name.trim() !== '') {
+          return `name:${route.name.trim().toLowerCase()}`;
+        }
+        return null;
+      }
+
+      function compareLegendRoutes(a, b) {
+        const aIdentifiers = extractLegendRouteIdentifiers(a);
+        const bIdentifiers = extractLegendRouteIdentifiers(b);
+        const aHasNumeric = Number.isFinite(aIdentifiers.numericId);
+        const bHasNumeric = Number.isFinite(bIdentifiers.numericId);
+        if (aHasNumeric && bHasNumeric) {
+          return aIdentifiers.numericId - bIdentifiers.numericId;
+        }
+        if (aHasNumeric) return -1;
+        if (bHasNumeric) return 1;
+        const aLabel = aIdentifiers.stringId || (typeof a?.name === 'string' ? a.name.trim() : '');
+        const bLabel = bIdentifiers.stringId || (typeof b?.name === 'string' ? b.name.trim() : '');
+        return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      function mergeLegendRoutes(primaryRoutes, additionalRoutes) {
+        const mergedMap = new Map();
+        let autoKeyCounter = 0;
+
+        const appendRoute = (route, shouldOverride = false) => {
+          if (!route || typeof route !== 'object') return;
+          const key = buildLegendRouteKey(route);
+          const mapKey = key !== null ? key : `auto:${autoKeyCounter++}`;
+          if (mergedMap.has(mapKey)) {
+            if (shouldOverride) {
+              mergedMap.set(mapKey, route);
+            }
+            return;
+          }
+          mergedMap.set(mapKey, route);
+        };
+
+        (Array.isArray(primaryRoutes) ? primaryRoutes : []).forEach(route => appendRoute(route, true));
+        (Array.isArray(additionalRoutes) ? additionalRoutes : []).forEach(route => appendRoute(route, false));
+
+        const mergedRoutes = Array.from(mergedMap.values());
+        mergedRoutes.sort(compareLegendRoutes);
+        return mergedRoutes;
+      }
+
       function buildLegendEntryFromState(routeId) {
         const numericRouteId = Number(routeId);
         if (!Number.isFinite(numericRouteId)) return null;
@@ -1567,7 +1643,8 @@
         };
       }
 
-      function deriveLegendRoutesFromState() {
+      function deriveLegendRoutesFromState(options = {}) {
+        const { includeAllAvailableRoutes = false } = options || {};
         const legendEntries = [];
         const seenRouteIds = new Set();
 
@@ -1575,7 +1652,8 @@
           const numericRouteId = Number(candidateId);
           if (!Number.isFinite(numericRouteId)) return;
           if (seenRouteIds.has(numericRouteId)) return;
-          if (!isRouteSelected(numericRouteId)) return;
+          if (!canDisplayRoute(numericRouteId)) return;
+          if (!includeAllAvailableRoutes && !isRouteSelected(numericRouteId)) return;
 
           const legendEntry = buildLegendEntryFromState(numericRouteId);
           if (!legendEntry) return;
@@ -1584,17 +1662,24 @@
           legendEntries.push(legendEntry);
         };
 
-        if (activeRoutes instanceof Set) {
-          activeRoutes.forEach(addRouteId);
-        } else if (Array.isArray(activeRoutes)) {
-          activeRoutes.forEach(addRouteId);
-        }
+        if (includeAllAvailableRoutes) {
+          Object.keys(allRoutes).forEach(routeIdKey => {
+            if (!Object.prototype.hasOwnProperty.call(allRoutes, routeIdKey)) return;
+            addRouteId(routeIdKey);
+          });
+        } else {
+          if (activeRoutes instanceof Set) {
+            activeRoutes.forEach(addRouteId);
+          } else if (Array.isArray(activeRoutes)) {
+            activeRoutes.forEach(addRouteId);
+          }
 
-        Object.keys(routeSelections).forEach(routeIdKey => {
-          if (!Object.prototype.hasOwnProperty.call(routeSelections, routeIdKey)) return;
-          if (!routeSelections[routeIdKey]) return;
-          addRouteId(routeIdKey);
-        });
+          Object.keys(routeSelections).forEach(routeIdKey => {
+            if (!Object.prototype.hasOwnProperty.call(routeSelections, routeIdKey)) return;
+            if (!routeSelections[routeIdKey]) return;
+            addRouteId(routeIdKey);
+          });
+        }
 
         legendEntries.sort((a, b) => a.routeId - b.routeId);
 
@@ -1642,7 +1727,9 @@
         let routesToRender = sanitizedRoutes;
 
         if (routesToRender.length === 0) {
-          const fallbackRoutes = deriveLegendRoutesFromState();
+          const fallbackRoutes = deriveLegendRoutesFromState({
+            includeAllAvailableRoutes: adminKioskMode
+          });
           if (fallbackRoutes.length > 0) {
             routesToRender = fallbackRoutes;
           } else if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
@@ -1653,6 +1740,11 @@
             legend.innerHTML = "";
             lastRenderedLegendRoutes = [];
             return;
+          }
+        } else if (adminKioskMode) {
+          const additionalRoutes = deriveLegendRoutesFromState({ includeAllAvailableRoutes: true });
+          if (additionalRoutes.length > 0) {
+            routesToRender = mergeLegendRoutes(routesToRender, additionalRoutes);
           }
         }
 
