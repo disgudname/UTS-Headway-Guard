@@ -759,6 +759,7 @@
       });
       let sharedRouteRenderer = null;
       let routePaneName = 'overlayPane';
+      let lastRenderedLegendRoutes = [];
 
       function createSpatialIndex(options = {}) {
         if (typeof rbush === 'function') {
@@ -1450,43 +1451,23 @@
         togglePanelVisibility('controlPanel', 'controlPanelTab', '&#9654;', '&#9664;');
       }
 
-      function updateRouteLegend(displayedRoutes = []) {
-        const legend = document.getElementById("routeLegend");
-        if (!legend) return;
-        const shouldShowLegend = kioskMode || adminKioskMode;
-        if (!shouldShowLegend) {
-          legend.style.display = "none";
-          legend.innerHTML = "";
-          return;
-        }
-
-        // Admin kiosk mode should surface every visible route, including those hidden from the public map.
-        // Public kiosk mode must continue to hide routes flagged as non-public.
-        const routesToRender = adminKioskMode
-          ? displayedRoutes
-          : displayedRoutes.filter(route => isRoutePublicById(route.routeId ?? route.routeID ?? route.id));
-
-        if (routesToRender.length === 0) {
-          legend.style.display = "none";
-          legend.innerHTML = "";
-          return;
-        }
-
-        legend.style.display = "block";
-        legend.innerHTML = "";
+      function renderRouteLegendContent(legendElement, routes) {
+        if (!legendElement) return;
+        legendElement.style.display = "block";
+        legendElement.innerHTML = "";
 
         const title = document.createElement("div");
         title.className = "legend-title";
         title.textContent = "Routes";
-        legend.appendChild(title);
+        legendElement.appendChild(title);
 
-        routesToRender.forEach(route => {
+        routes.forEach(route => {
           const item = document.createElement("div");
           item.className = "legend-item";
 
           const color = document.createElement("span");
           color.className = "legend-color";
-          color.style.backgroundColor = route.color || "#000000";
+          color.style.backgroundColor = route.color;
           item.appendChild(color);
 
           const textContainer = document.createElement("div");
@@ -1505,8 +1486,61 @@
           }
 
           item.appendChild(textContainer);
-          legend.appendChild(item);
+          legendElement.appendChild(item);
         });
+      }
+
+      function updateRouteLegend(displayedRoutes = [], options = {}) {
+        const legend = document.getElementById("routeLegend");
+        if (!legend) return;
+
+        const { forceHide = false, preserveOnEmpty = false } = options || {};
+        const shouldShowLegend = kioskMode || adminKioskMode;
+
+        if (!shouldShowLegend || forceHide) {
+          legend.style.display = "none";
+          legend.innerHTML = "";
+          lastRenderedLegendRoutes = [];
+          return;
+        }
+
+        const normalizedRoutes = Array.isArray(displayedRoutes) ? displayedRoutes : [];
+        const filteredRoutes = adminKioskMode
+          ? normalizedRoutes
+          : normalizedRoutes.filter(route => {
+              const candidateId = route.routeId ?? route.routeID ?? route.id;
+              return isRoutePublicById(candidateId);
+            });
+
+        const sanitizedRoutes = filteredRoutes.map(route => {
+          const rawRouteId = route.routeId ?? route.routeID ?? route.id;
+          const routeIdLabel = rawRouteId === undefined || rawRouteId === null ? "" : `${rawRouteId}`;
+          const rawName = typeof route.name === "string" ? route.name : "";
+          const name = rawName.trim() !== "" ? rawName.trim() : (routeIdLabel ? `Route ${routeIdLabel}` : "Route");
+          const rawDescription = typeof route.description === "string" ? route.description : "";
+          const description = rawDescription.trim();
+          const color = typeof route.color === "string" && route.color.trim() !== "" ? route.color : "#000000";
+          return {
+            routeId: rawRouteId,
+            name,
+            description,
+            color
+          };
+        });
+
+        if (sanitizedRoutes.length === 0) {
+          if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
+            renderRouteLegendContent(legend, lastRenderedLegendRoutes);
+            return;
+          }
+          legend.style.display = "none";
+          legend.innerHTML = "";
+          lastRenderedLegendRoutes = [];
+          return;
+        }
+
+        lastRenderedLegendRoutes = sanitizedRoutes;
+        renderRouteLegendContent(legend, sanitizedRoutes);
       }
 
       // refreshMap updates route paths and bus locations.
@@ -1611,7 +1645,7 @@
         routeVisibility = {};
         allRouteBounds = null;
         mapHasFitAllRoutes = false;
-        updateRouteLegend([]);
+        updateRouteLegend([], { forceHide: true });
         updateRouteSelector(new Set(), true);
         loadAgencyData()
           .then(() => {
@@ -3283,11 +3317,11 @@
                       updateRouteSelector(activeRoutes);
                       stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
                   }
-                  updateRouteLegend(Array.from(displayedRoutes.values()));
+                  updateRouteLegend(Array.from(displayedRoutes.values()), { preserveOnEmpty: true });
               })
               .catch(error => {
                   console.error("Error fetching route paths:", error);
-                  updateRouteLegend([]);
+                  updateRouteLegend([], { forceHide: true });
               });
       }
 
