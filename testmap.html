@@ -334,20 +334,27 @@
       }
       .selector-panel .selector-section-heading {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
         gap: 12px;
+        width: 100%;
       }
       .selector-panel .selector-section-heading h3 {
         margin: 0;
         font-size: 18px;
         color: #232D4B;
+        flex: 1 1 100%;
       }
       .selector-panel .selector-actions {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
         gap: 10px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
+        width: 100%;
+        flex: 1 1 100%;
+        margin-top: 4px;
+      }
+      .selector-panel .selector-actions .pill-button {
+        width: 100%;
       }
       .selector-panel .route-list {
         display: flex;
@@ -482,10 +489,6 @@
       .selector-panel .display-mode-button.is-active:hover {
         box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
         background: linear-gradient(135deg, #f4841a, #ffad55);
-      }
-      .selector-panel .chip-button {
-        padding: 8px 14px;
-        font-size: 14px;
       }
       .selector-panel .full-width {
         width: 100%;
@@ -1283,9 +1286,9 @@
               <div class="selector-section-heading">
                 <h3>Select Routes</h3>
                 <div class="selector-actions">
-                  <button type="button" class="chip-button accent" onclick="selectAllRoutes()">Select All</button>
-                  <button type="button" class="chip-button" onclick="selectActiveRoutes()">Select Active</button>
-                  <button type="button" class="chip-button" onclick="deselectAllRoutes()">Deselect All</button>
+                  <button type="button" class="pill-button" onclick="selectAllRoutes()">Select All</button>
+                  <button type="button" class="pill-button" onclick="selectActiveRoutes()">Select Active</button>
+                  <button type="button" class="pill-button" onclick="deselectAllRoutes()">Deselect All</button>
                 </div>
               </div>
               <div class="route-list">
