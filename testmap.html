@@ -938,6 +938,7 @@
           } else {
             baseURL = agencies[0]?.url || '';
           }
+          updateControlPanel();
           updateRouteSelector(activeRoutes, true);
         } catch (e) {
           console.error('Failed to load agencies', e);
@@ -1356,8 +1357,6 @@
             }
           }
         }
-        updateControlPanel();
-
         let outChk = document.getElementById("route_0");
         if (outChk) {
           outChk.addEventListener("change", function() {
@@ -1630,6 +1629,7 @@
         beginAgencyLoad();
         clearRefreshIntervals();
         baseURL = url;
+        updateControlPanel();
         Object.values(markers).forEach(m => map.removeLayer(m));
         markers = {};
         Object.values(nameBubbles).forEach(b => {
