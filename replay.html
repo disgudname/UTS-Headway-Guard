@@ -436,6 +436,57 @@
       outline: none;
       box-shadow: 0 0 0 3px var(--accent-soft), 0 20px 36px rgba(229, 114, 0, 0.45);
     }
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(71, 85, 105, 0.55);
+      color: #f1f5f9;
+      font-family: 'FGDC', sans-serif;
+      font-size: 18px;
+      letter-spacing: 0.3rem;
+      text-transform: uppercase;
+      z-index: 3000;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+      backdrop-filter: blur(2px);
+    }
+    .loading-overlay.is-visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: all;
+    }
+    .loading-overlay__inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .loading-overlay__spinner {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 4px solid rgba(241, 245, 249, 0.35);
+      border-top-color: #f8fafc;
+      animation: loading-overlay-spin 1s linear infinite;
+    }
+    .loading-overlay__text {
+      font-size: 16px;
+      letter-spacing: 0.35rem;
+    }
+    @keyframes loading-overlay-spin {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
     @media (max-width: 1024px) {
       #controls.playback-controls {
         width: calc(100% - 32px);
@@ -533,6 +584,12 @@
       </div>
     </div>
   </div>
+  <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="false">
+    <div class="loading-overlay__inner">
+      <div class="loading-overlay__spinner" aria-hidden="true"></div>
+      <div class="loading-overlay__text">Loading range</div>
+    </div>
+  </div>
   <script>
     let map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
@@ -596,6 +653,33 @@
     const ff200Btn = document.getElementById('ff200Btn');
     const ff500Btn = document.getElementById('ff500Btn');
     const ff1000Btn = document.getElementById('ff1000Btn');
+    let activeRangeLoadCount = 0;
+
+    function showLoadingOverlay() {
+      const overlay = document.getElementById('loadingOverlay');
+      if (!overlay) return;
+      overlay.classList.add('is-visible');
+      overlay.setAttribute('aria-busy', 'true');
+    }
+
+    function hideLoadingOverlay() {
+      const overlay = document.getElementById('loadingOverlay');
+      if (!overlay) return;
+      overlay.classList.remove('is-visible');
+      overlay.setAttribute('aria-busy', 'false');
+    }
+
+    function beginRangeLoad() {
+      activeRangeLoadCount += 1;
+      showLoadingOverlay();
+    }
+
+    function completeRangeLoad() {
+      activeRangeLoadCount = Math.max(0, activeRangeLoadCount - 1);
+      if (activeRangeLoadCount === 0) {
+        hideLoadingOverlay();
+      }
+    }
 
     function positionPanelTab(panelId, tabId, side = 'right') {
       const panel = document.getElementById(panelId);
@@ -1198,6 +1282,7 @@
     async function loadHour(ms) {
       const key = hourKey(ms);
       if (loadedHours.has(key)) return;
+      beginRangeLoad();
       try {
         const resp = await fetch(`/vehicle_log/${key}.jsonl`, { cache: 'no-store' });
         if (!resp.ok) { loadedHours.add(key); return; }
@@ -1238,6 +1323,8 @@
       } catch (err) {
         console.error('Failed to load log hour', err);
         loadedHours.add(key);
+      } finally {
+        completeRangeLoad();
       }
     }
 
@@ -1480,56 +1567,61 @@
     }
 
     async function applyRange(initial = false) {
-      const dateStr = document.getElementById('datePicker').value;
-      const startStr = document.getElementById('startTime').value || '00:00';
-      const endStr = document.getElementById('endTime').value || '23:59';
-      startTime = new Date(`${dateStr}T${startStr}:00`);
-      userEndTime = new Date(`${dateStr}T${endStr}:00`);
+      beginRangeLoad();
+      try {
+        const dateStr = document.getElementById('datePicker').value;
+        const startStr = document.getElementById('startTime').value || '00:00';
+        const endStr = document.getElementById('endTime').value || '23:59';
+        startTime = new Date(`${dateStr}T${startStr}:00`);
+        userEndTime = new Date(`${dateStr}T${endStr}:00`);
 
-      // If the selected date is today, don't try to load data beyond the current time
-      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-      let lastHour = new Date(`${dateStr}T23:00:00`);
-      if (dateStr === todayStr) {
-        const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-        if (userEndTime > now) {
-          userEndTime = now;
+        // If the selected date is today, don't try to load data beyond the current time
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        let lastHour = new Date(`${dateStr}T23:00:00`);
+        if (dateStr === todayStr) {
+          const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          if (userEndTime > now) {
+            userEndTime = now;
+          }
+          // For the current day only load up to the current hour
+          lastHour = new Date(`${dateStr}T${String(now.getHours()).padStart(2, '0')}:00:00`);
         }
-        // For the current day only load up to the current hour
-        lastHour = new Date(`${dateStr}T${String(now.getHours()).padStart(2, '0')}:00:00`);
-      }
 
-      endTime = userEndTime;
-      playbackData = [];
-      playbackTimes = [];
-      loadedHours = new Set();
-      const timeline = document.getElementById('timeline');
-      timeline.min = startTime.getTime();
-      timeline.max = userEndTime.getTime();
+        endTime = userEndTime;
+        playbackData = [];
+        playbackTimes = [];
+        loadedHours = new Set();
+        const timeline = document.getElementById('timeline');
+        timeline.min = startTime.getTime();
+        timeline.max = userEndTime.getTime();
 
-      let startHour = new Date(startTime);
-      startHour.setMinutes(0, 0, 0);
-      let endHour = initial ? lastHour : new Date(userEndTime);
-      endHour.setMinutes(0, 0, 0);
+        let startHour = new Date(startTime);
+        startHour.setMinutes(0, 0, 0);
+        let endHour = initial ? lastHour : new Date(userEndTime);
+        endHour.setMinutes(0, 0, 0);
 
-      for (let ms = startHour.getTime(); ms <= endHour.getTime(); ms += 3600 * 1000) {
-        await loadHour(ms);
-      }
-
-      if (initial && playbackTimes.length) {
-        const lastMs = playbackTimes[playbackTimes.length - 1];
-        timeline.max = lastMs;
-        const endInput = document.getElementById('endTime');
-        if (endInput && endInput._flatpickr) {
-          endInput._flatpickr.setDate(new Date(lastMs), true);
+        for (let ms = startHour.getTime(); ms <= endHour.getTime(); ms += 3600 * 1000) {
+          await loadHour(ms);
         }
-        endTime = new Date(lastMs);
-        userEndTime = new Date(lastMs);
-      }
 
-      if (playbackTimes.length) {
-        const ms = startTime.getTime();
-        const idx = findFrameIndex(ms);
-        showFrame(idx, ms);
+        if (initial && playbackTimes.length) {
+          const lastMs = playbackTimes[playbackTimes.length - 1];
+          timeline.max = lastMs;
+          const endInput = document.getElementById('endTime');
+          if (endInput && endInput._flatpickr) {
+            endInput._flatpickr.setDate(new Date(lastMs), true);
+          }
+          endTime = new Date(lastMs);
+          userEndTime = new Date(lastMs);
+        }
+
+        if (playbackTimes.length) {
+          const ms = startTime.getTime();
+          const idx = findFrameIndex(ms);
+          showFrame(idx, ms);
+        }
+      } finally {
+        completeRangeLoad();
       }
     }
 
