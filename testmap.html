@@ -1051,6 +1051,37 @@
         return activeRoutes.has(id);
       }
 
+      function normalizeRouteIdForComparison(routeId) {
+        if (routeId === undefined || routeId === null) return null;
+        const numericId = Number(routeId);
+        if (Number.isFinite(numericId)) {
+          return `${numericId}`;
+        }
+        if (typeof routeId === 'string') {
+          const trimmed = routeId.trim().toLowerCase();
+          return trimmed !== '' ? trimmed : null;
+        }
+        const stringValue = String(routeId).trim().toLowerCase();
+        return stringValue !== '' ? stringValue : null;
+      }
+
+      function routeHasActiveVehicles(routeId) {
+        const normalizedRouteId = normalizeRouteIdForComparison(routeId);
+        if (!normalizedRouteId) return false;
+        let activeValues = [];
+        if (activeRoutes instanceof Set) {
+          activeValues = Array.from(activeRoutes);
+        } else if (Array.isArray(activeRoutes)) {
+          activeValues = activeRoutes.slice();
+        } else {
+          return false;
+        }
+        return activeValues.some(activeRouteId => {
+          const normalizedActive = normalizeRouteIdForComparison(activeRouteId);
+          return normalizedActive !== null && normalizedActive === normalizedRouteId;
+        });
+      }
+
       function setRouteVisibility(route) {
         if (!route || typeof route.RouteID === 'undefined') return;
         const id = Number(route.RouteID);
@@ -1701,12 +1732,13 @@
         }
 
         const normalizedRoutes = Array.isArray(displayedRoutes) ? displayedRoutes : [];
-        const filteredRoutes = adminKioskMode
-          ? normalizedRoutes
-          : normalizedRoutes.filter(route => {
-              const candidateId = route.routeId ?? route.routeID ?? route.id;
-              return isRoutePublicById(candidateId);
-            });
+        const filteredRoutes = normalizedRoutes.filter(route => {
+          const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
+          if (adminKioskMode) {
+            return routeHasActiveVehicles(candidateId);
+          }
+          return isRoutePublicById(candidateId);
+        });
 
         const sanitizedRoutes = filteredRoutes.map(route => {
           const rawRouteId = route.routeId ?? route.routeID ?? route.id;
@@ -1724,12 +1756,24 @@
           };
         });
 
-        let routesToRender = sanitizedRoutes;
+        const filterAdminLegendRoutes = routes => {
+          if (!adminKioskMode) {
+            return Array.isArray(routes) ? routes : [];
+          }
+          if (!Array.isArray(routes)) return [];
+          return routes.filter(route => {
+            const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
+            return routeHasActiveVehicles(candidateId);
+          });
+        };
+
+        let routesToRender = filterAdminLegendRoutes(sanitizedRoutes);
 
         if (routesToRender.length === 0) {
-          const fallbackRoutes = deriveLegendRoutesFromState({
+          let fallbackRoutes = deriveLegendRoutesFromState({
             includeAllAvailableRoutes: adminKioskMode
           });
+          fallbackRoutes = filterAdminLegendRoutes(fallbackRoutes);
           if (fallbackRoutes.length > 0) {
             routesToRender = fallbackRoutes;
           } else if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
@@ -1742,10 +1786,23 @@
             return;
           }
         } else if (adminKioskMode) {
-          const additionalRoutes = deriveLegendRoutesFromState({ includeAllAvailableRoutes: true });
+          let additionalRoutes = deriveLegendRoutesFromState({ includeAllAvailableRoutes: true });
+          additionalRoutes = filterAdminLegendRoutes(additionalRoutes);
           if (additionalRoutes.length > 0) {
             routesToRender = mergeLegendRoutes(routesToRender, additionalRoutes);
           }
+          routesToRender = filterAdminLegendRoutes(routesToRender);
+        }
+
+        if (routesToRender.length === 0) {
+          if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
+            renderRouteLegendContent(legend, lastRenderedLegendRoutes);
+          } else {
+            legend.style.display = "none";
+            legend.innerHTML = "";
+            lastRenderedLegendRoutes = [];
+          }
+          return;
         }
 
         lastRenderedLegendRoutes = routesToRender;
