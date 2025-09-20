@@ -507,10 +507,10 @@
     }
     @media (max-width: 720px) {
       #controls.playback-controls {
-        gap: 14px;
+        gap: 8px;
         max-height: calc(100vh - 120px);
         overflow-y: auto;
-        padding: 16px 16px 18px;
+        padding: 14px 14px 16px;
         scrollbar-width: thin;
         scrollbar-color: rgba(35, 45, 75, 0.35) transparent;
         -webkit-overflow-scrolling: touch;
@@ -525,25 +525,32 @@
       .controls-row {
         flex-direction: column;
         align-items: stretch;
-        gap: 12px;
+        gap: 6px;
       }
       .control-field {
         width: 100%;
+        gap: 4px;
       }
       .control-field input {
         padding: 9px 12px;
         font-size: 15px;
       }
+      .control-field--button {
+        align-self: stretch;
+      }
+      .control-field--button .pill-button {
+        width: 100%;
+      }
       .speed-button-group {
         flex-direction: column;
         align-items: center;
-        gap: 12px;
+        gap: 10px;
       }
       .speed-button-row {
         width: 100%;
         justify-content: center;
         flex-wrap: wrap;
-        gap: 10px;
+        gap: 8px;
       }
       .speed-button-row .pill-button {
         flex: 0 0 auto;
