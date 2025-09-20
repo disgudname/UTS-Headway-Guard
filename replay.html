@@ -14,184 +14,471 @@
       src: url('FGDC.ttf') format('truetype');
     }
     :root {
-      --controls-height: 90px;
+      --navy: #232D4B;
+      --navy-dark: #1b274a;
+      --navy-darker: #1a2441;
+      --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+      --panel-border-color: rgba(35, 45, 75, 0.12);
+      --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+      --panel-highlight: rgba(35, 45, 75, 0.06);
+      --panel-text-color: #1f2937;
+      --panel-heading-color: #232D4B;
+      --panel-muted-text: #4b5563;
+      --accent: #E57200;
+      --accent-bright: #ff9c3e;
+      --accent-soft: rgba(229, 114, 0, 0.28);
+      --controls-height: 180px;
     }
-    html, body { height: 100%; margin: 0; font-family: 'FGDC', sans-serif; overflow: hidden; }
-    #map { height: calc(100% - var(--controls-height)); width: 100%; }
-    #controls { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255,255,255,0.9); display: flex; flex-wrap: wrap; align-items: center; padding: 5px; box-sizing: border-box; z-index: 1000; }
-    #controls > * { margin: 2px; }
-    #controls input, #controls button {
-      padding: 6px;
-      font-size: 14px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-    }
-    #controls button.selected {
-      background-color: #ccc;
-    }
-    #controls button.speed-btn {
-      font-family: sans-serif;
-      font-size: 16px;
-      font-weight: bold;
-    }
-    #timeline { flex: 1; margin: 0 10px; }
-    #busSelector {
-      width: 300px;
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      bottom: calc(var(--controls-height) + 20px);
-      z-index: 1100;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 10px;
-      border-radius: 5px;
-      overflow-y: auto;
-      transition: transform 0.3s ease;
-      font-size: 21px;
-    }
-    #busSelector.hidden { transform: translateX(-320px); }
-    #busSelector h3 { margin-top: 0; }
-    #busSelector button {
-      margin: 5px 2px;
-      padding: 5px 10px;
-      font-size: 24px;
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
       font-family: 'FGDC', sans-serif;
-      background-color: #E57200;
-      color: black;
-      border: none;
-      border-radius: 20px;
-      cursor: pointer;
+      background: linear-gradient(180deg, #e2e8f0, #f8fafc);
+      color: var(--panel-text-color);
+      overflow: hidden;
     }
-    #busSelector label { display: block; margin-bottom: 5px; cursor: pointer; }
-    #busSelectorTab {
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    #controls.playback-controls {
       position: fixed;
-      top: 50%;
-      left: 0;
-      width: 30px;
-      height: 60px;
-      background: #ccc;
-      border-top-right-radius: 10px;
-      border-bottom-right-radius: 10px;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      width: min(1120px, calc(100% - 32px));
+      background: var(--panel-surface);
+      border-radius: 18px;
+      border: 1px solid var(--panel-border-color);
+      box-shadow: var(--panel-shadow);
+      padding: 18px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      z-index: 1200;
+      backdrop-filter: blur(12px);
+      box-sizing: border-box;
+    }
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      justify-content: center;
+    }
+    .controls-row--filters {
+      justify-content: flex-start;
+    }
+    .control-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 140px;
+      flex: 1 1 160px;
+    }
+    .control-field--button {
+      flex: 0 0 auto;
+      align-self: flex-end;
+    }
+    #controls label,
+    .control-field label,
+    .timeline-label {
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      font-size: 12px;
+      color: rgba(35, 45, 75, 0.7);
+    }
+    .control-field input {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(35, 45, 75, 0.25);
+      background: rgba(255, 255, 255, 0.92);
+      font-size: 16px;
+      font-family: 'FGDC', sans-serif;
+      box-shadow: 0 6px 18px rgba(17, 24, 39, 0.1);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .control-field input:focus {
+      outline: none;
+      border-color: rgba(229, 114, 0, 0.8);
+      box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.2);
+    }
+    .speed-button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+    .pill-button {
+      border: none;
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(35, 45, 75, 0.92), rgba(27, 39, 74, 0.92));
+      color: #f8fafc;
+      padding: 10px 18px;
+      font-family: 'FGDC', sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.3px;
       cursor: pointer;
-      display: block;
-      transform: translateY(-50%);
-      z-index: 1150;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.25);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+    .pill-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.28);
+    }
+    .pill-button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(15, 23, 42, 0.28);
+    }
+    .pill-button:active {
+      transform: translateY(0);
+      box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
+    }
+    .pill-button.accent {
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
+      box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
+    }
+    .pill-button.accent:hover {
+      box-shadow: 0 16px 30px rgba(229, 114, 0, 0.4);
+    }
+    .pill-button.is-active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
+      box-shadow: 0 16px 30px rgba(229, 114, 0, 0.45);
+    }
+    .pill-button.is-active:hover {
+      box-shadow: 0 20px 36px rgba(229, 114, 0, 0.48);
+    }
+    .timeline-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+    #timeline {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    .timeline-value {
+      font-size: 14px;
+      letter-spacing: 0.3px;
       text-align: center;
-      line-height: 60px;
-      font-size: 20px;
-      user-select: none;
-      transition: left 0.3s ease;
+      color: var(--panel-heading-color);
+    }
+    .selector-panel {
+      width: 360px;
+      position: fixed;
+      top: 16px;
+      bottom: calc(var(--controls-height) + 24px);
+      z-index: 1100;
+      background: var(--panel-surface);
+      border-radius: 18px;
+      border: 1px solid var(--panel-border-color);
+      box-shadow: var(--panel-shadow);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+      transition: transform 0.35s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+      font-size: 16px;
+      color: var(--panel-text-color);
+    }
+    #busSelector {
+      left: 16px;
     }
     #routeSelector {
-      width: 300px;
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      bottom: calc(var(--controls-height) + 20px);
-      z-index: 1100;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 10px;
-      border-radius: 5px;
-      overflow-y: auto;
-      transition: transform 0.3s ease;
-      font-size: 21px;
+      right: 16px;
     }
-    #routeSelector.hidden { transform: translateX(320px); }
-    #routeSelector h3 { margin-top: 0; }
-    #routeSelector button {
-      margin: 5px 2px;
-      padding: 5px 10px;
-      font-size: 24px;
-      font-family: 'FGDC', sans-serif;
-      background-color: #E57200;
-      color: black;
-      border: none;
-      border-radius: 20px;
+    #busSelector.hidden {
+      transform: translateX(calc(-100% - 24px));
+      opacity: 0;
+      pointer-events: none;
+    }
+    #routeSelector.hidden {
+      transform: translateX(calc(100% + 24px));
+      opacity: 0;
+      pointer-events: none;
+    }
+    .selector-panel .selector-header {
+      background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+      color: #f8fafc;
+      padding: 16px 20px 18px;
+      box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .selector-panel .selector-title {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0.4px;
+    }
+    .selector-panel .selector-subtitle {
+      margin: 0;
+      font-size: 13px;
+      opacity: 0.75;
+      letter-spacing: 0.3px;
+    }
+    .selector-panel .selector-content {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 18px 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar {
+      width: 8px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar-track {
+      background: rgba(35, 45, 75, 0.08);
+      border-radius: 12px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar-thumb {
+      background: rgba(35, 45, 75, 0.35);
+      border-radius: 12px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar-thumb:hover {
+      background: rgba(229, 114, 0, 0.6);
+    }
+    .selector-panel .selector-group {
+      background: var(--panel-highlight);
+      border-radius: 14px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .selector-panel .selector-section {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .selector-panel .selector-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.6px;
+      color: rgba(35, 45, 75, 0.75);
+    }
+    .display-mode-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .display-mode-group .pill-button {
+      flex: 1 1 auto;
+      text-align: center;
+    }
+    .route-action-buttons {
+      justify-content: stretch;
+    }
+    .selector-panel .route-list,
+    .selector-panel .selector-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .selector-panel label.route-option,
+    .selector-panel label.selector-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--panel-highlight);
+      border-radius: 14px;
+      border: 1px solid transparent;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
       cursor: pointer;
     }
-    #routeSelector label { display: block; margin-bottom: 5px; cursor: pointer; }
-    #routeSelector .color-box {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      margin-right: 5px;
-      vertical-align: middle;
+    .selector-panel label.route-option:hover,
+    .selector-panel label.selector-option:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+      border-color: rgba(35, 45, 75, 0.25);
     }
-    #routeSelectorTab {
+    .selector-panel label.route-option.is-active,
+    .selector-panel label.selector-option.is-active {
+      background: rgba(229, 114, 0, 0.16);
+      border-color: rgba(229, 114, 0, 0.45);
+      box-shadow: 0 16px 32px rgba(229, 114, 0, 0.24);
+    }
+    .selector-panel label.route-option--out {
+      background: rgba(35, 45, 75, 0.08);
+    }
+    .selector-panel label.route-option input[type="checkbox"],
+    .selector-panel label.selector-option input[type="checkbox"] {
+      margin-top: 2px;
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .selector-panel .route-option-swatch {
+      display: inline-flex;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      margin-top: 2px;
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.2);
+      flex-shrink: 0;
+    }
+    .selector-panel label.route-option input[type="checkbox"]:checked + .route-option-swatch {
+      transform: scale(1.1);
+      box-shadow: 0 0 0 2px rgba(229, 114, 0, 0.4);
+    }
+    .selector-panel .route-option-text,
+    .selector-panel .selector-option-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+    .selector-panel .route-option-name,
+    .selector-panel .selector-option-name {
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      color: var(--panel-heading-color);
+    }
+    .selector-panel .route-option-detail,
+    .selector-panel .selector-option-detail {
+      font-size: 13px;
+      color: var(--panel-muted-text);
+    }
+    .panel-toggle {
       position: fixed;
       top: 50%;
-      right: 0;
-      width: 30px;
-      height: 60px;
-      background: #ccc;
-      border-top-left-radius: 10px;
-      border-bottom-left-radius: 10px;
+      width: 34px;
+      height: 70px;
+      background: linear-gradient(180deg, var(--navy), var(--navy-darker));
       cursor: pointer;
-      display: block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       transform: translateY(-50%);
       z-index: 1150;
       text-align: center;
-      line-height: 60px;
-      font-size: 20px;
+      font-size: 22px;
       user-select: none;
-      transition: right 0.3s ease;
+      transition: left 0.3s ease, right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+      color: #f8fafc;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
     }
-    @media (max-width: 600px) {
-      :root { --controls-height: 180px; }
-      #busSelector { width: 80%; left: 10%; font-size: 18px; bottom: calc(var(--controls-height) + 20px); }
-      #busSelector.hidden { transform: translateX(calc(-100% - 20px)); }
-      #busSelector button { font-size: 20px; }
-      #busSelector label { font-size: 18px; }
-      #busSelectorTab { width: 40px; height: 80px; font-size: 28px; }
-      #routeSelector { width: 80%; right: 10%; font-size: 18px; bottom: calc(var(--controls-height) + 20px); }
-      #routeSelector.hidden { transform: translateX(calc(100% + 20px)); }
-      #routeSelector button { font-size: 20px; }
-      #routeSelector label { font-size: 18px; }
-      #routeSelectorTab { width: 40px; height: 80px; font-size: 28px; }
-      #timeline { flex: 1 0 100%; }
-      #timeLabel { flex: 0 0 100%; text-align: center; }
+    .panel-toggle--left {
+      left: 0;
+      border-top-right-radius: 14px;
+      border-bottom-right-radius: 14px;
     }
-
+    .panel-toggle--right {
+      right: 0;
+      border-top-left-radius: 14px;
+      border-bottom-left-radius: 14px;
+    }
+    .panel-toggle:hover {
+      background: linear-gradient(180deg, #2d3a5e, #253355);
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.3);
+    }
+    .panel-toggle:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(15, 23, 42, 0.3);
+    }
     #disclaimerOverlay {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
+      inset: 0;
+      background: rgba(35, 45, 75, 0.75);
+      backdrop-filter: blur(4px);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 2000;
     }
-
     #disclaimerBox {
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      max-width: 600px;
+      background: var(--panel-surface);
+      padding: 28px 32px;
+      border-radius: 18px;
+      max-width: 640px;
       text-align: center;
       font-size: 18px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.35);
+      border: 1px solid var(--panel-border-color);
+      color: var(--panel-heading-color);
+      letter-spacing: 0.2px;
+      line-height: 1.5;
     }
-
     #disclaimerBox p {
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
-
     #disclaimerBtn {
-      padding: 8px 20px;
-      font-size: 20px;
+      padding: 12px 26px;
+      font-size: 18px;
       font-family: 'FGDC', sans-serif;
-      background-color: #E57200;
-      color: black;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
       border: none;
-      border-radius: 20px;
+      border-radius: 999px;
       cursor: pointer;
+      box-shadow: 0 16px 30px rgba(229, 114, 0, 0.4);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
-
     #disclaimerBtn:hover {
-      filter: brightness(1.1);
+      transform: translateY(-1px);
+      box-shadow: 0 20px 36px rgba(229, 114, 0, 0.45);
+    }
+    #disclaimerBtn:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-soft), 0 20px 36px rgba(229, 114, 0, 0.45);
+    }
+    @media (max-width: 1024px) {
+      #controls.playback-controls {
+        width: calc(100% - 32px);
+      }
+      .control-field {
+        flex: 1 1 140px;
+      }
+    }
+    @media (max-width: 720px) {
+      #controls.playback-controls {
+        gap: 14px;
+      }
+      .controls-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .control-field {
+        width: 100%;
+      }
+      .speed-button-group {
+        justify-content: flex-start;
+      }
+      .panel-toggle {
+        width: 40px;
+        height: 80px;
+        font-size: 26px;
+      }
+      .selector-panel {
+        width: calc(100% - 32px);
+        left: 16px;
+        right: 16px;
+      }
+      #busSelector,
+      #routeSelector {
+        left: 16px;
+        right: 16px;
+      }
+      #busSelector.hidden {
+        transform: translateX(calc(-100% - 20px));
+      }
+      #routeSelector.hidden {
+        transform: translateX(calc(100% + 20px));
+      }
     }
   </style>
 </head>
@@ -203,31 +490,48 @@
     </div>
   </div>
   <div id="map"></div>
-  <div id="busSelector" class="hidden"></div>
-  <div id="busSelectorTab" onclick="toggleBusPanel()">&#9664;</div>
-  <div id="routeSelector" class="hidden"></div>
-  <div id="routeSelectorTab" onclick="togglePanel()">&#9654;</div>
-  <div id="controls">
-    <label for="datePicker">Date</label>
-    <input id="datePicker" placeholder="Date">
-    <label for="startTime">From</label>
-    <input id="startTime" placeholder="Start time">
-    <label for="endTime">To</label>
-    <input id="endTime" placeholder="End time">
-    <button id="loadRangeBtn">Load</button>
-    <button id="pauseBtn">&#10074;&#10074;</button>
-    <button id="playBtn" class="speed-btn">1x</button>
-    <button id="ff2Btn" class="speed-btn">2x</button>
-    <button id="ff4Btn" class="speed-btn">4x</button>
-    <button id="ff8Btn" class="speed-btn">8x</button>
-    <button id="ff10Btn" class="speed-btn">10x</button>
-    <button id="ff30Btn" class="speed-btn">30x</button>
-    <button id="ff100Btn" class="speed-btn">100x</button>
-    <button id="ff200Btn" class="speed-btn">200x</button>
-    <button id="ff500Btn" class="speed-btn">500x</button>
-    <button id="ff1000Btn" class="speed-btn">1000x</button>
-    <input type="range" id="timeline" min="0" value="0">
-    <span id="timeLabel"></span>
+  <div id="busSelector" class="selector-panel hidden" aria-live="polite"></div>
+  <div id="busSelectorTab" class="panel-toggle panel-toggle--left" onclick="toggleBusPanel()" title="Toggle vehicle selector">&#9664;</div>
+  <div id="routeSelector" class="selector-panel hidden" aria-live="polite"></div>
+  <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">&#9654;</div>
+  <div id="controls" class="playback-controls">
+    <div class="controls-row controls-row--filters">
+      <div class="control-field">
+        <label for="datePicker">Date</label>
+        <input id="datePicker" placeholder="Date">
+      </div>
+      <div class="control-field">
+        <label for="startTime">From</label>
+        <input id="startTime" placeholder="Start time">
+      </div>
+      <div class="control-field">
+        <label for="endTime">To</label>
+        <input id="endTime" placeholder="End time">
+      </div>
+      <div class="control-field control-field--button">
+        <button id="loadRangeBtn" type="button" class="pill-button accent">Load Range</button>
+      </div>
+    </div>
+    <div class="controls-row controls-row--playback">
+      <div class="speed-button-group">
+        <button id="pauseBtn" type="button" class="pill-button speed-btn" title="Pause">&#10074;&#10074;</button>
+        <button id="playBtn" type="button" class="pill-button speed-btn">1x</button>
+        <button id="ff2Btn" type="button" class="pill-button speed-btn">2x</button>
+        <button id="ff4Btn" type="button" class="pill-button speed-btn">4x</button>
+        <button id="ff8Btn" type="button" class="pill-button speed-btn">8x</button>
+        <button id="ff10Btn" type="button" class="pill-button speed-btn">10x</button>
+        <button id="ff30Btn" type="button" class="pill-button speed-btn">30x</button>
+        <button id="ff100Btn" type="button" class="pill-button speed-btn">100x</button>
+        <button id="ff200Btn" type="button" class="pill-button speed-btn">200x</button>
+        <button id="ff500Btn" type="button" class="pill-button speed-btn">500x</button>
+        <button id="ff1000Btn" type="button" class="pill-button speed-btn">1000x</button>
+      </div>
+      <div class="timeline-group">
+        <label for="timeline" class="timeline-label">Replay Timeline</label>
+        <input type="range" id="timeline" min="0" value="0">
+        <span id="timeLabel" class="timeline-value"></span>
+      </div>
+    </div>
   </div>
   <script>
     let map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
@@ -293,76 +597,125 @@
     const ff500Btn = document.getElementById('ff500Btn');
     const ff1000Btn = document.getElementById('ff1000Btn');
 
-    function positionBusTab() {
-      const panel = document.getElementById('busSelector');
-      const tab = document.getElementById('busSelectorTab');
+    function positionPanelTab(panelId, tabId, side = 'right') {
+      const panel = document.getElementById(panelId);
+      const tab = document.getElementById(tabId);
       if (!panel || !tab) return;
+
+      const panelRect = panel.getBoundingClientRect();
+      const tabRect = tab.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const tabHeight = tabRect.height || tab.offsetHeight || parseFloat(window.getComputedStyle(tab).height) || 0;
+
+      if (Number.isFinite(panelRect?.top) && Number.isFinite(panelRect?.height)) {
+        const panelCenter = panelRect.top + panelRect.height / 2;
+        if (Number.isFinite(panelCenter)) {
+          const halfTab = Number.isFinite(tabHeight) ? tabHeight / 2 : 0;
+          let targetTop = panelCenter;
+          if (Number.isFinite(viewportHeight) && halfTab > 0) {
+            const minTop = halfTab + 8;
+            const maxTop = viewportHeight - halfTab - 8;
+            if (Number.isFinite(minTop) && Number.isFinite(maxTop)) {
+              targetTop = Math.min(Math.max(panelCenter, minTop), Math.max(minTop, maxTop));
+            }
+          }
+          if (Number.isFinite(targetTop)) {
+            tab.style.top = `${targetTop}px`;
+          }
+        }
+      }
+
       const panelStyle = window.getComputedStyle(panel);
-      const gap = parseFloat(panelStyle.left) || 0;
+      const gap = side === 'right'
+        ? (parseFloat(panelStyle.right) || 0)
+        : (parseFloat(panelStyle.left) || 0);
       const offset = panel.offsetWidth + gap;
-      tab.style.left = panel.classList.contains('hidden') ? '0' : offset + 'px';
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+      const tabWidth = tabRect.width || tab.offsetWidth || parseFloat(window.getComputedStyle(tab).width) || 0;
+
+      if (side === 'right') {
+        if (panel.classList.contains('hidden')) {
+          tab.style.right = '0';
+        } else {
+          const maxRight = Math.max(0, viewportWidth - tabWidth);
+          const clampedOffset = Math.min(offset, maxRight);
+          tab.style.right = `${clampedOffset}px`;
+        }
+        tab.style.left = '';
+      } else {
+        if (panel.classList.contains('hidden')) {
+          tab.style.left = '0';
+        } else {
+          const maxLeft = Math.max(0, viewportWidth - tabWidth);
+          const clampedOffset = Math.min(offset, maxLeft);
+          tab.style.left = `${clampedOffset}px`;
+        }
+        tab.style.right = '';
+      }
     }
 
-    function positionRouteTab() {
-      const panel = document.getElementById('routeSelector');
-      const tab = document.getElementById('routeSelectorTab');
-      if (!panel || !tab) return;
-      const panelStyle = window.getComputedStyle(panel);
-      const gap = parseFloat(panelStyle.right) || 0;
-      const offset = panel.offsetWidth + gap;
-      tab.style.right = panel.classList.contains('hidden') ? '0' : offset + 'px';
+    function positionAllPanelTabs() {
+      positionPanelTab('busSelector', 'busSelectorTab', 'left');
+      positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
     }
 
     function updateControlsHeight() {
       const controls = document.getElementById('controls');
       if (!controls) return;
       const height = controls.offsetHeight;
-      document.documentElement.style.setProperty('--controls-height', height + 'px');
+      document.documentElement.style.setProperty('--controls-height', `${height}px`);
+      positionAllPanelTabs();
     }
+
     window.addEventListener('load', () => {
-      positionBusTab();
-      positionRouteTab();
+      positionAllPanelTabs();
       updateControlsHeight();
       if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(updateControlsHeight);
+        document.fonts.ready.then(() => {
+          updateControlsHeight();
+          positionAllPanelTabs();
+        });
       }
     });
-    window.addEventListener('resize', () => { positionBusTab(); positionRouteTab(); updateControlsHeight(); });
+    window.addEventListener('resize', () => {
+      positionAllPanelTabs();
+      updateControlsHeight();
+    });
 
     function updateSpeedButtons() {
-      playBtn.classList.remove('selected');
-      pauseBtn.classList.remove('selected');
-      ff2Btn.classList.remove('selected');
-      ff4Btn.classList.remove('selected');
-      ff8Btn.classList.remove('selected');
-      ff10Btn.classList.remove('selected');
-      ff30Btn.classList.remove('selected');
-      ff100Btn.classList.remove('selected');
-      ff200Btn.classList.remove('selected');
-      ff500Btn.classList.remove('selected');
-      ff1000Btn.classList.remove('selected');
+      playBtn.classList.remove('is-active');
+      pauseBtn.classList.remove('is-active');
+      ff2Btn.classList.remove('is-active');
+      ff4Btn.classList.remove('is-active');
+      ff8Btn.classList.remove('is-active');
+      ff10Btn.classList.remove('is-active');
+      ff30Btn.classList.remove('is-active');
+      ff100Btn.classList.remove('is-active');
+      ff200Btn.classList.remove('is-active');
+      ff500Btn.classList.remove('is-active');
+      ff1000Btn.classList.remove('is-active');
       if (!isPlaying) {
-        pauseBtn.classList.add('selected');
+        pauseBtn.classList.add('is-active');
       } else if (playbackSpeed === 1) {
-        playBtn.classList.add('selected');
+        playBtn.classList.add('is-active');
       } else if (playbackSpeed === 2) {
-        ff2Btn.classList.add('selected');
+        ff2Btn.classList.add('is-active');
       } else if (playbackSpeed === 4) {
-        ff4Btn.classList.add('selected');
+        ff4Btn.classList.add('is-active');
       } else if (playbackSpeed === 8) {
-        ff8Btn.classList.add('selected');
+        ff8Btn.classList.add('is-active');
       } else if (playbackSpeed === 10) {
-        ff10Btn.classList.add('selected');
+        ff10Btn.classList.add('is-active');
       } else if (playbackSpeed === 30) {
-        ff30Btn.classList.add('selected');
+        ff30Btn.classList.add('is-active');
       } else if (playbackSpeed === 100) {
-        ff100Btn.classList.add('selected');
+        ff100Btn.classList.add('is-active');
       } else if (playbackSpeed === 200) {
-        ff200Btn.classList.add('selected');
+        ff200Btn.classList.add('is-active');
       } else if (playbackSpeed === 500) {
-        ff500Btn.classList.add('selected');
+        ff500Btn.classList.add('is-active');
       } else if (playbackSpeed === 1000) {
-        ff1000Btn.classList.add('selected');
+        ff1000Btn.classList.add('is-active');
       }
     }
 
@@ -413,204 +766,424 @@
       showFrame(currentFrameIndex, isNaN(ms) ? undefined : ms);
     }
 
-    // Toggle between displaying speed or block numbers.
-    function toggleSpeedOrBlock() {
-      if (showSpeed) {
+    function setReplayDisplayMode(mode) {
+      if (mode === 'block') {
         showSpeed = false;
         showBlockNumbers = true;
       } else {
         showSpeed = true;
         showBlockNumbers = false;
       }
-      const btn = document.getElementById('toggleDisplayButton');
-      if (btn) btn.innerHTML = showSpeed ? 'Show Block Numbers' : 'Show Speed';
+      updateRouteSelector(activeRoutes);
       refreshReplay();
+    }
+
+    function toggleSpeedOrBlock() {
+      setReplayDisplayMode(showSpeed ? 'block' : 'speed');
     }
 
     function toggleLabels() {
       showLabels = !showLabels;
-      const btn = document.getElementById('toggleLabelsButton');
-      if (btn) btn.innerHTML = showLabels ? 'Hide Labels' : 'Show Labels';
+      updateRouteSelector(activeRoutes);
       refreshReplay();
+    }
+
+    function applyBusOptionState(inputElement) {
+      if (!inputElement || typeof inputElement.closest !== 'function') return;
+      const parentLabel = inputElement.closest('label.selector-option');
+      if (!parentLabel) return;
+      parentLabel.classList.toggle('is-active', inputElement.checked);
     }
 
     function updateBusSelector(activeBusesSet) {
       const container = document.getElementById('busSelector');
       if (!container) return;
-      let busIDs = Object.keys(allBuses).map(Number);
-      busIDs.sort((a,b) => {
-        let nameA = allBuses[a].toUpperCase();
-        let nameB = allBuses[b].toUpperCase();
+
+      const activeSet = activeBusesSet instanceof Set
+        ? activeBusesSet
+        : new Set(Array.isArray(activeBusesSet) ? activeBusesSet : []);
+
+      const busIDs = Object.keys(allBuses)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id));
+
+      busIDs.sort((a, b) => {
+        const nameA = (allBuses[a] || `${a}`).toUpperCase();
+        const nameB = (allBuses[b] || `${b}`).toUpperCase();
         if (nameA < nameB) return -1;
         if (nameA > nameB) return 1;
         return 0;
       });
-      let html = "<h3>Select Buses</h3>" +
-        "<button onclick='selectAllBuses()'>Select All</button>" +
-        "<button onclick='deselectAllBuses()'>Deselect All</button><br/><br/>";
-      busIDs.forEach(id => {
-        let checked = busSelections.hasOwnProperty(id) ? busSelections[id] : activeBusesSet.has(id);
-        let name = allBuses[id] || id;
-        html += `<label><input type="checkbox" id="bus_${id}" value="${id}" ${checked ? "checked" : ""}> ${name}</label>`;
-      });
+
+      let html = `
+        <div class="selector-header">
+          <div class="selector-title">Vehicle Filters</div>
+          <div class="selector-subtitle">Pick the vehicles to follow during playback.</div>
+        </div>
+        <div class="selector-content">
+          <div class="selector-section">
+            <div class="selector-group">
+              <div class="selector-label">Quick Select</div>
+              <div class="display-mode-group route-action-buttons">
+                <button type="button" class="pill-button" onclick="selectAllBuses()">Select All</button>
+                <button type="button" class="pill-button" onclick="selectActiveBuses()">Select Active</button>
+                <button type="button" class="pill-button" onclick="deselectAllBuses()">Deselect All</button>
+              </div>
+            </div>
+      `;
+
+      if (busIDs.length === 0) {
+        html += `
+            <div class="selector-group">
+              <div class="selector-label">Vehicles</div>
+              <div class="selector-option-detail">No vehicles detected in this frame.</div>
+            </div>
+          </div>
+        </div>
+        `;
+      } else {
+        html += `
+            <div class="selector-group">
+              <div class="selector-label">Vehicles</div>
+              <div class="selector-list">
+        `;
+        busIDs.forEach(id => {
+          const checked = Object.prototype.hasOwnProperty.call(busSelections, id)
+            ? busSelections[id]
+            : activeSet.has(id);
+          const name = allBuses[id] || `Vehicle ${id}`;
+          html += `
+                <label class="selector-option ${checked ? 'is-active' : ''}">
+                  <input type="checkbox" id="bus_${id}" value="${id}" ${checked ? 'checked' : ''}>
+                  <span class="selector-option-text">
+                    <span class="selector-option-name">${name}</span>
+                  </span>
+                </label>
+          `;
+        });
+        html += `
+              </div>
+            </div>
+          </div>
+        </div>
+        `;
+      }
+
       container.innerHTML = html;
+
       busIDs.forEach(id => {
-        let chk = document.getElementById('bus_' + id);
-        if (chk) {
-          chk.addEventListener('change', function() {
-            busSelections[id] = chk.checked;
+        const checkbox = document.getElementById(`bus_${id}`);
+        if (checkbox) {
+          checkbox.addEventListener('change', () => {
+            busSelections[id] = checkbox.checked;
+            applyBusOptionState(checkbox);
             refreshReplay();
           });
+          applyBusOptionState(checkbox);
         }
       });
+
+      positionAllPanelTabs();
     }
 
     function selectAllBuses() {
-      for (let id in allBuses) {
-        let chk = document.getElementById('bus_' + id);
-        if (chk) chk.checked = true;
-        busSelections[id] = true;
-      }
+      Object.keys(allBuses).forEach(id => {
+        const numericId = Number(id);
+        if (Number.isNaN(numericId)) return;
+        const checkbox = document.getElementById(`bus_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = true;
+          applyBusOptionState(checkbox);
+        }
+        busSelections[numericId] = true;
+      });
+      refreshReplay();
+    }
+
+    function selectActiveBuses() {
+      const activeSet = activeBuses instanceof Set
+        ? activeBuses
+        : new Set(Array.isArray(activeBuses) ? activeBuses : []);
+
+      Object.keys(allBuses).forEach(id => {
+        const numericId = Number(id);
+        if (Number.isNaN(numericId)) return;
+        const checkbox = document.getElementById(`bus_${numericId}`);
+        const shouldSelect = activeSet.has(numericId);
+        if (checkbox) {
+          checkbox.checked = shouldSelect;
+          applyBusOptionState(checkbox);
+        }
+        busSelections[numericId] = shouldSelect;
+      });
       refreshReplay();
     }
 
     function deselectAllBuses() {
-      for (let id in allBuses) {
-        let chk = document.getElementById('bus_' + id);
-        if (chk) chk.checked = false;
-        busSelections[id] = false;
-      }
+      Object.keys(allBuses).forEach(id => {
+        const numericId = Number(id);
+        if (Number.isNaN(numericId)) return;
+        const checkbox = document.getElementById(`bus_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = false;
+          applyBusOptionState(checkbox);
+        }
+        busSelections[numericId] = false;
+      });
       refreshReplay();
     }
 
-    function toggleBusPanel() {
-      let panel = document.getElementById('busSelector');
-      let tab = document.getElementById('busSelectorTab');
-      let routePanel = document.getElementById('routeSelector');
-      let routeTab = document.getElementById('routeSelectorTab');
-      const willOpen = panel.classList.contains('hidden');
-      if (willOpen) {
-        panel.classList.remove('hidden');
-        tab.innerHTML = '&#9654;';
-        if (routePanel) routePanel.classList.add('hidden');
-        if (routeTab) {
-          routeTab.innerHTML = '&#9654;';
-          routeTab.style.display = 'none';
-        }
-      } else {
-        panel.classList.add('hidden');
-        tab.innerHTML = '&#9664;';
-        if (routeTab) routeTab.style.display = 'block';
-      }
-      positionBusTab();
-      positionRouteTab();
+    function applyRouteOptionState(inputElement) {
+      if (!inputElement || typeof inputElement.closest !== 'function') return;
+      const parentLabel = inputElement.closest('label.route-option');
+      if (!parentLabel) return;
+      parentLabel.classList.toggle('is-active', inputElement.checked);
     }
 
-    function updateRouteSelector(activeRoutes) {
+    function updateRouteSelector(activeRoutesParam) {
       const container = document.getElementById('routeSelector');
       if (!container) return;
-      let html = "";
-      html += "<div style='margin-bottom:10px;'>" +
-        "<button id='toggleLabelsButton' onclick='toggleLabels()'>" + (showLabels ? "Hide Labels" : "Show Labels") + "</button>" +
-        "<button id='toggleDisplayButton' onclick='toggleSpeedOrBlock()'>" + (showSpeed ? "Show Block Numbers" : "Show Speed") + "</button>" +
-        "</div>";
-      html += "<h3>Select Routes</h3>" +
-        "<button onclick='selectAllRoutes()'>Select All</button>" +
-        "<button onclick='deselectAllRoutes()'>Deselect All</button><br/><br/>";
 
-      let outChecked = routeSelections.hasOwnProperty(0) ? routeSelections[0] : activeRoutes.has(0);
-      html += `<label>
-            <input type="checkbox" id="route_0" value="0" ${outChecked ? "checked" : ""}>
-            <span class="color-box" style="background:${outOfServiceRouteColor};"></span> Out of Service
-          </label>`;
+      const activeRoutesSet = activeRoutesParam instanceof Set
+        ? activeRoutesParam
+        : new Set(Array.isArray(activeRoutesParam) ? activeRoutesParam : []);
 
-      let routeIDs = Object.keys(allRoutes).map(Number).filter(id => id !== 0);
-      routeIDs.sort((a,b) => {
-        let descA = allRoutes[a].Description.toUpperCase();
-        let descB = allRoutes[b].Description.toUpperCase();
+      const previousContent = container.querySelector('.selector-content');
+      const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
+
+      const routeIDs = Object.keys(allRoutes)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id) && id !== 0);
+
+      routeIDs.sort((a, b) => {
+        const descA = (allRoutes[a]?.Description || `Route ${a}`).toUpperCase();
+        const descB = (allRoutes[b]?.Description || `Route ${b}`).toUpperCase();
         if (descA < descB) return -1;
         if (descA > descB) return 1;
         return 0;
       });
 
-      routeIDs.forEach(routeID => {
-        let route = allRoutes[routeID];
-        let checked = routeSelections.hasOwnProperty(routeID) ? routeSelections[routeID] : activeRoutes.has(routeID);
-        let displayName = route.Description;
-        if (route.InfoText && route.InfoText.trim() !== "") {
-          displayName += ` &ndash; ${route.InfoText.trim()}`;
-        }
-        html += `<label>
-            <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? "checked" : ""}>
-            <span class="color-box" style="background:${route.MapLineColor};"></span> ${displayName}
-          </label>`;
-      });
+      let html = `
+        <div class="selector-header">
+          <div class="selector-title">Route Filters</div>
+          <div class="selector-subtitle">Choose which routes appear during playback.</div>
+        </div>
+        <div class="selector-content">
+          <div class="selector-section">
+            <div class="selector-group">
+              <div class="selector-label">Vehicle Labels</div>
+              <div class="display-mode-group">
+                <button type="button" class="pill-button ${showSpeed ? 'is-active' : ''}" onclick="setReplayDisplayMode('speed')">Show Speed</button>
+                <button type="button" class="pill-button ${showBlockNumbers ? 'is-active' : ''}" onclick="setReplayDisplayMode('block')">Show Blocks</button>
+              </div>
+            </div>
+            <div class="selector-group">
+              <div class="selector-label">Name Bubbles</div>
+              <button type="button" class="pill-button ${showLabels ? 'is-active' : ''}" onclick="toggleLabels()">${showLabels ? 'Hide Labels' : 'Show Labels'}</button>
+            </div>
+            <div class="selector-group selector-group--route-actions">
+              <div class="selector-label">Route Shortcuts</div>
+              <div class="display-mode-group route-action-buttons">
+                <button type="button" class="pill-button" onclick="selectAllRoutes()">Select All</button>
+                <button type="button" class="pill-button" onclick="selectActiveRoutes()">Select Active</button>
+                <button type="button" class="pill-button" onclick="deselectAllRoutes()">Deselect All</button>
+              </div>
+            </div>
+            <div class="route-list">
+      `;
+
+      const outChecked = Object.prototype.hasOwnProperty.call(routeSelections, 0)
+        ? routeSelections[0]
+        : activeRoutesSet.has(0);
+
+      html += `
+              <label class="route-option route-option--out ${outChecked ? 'is-active' : ''}">
+                <input type="checkbox" id="route_0" value="0" ${outChecked ? 'checked' : ''}>
+                <span class="route-option-swatch" style="background:${outOfServiceRouteColor};"></span>
+                <span class="route-option-text">
+                  <span class="route-option-name">Out of Service</span>
+                  <span class="route-option-detail">Vehicles without an assigned route</span>
+                </span>
+              </label>
+      `;
+
+      if (routeIDs.length === 0) {
+        html += `
+              <div class="selector-option-detail">No routes available for this replay.</div>
+        `;
+      } else {
+        routeIDs.forEach(routeID => {
+          const route = allRoutes[routeID] || {};
+          const checked = Object.prototype.hasOwnProperty.call(routeSelections, routeID)
+            ? routeSelections[routeID]
+            : activeRoutesSet.has(routeID);
+          const color = route.MapLineColor || '#A0AEC0';
+          const description = route.Description || `Route ${routeID}`;
+          const infoText = route.InfoText && route.InfoText.trim() ? route.InfoText.trim() : '';
+          const detailParts = [];
+          if (infoText) detailParts.push(infoText);
+          if (activeRoutesSet.has(routeID)) detailParts.push('Active in frame');
+          const detailHtml = detailParts.map(text => `<span class="route-option-detail">${text}</span>`).join('');
+          html += `
+              <label class="route-option ${checked ? 'is-active' : ''}">
+                <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? 'checked' : ''}>
+                <span class="route-option-swatch" style="background:${color};"></span>
+                <span class="route-option-text">
+                  <span class="route-option-name">${description}</span>
+                  ${detailHtml}
+                </span>
+              </label>
+          `;
+        });
+      }
+
+      html += `
+            </div>
+          </div>
+        </div>
+      `;
 
       container.innerHTML = html;
 
-      let outChk = document.getElementById('route_0');
+      const newContent = container.querySelector('.selector-content');
+      if (newContent) {
+        newContent.scrollTop = previousScrollTop;
+      }
+
+      const outChk = document.getElementById('route_0');
       if (outChk) {
-        outChk.addEventListener('change', function() {
+        outChk.addEventListener('change', () => {
           routeSelections[0] = outChk.checked;
+          applyRouteOptionState(outChk);
           refreshReplay();
         });
+        applyRouteOptionState(outChk);
       }
+
       routeIDs.forEach(routeID => {
-        let chk = document.getElementById('route_' + routeID);
-        if (chk) {
-          chk.addEventListener('change', function() {
-            routeSelections[routeID] = chk.checked;
+        const checkbox = document.getElementById(`route_${routeID}`);
+        if (checkbox) {
+          checkbox.addEventListener('change', () => {
+            routeSelections[routeID] = checkbox.checked;
+            applyRouteOptionState(checkbox);
             refreshReplay();
           });
+          applyRouteOptionState(checkbox);
         }
       });
+
+      positionAllPanelTabs();
     }
 
     function selectAllRoutes() {
-      let outChk = document.getElementById('route_0');
-      if (outChk) outChk.checked = true;
-      for (let routeID in allRoutes) {
-        let chk = document.getElementById('route_' + routeID);
-        if (chk) chk.checked = true;
-        routeSelections[routeID] = true;
+      const outChk = document.getElementById('route_0');
+      if (outChk) {
+        outChk.checked = true;
+        applyRouteOptionState(outChk);
       }
       routeSelections[0] = true;
+
+      Object.keys(allRoutes).forEach(routeID => {
+        const numericId = Number(routeID);
+        if (Number.isNaN(numericId) || numericId === 0) return;
+        const checkbox = document.getElementById(`route_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = true;
+          applyRouteOptionState(checkbox);
+        }
+        routeSelections[numericId] = true;
+      });
+      refreshReplay();
+    }
+
+    function selectActiveRoutes() {
+      const activeSet = activeRoutes instanceof Set
+        ? activeRoutes
+        : new Set(Array.isArray(activeRoutes) ? activeRoutes : []);
+
+      const outChk = document.getElementById('route_0');
+      const shouldSelectOut = activeSet.has(0);
+      if (outChk) {
+        outChk.checked = shouldSelectOut;
+        applyRouteOptionState(outChk);
+      }
+      routeSelections[0] = shouldSelectOut;
+
+      Object.keys(allRoutes).forEach(routeID => {
+        const numericId = Number(routeID);
+        if (Number.isNaN(numericId) || numericId === 0) return;
+        const checkbox = document.getElementById(`route_${numericId}`);
+        const shouldSelect = activeSet.has(numericId);
+        if (checkbox) {
+          checkbox.checked = shouldSelect;
+          applyRouteOptionState(checkbox);
+        }
+        routeSelections[numericId] = shouldSelect;
+      });
       refreshReplay();
     }
 
     function deselectAllRoutes() {
-      let outChk = document.getElementById('route_0');
-      if (outChk) outChk.checked = false;
-      for (let routeID in allRoutes) {
-        let chk = document.getElementById('route_' + routeID);
-        if (chk) chk.checked = false;
-        routeSelections[routeID] = false;
+      const outChk = document.getElementById('route_0');
+      if (outChk) {
+        outChk.checked = false;
+        applyRouteOptionState(outChk);
       }
       routeSelections[0] = false;
+
+      Object.keys(allRoutes).forEach(routeID => {
+        const numericId = Number(routeID);
+        if (Number.isNaN(numericId) || numericId === 0) return;
+        const checkbox = document.getElementById(`route_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = false;
+          applyRouteOptionState(checkbox);
+        }
+        routeSelections[numericId] = false;
+      });
       refreshReplay();
     }
 
-    function togglePanel() {
-      let panel = document.getElementById('routeSelector');
-      let tab = document.getElementById('routeSelectorTab');
-      let busPanel = document.getElementById('busSelector');
-      let busTab = document.getElementById('busSelectorTab');
-      const willOpen = panel.classList.contains('hidden');
-      if (willOpen) {
-        panel.classList.remove('hidden');
-        tab.innerHTML = '&#9664;';
-        if (busPanel) busPanel.classList.add('hidden');
-        if (busTab) {
-          busTab.innerHTML = '&#9664;';
-          busTab.style.display = 'none';
+    function togglePanelVisibility(panelId, tabId, expandedArrow, collapsedArrow) {
+      const panel = document.getElementById(panelId);
+      const tab = document.getElementById(tabId);
+      if (!panel || !tab) return false;
+      const isHidden = panel.classList.toggle('hidden');
+      tab.innerHTML = isHidden ? collapsedArrow : expandedArrow;
+      positionAllPanelTabs();
+      return !isHidden;
+    }
+
+    function toggleRoutePanel() {
+      const opened = togglePanelVisibility('routeSelector', 'routeSelectorTab', '&#9664;', '&#9654;');
+      const busPanel = document.getElementById('busSelector');
+      const busTab = document.getElementById('busSelectorTab');
+      if (opened) {
+        if (busPanel && !busPanel.classList.contains('hidden')) {
+          busPanel.classList.add('hidden');
+          if (busTab) busTab.innerHTML = '&#9664;';
         }
-      } else {
-        panel.classList.add('hidden');
-        tab.innerHTML = '&#9654;';
-        if (busTab) busTab.style.display = 'block';
+        if (busTab) busTab.style.display = 'none';
+      } else if (busTab) {
+        busTab.style.display = '';
       }
-      positionRouteTab();
-      positionBusTab();
+      positionAllPanelTabs();
+    }
+
+    function toggleBusPanel() {
+      const opened = togglePanelVisibility('busSelector', 'busSelectorTab', '&#9654;', '&#9664;');
+      const routePanel = document.getElementById('routeSelector');
+      const routeTab = document.getElementById('routeSelectorTab');
+      if (opened) {
+        if (routePanel && !routePanel.classList.contains('hidden')) {
+          routePanel.classList.add('hidden');
+          if (routeTab) routeTab.innerHTML = '&#9654;';
+        }
+        if (routeTab) routeTab.style.display = 'none';
+      } else if (routeTab) {
+        routeTab.style.display = '';
+      }
+      positionAllPanelTabs();
     }
 
     function hourKey(ms) {
