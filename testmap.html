@@ -773,6 +773,8 @@
       let adminKioskMode = false;
       let displayMode = DISPLAY_MODES.BLOCK;
 
+      const PANEL_COLLAPSE_BREAKPOINT = 600;
+
       const enableOverlapDashRendering = true;
 
       const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
@@ -1524,6 +1526,39 @@
 
       function toggleControlPanel() {
         togglePanelVisibility('controlPanel', 'controlPanelTab', '&#9654;', '&#9664;');
+      }
+
+      function shouldCollapsePanelsOnLoad() {
+        const width = window.innerWidth || document.documentElement.clientWidth || document.body?.clientWidth || 0;
+        const height = window.innerHeight || document.documentElement.clientHeight || document.body?.clientHeight || 0;
+        const dimensionCandidates = [width, height].filter(value => Number.isFinite(value) && value > 0);
+        const smallestDimension = dimensionCandidates.length > 0 ? Math.min(...dimensionCandidates) : width;
+        return smallestDimension <= PANEL_COLLAPSE_BREAKPOINT;
+      }
+
+      function initializePanelStateForViewport() {
+        if (!shouldCollapsePanelsOnLoad()) return;
+
+        const controlPanel = document.getElementById('controlPanel');
+        const controlTab = document.getElementById('controlPanelTab');
+        const routePanel = document.getElementById('routeSelector');
+        const routeTab = document.getElementById('routeSelectorTab');
+
+        if (controlPanel && !controlPanel.classList.contains('hidden')) {
+          controlPanel.classList.add('hidden');
+        }
+        if (controlTab) {
+          controlTab.innerHTML = '&#9664;';
+        }
+
+        if (routePanel && !routePanel.classList.contains('hidden')) {
+          routePanel.classList.add('hidden');
+        }
+        if (routeTab) {
+          routeTab.innerHTML = '&#9654;';
+        }
+
+        positionAllPanelTabs();
       }
 
       function renderRouteLegendContent(legendElement, routes) {
@@ -3995,6 +4030,7 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
+        initializePanelStateForViewport();
         beginAgencyLoad();
         loadAgencies()
           .then(() => {
