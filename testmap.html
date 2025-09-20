@@ -1565,6 +1565,15 @@
         });
       }
 
+      function createOutOfServiceLegendEntry() {
+        return {
+          routeId: 0,
+          name: 'Out of Service',
+          description: 'Vehicles without an assigned route',
+          color: outOfServiceRouteColor
+        };
+      }
+
       function extractLegendRouteIdentifiers(route) {
         const rawRouteId = route && typeof route === 'object'
           ? (route.routeId ?? route.routeID ?? route.id ?? null)
@@ -1644,6 +1653,9 @@
       function buildLegendEntryFromState(routeId) {
         const numericRouteId = Number(routeId);
         if (!Number.isFinite(numericRouteId)) return null;
+        if (numericRouteId === 0) {
+          return createOutOfServiceLegendEntry();
+        }
 
         const storedRoute = allRoutes?.[numericRouteId] || allRoutes?.[`${numericRouteId}`] || {};
         const routeIdLabel = `${numericRouteId}`;
@@ -1755,6 +1767,17 @@
             color
           };
         });
+
+        const shouldIncludeOutOfServiceLegend = isRouteSelected(0) && routeHasActiveVehicles(0);
+        if (shouldIncludeOutOfServiceLegend) {
+          const hasOutOfServiceEntry = sanitizedRoutes.some(route => {
+            const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
+            return Number(candidateId) === 0;
+          });
+          if (!hasOutOfServiceEntry) {
+            sanitizedRoutes.push(createOutOfServiceLegendEntry());
+          }
+        }
 
         const filterAdminLegendRoutes = routes => {
           if (!adminKioskMode) {
