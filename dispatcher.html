@@ -39,7 +39,7 @@ h2{font-size:18px;margin:16px 0 0}
 .credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
  </style>
 <body>
-<div id="left" style="flex:1;overflow:auto;position:relative">
+<div id="left" style="flex:2;overflow:auto;position:relative">
 <header>
   <h1 style="font-size:18px;margin:0">Dispatch - Headway Guard</h1>
   <div id="controls">
@@ -75,6 +75,8 @@ h2{font-size:18px;margin:16px 0 0}
     <table id="future-blocks-table">
       <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
     </table>
+    <h2>Extra Buses</h2>
+    <ul id="extra-buses"><li class="hint">Loading…</li></ul>
     <h2>Downed Buses</h2>
     <table id="downed-table">
       <thead>
@@ -82,8 +84,6 @@ h2{font-size:18px;margin:16px 0 0}
       </thead>
       <tbody id="downed-rows"><tr><td class="hint" colspan="4">Loading…</td></tr></tbody>
     </table>
-    <h2>Extra Buses</h2>
-    <ul id="extra-buses"><li class="hint">Loading…</li></ul>
   </aside>
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
@@ -328,16 +328,7 @@ function renderDownedVehicles(rows){
     tbody.innerHTML='<tr><td class="hint" colspan="4">All buses available.</td></tr>';
     return;
   }
-  const sorted=rows.slice().sort((a,b)=>{
-    const oa=a.opsDateValue==null?Number.NEGATIVE_INFINITY:a.opsDateValue;
-    const ob=b.opsDateValue==null?Number.NEGATIVE_INFINITY:b.opsDateValue;
-    if(oa!==ob) return ob-oa;
-    const sa=a.shopLatestValue==null?Number.NEGATIVE_INFINITY:a.shopLatestValue;
-    const sb=b.shopLatestValue==null?Number.NEGATIVE_INFINITY:b.shopLatestValue;
-    if(sa!==sb) return sb-sa;
-    return a.vehicleId.localeCompare(b.vehicleId,undefined,{numeric:true,sensitivity:'base'});
-  });
-  tbody.innerHTML=sorted.map(row=>{
+  tbody.innerHTML=rows.map(row=>{
     const statusChip=row.opsStatus
       ? `<div><span class="pill ${row.opsStatus==='DOWNED'?'bad':'warn'}"><span class="dot"></span><span>${htmlEscape(statusLabel(row.opsStatus))}</span></span></div>`
       : '';
