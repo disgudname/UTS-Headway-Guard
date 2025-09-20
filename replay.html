@@ -1295,7 +1295,16 @@
       const entry = playbackData[i];
       const timeline = document.getElementById('timeline');
       const timeMs = (typeof displayMs !== 'undefined') ? displayMs : playbackTimes[i];
-      const formatted = new Date(timeMs).toLocaleString('en-US', {timeZone: 'America/New_York'});
+      const formatted = new Date(timeMs).toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
       timeline.value = timeMs;
       timeline.title = formatted; // show date/time when hovering the slider
       document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
