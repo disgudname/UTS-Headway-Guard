@@ -116,6 +116,56 @@
         opacity: 0.9;
         margin-bottom: 6px;
       }
+      .bus-marker {
+        background: transparent;
+        border: 0;
+        padding: 0;
+        line-height: 0;
+      }
+      .bus-marker__root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        cursor: pointer;
+        touch-action: manipulation;
+        user-select: none;
+      }
+      .bus-marker__svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+        transition: filter 0.2s ease;
+      }
+      .bus-marker__rotator {
+        transform-box: fill-box;
+        will-change: transform;
+      }
+      .bus-marker__shell {
+        paint-order: stroke fill;
+        transition: fill 0.2s ease, fill-opacity 0.2s ease;
+      }
+      .bus-marker__ring,
+      .bus-marker__glyph,
+      .bus-marker__shell {
+        pointer-events: auto;
+      }
+      .bus-marker__root.is-stale .bus-marker__shell {
+        fill-opacity: 0.6;
+      }
+      .bus-marker__root.is-hover .bus-marker__svg {
+        filter: drop-shadow(0 3px 8px rgba(15, 23, 42, 0.35));
+      }
+      .bus-marker__root.is-selected .bus-marker__svg {
+        filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.68));
+      }
+      .bus-marker__root.is-selected.is-hover .bus-marker__svg {
+        filter: drop-shadow(0 3px 12px rgba(15, 23, 42, 0.35)) drop-shadow(0 0 7px rgba(255, 255, 255, 0.72));
+      }
       @font-face {
         font-family: 'FGDC';
         src: url('FGDC.ttf') format('truetype');
@@ -840,6 +890,46 @@
       
       let map;
       let markers = {};
+      let busMarkerStates = {};
+      let pendingBusVisualUpdates = new Map();
+      let busMarkerVisualUpdateFrame = null;
+      let selectedVehicleId = null;
+
+      const BUS_MARKER_VIEWBOX_WIDTH = 100;
+      const BUS_MARKER_VIEWBOX_HEIGHT = 62;
+      const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
+      const BUS_MARKER_BASE_WIDTH_PX = 30;
+      const BUS_MARKER_MIN_WIDTH_PX = 20;
+      const BUS_MARKER_MAX_WIDTH_PX = 56;
+      const BUS_MARKER_BASE_ZOOM = 15;
+      const BUS_MARKER_OUTLINE_RATIO = 0.075;
+      const BUS_MARKER_RING_RATIO = 0.11;
+      const BUS_MARKER_MIN_OUTLINE_PX = 1.3;
+      const BUS_MARKER_MIN_RING_PX = 1.05;
+      const BUS_MARKER_SELECTION_DELTA_PX = 1.4;
+      const BUS_MARKER_HOVER_DELTA_PX = 0.85;
+      const BUS_MARKER_ROTATION_CENTER_X = 44.4;
+      const BUS_MARKER_ROTATION_CENTER_Y = BUS_MARKER_VIEWBOX_HEIGHT / 2;
+      const BUS_MARKER_ROTATION_CENTER_X_RATIO = BUS_MARKER_ROTATION_CENTER_X / BUS_MARKER_VIEWBOX_WIDTH;
+      const BUS_MARKER_ROTATION_CENTER_X_PERCENT = BUS_MARKER_ROTATION_CENTER_X_RATIO * 100;
+      const BUS_MARKER_DEFAULT_HEADING = 90;
+      const BUS_MARKER_OUTLINE_COLOR = 'rgba(0, 0, 0, 0.88)';
+      const BUS_MARKER_DARK_GLYPH_COLOR = 'rgba(15, 23, 42, 0.92)';
+      const BUS_MARKER_LIGHT_GLYPH_COLOR = 'rgba(255, 255, 255, 0.9)';
+      const BUS_MARKER_RING_RADIUS = BUS_MARKER_VIEWBOX_HEIGHT * 0.4 * 0.5;
+      const BUS_MARKER_RING_CENTER_X = BUS_MARKER_ROTATION_CENTER_X;
+      const BUS_MARKER_RING_CENTER_Y = BUS_MARKER_ROTATION_CENTER_Y;
+      const BUS_MARKER_PLAY_BASE_X = 78;
+      const BUS_MARKER_PLAY_TIP_X = 92;
+      const BUS_MARKER_PLAY_HEIGHT_RATIO = 0.24;
+      const MIN_HEADING_DISTANCE_METERS = 2;
+      const MIN_POSITION_UPDATE_METERS = 0.5;
+      const GPS_STALE_THRESHOLD_SECONDS = 60;
+
+      const BUS_MARKER_OUTER_PATH = 'M69.5 0 L97.4 23.6 Q100 31 97.4 38.4 L69.5 62 C45 62 12 62 4.3 45.8 Q0 31 4.3 16.2 C12 0 45 0 69.5 0 Z';
+      const BUS_MARKER_RING_PATH = 'M 44.4 18.6 A 12.4 12.4 0 1 1 44.39 18.6 A 12.4 12.4 0 1 1 44.4 18.6';
+      const BUS_MARKER_PLAY_PATH = 'M 78 23.56 L 78 38.44 L 92 31 Z';
+
       let routeColors = {};
       let routeLayers = [];
       let stopMarkers = [];
@@ -2014,7 +2104,7 @@
           const busesPane = map.getPane('busesPane');
           if (busesPane) {
               busesPane.style.zIndex = 500;
-              busesPane.style.pointerEvents = 'none';
+              busesPane.style.pointerEvents = 'auto';
           }
           const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -2062,6 +2152,7 @@
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
+              updateBusMarkerSizes();
               updatePopupPositions();
           });
       }
@@ -3842,37 +3933,58 @@
                       activeRoutes = activeRoutesSet;
                       updateRouteSelector(activeRoutesSet);
 
+                      const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+
                       // Second pass: render only selected routes.
                       vehicles.forEach(v => {
-                          const { vehicleID, newPosition, isMoving, busName, routeID, heading, groundSpeed } = v;
+                          const { vehicleID, newPosition, busName, routeID, heading, groundSpeed } = v;
                           if (!isRouteSelected(routeID)) return;
                           currentBusData[vehicleID] = true;
-                          const svgIcon = `
-                              <svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg">
-                                <g>
-                                  <circle cx="20" cy="20" r="15" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
-                                  ${isMoving ? `
-                                    <line x1="20" y1="10" x2="20" y2="22" stroke="${getContrastColor(getRouteColor(routeID))}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
-                                    <polygon points="15,22 25,22 20,30" fill="${getContrastColor(getRouteColor(routeID))}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
-                                  ` : `
-                                    <rect x="14" y="14" width="12" height="12" fill="${getContrastColor(getRouteColor(routeID))}" />
-                                  `}
-                                </g>
-                              </svg>`;
-                          const busIcon = L.divIcon({
-                              html: svgIcon,
-                              className: '',
-                              iconSize: [40, 40],
-                              iconAnchor: [20, 20]
-                          });
+                          const state = ensureBusMarkerState(vehicleID);
+                          const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
+                          const glyphColor = computeBusMarkerGlyphColor(routeColor);
+                          const headingDeg = updateBusMarkerHeading(state, newPosition, heading);
+                          const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
+                          const gpsIsStale = isVehicleGpsStale(v);
+
+                          state.busName = busName;
+                          state.routeID = routeID;
+                          state.fillColor = routeColor;
+                          state.outlineColor = BUS_MARKER_OUTLINE_COLOR;
+                          state.glyphColor = glyphColor;
+                          state.headingDeg = headingDeg;
+                          state.accessibleLabel = accessibleLabel;
+                          state.isStale = gpsIsStale;
+                          state.groundSpeed = groundSpeed;
+                          state.lastUpdateTimestamp = Date.now();
+
+                          if (!state.size) {
+                              setBusMarkerSize(state, markerMetricsForZoom);
+                          }
+
                           if (markers[vehicleID]) {
                               animateMarkerTo(markers[vehicleID], newPosition);
-                              markers[vehicleID].setIcon(busIcon);
                               markers[vehicleID].routeID = routeID;
+                              queueBusMarkerVisualUpdate(vehicleID, {
+                                  fillColor: routeColor,
+                                  outlineColor: BUS_MARKER_OUTLINE_COLOR,
+                                  glyphColor,
+                                  headingDeg,
+                                  stale: gpsIsStale,
+                                  accessibleLabel
+                              });
                           } else {
-                              markers[vehicleID] = L.marker(newPosition, { icon: busIcon, pane: 'busesPane', interactive: false });
-                              markers[vehicleID].routeID = routeID;
-                              markers[vehicleID].addTo(map);
+                              const icon = createBusMarkerDivIcon(vehicleID, state);
+                              const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true });
+                              marker.routeID = routeID;
+                              marker.addTo(map);
+                              markers[vehicleID] = marker;
+                              state.marker = marker;
+                              registerBusMarkerElements(vehicleID);
+                              attachBusMarkerInteractions(vehicleID);
+                              updateBusMarkerRootClasses(state);
+                              updateBusMarkerZIndex(state);
+                              applyBusMarkerOutlineWidth(state);
                           }
                           if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
                               const speedBubble = `
@@ -3974,6 +4086,7 @@
                           if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
                               map.removeLayer(markers[vehicleID]);
                               delete markers[vehicleID];
+                              clearBusMarkerState(vehicleID);
                               if (nameBubbles[vehicleID]) {
                                   if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
                                   if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
@@ -3995,6 +4108,513 @@
           const b = parseInt(hexColor.substring(4, 6), 16);
           const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
           return luminance > 0.565 ? 'black' : 'white';
+      }
+
+      function clamp(value, min, max) {
+          return Math.min(Math.max(value, min), max);
+      }
+
+      function computeBusMarkerMetrics(zoom) {
+          const targetZoom = Number.isFinite(zoom) ? zoom : BUS_MARKER_BASE_ZOOM;
+          const width = clamp(
+              BUS_MARKER_BASE_WIDTH_PX * Math.pow(2, (targetZoom - BUS_MARKER_BASE_ZOOM) / 5),
+              BUS_MARKER_MIN_WIDTH_PX,
+              BUS_MARKER_MAX_WIDTH_PX
+          );
+          const height = width * BUS_MARKER_ASPECT_RATIO;
+          const outlineRatio = Math.max(BUS_MARKER_OUTLINE_RATIO, BUS_MARKER_MIN_OUTLINE_PX / height);
+          const ringRatio = Math.max(BUS_MARKER_RING_RATIO, BUS_MARKER_MIN_RING_PX / height);
+          return { widthPx: width, heightPx: height, outlineRatio, ringRatio };
+      }
+
+      function ensureBusMarkerState(vehicleID) {
+          if (!busMarkerStates[vehicleID]) {
+              busMarkerStates[vehicleID] = {
+                  vehicleID,
+                  positionHistory: [],
+                  headingDeg: BUS_MARKER_DEFAULT_HEADING,
+                  fillColor: BUS_MARKER_OUTLINE_COLOR,
+                  outlineColor: BUS_MARKER_OUTLINE_COLOR,
+                  glyphColor: BUS_MARKER_DARK_GLYPH_COLOR,
+                  accessibleLabel: '',
+                  isStale: false,
+                  isSelected: false,
+                  isHovered: false,
+                  lastUpdateTimestamp: 0,
+                  size: null,
+                  baseOutlineRatio: BUS_MARKER_OUTLINE_RATIO,
+                  baseRingRatio: BUS_MARKER_RING_RATIO,
+                  elements: null,
+                  marker: null,
+                  markerEventsBound: false
+              };
+          }
+          return busMarkerStates[vehicleID];
+      }
+
+      function setBusMarkerSize(state, metrics) {
+          if (!state || !metrics) {
+              return;
+          }
+          state.size = {
+              widthPx: metrics.widthPx,
+              heightPx: metrics.heightPx
+          };
+          state.baseOutlineRatio = metrics.outlineRatio;
+          state.baseRingRatio = metrics.ringRatio;
+      }
+
+      function computeBusMarkerGlyphColor(fillColor) {
+          const contrast = getContrastColor(fillColor || '#000000');
+          return contrast === 'white' ? BUS_MARKER_LIGHT_GLYPH_COLOR : BUS_MARKER_DARK_GLYPH_COLOR;
+      }
+
+      function updateBusMarkerHeading(state, newPosition, fallbackHeading) {
+          if (!state) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const lat = Array.isArray(newPosition) ? Number(newPosition[0]) : Number(newPosition?.lat ?? newPosition?.Latitude);
+          const lng = Array.isArray(newPosition) ? Number(newPosition[1]) : Number(newPosition?.lng ?? newPosition?.Longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              return state.headingDeg ?? BUS_MARKER_DEFAULT_HEADING;
+          }
+          const current = L.latLng(lat, lng);
+          const history = Array.isArray(state.positionHistory) ? state.positionHistory : [];
+          const previous = history.length > 0 ? history[history.length - 1] : null;
+          let heading = Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
+          if (previous) {
+              const distance = previous.distanceTo(current);
+              if (distance >= MIN_HEADING_DISTANCE_METERS) {
+                  const computed = computeBearingDegrees(previous, current);
+                  if (Number.isFinite(computed)) {
+                      heading = computed;
+                  }
+              } else if (!Number.isFinite(heading)) {
+                  const fallback = Number.isFinite(fallbackHeading) ? fallbackHeading : BUS_MARKER_DEFAULT_HEADING;
+                  heading = fallback;
+              }
+              if (distance >= MIN_POSITION_UPDATE_METERS) {
+                  history.push(current);
+                  if (history.length > 2) {
+                      history.shift();
+                  }
+              } else {
+                  history[history.length - 1] = current;
+              }
+          } else {
+              const fallback = Number.isFinite(fallbackHeading) ? fallbackHeading : heading;
+              heading = Number.isFinite(fallback) ? fallback : BUS_MARKER_DEFAULT_HEADING;
+              history.push(current);
+          }
+          state.positionHistory = history;
+          state.headingDeg = normalizeHeadingDegrees(heading);
+          return state.headingDeg;
+      }
+
+      function computeBearingDegrees(fromLatLng, toLatLng) {
+          if (!fromLatLng || !toLatLng) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const lat1 = fromLatLng.lat * Math.PI / 180;
+          const lat2 = toLatLng.lat * Math.PI / 180;
+          const dLon = (toLatLng.lng - fromLatLng.lng) * Math.PI / 180;
+          const y = Math.sin(dLon) * Math.cos(lat2);
+          const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+          const theta = Math.atan2(y, x);
+          const bearing = theta * 180 / Math.PI;
+          return normalizeHeadingDegrees(bearing);
+      }
+
+      function normalizeHeadingDegrees(degrees) {
+          const normalized = Number.isFinite(degrees) ? degrees : BUS_MARKER_DEFAULT_HEADING;
+          return ((normalized % 360) + 360) % 360;
+      }
+
+      function buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed) {
+          const name = busName && `${busName}`.trim().length > 0 ? `${busName}`.trim() : 'Vehicle';
+          const direction = bearingToDirection(headingDeg);
+          const speedText = formatBusSpeed(groundSpeed);
+          return `${name} — ${direction} — ${speedText}`;
+      }
+
+      function bearingToDirection(headingDeg) {
+          if (!Number.isFinite(headingDeg)) {
+              return 'Unknown direction';
+          }
+          const compass = [
+              'Northbound',
+              'Northeastbound',
+              'Eastbound',
+              'Southeastbound',
+              'Southbound',
+              'Southwestbound',
+              'Westbound',
+              'Northwestbound'
+          ];
+          const normalized = normalizeHeadingDegrees(headingDeg);
+          const index = Math.round(normalized / 45) % compass.length;
+          return compass[index];
+      }
+
+      function formatBusSpeed(groundSpeed) {
+          if (!Number.isFinite(groundSpeed)) {
+              return 'Speed unavailable';
+          }
+          const speed = Math.max(0, Math.round(groundSpeed));
+          if (speed <= 1) {
+              return 'Stopped';
+          }
+          return `${speed} mph`;
+      }
+
+      function escapeHtml(value) {
+          if (value === null || value === undefined) {
+              return '';
+          }
+          return `${value}`
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+      }
+
+      function computeMarkerTransformString(widthPx, headingDeg) {
+          const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          if (!Number.isFinite(widthPx) || widthPx <= 0) {
+              return `rotate(${normalizedHeading.toFixed(2)}deg)`;
+          }
+          const radians = normalizedHeading * Math.PI / 180;
+          const tipOffset = widthPx * (1 - BUS_MARKER_ROTATION_CENTER_X_RATIO);
+          const deltaX = tipOffset * (1 - Math.cos(radians));
+          const deltaY = -tipOffset * Math.sin(radians);
+          return `translate(${deltaX.toFixed(4)}px, ${deltaY.toFixed(4)}px) rotate(${normalizedHeading.toFixed(2)}deg)`;
+      }
+
+      function renderBusMarkerMarkup(vehicleID, state) {
+          const width = state?.size?.widthPx ?? BUS_MARKER_BASE_WIDTH_PX;
+          const height = state?.size?.heightPx ?? width * BUS_MARKER_ASPECT_RATIO;
+          const fillColor = state?.fillColor || BUS_MARKER_OUTLINE_COLOR;
+          const outlineColor = state?.outlineColor || BUS_MARKER_OUTLINE_COLOR;
+          const glyphColor = state?.glyphColor || computeBusMarkerGlyphColor(fillColor);
+          const headingDeg = Number.isFinite(state?.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
+          const labelRaw = state?.accessibleLabel && state.accessibleLabel.trim().length > 0
+              ? state.accessibleLabel.trim()
+              : `Vehicle ${vehicleID}`;
+          const labelEscaped = escapeHtml(labelRaw);
+          const rootClasses = ['bus-marker__root'];
+          if (state?.isStale) rootClasses.push('is-stale');
+          if (state?.isSelected) rootClasses.push('is-selected');
+          if (state?.isHovered) rootClasses.push('is-hover');
+          const outlineRatio = state?.baseOutlineRatio ?? BUS_MARKER_OUTLINE_RATIO;
+          const ringRatio = state?.baseRingRatio ?? BUS_MARKER_RING_RATIO;
+          const outlineWidthViewBox = (outlineRatio * BUS_MARKER_VIEWBOX_HEIGHT).toFixed(3);
+          const ringWidthViewBox = (ringRatio * BUS_MARKER_VIEWBOX_HEIGHT).toFixed(3);
+          const transform = computeMarkerTransformString(width, headingDeg);
+          const fillOpacity = state?.isStale ? '0.6' : '1';
+          return `
+      <div class="${rootClasses.join(' ')}" data-vehicle-id="${escapeHtml(`${vehicleID}`)}" tabindex="0" aria-label="${labelEscaped}" role="img">
+        <svg class="bus-marker__svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" role="img" aria-label="${labelEscaped}" focusable="false">
+          <title>${labelEscaped}</title>
+          <g class="bus-marker__rotator" style="transform-origin: ${BUS_MARKER_ROTATION_CENTER_X_PERCENT}% 50%; transform: ${transform};">
+            <path class="bus-marker__shell" d="${BUS_MARKER_OUTER_PATH}" fill="${fillColor}" stroke="${outlineColor}" stroke-width="${outlineWidthViewBox}" stroke-linecap="round" stroke-linejoin="round" fill-opacity="${fillOpacity}" />
+            <path class="bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="none" stroke="${glyphColor}" stroke-width="${ringWidthViewBox}" stroke-linecap="round" stroke-linejoin="round" />
+            <path class="bus-marker__glyph" d="${BUS_MARKER_PLAY_PATH}" fill="${glyphColor}" />
+          </g>
+        </svg>
+      </div>`;
+      }
+
+      function createBusMarkerDivIcon(vehicleID, state) {
+          if (!state) {
+              return null;
+          }
+          if (!state.size) {
+              setBusMarkerSize(state, computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM));
+          }
+          const width = state.size?.widthPx ?? BUS_MARKER_BASE_WIDTH_PX;
+          const height = state.size?.heightPx ?? width * BUS_MARKER_ASPECT_RATIO;
+          return L.divIcon({
+              html: renderBusMarkerMarkup(vehicleID, state),
+              className: 'bus-marker',
+              iconSize: [width, height],
+              iconAnchor: [width, height / 2]
+          });
+      }
+
+      function registerBusMarkerElements(vehicleID) {
+          const state = busMarkerStates[vehicleID];
+          const marker = markers[vehicleID];
+          if (!state || !marker) {
+              return null;
+          }
+          const iconElement = marker.getElement();
+          if (!iconElement) {
+              return null;
+          }
+          const root = iconElement.querySelector('.bus-marker__root');
+          const svg = root ? root.querySelector('.bus-marker__svg') : null;
+          const rotator = root ? root.querySelector('.bus-marker__rotator') : null;
+          const shell = root ? root.querySelector('.bus-marker__shell') : null;
+          const ring = root ? root.querySelector('.bus-marker__ring') : null;
+          const glyph = root ? root.querySelector('.bus-marker__glyph') : null;
+          const title = svg ? svg.querySelector('title') : null;
+          state.elements = { icon: iconElement, root, svg, rotator, shell, ring, glyph, title };
+          if (root) {
+              root.dataset.vehicleId = `${vehicleID}`;
+          }
+          if (svg) {
+              svg.style.pointerEvents = 'none';
+          }
+          return state.elements;
+      }
+
+      function queueBusMarkerVisualUpdate(vehicleID, update = {}) {
+          if (!vehicleID) {
+              return;
+          }
+          const existing = pendingBusVisualUpdates.get(vehicleID) || {};
+          Object.assign(existing, update);
+          pendingBusVisualUpdates.set(vehicleID, existing);
+          if (busMarkerVisualUpdateFrame === null) {
+              busMarkerVisualUpdateFrame = requestAnimationFrame(flushBusMarkerVisualUpdates);
+          }
+      }
+
+      function flushBusMarkerVisualUpdates() {
+          busMarkerVisualUpdateFrame = null;
+          pendingBusVisualUpdates.forEach((update, vehicleID) => {
+              applyBusMarkerVisualUpdate(vehicleID, update);
+          });
+          pendingBusVisualUpdates.clear();
+      }
+
+      function applyBusMarkerVisualUpdate(vehicleID, update) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const elements = state.elements || registerBusMarkerElements(vehicleID);
+          if (!elements || !elements.root) {
+              return;
+          }
+          if (update && update.fillColor) {
+              state.fillColor = update.fillColor;
+          }
+          if (update && update.outlineColor) {
+              state.outlineColor = update.outlineColor;
+          }
+          if (update && update.glyphColor) {
+              state.glyphColor = update.glyphColor;
+          }
+          if (update && typeof update.stale === 'boolean') {
+              state.isStale = update.stale;
+          }
+          if (update && typeof update.accessibleLabel === 'string') {
+              state.accessibleLabel = update.accessibleLabel;
+          }
+          if (update && Number.isFinite(update.headingDeg)) {
+              state.headingDeg = normalizeHeadingDegrees(update.headingDeg);
+          }
+          if (elements.shell && state.fillColor) {
+              elements.shell.setAttribute('fill', state.fillColor);
+          }
+          if (elements.shell && state.outlineColor) {
+              elements.shell.setAttribute('stroke', state.outlineColor);
+          }
+          if (elements.ring && state.glyphColor) {
+              elements.ring.setAttribute('stroke', state.glyphColor);
+          }
+          if (elements.glyph && state.glyphColor) {
+              elements.glyph.setAttribute('fill', state.glyphColor);
+          }
+          if (elements.shell) {
+              elements.shell.setAttribute('fill-opacity', state.isStale ? '0.6' : '1');
+          }
+          if (elements.svg && state.accessibleLabel) {
+              elements.svg.setAttribute('aria-label', state.accessibleLabel);
+          }
+          if (elements.title && state.accessibleLabel) {
+              elements.title.textContent = state.accessibleLabel;
+          }
+          if (elements.rotator && state.size?.widthPx) {
+              elements.rotator.style.transformOrigin = `${BUS_MARKER_ROTATION_CENTER_X_PERCENT}% 50%`;
+              elements.rotator.style.transform = computeMarkerTransformString(state.size.widthPx, state.headingDeg);
+          }
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function applyBusMarkerOutlineWidth(state) {
+          if (!state?.elements?.shell || !state?.size) {
+              return;
+          }
+          const heightPx = state.size.heightPx;
+          if (!(heightPx > 0)) {
+              return;
+          }
+          const baseRatio = state.baseOutlineRatio ?? BUS_MARKER_OUTLINE_RATIO;
+          let widthPx = Math.max(baseRatio * heightPx, BUS_MARKER_MIN_OUTLINE_PX);
+          if (state.isSelected) {
+              widthPx += BUS_MARKER_SELECTION_DELTA_PX;
+          }
+          if (state.isHovered) {
+              widthPx += BUS_MARKER_HOVER_DELTA_PX;
+          }
+          const ratio = widthPx / heightPx;
+          const viewBoxWidth = ratio * BUS_MARKER_VIEWBOX_HEIGHT;
+          state.elements.shell.setAttribute('stroke-width', viewBoxWidth.toFixed(3));
+      }
+
+      function updateBusMarkerRootClasses(state) {
+          if (!state?.elements?.root) {
+              return;
+          }
+          const root = state.elements.root;
+          root.classList.toggle('is-stale', Boolean(state.isStale));
+          root.classList.toggle('is-selected', Boolean(state.isSelected));
+          root.classList.toggle('is-hover', Boolean(state.isHovered));
+      }
+
+      function updateBusMarkerZIndex(state) {
+          if (!state?.marker) {
+              return;
+          }
+          let offset = 0;
+          if (state.isSelected) {
+              offset = 800;
+          }
+          if (state.isHovered) {
+              offset = Math.max(offset, 1000);
+          }
+          state.marker.setZIndexOffset(offset);
+      }
+
+      function setBusMarkerHovered(vehicleID, isHovered) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const next = Boolean(isHovered);
+          if (state.isHovered === next) {
+              return;
+          }
+          state.isHovered = next;
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function setBusMarkerSelected(vehicleID, isSelected) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const next = Boolean(isSelected);
+          if (state.isSelected === next) {
+              return;
+          }
+          state.isSelected = next;
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function attachBusMarkerInteractions(vehicleID) {
+          const state = busMarkerStates[vehicleID];
+          const marker = markers[vehicleID];
+          if (!state || !marker) {
+              return;
+          }
+          if (!state.markerEventsBound) {
+              marker.on('mouseover', () => setBusMarkerHovered(vehicleID, true));
+              marker.on('mouseout', () => setBusMarkerHovered(vehicleID, false));
+              marker.on('click', () => {
+                  if (selectedVehicleId && selectedVehicleId !== vehicleID) {
+                      setBusMarkerSelected(selectedVehicleId, false);
+                  }
+                  const nextSelected = selectedVehicleId !== vehicleID;
+                  setBusMarkerSelected(vehicleID, nextSelected);
+                  selectedVehicleId = nextSelected ? vehicleID : null;
+              });
+              state.markerEventsBound = true;
+          }
+          const elements = state.elements || registerBusMarkerElements(vehicleID);
+          const root = elements?.root;
+          if (root && !root.dataset.busMarkerFocusBound) {
+              root.addEventListener('focus', () => setBusMarkerHovered(vehicleID, true));
+              root.addEventListener('blur', () => setBusMarkerHovered(vehicleID, false));
+              root.dataset.busMarkerFocusBound = 'true';
+          }
+      }
+
+      function updateBusMarkerSizes() {
+          if (!map) {
+              return;
+          }
+          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+          const metrics = computeBusMarkerMetrics(zoom);
+          Object.keys(markers).forEach(vehicleID => {
+              const marker = markers[vehicleID];
+              const state = busMarkerStates[vehicleID];
+              if (!marker || !state) {
+                  return;
+              }
+              const currentWidth = state.size?.widthPx;
+              if (currentWidth && Math.abs(currentWidth - metrics.widthPx) < 0.1) {
+                  return;
+              }
+              setBusMarkerSize(state, metrics);
+              const icon = createBusMarkerDivIcon(vehicleID, state);
+              marker.setIcon(icon);
+              registerBusMarkerElements(vehicleID);
+              attachBusMarkerInteractions(vehicleID);
+              updateBusMarkerRootClasses(state);
+              updateBusMarkerZIndex(state);
+              applyBusMarkerOutlineWidth(state);
+          });
+      }
+
+      function clearBusMarkerState(vehicleID) {
+          pendingBusVisualUpdates.delete(vehicleID);
+          if (selectedVehicleId === vehicleID) {
+              selectedVehicleId = null;
+          }
+          if (busMarkerStates[vehicleID]) {
+              delete busMarkerStates[vehicleID];
+          }
+      }
+
+      function isVehicleGpsStale(vehicle) {
+          if (!vehicle) {
+              return false;
+          }
+          if (vehicle.IsStale === true || vehicle.Stale === true || vehicle.StaleGPS === true) {
+              return true;
+          }
+          if (vehicle.HasValidGps === false || vehicle.IsRealtime === false) {
+              return true;
+          }
+          const ageFields = [
+              vehicle.SecondsSinceReport,
+              vehicle.SecondsSinceLastReport,
+              vehicle.SecondsSinceLastUpdate,
+              vehicle.SecondsSinceUpdate,
+              vehicle.SecondsSinceLastGps,
+              vehicle.LastGpsAgeSeconds,
+              vehicle.LocationAge,
+              vehicle.GPSSignalAge,
+              vehicle.Age,
+              vehicle.AgeInSeconds
+          ];
+          for (let i = 0; i < ageFields.length; i += 1) {
+              const value = Number(ageFields[i]);
+              if (Number.isFinite(value) && value > GPS_STALE_THRESHOLD_SECONDS) {
+                  return true;
+              }
+          }
+          return false;
       }
 
       function animateMarkerTo(marker, newPosition) {
