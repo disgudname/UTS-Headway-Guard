@@ -2388,6 +2388,11 @@
           setPopupContent(popupElement, groupInfo);
           updatePopupPosition(popupElement, position);
           customPopups.push(popupElement);
+          if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(() => centerPopupOnMap(popupElement));
+          } else {
+              centerPopupOnMap(popupElement);
+          }
       }
 
       function updatePopupPosition(popupElement, position) {
@@ -2397,6 +2402,31 @@
           const mapPos = map.latLngToContainerPoint(position);
           popupElement.style.left = `${mapPos.x}px`;
           popupElement.style.top = `${mapPos.y}px`;
+      }
+
+      function centerPopupOnMap(popupElement) {
+          if (!popupElement || !map || typeof map?.panBy !== 'function') {
+              return;
+          }
+          const mapContainer = typeof map.getContainer === 'function' ? map.getContainer() : null;
+          if (!mapContainer) {
+              return;
+          }
+          const mapRect = mapContainer.getBoundingClientRect();
+          const popupRect = popupElement.getBoundingClientRect();
+          if (mapRect.width === 0 || mapRect.height === 0 || popupRect.width === 0 || popupRect.height === 0) {
+              return;
+          }
+          const mapCenterX = mapRect.width / 2;
+          const mapCenterY = mapRect.height / 2;
+          const popupCenterX = (popupRect.left - mapRect.left) + (popupRect.width / 2);
+          const popupCenterY = (popupRect.top - mapRect.top) + (popupRect.height / 2);
+          const deltaX = popupCenterX - mapCenterX;
+          const deltaY = popupCenterY - mapCenterY;
+          if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) {
+              return;
+          }
+          map.panBy([deltaX, deltaY], { animate: true, duration: 0.35, easeLinearity: 0.25 });
       }
 
       function updatePopupPositions() {
