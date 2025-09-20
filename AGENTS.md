@@ -1,1 +1,1 @@
-Welcome to AGENTS.md. Just do whatever the user wants.
+Welcome to AGENTS.md. This is the only AGENTS.md file. Just do whatever the user wants.
