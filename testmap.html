@@ -67,7 +67,7 @@
         text-align: center;
         border: none;
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));
-        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
+        box-shadow: 0 12px 24px var(--route-pill-shadow-color, rgba(229, 114, 0, 0.35));
       }
       .stop-marker-container {
         display: flex;
@@ -2059,6 +2059,53 @@
           return `${JSON.stringify(normalizedIds)}|${fallbackStopIdText || ''}`;
       }
 
+      function getColorWithAlpha(color, alpha) {
+          const safeAlpha = Math.min(1, Math.max(0, Number(alpha) || 0));
+          if (typeof color !== 'string' || color.trim() === '') {
+              return `rgba(0, 0, 0, ${safeAlpha})`;
+          }
+
+          const trimmed = color.trim();
+          if (trimmed.startsWith('#')) {
+              let hex = trimmed.slice(1);
+              if (hex.length === 3 || hex.length === 4) {
+                  hex = hex.split('').map(char => char + char).join('');
+              }
+              if (hex.length === 6 || hex.length === 8) {
+                  const r = parseInt(hex.slice(0, 2), 16);
+                  const g = parseInt(hex.slice(2, 4), 16);
+                  const b = parseInt(hex.slice(4, 6), 16);
+                  const baseAlpha = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1;
+                  if ([r, g, b, baseAlpha].some(value => Number.isNaN(value))) {
+                      return `rgba(0, 0, 0, ${safeAlpha})`;
+                  }
+                  const combinedAlpha = Math.round(Math.min(1, Math.max(0, baseAlpha * safeAlpha)) * 1000) / 1000;
+                  return `rgba(${r}, ${g}, ${b}, ${combinedAlpha})`;
+              }
+          } else {
+              const rgbaMatch = trimmed.match(/rgba?\(([^)]+)\)/i);
+              if (rgbaMatch) {
+                  const parts = rgbaMatch[1].split(',').map(part => part.trim());
+                  if (parts.length >= 3) {
+                      const r = parseFloat(parts[0]);
+                      const g = parseFloat(parts[1]);
+                      const b = parseFloat(parts[2]);
+                      if ([r, g, b].some(value => Number.isNaN(value))) {
+                          return `rgba(0, 0, 0, ${safeAlpha})`;
+                      }
+                      let baseAlpha = parts.length >= 4 ? parseFloat(parts[3]) : 1;
+                      if (Number.isNaN(baseAlpha)) {
+                          baseAlpha = 1;
+                      }
+                      const combinedAlpha = Math.round(Math.min(1, Math.max(0, baseAlpha * safeAlpha)) * 1000) / 1000;
+                      return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${combinedAlpha})`;
+                  }
+              }
+          }
+
+          return `rgba(0, 0, 0, ${safeAlpha})`;
+      }
+
       function buildEtaTableHtml(routeStopIds) {
           const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
           const etas = [];
@@ -2072,7 +2119,8 @@
                     .map(eta => {
                         const routeColor = getRouteColor(eta.RouteId);
                         const textColor = getContrastColor(routeColor);
-                        return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
+                        const shadowColor = getColorWithAlpha(routeColor, 0.35);
+                        return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
                     })
                     .join('')
               : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
