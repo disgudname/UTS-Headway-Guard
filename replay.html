@@ -507,13 +507,14 @@
     }
     @media (max-width: 720px) {
       #controls.playback-controls {
-        gap: 8px;
-        max-height: calc(100vh - 120px);
+        gap: 6px;
+        max-height: calc(100vh - 96px);
         overflow-y: auto;
-        padding: 14px 14px 16px;
+        padding: 12px 12px 14px;
         scrollbar-width: thin;
         scrollbar-color: rgba(35, 45, 75, 0.35) transparent;
         -webkit-overflow-scrolling: touch;
+        align-items: stretch;
       }
       #controls.playback-controls::-webkit-scrollbar {
         width: 6px;
@@ -525,15 +526,22 @@
       .controls-row {
         flex-direction: column;
         align-items: stretch;
+        gap: 4px;
+        width: 100%;
+      }
+      .controls-row.controls-row--playback {
         gap: 6px;
       }
       .control-field {
         width: 100%;
-        gap: 4px;
+        flex: 1 1 100%;
+        gap: 3px;
+        max-height: 76px;
       }
       .control-field input {
         padding: 9px 12px;
         font-size: 15px;
+        min-height: 40px;
       }
       .control-field--button {
         align-self: stretch;
@@ -541,19 +549,38 @@
       .control-field--button .pill-button {
         width: 100%;
       }
+      .pill-button {
+        min-height: 42px;
+        padding: 10px 14px;
+      }
       .speed-button-group {
         flex-direction: column;
-        align-items: center;
-        gap: 10px;
+        align-items: stretch;
+        gap: 6px;
+        width: 100%;
+        max-height: 260px;
       }
       .speed-button-row {
         width: 100%;
-        justify-content: center;
-        flex-wrap: wrap;
-        gap: 8px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 6px;
+        align-items: stretch;
       }
       .speed-button-row .pill-button {
-        flex: 0 0 auto;
+        flex: 1 1 auto;
+        width: 100%;
+      }
+      .timeline-group {
+        gap: 4px;
+        width: 100%;
+        max-height: 160px;
+      }
+      #timeline {
+        min-height: 32px;
+      }
+      .timeline-value {
+        font-size: 13px;
       }
       #controls.playback-controls.is-collapsed {
         transform: translateX(-50%) translateY(calc(100% + 24px));
