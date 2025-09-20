@@ -2420,8 +2420,10 @@
           return stopEntries.map(entry => {
               const entryTitle = entry.displayName ? `<span class="stop-entry-title">${sanitizeStopName(entry.displayName)}</span>` : '';
               const entryIdLine = entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
+              const entryAddressIdText = normalizeIdentifier(entry?.addressId);
+              const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Address ID: ${entryAddressIdText}</span>` : '';
               const tableHtml = buildEtaTableHtml(entry.routeStopIds || []);
-              return `<div class="stop-entry">${entryTitle}${entryIdLine}${tableHtml}</div>`;
+              return `<div class="stop-entry">${entryTitle}${entryIdLine}${entryAddressLine}${tableHtml}</div>`;
           }).join('');
       }
 
@@ -2444,22 +2446,28 @@
               : '';
           const entriesHtml = buildStopEntriesSectionHtml(stopEntries, multipleStops);
           const groupKey = groupInfo.groupKey || createStopGroupKey(aggregatedRouteStopIds, fallbackStopIdText);
+          const primaryAddressIdText = !multipleStops
+              ? normalizeIdentifier(stopEntries[0]?.addressId)
+              : '';
 
           popupElement.dataset.routeStopIds = JSON.stringify(aggregatedRouteStopIds);
           popupElement.dataset.stopEntries = JSON.stringify(stopEntries);
           popupElement.dataset.stopName = sanitizedStopName;
           popupElement.dataset.fallbackStopId = fallbackStopIdText;
           popupElement.dataset.stopId = primaryStopIdText || '';
+          popupElement.dataset.addressId = primaryAddressIdText || '';
           popupElement.dataset.groupKey = groupKey;
 
           const stopNameLine = (!multipleStops && sanitizedStopName)
               ? `<span class="stop-entry-title">${sanitizedStopName}</span><br>`
               : '';
-          const stopIdLine = primaryStopIdText ? `<span>Stop ID: ${primaryStopIdText}</span><br>` : '';
+          const addressIdLine = primaryAddressIdText ? `<span class="stop-entry-id">Address ID: ${primaryAddressIdText}</span><br>` : '';
+          const stopIdLine = primaryStopIdText ? `<span class="stop-entry-id">Stop ID: ${primaryStopIdText}</span><br>` : '';
 
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
             ${stopNameLine}
+            ${addressIdLine}
             ${stopIdLine}
             ${entriesHtml}
             <div class="custom-popup-arrow"></div>
