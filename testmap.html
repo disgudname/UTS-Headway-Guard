@@ -1263,6 +1263,13 @@
         }
         lastRouteSelectorSignature = signature;
 
+        const previousContent = container.querySelector('.selector-content');
+        const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
+        const activeElement = document.activeElement;
+        const focusedElementId = activeElement && container.contains(activeElement) && activeElement.id
+          ? activeElement.id
+          : null;
+
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -1334,6 +1341,21 @@
         `;
 
         container.innerHTML = html;
+
+        const newContent = container.querySelector('.selector-content');
+        if (newContent) {
+          newContent.scrollTop = previousScrollTop;
+        }
+        if (focusedElementId) {
+          const replacementElement = document.getElementById(focusedElementId);
+          if (replacementElement && typeof replacementElement.focus === 'function') {
+            try {
+              replacementElement.focus({ preventScroll: true });
+            } catch (error) {
+              replacementElement.focus();
+            }
+          }
+        }
         updateControlPanel();
 
         let outChk = document.getElementById("route_0");
