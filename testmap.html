@@ -1534,6 +1534,73 @@
         });
       }
 
+      function buildLegendEntryFromState(routeId) {
+        const numericRouteId = Number(routeId);
+        if (!Number.isFinite(numericRouteId)) return null;
+
+        const storedRoute = allRoutes?.[numericRouteId] || allRoutes?.[`${numericRouteId}`] || {};
+        const routeIdLabel = `${numericRouteId}`;
+
+        const nameCandidates = [
+          storedRoute.Description,
+          storedRoute.Name,
+          storedRoute.RouteName
+        ];
+        const legendName = nameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const name = legendName ? legendName.trim() : (routeIdLabel ? `Route ${routeIdLabel}` : 'Route');
+
+        const descriptionCandidates = [
+          storedRoute.InfoText,
+          storedRoute.Description,
+          storedRoute.RouteDescription
+        ];
+        const legendDescription = descriptionCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const description = legendDescription ? legendDescription.trim() : '';
+
+        const color = getRouteColor(numericRouteId);
+
+        return {
+          routeId: numericRouteId,
+          name,
+          description,
+          color
+        };
+      }
+
+      function deriveLegendRoutesFromState() {
+        const legendEntries = [];
+        const seenRouteIds = new Set();
+
+        const addRouteId = candidateId => {
+          const numericRouteId = Number(candidateId);
+          if (!Number.isFinite(numericRouteId)) return;
+          if (seenRouteIds.has(numericRouteId)) return;
+          if (!isRouteSelected(numericRouteId)) return;
+
+          const legendEntry = buildLegendEntryFromState(numericRouteId);
+          if (!legendEntry) return;
+
+          seenRouteIds.add(numericRouteId);
+          legendEntries.push(legendEntry);
+        };
+
+        if (activeRoutes instanceof Set) {
+          activeRoutes.forEach(addRouteId);
+        } else if (Array.isArray(activeRoutes)) {
+          activeRoutes.forEach(addRouteId);
+        }
+
+        Object.keys(routeSelections).forEach(routeIdKey => {
+          if (!Object.prototype.hasOwnProperty.call(routeSelections, routeIdKey)) return;
+          if (!routeSelections[routeIdKey]) return;
+          addRouteId(routeIdKey);
+        });
+
+        legendEntries.sort((a, b) => a.routeId - b.routeId);
+
+        return legendEntries;
+      }
+
       function updateRouteLegend(displayedRoutes = [], options = {}) {
         const legend = document.getElementById("routeLegend");
         if (!legend) return;
@@ -1572,19 +1639,25 @@
           };
         });
 
-        if (sanitizedRoutes.length === 0) {
-          if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
+        let routesToRender = sanitizedRoutes;
+
+        if (routesToRender.length === 0) {
+          const fallbackRoutes = deriveLegendRoutesFromState();
+          if (fallbackRoutes.length > 0) {
+            routesToRender = fallbackRoutes;
+          } else if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
             renderRouteLegendContent(legend, lastRenderedLegendRoutes);
             return;
+          } else {
+            legend.style.display = "none";
+            legend.innerHTML = "";
+            lastRenderedLegendRoutes = [];
+            return;
           }
-          legend.style.display = "none";
-          legend.innerHTML = "";
-          lastRenderedLegendRoutes = [];
-          return;
         }
 
-        lastRenderedLegendRoutes = sanitizedRoutes;
-        renderRouteLegendContent(legend, sanitizedRoutes);
+        lastRenderedLegendRoutes = routesToRender;
+        renderRouteLegendContent(legend, routesToRender);
       }
 
       // refreshMap updates route paths and bus locations.
