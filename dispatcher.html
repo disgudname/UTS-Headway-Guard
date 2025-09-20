@@ -5,15 +5,13 @@
 <style>
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 :root{--route-color:#2a3442}
-body{font:17px 'FGDC',system-ui;margin:0;background:#0b0e11;color:#e8eef5;display:flex;min-height:100vh}
-#left{flex:2;overflow:auto;position:relative;display:flex;flex-direction:column;min-width:0}
-#map-frame{flex:1;border:0;border-left:1px solid #1f2630;height:100%;display:block;min-width:0}
+body{font:17px 'FGDC',system-ui;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630;flex-wrap:wrap}
 header h1{flex-basis:100%}
-#controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
+ #controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
 select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
-table{width:100%;border-collapse:collapse}
+table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
 #downed-table td{vertical-align:top}
 #blocks-table,#future-blocks-table{width:auto}
@@ -32,33 +30,16 @@ th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
 .banner{display:none;position:absolute;right:0;top:50%;transform:translateY(-50%);padding:4px 8px;text-align:right;border-radius:4px}
 .banner.error{background:#3b1f1f;color:#ffbfbf;border:1px solid #5a2b2b}
 .banner.info{background:#121922;color:#cfe1ff;border:1px solid #2a3442}
-h2{font-size:18px;margin:0}
-#layout{display:flex;flex:1;min-height:0}
-#layout main,#layout aside{flex:1;display:flex;flex-direction:column;gap:16px;padding:16px 12px 16px;min-width:0}
-#layout aside{border-left:1px solid #1f2630}
-.panel{display:flex;flex-direction:column}
-.panel > * + *{margin-top:8px}
-.table-wrap{overflow-x:auto}
-.table-wrap table{min-width:100%}
-@media(max-width:900px){
-  body{flex-direction:column;min-height:0;height:auto}
-  #left{flex:none;overflow:visible;width:100%}
-  #map-frame{order:2;width:100%;height:50vh;min-height:300px;border-left:none;border-top:1px solid #1f2630}
-  header{position:sticky;top:0;z-index:10;background:#0b0e11}
-  #controls{flex-direction:column;align-items:flex-start;padding-right:0;gap:6px}
-  #controls label{width:100%;display:flex;align-items:center;gap:8px}
-  #controls label select{flex:1}
-  #controls select{width:100%}
-  #controls .chip{margin-left:0}
-  .banner{position:static;right:auto;top:auto;transform:none;margin-top:8px;width:100%;text-align:left}
+h2{font-size:18px;margin:16px 0 0}
+#layout{display:flex}
+@media(max-width:600px){
   #layout{flex-direction:column}
-  #layout aside{border-left:none;border-top:1px solid #1f2630}
-  .credit{position:static;margin:16px 12px;text-align:center}
+  #layout aside{border-left:none !important;border-top:1px solid #1f2630}
 }
 .credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
  </style>
 <body>
-<div id="left">
+<div id="left" style="flex:2;overflow:auto;position:relative">
 <header>
   <h1 style="font-size:18px;margin:0">Dispatch - Headway Guard</h1>
   <div id="controls">
@@ -69,67 +50,45 @@ h2{font-size:18px;margin:0}
   </div>
 </header>
 <div id="layout">
-  <main>
-    <section class="panel" id="headway-guard">
-      <h2>Headway Guard AntiBunching</h2>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
-          </tr></thead>
-          <tbody id="rows"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="panel" id="transloc">
-      <h2>TransLoc AntiBunching</h2>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
-          </tr></thead>
-          <tbody id="rows-tl"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+  <main style="flex:1;padding:0 12px 16px">
+    <h2>Headway Guard AntiBunching</h2>
+    <table>
+      <thead><tr>
+        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
+    </table>
+    <h2>TransLoc AntiBunching</h2>
+    <table>
+      <thead><tr>
+        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
+      </tr></thead>
+      <tbody id="rows-tl"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
+    </table>
   </main>
-  <aside>
-    <section class="panel" id="current-blocks">
-      <h2>Current Block Assignments</h2>
-      <div class="table-wrap">
-        <table id="blocks-table">
-          <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="panel" id="future-blocks">
-      <h2>Future Block Assignments</h2>
-      <div class="table-wrap">
-        <table id="future-blocks-table">
-          <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="panel" id="extra-buses-panel">
-      <h2>Extra Buses</h2>
-      <ul id="extra-buses"><li class="hint">Loading…</li></ul>
-    </section>
-    <section class="panel" id="downed-buses">
-      <h2>Downed Buses</h2>
-      <div class="table-wrap">
-        <table id="downed-table">
-          <thead>
-            <tr><th>Vehicle</th><th>Ops</th><th>Notes</th><th>Shop</th></tr>
-          </thead>
-          <tbody id="downed-rows"><tr><td class="hint" colspan="4">Loading…</td></tr></tbody>
-        </table>
-      </div>
-    </section>
+  <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
+    <h2>Current Block Assignments</h2>
+    <table id="blocks-table">
+      <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
+    </table>
+    <h2>Future Block Assignments</h2>
+    <table id="future-blocks-table">
+      <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
+    </table>
+    <h2>Extra Buses</h2>
+    <ul id="extra-buses"><li class="hint">Loading…</li></ul>
+    <h2>Downed Buses</h2>
+    <table id="downed-table">
+      <thead>
+        <tr><th>Vehicle</th><th>Ops</th><th>Notes</th><th>Shop</th></tr>
+      </thead>
+      <tbody id="downed-rows"><tr><td class="hint" colspan="4">Loading…</td></tr></tbody>
+    </table>
   </aside>
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 </div>
-<iframe src="/map" id="map-frame"></iframe>
+<iframe src="/map" id="map-frame" style="flex:1;border-left:1px solid #1f2630;border:none;height:100%"></iframe>
 <script>
 const $ = s => document.querySelector(s);
 const fmt = s => { if (s==null || !isFinite(s)) return "—"; s = Math.round(s); return String(Math.floor(s/60)).padStart(2,'0')+":"+String(s%60).padStart(2,'0'); };
