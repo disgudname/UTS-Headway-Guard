@@ -143,6 +143,7 @@
       }
       .bus-marker__rotator {
         transform-box: fill-box;
+        transform-origin: 44.4% 50%;
         will-change: transform;
       }
       .bus-marker__shell {
@@ -912,7 +913,7 @@
       const BUS_MARKER_ROTATION_CENTER_Y = BUS_MARKER_VIEWBOX_HEIGHT / 2;
       const BUS_MARKER_ROTATION_CENTER_X_RATIO = BUS_MARKER_ROTATION_CENTER_X / BUS_MARKER_VIEWBOX_WIDTH;
       const BUS_MARKER_ROTATION_CENTER_X_PERCENT = BUS_MARKER_ROTATION_CENTER_X_RATIO * 100;
-      const BUS_MARKER_DEFAULT_HEADING = 90;
+      const BUS_MARKER_DEFAULT_HEADING = 0;
       const BUS_MARKER_OUTLINE_COLOR = 'rgba(0, 0, 0, 0.88)';
       const BUS_MARKER_DARK_GLYPH_COLOR = 'rgba(15, 23, 42, 0.92)';
       const BUS_MARKER_LIGHT_GLYPH_COLOR = 'rgba(255, 255, 255, 0.9)';
@@ -924,6 +925,8 @@
       const BUS_MARKER_PLAY_HEIGHT_RATIO = 0.24;
       const MIN_HEADING_DISTANCE_METERS = 2;
       const MIN_POSITION_UPDATE_METERS = 0.5;
+      const MIN_HEADING_SPEED_METERS_PER_SECOND = 1;
+      const METERS_PER_SECOND_PER_MPH = 0.44704;
       const GPS_STALE_THRESHOLD_SECONDS = 60;
 
       const BUS_MARKER_OUTER_PATH = 'M69.5 0 L97.4 23.6 Q100 31 97.4 38.4 L69.5 62 C45 62 12 62 4.3 45.8 Q0 31 4.3 16.2 C12 0 45 0 69.5 0 Z';
@@ -3943,7 +3946,7 @@
                           const state = ensureBusMarkerState(vehicleID);
                           const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
                           const glyphColor = computeBusMarkerGlyphColor(routeColor);
-                          const headingDeg = updateBusMarkerHeading(state, newPosition, heading);
+                          const headingDeg = updateBusMarkerHeading(state, newPosition, heading, groundSpeed);
                           const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
                           const gpsIsStale = isVehicleGpsStale(v);
 
@@ -4169,7 +4172,7 @@
           return contrast === 'white' ? BUS_MARKER_LIGHT_GLYPH_COLOR : BUS_MARKER_DARK_GLYPH_COLOR;
       }
 
-      function updateBusMarkerHeading(state, newPosition, fallbackHeading) {
+      function updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeedMph) {
           if (!state) {
               return BUS_MARKER_DEFAULT_HEADING;
           }
@@ -4182,9 +4185,13 @@
           const history = Array.isArray(state.positionHistory) ? state.positionHistory : [];
           const previous = history.length > 0 ? history[history.length - 1] : null;
           let heading = Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
+          const sanitizedSpeedMph = Number.isFinite(groundSpeedMph) ? Math.max(0, groundSpeedMph) : null;
+          const speedMetersPerSecond = sanitizedSpeedMph === null ? null : sanitizedSpeedMph * METERS_PER_SECOND_PER_MPH;
+          const hasSufficientSpeed = speedMetersPerSecond === null || speedMetersPerSecond >= MIN_HEADING_SPEED_METERS_PER_SECOND;
           if (previous) {
               const distance = previous.distanceTo(current);
-              if (distance >= MIN_HEADING_DISTANCE_METERS) {
+              const shouldUpdateHeading = distance >= MIN_HEADING_DISTANCE_METERS && hasSufficientSpeed;
+              if (shouldUpdateHeading) {
                   const computed = computeBearingDegrees(previous, current);
                   if (Number.isFinite(computed)) {
                       heading = computed;
@@ -4281,14 +4288,15 @@
 
       function computeMarkerTransformString(widthPx, headingDeg) {
           const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          const rotationDeg = normalizedHeading - 90;
           if (!Number.isFinite(widthPx) || widthPx <= 0) {
-              return `rotate(${normalizedHeading.toFixed(2)}deg)`;
+              return `rotate(${rotationDeg.toFixed(2)}deg)`;
           }
-          const radians = normalizedHeading * Math.PI / 180;
+          const radians = rotationDeg * Math.PI / 180;
           const tipOffset = widthPx * (1 - BUS_MARKER_ROTATION_CENTER_X_RATIO);
           const deltaX = tipOffset * (1 - Math.cos(radians));
           const deltaY = -tipOffset * Math.sin(radians);
-          return `translate(${deltaX.toFixed(4)}px, ${deltaY.toFixed(4)}px) rotate(${normalizedHeading.toFixed(2)}deg)`;
+          return `translate(${deltaX.toFixed(4)}px, ${deltaY.toFixed(4)}px) rotate(${rotationDeg.toFixed(2)}deg)`;
       }
 
       function renderBusMarkerMarkup(vehicleID, state) {
@@ -4314,11 +4322,11 @@
           const fillOpacity = state?.isStale ? '0.6' : '1';
           return `
       <div class="${rootClasses.join(' ')}" data-vehicle-id="${escapeHtml(`${vehicleID}`)}" tabindex="0" aria-label="${labelEscaped}" role="img">
-        <svg class="bus-marker__svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" role="img" aria-label="${labelEscaped}" focusable="false">
+        <svg class="bus-marker__svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${labelEscaped}" focusable="false">
           <title>${labelEscaped}</title>
           <g class="bus-marker__rotator" style="transform-origin: ${BUS_MARKER_ROTATION_CENTER_X_PERCENT}% 50%; transform: ${transform};">
             <path class="bus-marker__shell" d="${BUS_MARKER_OUTER_PATH}" fill="${fillColor}" stroke="${outlineColor}" stroke-width="${outlineWidthViewBox}" stroke-linecap="round" stroke-linejoin="round" fill-opacity="${fillOpacity}" />
-            <path class="bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="none" stroke="${glyphColor}" stroke-width="${ringWidthViewBox}" stroke-linecap="round" stroke-linejoin="round" />
+            <path class="bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="none" stroke="${glyphColor}" stroke-width="${ringWidthViewBox}" stroke-linecap="round" stroke-linejoin="round" fill-rule="evenodd" />
             <path class="bus-marker__glyph" d="${BUS_MARKER_PLAY_PATH}" fill="${glyphColor}" />
           </g>
         </svg>
@@ -4437,9 +4445,10 @@
           if (elements.title && state.accessibleLabel) {
               elements.title.textContent = state.accessibleLabel;
           }
-          if (elements.rotator && state.size?.widthPx) {
+          if (elements.rotator) {
               elements.rotator.style.transformOrigin = `${BUS_MARKER_ROTATION_CENTER_X_PERCENT}% 50%`;
-              elements.rotator.style.transform = computeMarkerTransformString(state.size.widthPx, state.headingDeg);
+              const widthForTransform = state.size?.widthPx;
+              elements.rotator.style.transform = computeMarkerTransformString(widthForTransform, state.headingDeg);
           }
           updateBusMarkerRootClasses(state);
           updateBusMarkerZIndex(state);
