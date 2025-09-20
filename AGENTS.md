@@ -1,1 +1,1 @@
-Note to you that there is no AGENTS.md.
+Welcome to AGENTS.md. Just do whatever the user wants.
