@@ -13,6 +13,7 @@ select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:1
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
+#downed-table td{vertical-align:top}
 #blocks-table,#future-blocks-table{width:auto}
 #blocks td,#future-blocks td{border:none;padding:2px 4px;text-align:center;width:14ch;height:2.6em}
 #blocks td .cell,#future-blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;height:100%}
@@ -74,6 +75,13 @@ h2{font-size:18px;margin:16px 0 0}
     <table id="future-blocks-table">
       <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
     </table>
+    <h2>Downed Buses</h2>
+    <table id="downed-table">
+      <thead>
+        <tr><th>Vehicle</th><th>Ops</th><th>Notes</th><th>Shop</th></tr>
+      </thead>
+      <tbody id="downed-rows"><tr><td class="hint" colspan="4">Loading…</td></tr></tbody>
+    </table>
     <h2>Extra Buses</h2>
     <ul id="extra-buses"><li class="hint">Loading…</li></ul>
   </aside>
@@ -85,8 +93,291 @@ h2{font-size:18px;margin:16px 0 0}
 const $ = s => document.querySelector(s);
 const fmt = s => { if (s==null || !isFinite(s)) return "—"; s = Math.round(s); return String(Math.floor(s/60)).padStart(2,'0')+":"+String(s%60).padStart(2,'0'); };
 const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],red:["HOLD","bad"]}; const [t,c] = m[st] || ["OK","ok"]; return '<span class="pill '+c+'"><span class="dot"></span><span>'+t+'</span></span>'; };
+const DOWNED_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const DOWNED_REFRESH_MS = 60000;
+const OPS_STATUS_VALUES = new Set(['DOWNED','LIMITED','COSMETIC','COMFORT']);
+const SHOP_STATUS_VALUES = new Set(['DOWN','UP','USABLE']);
+const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COMFORT:'Comfort',DOWN:'Down',UP:'Up',USABLE:'Usable'};
+const DOWNED_HEADER_VARIANTS = [
+  ['Bus','Status','Date','Supervisor','Notes/Description','Diagnostic Date','Mechanic','Diagnostic Description','Current ETA','Actual Delivery Date','Status'],
+  ['P&T Support Vehicle','Status','Date','Supervisor','Notes/Description','Diagnostic Date','Mechanic','Diagnostic Description','Current ETA','Actual Delivery Date','Status']
+].map(h=>h.map(c=>c.toLowerCase()));
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
+
+function htmlEscape(str){
+  if(str==null) return '';
+  return String(str).replace(/[&<>"']/g,ch=>({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#39;'
+  })[ch]);
+}
+
+function htmlEscapeMultiline(str){
+  return htmlEscape(str).replace(/\r?\n/g,'<br>');
+}
+
+function normalizeOpsStatus(val){
+  const raw=(val||'').trim();
+  if(!raw) return '';
+  const up=raw.toUpperCase();
+  if(OPS_STATUS_VALUES.has(up)) return up;
+  if(up==='DOWN') return 'DOWNED';
+  return '';
+}
+
+function normalizeShopStatus(val){
+  const raw=(val||'').trim();
+  if(!raw) return '';
+  const up=raw.toUpperCase();
+  if(SHOP_STATUS_VALUES.has(up)) return up;
+  if(up==='DOWNED') return 'DOWN';
+  return '';
+}
+
+function parseCsv(text){
+  const rows=[];
+  let row=[];
+  let cur='';
+  let inQuotes=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(inQuotes){
+      if(ch==='"'){
+        if(text[i+1]==='"'){ cur+='"'; i++; }
+        else{ inQuotes=false; }
+      }else{
+        cur+=ch;
+      }
+    }else{
+      if(ch==='"') inQuotes=true;
+      else if(ch===','){ row.push(cur); cur=''; }
+      else if(ch==='\r'){ /* ignore */ }
+      else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+      else cur+=ch;
+    }
+  }
+  if(inQuotes) inQuotes=false;
+  if(cur!=='' || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+
+function rowMatchesHeader(row){
+  return DOWNED_HEADER_VARIANTS.some(header=>{
+    for(let i=0;i<header.length;i++){
+      const cell=(row[i]||'').trim().toLowerCase();
+      if(cell!==header[i]) return false;
+    }
+    return true;
+  });
+}
+
+function parseDateValue(str){
+  const raw=(str||'').trim();
+  if(!raw) return null;
+  const parsed=Date.parse(raw);
+  if(!Number.isNaN(parsed)) return parsed;
+  const m=raw.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?$/);
+  if(m){
+    let [,mm,dd,yy]=m;
+    const month=parseInt(mm,10)-1;
+    const day=parseInt(dd,10);
+    let year;
+    if(yy==null){
+      year=new Date().getFullYear();
+    }else{
+      year=parseInt(yy,10);
+      if(year<100) year+=2000;
+    }
+    const dt=new Date(year,month,day);
+    if(dt.getFullYear()===year && dt.getMonth()===month && dt.getDate()===day){
+      return dt.getTime();
+    }
+  }
+  return null;
+}
+
+function formatDateValue(ts){
+  if(ts==null) return '';
+  const d=new Date(ts);
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function normalizeDateField(str){
+  const raw=(str||'').trim();
+  if(!raw) return {text:'',value:null};
+  const value=parseDateValue(raw);
+  if(value==null) return {text:raw,value:null};
+  return {text:formatDateValue(value),value};
+}
+
+function maxDateValue(...values){
+  let max=null;
+  for(const v of values){
+    if(v==null) continue;
+    if(max==null || v>max) max=v;
+  }
+  return max;
+}
+
+function buildVehicleRecord(row){
+  const id=(row[0]||'').trim();
+  if(!id) return null;
+  const opsStatus=normalizeOpsStatus(row[1]);
+  const opsDate=normalizeDateField(row[2]);
+  const shopDiagDate=normalizeDateField(row[5]);
+  const shopActualDate=normalizeDateField(row[9]);
+  const shopStatus=normalizeShopStatus(row[10]);
+  const record={
+    vehicleId:id,
+    opsStatus,
+    opsDateText:opsDate.text,
+    opsDateValue:opsDate.value,
+    opsSupervisor:(row[3]||'').trim(),
+    opsNotes:(row[4]||'').trim(),
+    shopDiagDateText:shopDiagDate.text,
+    shopDiagDateValue:shopDiagDate.value,
+    shopMechanic:(row[6]||'').trim(),
+    shopDiagNotes:(row[7]||'').trim(),
+    shopETA:(row[8]||'').trim(),
+    shopActualDeliveryText:shopActualDate.text,
+    shopActualDeliveryValue:shopActualDate.value,
+    shopStatus,
+    shopLatestValue:maxDateValue(shopDiagDate.value,shopActualDate.value)
+  };
+  record.isDown = record.opsStatus==='DOWNED' && (!record.shopStatus || record.shopStatus==='DOWN');
+  return record;
+}
+
+function isRecordNewer(newRec,oldRec){
+  const a=newRec.opsDateValue;
+  const b=oldRec.opsDateValue;
+  if(a!=null || b!=null){
+    if(a==null) return false;
+    if(b==null) return true;
+    if(a!==b) return a>b;
+  }
+  const sa=newRec.shopLatestValue;
+  const sb=oldRec.shopLatestValue;
+  if(sa!=null || sb!=null){
+    if(sa==null) return false;
+    if(sb==null) return true;
+    if(sa!==sb) return sa>sb;
+  }
+  return false;
+}
+
+function dedupeVehicleRecords(records){
+  const byId=new Map();
+  for(const rec of records){
+    const existing=byId.get(rec.vehicleId);
+    if(!existing || isRecordNewer(rec,existing)){
+      byId.set(rec.vehicleId,rec);
+    }
+  }
+  return Array.from(byId.values());
+}
+
+function parseVehicleSheet(text){
+  const rawRows=parseCsv(text);
+  if(!rawRows.length) return [];
+  const rows=rawRows.map(r=>r.map(c=>c.trim()));
+  let firstRowSkipped=false;
+  let inSection=false;
+  const records=[];
+  for(const row of rows){
+    if(!firstRowSkipped){
+      firstRowSkipped=true;
+      continue;
+    }
+    if(rowMatchesHeader(row)){
+      inSection=true;
+      continue;
+    }
+    if(!inSection) continue;
+    if(row.every(cell=>!cell.trim())) continue;
+    const rec=buildVehicleRecord(row);
+    if(rec) records.push(rec);
+  }
+  return dedupeVehicleRecords(records);
+}
+
+function statusLabel(status){
+  if(!status) return '';
+  return STATUS_LABELS[status] || (status.charAt(0)+status.slice(1).toLowerCase());
+}
+
+let lastDownedRows=[];
+
+function renderDownedVehicles(rows){
+  const tbody=$('#downed-rows');
+  if(!tbody) return;
+  lastDownedRows=rows.slice();
+  if(!rows.length){
+    tbody.innerHTML='<tr><td class="hint" colspan="4">All buses available.</td></tr>';
+    return;
+  }
+  const sorted=rows.slice().sort((a,b)=>{
+    const oa=a.opsDateValue==null?Number.NEGATIVE_INFINITY:a.opsDateValue;
+    const ob=b.opsDateValue==null?Number.NEGATIVE_INFINITY:b.opsDateValue;
+    if(oa!==ob) return ob-oa;
+    const sa=a.shopLatestValue==null?Number.NEGATIVE_INFINITY:a.shopLatestValue;
+    const sb=b.shopLatestValue==null?Number.NEGATIVE_INFINITY:b.shopLatestValue;
+    if(sa!==sb) return sb-sa;
+    return a.vehicleId.localeCompare(b.vehicleId,undefined,{numeric:true,sensitivity:'base'});
+  });
+  tbody.innerHTML=sorted.map(row=>{
+    const statusChip=row.opsStatus
+      ? `<div><span class="pill ${row.opsStatus==='DOWNED'?'bad':'warn'}"><span class="dot"></span><span>${htmlEscape(statusLabel(row.opsStatus))}</span></span></div>`
+      : '';
+    const opsParts=[
+      statusChip,
+      row.opsDateText?`<div><strong>Reported:</strong> ${htmlEscape(row.opsDateText)}</div>`:'',
+      row.opsSupervisor?`<div class="hint">${htmlEscape(row.opsSupervisor)}</div>`:''
+    ].filter(Boolean).join('');
+    const notes=row.opsNotes?htmlEscapeMultiline(row.opsNotes):'<span class="hint">None</span>';
+    const shopParts=[
+      row.shopStatus?`<div><strong>Status:</strong> ${htmlEscape(statusLabel(row.shopStatus))}</div>`:'',
+      row.shopDiagDateText||row.shopMechanic
+        ? `<div><strong>Diag:</strong> ${htmlEscape(row.shopDiagDateText||'—')}${row.shopMechanic?` <span class="hint">${htmlEscape(row.shopMechanic)}</span>`:''}</div>`
+        : '',
+      row.shopDiagNotes?`<div>${htmlEscapeMultiline(row.shopDiagNotes)}</div>`:'',
+      row.shopETA?`<div><strong>ETA:</strong> ${htmlEscape(row.shopETA)}</div>`:'',
+      row.shopActualDeliveryText?`<div><strong>Delivery:</strong> ${htmlEscape(row.shopActualDeliveryText)}</div>`:''
+    ].filter(Boolean);
+    if(!shopParts.length) shopParts.push('<div class="hint">No shop updates yet.</div>');
+    return '<tr>'
+      +`<td class="mono">${htmlEscape(row.vehicleId)}</td>`
+      +`<td>${opsParts||'<span class="hint">—</span>'}</td>`
+      +`<td>${notes}</td>`
+      +`<td>${shopParts.join('')}</td>`
+      +'</tr>';
+  }).join('');
+}
+
+async function loadDownedBuses(){
+  const tbody=$('#downed-rows');
+  if(!tbody) return;
+  try{
+    const res=await fetch(DOWNED_CSV_URL,{cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const text=await res.text();
+    const records=parseVehicleSheet(text);
+    const downed=records.filter(r=>r.isDown);
+    renderDownedVehicles(downed);
+  }catch(err){
+    if(!lastDownedRows.length){
+      tbody.innerHTML='<tr><td class="hint" colspan="4">Unable to load.</td></tr>';
+    }
+    console.error('Failed to load downed buses sheet', err);
+  }
+}
 
 function contrastColor(hex){
   if(!hex) return '#e8eef5';
@@ -467,6 +758,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   pollHealth();
   loadBlocks();
   setInterval(loadBlocks,30000);
+  loadDownedBuses();
+  setInterval(loadDownedBuses,DOWNED_REFRESH_MS);
   updateLastUpdated();
   setInterval(updateLastUpdated,1000);
 });
