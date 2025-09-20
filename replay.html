@@ -748,6 +748,8 @@
     let controlsCollapsed = false;
     const controlsViewportQuery = window.matchMedia ? window.matchMedia('(max-width: 720px)') : null;
     let activeRangeLoadCount = 0;
+    let lastRouteSelectorStateKey = null;
+    let lastBusSelectorStateKey = null;
 
     function showLoadingOverlay() {
       const overlay = document.getElementById('loadingOverlay');
@@ -1014,7 +1016,7 @@
       } else {
         return;
       }
-      updateRouteSelector(activeRoutes);
+      updateRouteSelector(activeRoutes, { force: true });
       refreshReplay();
     }
 
@@ -1030,7 +1032,7 @@
 
     function toggleNameBubbles() {
       showNameBubbles = !showNameBubbles;
-      updateRouteSelector(activeRoutes);
+      updateRouteSelector(activeRoutes, { force: true });
       refreshReplay();
     }
 
@@ -1041,9 +1043,12 @@
       parentLabel.classList.toggle('is-active', inputElement.checked);
     }
 
-    function updateBusSelector(activeBusesSet) {
+    function updateBusSelector(activeBusesSet, options) {
       const container = document.getElementById('busSelector');
       if (!container) return;
+
+      options = options || {};
+      const forceUpdate = options.force === true;
 
       const activeSet = activeBusesSet instanceof Set
         ? activeBusesSet
@@ -1060,6 +1065,24 @@
         if (nameA > nameB) return 1;
         return 0;
       });
+
+      const activeSnapshot = Array.from(activeSet)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id))
+        .sort((a, b) => a - b);
+      const namesSnapshot = busIDs.map(id => allBuses[id] || '');
+      const nextStateKey = JSON.stringify({
+        ids: busIDs,
+        active: activeSnapshot,
+        names: namesSnapshot
+      });
+
+      if (!forceUpdate && nextStateKey === lastBusSelectorStateKey) {
+        return;
+      }
+
+      const previousContent = container.querySelector('.selector-content');
+      const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
 
       let html = `
         <div class="selector-header">
@@ -1117,6 +1140,11 @@
 
       container.innerHTML = html;
 
+      const newContent = container.querySelector('.selector-content');
+      if (newContent) {
+        newContent.scrollTop = previousScrollTop;
+      }
+
       busIDs.forEach(id => {
         const checkbox = document.getElementById(`bus_${id}`);
         if (checkbox) {
@@ -1129,6 +1157,7 @@
         }
       });
 
+      lastBusSelectorStateKey = nextStateKey;
       positionAllPanelTabs();
     }
 
@@ -1186,16 +1215,16 @@
       parentLabel.classList.toggle('is-active', inputElement.checked);
     }
 
-    function updateRouteSelector(activeRoutesParam) {
+    function updateRouteSelector(activeRoutesParam, options) {
       const container = document.getElementById('routeSelector');
       if (!container) return;
+
+      options = options || {};
+      const forceUpdate = options.force === true;
 
       const activeRoutesSet = activeRoutesParam instanceof Set
         ? activeRoutesParam
         : new Set(Array.isArray(activeRoutesParam) ? activeRoutesParam : []);
-
-      const previousContent = container.querySelector('.selector-content');
-      const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
 
       const routeIDs = Object.keys(allRoutes)
         .map(id => Number(id))
@@ -1208,6 +1237,34 @@
         if (descA > descB) return 1;
         return 0;
       });
+
+      const routeInfoSnapshot = routeIDs.map(routeID => {
+        const route = allRoutes[routeID] || {};
+        return {
+          id: routeID,
+          description: route.Description || '',
+          infoText: route.InfoText || '',
+          color: route.MapLineColor || ''
+        };
+      });
+      const activeSnapshot = Array.from(activeRoutesSet)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id))
+        .sort((a, b) => a - b);
+      const nextStateKey = JSON.stringify({
+        routes: routeInfoSnapshot,
+        active: activeSnapshot,
+        showSpeed: !!showSpeed,
+        showBlockNumbers: !!showBlockNumbers,
+        showNameBubbles: !!showNameBubbles
+      });
+
+      if (!forceUpdate && nextStateKey === lastRouteSelectorStateKey) {
+        return;
+      }
+
+      const previousContent = container.querySelector('.selector-content');
+      const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
 
       let html = `
         <div class="selector-header">
@@ -1319,6 +1376,7 @@
         }
       });
 
+      lastRouteSelectorStateKey = nextStateKey;
       positionAllPanelTabs();
     }
 
