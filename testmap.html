@@ -70,15 +70,65 @@
         box-shadow: 0 12px 24px var(--route-pill-shadow-color, rgba(229, 114, 0, 0.35));
       }
       .stop-marker-container {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
         background: transparent;
         border: none;
+        line-height: 0;
+        cursor: pointer;
+        transition: transform 0.2s ease;
       }
       .stop-marker-outer {
-        border-radius: 50%;
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         box-sizing: border-box;
+        width: var(--stop-marker-size, 24px);
+        height: var(--stop-marker-size, 24px);
+        border-radius: 50%;
+        border: 2px solid var(--stop-marker-border-color, rgba(15,23,42,0.55));
+        background: var(--stop-marker-gradient, #ffffff);
+        box-shadow: 0 0 0 var(--stop-marker-outline-size, 0px) var(--stop-marker-outline-color, transparent),
+                    0 12px 24px rgba(15,23,42,0.28);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .stop-marker-inner {
+        position: relative;
+        width: calc(var(--stop-marker-size, 24px) - 8px);
+        height: calc(var(--stop-marker-size, 24px) - 8px);
+        border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.98), rgba(226, 232, 240, 0.85));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: inset 0 4px 10px rgba(15,23,42,0.18), inset 0 0 0 1px rgba(255,255,255,0.7);
+        pointer-events: none;
+      }
+      .stop-marker-inner::after {
+        content: '';
+        position: absolute;
+        top: 18%;
+        left: 22%;
+        width: 28%;
+        height: 28%;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.75);
+        filter: blur(3px);
+      }
+      .stop-marker-glyph {
+        width: 56%;
+        height: 56%;
+        fill: var(--navy);
+        filter: drop-shadow(0 1px 1px rgba(15,23,42,0.2));
+        pointer-events: none;
+      }
+      .stop-marker-container:hover .stop-marker-outer,
+      .stop-marker-container:focus-visible .stop-marker-outer {
+        transform: translateY(-2px) scale(1.05);
+        box-shadow: 0 0 0 var(--stop-marker-outline-size, 0px) var(--stop-marker-outline-color, transparent),
+                    0 18px 32px rgba(15,23,42,0.32);
       }
       .stop-entry + .stop-entry {
         margin-top: 12px;
@@ -861,7 +911,7 @@
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
       const STOP_MARKER_ICON_SIZE = 24;
-      const STOP_MARKER_BORDER_COLOR = '#000000';
+      const STOP_MARKER_BORDER_COLOR = 'rgba(15,23,42,0.55)';
       const STOP_MARKER_OUTLINE_COLOR = '#FFFFFF';
       const STOP_MARKER_OUTLINE_WIDTH = 2;
 
@@ -2042,7 +2092,7 @@
           const gradient = buildStopMarkerGradient(routeIds);
           const size = STOP_MARKER_ICON_SIZE;
           const outline = Math.max(0, Number(STOP_MARKER_OUTLINE_WIDTH) || 0);
-          const html = `<div class="stop-marker-outer" style="width: ${size}px; height: ${size}px; border: 2px solid ${STOP_MARKER_BORDER_COLOR}; box-shadow: 0 0 0 ${outline}px ${STOP_MARKER_OUTLINE_COLOR}; background: ${gradient};"></div>`;
+          const html = `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"><div class="stop-marker-inner"><svg class="stop-marker-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 2a4 4 0 0 0-4 4v8.25c0 .966.784 1.75 1.75 1.75H5v1.75a1.75 1.75 0 1 0 3.5 0V16.5h7v1.75a1.75 1.75 0 1 0 3.5 0V16h1.25c.966 0 1.75-.784 1.75-1.75V6a4 4 0 0 0-4-4H6Zm0 2h12a2 2 0 0 1 2 2v4H4V6a2 2 0 0 1 2-2Zm-2 8h16v3H4v-3Zm3.75 4.5a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm11 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"/></svg></div></div>`;
           return L.divIcon({
               className: 'stop-marker-container leaflet-div-icon',
               html,
