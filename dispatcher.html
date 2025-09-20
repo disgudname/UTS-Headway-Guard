@@ -98,10 +98,15 @@ const DOWNED_REFRESH_MS = 60000;
 const OPS_STATUS_VALUES = new Set(['DOWNED','LIMITED','COSMETIC','COMFORT']);
 const SHOP_STATUS_VALUES = new Set(['DOWN','UP','USABLE']);
 const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COMFORT:'Comfort',DOWN:'Down',UP:'Up',USABLE:'Usable'};
+
+function normalizeHeaderText(value){
+  return (value||'').replace(/\s+/g,' ').trim().toLowerCase();
+}
+
 const DOWNED_HEADER_VARIANTS = [
   ['Bus','Status','Date','Supervisor','Notes/Description','Diagnostic Date','Mechanic','Diagnostic Description','Current ETA','Actual Delivery Date','Status'],
   ['P&T Support Vehicle','Status','Date','Supervisor','Notes/Description','Diagnostic Date','Mechanic','Diagnostic Description','Current ETA','Actual Delivery Date','Status']
-].map(h=>h.map(c=>c.toLowerCase()));
+].map(h=>h.map(normalizeHeaderText));
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
 
@@ -168,7 +173,7 @@ function parseCsv(text){
 function rowMatchesHeader(row){
   return DOWNED_HEADER_VARIANTS.some(header=>{
     for(let i=0;i<header.length;i++){
-      const cell=(row[i]||'').trim().toLowerCase();
+      const cell=normalizeHeaderText(row[i]);
       if(cell!==header[i]) return false;
     }
     return true;
