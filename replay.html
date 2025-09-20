@@ -113,6 +113,12 @@
       flex-wrap: wrap;
       gap: 8px;
       justify-content: center;
+      align-items: center;
+    }
+    .speed-button-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
     }
     .pill-button {
       border: none;
@@ -529,21 +535,17 @@
         font-size: 15px;
       }
       .speed-button-group {
-        justify-content: flex-start;
-        flex-wrap: nowrap;
-        overflow-x: auto;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      .speed-button-row {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
         gap: 10px;
-        padding-bottom: 6px;
-        -webkit-overflow-scrolling: touch;
       }
-      .speed-button-group::-webkit-scrollbar {
-        height: 6px;
-      }
-      .speed-button-group::-webkit-scrollbar-thumb {
-        background: rgba(35, 45, 75, 0.35);
-        border-radius: 999px;
-      }
-      .speed-button-group .pill-button {
+      .speed-button-row .pill-button {
         flex: 0 0 auto;
       }
       #controls.playback-controls.is-collapsed {
@@ -648,17 +650,21 @@
     </div>
     <div class="controls-row controls-row--playback">
       <div class="speed-button-group">
-        <button id="pauseBtn" type="button" class="pill-button speed-btn" title="Pause">&#10074;&#10074;</button>
-        <button id="playBtn" type="button" class="pill-button speed-btn">1x</button>
-        <button id="ff2Btn" type="button" class="pill-button speed-btn">2x</button>
-        <button id="ff4Btn" type="button" class="pill-button speed-btn">4x</button>
-        <button id="ff8Btn" type="button" class="pill-button speed-btn">8x</button>
-        <button id="ff10Btn" type="button" class="pill-button speed-btn">10x</button>
-        <button id="ff30Btn" type="button" class="pill-button speed-btn">30x</button>
-        <button id="ff100Btn" type="button" class="pill-button speed-btn">100x</button>
-        <button id="ff200Btn" type="button" class="pill-button speed-btn">200x</button>
-        <button id="ff500Btn" type="button" class="pill-button speed-btn">500x</button>
-        <button id="ff1000Btn" type="button" class="pill-button speed-btn">1000x</button>
+        <div class="speed-button-row speed-button-row--primary">
+          <button id="pauseBtn" type="button" class="pill-button speed-btn" title="Pause">&#10074;&#10074;</button>
+          <button id="playBtn" type="button" class="pill-button speed-btn">1x</button>
+          <button id="ff2Btn" type="button" class="pill-button speed-btn">2x</button>
+          <button id="ff4Btn" type="button" class="pill-button speed-btn">4x</button>
+          <button id="ff8Btn" type="button" class="pill-button speed-btn">8x</button>
+          <button id="ff10Btn" type="button" class="pill-button speed-btn">10x</button>
+        </div>
+        <div class="speed-button-row speed-button-row--extended">
+          <button id="ff30Btn" type="button" class="pill-button speed-btn">30x</button>
+          <button id="ff100Btn" type="button" class="pill-button speed-btn">100x</button>
+          <button id="ff200Btn" type="button" class="pill-button speed-btn">200x</button>
+          <button id="ff500Btn" type="button" class="pill-button speed-btn">500x</button>
+          <button id="ff1000Btn" type="button" class="pill-button speed-btn">1000x</button>
+        </div>
       </div>
       <div class="timeline-group">
         <label for="timeline" class="timeline-label">Replay Timeline</label>
