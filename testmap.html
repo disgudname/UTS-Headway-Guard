@@ -4206,6 +4206,82 @@
           return contrast || fallback;
       }
 
+      function normalizeRouteColor(color) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
+              }
+          }
+          return BUS_MARKER_DEFAULT_ROUTE_COLOR;
+      }
+
+      function normalizeGlyphColor(color, routeColor) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
+              }
+          }
+          const fallbackRouteColor = normalizeRouteColor(routeColor);
+          return computeBusMarkerGlyphColor(fallbackRouteColor);
+      }
+
+      function applyColorsToBusMarkerSvg(svgEl, routeColor, glyphColor) {
+          if (!svgEl) {
+              return;
+          }
+          const fillColor = normalizeRouteColor(routeColor);
+          const contrastColor = normalizeGlyphColor(glyphColor, fillColor);
+          const routeShape = svgEl.querySelector('#route_color');
+          const centerRing = svgEl.querySelector('#center_ring');
+          const heading = svgEl.querySelector('#heading');
+          if (routeShape) {
+              routeShape.setAttribute('fill', fillColor);
+              routeShape.style.fill = fillColor;
+          }
+          if (centerRing) {
+              centerRing.setAttribute('fill', contrastColor);
+              centerRing.style.fill = contrastColor;
+          }
+          if (heading) {
+              heading.setAttribute('fill', contrastColor);
+              heading.style.fill = contrastColor;
+          }
+      }
+
+      function updateBusMarkerColorElements(state) {
+          if (!state) {
+              return;
+          }
+          const normalizedFill = normalizeRouteColor(state.fillColor);
+          const normalizedGlyph = normalizeGlyphColor(state.glyphColor, normalizedFill);
+          state.fillColor = normalizedFill;
+          state.glyphColor = normalizedGlyph;
+          if (state.elements?.routeColor) {
+              state.elements.routeColor.setAttribute('fill', normalizedFill);
+              state.elements.routeColor.style.fill = normalizedFill;
+          }
+          if (state.elements?.centerRing) {
+              state.elements.centerRing.setAttribute('fill', normalizedGlyph);
+              state.elements.centerRing.style.fill = normalizedGlyph;
+          }
+          if (state.elements?.heading) {
+              state.elements.heading.setAttribute('fill', normalizedGlyph);
+              state.elements.heading.style.fill = normalizedGlyph;
+          }
+      }
+
       function setBusMarkerContrastOverrideColor(color) {
           if (typeof color === 'string' && color.trim().length > 0) {
               busMarkerContrastOverrideColor = color.trim();
@@ -4571,6 +4647,12 @@
           svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
           svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
 
+          const routeFillColor = normalizeRouteColor(state.fillColor);
+          const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
+          state.fillColor = routeFillColor;
+          state.glyphColor = glyphFillColor;
+          applyColorsToBusMarkerSvg(svgEl, routeFillColor, glyphFillColor);
+
           const existingTitle = svgEl.querySelector('title');
           let title = existingTitle;
           if (!title) {
@@ -4615,11 +4697,17 @@
           const root = iconElement.querySelector('.bus-marker__root');
           const svg = root ? root.querySelector('.bus-marker__svg') : null;
           const title = svg ? svg.querySelector('title') : null;
+          const routeShape = svg ? svg.querySelector('#route_color') : null;
+          const centerRing = svg ? svg.querySelector('#center_ring') : null;
+          const heading = svg ? svg.querySelector('#heading') : null;
           state.elements = {
               icon: iconElement,
               root,
               svg,
-              title
+              title,
+              routeColor: routeShape,
+              centerRing,
+              heading
           };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
@@ -4628,6 +4716,7 @@
               svg.style.pointerEvents = 'none';
               svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
           }
+          updateBusMarkerColorElements(state);
           return state.elements;
       }
 
@@ -4660,12 +4749,13 @@
           if (!elements || !elements.root) {
               return;
           }
-          if (update && update.fillColor) {
+          if (update && Object.prototype.hasOwnProperty.call(update, 'fillColor')) {
               state.fillColor = update.fillColor;
           }
-          if (update && update.glyphColor) {
+          if (update && Object.prototype.hasOwnProperty.call(update, 'glyphColor')) {
               state.glyphColor = update.glyphColor;
           }
+          updateBusMarkerColorElements(state);
           if (update && typeof update.stale === 'boolean') {
               state.isStale = update.stale;
           }
