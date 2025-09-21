@@ -4474,7 +4474,10 @@
 
       function computeMarkerRotationTransform(headingDeg) {
           const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
-          return `rotate(${normalizedHeading.toFixed(2)} ${BUS_MARKER_RING_CENTER_X} ${BUS_MARKER_RING_CENTER_Y})`;
+          const pivotX = BUS_MARKER_RING_CENTER_X;
+          const pivotY = BUS_MARKER_RING_CENTER_Y;
+          const rotation = normalizedHeading.toFixed(2);
+          return `translate(${pivotX} ${pivotY}) rotate(${rotation}) translate(${-pivotX} ${-pivotY})`;
       }
 
       function renderBusMarkerMarkup(vehicleID, state) {
