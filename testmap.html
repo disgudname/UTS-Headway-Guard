@@ -928,6 +928,7 @@
       const BUS_MARKER_CENTER_RING_ID = 'center_ring';
       let BUS_MARKER_SVG_TEXT = null;
       let BUS_MARKER_SVG_LOAD_PROMISE = null;
+      let busMarkerVisibleExtents = null;
       const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
       const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
       const SPEED_BUBBLE_BASE_FONT_PX = 12;
@@ -4030,7 +4031,7 @@
                   }
 
                   if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
-                      const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale);
+                      const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
                       if (speedIcon) {
                           nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
                           if (nameBubbles[vehicleID].speedMarker) {
@@ -4049,7 +4050,7 @@
                   }
 
                   if (adminMode && !kioskMode) {
-                      const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale);
+                      const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
                       if (nameIcon) {
                           nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
                           if (nameBubbles[vehicleID].nameMarker) {
@@ -4065,7 +4066,7 @@
 
                       const blockName = busBlocks[vehicleID];
                       if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
-                          const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale);
+                          const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale, headingDeg);
                           if (blockIcon) {
                               nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
                               if (nameBubbles[vehicleID].blockMarker) {
@@ -4424,17 +4425,156 @@
           return Math.round((Number(value) || 0) * 100) / 100;
       }
 
-      function computeLabelLeaderOffset(scale) {
-          // Keep label bubbles close to the bus marker while preventing overlap at any rotation.
-          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
-          const markerWidth = BUS_MARKER_BASE_WIDTH_PX * safeScale;
-          const markerHeight = markerWidth * BUS_MARKER_ASPECT_RATIO;
-          const halfDiagonal = Math.sqrt(markerWidth * markerWidth + markerHeight * markerHeight) / 2;
-          const clearance = LABEL_VERTICAL_CLEARANCE_PX * safeScale;
-          return halfDiagonal + clearance;
+      function getBusMarkerVisibleExtents() {
+          if (busMarkerVisibleExtents) {
+              return busMarkerVisibleExtents;
+          }
+
+          const fallbackExtents = {
+              top: BUS_MARKER_PIVOT_Y,
+              bottom: BUS_MARKER_VIEWBOX_HEIGHT - BUS_MARKER_PIVOT_Y,
+              left: BUS_MARKER_PIVOT_X,
+              right: BUS_MARKER_VIEWBOX_WIDTH - BUS_MARKER_PIVOT_X
+          };
+
+          if (!BUS_MARKER_SVG_TEXT || typeof document === 'undefined') {
+              return fallbackExtents;
+          }
+
+          try {
+              const template = document.createElement('template');
+              template.innerHTML = BUS_MARKER_SVG_TEXT.trim();
+              const svgEl = template.content.firstElementChild;
+              if (!svgEl) {
+                  throw new Error('Failed to parse bus marker SVG for bounds computation.');
+              }
+              const clone = svgEl.cloneNode(true);
+
+              clone.querySelectorAll('rect').forEach(rect => {
+                  const width = Number(rect.getAttribute('width'));
+                  const height = Number(rect.getAttribute('height'));
+                  if (width === 0 && height === 0) {
+                      rect.remove();
+                  }
+              });
+
+              clone.querySelectorAll('circle').forEach(circle => {
+                  const radius = Number(circle.getAttribute('r'));
+                  if (radius === 0) {
+                      circle.remove();
+                  }
+              });
+
+              clone.setAttribute('width', `${BUS_MARKER_VIEWBOX_WIDTH}`);
+              clone.setAttribute('height', `${BUS_MARKER_VIEWBOX_HEIGHT}`);
+              clone.style.position = 'absolute';
+              clone.style.visibility = 'hidden';
+              clone.style.pointerEvents = 'none';
+              clone.style.left = '-9999px';
+              clone.style.top = '-9999px';
+
+              const host = document.body || document.documentElement;
+              if (!host) {
+                  throw new Error('Document does not have an attachable host element for bounds computation.');
+              }
+
+              host.appendChild(clone);
+              let bbox = null;
+              try {
+                  bbox = clone.getBBox();
+              } finally {
+                  clone.remove();
+              }
+
+              if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height)) {
+                  busMarkerVisibleExtents = {
+                      top: BUS_MARKER_PIVOT_Y - bbox.y,
+                      bottom: (bbox.y + bbox.height) - BUS_MARKER_PIVOT_Y,
+                      left: BUS_MARKER_PIVOT_X - bbox.x,
+                      right: (bbox.x + bbox.width) - BUS_MARKER_PIVOT_X
+                  };
+                  return busMarkerVisibleExtents;
+              }
+          } catch (error) {
+              console.error('Failed to compute bus marker visible extents:', error);
+          }
+
+          busMarkerVisibleExtents = fallbackExtents;
+          return busMarkerVisibleExtents;
       }
 
-      function createSpeedBubbleDivIcon(routeColor, groundSpeed, scale) {
+      function computeBusMarkerVerticalExtentsForHeading(headingDeg) {
+          const extents = getBusMarkerVisibleExtents();
+          if (!extents) {
+              return null;
+          }
+
+          const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          const radians = normalizedHeading * Math.PI / 180;
+          const sin = Math.sin(radians);
+          const cos = Math.cos(radians);
+
+          const corners = [
+              { x: -extents.left, y: -extents.top },
+              { x: extents.right, y: -extents.top },
+              { x: extents.right, y: extents.bottom },
+              { x: -extents.left, y: extents.bottom }
+          ];
+
+          let minY = Infinity;
+          let maxY = -Infinity;
+          for (const corner of corners) {
+              const rotatedY = corner.x * sin + corner.y * cos;
+              if (rotatedY < minY) {
+                  minY = rotatedY;
+              }
+              if (rotatedY > maxY) {
+                  maxY = rotatedY;
+              }
+          }
+
+          if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+              return null;
+          }
+
+          return {
+              top: Math.abs(minY),
+              bottom: Math.abs(maxY)
+          };
+      }
+
+      function computeLabelLeaderOffset(scale, headingDeg, position = 'above') {
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const conversionFactor = (BUS_MARKER_BASE_WIDTH_PX * safeScale) / BUS_MARKER_VIEWBOX_WIDTH;
+          const fallbackWidth = BUS_MARKER_BASE_WIDTH_PX * safeScale;
+          const fallbackHeight = fallbackWidth * BUS_MARKER_ASPECT_RATIO;
+          const fallbackHalfDiagonal = Math.sqrt(fallbackWidth * fallbackWidth + fallbackHeight * fallbackHeight) / 2;
+          const clearance = LABEL_VERTICAL_CLEARANCE_PX * safeScale;
+
+          const verticalExtents = computeBusMarkerVerticalExtentsForHeading(headingDeg);
+          if (!verticalExtents) {
+              return Math.max(0, fallbackHalfDiagonal + clearance);
+          }
+
+          let extentSvgUnits;
+          if (position === 'below') {
+              extentSvgUnits = verticalExtents.bottom;
+          } else if (position === 'above') {
+              extentSvgUnits = verticalExtents.top;
+          } else {
+              extentSvgUnits = Math.max(verticalExtents.top, verticalExtents.bottom);
+          }
+
+          if (!Number.isFinite(extentSvgUnits)) {
+              return Math.max(0, fallbackHalfDiagonal + clearance);
+          }
+
+          const extentPx = extentSvgUnits * conversionFactor;
+          const totalOffset = extentPx + clearance;
+          return totalOffset > 0 ? totalOffset : 0;
+      }
+
+      function createSpeedBubbleDivIcon(routeColor, groundSpeed, scale, headingDeg) {
           if (!Number.isFinite(groundSpeed)) {
               return null;
           }
@@ -4461,7 +4601,7 @@
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(svgHeight / 2 + baselineShift);
           const anchorX = roundToTwoDecimals(svgWidth / 2);
-          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale));
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
           const anchorY = -leaderOffset;
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
@@ -4478,7 +4618,7 @@
           });
       }
 
-      function createNameBubbleDivIcon(busName, routeColor, scale) {
+      function createNameBubbleDivIcon(busName, routeColor, scale, headingDeg) {
           if (typeof busName !== 'string' || busName.trim().length === 0) {
               return null;
           }
@@ -4506,7 +4646,7 @@
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
           const anchorX = textX;
-          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale));
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'above'));
           const anchorY = svgHeight + leaderOffset;
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
@@ -4525,7 +4665,7 @@
           });
       }
 
-      function createBlockBubbleDivIcon(blockName, routeColor, scale) {
+      function createBlockBubbleDivIcon(blockName, routeColor, scale, headingDeg) {
           if (typeof blockName !== 'string' || blockName.trim() === '') {
               return null;
           }
@@ -4553,7 +4693,7 @@
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
           const anchorX = textX;
-          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale));
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
           const anchorY = -leaderOffset;
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
@@ -4732,6 +4872,7 @@
                           throw new Error('Loaded bus marker asset is not a valid SVG.');
                       }
                       BUS_MARKER_SVG_TEXT = parsedSvg.outerHTML;
+                      busMarkerVisibleExtents = null;
                       BUS_MARKER_SVG_LOAD_PROMISE = null;
                       return BUS_MARKER_SVG_TEXT;
                   })
@@ -5080,7 +5221,7 @@
 
               if (speedMarker) {
                   if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode && Number.isFinite(state.groundSpeed)) {
-                      const speedIcon = createSpeedBubbleDivIcon(routeColor, state.groundSpeed, scale);
+                      const speedIcon = createSpeedBubbleDivIcon(routeColor, state.groundSpeed, scale, state.headingDeg);
                       if (speedIcon) {
                           speedMarker.setIcon(speedIcon);
                       } else {
@@ -5095,7 +5236,7 @@
 
               if (nameMarker) {
                   if (adminMode && !kioskMode) {
-                      const nameIcon = createNameBubbleDivIcon(state.busName, routeColor, scale);
+                      const nameIcon = createNameBubbleDivIcon(state.busName, routeColor, scale, state.headingDeg);
                       if (nameIcon) {
                           nameMarker.setIcon(nameIcon);
                       } else {
@@ -5111,7 +5252,7 @@
               if (blockMarker) {
                   const blockName = busBlocks[vehicleID];
                   if (adminMode && !kioskMode && displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
-                      const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, scale);
+                      const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, scale, state.headingDeg);
                       if (blockIcon) {
                           blockMarker.setIcon(blockIcon);
                       } else {
