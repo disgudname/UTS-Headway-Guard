@@ -143,7 +143,7 @@
       }
       .bus-marker__rotator {
         transform-box: fill-box;
-        transform-origin: 50% 35%;
+        transform-origin: 50% 65%;
         will-change: transform;
       }
       .bus-marker__body {
@@ -909,7 +909,9 @@
       const BUS_MARKER_MAX_WIDTH_PX = 56;
       const BUS_MARKER_BASE_ZOOM = 15;
       const BUS_MARKER_ANCHOR_X = 28;
-      const BUS_MARKER_ANCHOR_Y = 28;
+      const BUS_MARKER_ANCHOR_Y = 52; // final screen-space pivot aligned with the ring centre
+      const BUS_MARKER_RING_CENTER_X = BUS_MARKER_ANCHOR_X;
+      const BUS_MARKER_RING_CENTER_Y = 28; // pre-rotation ring centre inside the SVG artwork
       const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_ANCHOR_X / BUS_MARKER_VIEWBOX_WIDTH;
       const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_ANCHOR_Y / BUS_MARKER_VIEWBOX_HEIGHT;
       const BUS_MARKER_DEFAULT_HEADING = 0;
@@ -919,7 +921,7 @@
       const BUS_MARKER_HALO_PATH = 'M28.01,71.49c-1.56,0-3.11-.52-4.38-1.55-3.68-2.93-22.12-18.71-22.12-39.94C1.5,12.16,14.97,1.5,28,1.5s26.5,10.66,26.5,28.5c0,21.23-18.44,37.01-22.14,39.95-1.26,1.02-2.8,1.53-4.35,1.53ZM28,6.5c-10.57,0-21.5,8.79-21.5,23.5s10.91,28.59,20.26,36.04c.71.57,1.78.57,2.46.02C38.58,58.59,49.5,44.68,49.5,30S38.57,6.5,28,6.5Z';
       const BUS_MARKER_RING_PATH = 'M28,43.5c-8.55,0-15.5-6.95-15.5-15.5S19.45,12.5,28,12.5S43.5,19.45,43.5,28S36.55,43.5,28,43.5ZM28,19c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9S32.97,19,28,19Z';
       const BUS_MARKER_ARROW_PATH = 'M28,63 L18,45 Q28,51 38,45 Z';
-      const BUS_MARKER_INNER_ROTATE_X = BUS_MARKER_ANCHOR_X;
+      const BUS_MARKER_INNER_ROTATE_X = BUS_MARKER_RING_CENTER_X;
       const BUS_MARKER_INNER_ROTATE_Y = 40;
       const BUS_MARKER_INNER_ROTATE_DEGREES = 180;
       const MIN_HEADING_DISTANCE_METERS = 2;
@@ -4355,13 +4357,13 @@
             </style>
           </defs>
           <g class="bus-marker__rotator" transform="${rotationTransform}">
-            <!-- Wrap this whole SVG in an OUTER group at runtime to rotate by heading around (28,28).
+            <!-- Wrap this whole SVG in an OUTER group at runtime to rotate by heading around (28,52).
                  This INNER group is a fixed 180° rotate to make the arrow point up by default. -->
             <g id="inner-up-rotate" transform="rotate(${BUS_MARKER_INNER_ROTATE_DEGREES} ${BUS_MARKER_INNER_ROTATE_X} ${BUS_MARKER_INNER_ROTATE_Y})">
               <path class="st1 bus-marker__body" d="${BUS_MARKER_BODY_PATH}" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
               <path class="st0 bus-marker__halo" d="${BUS_MARKER_HALO_PATH}" fill="#FFFFFF" style="fill: #FFFFFF;" />
               <path class="st0 bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
-              <circle class="st1 bus-marker__center" cx="${BUS_MARKER_ANCHOR_X}" cy="${BUS_MARKER_ANCHOR_Y}" r="8" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
+              <circle class="st1 bus-marker__center" cx="${BUS_MARKER_RING_CENTER_X}" cy="${BUS_MARKER_RING_CENTER_Y}" r="8" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
               <path class="st0 bus-marker__arrow" d="${BUS_MARKER_ARROW_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
             </g>
           </g>
