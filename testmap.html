@@ -936,16 +936,14 @@
       const SPEED_BUBBLE_MIN_WIDTH = 60;
       const SPEED_BUBBLE_MIN_HEIGHT = 20;
       const SPEED_BUBBLE_CORNER_RADIUS = 10;
-      const LABEL_VERTICAL_LOCATION_OFFSET_PX = 44.49375;
+      const LABEL_VERTICAL_CLEARANCE_PX = 4; // ensures labels clear the bus marker even when rotated
       const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
-      const SPEED_BUBBLE_LEADER_OFFSET = LABEL_VERTICAL_LOCATION_OFFSET_PX;
       const NAME_BUBBLE_BASE_FONT_PX = 14;
       const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
       const NAME_BUBBLE_VERTICAL_PADDING = 3;
       const NAME_BUBBLE_MIN_WIDTH = 40;
       const NAME_BUBBLE_MIN_HEIGHT = 20;
       const NAME_BUBBLE_CORNER_RADIUS = 10;
-      const NAME_BUBBLE_LEADER_OFFSET = LABEL_VERTICAL_LOCATION_OFFSET_PX;
       const NAME_BUBBLE_FRAME_INSET = 5;
       const BLOCK_BUBBLE_BASE_FONT_PX = 14;
       const BLOCK_BUBBLE_HORIZONTAL_PADDING = 14;
@@ -953,7 +951,6 @@
       const BLOCK_BUBBLE_MIN_WIDTH = 40;
       const BLOCK_BUBBLE_MIN_HEIGHT = 20;
       const BLOCK_BUBBLE_CORNER_RADIUS = 10;
-      const BLOCK_BUBBLE_LEADER_OFFSET = LABEL_VERTICAL_LOCATION_OFFSET_PX;
       const BLOCK_BUBBLE_FRAME_INSET = 5;
       const LABEL_BASE_STROKE_WIDTH = 3;
       const MIN_HEADING_DISTANCE_METERS = 2;
@@ -4427,11 +4424,21 @@
           return Math.round((Number(value) || 0) * 100) / 100;
       }
 
+      function computeLabelLeaderOffset(scale) {
+          // Keep label bubbles close to the bus marker while preventing overlap at any rotation.
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const markerWidth = BUS_MARKER_BASE_WIDTH_PX * safeScale;
+          const markerHeight = markerWidth * BUS_MARKER_ASPECT_RATIO;
+          const halfDiagonal = Math.sqrt(markerWidth * markerWidth + markerHeight * markerHeight) / 2;
+          const clearance = LABEL_VERTICAL_CLEARANCE_PX * safeScale;
+          return halfDiagonal + clearance;
+      }
+
       function createSpeedBubbleDivIcon(routeColor, groundSpeed, scale) {
           if (!Number.isFinite(groundSpeed)) {
               return null;
           }
-          const safeScale = Number.isFinite(scale) ? scale : 1;
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
           const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
               ? routeColor
               : BUS_MARKER_DEFAULT_ROUTE_COLOR;
@@ -4454,7 +4461,8 @@
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(svgHeight / 2 + baselineShift);
           const anchorX = roundToTwoDecimals(svgWidth / 2);
-          const anchorY = -SPEED_BUBBLE_LEADER_OFFSET;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale));
+          const anchorY = -leaderOffset;
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
@@ -4474,7 +4482,7 @@
           if (typeof busName !== 'string' || busName.trim().length === 0) {
               return null;
           }
-          const safeScale = Number.isFinite(scale) ? scale : 1;
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
           const name = busName.trim();
           const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
               ? routeColor
@@ -4498,7 +4506,8 @@
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
           const anchorX = textX;
-          const anchorY = svgHeight + NAME_BUBBLE_LEADER_OFFSET;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale));
+          const anchorY = svgHeight + leaderOffset;
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
@@ -4520,7 +4529,7 @@
           if (typeof blockName !== 'string' || blockName.trim() === '') {
               return null;
           }
-          const safeScale = Number.isFinite(scale) ? scale : 1;
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
           const name = blockName.trim();
           const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
               ? routeColor
@@ -4544,7 +4553,8 @@
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
           const anchorX = textX;
-          const anchorY = -BLOCK_BUBBLE_LEADER_OFFSET;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale));
+          const anchorY = -leaderOffset;
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
