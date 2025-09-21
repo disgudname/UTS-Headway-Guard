@@ -1315,11 +1315,15 @@
           `;
         }
 
+        const selectorSubtitle = adminMode
+          ? 'Choose a transit system and label style.'
+          : 'Choose a transit system.';
+
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
               <div class="selector-title">System Controls</div>
-              <div class="selector-subtitle">Choose a transit system and label style.</div>
+              <div class="selector-subtitle">${selectorSubtitle}</div>
             </div>
             ${logoHtml}
           </div>
