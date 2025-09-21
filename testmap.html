@@ -162,6 +162,9 @@
       .bus-marker__halo {
         pointer-events: none;
       }
+      .bus-marker__anchor {
+        pointer-events: none;
+      }
       .bus-marker__root.is-stale .bus-marker__body {
         fill-opacity: 0.6;
       }
@@ -4197,6 +4200,27 @@
           }
       }
 
+      function updateBusMarkerAnchorPointFromElement(anchorElement) {
+          if (!anchorElement || busMarkerIconRefreshInProgress) {
+              return;
+          }
+          const cxAttr = anchorElement.getAttribute('cx');
+          const cyAttr = anchorElement.getAttribute('cy');
+          const centerX = Number(cxAttr);
+          const centerY = Number(cyAttr);
+          if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+              return;
+          }
+          const deltaX = Math.abs(centerX - BUS_MARKER_RING_CENTER_X);
+          const deltaY = Math.abs(centerY - BUS_MARKER_RING_CENTER_Y);
+          const hasMeaningfulChange = deltaX > BUS_MARKER_RING_CENTER_TOLERANCE || deltaY > BUS_MARKER_RING_CENTER_TOLERANCE;
+          if (!hasMeaningfulChange) {
+              return;
+          }
+          setBusMarkerRingCenterCoordinates(centerX, centerY);
+          refreshBusMarkerIconsForRingCenterChange();
+      }
+
       function updateBusMarkerRingCenterFromElement(ringElement) {
           if (!ringElement || typeof ringElement.getBBox !== 'function' || busMarkerIconRefreshInProgress) {
               return;
@@ -4570,6 +4594,7 @@
           <g class="bus-marker__rotator" transform="${rotationTransform}">
             <path data-marker-segment="halo" class="bus-marker__halo" d="${BUS_MARKER_HALO_PATH}" fill="#FFFFFF" style="fill: #FFFFFF;" />
             <path data-marker-segment="route_color" class="bus-marker__route bus-marker__body" d="${BUS_MARKER_BODY_PATH}" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
+            <circle data-marker-segment="anchor_point" class="bus-marker__anchor" cx="${BUS_MARKER_RING_CENTER_X}" cy="${BUS_MARKER_RING_CENTER_Y}" r="0" />
             <path data-marker-segment="center_ring" class="bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" fill-rule="evenodd" clip-rule="evenodd" />
             <path data-marker-segment="heading_arrow" class="bus-marker__arrow" d="${BUS_MARKER_ARROW_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
           </g>
@@ -4614,11 +4639,15 @@
           const ring = root ? root.querySelector('.bus-marker__ring') : null;
           const arrow = root ? root.querySelector('.bus-marker__arrow') : null;
           const halo = root ? root.querySelector('.bus-marker__halo') : null;
+          const anchor = root ? root.querySelector('.bus-marker__anchor') : null;
           const title = svg ? svg.querySelector('title') : null;
+          if (anchor) {
+              updateBusMarkerAnchorPointFromElement(anchor);
+          }
           if (ring) {
               updateBusMarkerRingCenterFromElement(ring);
           }
-          state.elements = { icon: iconElement, root, svg, rotator, rotators, body, ring, arrow, halo, title };
+          state.elements = { icon: iconElement, root, svg, rotator, rotators, body, ring, arrow, halo, anchor, title };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
           }
