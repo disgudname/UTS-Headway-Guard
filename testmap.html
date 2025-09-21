@@ -141,7 +141,7 @@
         overflow: visible;
         transition: transform 0.2s ease, filter 0.2s ease;
         transform-box: view-box;
-        transform-origin: 26.5px 43.49px;
+        transform-origin: 50% 50%;
         will-change: transform;
         pointer-events: none;
       }
@@ -904,9 +904,9 @@
       const BUS_MARKER_SVG_URL = 'busmarker.svg';
 
       const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
-      const BUS_MARKER_VIEWBOX_HEIGHT = 69.99;
-      const BUS_MARKER_PIVOT_X = 26.5;
-      const BUS_MARKER_PIVOT_Y = 43.49;
+      const BUS_MARKER_VIEWBOX_HEIGHT = 86.99;
+      const BUS_MARKER_PIVOT_X = BUS_MARKER_VIEWBOX_WIDTH / 2;
+      const BUS_MARKER_PIVOT_Y = BUS_MARKER_VIEWBOX_HEIGHT / 2;
       const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
       const BUS_MARKER_BASE_WIDTH_PX = 26;
       const BUS_MARKER_MIN_WIDTH_PX = 18;
@@ -917,6 +917,7 @@
       const BUS_MARKER_SCALE_ZOOM_FACTOR = 5;
       const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_PIVOT_X / BUS_MARKER_VIEWBOX_WIDTH;
       const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_PIVOT_Y / BUS_MARKER_VIEWBOX_HEIGHT;
+      const BUS_MARKER_TRANSFORM_ORIGIN = '50% 50%';
       const BUS_MARKER_DEFAULT_HEADING = 0;
       const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0B7A26';
       const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
@@ -4567,7 +4568,7 @@
           svgEl.setAttribute('overflow', 'visible');
           svgEl.style.width = '100%';
           svgEl.style.height = '100%';
-          svgEl.style.transformOrigin = `${BUS_MARKER_PIVOT_X}px ${BUS_MARKER_PIVOT_Y}px`;
+          svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
           svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
 
           const existingTitle = svgEl.querySelector('title');
@@ -4625,7 +4626,7 @@
           }
           if (svg) {
               svg.style.pointerEvents = 'none';
-              svg.style.transformOrigin = `${BUS_MARKER_PIVOT_X}px ${BUS_MARKER_PIVOT_Y}px`;
+              svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
           }
           return state.elements;
       }
