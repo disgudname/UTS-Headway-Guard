@@ -143,24 +143,26 @@
       }
       .bus-marker__rotator {
         transform-box: view-box;
-        transform-origin: 28px 28px;
+        transform-origin: 26.5px 43.49px;
         will-change: transform;
       }
       .bus-marker__body {
         paint-order: stroke fill;
-      }
-      .bus-marker__body,
-      .bus-marker__center {
         transition: fill 0.2s ease, fill-opacity 0.2s ease;
       }
       .bus-marker__ring,
+      .bus-marker__arrow {
+        transition: fill 0.2s ease;
+      }
+      .bus-marker__ring,
       .bus-marker__arrow,
-      .bus-marker__body,
-      .bus-marker__center {
+      .bus-marker__body {
         pointer-events: auto;
       }
-      .bus-marker__root.is-stale .bus-marker__body,
-      .bus-marker__root.is-stale .bus-marker__center {
+      .bus-marker__halo {
+        pointer-events: none;
+      }
+      .bus-marker__root.is-stale .bus-marker__body {
         fill-opacity: 0.6;
       }
       .bus-marker__root.is-hover .bus-marker__svg {
@@ -904,9 +906,9 @@
       let pendingMarkerScaleMetrics = null;
       let textMeasurementCanvas = null;
 
-      const BUS_MARKER_VIEWBOX_WIDTH = 56;
-      const BUS_MARKER_VIEWBOX_HEIGHT = 80;
-      const BUS_MARKER_RING_CENTER = Object.freeze({ x: 28, y: 28 });
+      const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
+      const BUS_MARKER_VIEWBOX_HEIGHT = 69.99;
+      const BUS_MARKER_RING_CENTER = Object.freeze({ x: 26.5, y: 43.49 });
       const BUS_MARKER_RING_CENTER_X = BUS_MARKER_RING_CENTER.x;
       const BUS_MARKER_RING_CENTER_Y = BUS_MARKER_RING_CENTER.y;
       const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
@@ -924,13 +926,10 @@
       const BUS_MARKER_DEFAULT_HEADING = 0;
       const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0B7A26';
       const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
-      const BUS_MARKER_BODY_PATH = 'M28,4c11.5,0,24,9.5,24,26,0,17.5-13.8,32.1-21.2,38-1.6,1.3-4,1.3-5.6,0-7.4-5.9-21.2-20.5-21.2-38C4,13.5,16.5,4,28,4Z';
-      const BUS_MARKER_HALO_PATH = 'M28.01,71.49c-1.56,0-3.11-.52-4.38-1.55-3.68-2.93-22.12-18.71-22.12-39.94C1.5,12.16,14.97,1.5,28,1.5s26.5,10.66,26.5,28.5c0,21.23-18.44,37.01-22.14,39.95-1.26,1.02-2.8,1.53-4.35,1.53ZM28,6.5c-10.57,0-21.5,8.79-21.5,23.5s10.91,28.59,20.26,36.04c.71.57,1.78.57,2.46.02C38.58,58.59,49.5,44.68,49.5,30S38.57,6.5,28,6.5Z';
-      const BUS_MARKER_RING_PATH = 'M28,43.5c-8.55,0-15.5-6.95-15.5-15.5S19.45,12.5,28,12.5S43.5,19.45,43.5,28S36.55,43.5,28,43.5ZM28,19c-4.97,0-9,4.03-9,9s4.03,9,9,9s9-4.03,9-9S32.97,19,28,19Z';
-      const BUS_MARKER_ARROW_PATH = 'M28,63 L18,45 Q28,51 38,45 Z';
-      const BUS_MARKER_INNER_ROTATE_X = BUS_MARKER_RING_CENTER_X;
-      const BUS_MARKER_INNER_ROTATE_Y = 40;
-      const BUS_MARKER_INNER_ROTATE_DEGREES = 180;
+      const BUS_MARKER_BODY_PATH = 'M26.5,67.49c-11.5,0-24-9.5-24-26C2.5,23.99,16.3,9.39,23.7,3.49c1.6-1.3,4-1.3,5.6,0,7.4,5.9,21.2,20.5,21.2,38,0,16.5-12.5,26-24,26Z';
+      const BUS_MARKER_HALO_PATH = 'M26.49,0c1.56,0,3.11.52,4.38,1.55,3.68,2.93,22.12,18.71,22.12,39.94.01,17.84-13.46,28.5-26.49,28.5S0,59.33,0,41.49C0,20.26,18.44,4.48,22.14,1.54,23.4.52,24.94.01,26.49.01h0Z';
+      const BUS_MARKER_RING_PATH = 'M26.5,27.99c8.55,0,15.5,6.95,15.5,15.5s-6.95,15.5-15.5,15.5-15.5-6.95-15.5-15.5,6.95-15.5,15.5-15.5ZM26.5,52.49c4.97,0,9-4.03,9-9s-4.03-9-9-9-9,4.03-9,9,4.03,9,9,9Z';
+      const BUS_MARKER_ARROW_PATH = 'M26.5,8.49l10,18c-6.67-4-13.33-4-20,0l10-18Z';
       const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
       const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
       const SPEED_BUBBLE_BASE_FONT_PX = 12;
@@ -4496,27 +4495,15 @@
       <div class="${rootClasses.join(' ')}" data-vehicle-id="${escapeHtml(`${vehicleID}`)}" tabindex="0" aria-label="${labelEscaped}" role="img">
         <svg class="bus-marker__svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${labelEscaped}" focusable="false">
           <title>${labelEscaped}</title>
-          <defs>
-            <style>
-              /* st1 = body + centre (route color). st0 = ring + arrow + body halo (contrast color) */
-              .st0{fill:#fff;}
-              .st1{fill:#0b7a26;}
-            </style>
-          </defs>
           <g class="bus-marker__rotator bus-marker__rotator--body" transform="${rotationTransform}">
-            <g transform="rotate(${BUS_MARKER_INNER_ROTATE_DEGREES} ${BUS_MARKER_INNER_ROTATE_X} ${BUS_MARKER_INNER_ROTATE_Y})">
-              <path class="st1 bus-marker__body" d="${BUS_MARKER_BODY_PATH}" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
-              <path class="st0 bus-marker__halo" d="${BUS_MARKER_HALO_PATH}" fill="#FFFFFF" style="fill: #FFFFFF;" />
-            </g>
+            <path data-marker-segment="halo" class="bus-marker__halo" d="${BUS_MARKER_HALO_PATH}" fill="#FFFFFF" style="fill: #FFFFFF;" />
+            <path data-marker-segment="route_color" class="bus-marker__route bus-marker__body" d="${BUS_MARKER_BODY_PATH}" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
           </g>
           <g class="bus-marker__static">
-            <path class="st0 bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
-            <circle class="st1 bus-marker__center" cx="${BUS_MARKER_RING_CENTER_X}" cy="${BUS_MARKER_RING_CENTER_Y}" r="8" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
+            <path data-marker-segment="center_ring" class="bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" fill-rule="evenodd" clip-rule="evenodd" />
           </g>
           <g class="bus-marker__rotator bus-marker__rotator--arrow" transform="${rotationTransform}">
-            <g transform="rotate(${BUS_MARKER_INNER_ROTATE_DEGREES} ${BUS_MARKER_INNER_ROTATE_X} ${BUS_MARKER_INNER_ROTATE_Y})">
-              <path class="st0 bus-marker__arrow" d="${BUS_MARKER_ARROW_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
-            </g>
+            <path data-marker-segment="heading_arrow" class="bus-marker__arrow" d="${BUS_MARKER_ARROW_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
           </g>
         </svg>
       </div>`;
@@ -4556,12 +4543,11 @@
           const rotators = root ? Array.from(root.querySelectorAll('.bus-marker__rotator')) : [];
           const rotator = rotators.length > 0 ? rotators[0] : null;
           const body = root ? root.querySelector('.bus-marker__body') : null;
-          const center = root ? root.querySelector('.bus-marker__center') : null;
           const ring = root ? root.querySelector('.bus-marker__ring') : null;
           const arrow = root ? root.querySelector('.bus-marker__arrow') : null;
           const halo = root ? root.querySelector('.bus-marker__halo') : null;
           const title = svg ? svg.querySelector('title') : null;
-          state.elements = { icon: iconElement, root, svg, rotator, rotators, body, center, ring, arrow, halo, title };
+          state.elements = { icon: iconElement, root, svg, rotator, rotators, body, ring, arrow, halo, title };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
           }
@@ -4619,17 +4605,15 @@
           const glyphColor = state.glyphColor || computeBusMarkerGlyphColor(routeColor);
           state.glyphColor = glyphColor;
           const fillOpacity = state.isStale ? '0.6' : '1';
+          if (elements.halo) {
+              elements.halo.setAttribute('fill', '#FFFFFF');
+              elements.halo.style.fill = '#FFFFFF';
+          }
           if (elements.body) {
               elements.body.setAttribute('fill', routeColor);
               elements.body.style.fill = routeColor;
               elements.body.setAttribute('fill-opacity', fillOpacity);
               elements.body.style.fillOpacity = fillOpacity;
-          }
-          if (elements.center) {
-              elements.center.setAttribute('fill', routeColor);
-              elements.center.style.fill = routeColor;
-              elements.center.setAttribute('fill-opacity', fillOpacity);
-              elements.center.style.fillOpacity = fillOpacity;
           }
           if (elements.ring) {
               elements.ring.setAttribute('fill', glyphColor);
@@ -4668,10 +4652,6 @@
           if (state.elements.body) {
               state.elements.body.setAttribute('fill-opacity', fillOpacity);
               state.elements.body.style.fillOpacity = fillOpacity;
-          }
-          if (state.elements.center) {
-              state.elements.center.setAttribute('fill-opacity', fillOpacity);
-              state.elements.center.style.fillOpacity = fillOpacity;
           }
       }
 
