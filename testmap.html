@@ -921,6 +921,11 @@
       const BUS_MARKER_DEFAULT_HEADING = 0;
       const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0B7A26';
       const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
+      const BUS_MARKER_CENTER_RING_CENTER_X = 26.5;
+      const BUS_MARKER_CENTER_RING_CENTER_Y = 43.49;
+      const BUS_MARKER_STOPPED_SQUARE_SIZE_PX = 26;
+      const BUS_MARKER_STOPPED_SQUARE_ID = 'center_square';
+      const BUS_MARKER_CENTER_RING_ID = 'center_ring';
       let BUS_MARKER_SVG_TEXT = null;
       let BUS_MARKER_SVG_LOAD_PROMISE = null;
       const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
@@ -3978,6 +3983,7 @@
                   const headingDeg = updateBusMarkerHeading(state, newPosition, heading, groundSpeed);
                   const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
                   const gpsIsStale = isVehicleGpsStale(v);
+                  const isStopped = isBusConsideredStopped(groundSpeed);
 
                   state.busName = busName;
                   state.routeID = routeID;
@@ -3986,6 +3992,7 @@
                   state.headingDeg = headingDeg;
                   state.accessibleLabel = accessibleLabel;
                   state.isStale = gpsIsStale;
+                  state.isStopped = isStopped;
                   state.groundSpeed = groundSpeed;
                   state.lastUpdateTimestamp = Date.now();
 
@@ -4001,7 +4008,8 @@
                           glyphColor,
                           headingDeg,
                           stale: gpsIsStale,
-                          accessibleLabel
+                          accessibleLabel,
+                          stopped: isStopped
                       });
                   } else {
                       try {
@@ -4175,6 +4183,7 @@
                   glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
                   accessibleLabel: '',
                   isStale: false,
+                  isStopped: false,
                   isSelected: false,
                   isHovered: false,
                   lastUpdateTimestamp: 0,
@@ -4246,7 +4255,8 @@
           const fillColor = normalizeRouteColor(routeColor);
           const contrastColor = normalizeGlyphColor(glyphColor, fillColor);
           const routeShape = svgEl.querySelector('#route_color');
-          const centerRing = svgEl.querySelector('#center_ring');
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          const centerSquare = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
           const heading = svgEl.querySelector('#heading');
           if (routeShape) {
               routeShape.setAttribute('fill', fillColor);
@@ -4255,6 +4265,10 @@
           if (centerRing) {
               centerRing.setAttribute('fill', contrastColor);
               centerRing.style.fill = contrastColor;
+          }
+          if (centerSquare) {
+              centerSquare.setAttribute('fill', contrastColor);
+              centerSquare.style.fill = contrastColor;
           }
           if (heading) {
               heading.setAttribute('fill', contrastColor);
@@ -4278,10 +4292,93 @@
               state.elements.centerRing.setAttribute('fill', normalizedGlyph);
               state.elements.centerRing.style.fill = normalizedGlyph;
           }
+          if (state.elements?.centerSquare) {
+              state.elements.centerSquare.setAttribute('fill', normalizedGlyph);
+              state.elements.centerSquare.style.fill = normalizedGlyph;
+          }
           if (state.elements?.heading) {
               state.elements.heading.setAttribute('fill', normalizedGlyph);
               state.elements.heading.style.fill = normalizedGlyph;
           }
+      }
+
+      function ensureCenterSquareElement(svgEl) {
+          if (!svgEl) {
+              return null;
+          }
+          let square = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
+          if (square) {
+              return square;
+          }
+          const namespace = 'http://www.w3.org/2000/svg';
+          square = document.createElementNS(namespace, 'rect');
+          square.setAttribute('id', BUS_MARKER_STOPPED_SQUARE_ID);
+          square.setAttribute('width', `${BUS_MARKER_STOPPED_SQUARE_SIZE_PX}`);
+          square.setAttribute('height', `${BUS_MARKER_STOPPED_SQUARE_SIZE_PX}`);
+          const halfSize = BUS_MARKER_STOPPED_SQUARE_SIZE_PX / 2;
+          const x = BUS_MARKER_CENTER_RING_CENTER_X - halfSize;
+          const y = BUS_MARKER_CENTER_RING_CENTER_Y - halfSize;
+          square.setAttribute('x', x.toFixed(2));
+          square.setAttribute('y', y.toFixed(2));
+          square.style.display = 'none';
+          square.style.pointerEvents = 'none';
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          const centerRingClass = centerRing?.getAttribute('class');
+          if (centerRingClass) {
+              square.setAttribute('class', centerRingClass);
+          }
+          const heading = svgEl.querySelector('#heading');
+          if (heading && heading.parentNode) {
+              heading.parentNode.insertBefore(square, heading);
+          } else if (centerRing && centerRing.parentNode) {
+              centerRing.parentNode.insertBefore(square, centerRing.nextSibling);
+          } else {
+              svgEl.appendChild(square);
+          }
+          return square;
+      }
+
+      function setCenterShapeDisplay(centerRing, centerSquare, isStopped) {
+          const showSquare = Boolean(isStopped);
+          if (centerRing) {
+              centerRing.style.display = showSquare ? 'none' : 'inline';
+          }
+          if (centerSquare) {
+              centerSquare.style.display = showSquare ? 'inline' : 'none';
+          }
+      }
+
+      function applyStoppedVisualStateToSvg(svgEl, isStopped) {
+          if (!svgEl) {
+              return;
+          }
+          const centerSquare = ensureCenterSquareElement(svgEl);
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          setCenterShapeDisplay(centerRing, centerSquare, isStopped);
+      }
+
+      function ensureBusMarkerStoppedElements(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          const square = ensureCenterSquareElement(state.elements.svg);
+          if (square) {
+              state.elements.centerSquare = square;
+          }
+          if (!state.elements.centerRing || !state.elements.centerRing.isConnected) {
+              const ring = state.elements.svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+              if (ring) {
+                  state.elements.centerRing = ring;
+              }
+          }
+      }
+
+      function applyBusMarkerStoppedVisualState(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          ensureBusMarkerStoppedElements(state);
+          setCenterShapeDisplay(state.elements.centerRing, state.elements.centerSquare, state.isStopped);
       }
 
       function setBusMarkerContrastOverrideColor(color) {
@@ -4537,6 +4634,14 @@
           return `${name} — ${direction} — ${speedText}`;
       }
 
+      function isBusConsideredStopped(groundSpeed) {
+          if (!Number.isFinite(groundSpeed)) {
+              return false;
+          }
+          const speed = Math.max(0, Math.round(groundSpeed));
+          return speed <= 1;
+      }
+
       function bearingToDirection(headingDeg) {
           if (!Number.isFinite(headingDeg)) {
               return 'Unknown direction';
@@ -4676,7 +4781,9 @@
           const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
           state.fillColor = routeFillColor;
           state.glyphColor = glyphFillColor;
+          ensureCenterSquareElement(svgEl);
           applyColorsToBusMarkerSvg(svgEl, routeFillColor, glyphFillColor);
+          applyStoppedVisualStateToSvg(svgEl, state.isStopped);
 
           const existingTitle = svgEl.querySelector('title');
           let title = existingTitle;
@@ -4723,7 +4830,8 @@
           const svg = root ? root.querySelector('.bus-marker__svg') : null;
           const title = svg ? svg.querySelector('title') : null;
           const routeShape = svg ? svg.querySelector('#route_color') : null;
-          const centerRing = svg ? svg.querySelector('#center_ring') : null;
+          const centerSquare = svg ? ensureCenterSquareElement(svg) : null;
+          const centerRing = svg ? svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`) : null;
           const heading = svg ? svg.querySelector('#heading') : null;
           state.elements = {
               icon: iconElement,
@@ -4732,6 +4840,7 @@
               title,
               routeColor: routeShape,
               centerRing,
+              centerSquare,
               heading
           };
           if (root) {
@@ -4742,6 +4851,7 @@
               svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
           }
           updateBusMarkerColorElements(state);
+          applyBusMarkerStoppedVisualState(state);
           return state.elements;
       }
 
@@ -4790,6 +4900,10 @@
           if (update && Number.isFinite(update.headingDeg)) {
               state.headingDeg = normalizeHeadingDegrees(update.headingDeg);
           }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'stopped')) {
+              state.isStopped = Boolean(update.stopped);
+          }
+          applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
               elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`;
