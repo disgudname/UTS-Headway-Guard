@@ -928,24 +928,26 @@
       const SPEED_BUBBLE_BASE_FONT_PX = 12;
       const SPEED_BUBBLE_HORIZONTAL_PADDING = 12;
       const SPEED_BUBBLE_VERTICAL_PADDING = 4;
-      const SPEED_BUBBLE_MIN_WIDTH = 48;
+      const SPEED_BUBBLE_MIN_WIDTH = 60;
       const SPEED_BUBBLE_MIN_HEIGHT = 20;
       const SPEED_BUBBLE_CORNER_RADIUS = 10;
       const SPEED_BUBBLE_LEADER_OFFSET = 15;
       const NAME_BUBBLE_BASE_FONT_PX = 14;
       const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
-      const NAME_BUBBLE_VERTICAL_PADDING = 8;
+      const NAME_BUBBLE_VERTICAL_PADDING = 3;
       const NAME_BUBBLE_MIN_WIDTH = 40;
-      const NAME_BUBBLE_MIN_HEIGHT = 30;
+      const NAME_BUBBLE_MIN_HEIGHT = 20;
       const NAME_BUBBLE_CORNER_RADIUS = 10;
       const NAME_BUBBLE_LEADER_OFFSET = 10;
+      const NAME_BUBBLE_FRAME_INSET = 5;
       const BLOCK_BUBBLE_BASE_FONT_PX = 14;
       const BLOCK_BUBBLE_HORIZONTAL_PADDING = 14;
-      const BLOCK_BUBBLE_VERTICAL_PADDING = 8;
+      const BLOCK_BUBBLE_VERTICAL_PADDING = 3;
       const BLOCK_BUBBLE_MIN_WIDTH = 40;
-      const BLOCK_BUBBLE_MIN_HEIGHT = 30;
+      const BLOCK_BUBBLE_MIN_HEIGHT = 20;
       const BLOCK_BUBBLE_CORNER_RADIUS = 10;
       const BLOCK_BUBBLE_LEADER_OFFSET = 13;
+      const BLOCK_BUBBLE_FRAME_INSET = 5;
       const LABEL_BASE_STROKE_WIDTH = 3;
       const MIN_HEADING_DISTANCE_METERS = 2;
       const MIN_POSITION_UPDATE_METERS = 0.5;
@@ -4347,22 +4349,26 @@
           const height = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
           const radius = SPEED_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const anchorX = width / 2;
-          const anchorY = -SPEED_BUBBLE_LEADER_OFFSET * safeScale;
           const svgWidth = roundToTwoDecimals(width);
           const svgHeight = roundToTwoDecimals(height);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const textY = roundToTwoDecimals(svgHeight / 2);
+          const anchorX = roundToTwoDecimals(svgWidth / 2);
+          const anchorY = roundToTwoDecimals(-SPEED_BUBBLE_LEADER_OFFSET * safeScale);
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${roundToTwoDecimals(radius)}" ry="${roundToTwoDecimals(radius)}" fill="${fillColor}" stroke="white" stroke-width="${roundToTwoDecimals(strokeWidth)}" />
-                      <text x="${roundToTwoDecimals(svgWidth / 2)}" y="${roundToTwoDecimals(svgHeight / 2)}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
+                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
               html: svg,
               className: '',
               iconSize: [svgWidth, svgHeight],
-              iconAnchor: [roundToTwoDecimals(anchorX), roundToTwoDecimals(anchorY)]
+              iconAnchor: [anchorX, anchorY]
           });
       }
 
@@ -4378,28 +4384,36 @@
           const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, NAME_BUBBLE_BASE_FONT_PX * safeScale);
           const horizontalPadding = NAME_BUBBLE_HORIZONTAL_PADDING * safeScale;
           const verticalPadding = NAME_BUBBLE_VERTICAL_PADDING * safeScale;
+          const frameInset = NAME_BUBBLE_FRAME_INSET * safeScale;
           const textWidth = measureLabelTextWidth(name, fontSize);
-          const width = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
-          const height = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const rectWidth = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const svgWidth = roundToTwoDecimals(rectWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const anchorX = width / 2;
-          const anchorY = height + NAME_BUBBLE_LEADER_OFFSET * safeScale;
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectY = roundToTwoDecimals(frameInset);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2);
+          const anchorX = textX;
+          const anchorY = roundToTwoDecimals(svgHeight + NAME_BUBBLE_LEADER_OFFSET * safeScale);
           const textColor = getContrastColor(fillColor);
-          const svgWidth = roundToTwoDecimals(width);
-          const svgHeight = roundToTwoDecimals(height);
+          const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${roundToTwoDecimals(radius)}" ry="${roundToTwoDecimals(radius)}" fill="${fillColor}" stroke="white" stroke-width="${roundToTwoDecimals(strokeWidth)}" />
-                      <text x="${roundToTwoDecimals(svgWidth / 2)}" y="${roundToTwoDecimals(svgHeight / 2)}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
               html: svg,
               className: '',
               iconSize: [svgWidth, svgHeight],
-              iconAnchor: [roundToTwoDecimals(anchorX), roundToTwoDecimals(anchorY)]
+              iconAnchor: [anchorX, anchorY]
           });
       }
 
@@ -4415,28 +4429,36 @@
           const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, BLOCK_BUBBLE_BASE_FONT_PX * safeScale);
           const horizontalPadding = BLOCK_BUBBLE_HORIZONTAL_PADDING * safeScale;
           const verticalPadding = BLOCK_BUBBLE_VERTICAL_PADDING * safeScale;
+          const frameInset = BLOCK_BUBBLE_FRAME_INSET * safeScale;
           const textWidth = measureLabelTextWidth(name, fontSize);
-          const width = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
-          const height = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const rectWidth = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const svgWidth = roundToTwoDecimals(rectWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const anchorX = width / 2;
-          const anchorY = -BLOCK_BUBBLE_LEADER_OFFSET * safeScale;
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectY = roundToTwoDecimals(frameInset);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2);
+          const anchorX = textX;
+          const anchorY = roundToTwoDecimals(-BLOCK_BUBBLE_LEADER_OFFSET * safeScale);
           const textColor = getContrastColor(fillColor);
-          const svgWidth = roundToTwoDecimals(width);
-          const svgHeight = roundToTwoDecimals(height);
+          const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${roundToTwoDecimals(radius)}" ry="${roundToTwoDecimals(radius)}" fill="${fillColor}" stroke="white" stroke-width="${roundToTwoDecimals(strokeWidth)}" />
-                      <text x="${roundToTwoDecimals(svgWidth / 2)}" y="${roundToTwoDecimals(svgHeight / 2)}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
               html: svg,
               className: '',
               iconSize: [svgWidth, svgHeight],
-              iconAnchor: [roundToTwoDecimals(anchorX), roundToTwoDecimals(anchorY)]
+              iconAnchor: [anchorX, anchorY]
           });
       }
 
