@@ -908,9 +908,10 @@
 
       const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
       const BUS_MARKER_VIEWBOX_HEIGHT = 69.99;
-      const BUS_MARKER_RING_CENTER = Object.freeze({ x: 26.5, y: 43.49 });
-      const BUS_MARKER_RING_CENTER_X = BUS_MARKER_RING_CENTER.x;
-      const BUS_MARKER_RING_CENTER_Y = BUS_MARKER_RING_CENTER.y;
+      const BUS_MARKER_RING_CENTER_FALLBACK = Object.freeze({ x: 26.5, y: 43.49 });
+      let BUS_MARKER_RING_CENTER_X = BUS_MARKER_RING_CENTER_FALLBACK.x;
+      let BUS_MARKER_RING_CENTER_Y = BUS_MARKER_RING_CENTER_FALLBACK.y;
+      let BUS_MARKER_RING_CENTER = Object.freeze({ x: BUS_MARKER_RING_CENTER_X, y: BUS_MARKER_RING_CENTER_Y });
       const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
       const BUS_MARKER_BASE_WIDTH_PX = 26;
       const BUS_MARKER_MIN_WIDTH_PX = 18;
@@ -919,10 +920,12 @@
       const BUS_MARKER_MIN_SCALE = BUS_MARKER_MIN_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
       const BUS_MARKER_MAX_SCALE = BUS_MARKER_MAX_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
       const BUS_MARKER_SCALE_ZOOM_FACTOR = 5;
-      const BUS_MARKER_ANCHOR_X = BUS_MARKER_RING_CENTER_X;
-      const BUS_MARKER_ANCHOR_Y = BUS_MARKER_RING_CENTER_Y; // final screen-space pivot at the ring centre
-      const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_ANCHOR_X / BUS_MARKER_VIEWBOX_WIDTH;
-      const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_ANCHOR_Y / BUS_MARKER_VIEWBOX_HEIGHT;
+      let BUS_MARKER_ANCHOR_X = BUS_MARKER_RING_CENTER_X;
+      let BUS_MARKER_ANCHOR_Y = BUS_MARKER_RING_CENTER_Y; // final screen-space pivot at the ring centre
+      let BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_ANCHOR_X / BUS_MARKER_VIEWBOX_WIDTH;
+      let BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_ANCHOR_Y / BUS_MARKER_VIEWBOX_HEIGHT;
+      const BUS_MARKER_RING_CENTER_TOLERANCE = 0.01;
+      let busMarkerIconRefreshInProgress = false;
       const BUS_MARKER_DEFAULT_HEADING = 0;
       const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0B7A26';
       const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
@@ -4156,6 +4159,72 @@
           return { scale, widthPx: width, heightPx: height };
       }
 
+      function setBusMarkerRingCenterCoordinates(centerX, centerY) {
+          if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+              return;
+          }
+          BUS_MARKER_RING_CENTER_X = centerX;
+          BUS_MARKER_RING_CENTER_Y = centerY;
+          BUS_MARKER_RING_CENTER = Object.freeze({ x: centerX, y: centerY });
+          BUS_MARKER_ANCHOR_X = centerX;
+          BUS_MARKER_ANCHOR_Y = centerY;
+          BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_ANCHOR_X / BUS_MARKER_VIEWBOX_WIDTH;
+          BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_ANCHOR_Y / BUS_MARKER_VIEWBOX_HEIGHT;
+      }
+
+      function refreshBusMarkerIconsForRingCenterChange() {
+          if (busMarkerIconRefreshInProgress) {
+              return;
+          }
+          busMarkerIconRefreshInProgress = true;
+          try {
+              Object.keys(markers).forEach(vehicleID => {
+                  const marker = markers[vehicleID];
+                  const state = busMarkerStates[vehicleID];
+                  if (!marker || !state) {
+                      return;
+                  }
+                  const icon = createBusMarkerDivIcon(vehicleID, state);
+                  marker.setIcon(icon);
+                  registerBusMarkerElements(vehicleID);
+                  attachBusMarkerInteractions(vehicleID);
+                  updateBusMarkerRootClasses(state);
+                  updateBusMarkerZIndex(state);
+                  applyBusMarkerOutlineWidth(state);
+              });
+          } finally {
+              busMarkerIconRefreshInProgress = false;
+          }
+      }
+
+      function updateBusMarkerRingCenterFromElement(ringElement) {
+          if (!ringElement || typeof ringElement.getBBox !== 'function' || busMarkerIconRefreshInProgress) {
+              return;
+          }
+          let bbox;
+          try {
+              bbox = ringElement.getBBox();
+          } catch (error) {
+              return;
+          }
+          if (!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) {
+              return;
+          }
+          const centerX = bbox.x + bbox.width / 2;
+          const centerY = bbox.y + bbox.height / 2;
+          if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+              return;
+          }
+          const deltaX = Math.abs(centerX - BUS_MARKER_RING_CENTER_X);
+          const deltaY = Math.abs(centerY - BUS_MARKER_RING_CENTER_Y);
+          const hasMeaningfulChange = deltaX > BUS_MARKER_RING_CENTER_TOLERANCE || deltaY > BUS_MARKER_RING_CENTER_TOLERANCE;
+          if (!hasMeaningfulChange) {
+              return;
+          }
+          setBusMarkerRingCenterCoordinates(centerX, centerY);
+          refreshBusMarkerIconsForRingCenterChange();
+      }
+
       function ensureBusMarkerState(vehicleID) {
           if (!busMarkerStates[vehicleID]) {
               const defaultRouteColor = BUS_MARKER_DEFAULT_ROUTE_COLOR;
@@ -4546,6 +4615,9 @@
           const arrow = root ? root.querySelector('.bus-marker__arrow') : null;
           const halo = root ? root.querySelector('.bus-marker__halo') : null;
           const title = svg ? svg.querySelector('title') : null;
+          if (ring) {
+              updateBusMarkerRingCenterFromElement(ring);
+          }
           state.elements = { icon: iconElement, root, svg, rotator, rotators, body, ring, arrow, halo, title };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
