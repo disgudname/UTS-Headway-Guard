@@ -139,12 +139,11 @@
         width: 100%;
         height: 100%;
         overflow: visible;
-        transition: filter 0.2s ease;
-      }
-      .bus-marker__rotator {
+        transition: transform 0.2s ease, filter 0.2s ease;
         transform-box: view-box;
         transform-origin: 26.5px 43.49px;
         will-change: transform;
+        pointer-events: none;
       }
       .bus-marker__svg .st1 {
         paint-order: stroke fill;
@@ -158,8 +157,8 @@
       .bus-marker__svg #halo {
         pointer-events: none;
       }
-      .bus-marker__root.is-stale .bus-marker__body {
-        fill-opacity: 0.6;
+      .bus-marker__root.is-stale .bus-marker__svg {
+        opacity: 0.6;
       }
       .bus-marker__root.is-hover .bus-marker__svg {
         filter: drop-shadow(0 3px 8px rgba(15, 23, 42, 0.35));
@@ -904,13 +903,11 @@
 
       const BUS_MARKER_SVG_URL = 'busmarker.svg';
 
-      let BUS_MARKER_VIEWBOX_WIDTH = 56;
-      let BUS_MARKER_VIEWBOX_HEIGHT = 80;
-      const BUS_MARKER_RING_CENTER_FALLBACK = Object.freeze({ x: 28, y: 28 });
-      let BUS_MARKER_RING_CENTER_X = BUS_MARKER_RING_CENTER_FALLBACK.x;
-      let BUS_MARKER_RING_CENTER_Y = BUS_MARKER_RING_CENTER_FALLBACK.y;
-      let BUS_MARKER_RING_CENTER = Object.freeze({ x: BUS_MARKER_RING_CENTER_X, y: BUS_MARKER_RING_CENTER_Y });
-      let BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
+      const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
+      const BUS_MARKER_VIEWBOX_HEIGHT = 69.99;
+      const BUS_MARKER_PIVOT_X = 26.5;
+      const BUS_MARKER_PIVOT_Y = 43.49;
+      const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
       const BUS_MARKER_BASE_WIDTH_PX = 26;
       const BUS_MARKER_MIN_WIDTH_PX = 18;
       const BUS_MARKER_MAX_WIDTH_PX = 48;
@@ -918,12 +915,8 @@
       const BUS_MARKER_MIN_SCALE = BUS_MARKER_MIN_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
       const BUS_MARKER_MAX_SCALE = BUS_MARKER_MAX_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
       const BUS_MARKER_SCALE_ZOOM_FACTOR = 5;
-      let BUS_MARKER_ANCHOR_X = BUS_MARKER_RING_CENTER_X;
-      let BUS_MARKER_ANCHOR_Y = BUS_MARKER_RING_CENTER_Y; // final screen-space pivot at the ring centre
-      let BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_ANCHOR_X / BUS_MARKER_VIEWBOX_WIDTH;
-      let BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_ANCHOR_Y / BUS_MARKER_VIEWBOX_HEIGHT;
-      const BUS_MARKER_RING_CENTER_TOLERANCE = 0.01;
-      let busMarkerIconRefreshInProgress = false;
+      const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_PIVOT_X / BUS_MARKER_VIEWBOX_WIDTH;
+      const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_PIVOT_Y / BUS_MARKER_VIEWBOX_HEIGHT;
       const BUS_MARKER_DEFAULT_HEADING = 0;
       const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0B7A26';
       const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
@@ -4168,105 +4161,6 @@
           return { scale, widthPx: width, heightPx: height };
       }
 
-      function setBusMarkerRingCenterCoordinates(centerX, centerY) {
-          if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
-              return;
-          }
-          BUS_MARKER_RING_CENTER_X = centerX;
-          BUS_MARKER_RING_CENTER_Y = centerY;
-          BUS_MARKER_RING_CENTER = Object.freeze({ x: centerX, y: centerY });
-          BUS_MARKER_ANCHOR_X = centerX;
-          BUS_MARKER_ANCHOR_Y = centerY;
-          BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_ANCHOR_X / BUS_MARKER_VIEWBOX_WIDTH;
-          BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_ANCHOR_Y / BUS_MARKER_VIEWBOX_HEIGHT;
-      }
-
-      async function refreshBusMarkerIconsForRingCenterChange() {
-          if (busMarkerIconRefreshInProgress) {
-              return;
-          }
-          busMarkerIconRefreshInProgress = true;
-          try {
-              try {
-                  await loadBusSVG();
-              } catch (error) {
-                  console.error('Failed to load bus marker SVG while refreshing icons:', error);
-              }
-              for (const vehicleID of Object.keys(markers)) {
-                  const marker = markers[vehicleID];
-                  const state = busMarkerStates[vehicleID];
-                  if (!marker || !state) {
-                      continue;
-                  }
-                  try {
-                      const icon = await createBusMarkerDivIcon(vehicleID, state);
-                      if (!icon) {
-                          continue;
-                      }
-                      marker.setIcon(icon);
-                      registerBusMarkerElements(vehicleID);
-                      attachBusMarkerInteractions(vehicleID);
-                      updateBusMarkerRootClasses(state);
-                      updateBusMarkerZIndex(state);
-                      applyBusMarkerOutlineWidth(state);
-                  } catch (error) {
-                      console.error(`Failed to refresh bus marker icon for vehicle ${vehicleID}:`, error);
-                  }
-              }
-          } finally {
-              busMarkerIconRefreshInProgress = false;
-          }
-      }
-
-      function updateBusMarkerAnchorPointFromElement(anchorElement) {
-          if (!anchorElement || busMarkerIconRefreshInProgress) {
-              return;
-          }
-          const cxAttr = anchorElement.getAttribute('cx');
-          const cyAttr = anchorElement.getAttribute('cy');
-          const centerX = Number(cxAttr);
-          const centerY = Number(cyAttr);
-          if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
-              return;
-          }
-          const deltaX = Math.abs(centerX - BUS_MARKER_RING_CENTER_X);
-          const deltaY = Math.abs(centerY - BUS_MARKER_RING_CENTER_Y);
-          const hasMeaningfulChange = deltaX > BUS_MARKER_RING_CENTER_TOLERANCE || deltaY > BUS_MARKER_RING_CENTER_TOLERANCE;
-          if (!hasMeaningfulChange) {
-              return;
-          }
-          setBusMarkerRingCenterCoordinates(centerX, centerY);
-          refreshBusMarkerIconsForRingCenterChange();
-      }
-
-      function updateBusMarkerRingCenterFromElement(ringElement) {
-          if (!ringElement || typeof ringElement.getBBox !== 'function' || busMarkerIconRefreshInProgress) {
-              return;
-          }
-          let bbox;
-          try {
-              bbox = ringElement.getBBox();
-          } catch (error) {
-              return;
-          }
-          if (!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) {
-              return;
-          }
-          const centerX = bbox.x + bbox.width / 2;
-          const centerY = bbox.y + bbox.height / 2;
-          if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
-              return;
-          }
-          const deltaX = Math.abs(centerX - BUS_MARKER_RING_CENTER_X);
-          const deltaY = Math.abs(centerY - BUS_MARKER_RING_CENTER_Y);
-          const hasMeaningfulChange = deltaX > BUS_MARKER_RING_CENTER_TOLERANCE || deltaY > BUS_MARKER_RING_CENTER_TOLERANCE;
-          if (!hasMeaningfulChange) {
-              return;
-          }
-          setBusMarkerRingCenterCoordinates(centerX, centerY);
-          refreshBusMarkerIconsForRingCenterChange();
-      }
-
       function ensureBusMarkerState(vehicleID) {
           if (!busMarkerStates[vehicleID]) {
               const defaultRouteColor = BUS_MARKER_DEFAULT_ROUTE_COLOR;
@@ -4583,82 +4477,6 @@
               .replace(/'/g, '&#39;');
       }
 
-      function updateBusMarkerGeometryFromSvg(svgEl) {
-          if (!svgEl || typeof svgEl.getAttribute !== 'function') {
-              return;
-          }
-          let width = BUS_MARKER_VIEWBOX_WIDTH;
-          let height = BUS_MARKER_VIEWBOX_HEIGHT;
-          const viewBoxAttr = svgEl.getAttribute('viewBox');
-          if (typeof viewBoxAttr === 'string') {
-              const parts = viewBoxAttr.trim().split(/\s+/);
-              if (parts.length === 4) {
-                  const parsedWidth = Number(parts[2]);
-                  const parsedHeight = Number(parts[3]);
-                  if (Number.isFinite(parsedWidth) && parsedWidth > 0) {
-                      width = parsedWidth;
-                  }
-                  if (Number.isFinite(parsedHeight) && parsedHeight > 0) {
-                      height = parsedHeight;
-                  }
-              }
-          } else {
-              const widthAttr = Number(svgEl.getAttribute('width'));
-              const heightAttr = Number(svgEl.getAttribute('height'));
-              if (Number.isFinite(widthAttr) && widthAttr > 0) {
-                  width = widthAttr;
-              }
-              if (Number.isFinite(heightAttr) && heightAttr > 0) {
-                  height = heightAttr;
-              }
-          }
-          BUS_MARKER_VIEWBOX_WIDTH = width;
-          BUS_MARKER_VIEWBOX_HEIGHT = height;
-          BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
-
-          let centerX = BUS_MARKER_RING_CENTER_FALLBACK.x;
-          let centerY = BUS_MARKER_RING_CENTER_FALLBACK.y;
-          const ringSelectors = ['#center_ring', '[data-marker-segment="center_ring"]'];
-          let ringElement = null;
-          for (let i = 0; i < ringSelectors.length && !ringElement; i += 1) {
-              ringElement = svgEl.querySelector(ringSelectors[i]);
-          }
-          if (ringElement && typeof ringElement.getBBox === 'function' && document?.body) {
-              const tempContainer = document.createElement('div');
-              tempContainer.style.position = 'absolute';
-              tempContainer.style.width = '0';
-              tempContainer.style.height = '0';
-              tempContainer.style.overflow = 'hidden';
-              tempContainer.style.visibility = 'hidden';
-              const tempSvg = svgEl.cloneNode(true);
-              tempSvg.style.position = 'absolute';
-              tempSvg.style.pointerEvents = 'none';
-              tempSvg.style.visibility = 'hidden';
-              tempContainer.appendChild(tempSvg);
-              document.body.appendChild(tempContainer);
-              try {
-                  let candidate = null;
-                  for (let i = 0; i < ringSelectors.length && !candidate; i += 1) {
-                      candidate = tempSvg.querySelector(ringSelectors[i]);
-                  }
-                  if (candidate) {
-                      const bbox = candidate.getBBox();
-                      if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.width) && Number.isFinite(bbox.y) && Number.isFinite(bbox.height)) {
-                          centerX = bbox.x + bbox.width / 2;
-                          centerY = bbox.y + bbox.height / 2;
-                      }
-                  }
-              } catch (error) {
-                  console.warn('Unable to measure bus marker ring center from SVG:', error);
-              } finally {
-                  if (tempContainer.parentNode) {
-                      tempContainer.parentNode.removeChild(tempContainer);
-                  }
-              }
-          }
-          setBusMarkerRingCenterCoordinates(centerX, centerY);
-      }
-
       function contrastBW(hex) {
           if (typeof hex !== 'string' || hex.trim().length === 0) {
               return '#FFFFFF';
@@ -4677,43 +4495,6 @@
           return L > 0.55 ? '#000000' : '#FFFFFF';
       }
 
-      function applyMarkerColors(svgEl, routeHex, glyphOverride = null, fillOpacity = '1') {
-          if (!svgEl) {
-              return;
-          }
-          const routeColor = typeof routeHex === 'string' && routeHex.trim().length > 0 ? routeHex.trim() : BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const glyphColor = typeof glyphOverride === 'string' && glyphOverride.trim().length > 0 ? glyphOverride.trim() : contrastBW(routeColor);
-          const safeOpacity = typeof fillOpacity === 'string' ? fillOpacity : `${fillOpacity}`;
-          const routeSegments = Array.from(svgEl.querySelectorAll('.st1'));
-          routeSegments.forEach(segment => {
-              segment.setAttribute('fill', routeColor);
-              segment.style.fill = routeColor;
-              segment.setAttribute('fill-opacity', safeOpacity);
-              segment.style.fillOpacity = safeOpacity;
-          });
-          const ringAndArrowSegments = [];
-          const ring = svgEl.querySelector('#center_ring');
-          if (ring) {
-              ringAndArrowSegments.push(ring);
-          }
-          const arrow = svgEl.querySelector('#heading_arrow');
-          if (arrow) {
-              ringAndArrowSegments.push(arrow);
-          }
-          if (ringAndArrowSegments.length === 0) {
-              ringAndArrowSegments.push(...svgEl.querySelectorAll('.st0'));
-          }
-          ringAndArrowSegments.forEach(segment => {
-              segment.setAttribute('fill', glyphColor);
-              segment.style.fill = glyphColor;
-          });
-          const halo = svgEl.querySelector('#halo');
-          if (halo) {
-              halo.setAttribute('fill', '#FFFFFF');
-              halo.style.fill = '#FFFFFF';
-          }
-      }
-
       async function loadBusSVG() {
           if (BUS_MARKER_SVG_TEXT) {
               return BUS_MARKER_SVG_TEXT;
@@ -4730,10 +4511,10 @@
                       const template = document.createElement('template');
                       template.innerHTML = text.trim();
                       const parsedSvg = template.content.firstElementChild;
-                      if (parsedSvg && parsedSvg.tagName && parsedSvg.tagName.toLowerCase() === 'svg') {
-                          updateBusMarkerGeometryFromSvg(parsedSvg);
+                      if (!parsedSvg || parsedSvg.tagName.toLowerCase() !== 'svg') {
+                          throw new Error('Loaded bus marker asset is not a valid SVG.');
                       }
-                      BUS_MARKER_SVG_TEXT = text;
+                      BUS_MARKER_SVG_TEXT = parsedSvg.outerHTML;
                       BUS_MARKER_SVG_LOAD_PROMISE = null;
                       return BUS_MARKER_SVG_TEXT;
                   })
@@ -4743,14 +4524,6 @@
                   });
           }
           return BUS_MARKER_SVG_LOAD_PROMISE;
-      }
-
-      function computeMarkerRotationTransform(headingDeg) {
-          const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
-          const pivotX = BUS_MARKER_RING_CENTER_X;
-          const pivotY = BUS_MARKER_RING_CENTER_Y;
-          const rotation = normalizedHeading.toFixed(2);
-          return `rotate(${rotation} ${pivotX} ${pivotY})`;
       }
 
       async function createBusMarkerDivIcon(vehicleID, state) {
@@ -4774,10 +4547,8 @@
           const height = state.size?.heightPx ?? width * BUS_MARKER_ASPECT_RATIO;
           const anchorX = width * BUS_MARKER_ICON_ANCHOR_X_RATIO;
           const anchorY = height * BUS_MARKER_ICON_ANCHOR_Y_RATIO;
-          const routeColor = state?.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const glyphColor = state?.glyphColor || computeBusMarkerGlyphColor(routeColor);
           const headingDeg = Number.isFinite(state?.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
-          const fillOpacity = state?.isStale ? '0.6' : '1';
+          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
           const label = state?.accessibleLabel && state.accessibleLabel.trim().length > 0
               ? state.accessibleLabel.trim()
               : `Vehicle ${vehicleID}`;
@@ -4787,7 +4558,6 @@
           if (!svgEl || svgEl.tagName.toLowerCase() !== 'svg') {
               return null;
           }
-          svgEl.querySelectorAll('style').forEach(styleNode => styleNode.remove());
           svgEl.classList.add('bus-marker__svg');
           svgEl.setAttribute('viewBox', `0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}`);
           svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -4795,28 +4565,18 @@
           svgEl.setAttribute('role', 'img');
           svgEl.setAttribute('aria-label', label);
           svgEl.setAttribute('overflow', 'visible');
+          svgEl.style.width = '100%';
+          svgEl.style.height = '100%';
+          svgEl.style.transformOrigin = `${BUS_MARKER_PIVOT_X}px ${BUS_MARKER_PIVOT_Y}px`;
+          svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
 
           const existingTitle = svgEl.querySelector('title');
-          if (existingTitle) {
-              existingTitle.remove();
+          let title = existingTitle;
+          if (!title) {
+              title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+              svgEl.insertBefore(title, svgEl.firstChild);
           }
-          const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
           title.textContent = label;
-          svgEl.insertBefore(title, svgEl.firstChild);
-
-          const rotator = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-          rotator.classList.add('bus-marker__rotator');
-          rotator.setAttribute('transform', computeMarkerRotationTransform(headingDeg));
-          const nodesToWrap = [];
-          for (let child = svgEl.firstChild; child; child = child.nextSibling) {
-              if (child !== title) {
-                  nodesToWrap.push(child);
-              }
-          }
-          nodesToWrap.forEach(node => rotator.appendChild(node));
-          svgEl.appendChild(rotator);
-
-          applyMarkerColors(svgEl, routeColor, glyphColor, fillOpacity);
 
           const rootClasses = ['bus-marker__root'];
           if (state?.isStale) rootClasses.push('is-stale');
@@ -4853,23 +4613,11 @@
           }
           const root = iconElement.querySelector('.bus-marker__root');
           const svg = root ? root.querySelector('.bus-marker__svg') : null;
-          const rotators = svg ? Array.from(svg.querySelectorAll('.bus-marker__rotator')) : [];
-          const rotator = rotators.length > 0 ? rotators[0] : null;
-          const routeSegments = svg ? Array.from(svg.querySelectorAll('.st1')) : [];
-          const ringSegments = svg ? Array.from(svg.querySelectorAll('#center_ring')) : [];
-          const arrowSegments = svg ? Array.from(svg.querySelectorAll('#heading_arrow')) : [];
-          const contrastSegments = [...ringSegments, ...arrowSegments];
-          const halo = svg ? svg.querySelector('#halo') : null;
           const title = svg ? svg.querySelector('title') : null;
           state.elements = {
               icon: iconElement,
               root,
               svg,
-              rotator,
-              rotators,
-              routeSegments,
-              contrastSegments,
-              halo,
               title
           };
           if (root) {
@@ -4877,6 +4625,7 @@
           }
           if (svg) {
               svg.style.pointerEvents = 'none';
+              svg.style.transformOrigin = `${BUS_MARKER_PIVOT_X}px ${BUS_MARKER_PIVOT_Y}px`;
           }
           return state.elements;
       }
@@ -4925,12 +4674,9 @@
           if (update && Number.isFinite(update.headingDeg)) {
               state.headingDeg = normalizeHeadingDegrees(update.headingDeg);
           }
-          const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const glyphColor = state.glyphColor || computeBusMarkerGlyphColor(routeColor);
-          state.glyphColor = glyphColor;
-          const fillOpacity = state.isStale ? '0.6' : '1';
+          const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
-              applyMarkerColors(elements.svg, routeColor, glyphColor, fillOpacity);
+              elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`;
               if (state.accessibleLabel) {
                   elements.svg.setAttribute('aria-label', state.accessibleLabel);
               }
@@ -4941,32 +4687,16 @@
           if (elements.title && state.accessibleLabel) {
               elements.title.textContent = state.accessibleLabel;
           }
-          const rotation = computeMarkerRotationTransform(state.headingDeg);
-          if (Array.isArray(elements.rotators) && elements.rotators.length > 0) {
-              elements.rotators.forEach(rotatorEl => {
-                  if (rotatorEl) {
-                      rotatorEl.setAttribute('transform', rotation);
-                  }
-              });
-          } else if (elements.rotator) {
-              elements.rotator.setAttribute('transform', rotation);
-          }
           updateBusMarkerRootClasses(state);
           updateBusMarkerZIndex(state);
           applyBusMarkerOutlineWidth(state);
       }
 
       function applyBusMarkerOutlineWidth(state) {
-          if (!state?.elements) {
+          if (!state?.elements?.svg) {
               return;
           }
-          const fillOpacity = state.isStale ? '0.6' : '1';
-          if (Array.isArray(state.elements.routeSegments)) {
-              state.elements.routeSegments.forEach(segment => {
-                  segment.setAttribute('fill-opacity', fillOpacity);
-                  segment.style.fillOpacity = fillOpacity;
-              });
-          }
+          state.elements.svg.style.opacity = state.isStale ? '0.6' : '1';
       }
 
       function updateBusMarkerRootClasses(state) {
