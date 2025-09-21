@@ -142,8 +142,8 @@
         transition: filter 0.2s ease;
       }
       .bus-marker__rotator {
-        transform-box: view-box;
-        transform-origin: 28px 28px;
+        transform-box: fill-box;
+        transform-origin: 50% 35%;
         will-change: transform;
       }
       .bus-marker__body {
@@ -900,25 +900,18 @@
       let pendingBusVisualUpdates = new Map();
       let busMarkerVisualUpdateFrame = null;
       let selectedVehicleId = null;
-      let markerScaleUpdateFrame = null;
-      let pendingMarkerScaleMetrics = null;
-      let textMeasurementCanvas = null;
 
       const BUS_MARKER_VIEWBOX_WIDTH = 56;
       const BUS_MARKER_VIEWBOX_HEIGHT = 80;
-      const BUS_MARKER_RING_CENTER = Object.freeze({ x: 28, y: 28 });
-      const BUS_MARKER_RING_CENTER_X = BUS_MARKER_RING_CENTER.x;
-      const BUS_MARKER_RING_CENTER_Y = BUS_MARKER_RING_CENTER.y;
       const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
-      const BUS_MARKER_BASE_WIDTH_PX = 26;
-      const BUS_MARKER_MIN_WIDTH_PX = 18;
-      const BUS_MARKER_MAX_WIDTH_PX = 48;
+      const BUS_MARKER_BASE_WIDTH_PX = 30;
+      const BUS_MARKER_MIN_WIDTH_PX = 20;
+      const BUS_MARKER_MAX_WIDTH_PX = 56;
       const BUS_MARKER_BASE_ZOOM = 15;
-      const BUS_MARKER_MIN_SCALE = BUS_MARKER_MIN_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
-      const BUS_MARKER_MAX_SCALE = BUS_MARKER_MAX_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
-      const BUS_MARKER_SCALE_ZOOM_FACTOR = 5;
-      const BUS_MARKER_ANCHOR_X = BUS_MARKER_RING_CENTER_X;
-      const BUS_MARKER_ANCHOR_Y = BUS_MARKER_RING_CENTER_Y; // final screen-space pivot at the ring centre
+      const BUS_MARKER_ANCHOR_X = 28;
+      const BUS_MARKER_ANCHOR_Y = 28; // final screen-space pivot at the ring centre
+      const BUS_MARKER_RING_CENTER_X = BUS_MARKER_ANCHOR_X;
+      const BUS_MARKER_RING_CENTER_Y = BUS_MARKER_ANCHOR_Y; // ring centre inside the SVG artwork
       const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_ANCHOR_X / BUS_MARKER_VIEWBOX_WIDTH;
       const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_ANCHOR_Y / BUS_MARKER_VIEWBOX_HEIGHT;
       const BUS_MARKER_DEFAULT_HEADING = 0;
@@ -931,30 +924,6 @@
       const BUS_MARKER_INNER_ROTATE_X = BUS_MARKER_RING_CENTER_X;
       const BUS_MARKER_INNER_ROTATE_Y = 40;
       const BUS_MARKER_INNER_ROTATE_DEGREES = 180;
-      const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
-      const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
-      const SPEED_BUBBLE_BASE_FONT_PX = 12;
-      const SPEED_BUBBLE_HORIZONTAL_PADDING = 12;
-      const SPEED_BUBBLE_VERTICAL_PADDING = 4;
-      const SPEED_BUBBLE_MIN_WIDTH = 48;
-      const SPEED_BUBBLE_MIN_HEIGHT = 20;
-      const SPEED_BUBBLE_CORNER_RADIUS = 10;
-      const SPEED_BUBBLE_LEADER_OFFSET = 15;
-      const NAME_BUBBLE_BASE_FONT_PX = 14;
-      const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
-      const NAME_BUBBLE_VERTICAL_PADDING = 8;
-      const NAME_BUBBLE_MIN_WIDTH = 40;
-      const NAME_BUBBLE_MIN_HEIGHT = 30;
-      const NAME_BUBBLE_CORNER_RADIUS = 10;
-      const NAME_BUBBLE_LEADER_OFFSET = 10;
-      const BLOCK_BUBBLE_BASE_FONT_PX = 14;
-      const BLOCK_BUBBLE_HORIZONTAL_PADDING = 14;
-      const BLOCK_BUBBLE_VERTICAL_PADDING = 8;
-      const BLOCK_BUBBLE_MIN_WIDTH = 40;
-      const BLOCK_BUBBLE_MIN_HEIGHT = 30;
-      const BLOCK_BUBBLE_CORNER_RADIUS = 10;
-      const BLOCK_BUBBLE_LEADER_OFFSET = 13;
-      const LABEL_BASE_STROKE_WIDTH = 3;
       const MIN_HEADING_DISTANCE_METERS = 2;
       const MIN_POSITION_UPDATE_METERS = 0.5;
       const MIN_HEADING_SPEED_METERS_PER_SECOND = 1;
@@ -2175,7 +2144,6 @@
             }
           }
           map.on('zoom', () => {
-              scheduleMarkerScaleUpdate();
               updatePopupPositions();
           });
           map.on('move', () => {
@@ -2185,7 +2153,7 @@
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
-              scheduleMarkerScaleUpdate();
+              updateBusMarkerSizes();
               updatePopupPositions();
           });
       }
@@ -4018,56 +3986,88 @@
                               applyBusMarkerOutlineWidth(state);
                           }
                           if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
-                              const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale);
-                              if (speedIcon) {
+                              const speedBubble = `
+                                  <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
+                                      <g>
+                                          <rect x="0" y="0" width="60" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                          <text x="30" y="15" font-size="12" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${Math.round(groundSpeed)} MPH</text>
+                                      </g>
+                                  </svg>`;
+                              const speedIcon = L.divIcon({
+                                  html: speedBubble,
+                                  className: '',
+                                  iconSize: [60, 20],
+                                  iconAnchor: [30, -15]
+                              });
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
+                                  nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
+                              } else {
                                   nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                  if (nameBubbles[vehicleID].speedMarker) {
-                                      animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
-                                      nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
-                                  } else {
-                                      nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                                  }
-                              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
+                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              }
+                          } else {
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
                                   map.removeLayer(nameBubbles[vehicleID].speedMarker);
                                   delete nameBubbles[vehicleID].speedMarker;
                               }
-                          } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
-                              map.removeLayer(nameBubbles[vehicleID].speedMarker);
-                              delete nameBubbles[vehicleID].speedMarker;
                           }
                           if (adminMode && !kioskMode) {
-                              const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale);
-                              if (nameIcon) {
+                              const bubbleWidth = Math.max(40, busName.length * 10);
+                              const nameBubble = `
+                                  <svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg">
+                                      <g>
+                                          <rect x="0" y="5" width="${bubbleWidth}" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                          <text x="${bubbleWidth / 2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${busName}</text>
+                                      </g>
+                                  </svg>`;
+                              const nameIcon = L.divIcon({
+                                  html: nameBubble,
+                                  className: '',
+                                  iconSize: [bubbleWidth, 30],
+                                  iconAnchor: [bubbleWidth / 2, 40]
+                              });
+                              if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
+                                  nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
+                              } else {
                                   nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                  if (nameBubbles[vehicleID].nameMarker) {
-                                      animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
-                                      nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
-                                  } else {
-                                      nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                                  }
-                              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
-                                  map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                                  delete nameBubbles[vehicleID].nameMarker;
+                                  nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                               }
 
                               const blockName = busBlocks[vehicleID];
                               if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
-                                  const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale);
-                                  if (blockIcon) {
+                                  const canvas = document.createElement('canvas');
+                                  const ctx = canvas.getContext('2d');
+                                  ctx.font = 'bold 14px FGDC';
+                                  const textWidth = ctx.measureText(blockName).width;
+                                  const blockWidth = Math.max(40, textWidth + 20);
+                                  const blockBubble = `
+                                      <svg width="${blockWidth}" height="30" viewBox="0 0 ${blockWidth} 30" xmlns="http://www.w3.org/2000/svg">
+                                          <g>
+                                              <rect x="0" y="5" width="${blockWidth}" height="20" rx="10" ry="10" fill="${getRouteColor(routeID)}" stroke="white" stroke-width="3" />
+                                              <text x="${blockWidth / 2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(getRouteColor(routeID))}" font-family="FGDC">${blockName}</text>
+                                          </g>
+                                      </svg>`;
+                                  const blockIcon = L.divIcon({
+                                      html: blockBubble,
+                                      className: '',
+                                      iconSize: [blockWidth, 30],
+                                      // Position the block number bubble so it touches but doesn't overlap the bus icon
+                                      iconAnchor: [blockWidth / 2, -13]
+                                  });
+                                  if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                      animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
+                                      nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
+                                  } else {
                                       nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                                      if (nameBubbles[vehicleID].blockMarker) {
-                                          animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
-                                          nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
-                                      } else {
-                                          nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                                      }
-                                  } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                                  }
+                              } else {
+                                  if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                                       map.removeLayer(nameBubbles[vehicleID].blockMarker);
                                       delete nameBubbles[vehicleID].blockMarker;
                                   }
-                              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
-                                  map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                                  delete nameBubbles[vehicleID].blockMarker;
                               }
                           } else {
                               if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
@@ -4077,14 +4077,6 @@
                               if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                                   map.removeLayer(nameBubbles[vehicleID].blockMarker);
                                   delete nameBubbles[vehicleID].blockMarker;
-                              }
-                          }
-                          if (nameBubbles[vehicleID]) {
-                              const hasMarkers = Boolean(nameBubbles[vehicleID].speedMarker || nameBubbles[vehicleID].nameMarker || nameBubbles[vehicleID].blockMarker);
-                              if (hasMarkers) {
-                                  nameBubbles[vehicleID].lastScale = markerMetricsForZoom.scale;
-                              } else {
-                                  delete nameBubbles[vehicleID];
                               }
                           }
                       });
@@ -4144,17 +4136,15 @@
           return Math.min(Math.max(value, min), max);
       }
 
-      function computeMarkerScale(zoom) {
-          const targetZoom = Number.isFinite(zoom) ? zoom : BUS_MARKER_BASE_ZOOM;
-          const rawScale = Math.pow(2, (targetZoom - BUS_MARKER_BASE_ZOOM) / BUS_MARKER_SCALE_ZOOM_FACTOR);
-          return clamp(rawScale, BUS_MARKER_MIN_SCALE, BUS_MARKER_MAX_SCALE);
-      }
-
       function computeBusMarkerMetrics(zoom) {
-          const scale = computeMarkerScale(zoom);
-          const width = BUS_MARKER_BASE_WIDTH_PX * scale;
+          const targetZoom = Number.isFinite(zoom) ? zoom : BUS_MARKER_BASE_ZOOM;
+          const width = clamp(
+              BUS_MARKER_BASE_WIDTH_PX * Math.pow(2, (targetZoom - BUS_MARKER_BASE_ZOOM) / 5),
+              BUS_MARKER_MIN_WIDTH_PX,
+              BUS_MARKER_MAX_WIDTH_PX
+          );
           const height = width * BUS_MARKER_ASPECT_RATIO;
-          return { scale, widthPx: width, heightPx: height };
+          return { widthPx: width, heightPx: height };
       }
 
       function ensureBusMarkerState(vehicleID) {
@@ -4186,8 +4176,7 @@
           }
           state.size = {
               widthPx: metrics.widthPx,
-              heightPx: metrics.heightPx,
-              scale: metrics.scale
+              heightPx: metrics.heightPx
           };
       }
  
@@ -4221,142 +4210,6 @@
 
       if (typeof window !== 'undefined') {
           window.setBusMarkerContrastOverrideColor = setBusMarkerContrastOverrideColor;
-      }
-
-      function getTextMeasurementContext() {
-          if (!textMeasurementCanvas && typeof document !== 'undefined') {
-              textMeasurementCanvas = document.createElement('canvas');
-          }
-          return textMeasurementCanvas ? textMeasurementCanvas.getContext('2d') : null;
-      }
-
-      function measureLabelTextWidth(text, fontSizePx, fontWeight = 'bold') {
-          const ctx = getTextMeasurementContext();
-          const normalizedFontSize = Math.max(1, Number(fontSizePx) || 0);
-          if (!ctx) {
-              return (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
-          }
-          ctx.font = `${fontWeight} ${normalizedFontSize}px ${BUS_MARKER_LABEL_FONT_FAMILY}`;
-          const metrics = ctx.measureText(text || '');
-          return metrics && Number.isFinite(metrics.width)
-              ? metrics.width
-              : (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
-      }
-
-      function roundToTwoDecimals(value) {
-          return Math.round((Number(value) || 0) * 100) / 100;
-      }
-
-      function createSpeedBubbleDivIcon(routeColor, groundSpeed, scale) {
-          if (!Number.isFinite(groundSpeed)) {
-              return null;
-          }
-          const safeScale = Number.isFinite(scale) ? scale : 1;
-          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
-              ? routeColor
-              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const textColor = getContrastColor(fillColor);
-          const normalizedSpeed = Math.max(0, Math.round(groundSpeed));
-          const label = `${normalizedSpeed} MPH`;
-          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, SPEED_BUBBLE_BASE_FONT_PX * safeScale);
-          const horizontalPadding = SPEED_BUBBLE_HORIZONTAL_PADDING * safeScale;
-          const verticalPadding = SPEED_BUBBLE_VERTICAL_PADDING * safeScale;
-          const textWidth = measureLabelTextWidth(label, fontSize);
-          const width = Math.max(SPEED_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
-          const height = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
-          const radius = SPEED_BUBBLE_CORNER_RADIUS * safeScale;
-          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const anchorX = width / 2;
-          const anchorY = -SPEED_BUBBLE_LEADER_OFFSET * safeScale;
-          const svgWidth = roundToTwoDecimals(width);
-          const svgHeight = roundToTwoDecimals(height);
-          const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
-                  <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${roundToTwoDecimals(radius)}" ry="${roundToTwoDecimals(radius)}" fill="${fillColor}" stroke="white" stroke-width="${roundToTwoDecimals(strokeWidth)}" />
-                      <text x="${roundToTwoDecimals(svgWidth / 2)}" y="${roundToTwoDecimals(svgHeight / 2)}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
-                  </g>
-              </svg>`;
-          return L.divIcon({
-              html: svg,
-              className: '',
-              iconSize: [svgWidth, svgHeight],
-              iconAnchor: [roundToTwoDecimals(anchorX), roundToTwoDecimals(anchorY)]
-          });
-      }
-
-      function createNameBubbleDivIcon(busName, routeColor, scale) {
-          if (typeof busName !== 'string' || busName.trim().length === 0) {
-              return null;
-          }
-          const safeScale = Number.isFinite(scale) ? scale : 1;
-          const name = busName.trim();
-          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
-              ? routeColor
-              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, NAME_BUBBLE_BASE_FONT_PX * safeScale);
-          const horizontalPadding = NAME_BUBBLE_HORIZONTAL_PADDING * safeScale;
-          const verticalPadding = NAME_BUBBLE_VERTICAL_PADDING * safeScale;
-          const textWidth = measureLabelTextWidth(name, fontSize);
-          const width = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
-          const height = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
-          const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
-          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const anchorX = width / 2;
-          const anchorY = height + NAME_BUBBLE_LEADER_OFFSET * safeScale;
-          const textColor = getContrastColor(fillColor);
-          const svgWidth = roundToTwoDecimals(width);
-          const svgHeight = roundToTwoDecimals(height);
-          const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
-                  <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${roundToTwoDecimals(radius)}" ry="${roundToTwoDecimals(radius)}" fill="${fillColor}" stroke="white" stroke-width="${roundToTwoDecimals(strokeWidth)}" />
-                      <text x="${roundToTwoDecimals(svgWidth / 2)}" y="${roundToTwoDecimals(svgHeight / 2)}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
-                  </g>
-              </svg>`;
-          return L.divIcon({
-              html: svg,
-              className: '',
-              iconSize: [svgWidth, svgHeight],
-              iconAnchor: [roundToTwoDecimals(anchorX), roundToTwoDecimals(anchorY)]
-          });
-      }
-
-      function createBlockBubbleDivIcon(blockName, routeColor, scale) {
-          if (typeof blockName !== 'string' || blockName.trim() === '') {
-              return null;
-          }
-          const safeScale = Number.isFinite(scale) ? scale : 1;
-          const name = blockName.trim();
-          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
-              ? routeColor
-              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, BLOCK_BUBBLE_BASE_FONT_PX * safeScale);
-          const horizontalPadding = BLOCK_BUBBLE_HORIZONTAL_PADDING * safeScale;
-          const verticalPadding = BLOCK_BUBBLE_VERTICAL_PADDING * safeScale;
-          const textWidth = measureLabelTextWidth(name, fontSize);
-          const width = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
-          const height = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
-          const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
-          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const anchorX = width / 2;
-          const anchorY = -BLOCK_BUBBLE_LEADER_OFFSET * safeScale;
-          const textColor = getContrastColor(fillColor);
-          const svgWidth = roundToTwoDecimals(width);
-          const svgHeight = roundToTwoDecimals(height);
-          const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
-                  <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${roundToTwoDecimals(radius)}" ry="${roundToTwoDecimals(radius)}" fill="${fillColor}" stroke="white" stroke-width="${roundToTwoDecimals(strokeWidth)}" />
-                      <text x="${roundToTwoDecimals(svgWidth / 2)}" y="${roundToTwoDecimals(svgHeight / 2)}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
-                  </g>
-              </svg>`;
-          return L.divIcon({
-              html: svg,
-              className: '',
-              iconSize: [svgWidth, svgHeight],
-              iconAnchor: [roundToTwoDecimals(anchorX), roundToTwoDecimals(anchorY)]
-          });
       }
 
       function updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeedMph) {
@@ -4503,18 +4356,14 @@
               .st1{fill:#0b7a26;}
             </style>
           </defs>
-          <g class="bus-marker__rotator bus-marker__rotator--body" transform="${rotationTransform}">
-            <g transform="rotate(${BUS_MARKER_INNER_ROTATE_DEGREES} ${BUS_MARKER_INNER_ROTATE_X} ${BUS_MARKER_INNER_ROTATE_Y})">
+          <g class="bus-marker__rotator" transform="${rotationTransform}">
+            <!-- Rotate the marker around the ring centre so it stays anchored to the vehicle location.
+                 This INNER group is a fixed 180° rotate to make the arrow point up by default. -->
+            <g id="inner-up-rotate" transform="rotate(${BUS_MARKER_INNER_ROTATE_DEGREES} ${BUS_MARKER_INNER_ROTATE_X} ${BUS_MARKER_INNER_ROTATE_Y})">
               <path class="st1 bus-marker__body" d="${BUS_MARKER_BODY_PATH}" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
               <path class="st0 bus-marker__halo" d="${BUS_MARKER_HALO_PATH}" fill="#FFFFFF" style="fill: #FFFFFF;" />
-            </g>
-          </g>
-          <g class="bus-marker__static">
-            <path class="st0 bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
-            <circle class="st1 bus-marker__center" cx="${BUS_MARKER_RING_CENTER_X}" cy="${BUS_MARKER_RING_CENTER_Y}" r="8" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
-          </g>
-          <g class="bus-marker__rotator bus-marker__rotator--arrow" transform="${rotationTransform}">
-            <g transform="rotate(${BUS_MARKER_INNER_ROTATE_DEGREES} ${BUS_MARKER_INNER_ROTATE_X} ${BUS_MARKER_INNER_ROTATE_Y})">
+              <path class="st0 bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
+              <circle class="st1 bus-marker__center" cx="${BUS_MARKER_RING_CENTER_X}" cy="${BUS_MARKER_RING_CENTER_Y}" r="8" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
               <path class="st0 bus-marker__arrow" d="${BUS_MARKER_ARROW_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
             </g>
           </g>
@@ -4553,15 +4402,14 @@
           }
           const root = iconElement.querySelector('.bus-marker__root');
           const svg = root ? root.querySelector('.bus-marker__svg') : null;
-          const rotators = root ? Array.from(root.querySelectorAll('.bus-marker__rotator')) : [];
-          const rotator = rotators.length > 0 ? rotators[0] : null;
+          const rotator = root ? root.querySelector('.bus-marker__rotator') : null;
           const body = root ? root.querySelector('.bus-marker__body') : null;
           const center = root ? root.querySelector('.bus-marker__center') : null;
           const ring = root ? root.querySelector('.bus-marker__ring') : null;
           const arrow = root ? root.querySelector('.bus-marker__arrow') : null;
           const halo = root ? root.querySelector('.bus-marker__halo') : null;
           const title = svg ? svg.querySelector('title') : null;
-          state.elements = { icon: iconElement, root, svg, rotator, rotators, body, center, ring, arrow, halo, title };
+          state.elements = { icon: iconElement, root, svg, rotator, body, center, ring, arrow, halo, title };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
           }
@@ -4645,15 +4493,8 @@
           if (elements.title && state.accessibleLabel) {
               elements.title.textContent = state.accessibleLabel;
           }
-          const rotation = computeMarkerRotationTransform(state.headingDeg);
-          if (Array.isArray(elements.rotators) && elements.rotators.length > 0) {
-              elements.rotators.forEach(rotatorEl => {
-                  if (rotatorEl) {
-                      rotatorEl.setAttribute('transform', rotation);
-                  }
-              });
-          } else if (elements.rotator) {
-              elements.rotator.setAttribute('transform', rotation);
+          if (elements.rotator) {
+              elements.rotator.setAttribute('transform', computeMarkerRotationTransform(state.headingDeg));
           }
           updateBusMarkerRootClasses(state);
           updateBusMarkerZIndex(state);
@@ -4757,12 +4598,12 @@
           }
       }
 
-      function updateBusMarkerSizes(metricsOverride = null) {
+      function updateBusMarkerSizes() {
           if (!map) {
               return;
           }
           const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
-          const metrics = metricsOverride || computeBusMarkerMetrics(zoom);
+          const metrics = computeBusMarkerMetrics(zoom);
           Object.keys(markers).forEach(vehicleID => {
               const marker = markers[vehicleID];
               const state = busMarkerStates[vehicleID];
@@ -4781,100 +4622,6 @@
               updateBusMarkerRootClasses(state);
               updateBusMarkerZIndex(state);
               applyBusMarkerOutlineWidth(state);
-          });
-          updateLabelIconsForMetrics(metrics);
-      }
-
-      function updateLabelIconsForMetrics(metrics) {
-          if (!metrics || !Number.isFinite(metrics.scale) || !map) {
-              return;
-          }
-          const scale = metrics.scale;
-          Object.keys(nameBubbles).forEach(vehicleID => {
-              const bubble = nameBubbles[vehicleID];
-              const state = busMarkerStates[vehicleID];
-              const marker = markers[vehicleID];
-              if (!bubble || !state || !marker) {
-                  return;
-              }
-              const routeColor = state.fillColor || getRouteColor(state.routeID) || outOfServiceRouteColor;
-              const speedMarker = bubble.speedMarker;
-              const nameMarker = bubble.nameMarker;
-              const blockMarker = bubble.blockMarker;
-
-              if (speedMarker) {
-                  if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode && Number.isFinite(state.groundSpeed)) {
-                      const speedIcon = createSpeedBubbleDivIcon(routeColor, state.groundSpeed, scale);
-                      if (speedIcon) {
-                          speedMarker.setIcon(speedIcon);
-                      } else {
-                          map.removeLayer(speedMarker);
-                          delete bubble.speedMarker;
-                      }
-                  } else {
-                      map.removeLayer(speedMarker);
-                      delete bubble.speedMarker;
-                  }
-              }
-
-              if (nameMarker) {
-                  if (adminMode && !kioskMode) {
-                      const nameIcon = createNameBubbleDivIcon(state.busName, routeColor, scale);
-                      if (nameIcon) {
-                          nameMarker.setIcon(nameIcon);
-                      } else {
-                          map.removeLayer(nameMarker);
-                          delete bubble.nameMarker;
-                      }
-                  } else {
-                      map.removeLayer(nameMarker);
-                      delete bubble.nameMarker;
-                  }
-              }
-
-              if (blockMarker) {
-                  const blockName = busBlocks[vehicleID];
-                  if (adminMode && !kioskMode && displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
-                      const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, scale);
-                      if (blockIcon) {
-                          blockMarker.setIcon(blockIcon);
-                      } else {
-                          map.removeLayer(blockMarker);
-                          delete bubble.blockMarker;
-                      }
-                  } else {
-                      map.removeLayer(blockMarker);
-                      delete bubble.blockMarker;
-                  }
-              }
-
-              const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker);
-              if (hasMarkers) {
-                  bubble.lastScale = scale;
-              } else {
-                  delete nameBubbles[vehicleID];
-              }
-          });
-      }
-
-      function scheduleMarkerScaleUpdate() {
-          if (!map) {
-              return;
-          }
-          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
-          const metrics = computeBusMarkerMetrics(zoom);
-          pendingMarkerScaleMetrics = Object.assign({}, metrics);
-          if (markerScaleUpdateFrame !== null) {
-              return;
-          }
-          markerScaleUpdateFrame = requestAnimationFrame(() => {
-              markerScaleUpdateFrame = null;
-              const metricsToApply = pendingMarkerScaleMetrics;
-              pendingMarkerScaleMetrics = null;
-              if (!metricsToApply) {
-                  return;
-              }
-              updateBusMarkerSizes(metricsToApply);
           });
       }
 
