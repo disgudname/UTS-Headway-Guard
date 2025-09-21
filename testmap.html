@@ -931,14 +931,16 @@
       const SPEED_BUBBLE_MIN_WIDTH = 60;
       const SPEED_BUBBLE_MIN_HEIGHT = 20;
       const SPEED_BUBBLE_CORNER_RADIUS = 10;
-      const SPEED_BUBBLE_LEADER_OFFSET = 15;
+      const LABEL_VERTICAL_LOCATION_OFFSET_PX = 44.49375;
+      const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
+      const SPEED_BUBBLE_LEADER_OFFSET = LABEL_VERTICAL_LOCATION_OFFSET_PX;
       const NAME_BUBBLE_BASE_FONT_PX = 14;
       const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
       const NAME_BUBBLE_VERTICAL_PADDING = 3;
       const NAME_BUBBLE_MIN_WIDTH = 40;
       const NAME_BUBBLE_MIN_HEIGHT = 20;
       const NAME_BUBBLE_CORNER_RADIUS = 10;
-      const NAME_BUBBLE_LEADER_OFFSET = 10;
+      const NAME_BUBBLE_LEADER_OFFSET = LABEL_VERTICAL_LOCATION_OFFSET_PX;
       const NAME_BUBBLE_FRAME_INSET = 5;
       const BLOCK_BUBBLE_BASE_FONT_PX = 14;
       const BLOCK_BUBBLE_HORIZONTAL_PADDING = 14;
@@ -946,7 +948,7 @@
       const BLOCK_BUBBLE_MIN_WIDTH = 40;
       const BLOCK_BUBBLE_MIN_HEIGHT = 20;
       const BLOCK_BUBBLE_CORNER_RADIUS = 10;
-      const BLOCK_BUBBLE_LEADER_OFFSET = 13;
+      const BLOCK_BUBBLE_LEADER_OFFSET = LABEL_VERTICAL_LOCATION_OFFSET_PX;
       const BLOCK_BUBBLE_FRAME_INSET = 5;
       const LABEL_BASE_STROKE_WIDTH = 3;
       const MIN_HEADING_DISTANCE_METERS = 2;
@@ -4352,9 +4354,10 @@
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
           const textX = roundToTwoDecimals(svgWidth / 2);
-          const textY = roundToTwoDecimals(svgHeight / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(svgHeight / 2 + baselineShift);
           const anchorX = roundToTwoDecimals(svgWidth / 2);
-          const anchorY = roundToTwoDecimals(-SPEED_BUBBLE_LEADER_OFFSET * safeScale);
+          const anchorY = -SPEED_BUBBLE_LEADER_OFFSET;
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
@@ -4395,9 +4398,10 @@
           const rectY = roundToTwoDecimals(frameInset);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
-          const textY = roundToTwoDecimals(rectY + rectHeight / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
           const anchorX = textX;
-          const anchorY = roundToTwoDecimals(svgHeight + NAME_BUBBLE_LEADER_OFFSET * safeScale);
+          const anchorY = svgHeight + NAME_BUBBLE_LEADER_OFFSET;
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
@@ -4440,9 +4444,10 @@
           const rectY = roundToTwoDecimals(frameInset);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
-          const textY = roundToTwoDecimals(rectY + rectHeight / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
           const anchorX = textX;
-          const anchorY = roundToTwoDecimals(-BLOCK_BUBBLE_LEADER_OFFSET * safeScale);
+          const anchorY = -BLOCK_BUBBLE_LEADER_OFFSET;
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
