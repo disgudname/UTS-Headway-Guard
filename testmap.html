@@ -4477,7 +4477,7 @@
           const pivotX = BUS_MARKER_RING_CENTER_X;
           const pivotY = BUS_MARKER_RING_CENTER_Y;
           const rotation = normalizedHeading.toFixed(2);
-          return `translate(${pivotX} ${pivotY}) rotate(${rotation}) translate(${-pivotX} ${-pivotY})`;
+          return `rotate(${rotation} ${pivotX} ${pivotY})`;
       }
 
       function renderBusMarkerMarkup(vehicleID, state) {
@@ -4498,14 +4498,10 @@
       <div class="${rootClasses.join(' ')}" data-vehicle-id="${escapeHtml(`${vehicleID}`)}" tabindex="0" aria-label="${labelEscaped}" role="img">
         <svg class="bus-marker__svg" viewBox="0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${labelEscaped}" focusable="false">
           <title>${labelEscaped}</title>
-          <g class="bus-marker__rotator bus-marker__rotator--body" transform="${rotationTransform}">
+          <g class="bus-marker__rotator" transform="${rotationTransform}">
             <path data-marker-segment="halo" class="bus-marker__halo" d="${BUS_MARKER_HALO_PATH}" fill="#FFFFFF" style="fill: #FFFFFF;" />
             <path data-marker-segment="route_color" class="bus-marker__route bus-marker__body" d="${BUS_MARKER_BODY_PATH}" fill="${fillColor}" style="fill: ${fillColor}; fill-opacity: ${fillOpacity};" fill-opacity="${fillOpacity}" />
-          </g>
-          <g class="bus-marker__static">
             <path data-marker-segment="center_ring" class="bus-marker__ring" d="${BUS_MARKER_RING_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" fill-rule="evenodd" clip-rule="evenodd" />
-          </g>
-          <g class="bus-marker__rotator bus-marker__rotator--arrow" transform="${rotationTransform}">
             <path data-marker-segment="heading_arrow" class="bus-marker__arrow" d="${BUS_MARKER_ARROW_PATH}" fill="${glyphColor}" style="fill: ${glyphColor};" />
           </g>
         </svg>
