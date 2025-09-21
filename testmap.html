@@ -4152,9 +4152,7 @@
       }
 
       function computeMarkerScale(zoom) {
-          const targetZoom = Number.isFinite(zoom) ? zoom : BUS_MARKER_BASE_ZOOM;
-          const rawScale = Math.pow(2, (targetZoom - BUS_MARKER_BASE_ZOOM) / BUS_MARKER_SCALE_ZOOM_FACTOR);
-          return clamp(rawScale, BUS_MARKER_MIN_SCALE, BUS_MARKER_MAX_SCALE);
+          return 1;
       }
 
       function computeBusMarkerMetrics(zoom) {
@@ -4338,7 +4336,7 @@
           const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
               ? routeColor
               : BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const textColor = getContrastColor(fillColor);
+          const textColor = computeBusMarkerGlyphColor(fillColor);
           const normalizedSpeed = Math.max(0, Math.round(groundSpeed));
           const label = `${normalizedSpeed} MPH`;
           const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, SPEED_BUBBLE_BASE_FONT_PX * safeScale);
@@ -4361,7 +4359,7 @@
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
                       <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
@@ -4400,13 +4398,13 @@
           const textY = roundToTwoDecimals(rectY + rectHeight / 2);
           const anchorX = textX;
           const anchorY = roundToTwoDecimals(svgHeight + NAME_BUBBLE_LEADER_OFFSET * safeScale);
-          const textColor = getContrastColor(fillColor);
+          const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
                       <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
@@ -4445,13 +4443,13 @@
           const textY = roundToTwoDecimals(rectY + rectHeight / 2);
           const anchorX = textX;
           const anchorY = roundToTwoDecimals(-BLOCK_BUBBLE_LEADER_OFFSET * safeScale);
-          const textColor = getContrastColor(fillColor);
+          const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
                   <g>
                       <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
