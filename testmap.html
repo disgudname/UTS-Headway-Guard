@@ -938,6 +938,8 @@
       const SPEED_BUBBLE_MIN_HEIGHT = 20;
       const SPEED_BUBBLE_CORNER_RADIUS = 10;
       const LABEL_VERTICAL_CLEARANCE_PX = -7; // pull labels ~7px closer to the vehicle while relying on the half-diagonal for rotation safety
+      const LABEL_VERTICAL_ALIGNMENT_BONUS_PX = 6; // push labels a little farther away when the vehicle is nearly north/south
+      const LABEL_VERTICAL_ALIGNMENT_EXPONENT = 4; // emphasize the bonus for headings close to due north/south
       const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
       const NAME_BUBBLE_BASE_FONT_PX = 14;
       const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
@@ -4545,15 +4547,26 @@
 
       function computeLabelLeaderOffset(scale, headingDeg, position = 'above') {
           const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const normalizedHeading = normalizeHeadingDegrees(
+              Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING
+          );
           const conversionFactor = (BUS_MARKER_BASE_WIDTH_PX * safeScale) / BUS_MARKER_VIEWBOX_WIDTH;
           const fallbackWidth = BUS_MARKER_BASE_WIDTH_PX * safeScale;
           const fallbackHeight = fallbackWidth * BUS_MARKER_ASPECT_RATIO;
           const fallbackHalfDiagonal = Math.sqrt(fallbackWidth * fallbackWidth + fallbackHeight * fallbackHeight) / 2;
           const clearance = LABEL_VERTICAL_CLEARANCE_PX * safeScale;
 
-          const verticalExtents = computeBusMarkerVerticalExtentsForHeading(headingDeg);
+          const headingRelativeToVertical = normalizedHeading % 180;
+          const deviationFromVertical = Math.min(headingRelativeToVertical, 180 - headingRelativeToVertical);
+          const verticality = Math.pow(
+              Math.max(0, Math.cos(deviationFromVertical * Math.PI / 180)),
+              LABEL_VERTICAL_ALIGNMENT_EXPONENT
+          );
+          const verticalAlignmentBonus = LABEL_VERTICAL_ALIGNMENT_BONUS_PX * safeScale * verticality;
+
+          const verticalExtents = computeBusMarkerVerticalExtentsForHeading(normalizedHeading);
           if (!verticalExtents) {
-              return Math.max(0, fallbackHalfDiagonal + clearance);
+              return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus);
           }
 
           let extentSvgUnits;
@@ -4566,11 +4579,11 @@
           }
 
           if (!Number.isFinite(extentSvgUnits)) {
-              return Math.max(0, fallbackHalfDiagonal + clearance);
+              return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus);
           }
 
           const extentPx = extentSvgUnits * conversionFactor;
-          const totalOffset = extentPx + clearance;
+          const totalOffset = extentPx + clearance + verticalAlignmentBonus;
           return totalOffset > 0 ? totalOffset : 0;
       }
 
