@@ -135,6 +135,7 @@
         cursor: default;
         touch-action: none;
         user-select: none;
+        overflow: visible;
       }
       .bus-label-icon {
         pointer-events: none !important;
@@ -153,6 +154,8 @@
         transform-origin: 50% 50%;
         will-change: transform;
         pointer-events: none;
+        position: relative;
+        z-index: 1;
       }
       .bus-marker__svg .st1 {
         paint-order: stroke fill;
@@ -538,6 +541,12 @@
         }
         100% {
           transform: scale(1.35);
+          opacity: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .incident-marker-pulse-container .incident-marker-pulse::after {
+          animation: none;
           opacity: 0;
         }
       }
@@ -1220,7 +1229,6 @@
       let latestActiveIncidents = [];
       let incidentsNearRoutes = [];
       let incidentRouteAlertSignature = '';
-      const incidentsNearRouteIds = new Set();
       // Demo incident preview state (delete when demo button is removed).
       let demoIncidentActive = false;
       let demoIncidentEntry = null;
@@ -2026,10 +2034,6 @@
         if (!entry || !entry.marker) {
           return;
         }
-        if (!incidentsNearRouteIds.has(normalizedId)) {
-          removeIncidentMarkerPulse(entry);
-          return;
-        }
         if (typeof L === 'undefined' || typeof L.marker !== 'function') {
           return;
         }
@@ -2100,13 +2104,6 @@
         const list = Array.isArray(matches) ? matches.slice() : [];
         incidentsNearRoutes = list;
         incidentRouteAlertSignature = typeof signature === 'string' ? signature : '';
-        incidentsNearRouteIds.clear();
-        list.forEach(entry => {
-          const normalizedId = entry ? getNormalizedIncidentId(entry.id) : '';
-          if (normalizedId) {
-            incidentsNearRouteIds.add(normalizedId);
-          }
-        });
         refreshIncidentMarkerPulses();
       }
 
