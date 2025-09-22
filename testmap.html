@@ -616,6 +616,32 @@
         align-items: flex-start;
         gap: 14px;
       }
+      .selector-panel .incident-alert__item-button {
+        appearance: none;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 16px;
+        padding: 8px 12px;
+        width: 100%;
+        text-align: left;
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .selector-panel .incident-alert__item-button:hover,
+      .selector-panel .incident-alert__item-button:focus-visible {
+        background: rgba(255, 255, 255, 0.6);
+        border-color: rgba(136, 19, 19, 0.25);
+        box-shadow: 0 10px 24px rgba(136, 19, 19, 0.15);
+        outline: none;
+      }
+      .selector-panel .incident-alert__item-button:focus-visible .incident-alert__type {
+        text-decoration: underline;
+      }
       .selector-panel .incident-alert__media {
         flex: 0 0 auto;
         width: 60px;
@@ -650,6 +676,24 @@
         gap: 10px;
         font-size: 13px;
         color: rgba(120, 53, 15, 0.95);
+      }
+      .selector-panel .incident-alert__location {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 13px;
+        color: rgba(124, 45, 18, 0.95);
+        overflow-wrap: anywhere;
+      }
+      .selector-panel .incident-alert__location-label {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 12px;
+        color: rgba(136, 19, 19, 0.9);
+      }
+      .selector-panel .incident-alert__location-text {
+        font-weight: 600;
       }
       .selector-panel .incident-alert__received {
         font-weight: 600;
@@ -1359,6 +1403,43 @@
         ? window.matchMedia('(prefers-reduced-motion: reduce)')
         : null;
       let isFetchingIncidents = false;
+
+      function hasIncidentsRequiringVisibility() {
+        return incidentsNearRoutesLookup instanceof Map && incidentsNearRoutesLookup.size > 0;
+      }
+
+      function shouldShowIncidentLayer() {
+        if (!incidentsAreAvailable()) {
+          return false;
+        }
+        return incidentsVisible || hasIncidentsRequiringVisibility();
+      }
+
+      function maintainIncidentLayers() {
+        if (!map) return;
+        const shouldShow = shouldShowIncidentLayer();
+        if (!incidentLayerGroup) {
+          incidentLayerGroup = L.layerGroup();
+        }
+        if (shouldShow) {
+          if (!map.hasLayer(incidentLayerGroup)) {
+            incidentLayerGroup.addTo(map);
+          }
+        } else if (map.hasLayer(incidentLayerGroup)) {
+          map.removeLayer(incidentLayerGroup);
+        }
+        const shouldShowHalos = shouldShow && hasIncidentsRequiringVisibility();
+        if (!incidentHaloLayerGroup) {
+          incidentHaloLayerGroup = L.layerGroup();
+        }
+        if (shouldShowHalos) {
+          if (!map.hasLayer(incidentHaloLayerGroup)) {
+            incidentHaloLayerGroup.addTo(map);
+          }
+        } else if (map.hasLayer(incidentHaloLayerGroup)) {
+          map.removeLayer(incidentHaloLayerGroup);
+        }
+      }
 
       const INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS = 150;
       const INCIDENT_TIME_ZONE = 'America/New_York';
@@ -2317,8 +2398,13 @@
         if (!incidentHaloLayerGroup) {
           incidentHaloLayerGroup = L.layerGroup();
         }
-        if (incidentsVisible && !map.hasLayer(incidentHaloLayerGroup)) {
-          incidentHaloLayerGroup.addTo(map);
+        const shouldShowHalos = shouldShowIncidentLayer() && hasIncidentsRequiringVisibility();
+        if (shouldShowHalos) {
+          if (!map.hasLayer(incidentHaloLayerGroup)) {
+            incidentHaloLayerGroup.addTo(map);
+          }
+        } else if (map.hasLayer(incidentHaloLayerGroup)) {
+          map.removeLayer(incidentHaloLayerGroup);
         }
         return incidentHaloLayerGroup;
       }
@@ -2472,17 +2558,22 @@
         incidentRouteAlertSignature = typeof signature === 'string' ? signature : '';
         applyIncidentHaloStates();
         refreshOpenIncidentPopups();
+        maintainIncidentLayers();
       }
 
       function applyIncidentMarkers(incidents) {
         if (!map) return;
-        let layerGroup = incidentLayerGroup;
-        if (!layerGroup) {
-          layerGroup = L.layerGroup();
-          incidentLayerGroup = layerGroup;
-          if (incidentsVisible) {
+        if (!incidentLayerGroup) {
+          incidentLayerGroup = L.layerGroup();
+        }
+        const layerGroup = incidentLayerGroup;
+        const shouldShowLayer = shouldShowIncidentLayer();
+        if (shouldShowLayer) {
+          if (!map.hasLayer(layerGroup)) {
             layerGroup.addTo(map);
           }
+        } else if (map.hasLayer(layerGroup)) {
+          map.removeLayer(layerGroup);
         }
         const activeIds = new Set();
         (Array.isArray(incidents) ? incidents : []).forEach(incident => {
@@ -2498,6 +2589,12 @@
           if (!id) return;
           const markerUrl = incident._markerUrl;
           if (!markerUrl) return;
+          const isPinned = incidentsNearRoutesLookup.has(id);
+          if (!incidentsVisible) {
+            if (!shouldShowLayer || !isPinned) {
+              return;
+            }
+          }
           activeIds.add(id);
           const existing = incidentMarkers.get(id);
           if (existing && existing.marker) {
@@ -2555,6 +2652,7 @@
           incidentMarkers.delete(id);
         });
         applyIncidentHaloStates();
+        maintainIncidentLayers();
       }
 
       function ensureRouteProjectedPath(entry) {
@@ -2781,9 +2879,6 @@
         }
 
         if (!allowIncidents) {
-          if (map && incidentLayerGroup) {
-            map.removeLayer(incidentLayerGroup);
-          }
           if (hadAlerts || (Array.isArray(latestActiveIncidents) && latestActiveIncidents.length > 0)) {
             resetIncidentAlertState();
             updateControlPanel();
@@ -2791,29 +2886,18 @@
             resetIncidentAlertState();
           }
           removeAllIncidentPopups();
+          maintainIncidentLayers();
           updateIncidentToggleButton();
           return;
         }
 
         incidentsVisibilityPreference = incidentsVisible;
 
-        if (map && incidentLayerGroup) {
-          if (incidentsVisible) {
-            incidentLayerGroup.addTo(map);
-          } else {
-            map.removeLayer(incidentLayerGroup);
-          }
-        } else if (incidentsVisible && map && !incidentLayerGroup) {
-          incidentLayerGroup = L.layerGroup();
-          incidentLayerGroup.addTo(map);
-        }
-        if (incidentsVisible) {
-          ensureIncidentHaloLayerGroup();
-        } else if (map && incidentHaloLayerGroup && map.hasLayer(incidentHaloLayerGroup)) {
-          map.removeLayer(incidentHaloLayerGroup);
-        }
+        applyIncidentMarkers(latestActiveIncidents);
         if (incidentsVisible && incidentMarkers.size === 0 && !isFetchingIncidents) {
           refreshIncidents();
+        } else {
+          maintainIncidentLayers();
         }
         updateIncidentToggleButton();
         applyIncidentHaloStates();
@@ -3473,6 +3557,17 @@
         const iconHtml = iconUrl
           ? `<div class="incident-alert__media"><img src="${escapeAttribute(iconUrl)}" alt="${safeAltText}" loading="lazy" onerror="this.style.display='none';"></div>`
           : '';
+        let incidentIdValue = typeof entry.id === 'string' ? entry.id : '';
+        if (!incidentIdValue) {
+          incidentIdValue = getIncidentIdentifier(incident) || '';
+        }
+        const normalizedIncidentId = getNormalizedIncidentId(incidentIdValue);
+        if (!normalizedIncidentId) return '';
+        const safeIncidentId = escapeAttribute(normalizedIncidentId);
+        const locationText = getIncidentLocationText(incident);
+        const locationHtml = locationText
+          ? `<div class="incident-alert__location"><span class="incident-alert__location-label">Location:</span><span class="incident-alert__location-text">${escapeHtml(locationText)}</span></div>`
+          : '';
         const timeInfo = getIncidentReceivedTimeInfo(incident);
         const metaParts = [];
         if (timeInfo) {
@@ -3490,16 +3585,28 @@
         const unitsHtml = unitsContent
           ? `<div class="incident-alert__units"><span class="incident-alert__units-label">Units:</span><span class="incident-alert__unit-list">${unitsContent}</span></div>`
           : '';
+        const buttonTitleParts = [];
+        if (typeLabel) {
+          buttonTitleParts.push(`View ${typeLabel}`);
+        } else {
+          buttonTitleParts.push('View incident');
+        }
+        if (locationText) {
+          buttonTitleParts.push(`at ${locationText}`);
+        }
+        buttonTitleParts.push('on the map');
+        const safeButtonTitle = escapeAttribute(buttonTitleParts.join(' '));
         return `
-          <div class="incident-alert__item">
+          <button type="button" class="incident-alert__item incident-alert__item-button" data-incident-id="${safeIncidentId}" onclick="handleIncidentAlertClick(this)" title="${safeButtonTitle}">
             ${iconHtml}
             <div class="incident-alert__content">
               <div class="incident-alert__type">${safeTypeLabel}</div>
               ${metaHtml}
+              ${locationHtml}
               ${routesHtml}
               ${unitsHtml}
             </div>
-          </div>
+          </button>
         `;
       }
 
@@ -3532,6 +3639,78 @@
             </div>
           </div>
         `;
+      }
+
+      function handleIncidentAlertClick(element) {
+        if (!element) return;
+        const incidentId = element.getAttribute('data-incident-id');
+        if (!incidentId) return;
+        focusIncidentOnMap(incidentId);
+      }
+
+      function focusIncidentOnMap(incidentId) {
+        if (!map) return;
+        const normalizedId = getNormalizedIncidentId(incidentId);
+        if (!normalizedId) return;
+        maintainIncidentLayers();
+        const entry = incidentMarkers.get(normalizedId);
+        let latLng = null;
+        if (entry && entry.marker && typeof entry.marker.getLatLng === 'function') {
+          latLng = entry.marker.getLatLng();
+        }
+        if (!latLng) {
+          const match = incidentsNearRoutesLookup.get(normalizedId);
+          const incident = match?.incident || entry?.data || null;
+          if (incident) {
+            const lat = parseIncidentCoordinate(incident.Latitude ?? incident.latitude ?? incident.lat);
+            const lon = parseIncidentCoordinate(incident.Longitude ?? incident.longitude ?? incident.lon);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+              if (typeof L !== 'undefined' && typeof L.latLng === 'function') {
+                latLng = L.latLng(lat, lon);
+              } else {
+                latLng = { lat, lng: lon };
+              }
+            }
+          }
+        }
+        if (!latLng || !Number.isFinite(latLng.lat) || !Number.isFinite(latLng.lng)) {
+          return;
+        }
+        const targetLat = Number(latLng.lat);
+        const targetLng = Number(latLng.lng);
+        if (!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) {
+          return;
+        }
+        const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : null;
+        const targetZoom = Number.isFinite(currentZoom) ? Math.max(currentZoom, 16) : 16;
+        if (typeof map.flyTo === 'function') {
+          map.flyTo([targetLat, targetLng], targetZoom, { animate: true, duration: 0.75, easeLinearity: 0.25 });
+        } else if (typeof map.setView === 'function') {
+          map.setView([targetLat, targetLng], targetZoom, { animate: true });
+        }
+        if (entry && entry.marker) {
+          if (typeof entry.marker.bringToFront === 'function') {
+            entry.marker.bringToFront();
+          } else if (typeof entry.marker.setZIndexOffset === 'function') {
+            entry.marker.setZIndexOffset(500);
+          }
+          if (typeof entry.marker.fire === 'function') {
+            entry.marker.fire('click');
+          }
+        } else {
+          const match = incidentsNearRoutesLookup.get(normalizedId);
+          const incident = match?.incident || null;
+          if (incident) {
+            const routes = Array.isArray(match?.routes) ? match.routes : [];
+            createCustomPopup({
+              popupType: 'incident',
+              position: [targetLat, targetLng],
+              incident,
+              id: normalizedId,
+              routes
+            });
+          }
+        }
       }
 
       function escapeAttribute(value) {
