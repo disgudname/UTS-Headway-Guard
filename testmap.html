@@ -181,6 +181,53 @@
       .bus-marker__root.is-selected.is-hover .bus-marker__svg {
         filter: drop-shadow(0 3px 12px rgba(15, 23, 42, 0.35)) drop-shadow(0 0 7px rgba(255, 255, 255, 0.72));
       }
+      .incident-halo-icon {
+        pointer-events: none !important;
+      }
+      .incident-halo-icon .incident-halo {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: var(--incident-halo-diameter, 96px);
+        height: var(--incident-halo-diameter, 96px);
+        margin-left: calc(-0.5 * var(--incident-halo-diameter, 96px));
+        margin-top: calc(-0.5 * var(--incident-halo-diameter, 96px));
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(var(--incident-halo-color-rgb, 255, 90, 60), var(--incident-halo-base-opacity, 0.35)) 0%, rgba(var(--incident-halo-color-rgb, 255, 90, 60), 0) 72%);
+        opacity: var(--incident-halo-base-opacity, 0.35);
+        transform: scale(var(--incident-halo-start-scale, 0.25));
+        transform-origin: 50% 50%;
+        pointer-events: none;
+        will-change: transform, opacity;
+        filter: blur(0.2px);
+      }
+      .incident-halo--animated {
+        animation: incident-halo-pulse var(--incident-halo-duration, 1600ms) cubic-bezier(0.25, 1, 0.5, 1) infinite;
+      }
+      .incident-halo--static {
+        transform: scale(1);
+        opacity: var(--incident-halo-base-opacity, 0.35);
+      }
+      @keyframes incident-halo-pulse {
+        0% {
+          transform: scale(var(--incident-halo-start-scale, 0.25));
+          opacity: var(--incident-halo-base-opacity, 0.35);
+        }
+        70% {
+          opacity: var(--incident-halo-base-opacity, 0.35);
+        }
+        100% {
+          transform: scale(1);
+          opacity: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .incident-halo--animated {
+          animation: none;
+          transform: scale(1);
+          opacity: var(--incident-halo-base-opacity, 0.35);
+        }
+      }
       @font-face {
         font-family: 'FGDC';
         src: url('FGDC.ttf') format('truetype');
@@ -1104,6 +1151,48 @@
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;
+      const DEFAULT_ICON_SCALE = Number.isFinite(INCIDENT_ICON_SCALE) && INCIDENT_ICON_SCALE > 0
+        ? INCIDENT_ICON_SCALE
+        : 1;
+      const DEFAULT_SCALED_INCIDENT_ICON_HEIGHT = Math.max(1, Math.round(FALLBACK_INCIDENT_ICON_SIZE * DEFAULT_ICON_SCALE));
+      const HALO_MIN_RADIUS_PX = 12;
+      const HALO_MAX_RADIUS_PX = 48;
+      const HALO_BASE_OPACITY = 0.35;
+      const HALO_DURATION_MS = 1600;
+      const HALO_COLOR_DEFAULT = '#FF5A3C';
+      const HALO_COLOR_RGB = (() => {
+        if (typeof HALO_COLOR_DEFAULT !== 'string') return '255, 90, 60';
+        const hex = HALO_COLOR_DEFAULT.replace(/[^0-9a-f]/gi, '').trim();
+        if (hex.length === 3) {
+          const r = parseInt(hex[0] + hex[0], 16);
+          const g = parseInt(hex[1] + hex[1], 16);
+          const b = parseInt(hex[2] + hex[2], 16);
+          if ([r, g, b].every(value => Number.isFinite(value))) {
+            return `${r}, ${g}, ${b}`;
+          }
+        } else if (hex.length === 6) {
+          const r = parseInt(hex.slice(0, 2), 16);
+          const g = parseInt(hex.slice(2, 4), 16);
+          const b = parseInt(hex.slice(4, 6), 16);
+          if ([r, g, b].every(value => Number.isFinite(value))) {
+            return `${r}, ${g}, ${b}`;
+          }
+        }
+        return '255, 90, 60';
+      })();
+      const INCIDENT_HALO_ANIMATED_LIMIT = 60;
+      // To tweak the centroid offset without editing this file, set
+      // window.HeadwayGuardIncidentMarkerOffset = { xFactor: <number>, yFactor: <number> }
+      // before this script runs. Factors are multiplied by the scaled marker height.
+      const markerCentroidOverride = (typeof window !== 'undefined' && window.HeadwayGuardIncidentMarkerOffset)
+        ? window.HeadwayGuardIncidentMarkerOffset
+        : null;
+      const MARKER_CENTROID_OFFSET_Y_FACTOR = typeof markerCentroidOverride?.yFactor === 'number'
+        ? markerCentroidOverride.yFactor
+        : -0.18;
+      const MARKER_CENTROID_OFFSET_X_FACTOR = typeof markerCentroidOverride?.xFactor === 'number'
+        ? markerCentroidOverride.xFactor
+        : 0;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
 
       let map;
@@ -1124,6 +1213,12 @@
       let incidentLayerGroup = null;
       const incidentMarkers = new Map();
       const incidentIconCache = new Map();
+      const incidentHaloIconCache = new Map();
+      let incidentHaloLayerGroup = null;
+      let incidentsNearRoutesLookup = new Map();
+      const reduceMotionMediaQuery = (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+        : null;
       let isFetchingIncidents = false;
 
       const INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS = 75;
@@ -1852,6 +1947,7 @@
                 marker.setIcon(entry.icon);
               }
             });
+            applyIncidentHaloStates();
           });
           img.addEventListener('error', () => {
             entry.loaded = true;
@@ -1874,6 +1970,178 @@
         const entry = incidentIconCache.get(iconUrl);
         if (entry && entry.markers) {
           entry.markers.delete(marker);
+        }
+      }
+
+      function getIncidentMarkerIconSize(marker) {
+        if (!marker) return null;
+        const icon = marker.options && marker.options.icon ? marker.options.icon : null;
+        if (!icon || !icon.options) return null;
+        const size = icon.options.iconSize;
+        if (Array.isArray(size) && size.length >= 2) {
+          const width = Number(size[0]);
+          const height = Number(size[1]);
+          if (Number.isFinite(width) && Number.isFinite(height)) {
+            return { width, height };
+          }
+        }
+        return null;
+      }
+
+      function getIncidentHaloIcon(markerHeight) {
+        const diameter = HALO_MAX_RADIUS_PX * 2;
+        const safeHeight = Number.isFinite(markerHeight) && markerHeight > 0
+          ? markerHeight
+          : DEFAULT_SCALED_INCIDENT_ICON_HEIGHT;
+        const key = safeHeight.toFixed(2);
+        let icon = incidentHaloIconCache.get(key);
+        if (!icon) {
+          const offsetX = Number.isFinite(MARKER_CENTROID_OFFSET_X_FACTOR)
+            ? MARKER_CENTROID_OFFSET_X_FACTOR * safeHeight
+            : 0;
+          const offsetY = Number.isFinite(MARKER_CENTROID_OFFSET_Y_FACTOR)
+            ? MARKER_CENTROID_OFFSET_Y_FACTOR * safeHeight
+            : 0;
+          const anchorX = diameter / 2 - offsetX;
+          const anchorY = diameter / 2 - offsetY;
+          const minScale = HALO_MAX_RADIUS_PX > 0
+            ? Math.max(0, Math.min(1, HALO_MIN_RADIUS_PX / HALO_MAX_RADIUS_PX))
+            : 0.25;
+          const html = `<div class="incident-halo" style="--incident-halo-diameter:${diameter}px;--incident-halo-base-opacity:${HALO_BASE_OPACITY};--incident-halo-duration:${HALO_DURATION_MS}ms;--incident-halo-start-scale:${minScale};--incident-halo-color-rgb:${HALO_COLOR_RGB};"></div>`;
+          icon = L.divIcon({
+            className: 'incident-halo-icon',
+            iconSize: [diameter, diameter],
+            iconAnchor: [anchorX, anchorY],
+            html
+          });
+          incidentHaloIconCache.set(key, icon);
+        }
+        return icon;
+      }
+
+      function createIncidentHaloMarker(latLng, markerHeight) {
+        const haloIcon = getIncidentHaloIcon(markerHeight);
+        return L.marker(latLng, {
+          icon: haloIcon,
+          pane: 'incidentHalosPane',
+          interactive: false,
+          keyboard: false,
+          bubblingMouseEvents: false
+        });
+      }
+
+      function ensureIncidentHaloLayerGroup() {
+        if (!map) return null;
+        if (!incidentHaloLayerGroup) {
+          incidentHaloLayerGroup = L.layerGroup();
+        }
+        if (incidentsVisible && !map.hasLayer(incidentHaloLayerGroup)) {
+          incidentHaloLayerGroup.addTo(map);
+        }
+        return incidentHaloLayerGroup;
+      }
+
+      function isReducedMotionPreferred() {
+        return !!(reduceMotionMediaQuery && typeof reduceMotionMediaQuery.matches === 'boolean' && reduceMotionMediaQuery.matches);
+      }
+
+      function applyHaloAnimationState(entry, animated) {
+        if (!entry || !entry.haloMarker) return;
+        const haloMarker = entry.haloMarker;
+        const update = () => {
+          const element = haloMarker.getElement();
+          if (!element) return;
+          const haloElement = element.querySelector('.incident-halo');
+          if (!haloElement) return;
+          if (animated) {
+            haloElement.classList.add('incident-halo--animated');
+            haloElement.classList.remove('incident-halo--static');
+          } else {
+            haloElement.classList.add('incident-halo--static');
+            haloElement.classList.remove('incident-halo--animated');
+          }
+        };
+        update();
+        setTimeout(update, 0);
+      }
+
+      function removeIncidentHalo(entry) {
+        if (!entry || !entry.haloMarker) return;
+        const haloMarker = entry.haloMarker;
+        if (incidentHaloLayerGroup && incidentHaloLayerGroup.hasLayer(haloMarker)) {
+          incidentHaloLayerGroup.removeLayer(haloMarker);
+        } else if (haloMarker && typeof haloMarker.remove === 'function' && haloMarker._map) {
+          haloMarker.remove();
+        }
+        entry.haloMarker = null;
+        entry.haloAnimated = false;
+      }
+
+      function syncIncidentHaloForEntry(id, entry) {
+        if (!entry || !entry.marker) return;
+        if (!incidentsNearRoutesLookup.has(id)) {
+          removeIncidentHalo(entry);
+          return;
+        }
+        const haloGroup = ensureIncidentHaloLayerGroup();
+        if (!haloGroup) return;
+        const latLng = entry.marker.getLatLng();
+        if (!latLng) return;
+        const size = getIncidentMarkerIconSize(entry.marker);
+        const markerHeight = size && Number.isFinite(size.height) ? size.height : DEFAULT_SCALED_INCIDENT_ICON_HEIGHT;
+        const desiredIcon = getIncidentHaloIcon(markerHeight);
+        if (entry.haloMarker) {
+          entry.haloMarker.setLatLng(latLng);
+          if (entry.haloMarker.options && entry.haloMarker.options.icon !== desiredIcon) {
+            entry.haloMarker.setIcon(desiredIcon);
+          }
+          if (!haloGroup.hasLayer(entry.haloMarker)) {
+            haloGroup.addLayer(entry.haloMarker);
+          }
+        } else {
+          const haloMarker = createIncidentHaloMarker(latLng, markerHeight);
+          entry.haloMarker = haloMarker;
+          haloGroup.addLayer(haloMarker);
+        }
+      }
+
+      function applyIncidentHaloStates() {
+        if (!map) return;
+        const haloGroup = ensureIncidentHaloLayerGroup();
+        if (!haloGroup) return;
+        const nearRouteList = Array.isArray(incidentsNearRoutes) ? incidentsNearRoutes : [];
+        const orderedIds = [];
+        nearRouteList.forEach(entry => {
+          if (!entry) return;
+          const candidateId = typeof entry.id === 'string' ? entry.id : getNormalizedIncidentId(entry.id);
+          if (candidateId && !orderedIds.includes(candidateId)) {
+            orderedIds.push(candidateId);
+          }
+        });
+        const reduceMotion = isReducedMotionPreferred();
+        const animatedIds = reduceMotion
+          ? new Set()
+          : new Set(orderedIds.slice(0, Math.max(0, INCIDENT_HALO_ANIMATED_LIMIT)));
+        incidentMarkers.forEach((entry, id) => {
+          if (!incidentsNearRoutesLookup.has(id)) {
+            removeIncidentHalo(entry);
+            return;
+          }
+          syncIncidentHaloForEntry(id, entry);
+          const animate = animatedIds.has(id) && !reduceMotion;
+          entry.haloAnimated = animate;
+          applyHaloAnimationState(entry, animate);
+        });
+      }
+
+      if (reduceMotionMediaQuery) {
+        const handleReduceMotionChange = () => {
+          applyIncidentHaloStates();
+        };
+        if (typeof reduceMotionMediaQuery.addEventListener === 'function') {
+          reduceMotionMediaQuery.addEventListener('change', handleReduceMotionChange);
+        } else if (typeof reduceMotionMediaQuery.addListener === 'function') {
+          reduceMotionMediaQuery.addListener(handleReduceMotionChange);
         }
       }
 
@@ -1910,7 +2178,17 @@
       function updateIncidentsNearRoutes(matches, signature = '') {
         const list = Array.isArray(matches) ? matches.slice() : [];
         incidentsNearRoutes = list;
+        const lookup = new Map();
+        list.forEach(entry => {
+          if (!entry) return;
+          const candidateId = typeof entry.id === 'string' ? entry.id : getNormalizedIncidentId(entry.id);
+          if (candidateId) {
+            lookup.set(candidateId, entry);
+          }
+        });
+        incidentsNearRoutesLookup = lookup;
         incidentRouteAlertSignature = typeof signature === 'string' ? signature : '';
+        applyIncidentHaloStates();
       }
 
       function applyIncidentMarkers(incidents) {
@@ -1960,7 +2238,9 @@
             incidentMarkers.set(id, {
               marker,
               data: incident,
-              iconUrl: markerUrl
+              iconUrl: markerUrl,
+              haloMarker: null,
+              haloAnimated: false
             });
           }
         });
@@ -1979,8 +2259,10 @@
           } else if (map && entry.marker && map.hasLayer(entry.marker)) {
             map.removeLayer(entry.marker);
           }
+          removeIncidentHalo(entry);
           incidentMarkers.delete(id);
         });
+        applyIncidentHaloStates();
       }
 
       function ensureRouteProjectedPath(entry) {
@@ -2232,10 +2514,16 @@
           incidentLayerGroup = L.layerGroup();
           incidentLayerGroup.addTo(map);
         }
+        if (incidentsVisible) {
+          ensureIncidentHaloLayerGroup();
+        } else if (map && incidentHaloLayerGroup && map.hasLayer(incidentHaloLayerGroup)) {
+          map.removeLayer(incidentHaloLayerGroup);
+        }
         if (incidentsVisible && incidentMarkers.size === 0 && !isFetchingIncidents) {
           refreshIncidents();
         }
         updateIncidentToggleButton();
+        applyIncidentHaloStates();
       }
 
       async function activateDemoIncidentPreview() {
@@ -3757,6 +4045,12 @@
               busesPane.style.zIndex = 500;
               busesPane.style.pointerEvents = 'auto';
           }
+          map.createPane('incidentHalosPane');
+          const incidentHalosPane = map.getPane('incidentHalosPane');
+          if (incidentHalosPane) {
+              incidentHalosPane.style.zIndex = 540;
+              incidentHalosPane.style.pointerEvents = 'none';
+          }
           map.createPane('incidentsPane');
           const incidentsPane = map.getPane('incidentsPane');
           if (incidentsPane) {
@@ -3771,6 +4065,17 @@
           });
           if (incidentsVisible) {
               incidentLayerGroup.addTo(map);
+          }
+          if (!incidentHaloLayerGroup) {
+              incidentHaloLayerGroup = L.layerGroup();
+          }
+          incidentMarkers.forEach(entry => {
+              if (entry && entry.haloMarker) {
+                  incidentHaloLayerGroup.addLayer(entry.haloMarker);
+              }
+          });
+          if (incidentsVisible && incidentHaloLayerGroup) {
+              incidentHaloLayerGroup.addTo(map);
           }
           const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -3822,6 +4127,7 @@
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
           });
+          applyIncidentHaloStates();
       }
 
       function fetchBusStops() {
