@@ -501,55 +501,6 @@
         flex-wrap: wrap;
         gap: 6px;
       }
-      .incident-marker-pulse-container {
-        pointer-events: none;
-        contain: layout style paint;
-      }
-      .incident-marker-pulse-container .incident-marker-pulse {
-        position: absolute;
-        inset: 0;
-      }
-      .incident-marker-pulse-container .incident-marker-pulse::before,
-      .incident-marker-pulse-container .incident-marker-pulse::after {
-        content: '';
-        position: absolute;
-        width: var(--incident-pulse-diameter, 0px);
-        height: var(--incident-pulse-diameter, 0px);
-        left: calc(50% - var(--incident-pulse-diameter, 0px) / 2);
-        top: calc(var(--incident-pulse-center-y, 0px) - var(--incident-pulse-diameter, 0px) / 2);
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(161, 18, 23, 0.38) 0%, rgba(161, 18, 23, 0.2) 42%, rgba(161, 18, 23, 0) 78%);
-        filter: blur(0.3px);
-        transform-origin: center;
-        pointer-events: none;
-      }
-      .incident-marker-pulse-container .incident-marker-pulse::before {
-        opacity: 0.5;
-      }
-      .incident-marker-pulse-container .incident-marker-pulse::after {
-        opacity: 0.45;
-        animation: incident-marker-pulse-wave 2.6s ease-out infinite;
-      }
-      @keyframes incident-marker-pulse-wave {
-        0% {
-          transform: scale(0.55);
-          opacity: 0.38;
-        }
-        55% {
-          transform: scale(1);
-          opacity: 0.22;
-        }
-        100% {
-          transform: scale(1.35);
-          opacity: 0;
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .incident-marker-pulse-container .incident-marker-pulse::after {
-          animation: none;
-          opacity: 0;
-        }
-      }
       .selector-panel .incident-unit {
         display: inline-flex;
         align-items: center;
@@ -1153,9 +1104,6 @@
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;
-      const INCIDENT_PULSE_CENTER_Y_RATIO = 0.640625;
-      const INCIDENT_PULSE_DIAMETER_RATIO = 1.7;
-      const INCIDENT_PULSE_MIN_DIAMETER_PX = 72;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
 
       let map;
@@ -1903,10 +1851,6 @@
               if (marker && typeof marker.setIcon === 'function') {
                 marker.setIcon(entry.icon);
               }
-              const markerId = marker && marker._incidentMarkerId;
-              if (markerId) {
-                updateIncidentMarkerPulseById(markerId);
-              }
             });
           });
           img.addEventListener('error', () => {
@@ -1963,169 +1907,10 @@
         }
       }
 
-      function removeIncidentMarkerPulse(entry) {
-        if (!entry || !entry.pulseMarker) return;
-        const pulseMarker = entry.pulseMarker;
-        if (incidentLayerGroup && typeof incidentLayerGroup.removeLayer === 'function') {
-          incidentLayerGroup.removeLayer(pulseMarker);
-        }
-        if (typeof pulseMarker.remove === 'function') {
-          pulseMarker.remove();
-        }
-        entry.pulseMarker = null;
-        entry.pulseState = null;
-      }
-
-      function getIncidentPulseRenderInfo(marker) {
-        if (!marker) return null;
-        const icon = typeof marker.getIcon === 'function'
-          ? marker.getIcon()
-          : (marker.options && marker.options.icon);
-        const size = icon && icon.options && Array.isArray(icon.options.iconSize)
-          ? icon.options.iconSize
-          : null;
-        let width = FALLBACK_INCIDENT_ICON_SIZE;
-        let height = FALLBACK_INCIDENT_ICON_SIZE;
-        if (size && size.length >= 2) {
-          const [rawWidth, rawHeight] = size;
-          const widthCandidate = Number(rawWidth);
-          const heightCandidate = Number(rawHeight);
-          if (Number.isFinite(widthCandidate) && widthCandidate > 0) {
-            width = widthCandidate;
-          }
-          if (Number.isFinite(heightCandidate) && heightCandidate > 0) {
-            height = heightCandidate;
-          }
-        }
-        width = Math.max(1, Math.round(width));
-        height = Math.max(1, Math.round(height));
-        let anchorX = Math.round(width / 2);
-        let anchorY = Math.round(height);
-        const diameterBase = Math.max(width, height) * INCIDENT_PULSE_DIAMETER_RATIO;
-        const diameter = Math.max(INCIDENT_PULSE_MIN_DIAMETER_PX, Math.round(diameterBase));
-        let centerY = Math.max(0, Math.round(height * INCIDENT_PULSE_CENTER_Y_RATIO));
-
-        const halfDiameter = diameter / 2;
-        const extraHorizontal = Math.max(0, Math.ceil((diameter - width) / 2));
-        const extraTop = Math.max(0, Math.ceil(halfDiameter - centerY));
-        const extraBottom = Math.max(0, Math.ceil(centerY + halfDiameter - height));
-
-        if (extraHorizontal > 0) {
-          width += extraHorizontal * 2;
-          anchorX += extraHorizontal;
-        }
-        if (extraTop > 0 || extraBottom > 0) {
-          height += extraTop + extraBottom;
-          anchorY += extraTop;
-          centerY += extraTop;
-        }
-
-        return {
-          width,
-          height,
-          anchorX,
-          anchorY,
-          diameter,
-          centerY
-        };
-      }
-
-      function buildIncidentPulseIcon(info) {
-        if (!info || typeof L === 'undefined' || typeof L.divIcon !== 'function') {
-          return null;
-        }
-        const html = `<div class="incident-marker-pulse" aria-hidden="true" style="--incident-pulse-diameter:${info.diameter}px; --incident-pulse-center-y:${info.centerY}px;"></div>`;
-        return L.divIcon({
-          className: 'incident-marker-pulse-container',
-          html,
-          iconSize: [info.width, info.height],
-          iconAnchor: [info.anchorX, info.anchorY]
-        });
-      }
-
-      function updateIncidentMarkerPulseById(id) {
-        const normalizedId = getNormalizedIncidentId(id);
-        if (!normalizedId) return;
-        const entry = incidentMarkers.get(normalizedId);
-        if (!entry || !entry.marker) {
-          return;
-        }
-        if (typeof L === 'undefined' || typeof L.marker !== 'function') {
-          return;
-        }
-        const latLng = typeof entry.marker.getLatLng === 'function'
-          ? entry.marker.getLatLng()
-          : null;
-        if (!latLng) {
-          removeIncidentMarkerPulse(entry);
-          return;
-        }
-        const info = getIncidentPulseRenderInfo(entry.marker);
-        if (!info) {
-          removeIncidentMarkerPulse(entry);
-          return;
-        }
-        if (!entry.pulseMarker) {
-          const icon = buildIncidentPulseIcon(info);
-          if (!icon) return;
-          const pulseMarker = L.marker(latLng, {
-            icon,
-            interactive: false,
-            pane: 'incidentsPane',
-            keyboard: false,
-            zIndexOffset: 100
-          });
-          entry.pulseMarker = pulseMarker;
-          entry.pulseState = {
-            width: info.width,
-            height: info.height,
-            diameter: info.diameter,
-            centerY: info.centerY,
-            anchorX: info.anchorX,
-            anchorY: info.anchorY
-          };
-          if (incidentLayerGroup && typeof incidentLayerGroup.addLayer === 'function') {
-            incidentLayerGroup.addLayer(pulseMarker);
-          }
-        } else {
-          if (typeof entry.pulseMarker.setLatLng === 'function') {
-            entry.pulseMarker.setLatLng(latLng);
-          }
-          const prev = entry.pulseState || {};
-          if (prev.width !== info.width || prev.height !== info.height
-            || prev.diameter !== info.diameter || prev.centerY !== info.centerY
-            || prev.anchorX !== info.anchorX || prev.anchorY !== info.anchorY) {
-            const icon = buildIncidentPulseIcon(info);
-            if (icon && typeof entry.pulseMarker.setIcon === 'function') {
-              entry.pulseMarker.setIcon(icon);
-            }
-            entry.pulseState = {
-              width: info.width,
-              height: info.height,
-              diameter: info.diameter,
-              centerY: info.centerY,
-              anchorX: info.anchorX,
-              anchorY: info.anchorY
-            };
-          }
-          if (incidentLayerGroup && typeof incidentLayerGroup.hasLayer === 'function'
-            && !incidentLayerGroup.hasLayer(entry.pulseMarker)) {
-            incidentLayerGroup.addLayer(entry.pulseMarker);
-          }
-        }
-      }
-
-      function refreshIncidentMarkerPulses() {
-        incidentMarkers.forEach((_, key) => {
-          updateIncidentMarkerPulseById(key);
-        });
-      }
-
       function updateIncidentsNearRoutes(matches, signature = '') {
         const list = Array.isArray(matches) ? matches.slice() : [];
         incidentsNearRoutes = list;
         incidentRouteAlertSignature = typeof signature === 'string' ? signature : '';
-        refreshIncidentMarkerPulses();
       }
 
       function applyIncidentMarkers(incidents) {
@@ -2155,7 +1940,6 @@
           activeIds.add(id);
           const existing = incidentMarkers.get(id);
           if (existing && existing.marker) {
-            existing.marker._incidentMarkerId = id;
             existing.marker.setLatLng([lat, lon]);
             if (existing.iconUrl !== markerUrl) {
               releaseIncidentIcon(existing.marker, existing.iconUrl);
@@ -2164,30 +1948,20 @@
             }
             updateIncidentMarkerTooltip(existing.marker, incident);
             existing.data = incident;
-            updateIncidentMarkerPulseById(id);
           } else {
             const marker = L.marker([lat, lon], {
               pane: 'incidentsPane',
               keyboard: false,
               zIndexOffset: 200
             });
-            marker._incidentMarkerId = id;
-            if (typeof marker.on === 'function') {
-              marker.on('iconload', () => {
-                updateIncidentMarkerPulseById(id);
-              });
-            }
             assignIncidentIcon(marker, markerUrl);
             updateIncidentMarkerTooltip(marker, incident);
             marker.addTo(layerGroup);
             incidentMarkers.set(id, {
               marker,
               data: incident,
-              iconUrl: markerUrl,
-              pulseMarker: null,
-              pulseState: null
+              iconUrl: markerUrl
             });
-            updateIncidentMarkerPulseById(id);
           }
         });
         const idsToRemove = [];
@@ -2199,7 +1973,6 @@
         idsToRemove.forEach(id => {
           const entry = incidentMarkers.get(id);
           if (!entry) return;
-          removeIncidentMarkerPulse(entry);
           releaseIncidentIcon(entry.marker, entry.iconUrl);
           if (incidentLayerGroup && entry.marker) {
             incidentLayerGroup.removeLayer(entry.marker);
@@ -2496,28 +2269,6 @@
         }
         if (entry.incident) {
           applyIncidentMarkers([entry.incident]);
-          let markerId = getNormalizedIncidentId(getIncidentIdentifier(entry.incident));
-          if (!markerId) {
-            const lat = parseIncidentCoordinate(entry.incident.Latitude ?? entry.incident.latitude ?? entry.incident.lat);
-            const lon = parseIncidentCoordinate(entry.incident.Longitude ?? entry.incident.longitude ?? entry.incident.lon);
-            if (Number.isFinite(lat) && Number.isFinite(lon)) {
-              markerId = getNormalizedIncidentId(`${lat.toFixed(6)}_${lon.toFixed(6)}`);
-            }
-          }
-          const refreshPulse = () => {
-            if (markerId) {
-              updateIncidentMarkerPulseById(markerId);
-            } else {
-              refreshIncidentMarkerPulses();
-            }
-          };
-          if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(refreshPulse);
-          } else {
-            refreshPulse();
-          }
-        } else {
-          refreshIncidentMarkerPulses();
         }
         if (entry.incident && Number.isFinite(entry.incident.Latitude) && Number.isFinite(entry.incident.Longitude) && map && typeof map.setView === 'function') {
           try {
