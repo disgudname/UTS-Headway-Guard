@@ -3205,6 +3205,14 @@
             <div class="demo-incident-note">${escapeHtml(demoNoteText)}</div>
           </div>
         `;
+        const incidentToggleHtml = incidentsAreAvailable() ? `
+          <div class="selector-group">
+            <div class="selector-label">Incidents</div>
+            <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
+              Show Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+        ` : '';
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -3214,6 +3222,7 @@
             ${logoHtml}
           </div>
           <div class="selector-content">
+            ${incidentToggleHtml}
             ${incidentAlertsHtml}
             ${demoButtonHtml}
             <div class="selector-group">
@@ -3245,17 +3254,6 @@
                   Show None
                 </button>
               </div>
-            </div>
-          `;
-        }
-
-        if (incidentsAreAvailable()) {
-          html += `
-            <div class="selector-group">
-              <div class="selector-label">Incidents</div>
-              <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
-                Show Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
-              </button>
             </div>
           `;
         }
