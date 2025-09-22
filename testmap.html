@@ -1575,6 +1575,7 @@
         const typeCode = String(typeValue || '').trim().toUpperCase();
         const idRaw = sanitize(row.ID) || 'DEMO_INCIDENT';
         const id = String(idRaw).trim() || 'DEMO_INCIDENT';
+        const normalizedId = getNormalizedIncidentId(id) || 'DEMO_INCIDENT';
         const markerUrl = sanitize(row.Marker) || '';
         const category = sanitize(row.Category) || 'active';
         const address = sanitize(row.Address) || 'Demo Address';
@@ -1591,8 +1592,8 @@
           _markerType: typeCode || 'INC',
           _category: category,
           _demo: true,
-          ID: id,
-          IncidentID: id,
+          ID: normalizedId,
+          IncidentID: normalizedId,
           Type: typeCode || typeValue,
           TypeCode: typeCode || typeValue,
           PulsePointIncidentCallType: label,
@@ -1610,14 +1611,15 @@
         };
         const timestamp = getIncidentTimestamp(incident) ?? Date.now();
         return {
-          id: `demo-${id}`,
+          id: normalizedId,
           incident,
           routes: [
             { routeId: 404, name: 'Demo Route 404', distance: 42 }
           ],
           closestDistance: 42,
           timestamp,
-          _demo: true
+          _demo: true,
+          _demoSignature: `demo-${normalizedId}`
         };
       }
 
@@ -2465,7 +2467,7 @@
         demoIncidentEntry = entry;
         demoIncidentPreviousVisibility = incidentsVisible;
         demoIncidentActive = true;
-        updateIncidentsNearRoutes([entry], entry.id || 'demo');
+        updateIncidentsNearRoutes([entry], entry._demoSignature || entry.id || 'demo');
         incidentsVisible = true;
         incidentsVisibilityPreference = true;
         if (!incidentLayerGroup && typeof L !== 'undefined' && typeof L.layerGroup === 'function') {
