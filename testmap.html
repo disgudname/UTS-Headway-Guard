@@ -2475,6 +2475,28 @@
         }
         if (entry.incident) {
           applyIncidentMarkers([entry.incident]);
+          let markerId = getNormalizedIncidentId(getIncidentIdentifier(entry.incident));
+          if (!markerId) {
+            const lat = parseIncidentCoordinate(entry.incident.Latitude ?? entry.incident.latitude ?? entry.incident.lat);
+            const lon = parseIncidentCoordinate(entry.incident.Longitude ?? entry.incident.longitude ?? entry.incident.lon);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+              markerId = getNormalizedIncidentId(`${lat.toFixed(6)}_${lon.toFixed(6)}`);
+            }
+          }
+          const refreshPulse = () => {
+            if (markerId) {
+              updateIncidentMarkerPulseById(markerId);
+            } else {
+              refreshIncidentMarkerPulses();
+            }
+          };
+          if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(refreshPulse);
+          } else {
+            refreshPulse();
+          }
+        } else {
+          refreshIncidentMarkerPulses();
         }
         if (entry.incident && Number.isFinite(entry.incident.Latitude) && Number.isFinite(entry.incident.Longitude) && map && typeof map.setView === 'function') {
           try {
