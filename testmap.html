@@ -7,6 +7,7 @@
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
     <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
     <style>
       .custom-popup {
         position: absolute;
@@ -530,6 +531,23 @@
       .selector-panel button:active {
         transform: translateY(0);
       }
+      .selector-panel .toggle-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        background: rgba(35, 45, 75, 0.12);
+        color: rgba(35, 45, 75, 0.78);
+      }
+      .selector-panel button.is-active .toggle-indicator {
+        background: rgba(229, 114, 0, 0.2);
+        color: #1f2937;
+      }
       .selector-panel button.accent {
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));
         color: #1f1300;
@@ -893,7 +911,12 @@
       }
       
       const outOfServiceRouteColor = '#000000';
-      
+
+      const PULSEPOINT_ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
+      const PULSEPOINT_PASSPHRASE = "tombrady5rings";
+      const INCIDENT_REFRESH_INTERVAL_MS = 45000;
+      const FALLBACK_INCIDENT_ICON_SIZE = 36;
+
       let map;
       let markers = {};
       let busMarkerStates = {};
@@ -903,6 +926,404 @@
       let markerScaleUpdateFrame = null;
       let pendingMarkerScaleMetrics = null;
       let textMeasurementCanvas = null;
+
+      let incidentsVisible = true;
+      let incidentLayerGroup = null;
+      const incidentMarkers = new Map();
+      const incidentIconCache = new Map();
+      let isFetchingIncidents = false;
+
+      function fetchPulsePointEncrypted() {
+        return fetch(PULSEPOINT_ENDPOINT, {
+          method: 'GET',
+          mode: 'cors',
+          cache: 'no-store'
+        }).then(response => {
+          if (!response || !response.ok) {
+            throw new Error(response ? `PulsePoint HTTP ${response.status}` : 'PulsePoint request failed');
+          }
+          return response.json();
+        });
+      }
+
+      function decryptPulsePointPayload(encryptedObj) {
+        if (!encryptedObj) {
+          throw new Error('Missing PulsePoint payload.');
+        }
+        const obj = typeof encryptedObj === 'string' ? JSON.parse(encryptedObj) : encryptedObj;
+        if (!obj || typeof obj !== 'object' || !obj.ct) {
+          throw new Error('PulsePoint payload is malformed.');
+        }
+        const cipherParams = CryptoJS.lib.CipherParams.create({
+          ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
+        });
+        if (obj.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(obj.iv);
+        if (obj.s) cipherParams.salt = CryptoJS.enc.Hex.parse(obj.s);
+        const rawText = CryptoJS.AES.decrypt(cipherParams, PULSEPOINT_PASSPHRASE, {
+          mode: CryptoJS.mode.CBC,
+          padding: CryptoJS.pad.Pkcs7
+        }).toString(CryptoJS.enc.Utf8);
+        if (!rawText) {
+          throw new Error('PulsePoint decryption returned empty payload.');
+        }
+        let parsed = rawText;
+        for (let i = 0; i < 3; i += 1) {
+          if (typeof parsed === 'string') {
+            try {
+              parsed = JSON.parse(parsed);
+              continue;
+            } catch (error) {
+              break;
+            }
+          }
+          break;
+        }
+        if (typeof parsed === 'string') {
+          throw new Error('PulsePoint decrypted payload is not valid JSON.');
+        }
+        return { parsed, rawText };
+      }
+
+      function looksLikePulsePointIncident(obj) {
+        if (!obj || typeof obj !== 'object') return false;
+        const keys = ['ID', 'FullDisplayAddress', 'PulsePointIncidentCallType', 'CallReceivedDateTime', 'Latitude', 'Longitude'];
+        return keys.filter(key => key in obj).length >= 2;
+      }
+
+      function inferPulsePointMarkerType(rec) {
+        const candidates = [
+          rec.PulsePointIncidentCallTypePrimaryCode,
+          rec.PulsePointIncidentCallTypeCode,
+          rec.PulsePointIncidentCallTypeID,
+          rec.PulsePointIncidentTypeCode,
+          rec.PulsePointIncidentType,
+          rec.CallTypeCode,
+          rec.TypeCode,
+          rec.CallType,
+          rec.Type,
+          rec.IncidentType,
+          rec.PulsePointIncidentCallType
+        ];
+        for (const value of candidates) {
+          if (value == null) continue;
+          const raw = typeof value === 'number' ? value.toString() : String(value);
+          const trimmed = raw.trim();
+          if (!trimmed) continue;
+          if (/^[A-Za-z0-9]{1,6}$/.test(trimmed)) return trimmed.toUpperCase();
+          const firstToken = trimmed.split(/[\s/-]+/)[0];
+          if (firstToken && /^[A-Za-z0-9]{1,4}$/.test(firstToken)) return firstToken.toUpperCase();
+          const words = trimmed.match(/[A-Za-z0-9]+/g);
+          if (words && words.length >= 2) {
+            const acronym = words.map(word => word[0]).join('');
+            if (acronym && /^[A-Za-z0-9]{1,4}$/.test(acronym)) return acronym.toUpperCase();
+          }
+        }
+        return '';
+      }
+
+      function buildPulsePointMarkerUrl(type, category) {
+        const categoryLower = (category || '').toLowerCase();
+        if (!type || (categoryLower !== 'active' && categoryLower !== 'recent')) return '';
+        return `https://web.pulsepoint.org/images/respond_icons/${type.toLowerCase()}_map_${categoryLower}.png`;
+      }
+
+      function pulsePointMarkerAltText(type, category, fallback) {
+        const parts = [];
+        if (type) parts.push(type);
+        if (category) parts.push(category);
+        if (!parts.length && fallback) parts.push(fallback);
+        if (!parts.length) return 'Marker icon';
+        parts.push('marker icon');
+        return parts.join(' ');
+      }
+
+      function decoratePulsePointIncident(rec, category) {
+        const copy = { ...(rec || {}), _category: category };
+        if (Array.isArray(copy.Unit)) {
+          copy._units = copy.Unit.map(u => {
+            const id = u.UnitID || u.Unit || '';
+            const status = u.PulsePointDispatchStatus || u.Status || '';
+            return status ? `${id} (${status})` : id;
+          }).join(', ');
+        } else {
+          copy._units = '';
+        }
+        const markerType = inferPulsePointMarkerType(copy);
+        const markerCategory = (category || '').toLowerCase();
+        const markerUrl = buildPulsePointMarkerUrl(markerType, markerCategory);
+        copy._markerType = markerType;
+        copy._markerCategory = markerUrl ? markerCategory : '';
+        copy._markerUrl = markerUrl;
+        copy._markerAlt = markerUrl ? pulsePointMarkerAltText(markerType, markerCategory, copy.PulsePointIncidentCallType) : '';
+        return copy;
+      }
+
+      function normalizePulsePointIncidents(root) {
+        const out = [];
+        const incidentsRoot = root && root.incidents;
+        const categories = [['active', 'active'], ['recent', 'recent'], ['alerts', 'alerts']];
+        let pulled = 0;
+        if (incidentsRoot && typeof incidentsRoot === 'object') {
+          for (const [key, label] of categories) {
+            const arr = Array.isArray(incidentsRoot[key]) ? incidentsRoot[key] : [];
+            arr.forEach(rec => out.push(decoratePulsePointIncident(rec, label)));
+            pulled += arr.length;
+          }
+          if (pulled) return out;
+        }
+        const rootKeys = root && typeof root === 'object' ? Object.keys(root) : [];
+        for (const key of rootKeys) {
+          const value = root[key];
+          if (Array.isArray(value) && value.every(looksLikePulsePointIncident)) {
+            value.forEach(rec => out.push(decoratePulsePointIncident(rec, key)));
+          } else if (value && typeof value === 'object') {
+            Object.keys(value).forEach(innerKey => {
+              const innerValue = value[innerKey];
+              if (Array.isArray(innerValue) && innerValue.every(looksLikePulsePointIncident)) {
+                innerValue.forEach(rec => out.push(decoratePulsePointIncident(rec, innerKey)));
+              }
+            });
+          }
+        }
+        if (out.length) return out;
+        (function dig(x, label = 'misc') {
+          if (!x) return;
+          if (Array.isArray(x) && x.length && looksLikePulsePointIncident(x[0])) {
+            x.forEach(rec => out.push(decoratePulsePointIncident(rec, label)));
+            return;
+          }
+          if (typeof x === 'object') {
+            Object.keys(x).forEach(childKey => dig(x[childKey], childKey));
+          }
+        })(root);
+        return out;
+      }
+
+      async function fetchPulsePointIncidents() {
+        const encrypted = await fetchPulsePointEncrypted();
+        const { parsed } = decryptPulsePointPayload(encrypted);
+        return normalizePulsePointIncidents(parsed);
+      }
+
+      function parseIncidentCoordinate(value) {
+        if (value === undefined || value === null || value === '') return null;
+        const numeric = typeof value === 'number' ? value : Number.parseFloat(value);
+        return Number.isFinite(numeric) ? numeric : null;
+      }
+
+      function getIncidentIdentifier(rec) {
+        if (!rec || typeof rec !== 'object') return null;
+        const candidateKeys = [
+          'ID',
+          'IncidentID',
+          'IncidentNumber',
+          'PulsePointIncidentID',
+          'PulsePointIncidentCallNumber',
+          'CadIncidentNumber',
+          'CADIncidentNumber'
+        ];
+        for (const key of candidateKeys) {
+          const value = rec[key];
+          if (value === undefined || value === null) continue;
+          const str = String(value).trim();
+          if (str) return str;
+        }
+        const lat = parseIncidentCoordinate(rec.Latitude ?? rec.latitude ?? rec.lat);
+        const lon = parseIncidentCoordinate(rec.Longitude ?? rec.longitude ?? rec.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        const received = typeof rec.CallReceivedDateTime === 'string'
+          ? rec.CallReceivedDateTime
+          : (typeof rec.ReceivedDateTime === 'string' ? rec.ReceivedDateTime : '');
+        return `${lat.toFixed(6)}_${lon.toFixed(6)}_${received}`;
+      }
+
+      function getIncidentIconEntry(iconUrl) {
+        if (!iconUrl) return null;
+        let entry = incidentIconCache.get(iconUrl);
+        if (!entry) {
+          const fallback = FALLBACK_INCIDENT_ICON_SIZE;
+          entry = {
+            icon: L.icon({
+              iconUrl,
+              iconSize: [fallback, fallback],
+              iconAnchor: [fallback / 2, fallback],
+              className: 'incident-marker-icon'
+            }),
+            markers: new Set(),
+            loaded: false
+          };
+          incidentIconCache.set(iconUrl, entry);
+          const img = new Image();
+          img.decoding = 'async';
+          img.addEventListener('load', () => {
+            const width = img.naturalWidth || fallback;
+            const height = img.naturalHeight || fallback;
+            entry.icon = L.icon({
+              iconUrl,
+              iconSize: [width, height],
+              iconAnchor: [width / 2, height],
+              className: 'incident-marker-icon'
+            });
+            entry.loaded = true;
+            entry.markers.forEach(marker => marker.setIcon(entry.icon));
+          });
+          img.addEventListener('error', () => {
+            entry.loaded = true;
+          });
+          img.src = iconUrl;
+        }
+        return entry;
+      }
+
+      function assignIncidentIcon(marker, iconUrl) {
+        if (!marker || !iconUrl) return;
+        const entry = getIncidentIconEntry(iconUrl);
+        if (!entry) return;
+        entry.markers.add(marker);
+        marker.setIcon(entry.icon);
+      }
+
+      function releaseIncidentIcon(marker, iconUrl) {
+        if (!marker || !iconUrl) return;
+        const entry = incidentIconCache.get(iconUrl);
+        if (entry && entry.markers) {
+          entry.markers.delete(marker);
+        }
+      }
+
+      function updateIncidentMarkerTooltip(marker, incident) {
+        if (!marker || !incident) return;
+        const lines = [];
+        const callType = incident.PulsePointIncidentCallType || incident.CallType || incident.Type || '';
+        const address = incident.FullDisplayAddress || incident.DisplayAddress || incident.Address || '';
+        if (callType) lines.push(callType);
+        if (address) {
+          if (!lines.length || address.trim().toLowerCase() !== lines[0].trim().toLowerCase()) {
+            lines.push(address);
+          }
+        }
+        if (!lines.length) {
+          if (typeof marker.unbindTooltip === 'function') {
+            marker.unbindTooltip();
+          }
+          return;
+        }
+        const tooltipText = lines.join('\n');
+        if (typeof marker.getTooltip === 'function') {
+          const tooltip = marker.getTooltip();
+          if (tooltip && typeof tooltip.setContent === 'function') {
+            tooltip.setContent(tooltipText);
+            return;
+          }
+        }
+        if (typeof marker.bindTooltip === 'function') {
+          marker.bindTooltip(tooltipText, { direction: 'top', offset: [0, -4], sticky: true });
+        }
+      }
+
+      function applyIncidentMarkers(incidents) {
+        if (!map) return;
+        let layerGroup = incidentLayerGroup;
+        if (!layerGroup) {
+          layerGroup = L.layerGroup();
+          incidentLayerGroup = layerGroup;
+          if (incidentsVisible) {
+            layerGroup.addTo(map);
+          }
+        }
+        const activeIds = new Set();
+        (Array.isArray(incidents) ? incidents : []).forEach(incident => {
+          if (!incident) return;
+          const id = getIncidentIdentifier(incident);
+          if (!id) return;
+          const lat = parseIncidentCoordinate(incident.Latitude ?? incident.latitude ?? incident.lat);
+          const lon = parseIncidentCoordinate(incident.Longitude ?? incident.longitude ?? incident.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          const markerUrl = incident._markerUrl;
+          if (!markerUrl) return;
+          activeIds.add(id);
+          const existing = incidentMarkers.get(id);
+          if (existing && existing.marker) {
+            existing.marker.setLatLng([lat, lon]);
+            if (existing.iconUrl !== markerUrl) {
+              releaseIncidentIcon(existing.marker, existing.iconUrl);
+              assignIncidentIcon(existing.marker, markerUrl);
+              existing.iconUrl = markerUrl;
+            }
+            updateIncidentMarkerTooltip(existing.marker, incident);
+            existing.data = incident;
+          } else {
+            const marker = L.marker([lat, lon], {
+              pane: 'incidentsPane',
+              keyboard: false,
+              zIndexOffset: 200
+            });
+            assignIncidentIcon(marker, markerUrl);
+            updateIncidentMarkerTooltip(marker, incident);
+            marker.addTo(layerGroup);
+            incidentMarkers.set(id, {
+              marker,
+              data: incident,
+              iconUrl: markerUrl
+            });
+          }
+        });
+        const idsToRemove = [];
+        incidentMarkers.forEach((entry, id) => {
+          if (!activeIds.has(id)) {
+            idsToRemove.push(id);
+          }
+        });
+        idsToRemove.forEach(id => {
+          const entry = incidentMarkers.get(id);
+          if (!entry) return;
+          releaseIncidentIcon(entry.marker, entry.iconUrl);
+          if (incidentLayerGroup && entry.marker) {
+            incidentLayerGroup.removeLayer(entry.marker);
+          } else if (map && entry.marker && map.hasLayer(entry.marker)) {
+            map.removeLayer(entry.marker);
+          }
+          incidentMarkers.delete(id);
+        });
+      }
+
+      async function refreshIncidents() {
+        if (!map || isFetchingIncidents) return;
+        isFetchingIncidents = true;
+        try {
+          const records = await fetchPulsePointIncidents();
+          const activeRecords = Array.isArray(records)
+            ? records.filter(record => (record._category || '').toLowerCase() === 'active')
+            : [];
+          applyIncidentMarkers(activeRecords);
+        } catch (error) {
+          console.error('Failed to refresh PulsePoint incidents', error);
+        } finally {
+          isFetchingIncidents = false;
+        }
+      }
+
+      function setIncidentsVisibility(visible) {
+        incidentsVisible = !!visible;
+        if (map && incidentLayerGroup) {
+          if (incidentsVisible) {
+            incidentLayerGroup.addTo(map);
+          } else {
+            map.removeLayer(incidentLayerGroup);
+          }
+        } else if (incidentsVisible && map && !incidentLayerGroup) {
+          incidentLayerGroup = L.layerGroup();
+          incidentLayerGroup.addTo(map);
+        }
+        if (incidentsVisible && incidentMarkers.size === 0 && !isFetchingIncidents) {
+          refreshIncidents();
+        }
+        updateIncidentToggleButton();
+      }
+
+      function toggleIncidentsVisibility() {
+        setIncidentsVisibility(!incidentsVisible);
+      }
 
       const BUS_MARKER_SVG_URL = 'busmarker.svg';
 
@@ -1319,6 +1740,18 @@
         });
       }
 
+      function updateIncidentToggleButton() {
+        const button = document.getElementById('incidentToggleButton');
+        if (!button) return;
+        const isActive = !!incidentsVisible;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
+      }
+
       function updateDisplayModeOverlays() {
         if (!map || typeof map.removeLayer !== 'function') return;
         Object.keys(nameBubbles).forEach(vehicleID => {
@@ -1416,11 +1849,21 @@
         }
 
         html += `
+          <div class="selector-group">
+            <div class="selector-label">Incidents</div>
+            <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
+              Show Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+        `;
+
+        html += `
           </div>
         `;
 
         panel.innerHTML = html;
         updateDisplayModeButtons();
+        updateIncidentToggleButton();
         positionAllPanelTabs();
       }
 
@@ -2070,6 +2513,8 @@
           });
         }, 15000));
         refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
+        refreshIntervals.push(setInterval(refreshIncidents, INCIDENT_REFRESH_INTERVAL_MS));
+        refreshIncidents();
       }
 
       function showCookieBanner() {
@@ -2190,6 +2635,21 @@
           if (busesPane) {
               busesPane.style.zIndex = 500;
               busesPane.style.pointerEvents = 'auto';
+          }
+          map.createPane('incidentsPane');
+          const incidentsPane = map.getPane('incidentsPane');
+          if (incidentsPane) {
+              incidentsPane.style.zIndex = 550;
+              incidentsPane.style.pointerEvents = 'auto';
+          }
+          incidentLayerGroup = L.layerGroup();
+          incidentMarkers.forEach(entry => {
+              if (entry && entry.marker) {
+                  incidentLayerGroup.addLayer(entry.marker);
+              }
+          });
+          if (incidentsVisible) {
+              incidentLayerGroup.addTo(map);
           }
           const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -5449,6 +5909,7 @@
           .then(() => {
             initMap();
             showCookieBanner();
+            refreshIncidents();
             return loadAgencyData()
               .then(() => {
                 startRefreshIntervals();
