@@ -901,8 +901,7 @@
     }
 
     const BUS_MARKER_SVG_URL = 'busmarker.svg';
-    let BUS_MARKER_SVG_TEXT = null;
-    let BUS_MARKER_SVG_LOAD_PROMISE = null;
+
     const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
     const BUS_MARKER_VIEWBOX_HEIGHT = 86.99;
     const BUS_MARKER_PIVOT_X = BUS_MARKER_VIEWBOX_WIDTH / 2;
@@ -917,27 +916,31 @@
     const BUS_MARKER_SCALE_ZOOM_FACTOR = 5;
     const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_PIVOT_X / BUS_MARKER_VIEWBOX_WIDTH;
     const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_PIVOT_Y / BUS_MARKER_VIEWBOX_HEIGHT;
-    const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0b7a26';
-    const BUS_MARKER_DEFAULT_GLYPH_COLOR = '#ffffff';
-    const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
+    const BUS_MARKER_TRANSFORM_ORIGIN = '50% 50%';
     const BUS_MARKER_DEFAULT_HEADING = 0;
-    const BUS_MARKER_CENTER_RING_ID = 'center_ring';
-    const BUS_MARKER_CENTER_SQUARE_ID = 'center_square';
+    const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0B7A26';
+    const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
     const BUS_MARKER_CENTER_RING_CENTER_X = 26.5;
     const BUS_MARKER_CENTER_RING_CENTER_Y = 43.49;
     const BUS_MARKER_STOPPED_SQUARE_SIZE_PX = 20;
     const BUS_MARKER_STOPPED_SQUARE_ID = 'center_square';
-    const BUS_MARKER_CSS_CENTER_SQUARE_CLASS = 'bus-marker__center-square';
+    const BUS_MARKER_CENTER_RING_ID = 'center_ring';
+    let BUS_MARKER_SVG_TEXT = null;
+    let BUS_MARKER_SVG_LOAD_PROMISE = null;
     const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
-    const BUS_MARKER_LABEL_MIN_FONT_PX = 12;
-    const BUS_MARKER_TRANSFORM_ORIGIN = `${BUS_MARKER_PIVOT_X}px ${BUS_MARKER_PIVOT_Y}px`;
+    const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
 
-    const SPEED_BUBBLE_BASE_FONT_PX = 14;
-    const SPEED_BUBBLE_HORIZONTAL_PADDING = 14;
-    const SPEED_BUBBLE_VERTICAL_PADDING = 3;
+    const SPEED_BUBBLE_BASE_FONT_PX = 12;
+    const SPEED_BUBBLE_HORIZONTAL_PADDING = 12;
+    const SPEED_BUBBLE_VERTICAL_PADDING = 4;
     const SPEED_BUBBLE_MIN_WIDTH = 60;
     const SPEED_BUBBLE_MIN_HEIGHT = 20;
     const SPEED_BUBBLE_CORNER_RADIUS = 10;
+    const LABEL_VERTICAL_CLEARANCE_PX = -7; // pull labels ~7px closer to the vehicle while relying on the half-diagonal for rotation safety
+    const LABEL_VERTICAL_ALIGNMENT_BONUS_PX = 6; // push labels a little farther away when the vehicle is nearly north/south
+    const LABEL_VERTICAL_ALIGNMENT_EXPONENT = 4; // emphasize the bonus for headings close to due north/south
+    const LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX = 1; // give east/west headings extra breathing room
+    const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
     const NAME_BUBBLE_BASE_FONT_PX = 14;
     const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
     const NAME_BUBBLE_VERTICAL_PADDING = 3;
@@ -953,11 +956,6 @@
     const BLOCK_BUBBLE_CORNER_RADIUS = 10;
     const BLOCK_BUBBLE_FRAME_INSET = 5;
     const LABEL_BASE_STROKE_WIDTH = 3;
-    const LABEL_VERTICAL_CLEARANCE_PX = -7;
-    const LABEL_VERTICAL_ALIGNMENT_BONUS_PX = 6;
-    const LABEL_VERTICAL_ALIGNMENT_EXPONENT = 4;
-    const LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX = 1;
-    const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
 
     const MIN_HEADING_DISTANCE_METERS = 2;
     const MIN_POSITION_UPDATE_METERS = 0.5;
