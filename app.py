@@ -704,7 +704,6 @@ def save_device_stops() -> None:
     propagate_file(DEVICE_STOP_NAME, payload)
 
 load_device_stops()
-load_vehicle_headings()
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -892,6 +891,9 @@ def save_vehicle_headings() -> None:
         except Exception as e:
             print(f"[vehicle_headings] error writing {path}: {e}")
     propagate_file(VEHICLE_HEADINGS_NAME, payload_json)
+
+
+load_vehicle_headings()
 
 def load_bus_days() -> None:
     for base in DATA_DIRS:
