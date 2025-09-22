@@ -587,6 +587,9 @@
         border: 1px solid rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
       }
+      .panel-toggle.is-hidden-mobile {
+        display: none;
+      }
       .panel-toggle--right {
         right: 0;
         border-top-left-radius: 14px;
@@ -1154,9 +1157,61 @@
         }
       }
 
+      function isCompactViewport() {
+        const width = window.innerWidth || document.documentElement?.clientWidth || document.body?.clientWidth || 0;
+        const height = window.innerHeight || document.documentElement?.clientHeight || document.body?.clientHeight || 0;
+        const dimensionCandidates = [width, height].filter(value => Number.isFinite(value) && value > 0);
+        const smallestDimension = dimensionCandidates.length > 0 ? Math.min(...dimensionCandidates) : width;
+        return Number.isFinite(smallestDimension) && smallestDimension <= PANEL_COLLAPSE_BREAKPOINT;
+      }
+
+      function isPanelVisibleForMobileBehavior(panel) {
+        if (!panel) return false;
+        if (panel.classList && panel.classList.contains('hidden')) return false;
+        if (panel.style && panel.style.display === 'none') return false;
+        if (typeof window.getComputedStyle === 'function') {
+          const computed = window.getComputedStyle(panel);
+          if (computed && computed.display === 'none') {
+            return false;
+          }
+        }
+        return true;
+      }
+
+      function updatePanelTabVisibility() {
+        const controlTab = document.getElementById('controlPanelTab');
+        const routeTab = document.getElementById('routeSelectorTab');
+
+        if (!controlTab || !routeTab) return;
+
+        if (!isCompactViewport()) {
+          controlTab.classList.remove('is-hidden-mobile');
+          routeTab.classList.remove('is-hidden-mobile');
+          return;
+        }
+
+        const controlPanel = document.getElementById('controlPanel');
+        const routePanel = document.getElementById('routeSelector');
+
+        const controlVisible = isPanelVisibleForMobileBehavior(controlPanel);
+        const routeVisible = isPanelVisibleForMobileBehavior(routePanel);
+
+        if (controlVisible && !routeVisible) {
+          routeTab.classList.add('is-hidden-mobile');
+          controlTab.classList.remove('is-hidden-mobile');
+        } else if (routeVisible && !controlVisible) {
+          controlTab.classList.add('is-hidden-mobile');
+          routeTab.classList.remove('is-hidden-mobile');
+        } else {
+          controlTab.classList.remove('is-hidden-mobile');
+          routeTab.classList.remove('is-hidden-mobile');
+        }
+      }
+
       function positionAllPanelTabs() {
         positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
         positionPanelTab('controlPanel', 'controlPanelTab', 'left');
+        updatePanelTabVisibility();
       }
 
       window.addEventListener("load", positionAllPanelTabs);
@@ -1657,11 +1712,7 @@
       }
 
       function shouldCollapsePanelsOnLoad() {
-        const width = window.innerWidth || document.documentElement.clientWidth || document.body?.clientWidth || 0;
-        const height = window.innerHeight || document.documentElement.clientHeight || document.body?.clientHeight || 0;
-        const dimensionCandidates = [width, height].filter(value => Number.isFinite(value) && value > 0);
-        const smallestDimension = dimensionCandidates.length > 0 ? Math.min(...dimensionCandidates) : width;
-        return smallestDimension <= PANEL_COLLAPSE_BREAKPOINT;
+        return isCompactViewport();
       }
 
       function initializePanelStateForViewport() {
