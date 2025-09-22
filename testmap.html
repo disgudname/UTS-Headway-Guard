@@ -934,6 +934,14 @@
       const incidentIconCache = new Map();
       let isFetchingIncidents = false;
 
+      function incidentsAreAvailable() {
+        return adminMode || adminKioskMode;
+      }
+
+      if (!incidentsAreAvailable()) {
+        incidentsVisible = false;
+      }
+
       function fetchPulsePointEncrypted() {
         return fetch(PULSEPOINT_ENDPOINT, {
           method: 'GET',
@@ -1297,6 +1305,10 @@
       }
 
       async function refreshIncidents() {
+        if (!incidentsAreAvailable()) {
+          setIncidentsVisibility(false);
+          return;
+        }
         if (!map || isFetchingIncidents) return;
         isFetchingIncidents = true;
         try {
@@ -1313,7 +1325,17 @@
       }
 
       function setIncidentsVisibility(visible) {
-        incidentsVisible = !!visible;
+        const allowIncidents = incidentsAreAvailable();
+        incidentsVisible = allowIncidents && !!visible;
+
+        if (!allowIncidents) {
+          if (map && incidentLayerGroup) {
+            map.removeLayer(incidentLayerGroup);
+          }
+          updateIncidentToggleButton();
+          return;
+        }
+
         if (map && incidentLayerGroup) {
           if (incidentsVisible) {
             incidentLayerGroup.addTo(map);
@@ -1331,6 +1353,7 @@
       }
 
       function toggleIncidentsVisibility() {
+        if (!incidentsAreAvailable()) return;
         setIncidentsVisibility(!incidentsVisible);
       }
 
@@ -1857,14 +1880,16 @@
           `;
         }
 
-        html += `
-          <div class="selector-group">
-            <div class="selector-label">Incidents</div>
-            <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
-              Show Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
-            </button>
-          </div>
-        `;
+        if (incidentsAreAvailable()) {
+          html += `
+            <div class="selector-group">
+              <div class="selector-label">Incidents</div>
+              <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
+                Show Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
+              </button>
+            </div>
+          `;
+        }
 
         html += `
           </div>
@@ -2522,8 +2547,12 @@
           });
         }, 15000));
         refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
-        refreshIntervals.push(setInterval(refreshIncidents, INCIDENT_REFRESH_INTERVAL_MS));
-        refreshIncidents();
+        if (incidentsAreAvailable()) {
+          refreshIntervals.push(setInterval(refreshIncidents, INCIDENT_REFRESH_INTERVAL_MS));
+          refreshIncidents();
+        } else {
+          setIncidentsVisibility(false);
+        }
       }
 
       function showCookieBanner() {
@@ -5918,7 +5947,11 @@
           .then(() => {
             initMap();
             showCookieBanner();
-            refreshIncidents();
+            if (incidentsAreAvailable()) {
+              refreshIncidents();
+            } else {
+              setIncidentsVisibility(false);
+            }
             return loadAgencyData()
               .then(() => {
                 startRefreshIntervals();
