@@ -916,6 +916,7 @@
       const PULSEPOINT_PASSPHRASE = "tombrady5rings";
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
+      const INCIDENT_ICON_SCALE = 0.25;
 
       let map;
       let markers = {};
@@ -1137,18 +1138,31 @@
         return `${lat.toFixed(6)}_${lon.toFixed(6)}_${received}`;
       }
 
+      function createIncidentLeafletIcon(iconUrl, width, height) {
+        const scale = Number.isFinite(INCIDENT_ICON_SCALE) && INCIDENT_ICON_SCALE > 0
+          ? INCIDENT_ICON_SCALE
+          : 1;
+        const baseWidth = Number.isFinite(width) && width > 0 ? width : FALLBACK_INCIDENT_ICON_SIZE;
+        const baseHeight = Number.isFinite(height) && height > 0 ? height : FALLBACK_INCIDENT_ICON_SIZE;
+        const scaledWidth = Math.max(1, Math.round(baseWidth * scale));
+        const scaledHeight = Math.max(1, Math.round(baseHeight * scale));
+        const anchorX = Math.round(scaledWidth / 2);
+        const anchorY = scaledHeight;
+        return L.icon({
+          iconUrl,
+          iconSize: [scaledWidth, scaledHeight],
+          iconAnchor: [anchorX, anchorY],
+          className: 'incident-marker-icon'
+        });
+      }
+
       function getIncidentIconEntry(iconUrl) {
         if (!iconUrl) return null;
         let entry = incidentIconCache.get(iconUrl);
         if (!entry) {
           const fallback = FALLBACK_INCIDENT_ICON_SIZE;
           entry = {
-            icon: L.icon({
-              iconUrl,
-              iconSize: [fallback, fallback],
-              iconAnchor: [fallback / 2, fallback],
-              className: 'incident-marker-icon'
-            }),
+            icon: createIncidentLeafletIcon(iconUrl, fallback, fallback),
             markers: new Set(),
             loaded: false
           };
@@ -1158,12 +1172,7 @@
           img.addEventListener('load', () => {
             const width = img.naturalWidth || fallback;
             const height = img.naturalHeight || fallback;
-            entry.icon = L.icon({
-              iconUrl,
-              iconSize: [width, height],
-              iconAnchor: [width / 2, height],
-              className: 'incident-marker-icon'
-            });
+            entry.icon = createIncidentLeafletIcon(iconUrl, width, height);
             entry.loaded = true;
             entry.markers.forEach(marker => marker.setIcon(entry.icon));
           });
