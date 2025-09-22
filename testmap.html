@@ -982,6 +982,257 @@
       let mapHasFitAllRoutes = false;
       let refreshIntervals = [];
 
+      const INCIDENTS_CSV_URL = 'incidents.csv';
+      const INCIDENTS_PANE_NAME = 'incidentsPane';
+      const INCIDENTS_REFRESH_INTERVAL_MS = 60000;
+      const DEFAULT_INCIDENT_ICON_SIZE = 40;
+
+      let incidentsVisible = true;
+      let incidentMarkers = [];
+      const incidentIconCache = new Map();
+      const incidentIconPromiseCache = new Map();
+      let incidentRenderToken = 0;
+
+      function clearIncidentMarkers() {
+        if (!Array.isArray(incidentMarkers)) {
+          incidentMarkers = [];
+          return;
+        }
+        incidentMarkers.forEach(marker => {
+          if (!marker) return;
+          if (typeof marker.remove === 'function') {
+            marker.remove();
+          } else if (map && typeof map.removeLayer === 'function') {
+            map.removeLayer(marker);
+          }
+        });
+        incidentMarkers = [];
+      }
+
+      function applyIncidentVisibility() {
+        if (!Array.isArray(incidentMarkers) || !map || typeof map.hasLayer !== 'function') {
+          return;
+        }
+        incidentMarkers.forEach(marker => {
+          if (!marker || typeof marker.addTo !== 'function') return;
+          if (incidentsVisible) {
+            if (!map.hasLayer(marker)) {
+              marker.addTo(map);
+            }
+          } else if (typeof map.removeLayer === 'function' && map.hasLayer(marker)) {
+            map.removeLayer(marker);
+          }
+        });
+      }
+
+      function updateIncidentToggleButton() {
+        const button = document.getElementById('incidentToggleButton');
+        if (!button) return;
+        if (incidentsVisible) {
+          button.classList.add('is-active');
+          button.setAttribute('aria-pressed', 'true');
+        } else {
+          button.classList.remove('is-active');
+          button.setAttribute('aria-pressed', 'false');
+        }
+      }
+
+      function toggleIncidentsVisibility() {
+        incidentsVisible = !incidentsVisible;
+        applyIncidentVisibility();
+        updateIncidentToggleButton();
+      }
+
+      function ensureIncidentIcon(markerUrl) {
+        const url = typeof markerUrl === 'string' ? markerUrl.trim() : '';
+        if (!url) {
+          return Promise.resolve(null);
+        }
+        if (incidentIconCache.has(url)) {
+          return Promise.resolve(incidentIconCache.get(url));
+        }
+        if (incidentIconPromiseCache.has(url)) {
+          return incidentIconPromiseCache.get(url);
+        }
+
+        const promise = new Promise(resolve => {
+          const image = new Image();
+          image.onload = () => {
+            const width = Number.isFinite(image.naturalWidth) && image.naturalWidth > 0
+              ? image.naturalWidth
+              : DEFAULT_INCIDENT_ICON_SIZE;
+            const height = Number.isFinite(image.naturalHeight) && image.naturalHeight > 0
+              ? image.naturalHeight
+              : DEFAULT_INCIDENT_ICON_SIZE;
+            const icon = L.icon({
+              iconUrl: url,
+              iconSize: [width, height],
+              iconAnchor: [width / 2, height],
+              className: 'incident-marker-icon'
+            });
+            incidentIconCache.set(url, icon);
+            incidentIconPromiseCache.delete(url);
+            resolve(icon);
+          };
+          image.onerror = () => {
+            const fallbackSize = DEFAULT_INCIDENT_ICON_SIZE;
+            const icon = L.icon({
+              iconUrl: url,
+              iconSize: [fallbackSize, fallbackSize],
+              iconAnchor: [fallbackSize / 2, fallbackSize],
+              className: 'incident-marker-icon'
+            });
+            incidentIconCache.set(url, icon);
+            incidentIconPromiseCache.delete(url);
+            resolve(icon);
+          };
+          image.src = url;
+        });
+
+        incidentIconPromiseCache.set(url, promise);
+        return promise;
+      }
+
+      function parseCsv(text) {
+        if (typeof text !== 'string') {
+          return [];
+        }
+        const sanitized = text.replace(/^\ufeff/, '');
+        if (sanitized.trim() === '') {
+          return [];
+        }
+
+        const rows = [];
+        let currentRow = [];
+        let currentField = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < sanitized.length; i += 1) {
+          const char = sanitized[i];
+          if (inQuotes) {
+            if (char === '"') {
+              const nextChar = sanitized[i + 1];
+              if (nextChar === '"') {
+                currentField += '"';
+                i += 1;
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              currentField += char;
+            }
+          } else if (char === '"') {
+            inQuotes = true;
+          } else if (char === ',') {
+            currentRow.push(currentField);
+            currentField = '';
+          } else if (char === '\r') {
+            // ignore carriage returns
+          } else if (char === '\n') {
+            currentRow.push(currentField);
+            rows.push(currentRow);
+            currentRow = [];
+            currentField = '';
+          } else {
+            currentField += char;
+          }
+        }
+
+        currentRow.push(currentField);
+        if (currentRow.length > 1 || currentRow[0] !== '' || rows.length === 0) {
+          rows.push(currentRow);
+        }
+
+        return rows.filter(row => row.some(value => (value ?? '').trim() !== ''));
+      }
+
+      function parseIncidentsFromCsv(csvText) {
+        const rows = parseCsv(csvText);
+        if (rows.length === 0) {
+          return [];
+        }
+        const headerRow = rows[0].map(header => (header || '').trim());
+        const incidents = [];
+        for (let i = 1; i < rows.length; i += 1) {
+          const row = rows[i];
+          if (!row) continue;
+          const record = {};
+          headerRow.forEach((header, index) => {
+            if (!header) return;
+            record[header] = row[index] ?? '';
+          });
+          incidents.push(record);
+        }
+        return incidents;
+      }
+
+      async function renderIncidents(incidents) {
+        incidentRenderToken += 1;
+        const renderToken = incidentRenderToken;
+        clearIncidentMarkers();
+
+        if (!Array.isArray(incidents) || incidents.length === 0) {
+          updateIncidentToggleButton();
+          return;
+        }
+
+        const markerPromises = incidents.map(async incident => {
+          const lat = Number.parseFloat(incident.latitude);
+          const lng = Number.parseFloat(incident.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            return null;
+          }
+          const icon = await ensureIncidentIcon(incident.markerUrl);
+          if (!icon || renderToken !== incidentRenderToken) {
+            return null;
+          }
+          const markerOptions = {
+            icon,
+            pane: INCIDENTS_PANE_NAME
+          };
+          if (incident.title) {
+            markerOptions.title = incident.title;
+          }
+          return L.marker([lat, lng], markerOptions);
+        });
+
+        const markers = (await Promise.all(markerPromises)).filter(marker => marker);
+        if (renderToken !== incidentRenderToken) {
+          markers.forEach(marker => {
+            if (marker && typeof marker.remove === 'function') {
+              marker.remove();
+            }
+          });
+          return;
+        }
+
+        incidentMarkers = markers;
+        applyIncidentVisibility();
+        updateIncidentToggleButton();
+      }
+
+      async function fetchIncidents() {
+        try {
+          const response = await fetch(INCIDENTS_CSV_URL, { cache: 'no-store' });
+          if (!response.ok) {
+            throw new Error(`Failed to fetch incidents: ${response.status} ${response.statusText}`);
+          }
+          const csvText = await response.text();
+          const records = parseIncidentsFromCsv(csvText);
+          const activeIncidents = records
+            .filter(record => (record?.Category || record?.category || '').toLowerCase() === 'active')
+            .map(record => ({
+              markerUrl: record.Marker || record.marker || '',
+              latitude: record.Latitude || record.latitude,
+              longitude: record.Longitude || record.longitude,
+              title: record.Type || record.type || ''
+            }));
+          await renderIncidents(activeIncidents);
+        } catch (error) {
+          console.error('Error fetching incidents:', error);
+        }
+      }
+
       let overlapRenderer = null;
 
       let activeAgencyLoadCount = 0;
@@ -1416,11 +1667,23 @@
         }
 
         html += `
+            <div class="selector-group">
+              <div class="selector-label">Incidents</div>
+              <div class="selector-control">
+                <button type="button" class="pill-button incident-toggle-button ${incidentsVisible ? 'is-active' : ''}" id="incidentToggleButton" onclick="toggleIncidentsVisibility()" aria-pressed="${incidentsVisible ? 'true' : 'false'}">
+                  Show Incidents
+                </button>
+              </div>
+            </div>
+        `;
+
+        html += `
           </div>
         `;
 
         panel.innerHTML = html;
         updateDisplayModeButtons();
+        updateIncidentToggleButton();
         positionAllPanelTabs();
       }
 
@@ -2070,6 +2333,8 @@
           });
         }, 15000));
         refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
+        refreshIntervals.push(setInterval(fetchIncidents, INCIDENTS_REFRESH_INTERVAL_MS));
+        fetchIncidents();
       }
 
       function showCookieBanner() {
@@ -2185,6 +2450,12 @@
               stopsPane.style.zIndex = 450;
               stopsPane.style.pointerEvents = 'auto';
           }
+          map.createPane(INCIDENTS_PANE_NAME);
+          const incidentsPane = map.getPane(INCIDENTS_PANE_NAME);
+          if (incidentsPane) {
+              incidentsPane.style.zIndex = 550;
+              incidentsPane.style.pointerEvents = 'auto';
+          }
           map.createPane('busesPane');
           const busesPane = map.getPane('busesPane');
           if (busesPane) {
@@ -2241,6 +2512,7 @@
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
           });
+          applyIncidentVisibility();
       }
 
       function fetchBusStops() {
@@ -5449,6 +5721,7 @@
           .then(() => {
             initMap();
             showCookieBanner();
+            fetchIncidents();
             return loadAgencyData()
               .then(() => {
                 startRefreshIntervals();
