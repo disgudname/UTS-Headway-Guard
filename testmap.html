@@ -935,7 +935,7 @@
       let isFetchingIncidents = false;
 
       function incidentsAreAvailable() {
-        return adminMode || adminKioskMode;
+        return (adminMode && !kioskMode) || adminKioskMode;
       }
 
       if (!incidentsAreAvailable()) {
