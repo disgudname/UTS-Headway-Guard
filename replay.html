@@ -115,7 +115,7 @@
       width: 100%;
       height: 100%;
       overflow: visible;
-      transition: transform 0.2s ease, filter 0.2s ease;
+      transition: transform var(--rotation-smoothing-duration, 0.2s) ease, filter 0.2s ease;
       transform-box: view-box;
       transform-origin: 50% 50%;
       will-change: transform;
@@ -965,6 +965,12 @@
     const MARKER_ANIMATION_MIN_DURATION_MS = 16;
     const MARKER_ANIMATION_MAX_DURATION_MS = 1200;
     const MARKER_ANIMATION_MAX_DATA_GAP_MS = 2 * 60 * 1000;
+    const ROTATION_SMOOTHING_DEFAULT_MS = 200;
+    const ROTATION_SMOOTHING_MIN_DURATION_MS = 16;
+    const ROTATION_SMOOTHING_MAX_DURATION_MS = 320;
+    const ROTATION_SMOOTHING_DURATION_MULTIPLIER = 0.9;
+    const ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE = 0.6;
+    const ROTATION_SMOOTHING_HEADING_EXPONENT = 1.35;
 
     let map = null;
 
@@ -1770,6 +1776,8 @@
                   headingDeg: BUS_MARKER_DEFAULT_HEADING,
                   fillColor: defaultRouteColor,
                   glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
+                  rotationSmoothingMs: ROTATION_SMOOTHING_DEFAULT_MS,
+                  rotationPreviousHeadingDeg: BUS_MARKER_DEFAULT_HEADING,
                   accessibleLabel: '',
                   isStale: false,
                   isStopped: false,
@@ -2530,6 +2538,16 @@
           svgEl.style.height = '100%';
           svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
           svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
+          const initialRotationDuration = clampRotationSmoothingDuration(
+              Number.isFinite(state?.rotationSmoothingMs)
+                  ? state.rotationSmoothingMs
+                  : ROTATION_SMOOTHING_DEFAULT_MS
+          );
+          svgEl.style.setProperty('--rotation-smoothing-duration', `${initialRotationDuration}ms`);
+          if (state) {
+              state.rotationSmoothingMs = initialRotationDuration;
+              state.rotationPreviousHeadingDeg = normalizedHeading;
+          }
 
           const routeFillColor = normalizeRouteColor(state.fillColor);
           const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
@@ -2603,6 +2621,12 @@
           if (svg) {
               svg.style.pointerEvents = 'none';
               svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+              const rotationDuration = clampRotationSmoothingDuration(
+                  Number.isFinite(state?.rotationSmoothingMs)
+                      ? state.rotationSmoothingMs
+                      : ROTATION_SMOOTHING_DEFAULT_MS
+              );
+              svg.style.setProperty('--rotation-smoothing-duration', `${rotationDuration}ms`);
           }
           updateBusMarkerColorElements(state);
           applyBusMarkerStoppedVisualState(state);
@@ -2638,6 +2662,23 @@
           if (!elements || !elements.root) {
               return;
           }
+          let previousHeading = null;
+          if (update && Object.prototype.hasOwnProperty.call(update, 'previousHeadingDeg')) {
+              const candidatePrev = Number(update.previousHeadingDeg);
+              if (Number.isFinite(candidatePrev)) {
+                  previousHeading = candidatePrev;
+              }
+          }
+          if (!Number.isFinite(previousHeading) && Number.isFinite(state.rotationPreviousHeadingDeg)) {
+              previousHeading = state.rotationPreviousHeadingDeg;
+          }
+          let rotationBaseDuration = null;
+          if (update && Object.prototype.hasOwnProperty.call(update, 'rotationDurationMs')) {
+              const candidateBase = Number(update.rotationDurationMs);
+              if (Number.isFinite(candidateBase) && candidateBase > 0) {
+                  rotationBaseDuration = candidateBase;
+              }
+          }
           if (update && Object.prototype.hasOwnProperty.call(update, 'fillColor')) {
               state.fillColor = update.fillColor;
           }
@@ -2659,7 +2700,16 @@
           }
           applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          const rotationBase = Number.isFinite(rotationBaseDuration)
+              ? rotationBaseDuration
+              : (Number.isFinite(state.rotationSmoothingMs) && state.rotationSmoothingMs > 0
+                  ? state.rotationSmoothingMs
+                  : ROTATION_SMOOTHING_DEFAULT_MS);
+          const rotationDuration = computeRotationSmoothingDuration(rotationBase, previousHeading, rotationDeg);
+          state.rotationSmoothingMs = rotationDuration;
+          state.rotationPreviousHeadingDeg = rotationDeg;
           if (elements.svg) {
+              elements.svg.style.setProperty('--rotation-smoothing-duration', `${rotationDuration}ms`);
               elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`;
               if (state.accessibleLabel) {
                   elements.svg.setAttribute('aria-label', state.accessibleLabel);
@@ -2973,6 +3023,58 @@
           return 0;
         }
         return duration;
+      }
+
+      function clampRotationSmoothingDuration(durationMs) {
+        const value = Number(durationMs);
+        if (!Number.isFinite(value) || value <= 0) {
+          return ROTATION_SMOOTHING_MIN_DURATION_MS;
+        }
+        const clamped = Math.max(
+          ROTATION_SMOOTHING_MIN_DURATION_MS,
+          Math.min(ROTATION_SMOOTHING_MAX_DURATION_MS, value)
+        );
+        return Math.round(clamped);
+      }
+
+      function computeRotationSmoothingBaseDuration(displayDeltaMs, animationDurationMs, playbackFactor) {
+        const playback = Math.max(1, Number(playbackFactor) || 1);
+        const animation = Number(animationDurationMs);
+        if (Number.isFinite(animation) && animation > 0) {
+          return animation * ROTATION_SMOOTHING_DURATION_MULTIPLIER;
+        }
+        const delta = Number(displayDeltaMs);
+        if (Number.isFinite(delta) && delta > 0) {
+          const scaled = delta / playback;
+          if (Number.isFinite(scaled) && scaled > 0) {
+            return scaled * ROTATION_SMOOTHING_DURATION_MULTIPLIER;
+          }
+        }
+        return ROTATION_SMOOTHING_DEFAULT_MS * ROTATION_SMOOTHING_DURATION_MULTIPLIER;
+      }
+
+      function computeHeadingDeltaDegrees(fromDeg, toDeg) {
+        if (!Number.isFinite(fromDeg) || !Number.isFinite(toDeg)) {
+          return null;
+        }
+        const normalizedFrom = normalizeHeadingDegrees(fromDeg);
+        const normalizedTo = normalizeHeadingDegrees(toDeg);
+        const diff = Math.abs(normalizedFrom - normalizedTo) % 360;
+        return diff > 180 ? 360 - diff : diff;
+      }
+
+      function computeRotationSmoothingDuration(baseDurationMs, previousHeadingDeg, nextHeadingDeg) {
+        const base = Number(baseDurationMs);
+        let duration = Number.isFinite(base) && base > 0 ? base : ROTATION_SMOOTHING_DEFAULT_MS;
+        const headingDelta = computeHeadingDeltaDegrees(previousHeadingDeg, nextHeadingDeg);
+        if (Number.isFinite(headingDelta)) {
+          const normalizedDelta = Math.max(0, Math.min(180, headingDelta));
+          const deltaRatio = normalizedDelta / 180;
+          const scaledRatio = Math.pow(deltaRatio, ROTATION_SMOOTHING_HEADING_EXPONENT);
+          const reduction = 1 - scaledRatio * ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE;
+          duration *= Math.max(0.25, reduction);
+        }
+        return clampRotationSmoothingDuration(duration);
       }
 
       function easeInOutCubic(t) {
@@ -4242,6 +4344,11 @@
       const actualElapsedMs = Number.isFinite(lastFrameRealTime) ? Math.max(0, now - lastFrameRealTime) : 0;
       const markerAnimationDuration = computeMarkerAnimationDuration(displayDeltaMs, actualElapsedMs);
       const markerAnimationOptions = markerAnimationDuration > 0 ? { durationMs: markerAnimationDuration } : undefined;
+      const rotationSmoothingBase = computeRotationSmoothingBaseDuration(
+        displayDeltaMs,
+        markerAnimationDuration,
+        playbackSpeed
+      );
 
       const activeRoutesSet = new Set();
       const activeBusesSet = new Set();
@@ -4273,6 +4380,7 @@
         const state = ensureBusMarkerState(vehicle.VehicleID);
         const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
         const glyphColor = computeBusMarkerGlyphColor(routeColor);
+        const previousHeadingDeg = Number.isFinite(state.headingDeg) ? state.headingDeg : null;
         const headingDeg = updateBusMarkerHeading(state, pos, vehicle.Heading, vehicle.GroundSpeed);
         const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, vehicle.GroundSpeed);
         const isStopped = isBusConsideredStopped(vehicle.GroundSpeed);
@@ -4299,6 +4407,8 @@
             fillColor: routeColor,
             glyphColor,
             headingDeg,
+            previousHeadingDeg,
+            rotationDurationMs: rotationSmoothingBase,
             stale: false,
             accessibleLabel,
             stopped: isStopped
