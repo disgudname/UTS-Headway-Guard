@@ -801,9 +801,19 @@
     const controlsToggleButton = document.getElementById('controlsToggle');
     let controlsCollapsed = false;
     const controlsViewportQuery = window.matchMedia ? window.matchMedia('(max-width: 720px)') : null;
+    let pendingControlsHeightRaf = null;
     let activeRangeLoadCount = 0;
     let lastRouteSelectorStateKey = null;
     let lastBusSelectorStateKey = null;
+
+    if (controlsContainer) {
+      controlsContainer.addEventListener('transitionend', (event) => {
+        if (!event) return;
+        if (event.target !== controlsContainer) return;
+        if (event.propertyName !== 'max-height') return;
+        updateControlsHeight(true);
+      });
+    }
 
     function showLoadingOverlay() {
       const overlay = document.getElementById('loadingOverlay');
@@ -920,7 +930,7 @@
       updateControlsHeight();
     }
 
-    function updateControlsHeight() {
+    function updateControlsHeight(deferred = false) {
       const controls = controlsContainer || document.getElementById('controls');
       if (!controls) return;
       const isMobileView = controlsViewportQuery ? controlsViewportQuery.matches : window.innerWidth <= 720;
@@ -945,6 +955,22 @@
         document.documentElement.style.setProperty('--controls-height', `${height}px`);
       }
       positionAllPanelTabs();
+
+      if (!deferred) {
+        const hasWindow = typeof window !== 'undefined';
+        const raf = hasWindow ? window.requestAnimationFrame : null;
+        if (typeof raf === 'function') {
+          if (pendingControlsHeightRaf !== null) {
+            window.cancelAnimationFrame(pendingControlsHeightRaf);
+          }
+          pendingControlsHeightRaf = raf(() => {
+            pendingControlsHeightRaf = null;
+            updateControlsHeight(true);
+          });
+        } else if (hasWindow && typeof window.setTimeout === 'function') {
+          window.setTimeout(() => updateControlsHeight(true), 0);
+        }
+      }
     }
 
     window.addEventListener('load', () => {
