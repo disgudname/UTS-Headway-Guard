@@ -122,6 +122,7 @@
         border: 0;
         padding: 0;
         line-height: 0;
+        pointer-events: none;
       }
       .bus-marker__root {
         position: relative;
@@ -130,10 +131,13 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        pointer-events: auto;
-        cursor: pointer;
-        touch-action: manipulation;
+        pointer-events: none;
+        cursor: default;
+        touch-action: none;
         user-select: none;
+      }
+      .bus-label-icon {
+        pointer-events: none !important;
       }
       .bus-marker__svg {
         display: block;
@@ -4601,7 +4605,7 @@
                           if (!icon) {
                               continue;
                           }
-                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true });
+                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
                           marker.routeID = routeID;
                           marker.addTo(map);
                           markers[vehicleID] = marker;
@@ -5202,7 +5206,7 @@
           const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
           const anchorY = -leaderOffset;
           const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
                       <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
                       <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
@@ -5210,7 +5214,7 @@
               </svg>`;
           return L.divIcon({
               html: svg,
-              className: '',
+              className: 'leaflet-div-icon bus-label-icon',
               iconSize: [svgWidth, svgHeight],
               iconAnchor: [anchorX, anchorY]
           });
@@ -5249,7 +5253,7 @@
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
                       <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
                       <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
@@ -5257,7 +5261,7 @@
               </svg>`;
           return L.divIcon({
               html: svg,
-              className: '',
+              className: 'leaflet-div-icon bus-label-icon',
               iconSize: [svgWidth, svgHeight],
               iconAnchor: [anchorX, anchorY]
           });
@@ -5296,7 +5300,7 @@
           const textColor = computeBusMarkerGlyphColor(fillColor);
           const fontSizeRounded = roundToTwoDecimals(fontSize);
           const svg = `
-              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
                       <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
                       <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
@@ -5304,7 +5308,7 @@
               </svg>`;
           return L.divIcon({
               html: svg,
-              className: '',
+              className: 'leaflet-div-icon bus-label-icon',
               iconSize: [svgWidth, svgHeight],
               iconAnchor: [anchorX, anchorY]
           });
@@ -5549,9 +5553,11 @@
           const root = document.createElement('div');
           root.className = rootClasses.join(' ');
           root.dataset.vehicleId = `${vehicleID}`;
-          root.setAttribute('tabindex', '0');
           root.setAttribute('role', 'img');
           root.setAttribute('aria-label', label);
+          root.style.pointerEvents = 'none';
+          root.style.touchAction = 'none';
+          root.style.cursor = 'default';
           root.appendChild(svgEl);
 
           const wrapper = document.createElement('div');
@@ -5575,6 +5581,7 @@
           if (!iconElement) {
               return null;
           }
+          iconElement.style.pointerEvents = 'none';
           const root = iconElement.querySelector('.bus-marker__root');
           const svg = root ? root.querySelector('.bus-marker__svg') : null;
           const title = svg ? svg.querySelector('title') : null;
@@ -5594,6 +5601,15 @@
           };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
+              root.style.pointerEvents = 'none';
+              root.style.touchAction = 'none';
+              root.style.cursor = 'default';
+              if (root.hasAttribute('tabindex')) {
+                  root.removeAttribute('tabindex');
+              }
+              if (root.dataset && root.dataset.busMarkerFocusBound) {
+                  delete root.dataset.busMarkerFocusBound;
+              }
           }
           if (svg) {
               svg.style.pointerEvents = 'none';
@@ -5738,26 +5754,45 @@
           if (!state || !marker) {
               return;
           }
-          if (!state.markerEventsBound) {
-              marker.on('mouseover', () => setBusMarkerHovered(vehicleID, true));
-              marker.on('mouseout', () => setBusMarkerHovered(vehicleID, false));
-              marker.on('click', () => {
-                  if (selectedVehicleId && selectedVehicleId !== vehicleID) {
-                      setBusMarkerSelected(selectedVehicleId, false);
-                  }
-                  const nextSelected = selectedVehicleId !== vehicleID;
-                  setBusMarkerSelected(vehicleID, nextSelected);
-                  selectedVehicleId = nextSelected ? vehicleID : null;
-              });
-              state.markerEventsBound = true;
+          if (typeof marker.off === 'function') {
+              marker.off();
+          }
+          if (marker.options) {
+              marker.options.interactive = false;
+              marker.options.keyboard = false;
+          }
+          if (selectedVehicleId === vehicleID) {
+              selectedVehicleId = null;
+          }
+          if (state.isHovered || state.isSelected) {
+              state.isHovered = false;
+              state.isSelected = false;
+              updateBusMarkerRootClasses(state);
+              updateBusMarkerZIndex(state);
+              applyBusMarkerOutlineWidth(state);
           }
           const elements = state.elements || registerBusMarkerElements(vehicleID);
+          const icon = elements?.icon;
           const root = elements?.root;
-          if (root && !root.dataset.busMarkerFocusBound) {
-              root.addEventListener('focus', () => setBusMarkerHovered(vehicleID, true));
-              root.addEventListener('blur', () => setBusMarkerHovered(vehicleID, false));
-              root.dataset.busMarkerFocusBound = 'true';
+          const svg = elements?.svg;
+          if (icon) {
+              icon.style.pointerEvents = 'none';
           }
+          if (root) {
+              root.style.pointerEvents = 'none';
+              root.style.touchAction = 'none';
+              root.style.cursor = 'default';
+              if (root.hasAttribute('tabindex')) {
+                  root.removeAttribute('tabindex');
+              }
+              if (root.dataset && root.dataset.busMarkerFocusBound) {
+                  delete root.dataset.busMarkerFocusBound;
+              }
+          }
+          if (svg) {
+              svg.style.pointerEvents = 'none';
+          }
+          state.markerEventsBound = false;
       }
 
       async function updateBusMarkerSizes(metricsOverride = null) {
