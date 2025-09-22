@@ -498,6 +498,49 @@
         flex-wrap: wrap;
         gap: 6px;
       }
+      .incident-marker-pulse-container {
+        pointer-events: none;
+        contain: layout style paint;
+      }
+      .incident-marker-pulse-container .incident-marker-pulse {
+        position: absolute;
+        inset: 0;
+      }
+      .incident-marker-pulse-container .incident-marker-pulse::before,
+      .incident-marker-pulse-container .incident-marker-pulse::after {
+        content: '';
+        position: absolute;
+        width: var(--incident-pulse-diameter, 0px);
+        height: var(--incident-pulse-diameter, 0px);
+        left: calc(50% - var(--incident-pulse-diameter, 0px) / 2);
+        top: calc(var(--incident-pulse-center-y, 0px) - var(--incident-pulse-diameter, 0px) / 2);
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(161, 18, 23, 0.38) 0%, rgba(161, 18, 23, 0.2) 42%, rgba(161, 18, 23, 0) 78%);
+        filter: blur(0.3px);
+        transform-origin: center;
+        pointer-events: none;
+      }
+      .incident-marker-pulse-container .incident-marker-pulse::before {
+        opacity: 0.5;
+      }
+      .incident-marker-pulse-container .incident-marker-pulse::after {
+        opacity: 0.45;
+        animation: incident-marker-pulse-wave 2.6s ease-out infinite;
+      }
+      @keyframes incident-marker-pulse-wave {
+        0% {
+          transform: scale(0.55);
+          opacity: 0.38;
+        }
+        55% {
+          transform: scale(1);
+          opacity: 0.22;
+        }
+        100% {
+          transform: scale(1.35);
+          opacity: 0;
+        }
+      }
       .selector-panel .incident-unit {
         display: inline-flex;
         align-items: center;
@@ -1101,6 +1144,9 @@
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;
+      const INCIDENT_PULSE_CENTER_Y_RATIO = 0.640625;
+      const INCIDENT_PULSE_DIAMETER_RATIO = 1.7;
+      const INCIDENT_PULSE_MIN_DIAMETER_PX = 72;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
 
       let map;
@@ -1174,6 +1220,7 @@
       let latestActiveIncidents = [];
       let incidentsNearRoutes = [];
       let incidentRouteAlertSignature = '';
+      const incidentsNearRouteIds = new Set();
       // Demo incident preview state (delete when demo button is removed).
       let demoIncidentActive = false;
       let demoIncidentEntry = null;
@@ -1389,8 +1436,7 @@
 
       function resetIncidentAlertState() {
         latestActiveIncidents = [];
-        incidentsNearRoutes = [];
-        incidentRouteAlertSignature = '';
+        updateIncidentsNearRoutes([], '');
       }
 
       function parseIncidentDate(value) {
@@ -1774,6 +1820,13 @@
         return Number.isFinite(numeric) ? numeric : null;
       }
 
+      function getNormalizedIncidentId(value) {
+        if (value === undefined || value === null) return '';
+        const str = typeof value === 'string' ? value : String(value);
+        const trimmed = str.trim();
+        return trimmed;
+      }
+
       function getIncidentIdentifier(rec) {
         if (!rec || typeof rec !== 'object') return null;
         const candidateKeys = [
@@ -1836,7 +1889,15 @@
             const height = img.naturalHeight || fallback;
             entry.icon = createIncidentLeafletIcon(iconUrl, width, height);
             entry.loaded = true;
-            entry.markers.forEach(marker => marker.setIcon(entry.icon));
+            entry.markers.forEach(marker => {
+              if (marker && typeof marker.setIcon === 'function') {
+                marker.setIcon(entry.icon);
+              }
+              const markerId = marker && marker._incidentMarkerId;
+              if (markerId) {
+                updateIncidentMarkerPulseById(markerId);
+              }
+            });
           });
           img.addEventListener('error', () => {
             entry.loaded = true;
@@ -1892,6 +1953,161 @@
         }
       }
 
+      function removeIncidentMarkerPulse(entry) {
+        if (!entry || !entry.pulseMarker) return;
+        const pulseMarker = entry.pulseMarker;
+        if (incidentLayerGroup && typeof incidentLayerGroup.removeLayer === 'function') {
+          incidentLayerGroup.removeLayer(pulseMarker);
+        }
+        if (typeof pulseMarker.remove === 'function') {
+          pulseMarker.remove();
+        }
+        entry.pulseMarker = null;
+        entry.pulseState = null;
+      }
+
+      function getIncidentPulseRenderInfo(marker) {
+        if (!marker) return null;
+        const icon = typeof marker.getIcon === 'function'
+          ? marker.getIcon()
+          : (marker.options && marker.options.icon);
+        const size = icon && icon.options && Array.isArray(icon.options.iconSize)
+          ? icon.options.iconSize
+          : null;
+        let width = FALLBACK_INCIDENT_ICON_SIZE;
+        let height = FALLBACK_INCIDENT_ICON_SIZE;
+        if (size && size.length >= 2) {
+          const [rawWidth, rawHeight] = size;
+          const widthCandidate = Number(rawWidth);
+          const heightCandidate = Number(rawHeight);
+          if (Number.isFinite(widthCandidate) && widthCandidate > 0) {
+            width = widthCandidate;
+          }
+          if (Number.isFinite(heightCandidate) && heightCandidate > 0) {
+            height = heightCandidate;
+          }
+        }
+        width = Math.max(1, Math.round(width));
+        height = Math.max(1, Math.round(height));
+        const anchorX = Math.round(width / 2);
+        const anchorY = Math.round(height);
+        const diameterBase = Math.max(width, height) * INCIDENT_PULSE_DIAMETER_RATIO;
+        const diameter = Math.max(INCIDENT_PULSE_MIN_DIAMETER_PX, Math.round(diameterBase));
+        const centerY = Math.max(0, Math.round(height * INCIDENT_PULSE_CENTER_Y_RATIO));
+        return {
+          width,
+          height,
+          anchorX,
+          anchorY,
+          diameter,
+          centerY
+        };
+      }
+
+      function buildIncidentPulseIcon(info) {
+        if (!info || typeof L === 'undefined' || typeof L.divIcon !== 'function') {
+          return null;
+        }
+        const html = `<div class="incident-marker-pulse" aria-hidden="true" style="--incident-pulse-diameter:${info.diameter}px; --incident-pulse-center-y:${info.centerY}px;"></div>`;
+        return L.divIcon({
+          className: 'incident-marker-pulse-container',
+          html,
+          iconSize: [info.width, info.height],
+          iconAnchor: [info.anchorX, info.anchorY]
+        });
+      }
+
+      function updateIncidentMarkerPulseById(id) {
+        const normalizedId = getNormalizedIncidentId(id);
+        if (!normalizedId) return;
+        const entry = incidentMarkers.get(normalizedId);
+        if (!entry || !entry.marker) {
+          return;
+        }
+        if (!incidentsNearRouteIds.has(normalizedId)) {
+          removeIncidentMarkerPulse(entry);
+          return;
+        }
+        if (typeof L === 'undefined' || typeof L.marker !== 'function') {
+          return;
+        }
+        const latLng = typeof entry.marker.getLatLng === 'function'
+          ? entry.marker.getLatLng()
+          : null;
+        if (!latLng) {
+          removeIncidentMarkerPulse(entry);
+          return;
+        }
+        const info = getIncidentPulseRenderInfo(entry.marker);
+        if (!info) {
+          removeIncidentMarkerPulse(entry);
+          return;
+        }
+        if (!entry.pulseMarker) {
+          const icon = buildIncidentPulseIcon(info);
+          if (!icon) return;
+          const pulseMarker = L.marker(latLng, {
+            icon,
+            interactive: false,
+            pane: 'incidentsPane',
+            keyboard: false,
+            zIndexOffset: 100
+          });
+          entry.pulseMarker = pulseMarker;
+          entry.pulseState = {
+            width: info.width,
+            height: info.height,
+            diameter: info.diameter,
+            centerY: info.centerY
+          };
+          if (incidentLayerGroup && typeof incidentLayerGroup.addLayer === 'function') {
+            incidentLayerGroup.addLayer(pulseMarker);
+          }
+        } else {
+          if (typeof entry.pulseMarker.setLatLng === 'function') {
+            entry.pulseMarker.setLatLng(latLng);
+          }
+          const prev = entry.pulseState || {};
+          if (prev.width !== info.width || prev.height !== info.height
+            || prev.diameter !== info.diameter || prev.centerY !== info.centerY) {
+            const icon = buildIncidentPulseIcon(info);
+            if (icon && typeof entry.pulseMarker.setIcon === 'function') {
+              entry.pulseMarker.setIcon(icon);
+            }
+            entry.pulseState = {
+              width: info.width,
+              height: info.height,
+              diameter: info.diameter,
+              centerY: info.centerY
+            };
+          }
+          if (incidentLayerGroup && typeof incidentLayerGroup.hasLayer === 'function'
+            && !incidentLayerGroup.hasLayer(entry.pulseMarker)) {
+            incidentLayerGroup.addLayer(entry.pulseMarker);
+          }
+        }
+      }
+
+      function refreshIncidentMarkerPulses() {
+        incidentMarkers.forEach((_, key) => {
+          updateIncidentMarkerPulseById(key);
+        });
+      }
+
+      function updateIncidentsNearRoutes(matches, signature = '') {
+        const list = Array.isArray(matches) ? matches.slice() : [];
+        incidentsNearRoutes = list;
+        incidentRouteAlertSignature = typeof signature === 'string' ? signature : '';
+        incidentsNearRouteIds.clear();
+        list.forEach(entry => {
+          const normalizedId = entry ? getNormalizedIncidentId(entry.id) : '';
+          if (normalizedId) {
+            incidentsNearRouteIds.add(normalizedId);
+          }
+        });
+        refreshIncidentMarkerPulses();
+      }
+
       function applyIncidentMarkers(incidents) {
         if (!map) return;
         let layerGroup = incidentLayerGroup;
@@ -1905,16 +2121,21 @@
         const activeIds = new Set();
         (Array.isArray(incidents) ? incidents : []).forEach(incident => {
           if (!incident) return;
-          const id = getIncidentIdentifier(incident);
-          if (!id) return;
           const lat = parseIncidentCoordinate(incident.Latitude ?? incident.latitude ?? incident.lat);
           const lon = parseIncidentCoordinate(incident.Longitude ?? incident.longitude ?? incident.lon);
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          const fallbackId = getNormalizedIncidentId(`${lat.toFixed(6)}_${lon.toFixed(6)}`);
+          let id = getNormalizedIncidentId(getIncidentIdentifier(incident));
+          if (!id) {
+            id = fallbackId;
+          }
+          if (!id) return;
           const markerUrl = incident._markerUrl;
           if (!markerUrl) return;
           activeIds.add(id);
           const existing = incidentMarkers.get(id);
           if (existing && existing.marker) {
+            existing.marker._incidentMarkerId = id;
             existing.marker.setLatLng([lat, lon]);
             if (existing.iconUrl !== markerUrl) {
               releaseIncidentIcon(existing.marker, existing.iconUrl);
@@ -1923,20 +2144,30 @@
             }
             updateIncidentMarkerTooltip(existing.marker, incident);
             existing.data = incident;
+            updateIncidentMarkerPulseById(id);
           } else {
             const marker = L.marker([lat, lon], {
               pane: 'incidentsPane',
               keyboard: false,
               zIndexOffset: 200
             });
+            marker._incidentMarkerId = id;
+            if (typeof marker.on === 'function') {
+              marker.on('iconload', () => {
+                updateIncidentMarkerPulseById(id);
+              });
+            }
             assignIncidentIcon(marker, markerUrl);
             updateIncidentMarkerTooltip(marker, incident);
             marker.addTo(layerGroup);
             incidentMarkers.set(id, {
               marker,
               data: incident,
-              iconUrl: markerUrl
+              iconUrl: markerUrl,
+              pulseMarker: null,
+              pulseState: null
             });
+            updateIncidentMarkerPulseById(id);
           }
         });
         const idsToRemove = [];
@@ -1948,6 +2179,7 @@
         idsToRemove.forEach(id => {
           const entry = incidentMarkers.get(id);
           if (!entry) return;
+          removeIncidentMarkerPulse(entry);
           releaseIncidentIcon(entry.marker, entry.iconUrl);
           if (incidentLayerGroup && entry.marker) {
             incidentLayerGroup.removeLayer(entry.marker);
@@ -2113,7 +2345,12 @@
           });
           if (!matchedRoutes.length) return;
           matchedRoutes.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-          const id = getIncidentIdentifier(incident) || `${lat.toFixed(6)}_${lon.toFixed(6)}`;
+          let id = getIncidentIdentifier(incident);
+          if (!id) {
+            id = `${lat.toFixed(6)}_${lon.toFixed(6)}`;
+          }
+          id = getNormalizedIncidentId(id);
+          if (!id) return;
           const timestamp = getIncidentTimestamp(incident) ?? 0;
           matches.push({
             id,
@@ -2137,8 +2374,7 @@
           return `${match.id || ''}:${routePart}:${distancePart}`;
         }).join('|');
         if (signature !== incidentRouteAlertSignature) {
-          incidentsNearRoutes = matches;
-          incidentRouteAlertSignature = signature;
+          updateIncidentsNearRoutes(matches, signature);
           updateControlPanel();
         }
       }
@@ -2229,8 +2465,7 @@
         demoIncidentEntry = entry;
         demoIncidentPreviousVisibility = incidentsVisible;
         demoIncidentActive = true;
-        incidentsNearRoutes = [entry];
-        incidentRouteAlertSignature = entry.id || 'demo';
+        updateIncidentsNearRoutes([entry], entry.id || 'demo');
         incidentsVisible = true;
         incidentsVisibilityPreference = true;
         if (!incidentLayerGroup && typeof L !== 'undefined' && typeof L.layerGroup === 'function') {
