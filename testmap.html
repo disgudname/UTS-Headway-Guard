@@ -4487,7 +4487,7 @@
               ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
                     .map(eta => {
                         const routeColor = getRouteColor(eta.RouteId);
-                        const textColor = getContrastColor(routeColor);
+                        const textColor = contrastBW(routeColor);
                         const shadowColor = getColorWithAlpha(routeColor, 0.35);
                         return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
                     })
@@ -6064,38 +6064,6 @@
           } catch (error) {
               console.error("Error fetching bus locations:", error);
           }
-      }
-
-      function getContrastColor(hexColor) {
-          if (typeof hexColor !== 'string') {
-              return BUS_MARKER_DEFAULT_CONTRAST_COLOR;
-          }
-          let normalized = hexColor.trim().replace(/^#/, '');
-          if (normalized.length === 3) {
-              normalized = normalized.split('').map(ch => ch + ch).join('');
-          }
-          if (normalized.length !== 6 || /[^0-9a-fA-F]/.test(normalized)) {
-              return BUS_MARKER_DEFAULT_CONTRAST_COLOR;
-          }
-          const r = parseInt(normalized.substring(0, 2), 16);
-          const g = parseInt(normalized.substring(2, 4), 16);
-          const b = parseInt(normalized.substring(4, 6), 16);
-          const luminance = computeRelativeLuminance(r, g, b);
-          const contrastWithWhite = (1.05) / (luminance + 0.05);
-          const contrastWithBlack = (luminance + 0.05) / 0.05;
-          return contrastWithWhite >= contrastWithBlack ? '#FFFFFF' : '#000000';
-      }
-
-      function computeRelativeLuminance(r, g, b) {
-          const rLinear = srgbChannelToLinear(r);
-          const gLinear = srgbChannelToLinear(g);
-          const bLinear = srgbChannelToLinear(b);
-          return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
-      }
-
-      function srgbChannelToLinear(channelValue) {
-          const channel = Math.max(0, Math.min(255, channelValue)) / 255;
-          return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
       }
 
       function clamp(value, min, max) {
