@@ -1999,11 +1999,27 @@
         }
         width = Math.max(1, Math.round(width));
         height = Math.max(1, Math.round(height));
-        const anchorX = Math.round(width / 2);
-        const anchorY = Math.round(height);
+        let anchorX = Math.round(width / 2);
+        let anchorY = Math.round(height);
         const diameterBase = Math.max(width, height) * INCIDENT_PULSE_DIAMETER_RATIO;
         const diameter = Math.max(INCIDENT_PULSE_MIN_DIAMETER_PX, Math.round(diameterBase));
-        const centerY = Math.max(0, Math.round(height * INCIDENT_PULSE_CENTER_Y_RATIO));
+        let centerY = Math.max(0, Math.round(height * INCIDENT_PULSE_CENTER_Y_RATIO));
+
+        const halfDiameter = diameter / 2;
+        const extraHorizontal = Math.max(0, Math.ceil((diameter - width) / 2));
+        const extraTop = Math.max(0, Math.ceil(halfDiameter - centerY));
+        const extraBottom = Math.max(0, Math.ceil(centerY + halfDiameter - height));
+
+        if (extraHorizontal > 0) {
+          width += extraHorizontal * 2;
+          anchorX += extraHorizontal;
+        }
+        if (extraTop > 0 || extraBottom > 0) {
+          height += extraTop + extraBottom;
+          anchorY += extraTop;
+          centerY += extraTop;
+        }
+
         return {
           width,
           height,
@@ -2064,7 +2080,9 @@
             width: info.width,
             height: info.height,
             diameter: info.diameter,
-            centerY: info.centerY
+            centerY: info.centerY,
+            anchorX: info.anchorX,
+            anchorY: info.anchorY
           };
           if (incidentLayerGroup && typeof incidentLayerGroup.addLayer === 'function') {
             incidentLayerGroup.addLayer(pulseMarker);
@@ -2075,7 +2093,8 @@
           }
           const prev = entry.pulseState || {};
           if (prev.width !== info.width || prev.height !== info.height
-            || prev.diameter !== info.diameter || prev.centerY !== info.centerY) {
+            || prev.diameter !== info.diameter || prev.centerY !== info.centerY
+            || prev.anchorX !== info.anchorX || prev.anchorY !== info.anchorY) {
             const icon = buildIncidentPulseIcon(info);
             if (icon && typeof entry.pulseMarker.setIcon === 'function') {
               entry.pulseMarker.setIcon(icon);
@@ -2084,7 +2103,9 @@
               width: info.width,
               height: info.height,
               diameter: info.diameter,
-              centerY: info.centerY
+              centerY: info.centerY,
+              anchorX: info.anchorX,
+              anchorY: info.anchorY
             };
           }
           if (incidentLayerGroup && typeof incidentLayerGroup.hasLayer === 'function'
