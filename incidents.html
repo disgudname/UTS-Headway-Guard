@@ -128,7 +128,7 @@ function decryptPayload(encryptedObj) {
   if (typeof parsed === "string")
     throw new Error("Decrypted payload is still a string after parsing attempts.");
 
-  return parsed; // e.g. { incidents: { active:[], recent:[...] } }
+  return { parsed, rawText }; // e.g. { incidents: { active:[], recent:[...] } }
 }
 
 
