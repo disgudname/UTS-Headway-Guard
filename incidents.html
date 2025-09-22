@@ -19,6 +19,8 @@
     .muted { color: #666; font-size: 12px; }
     .status { margin: 8px 0; }
     .pill { display:inline-block; padding:2px 6px; border-radius: 12px; background:#f2f2f2; font-size:12px; }
+    .marker-cell { width: 44px; text-align: center; }
+    .marker-cell img { max-width: 32px; height: auto; display: inline-block; }
   </style>
 </head>
 <body>
@@ -37,6 +39,7 @@
   <table id="grid">
     <thead>
       <tr>
+        <th class="marker-col">Marker</th>
         <th data-key="_category">Category</th>
         <th data-key="ID">ID</th>
         <th data-key="PulsePointIncidentCallType">Type</th>
@@ -202,7 +205,61 @@ function decryptPayload(encryptedObj) {
     } else {
       copy._units = "";
     }
+    const markerCategory = (category || "").toLowerCase();
+    const markerType = inferMarkerType(copy);
+    const markerUrl = buildMarkerUrl(markerType, markerCategory);
+    copy._markerType = markerType;
+    copy._markerCategory = markerUrl ? markerCategory : "";
+    copy._markerUrl = markerUrl;
+    copy._markerAlt = markerUrl ? markerAltText(markerType, markerCategory, copy.PulsePointIncidentCallType) : "";
     return copy;
+  }
+
+  function inferMarkerType(rec) {
+    const candidates = [
+      rec.PulsePointIncidentCallTypePrimaryCode,
+      rec.PulsePointIncidentCallTypeCode,
+      rec.PulsePointIncidentCallTypeID,
+      rec.PulsePointIncidentTypeCode,
+      rec.PulsePointIncidentType,
+      rec.CallTypeCode,
+      rec.TypeCode,
+      rec.CallType,
+      rec.Type,
+      rec.IncidentType,
+      rec.PulsePointIncidentCallType
+    ];
+    for (const value of candidates) {
+      if (value == null) continue;
+      const raw = typeof value === "number" ? value.toString() : String(value);
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      if (/^[A-Za-z0-9]{1,6}$/.test(trimmed)) return trimmed.toUpperCase();
+      const firstToken = trimmed.split(/[\s/-]+/)[0];
+      if (firstToken && /^[A-Za-z0-9]{1,4}$/.test(firstToken)) return firstToken.toUpperCase();
+      const words = trimmed.match(/[A-Za-z0-9]+/g);
+      if (words && words.length >= 2) {
+        const acronym = words.map(w => w[0]).join("");
+        if (acronym && /^[A-Za-z0-9]{1,4}$/.test(acronym)) return acronym.toUpperCase();
+      }
+    }
+    return "";
+  }
+
+  function buildMarkerUrl(type, category) {
+    const cat = (category || "").toLowerCase();
+    if (!type || (cat !== "active" && cat !== "recent")) return "";
+    return `https://web.pulsepoint.org/images/respond_icons/${type.toLowerCase()}_map_${cat}.png`;
+  }
+
+  function markerAltText(type, category, fallback) {
+    const parts = [];
+    if (type) parts.push(type);
+    if (category) parts.push(category);
+    if (!parts.length && fallback) parts.push(fallback);
+    if (!parts.length) return "Marker icon";
+    parts.push("marker icon");
+    return parts.join(" ");
   }
 
   // ---------- Rendering / UX ----------
@@ -213,6 +270,7 @@ function decryptPayload(encryptedObj) {
   function render(rows) {
     $tbody.innerHTML = rows.map(r => `
       <tr>
+        <td class="marker-cell">${markerCell(r)}</td>
         <td><span class="pill">${esc(r._category)}</span></td>
         <td>${esc(r.ID)}</td>
         <td>${esc(r.PulsePointIncidentCallType)}</td>
@@ -229,6 +287,12 @@ function decryptPayload(encryptedObj) {
 
   function esc(v){ return String(v ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+  function markerCell(row) {
+    if (!row._markerUrl) return "";
+    const altText = row._markerAlt || markerAltText(row._markerType, row._markerCategory, row.PulsePointIncidentCallType);
+    return `<img src="${esc(row._markerUrl)}" alt="${esc(altText)}" title="${esc(altText)}" loading="lazy" />`;
+  }
+
   function applyFilter() {
     const q = $search.value.trim().toLowerCase();
     let filtered = ROWS;
@@ -236,7 +300,7 @@ function decryptPayload(encryptedObj) {
       filtered = ROWS.filter(r => {
         const hay = [
           r.ID, r.PulsePointIncidentCallType, r.FullDisplayAddress,
-          r.CallReceivedDateTime, r.AgencyID, r._units
+          r.CallReceivedDateTime, r.AgencyID, r._units, r._markerType
         ].map(v => (v||"").toString().toLowerCase()).join(" ");
         return hay.includes(q);
       });
@@ -249,7 +313,7 @@ function decryptPayload(encryptedObj) {
     render(filtered);
   }
 
-  document.querySelectorAll("#grid th").forEach(th => {
+  document.querySelectorAll("#grid th[data-key]").forEach(th => {
     th.addEventListener("click", () => {
       const key = th.getAttribute("data-key");
       if (key === sortKey) sortDir *= -1; else { sortKey = key; sortDir = 1; }
@@ -260,9 +324,9 @@ function decryptPayload(encryptedObj) {
   $search.addEventListener("input", applyFilter);
 
   $download.addEventListener("click", () => {
-    const headers = ["Category","ID","Type","Address","Received","Agency","Latitude","Longitude","Units"];
+    const headers = ["Marker","Category","ID","Type","Address","Received","Agency","Latitude","Longitude","Units"];
     const rows = ROWS.map(r => [
-      r._category, r.ID, r.PulsePointIncidentCallType, r.FullDisplayAddress,
+      r._markerUrl, r._category, r.ID, r.PulsePointIncidentCallType, r.FullDisplayAddress,
       r.CallReceivedDateTime, r.AgencyID, r.Latitude, r.Longitude, r._units
     ].map(s => csvCell(s)).join(","));
     const blob = new Blob([[headers.join(",")].concat(rows).join("\n")], {type:"text/csv;charset=utf-8"});
