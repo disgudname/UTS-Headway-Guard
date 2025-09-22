@@ -6,6 +6,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+  <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <style>
@@ -29,6 +30,120 @@
       --accent-soft: rgba(229, 114, 0, 0.28);
       --controls-height: 180px;
       --mobile-controls-peek: 0px;
+    }
+    .custom-popup {
+      position: absolute;
+      background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+      border: 3px solid rgba(255, 255, 255, 0.92);
+      border-radius: 16px;
+      padding: 12px 14px;
+      pointer-events: auto;
+      transform: translate(-50%, -100%);
+      white-space: nowrap;
+      z-index: 1000;
+      color: #f8fafc;
+      text-transform: uppercase;
+      font-family: 'FGDC', sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.35px;
+      box-shadow: 0 18px 36px rgba(15, 23, 42, 0.38);
+    }
+    .custom-popup-arrow {
+      position: absolute;
+      left: 50%;
+      bottom: -10px;
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 10px solid rgba(255, 255, 255, 0.92);
+      transform: translateX(-50%);
+    }
+    .custom-popup-close {
+      position: absolute;
+      bottom: 5px;
+      right: 5px;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
+      border: none;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      font-size: 13px;
+      box-shadow: 0 10px 20px rgba(229, 114, 0, 0.35);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .custom-popup-close:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(229, 114, 0, 0.4);
+    }
+    .route-pill {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 999px;
+      color: #1f1300;
+      font-weight: bold;
+      margin-top: 10px;
+      text-align: center;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      box-shadow: 0 12px 24px var(--route-pill-shadow-color, rgba(229, 114, 0, 0.35));
+    }
+    .bus-marker {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      line-height: 0;
+    }
+    .bus-marker__root {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      cursor: pointer;
+      touch-action: manipulation;
+      user-select: none;
+    }
+    .bus-marker__svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      transition: transform 0.2s ease, filter 0.2s ease;
+      transform-box: view-box;
+      transform-origin: 50% 50%;
+      will-change: transform;
+      pointer-events: none;
+    }
+    .bus-marker__svg .st1 {
+      paint-order: stroke fill;
+      transition: fill 0.2s ease, fill-opacity 0.2s ease;
+      pointer-events: auto;
+    }
+    .bus-marker__svg .st0 {
+      transition: fill 0.2s ease;
+      pointer-events: auto;
+    }
+    .bus-marker__svg #halo {
+      pointer-events: none;
+    }
+    .bus-marker__root.is-stale .bus-marker__svg {
+      opacity: 0.6;
+    }
+    .bus-marker__root.is-hover .bus-marker__svg {
+      filter: drop-shadow(0 3px 8px rgba(15, 23, 42, 0.35));
+    }
+    .bus-marker__root.is-selected .bus-marker__svg {
+      filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.68));
+    }
+    .bus-marker__root.is-selected.is-hover .bus-marker__svg {
+      filter: drop-shadow(0 3px 12px rgba(15, 23, 42, 0.35)) drop-shadow(0 0 7px rgba(255, 255, 255, 0.72));
     }
     html, body {
       height: 100%;
@@ -735,29 +850,122 @@
     </div>
   </div>
   <script>
-    let map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    const enableOverlapDashRendering = true;
 
-    flatpickr("#datePicker", {
-      dateFormat: "Y-m-d",
-      defaultDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
+      updateWhenZooming: true,
+      updateWhenIdle: true,
+      interactive: false
     });
-    flatpickr("#startTime", {
-      enableTime: true,
-      noCalendar: true,
-      dateFormat: "H:i",
-      time_24hr: true,
-      defaultDate: "00:00"
-    });
-    flatpickr("#endTime", {
-      enableTime: true,
-      noCalendar: true,
-      dateFormat: "H:i",
-      time_24hr: true,
-      defaultDate: "23:59"
-    });
+    let sharedRouteRenderer = null;
+    let routePaneName = 'overlayPane';
+    let overlapRenderer = null;
+
+    const DEFAULT_ROUTE_STROKE_WEIGHT = 6;
+    const MIN_ROUTE_STROKE_WEIGHT = 3;
+    const MAX_ROUTE_STROKE_WEIGHT = 12;
+    const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
+    const ROUTE_WEIGHT_BASE_ZOOM = 15;
+    const ROUTE_WEIGHT_STEP_PER_ZOOM = 1;
+
+    function computeRouteStrokeWeight(zoom) {
+      const baseWeight = DEFAULT_ROUTE_STROKE_WEIGHT;
+      const minWeight = MIN_ROUTE_STROKE_WEIGHT;
+      const maxWeight = MAX_ROUTE_STROKE_WEIGHT;
+      const targetZoom = Number.isFinite(zoom)
+        ? zoom
+        : (map && typeof map?.getZoom === 'function' ? map.getZoom() : null);
+      if (!Number.isFinite(targetZoom)) {
+        return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+      }
+      const zoomDeltaRaw = targetZoom - ROUTE_WEIGHT_BASE_ZOOM;
+      const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
+      const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
+      if (!Number.isFinite(computed)) {
+        return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+      }
+      return Math.max(minWeight, Math.min(maxWeight, computed));
+    }
+
+    function mergeRouteLayerOptions(overrides = {}, rendererOverride = null, paneOverride = null) {
+      const base = Object.assign({}, ROUTE_LAYER_BASE_OPTIONS);
+      const renderer = rendererOverride || sharedRouteRenderer;
+      if (renderer) {
+        base.renderer = renderer;
+      }
+      const pane = paneOverride || routePaneName;
+      if (typeof pane === 'string' && pane) {
+        base.pane = pane;
+      }
+      return Object.assign(base, overrides || {});
+    }
+
+    const BUS_MARKER_SVG_URL = 'busmarker.svg';
+    let BUS_MARKER_SVG_TEXT = null;
+    let BUS_MARKER_SVG_LOAD_PROMISE = null;
+    const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
+    const BUS_MARKER_VIEWBOX_HEIGHT = 86.99;
+    const BUS_MARKER_PIVOT_X = BUS_MARKER_VIEWBOX_WIDTH / 2;
+    const BUS_MARKER_PIVOT_Y = BUS_MARKER_VIEWBOX_HEIGHT / 2;
+    const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
+    const BUS_MARKER_BASE_WIDTH_PX = 26;
+    const BUS_MARKER_MIN_WIDTH_PX = 18;
+    const BUS_MARKER_MAX_WIDTH_PX = 48;
+    const BUS_MARKER_BASE_ZOOM = 15;
+    const BUS_MARKER_MIN_SCALE = BUS_MARKER_MIN_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
+    const BUS_MARKER_MAX_SCALE = BUS_MARKER_MAX_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
+    const BUS_MARKER_SCALE_ZOOM_FACTOR = 5;
+    const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_PIVOT_X / BUS_MARKER_VIEWBOX_WIDTH;
+    const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_PIVOT_Y / BUS_MARKER_VIEWBOX_HEIGHT;
+    const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0b7a26';
+    const BUS_MARKER_DEFAULT_GLYPH_COLOR = '#ffffff';
+    const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
+    const BUS_MARKER_DEFAULT_HEADING = 0;
+    const BUS_MARKER_CENTER_RING_ID = 'center_ring';
+    const BUS_MARKER_CENTER_SQUARE_ID = 'center_square';
+    const BUS_MARKER_CENTER_RING_CENTER_X = 26.5;
+    const BUS_MARKER_CENTER_RING_CENTER_Y = 43.49;
+    const BUS_MARKER_STOPPED_SQUARE_SIZE_PX = 20;
+    const BUS_MARKER_STOPPED_SQUARE_ID = 'center_square';
+    const BUS_MARKER_CSS_CENTER_SQUARE_CLASS = 'bus-marker__center-square';
+    const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
+    const BUS_MARKER_LABEL_MIN_FONT_PX = 12;
+    const BUS_MARKER_TRANSFORM_ORIGIN = `${BUS_MARKER_PIVOT_X}px ${BUS_MARKER_PIVOT_Y}px`;
+
+    const SPEED_BUBBLE_BASE_FONT_PX = 14;
+    const SPEED_BUBBLE_HORIZONTAL_PADDING = 14;
+    const SPEED_BUBBLE_VERTICAL_PADDING = 3;
+    const SPEED_BUBBLE_MIN_WIDTH = 60;
+    const SPEED_BUBBLE_MIN_HEIGHT = 20;
+    const SPEED_BUBBLE_CORNER_RADIUS = 10;
+    const NAME_BUBBLE_BASE_FONT_PX = 14;
+    const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
+    const NAME_BUBBLE_VERTICAL_PADDING = 3;
+    const NAME_BUBBLE_MIN_WIDTH = 40;
+    const NAME_BUBBLE_MIN_HEIGHT = 20;
+    const NAME_BUBBLE_CORNER_RADIUS = 10;
+    const NAME_BUBBLE_FRAME_INSET = 5;
+    const BLOCK_BUBBLE_BASE_FONT_PX = 14;
+    const BLOCK_BUBBLE_HORIZONTAL_PADDING = 14;
+    const BLOCK_BUBBLE_VERTICAL_PADDING = 3;
+    const BLOCK_BUBBLE_MIN_WIDTH = 40;
+    const BLOCK_BUBBLE_MIN_HEIGHT = 20;
+    const BLOCK_BUBBLE_CORNER_RADIUS = 10;
+    const BLOCK_BUBBLE_FRAME_INSET = 5;
+    const LABEL_BASE_STROKE_WIDTH = 3;
+    const LABEL_VERTICAL_CLEARANCE_PX = -7;
+    const LABEL_VERTICAL_ALIGNMENT_BONUS_PX = 6;
+    const LABEL_VERTICAL_ALIGNMENT_EXPONENT = 4;
+    const LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX = 1;
+    const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
+
+    const MIN_HEADING_DISTANCE_METERS = 2;
+    const MIN_POSITION_UPDATE_METERS = 0.5;
+    const MIN_HEADING_SPEED_METERS_PER_SECOND = 1;
+    const METERS_PER_SECOND_PER_MPH = 0.44704;
+    const GPS_STALE_THRESHOLD_SECONDS = 60;
+
+    let map = null;
 
     let playbackData = [];
     let playbackTimes = [];
@@ -765,11 +973,29 @@
     let endTime = null;
     let userEndTime = null;
     let loadedHours = new Set();
-    let markers = {};
-    let nameMarkers = {};
-    let speedMarkers = {};
-    let blockMarkers = {};
+
     let routeLayers = [];
+    let routePolylineCache = new Map();
+    let lastRouteRenderState = {
+      selectionKey: '',
+      colorSignature: '',
+      geometrySignature: '',
+      useOverlapRenderer: false
+    };
+
+    let markers = {};
+    let busMarkerStates = {};
+    let busMarkerContrastOverrideColor = null;
+    let busMarkerVisibleExtents = null;
+    let pendingBusVisualUpdates = new Map();
+    let busMarkerVisualUpdateFrame = null;
+    let selectedVehicleId = null;
+    let nameBubbles = {};
+    let busBlocks = {};
+    let pendingMarkerScaleMetrics = null;
+    let markerScaleUpdateFrame = null;
+    let textMeasurementCanvas = null;
+
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x, 1000x
     let routeColors = {};
@@ -779,10 +1005,9 @@
     let allBuses = {};
     let busSelections = {};
     let activeBuses = new Set();
-    let showSpeed = true; // default to showing speed
+    let showSpeed = true;
     let showBlockNumbers = false;
     let showNameBubbles = true;
-    let lastPositions = {};
     let currentFrameIndex = 0;
     const outOfServiceRouteColor = '#000000';
     let isPlaying = false;
@@ -805,6 +1030,1765 @@
     let activeRangeLoadCount = 0;
     let lastRouteSelectorStateKey = null;
     let lastBusSelectorStateKey = null;
+
+    function createSpatialIndex(options = {}) {
+      if (typeof rbush === 'function') {
+        try {
+          return rbush(options.maxEntries);
+        } catch (error) {
+          console.error('Failed to create rbush index via rbush()', error);
+        }
+      }
+      if (typeof RBush === 'function') {
+        try {
+          return new RBush(options.maxEntries);
+        } catch (error) {
+          console.error('Failed to create rbush index via new RBush()', error);
+        }
+      }
+      console.error('RBush spatial index library is not available. Route overlap rendering will be disabled.');
+      return null;
+    }
+
+    class OverlapRouteRenderer {
+      constructor(map, options = {}) {
+        this.map = map;
+        this.options = Object.assign({
+          sampleStepPx: 8,
+          simplifyTolerancePx: 0.75,
+          matchTolerancePx: 6,
+          headingToleranceDeg: 25,
+          dashLengthPx: 16,
+          minDashLengthPx: 0.5,
+          overlapOpacity: 1,
+          renderer: null,
+          pane: routePaneName,
+          strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+          minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+          maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+          spatialIndexMaxEntries: 9
+        }, options || {});
+        this.layers = [];
+        this.routeGeometries = new Map();
+        this.selectedRoutes = [];
+        this.currentZoom = null;
+        this.renderer = this.options.renderer || sharedRouteRenderer;
+        this.routePaneName = typeof options.pane === 'string' && options.pane ? options.pane : routePaneName;
+        this.index = createSpatialIndex({ maxEntries: this.options.spatialIndexMaxEntries });
+      }
+
+      reset() {
+        this.clearLayers();
+        this.routeGeometries.clear();
+        this.selectedRoutes = [];
+      }
+
+      clearLayers() {
+        this.layers.forEach(layer => {
+          if (layer && this.map.hasLayer(layer)) {
+            this.map.removeLayer(layer);
+          }
+        });
+        this.layers = [];
+      }
+
+      updateRoutes(routeGeometryMap, selectedRouteIds) {
+        if (!Array.isArray(selectedRouteIds) || selectedRouteIds.length === 0) {
+          this.reset();
+          return this.getLayers();
+        }
+
+        const geometryEntries = routeGeometryMap instanceof Map
+          ? Array.from(routeGeometryMap.entries())
+          : Object.entries(routeGeometryMap || {});
+
+        const desiredIds = new Set(
+          selectedRouteIds
+            .map(id => Number(id))
+            .filter(id => !Number.isNaN(id))
+        );
+
+        const nextGeometries = new Map();
+        geometryEntries.forEach(([key, value]) => {
+          const numericKey = Number(key);
+          if (!Number.isNaN(numericKey) && desiredIds.has(numericKey) && Array.isArray(value)) {
+            nextGeometries.set(numericKey, value);
+          }
+        });
+
+        this.routeGeometries = nextGeometries;
+        this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
+
+        const mapZoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+        if (Number.isFinite(mapZoom)) {
+          this.currentZoom = mapZoom;
+        }
+
+        this.render();
+        return this.getLayers();
+      }
+
+      handleZoomFrame(targetZoom) {
+        if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+          return this.getLayers();
+        }
+
+        const zoom = Number.isFinite(targetZoom)
+          ? targetZoom
+          : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+        if (!Number.isFinite(zoom)) {
+          return this.getLayers();
+        }
+
+        this.currentZoom = zoom;
+        this.render();
+        return this.getLayers();
+      }
+
+      handleZoomEnd() {
+        const zoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+        return this.handleZoomFrame(zoom);
+      }
+
+      getLayers() {
+        return this.layers.slice();
+      }
+
+      hasPersistentPixelCache() {
+        return false;
+      }
+
+      computeStrokeWeight(zoom = this.currentZoom) {
+        const minWeight = Number.isFinite(this.options.minStrokeWeight)
+          ? this.options.minStrokeWeight
+          : MIN_ROUTE_STROKE_WEIGHT;
+        const maxWeight = Number.isFinite(this.options.maxStrokeWeight)
+          ? this.options.maxStrokeWeight
+          : MAX_ROUTE_STROKE_WEIGHT;
+        const computed = computeRouteStrokeWeight(zoom);
+        if (!Number.isFinite(computed)) {
+          return Math.max(minWeight, Math.min(maxWeight, DEFAULT_ROUTE_STROKE_WEIGHT));
+        }
+        return Math.max(minWeight, Math.min(maxWeight, computed));
+      }
+
+      render() {
+        if (!this.map) return;
+        if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+          this.clearLayers();
+          return;
+        }
+
+        const zoom = Number.isFinite(this.currentZoom)
+          ? this.currentZoom
+          : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+        if (!Number.isFinite(zoom)) {
+          this.clearLayers();
+          return;
+        }
+
+        this.clearLayers();
+
+        const step = Number.isFinite(this.options.sampleStepPx) && this.options.sampleStepPx > 0
+          ? this.options.sampleStepPx
+          : 8;
+        const tolerance = Number.isFinite(this.options.matchTolerancePx)
+          ? this.options.matchTolerancePx
+          : 6;
+        const headingToleranceRad = (Number.isFinite(this.options.headingToleranceDeg)
+          ? this.options.headingToleranceDeg
+          : 25) * (Math.PI / 180);
+
+        const strokeWeight = this.computeStrokeWeight(zoom);
+        const dashLength = Number.isFinite(this.options.dashLengthPx)
+          ? this.options.dashLengthPx
+          : 16;
+        const minDashLength = Number.isFinite(this.options.minDashLengthPx)
+          ? this.options.minDashLengthPx
+          : 0.5;
+
+        const routeSegments = new Map();
+        this.routeGeometries.forEach((latlngs, routeId) => {
+          const segments = this.resampleRoute(routeId, latlngs, zoom, step);
+          routeSegments.set(routeId, segments);
+        });
+
+        this.index?.clear();
+
+        const overlapGroups = [];
+        routeSegments.forEach(segments => {
+          segments.forEach(segment => {
+            if (this.index) {
+              this.index.insert({
+                minX: segment.bounds.minX,
+                minY: segment.bounds.minY,
+                maxX: segment.bounds.maxX,
+                maxY: segment.bounds.maxY,
+                segment
+              });
+            }
+          });
+        });
+
+        routeSegments.forEach(segments => {
+          segments.forEach(segment => {
+            let group = null;
+            const searchBounds = {
+              minX: segment.bounds.minX - tolerance,
+              minY: segment.bounds.minY - tolerance,
+              maxX: segment.bounds.maxX + tolerance,
+              maxY: segment.bounds.maxY + tolerance
+            };
+            const candidates = this.index ? this.index.search(searchBounds) : [];
+            for (const entry of candidates) {
+              const candidate = entry.segment;
+              if (candidate === segment) continue;
+              if (!this.segmentsOverlap(segment, candidate, tolerance, headingToleranceRad)) continue;
+              if (!group) {
+                group = new Set();
+                overlapGroups.push(group);
+                group.add(segment);
+              }
+              group.add(candidate);
+            }
+          });
+        });
+
+        const overlapLayers = [];
+        overlapGroups.forEach(group => {
+          if (!group || group.size <= 1) return;
+          const segments = Array.from(group);
+          const routeIds = Array.from(new Set(segments.map(segment => segment.routeId))).sort((a, b) => a - b);
+          const dashOffsetStep = dashLength / Math.max(routeIds.length, 1);
+          segments.forEach(segment => {
+            const coords = [segment.start.latlng, segment.end.latlng];
+            routeIds.forEach((routeId, index) => {
+              const weight = strokeWeight;
+              const dashOffsetValue = (index * dashOffsetStep) % dashLength;
+              const gapLength = Math.max(minDashLength, dashLength * (routeIds.length - 1));
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
+                color: getRouteColor(routeId),
+                weight,
+                opacity: 1,
+                dashArray: `${dashLength} ${gapLength}`,
+                dashOffset: `${dashOffsetValue}`,
+                lineCap: 'butt',
+                lineJoin: 'round'
+              }, this.renderer, this.routePaneName)).addTo(this.map);
+              overlapLayers.push(layer);
+            });
+          });
+        });
+
+        if (overlapLayers.length > 0) {
+          this.layers = overlapLayers;
+          return;
+        }
+
+        const newLayers = [];
+        this.routeGeometries.forEach((latlngs, routeId) => {
+          const layer = L.polyline(latlngs, mergeRouteLayerOptions({
+            color: getRouteColor(routeId),
+            weight: strokeWeight,
+            opacity: 1,
+            lineCap: 'round',
+            lineJoin: 'round'
+          }, this.renderer, this.routePaneName)).addTo(this.map);
+          newLayers.push(layer);
+        });
+        this.layers = newLayers;
+      }
+
+      simplifyLatLngs(latlngs, zoom) {
+        if (!Array.isArray(latlngs) || latlngs.length === 0) {
+          return [];
+        }
+
+        const projected = latlngs.map(latlng => this.map.project(latlng, zoom));
+        let simplified = projected;
+        if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil && L.LineUtil.simplify) {
+          simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
+        }
+
+        return simplified.map(pt => ({
+          point: L.point(pt.x, pt.y),
+          latlng: this.map.unproject(pt, zoom)
+        }));
+      }
+
+      resampleRoute(routeId, latlngs, zoom, step) {
+        const simplified = this.simplifyLatLngs(latlngs, zoom);
+        if (simplified.length < 2) {
+          return [];
+        }
+
+        const samples = [];
+        const first = simplified[0];
+        samples.push({
+          latlng: first.latlng,
+          point: first.point,
+          cumulativeLength: 0
+        });
+
+        let traversed = 0;
+        let distanceSinceLast = 0;
+
+        for (let i = 1; i < simplified.length; i++) {
+          const prev = simplified[i - 1];
+          const curr = simplified[i];
+          const segmentLength = this.distance(prev.point, curr.point);
+          if (segmentLength === 0) {
+            continue;
+          }
+
+          let consumed = 0;
+          while (distanceSinceLast + (segmentLength - consumed) >= step) {
+            const remaining = step - distanceSinceLast;
+            consumed += remaining;
+            const ratio = consumed / segmentLength;
+            const samplePoint = this.interpolatePoint(prev.point, curr.point, ratio);
+            const sampleLatLng = this.map.unproject(samplePoint, zoom);
+            traversed += remaining;
+            samples.push({
+              latlng: sampleLatLng,
+              point: samplePoint,
+              cumulativeLength: traversed
+            });
+            distanceSinceLast = 0;
+          }
+
+          const leftover = segmentLength - consumed;
+          traversed += leftover;
+          distanceSinceLast += leftover;
+        }
+
+        const last = simplified[simplified.length - 1];
+        const lastSample = samples[samples.length - 1];
+        if (!this.latLngsClose(lastSample.latlng, last.latlng)) {
+          samples.push({
+            latlng: last.latlng,
+            point: last.point,
+            cumulativeLength: traversed
+          });
+        } else {
+          lastSample.cumulativeLength = traversed;
+        }
+
+        const segments = [];
+        for (let i = 0; i < samples.length - 1; i++) {
+          const start = samples[i];
+          const end = samples[i + 1];
+          const lengthPx = this.distance(start.point, end.point);
+          if (!(lengthPx > 0)) {
+            continue;
+          }
+
+          const bounds = {
+            minX: Math.min(start.point.x, end.point.x),
+            minY: Math.min(start.point.y, end.point.y),
+            maxX: Math.max(start.point.x, end.point.x),
+            maxY: Math.max(start.point.y, end.point.y)
+          };
+          const midpoint = L.point(
+            (start.point.x + end.point.x) / 2,
+            (start.point.y + end.point.y) / 2
+          );
+          const heading = Math.atan2(end.point.y - start.point.y, end.point.x - start.point.x);
+          const offsetValues = [];
+          const startOffset = Number(start.cumulativeLength);
+          if (Number.isFinite(startOffset)) offsetValues.push(startOffset);
+          const endOffset = Number(end.cumulativeLength);
+          if (Number.isFinite(endOffset)) offsetValues.push(endOffset);
+
+          const routeOffsets = {};
+          if (offsetValues.length > 0) {
+            routeOffsets[routeId] = { min: Math.min(...offsetValues) };
+          }
+
+          segments.push({
+            routeId,
+            index: segments.length,
+            start,
+            end,
+            lengthPx,
+            bounds,
+            midpoint,
+            heading,
+            routeOffsets,
+            sharedRoutes: new Set([routeId])
+          });
+        }
+
+        return segments;
+      }
+
+      interpolatePoint(a, b, t) {
+        return L.point(
+          a.x + (b.x - a.x) * t,
+          a.y + (b.y - a.y) * t
+        );
+      }
+
+      distance(a, b) {
+        const ax = a?.x ?? 0;
+        const ay = a?.y ?? 0;
+        const bx = b?.x ?? 0;
+        const by = b?.y ?? 0;
+        const dx = bx - ax;
+        const dy = by - ay;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+
+      latLngsClose(a, b) {
+        if (!a || !b) {
+          return false;
+        }
+        return Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lng - b.lng) < 1e-7;
+      }
+
+      segmentsOverlap(a, b, tolerance, headingToleranceRad) {
+        const midpointDistance = this.distance(a.midpoint, b.midpoint);
+        if (midpointDistance > tolerance) {
+          return false;
+        }
+
+        const headingDiff = this.smallestHeadingDifference(a.heading, b.heading);
+        if (headingDiff > headingToleranceRad && Math.abs(Math.PI - headingDiff) > headingToleranceRad) {
+          return false;
+        }
+
+        const startDistance = this.distance(a.start.point, b.start.point);
+        const endDistance = this.distance(a.end.point, b.end.point);
+        const crossStart = this.distance(a.start.point, b.end.point);
+        const crossEnd = this.distance(a.end.point, b.start.point);
+        const closeEnough = Math.min(startDistance, endDistance, crossStart, crossEnd) <= tolerance * 2;
+
+        return closeEnough;
+      }
+
+      smallestHeadingDifference(a, b) {
+        let diff = Math.abs(a - b);
+        diff = diff % (Math.PI * 2);
+        if (diff > Math.PI) diff = (Math.PI * 2) - diff;
+        return diff;
+      }
+    }
+      function computeRelativeLuminance(r, g, b) {
+          const rLinear = srgbChannelToLinear(r);
+          const gLinear = srgbChannelToLinear(g);
+          const bLinear = srgbChannelToLinear(b);
+          return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
+      }
+
+      function srgbChannelToLinear(channelValue) {
+          const channel = Math.max(0, Math.min(255, channelValue)) / 255;
+          return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+      }
+
+      function clamp(value, min, max) {
+          return Math.min(Math.max(value, min), max);
+      }
+
+      function computeMarkerScale(zoom) {
+          return 1;
+      }
+
+      function computeBusMarkerMetrics(zoom) {
+          const scale = computeMarkerScale(zoom);
+          const width = BUS_MARKER_BASE_WIDTH_PX * scale;
+          const height = width * BUS_MARKER_ASPECT_RATIO;
+          return { scale, widthPx: width, heightPx: height };
+      }
+
+      function ensureBusMarkerState(vehicleID) {
+          if (!busMarkerStates[vehicleID]) {
+              const defaultRouteColor = BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              busMarkerStates[vehicleID] = {
+                  vehicleID,
+                  positionHistory: [],
+                  headingDeg: BUS_MARKER_DEFAULT_HEADING,
+                  fillColor: defaultRouteColor,
+                  glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
+                  accessibleLabel: '',
+                  isStale: false,
+                  isStopped: false,
+                  isSelected: false,
+                  isHovered: false,
+                  lastUpdateTimestamp: 0,
+                  size: null,
+                  elements: null,
+                  marker: null,
+                  markerEventsBound: false
+              };
+          }
+          return busMarkerStates[vehicleID];
+      }
+
+      function setBusMarkerSize(state, metrics) {
+          if (!state || !metrics) {
+              return;
+          }
+          state.size = {
+              widthPx: metrics.widthPx,
+              heightPx: metrics.heightPx,
+              scale: metrics.scale
+          };
+      }
+ 
+      function computeBusMarkerGlyphColor(routeColor) {
+          if (typeof busMarkerContrastOverrideColor === 'string' && busMarkerContrastOverrideColor.trim().length > 0) {
+              return busMarkerContrastOverrideColor;
+          }
+          const fallback = BUS_MARKER_DEFAULT_CONTRAST_COLOR;
+          const candidate = typeof routeColor === 'string' && routeColor.trim().length > 0 ? routeColor : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const contrast = contrastBW(candidate);
+          return contrast || fallback;
+      }
+
+      function normalizeRouteColor(color) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
+              }
+          }
+          return BUS_MARKER_DEFAULT_ROUTE_COLOR;
+      }
+
+      function normalizeGlyphColor(color, routeColor) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
+              }
+          }
+          const fallbackRouteColor = normalizeRouteColor(routeColor);
+          return computeBusMarkerGlyphColor(fallbackRouteColor);
+      }
+
+      function applyColorsToBusMarkerSvg(svgEl, routeColor, glyphColor) {
+          if (!svgEl) {
+              return;
+          }
+          const fillColor = normalizeRouteColor(routeColor);
+          const contrastColor = normalizeGlyphColor(glyphColor, fillColor);
+          const routeShape = svgEl.querySelector('#route_color');
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          const centerSquare = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
+          const heading = svgEl.querySelector('#heading');
+          if (routeShape) {
+              routeShape.setAttribute('fill', fillColor);
+              routeShape.style.fill = fillColor;
+          }
+          if (centerRing) {
+              centerRing.setAttribute('fill', contrastColor);
+              centerRing.style.fill = contrastColor;
+          }
+          if (centerSquare) {
+              centerSquare.setAttribute('fill', contrastColor);
+              centerSquare.style.fill = contrastColor;
+          }
+          if (heading) {
+              heading.setAttribute('fill', contrastColor);
+              heading.style.fill = contrastColor;
+          }
+      }
+
+      function updateBusMarkerColorElements(state) {
+          if (!state) {
+              return;
+          }
+          const normalizedFill = normalizeRouteColor(state.fillColor);
+          const normalizedGlyph = normalizeGlyphColor(state.glyphColor, normalizedFill);
+          state.fillColor = normalizedFill;
+          state.glyphColor = normalizedGlyph;
+          if (state.elements?.routeColor) {
+              state.elements.routeColor.setAttribute('fill', normalizedFill);
+              state.elements.routeColor.style.fill = normalizedFill;
+          }
+          if (state.elements?.centerRing) {
+              state.elements.centerRing.setAttribute('fill', normalizedGlyph);
+              state.elements.centerRing.style.fill = normalizedGlyph;
+          }
+          if (state.elements?.centerSquare) {
+              state.elements.centerSquare.setAttribute('fill', normalizedGlyph);
+              state.elements.centerSquare.style.fill = normalizedGlyph;
+          }
+          if (state.elements?.heading) {
+              state.elements.heading.setAttribute('fill', normalizedGlyph);
+              state.elements.heading.style.fill = normalizedGlyph;
+          }
+      }
+
+      function ensureCenterSquareElement(svgEl) {
+          if (!svgEl) {
+              return null;
+          }
+          let square = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
+          if (square) {
+              return square;
+          }
+          const namespace = 'http://www.w3.org/2000/svg';
+          square = document.createElementNS(namespace, 'rect');
+          square.setAttribute('id', BUS_MARKER_STOPPED_SQUARE_ID);
+          square.setAttribute('width', `${BUS_MARKER_STOPPED_SQUARE_SIZE_PX}`);
+          square.setAttribute('height', `${BUS_MARKER_STOPPED_SQUARE_SIZE_PX}`);
+          const halfSize = BUS_MARKER_STOPPED_SQUARE_SIZE_PX / 2;
+          const x = BUS_MARKER_CENTER_RING_CENTER_X - halfSize;
+          const y = BUS_MARKER_CENTER_RING_CENTER_Y - halfSize;
+          square.setAttribute('x', x.toFixed(2));
+          square.setAttribute('y', y.toFixed(2));
+          square.style.display = 'none';
+          square.style.pointerEvents = 'none';
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          const centerRingClass = centerRing?.getAttribute('class');
+          if (centerRingClass) {
+              square.setAttribute('class', centerRingClass);
+          }
+          const heading = svgEl.querySelector('#heading');
+          if (heading && heading.parentNode) {
+              heading.parentNode.insertBefore(square, heading);
+          } else if (centerRing && centerRing.parentNode) {
+              centerRing.parentNode.insertBefore(square, centerRing.nextSibling);
+          } else {
+              svgEl.appendChild(square);
+          }
+          return square;
+      }
+
+      function setCenterShapeDisplay(centerRing, centerSquare, isStopped) {
+          const showSquare = Boolean(isStopped);
+          if (centerRing) {
+              centerRing.style.display = showSquare ? 'none' : 'inline';
+          }
+          if (centerSquare) {
+              centerSquare.style.display = showSquare ? 'inline' : 'none';
+          }
+      }
+
+      function applyStoppedVisualStateToSvg(svgEl, isStopped) {
+          if (!svgEl) {
+              return;
+          }
+          const centerSquare = ensureCenterSquareElement(svgEl);
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          setCenterShapeDisplay(centerRing, centerSquare, isStopped);
+      }
+
+      function ensureBusMarkerStoppedElements(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          const square = ensureCenterSquareElement(state.elements.svg);
+          if (square) {
+              state.elements.centerSquare = square;
+          }
+          if (!state.elements.centerRing || !state.elements.centerRing.isConnected) {
+              const ring = state.elements.svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+              if (ring) {
+                  state.elements.centerRing = ring;
+              }
+          }
+      }
+
+      function applyBusMarkerStoppedVisualState(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          ensureBusMarkerStoppedElements(state);
+          setCenterShapeDisplay(state.elements.centerRing, state.elements.centerSquare, state.isStopped);
+      }
+
+      function setBusMarkerContrastOverrideColor(color) {
+          if (typeof color === 'string' && color.trim().length > 0) {
+              busMarkerContrastOverrideColor = color.trim();
+          } else {
+              busMarkerContrastOverrideColor = null;
+          }
+          Object.keys(busMarkerStates).forEach(vehicleID => {
+              const state = busMarkerStates[vehicleID];
+              if (!state) {
+                  return;
+              }
+              const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              const glyphColor = computeBusMarkerGlyphColor(routeColor);
+              state.glyphColor = glyphColor;
+              queueBusMarkerVisualUpdate(vehicleID, { glyphColor });
+          });
+      }
+
+      if (typeof window !== 'undefined') {
+          window.setBusMarkerContrastOverrideColor = setBusMarkerContrastOverrideColor;
+      }
+
+      function getTextMeasurementContext() {
+          if (!textMeasurementCanvas && typeof document !== 'undefined') {
+              textMeasurementCanvas = document.createElement('canvas');
+          }
+          return textMeasurementCanvas ? textMeasurementCanvas.getContext('2d') : null;
+      }
+
+      function measureLabelTextWidth(text, fontSizePx, fontWeight = 'bold') {
+          const ctx = getTextMeasurementContext();
+          const normalizedFontSize = Math.max(1, Number(fontSizePx) || 0);
+          if (!ctx) {
+              return (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
+          }
+          ctx.font = `${fontWeight} ${normalizedFontSize}px ${BUS_MARKER_LABEL_FONT_FAMILY}`;
+          const metrics = ctx.measureText(text || '');
+          return metrics && Number.isFinite(metrics.width)
+              ? metrics.width
+              : (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
+      }
+
+      function roundToTwoDecimals(value) {
+          return Math.round((Number(value) || 0) * 100) / 100;
+      }
+
+      function getBusMarkerVisibleExtents() {
+          if (busMarkerVisibleExtents) {
+              return busMarkerVisibleExtents;
+          }
+
+          const fallbackExtents = {
+              top: BUS_MARKER_PIVOT_Y,
+              bottom: BUS_MARKER_VIEWBOX_HEIGHT - BUS_MARKER_PIVOT_Y,
+              left: BUS_MARKER_PIVOT_X,
+              right: BUS_MARKER_VIEWBOX_WIDTH - BUS_MARKER_PIVOT_X
+          };
+
+          if (!BUS_MARKER_SVG_TEXT || typeof document === 'undefined') {
+              return fallbackExtents;
+          }
+
+          try {
+              const template = document.createElement('template');
+              template.innerHTML = BUS_MARKER_SVG_TEXT.trim();
+              const svgEl = template.content.firstElementChild;
+              if (!svgEl) {
+                  throw new Error('Failed to parse bus marker SVG for bounds computation.');
+              }
+              const clone = svgEl.cloneNode(true);
+
+              clone.querySelectorAll('rect').forEach(rect => {
+                  const width = Number(rect.getAttribute('width'));
+                  const height = Number(rect.getAttribute('height'));
+                  if (width === 0 && height === 0) {
+                      rect.remove();
+                  }
+              });
+
+              clone.querySelectorAll('circle').forEach(circle => {
+                  const radius = Number(circle.getAttribute('r'));
+                  if (radius === 0) {
+                      circle.remove();
+                  }
+              });
+
+              clone.setAttribute('width', `${BUS_MARKER_VIEWBOX_WIDTH}`);
+              clone.setAttribute('height', `${BUS_MARKER_VIEWBOX_HEIGHT}`);
+              clone.style.position = 'absolute';
+              clone.style.visibility = 'hidden';
+              clone.style.pointerEvents = 'none';
+              clone.style.left = '-9999px';
+              clone.style.top = '-9999px';
+
+              const host = document.body || document.documentElement;
+              if (!host) {
+                  throw new Error('Document does not have an attachable host element for bounds computation.');
+              }
+
+              host.appendChild(clone);
+              let bbox = null;
+              try {
+                  bbox = clone.getBBox();
+              } finally {
+                  clone.remove();
+              }
+
+              if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height)) {
+                  busMarkerVisibleExtents = {
+                      top: BUS_MARKER_PIVOT_Y - bbox.y,
+                      bottom: (bbox.y + bbox.height) - BUS_MARKER_PIVOT_Y,
+                      left: BUS_MARKER_PIVOT_X - bbox.x,
+                      right: (bbox.x + bbox.width) - BUS_MARKER_PIVOT_X
+                  };
+                  return busMarkerVisibleExtents;
+              }
+          } catch (error) {
+              console.error('Failed to compute bus marker visible extents:', error);
+          }
+
+          busMarkerVisibleExtents = fallbackExtents;
+          return busMarkerVisibleExtents;
+      }
+
+      function computeBusMarkerVerticalExtentsForHeading(headingDeg) {
+          const extents = getBusMarkerVisibleExtents();
+          if (!extents) {
+              return null;
+          }
+
+          const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          const radians = normalizedHeading * Math.PI / 180;
+          const sin = Math.sin(radians);
+          const cos = Math.cos(radians);
+
+          const corners = [
+              { x: -extents.left, y: -extents.top },
+              { x: extents.right, y: -extents.top },
+              { x: extents.right, y: extents.bottom },
+              { x: -extents.left, y: extents.bottom }
+          ];
+
+          let minY = Infinity;
+          let maxY = -Infinity;
+          for (const corner of corners) {
+              const rotatedY = corner.x * sin + corner.y * cos;
+              if (rotatedY < minY) {
+                  minY = rotatedY;
+              }
+              if (rotatedY > maxY) {
+                  maxY = rotatedY;
+              }
+          }
+
+          if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+              return null;
+          }
+
+          return {
+              top: Math.abs(minY),
+              bottom: Math.abs(maxY)
+          };
+      }
+
+      function computeLabelLeaderOffset(scale, headingDeg, position = 'above') {
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const normalizedHeading = normalizeHeadingDegrees(
+              Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING
+          );
+          const conversionFactor = (BUS_MARKER_BASE_WIDTH_PX * safeScale) / BUS_MARKER_VIEWBOX_WIDTH;
+          const fallbackWidth = BUS_MARKER_BASE_WIDTH_PX * safeScale;
+          const fallbackHeight = fallbackWidth * BUS_MARKER_ASPECT_RATIO;
+          const fallbackHalfDiagonal = Math.sqrt(fallbackWidth * fallbackWidth + fallbackHeight * fallbackHeight) / 2;
+          const clearance = LABEL_VERTICAL_CLEARANCE_PX * safeScale;
+
+          const headingRelativeToVertical = normalizedHeading % 180;
+          const deviationFromVertical = Math.min(headingRelativeToVertical, 180 - headingRelativeToVertical);
+          const verticality = Math.pow(
+              Math.max(0, Math.cos(deviationFromVertical * Math.PI / 180)),
+              LABEL_VERTICAL_ALIGNMENT_EXPONENT
+          );
+          const verticalAlignmentBonus = LABEL_VERTICAL_ALIGNMENT_BONUS_PX * safeScale * verticality;
+          const horizontalAlignmentBonus = LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX * safeScale * (1 - verticality);
+
+          const verticalExtents = computeBusMarkerVerticalExtentsForHeading(normalizedHeading);
+          if (!verticalExtents) {
+              return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus + horizontalAlignmentBonus);
+          }
+
+          let extentSvgUnits;
+          if (position === 'below') {
+              extentSvgUnits = verticalExtents.bottom;
+          } else if (position === 'above') {
+              extentSvgUnits = verticalExtents.top;
+          } else {
+              extentSvgUnits = Math.max(verticalExtents.top, verticalExtents.bottom);
+          }
+
+          if (!Number.isFinite(extentSvgUnits)) {
+              return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus + horizontalAlignmentBonus);
+          }
+
+          const extentPx = extentSvgUnits * conversionFactor;
+          const totalOffset = extentPx + clearance + verticalAlignmentBonus + horizontalAlignmentBonus;
+          return totalOffset > 0 ? totalOffset : 0;
+      }
+
+      function createSpeedBubbleDivIcon(routeColor, groundSpeed, scale, headingDeg) {
+          if (!Number.isFinite(groundSpeed)) {
+              return null;
+          }
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+              ? routeColor
+              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const textColor = computeBusMarkerGlyphColor(fillColor);
+          const normalizedSpeed = Math.max(0, Math.round(groundSpeed));
+          const label = `${normalizedSpeed} MPH`;
+          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, SPEED_BUBBLE_BASE_FONT_PX * safeScale);
+          const horizontalPadding = SPEED_BUBBLE_HORIZONTAL_PADDING * safeScale;
+          const verticalPadding = SPEED_BUBBLE_VERTICAL_PADDING * safeScale;
+          const textWidth = measureLabelTextWidth(label, fontSize);
+          const width = Math.max(SPEED_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const height = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const radius = SPEED_BUBBLE_CORNER_RADIUS * safeScale;
+          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          const svgWidth = roundToTwoDecimals(width);
+          const svgHeight = roundToTwoDecimals(height);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(svgHeight / 2 + baselineShift);
+          const anchorX = roundToTwoDecimals(svgWidth / 2);
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
+          const anchorY = -leaderOffset;
+          const svg = `
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+                  <g>
+                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
+                  </g>
+              </svg>`;
+          return L.divIcon({
+              html: svg,
+              className: '',
+              iconSize: [svgWidth, svgHeight],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function createNameBubbleDivIcon(busName, routeColor, scale, headingDeg) {
+          if (typeof busName !== 'string' || busName.trim().length === 0) {
+              return null;
+          }
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const name = busName.trim();
+          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+              ? routeColor
+              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, NAME_BUBBLE_BASE_FONT_PX * safeScale);
+          const horizontalPadding = NAME_BUBBLE_HORIZONTAL_PADDING * safeScale;
+          const verticalPadding = NAME_BUBBLE_VERTICAL_PADDING * safeScale;
+          const frameInset = NAME_BUBBLE_FRAME_INSET * safeScale;
+          const textWidth = measureLabelTextWidth(name, fontSize);
+          const rectWidth = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const svgWidth = roundToTwoDecimals(rectWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+          const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
+          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectY = roundToTwoDecimals(frameInset);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
+          const anchorX = textX;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'above'));
+          const anchorY = svgHeight + leaderOffset;
+          const textColor = computeBusMarkerGlyphColor(fillColor);
+          const fontSizeRounded = roundToTwoDecimals(fontSize);
+          const svg = `
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+                  <g>
+                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                  </g>
+              </svg>`;
+          return L.divIcon({
+              html: svg,
+              className: '',
+              iconSize: [svgWidth, svgHeight],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function createBlockBubbleDivIcon(blockName, routeColor, scale, headingDeg) {
+          if (typeof blockName !== 'string' || blockName.trim() === '') {
+              return null;
+          }
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const name = blockName.trim();
+          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+              ? routeColor
+              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, BLOCK_BUBBLE_BASE_FONT_PX * safeScale);
+          const horizontalPadding = BLOCK_BUBBLE_HORIZONTAL_PADDING * safeScale;
+          const verticalPadding = BLOCK_BUBBLE_VERTICAL_PADDING * safeScale;
+          const frameInset = BLOCK_BUBBLE_FRAME_INSET * safeScale;
+          const textWidth = measureLabelTextWidth(name, fontSize);
+          const rectWidth = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const svgWidth = roundToTwoDecimals(rectWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+          const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
+          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectY = roundToTwoDecimals(frameInset);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
+          const anchorX = textX;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
+          const anchorY = -leaderOffset;
+          const textColor = computeBusMarkerGlyphColor(fillColor);
+          const fontSizeRounded = roundToTwoDecimals(fontSize);
+          const svg = `
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+                  <g>
+                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                  </g>
+              </svg>`;
+          return L.divIcon({
+              html: svg,
+              className: '',
+              iconSize: [svgWidth, svgHeight],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeedMph) {
+          if (!state) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const lat = Array.isArray(newPosition) ? Number(newPosition[0]) : Number(newPosition?.lat ?? newPosition?.Latitude);
+          const lng = Array.isArray(newPosition) ? Number(newPosition[1]) : Number(newPosition?.lng ?? newPosition?.Longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              return state.headingDeg ?? BUS_MARKER_DEFAULT_HEADING;
+          }
+          const current = L.latLng(lat, lng);
+          const history = Array.isArray(state.positionHistory) ? state.positionHistory : [];
+          const previous = history.length > 0 ? history[history.length - 1] : null;
+          let heading = Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
+          const sanitizedSpeedMph = Number.isFinite(groundSpeedMph) ? Math.max(0, groundSpeedMph) : null;
+          const speedMetersPerSecond = sanitizedSpeedMph === null ? null : sanitizedSpeedMph * METERS_PER_SECOND_PER_MPH;
+          const hasSufficientSpeed = speedMetersPerSecond === null || speedMetersPerSecond >= MIN_HEADING_SPEED_METERS_PER_SECOND;
+          if (previous) {
+              const distance = previous.distanceTo(current);
+              const shouldUpdateHeading = distance >= MIN_HEADING_DISTANCE_METERS && hasSufficientSpeed;
+              if (shouldUpdateHeading) {
+                  const computed = computeBearingDegrees(previous, current);
+                  if (Number.isFinite(computed)) {
+                      heading = computed;
+                  }
+              } else if (!Number.isFinite(heading)) {
+                  const fallback = Number.isFinite(fallbackHeading) ? fallbackHeading : BUS_MARKER_DEFAULT_HEADING;
+                  heading = fallback;
+              }
+              if (distance >= MIN_POSITION_UPDATE_METERS) {
+                  history.push(current);
+                  if (history.length > 2) {
+                      history.shift();
+                  }
+              } else {
+                  history[history.length - 1] = current;
+              }
+          } else {
+              const fallback = Number.isFinite(fallbackHeading) ? fallbackHeading : heading;
+              heading = Number.isFinite(fallback) ? fallback : BUS_MARKER_DEFAULT_HEADING;
+              history.push(current);
+          }
+          state.positionHistory = history;
+          state.headingDeg = normalizeHeadingDegrees(heading);
+          return state.headingDeg;
+      }
+
+      function computeBearingDegrees(fromLatLng, toLatLng) {
+          if (!fromLatLng || !toLatLng) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const lat1 = fromLatLng.lat * Math.PI / 180;
+          const lat2 = toLatLng.lat * Math.PI / 180;
+          const dLon = (toLatLng.lng - fromLatLng.lng) * Math.PI / 180;
+          const y = Math.sin(dLon) * Math.cos(lat2);
+          const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+          const theta = Math.atan2(y, x);
+          const bearing = theta * 180 / Math.PI;
+          return normalizeHeadingDegrees(bearing);
+      }
+
+      function normalizeHeadingDegrees(degrees) {
+          const normalized = Number.isFinite(degrees) ? degrees : BUS_MARKER_DEFAULT_HEADING;
+          return ((normalized % 360) + 360) % 360;
+      }
+
+      function buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed) {
+          const name = busName && `${busName}`.trim().length > 0 ? `${busName}`.trim() : 'Vehicle';
+          const direction = bearingToDirection(headingDeg);
+          const speedText = formatBusSpeed(groundSpeed);
+          return `${name} — ${direction} — ${speedText}`;
+      }
+
+      function isBusConsideredStopped(groundSpeed) {
+          if (!Number.isFinite(groundSpeed)) {
+              return false;
+          }
+          const speed = Math.max(0, Math.round(groundSpeed));
+          return speed <= 1;
+      }
+
+      function bearingToDirection(headingDeg) {
+          if (!Number.isFinite(headingDeg)) {
+              return 'Unknown direction';
+          }
+          const compass = [
+              'Northbound',
+              'Northeastbound',
+              'Eastbound',
+              'Southeastbound',
+              'Southbound',
+              'Southwestbound',
+              'Westbound',
+              'Northwestbound'
+          ];
+          const normalized = normalizeHeadingDegrees(headingDeg);
+          const index = Math.round(normalized / 45) % compass.length;
+          return compass[index];
+      }
+
+      function formatBusSpeed(groundSpeed) {
+          if (!Number.isFinite(groundSpeed)) {
+              return 'Speed unavailable';
+          }
+          const speed = Math.max(0, Math.round(groundSpeed));
+          if (speed <= 1) {
+              return 'Stopped';
+          }
+          return `${speed} mph`;
+      }
+
+      function escapeHtml(value) {
+          if (value === null || value === undefined) {
+              return '';
+          }
+          return `${value}`
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+      }
+
+      function contrastBW(hex) {
+          if (typeof hex !== 'string' || hex.trim().length === 0) {
+              return '#FFFFFF';
+          }
+          let normalized = hex.trim().replace(/^#/, '');
+          if (normalized.length === 3) {
+              normalized = normalized.split('').map(ch => ch + ch).join('');
+          }
+          if (normalized.length !== 6 || /[^0-9a-fA-F]/.test(normalized)) {
+              return '#FFFFFF';
+          }
+          const r = parseInt(normalized.substring(0, 2), 16) / 255;
+          const g = parseInt(normalized.substring(2, 4), 16) / 255;
+          const b = parseInt(normalized.substring(4, 6), 16) / 255;
+          const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          return L > 0.55 ? '#000000' : '#FFFFFF';
+      }
+
+      async function loadBusSVG() {
+          if (BUS_MARKER_SVG_TEXT) {
+              return BUS_MARKER_SVG_TEXT;
+          }
+          if (!BUS_MARKER_SVG_LOAD_PROMISE) {
+              BUS_MARKER_SVG_LOAD_PROMISE = fetch(BUS_MARKER_SVG_URL)
+                  .then(response => {
+                      if (!response.ok) {
+                          throw new Error(`Failed to load bus marker SVG: ${response.status} ${response.statusText}`);
+                      }
+                      return response.text();
+                  })
+                  .then(text => {
+                      const template = document.createElement('template');
+                      template.innerHTML = text.trim();
+                      const parsedSvg = template.content.firstElementChild;
+                      if (!parsedSvg || parsedSvg.tagName.toLowerCase() !== 'svg') {
+                          throw new Error('Loaded bus marker asset is not a valid SVG.');
+                      }
+                      BUS_MARKER_SVG_TEXT = parsedSvg.outerHTML;
+                      busMarkerVisibleExtents = null;
+                      BUS_MARKER_SVG_LOAD_PROMISE = null;
+                      return BUS_MARKER_SVG_TEXT;
+                  })
+                  .catch(error => {
+                      BUS_MARKER_SVG_LOAD_PROMISE = null;
+                      throw error;
+                  });
+          }
+          return BUS_MARKER_SVG_LOAD_PROMISE;
+      }
+
+      async function createBusMarkerDivIcon(vehicleID, state) {
+          if (!state) {
+              return null;
+          }
+          try {
+              await loadBusSVG();
+          } catch (error) {
+              console.error('Failed to load bus marker SVG:', error);
+              return null;
+          }
+          if (!BUS_MARKER_SVG_TEXT) {
+              return null;
+          }
+          if (!state.size) {
+              const zoom = map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+              setBusMarkerSize(state, computeBusMarkerMetrics(zoom));
+          }
+          const width = state.size?.widthPx ?? BUS_MARKER_BASE_WIDTH_PX;
+          const height = state.size?.heightPx ?? width * BUS_MARKER_ASPECT_RATIO;
+          const anchorX = width * BUS_MARKER_ICON_ANCHOR_X_RATIO;
+          const anchorY = height * BUS_MARKER_ICON_ANCHOR_Y_RATIO;
+          const headingDeg = Number.isFinite(state?.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
+          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
+          const label = state?.accessibleLabel && state.accessibleLabel.trim().length > 0
+              ? state.accessibleLabel.trim()
+              : `Vehicle ${vehicleID}`;
+          const template = document.createElement('template');
+          template.innerHTML = BUS_MARKER_SVG_TEXT.trim();
+          const svgEl = template.content.firstElementChild;
+          if (!svgEl || svgEl.tagName.toLowerCase() !== 'svg') {
+              return null;
+          }
+          svgEl.classList.add('bus-marker__svg');
+          svgEl.setAttribute('viewBox', `0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}`);
+          svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          svgEl.setAttribute('focusable', 'false');
+          svgEl.setAttribute('role', 'img');
+          svgEl.setAttribute('aria-label', label);
+          svgEl.setAttribute('overflow', 'visible');
+          svgEl.style.width = '100%';
+          svgEl.style.height = '100%';
+          svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+          svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
+
+          const routeFillColor = normalizeRouteColor(state.fillColor);
+          const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
+          state.fillColor = routeFillColor;
+          state.glyphColor = glyphFillColor;
+          ensureCenterSquareElement(svgEl);
+          applyColorsToBusMarkerSvg(svgEl, routeFillColor, glyphFillColor);
+          applyStoppedVisualStateToSvg(svgEl, state.isStopped);
+
+          const existingTitle = svgEl.querySelector('title');
+          let title = existingTitle;
+          if (!title) {
+              title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+              svgEl.insertBefore(title, svgEl.firstChild);
+          }
+          title.textContent = label;
+
+          const rootClasses = ['bus-marker__root'];
+          if (state?.isStale) rootClasses.push('is-stale');
+          if (state?.isSelected) rootClasses.push('is-selected');
+          if (state?.isHovered) rootClasses.push('is-hover');
+          const root = document.createElement('div');
+          root.className = rootClasses.join(' ');
+          root.dataset.vehicleId = `${vehicleID}`;
+          root.setAttribute('tabindex', '0');
+          root.setAttribute('role', 'img');
+          root.setAttribute('aria-label', label);
+          root.appendChild(svgEl);
+
+          const wrapper = document.createElement('div');
+          wrapper.appendChild(root);
+
+          return L.divIcon({
+              html: wrapper.innerHTML,
+              className: 'leaflet-div-icon bus-marker',
+              iconSize: [width, height],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function registerBusMarkerElements(vehicleID) {
+          const state = busMarkerStates[vehicleID];
+          const marker = markers[vehicleID];
+          if (!state || !marker) {
+              return null;
+          }
+          const iconElement = marker.getElement();
+          if (!iconElement) {
+              return null;
+          }
+          const root = iconElement.querySelector('.bus-marker__root');
+          const svg = root ? root.querySelector('.bus-marker__svg') : null;
+          const title = svg ? svg.querySelector('title') : null;
+          const routeShape = svg ? svg.querySelector('#route_color') : null;
+          const centerSquare = svg ? ensureCenterSquareElement(svg) : null;
+          const centerRing = svg ? svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`) : null;
+          const heading = svg ? svg.querySelector('#heading') : null;
+          state.elements = {
+              icon: iconElement,
+              root,
+              svg,
+              title,
+              routeColor: routeShape,
+              centerRing,
+              centerSquare,
+              heading
+          };
+          if (root) {
+              root.dataset.vehicleId = `${vehicleID}`;
+          }
+          if (svg) {
+              svg.style.pointerEvents = 'none';
+              svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+          }
+          updateBusMarkerColorElements(state);
+          applyBusMarkerStoppedVisualState(state);
+          return state.elements;
+      }
+
+      function queueBusMarkerVisualUpdate(vehicleID, update = {}) {
+          if (!vehicleID) {
+              return;
+          }
+          const existing = pendingBusVisualUpdates.get(vehicleID) || {};
+          Object.assign(existing, update);
+          pendingBusVisualUpdates.set(vehicleID, existing);
+          if (busMarkerVisualUpdateFrame === null) {
+              busMarkerVisualUpdateFrame = requestAnimationFrame(flushBusMarkerVisualUpdates);
+          }
+      }
+
+      function flushBusMarkerVisualUpdates() {
+          busMarkerVisualUpdateFrame = null;
+          pendingBusVisualUpdates.forEach((update, vehicleID) => {
+              applyBusMarkerVisualUpdate(vehicleID, update);
+          });
+          pendingBusVisualUpdates.clear();
+      }
+
+      function applyBusMarkerVisualUpdate(vehicleID, update) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const elements = state.elements || registerBusMarkerElements(vehicleID);
+          if (!elements || !elements.root) {
+              return;
+          }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'fillColor')) {
+              state.fillColor = update.fillColor;
+          }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'glyphColor')) {
+              state.glyphColor = update.glyphColor;
+          }
+          updateBusMarkerColorElements(state);
+          if (update && typeof update.stale === 'boolean') {
+              state.isStale = update.stale;
+          }
+          if (update && typeof update.accessibleLabel === 'string') {
+              state.accessibleLabel = update.accessibleLabel;
+          }
+          if (update && Number.isFinite(update.headingDeg)) {
+              state.headingDeg = normalizeHeadingDegrees(update.headingDeg);
+          }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'stopped')) {
+              state.isStopped = Boolean(update.stopped);
+          }
+          applyBusMarkerStoppedVisualState(state);
+          const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          if (elements.svg) {
+              elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`;
+              if (state.accessibleLabel) {
+                  elements.svg.setAttribute('aria-label', state.accessibleLabel);
+              }
+          }
+          if (elements.root && state.accessibleLabel) {
+              elements.root.setAttribute('aria-label', state.accessibleLabel);
+          }
+          if (elements.title && state.accessibleLabel) {
+              elements.title.textContent = state.accessibleLabel;
+          }
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function applyBusMarkerOutlineWidth(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          state.elements.svg.style.opacity = state.isStale ? '0.6' : '1';
+      }
+
+      function updateBusMarkerRootClasses(state) {
+          if (!state?.elements?.root) {
+              return;
+          }
+          const root = state.elements.root;
+          root.classList.toggle('is-stale', Boolean(state.isStale));
+          root.classList.toggle('is-selected', Boolean(state.isSelected));
+          root.classList.toggle('is-hover', Boolean(state.isHovered));
+      }
+
+      function updateBusMarkerZIndex(state) {
+          if (!state?.marker) {
+              return;
+          }
+          let offset = 0;
+          if (state.isSelected) {
+              offset = 800;
+          }
+          if (state.isHovered) {
+              offset = Math.max(offset, 1000);
+          }
+          state.marker.setZIndexOffset(offset);
+      }
+
+      function setBusMarkerHovered(vehicleID, isHovered) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const next = Boolean(isHovered);
+          if (state.isHovered === next) {
+              return;
+          }
+          state.isHovered = next;
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function setBusMarkerSelected(vehicleID, isSelected) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const next = Boolean(isSelected);
+          if (state.isSelected === next) {
+              return;
+          }
+          state.isSelected = next;
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function attachBusMarkerInteractions(vehicleID) {
+          const state = busMarkerStates[vehicleID];
+          const marker = markers[vehicleID];
+          if (!state || !marker) {
+              return;
+          }
+          if (!state.markerEventsBound) {
+              marker.on('mouseover', () => setBusMarkerHovered(vehicleID, true));
+              marker.on('mouseout', () => setBusMarkerHovered(vehicleID, false));
+              marker.on('click', () => {
+                  if (selectedVehicleId && selectedVehicleId !== vehicleID) {
+                      setBusMarkerSelected(selectedVehicleId, false);
+                  }
+                  const nextSelected = selectedVehicleId !== vehicleID;
+                  setBusMarkerSelected(vehicleID, nextSelected);
+                  selectedVehicleId = nextSelected ? vehicleID : null;
+              });
+              state.markerEventsBound = true;
+          }
+          const elements = state.elements || registerBusMarkerElements(vehicleID);
+          const root = elements?.root;
+          if (root && !root.dataset.busMarkerFocusBound) {
+              root.addEventListener('focus', () => setBusMarkerHovered(vehicleID, true));
+              root.addEventListener('blur', () => setBusMarkerHovered(vehicleID, false));
+              root.dataset.busMarkerFocusBound = 'true';
+          }
+      }
+
+      async function updateBusMarkerSizes(metricsOverride = null) {
+          if (!map) {
+              return;
+          }
+          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+          const metrics = metricsOverride || computeBusMarkerMetrics(zoom);
+          try {
+              await loadBusSVG();
+          } catch (error) {
+              console.error('Failed to load bus marker SVG while updating sizes:', error);
+          }
+          for (const vehicleID of Object.keys(markers)) {
+              const marker = markers[vehicleID];
+              const state = busMarkerStates[vehicleID];
+              if (!marker || !state) {
+                  continue;
+              }
+              const currentWidth = state.size?.widthPx;
+              if (currentWidth && Math.abs(currentWidth - metrics.widthPx) < 0.1) {
+                  continue;
+              }
+              setBusMarkerSize(state, metrics);
+              try {
+                  const icon = await createBusMarkerDivIcon(vehicleID, state);
+                  if (!icon) {
+                      continue;
+                  }
+                  marker.setIcon(icon);
+                  registerBusMarkerElements(vehicleID);
+                  attachBusMarkerInteractions(vehicleID);
+                  updateBusMarkerRootClasses(state);
+                  updateBusMarkerZIndex(state);
+                  applyBusMarkerOutlineWidth(state);
+              } catch (error) {
+                  console.error(`Failed to resize bus marker for vehicle ${vehicleID}:`, error);
+              }
+          }
+          updateLabelIconsForMetrics(metrics);
+      }
+
+      function updateLabelIconsForMetrics(metrics) {
+          if (!metrics || !Number.isFinite(metrics.scale) || !map) {
+              return;
+          }
+          const scale = metrics.scale;
+          Object.keys(nameBubbles).forEach(vehicleID => {
+              const bubble = nameBubbles[vehicleID];
+              const state = busMarkerStates[vehicleID];
+              const marker = markers[vehicleID];
+              if (!bubble || !state || !marker) {
+                  return;
+              }
+              const routeColor = state.fillColor || getRouteColor(state.routeID) || outOfServiceRouteColor;
+              const speedMarker = bubble.speedMarker;
+              const nameMarker = bubble.nameMarker;
+              const blockMarker = bubble.blockMarker;
+
+              if (speedMarker) {
+                  if (showSpeed && Number.isFinite(state.groundSpeed)) {
+                      const speedIcon = createSpeedBubbleDivIcon(routeColor, state.groundSpeed, scale, state.headingDeg);
+                      if (speedIcon) {
+                          speedMarker.setIcon(speedIcon);
+                      } else {
+                          map.removeLayer(speedMarker);
+                          delete bubble.speedMarker;
+                      }
+                  } else {
+                      map.removeLayer(speedMarker);
+                      delete bubble.speedMarker;
+                  }
+              }
+
+              if (nameMarker) {
+                  if (showNameBubbles && state.busName) {
+                      const nameIcon = createNameBubbleDivIcon(state.busName, routeColor, scale, state.headingDeg);
+                      if (nameIcon) {
+                          nameMarker.setIcon(nameIcon);
+                      } else {
+                          map.removeLayer(nameMarker);
+                          delete bubble.nameMarker;
+                      }
+                  } else {
+                      map.removeLayer(nameMarker);
+                      delete bubble.nameMarker;
+                  }
+              }
+
+              if (blockMarker) {
+                  const blockName = busBlocks[vehicleID];
+                  if (showBlockNumbers && blockName && blockName.includes('[')) {
+                      const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, scale, state.headingDeg);
+                      if (blockIcon) {
+                          blockMarker.setIcon(blockIcon);
+                      } else {
+                          map.removeLayer(blockMarker);
+                          delete bubble.blockMarker;
+                      }
+                  } else {
+                      map.removeLayer(blockMarker);
+                      delete bubble.blockMarker;
+                  }
+              }
+
+              const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker);
+              if (hasMarkers) {
+                  bubble.lastScale = scale;
+              } else {
+                  delete nameBubbles[vehicleID];
+              }
+          });
+      }
+
+      function scheduleMarkerScaleUpdate() {
+          if (!map) {
+              return;
+          }
+          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+          const metrics = computeBusMarkerMetrics(zoom);
+          pendingMarkerScaleMetrics = Object.assign({}, metrics);
+          if (markerScaleUpdateFrame !== null) {
+              return;
+          }
+          markerScaleUpdateFrame = requestAnimationFrame(async () => {
+              markerScaleUpdateFrame = null;
+              const metricsToApply = pendingMarkerScaleMetrics;
+              pendingMarkerScaleMetrics = null;
+              if (!metricsToApply) {
+                  return;
+              }
+              try {
+                  await updateBusMarkerSizes(metricsToApply);
+              } catch (error) {
+                  console.error('Failed to update bus marker sizes:', error);
+              }
+          });
+      }
+
+      function clearBusMarkerState(vehicleID) {
+          pendingBusVisualUpdates.delete(vehicleID);
+          if (selectedVehicleId === vehicleID) {
+              selectedVehicleId = null;
+          }
+          if (busMarkerStates[vehicleID]) {
+              delete busMarkerStates[vehicleID];
+          }
+      }
+
+      function isVehicleGpsStale(vehicle) {
+          if (!vehicle) {
+              return false;
+          }
+          if (vehicle.IsStale === true || vehicle.Stale === true || vehicle.StaleGPS === true) {
+              return true;
+          }
+          if (vehicle.HasValidGps === false || vehicle.IsRealtime === false) {
+              return true;
+          }
+          const ageFields = [
+              vehicle.SecondsSinceReport,
+              vehicle.SecondsSinceLastReport,
+              vehicle.SecondsSinceLastUpdate,
+              vehicle.SecondsSinceUpdate,
+              vehicle.SecondsSinceLastGps,
+              vehicle.LastGpsAgeSeconds,
+              vehicle.LocationAge,
+              vehicle.GPSSignalAge,
+              vehicle.Age,
+              vehicle.AgeInSeconds
+          ];
+          for (let i = 0; i < ageFields.length; i += 1) {
+              const value = Number(ageFields[i]);
+              if (Number.isFinite(value) && value > GPS_STALE_THRESHOLD_SECONDS) {
+                  return true;
+              }
+          }
+          return false;
+      }
+
+      function animateMarkerTo(marker, newPosition) {
+        if (!marker || !newPosition) return;
+        const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
+        const endPos = hasArrayPosition ? L.latLng(newPosition) : L.latLng(newPosition?.lat, newPosition?.lng);
+        if (!endPos || Number.isNaN(endPos.lat) || Number.isNaN(endPos.lng)) return;
+
+        const startPos = marker.getLatLng();
+        if (!startPos) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const positionsMatch = typeof startPos.equals === 'function'
+          ? startPos.equals(endPos, 1e-7)
+          : (Math.abs(startPos.lat - endPos.lat) < 1e-7 && Math.abs(startPos.lng - endPos.lng) < 1e-7);
+
+        if (positionsMatch) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const duration = 1000;
+        const startTime = performance.now();
+        function animate(time) {
+          const elapsed = time - startTime;
+          const t = Math.min(elapsed / duration, 1);
+          const currentPos = L.latLng(
+            startPos.lat + t * (endPos.lat - startPos.lat),
+            startPos.lng + t * (endPos.lng - startPos.lng)
+          );
+          marker.setLatLng(currentPos);
+          if (t < 1) requestAnimationFrame(animate);
+        }
+        requestAnimationFrame(animate);
+      }
+
+    function initializeMap() {
+      map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
+      sharedRouteRenderer = L.svg({ padding: 0 });
+      if (sharedRouteRenderer) {
+        map.addLayer(sharedRouteRenderer);
+      }
+      map.createPane('stopsPane');
+      const stopsPane = map.getPane('stopsPane');
+      if (stopsPane) {
+        stopsPane.style.zIndex = 450;
+        stopsPane.style.pointerEvents = 'auto';
+      }
+      map.createPane('busesPane');
+      const busesPane = map.getPane('busesPane');
+      if (busesPane) {
+        busesPane.style.zIndex = 500;
+        busesPane.style.pointerEvents = 'auto';
+      }
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      if (enableOverlapDashRendering) {
+        overlapRenderer = new OverlapRouteRenderer(map, {
+          sampleStepPx: 8,
+          dashLengthPx: 16,
+          minDashLengthPx: 0.5,
+          matchTolerancePx: 6,
+          strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+          minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+          maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+          renderer: sharedRouteRenderer,
+          pane: routePaneName
+        });
+        map.on('zoomend', () => {
+          if (overlapRenderer) {
+            overlapRenderer.handleZoomEnd();
+          }
+        });
+      }
+
+      map.on('zoom', () => {
+        scheduleMarkerScaleUpdate();
+      });
+      map.on('zoomend', () => {
+        scheduleMarkerScaleUpdate();
+      });
+    }
+
+    initializeMap();
+
+    flatpickr("#datePicker", {
+      dateFormat: "Y-m-d",
+      defaultDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    });
+    flatpickr("#startTime", {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      defaultDate: "00:00"
+    });
+    flatpickr("#endTime", {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      defaultDate: "23:59"
+    });
+
+    scheduleMarkerScaleUpdate();
 
     if (controlsContainer) {
       controlsContainer.addEventListener('transitionend', (event) => {
@@ -1098,13 +3082,13 @@
       return activeBuses.has(Number(busID));
     }
 
-    function refreshReplay() {
+    async function refreshReplay() {
       const timeline = document.getElementById('timeline');
       const ms = parseInt(timeline.value);
-      showFrame(currentFrameIndex, isNaN(ms) ? undefined : ms);
+      await showFrame(currentFrameIndex, isNaN(ms) ? undefined : ms);
     }
 
-    function setReplayDisplayMode(mode) {
+    async function setReplayDisplayMode(mode) {
       if (mode === 'block') {
         showSpeed = false;
         showBlockNumbers = true;
@@ -1118,23 +3102,23 @@
         return;
       }
       updateRouteSelector(activeRoutes, { force: true });
-      refreshReplay();
+      await refreshReplay();
     }
 
-    function toggleSpeedOrBlock() {
+    async function toggleSpeedOrBlock() {
       if (showSpeed) {
-        setReplayDisplayMode('block');
+        await setReplayDisplayMode('block');
       } else if (showBlockNumbers) {
-        setReplayDisplayMode('none');
+        await setReplayDisplayMode('none');
       } else {
-        setReplayDisplayMode('speed');
+        await setReplayDisplayMode('speed');
       }
     }
 
-    function toggleNameBubbles() {
+    async function toggleNameBubbles() {
       showNameBubbles = !showNameBubbles;
       updateRouteSelector(activeRoutes, { force: true });
-      refreshReplay();
+      await refreshReplay();
     }
 
     function applyBusOptionState(inputElement) {
@@ -1658,30 +3642,80 @@
     }
 
     function clearMarkers() {
-      for (let id in markers) { map.removeLayer(markers[id]); }
+      Object.keys(markers).forEach(id => {
+        if (markers[id]) {
+          map.removeLayer(markers[id]);
+        }
+      });
       markers = {};
-      for (let id in nameMarkers) { map.removeLayer(nameMarkers[id]); }
-      nameMarkers = {};
-      for (let id in speedMarkers) { map.removeLayer(speedMarkers[id]); }
-      speedMarkers = {};
-      for (let id in blockMarkers) { map.removeLayer(blockMarkers[id]); }
-      blockMarkers = {};
+      Object.keys(nameBubbles).forEach(id => {
+        const bubble = nameBubbles[id];
+        if (!bubble) return;
+        if (bubble.speedMarker) map.removeLayer(bubble.speedMarker);
+        if (bubble.nameMarker) map.removeLayer(bubble.nameMarker);
+        if (bubble.blockMarker) map.removeLayer(bubble.blockMarker);
+      });
+      nameBubbles = {};
+      busMarkerStates = {};
+      pendingBusVisualUpdates.clear();
+      busBlocks = {};
     }
 
     function drawRoutes() {
       routeLayers.forEach(layer => map.removeLayer(layer));
       routeLayers = [];
-      for (let routeID in allRoutes) {
+
+      const rendererGeometries = new Map();
+      const simpleGeometries = [];
+      const selectedRouteIds = [];
+
+      Object.keys(allRoutes).forEach(routeID => {
         const route = allRoutes[routeID];
-        if (!route.decodedPolyline) continue;
-        if (!isRouteSelected(Number(routeID))) continue;
-        const color = getRouteColor(Number(routeID));
-        const layer = L.polyline(route.decodedPolyline, {
-          color: color,
-          weight: 6,
-          opacity: 1
-        }).addTo(map);
-        routeLayers.push(layer);
+        const numericId = Number(routeID);
+        if (!route || Number.isNaN(numericId)) return;
+        if (!route.decodedPolyline || !Array.isArray(route.decodedPolyline)) return;
+        if (!isRouteSelected(numericId)) return;
+
+        let cacheEntry = routePolylineCache.get(numericId);
+        if (!cacheEntry || cacheEntry.raw !== route.decodedPolyline) {
+          const latLngs = route.decodedPolyline.map(coords => L.latLng(coords[0], coords[1]));
+          routePolylineCache.set(numericId, { raw: route.decodedPolyline, latLngs });
+          cacheEntry = routePolylineCache.get(numericId);
+        }
+
+        const latLngPath = cacheEntry?.latLngs;
+        if (!Array.isArray(latLngPath) || latLngPath.length < 2) {
+          return;
+        }
+
+        selectedRouteIds.push(numericId);
+
+        if (enableOverlapDashRendering && overlapRenderer) {
+          rendererGeometries.set(numericId, latLngPath);
+        } else {
+          simpleGeometries.push({
+            routeId: numericId,
+            latLngPath,
+            routeColor: getRouteColor(numericId)
+          });
+        }
+      });
+
+      if (enableOverlapDashRendering && overlapRenderer && rendererGeometries.size > 0) {
+        const sorted = selectedRouteIds.slice().sort((a, b) => a - b);
+        routeLayers = overlapRenderer.updateRoutes(rendererGeometries, sorted) || [];
+      } else {
+        const currentWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
+        simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
+          const layer = L.polyline(latLngPath, mergeRouteLayerOptions({
+            color: routeColor,
+            weight: currentWeight,
+            opacity: 1,
+            lineCap: 'round',
+            lineJoin: 'round'
+          })).addTo(map);
+          routeLayers.push(layer);
+        });
       }
     }
 
@@ -1698,7 +3732,8 @@
       return idx;
     }
 
-    function showFrame(i, displayMs) {
+
+    async function showFrame(i, displayMs) {
       if (!playbackData[i]) return;
       currentFrameIndex = i;
       const entry = playbackData[i];
@@ -1715,7 +3750,7 @@
         hour12: false
       });
       timeline.value = timeMs;
-      timeline.title = formatted; // show date/time when hovering the slider
+      timeline.title = formatted;
       document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
 
       const activeRoutesSet = new Set();
@@ -1734,119 +3769,168 @@
       updateBusSelector(activeBusesSet);
 
       drawRoutes();
-      clearMarkers();
+
       const blocks = entry.blocks || {};
       const seen = new Set();
-      let smoothDuration = 0;
-      if (playbackSpeed >= 10 && i > 0) {
-        smoothDuration = (new Date(playbackData[i].ts) - new Date(playbackData[i-1].ts)) / playbackSpeed;
-      }
-      entry.vehicles.forEach(vehicle => {
+      const markerMetricsForZoom = computeBusMarkerMetrics(typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+
+      for (const vehicle of entry.vehicles) {
         const routeID = vehicle.RouteID || 0;
-        if (!isRouteSelected(routeID) || !isBusSelected(vehicle.VehicleID)) return;
+        if (!isRouteSelected(routeID) || !isBusSelected(vehicle.VehicleID)) continue;
         seen.add(vehicle.VehicleID);
+        const busName = vehicle.Name ? vehicle.Name.slice(0, -2) : '';
         const pos = [vehicle.Latitude, vehicle.Longitude];
-        const startPos = (playbackSpeed >= 10 && lastPositions[vehicle.VehicleID]) ? lastPositions[vehicle.VehicleID] : pos;
-        const isMoving = vehicle.GroundSpeed > 0;
-        const heading = vehicle.Heading;
-        const routeColor = getRouteColor(routeID);
-        const svgIcon = `
-          <svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg">
-            <g>
-              <circle cx="20" cy="20" r="15" fill="${routeColor}" stroke="white" stroke-width="3" />
-              ${isMoving ? `
-                <line x1="20" y1="10" x2="20" y2="22" stroke="white" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
-                <polygon points="15,22 25,22 20,30" fill="white" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />
-              ` : `
-                <rect x="14" y="14" width="12" height="12" fill="white" />
-              `}
-            </g>
-          </svg>`;
-        const busIcon = L.divIcon({ html: svgIcon, className: '', iconSize: [40,40], iconAnchor: [20,20] });
-        const marker = L.marker(startPos, { icon: busIcon }).addTo(map);
-        if (playbackSpeed >= 10 && smoothDuration > 0) {
-          marker._icon.style.transition = `transform ${smoothDuration}ms linear`;
-          setTimeout(() => marker.setLatLng(pos), 0);
-        } else {
-          marker.setLatLng(pos);
+        const state = ensureBusMarkerState(vehicle.VehicleID);
+        const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
+        const glyphColor = computeBusMarkerGlyphColor(routeColor);
+        const headingDeg = updateBusMarkerHeading(state, pos, vehicle.Heading, vehicle.GroundSpeed);
+        const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, vehicle.GroundSpeed);
+        const isStopped = isBusConsideredStopped(vehicle.GroundSpeed);
+
+        state.busName = busName;
+        state.routeID = routeID;
+        state.fillColor = routeColor;
+        state.glyphColor = glyphColor;
+        state.headingDeg = headingDeg;
+        state.accessibleLabel = accessibleLabel;
+        state.isStale = false;
+        state.isStopped = isStopped;
+        state.groundSpeed = vehicle.GroundSpeed;
+        state.lastUpdateTimestamp = Date.now();
+
+        if (!state.size) {
+          setBusMarkerSize(state, markerMetricsForZoom);
         }
-        markers[vehicle.VehicleID] = marker;
+
+        if (markers[vehicle.VehicleID]) {
+          animateMarkerTo(markers[vehicle.VehicleID], pos);
+          markers[vehicle.VehicleID].routeID = routeID;
+          queueBusMarkerVisualUpdate(vehicle.VehicleID, {
+            fillColor: routeColor,
+            glyphColor,
+            headingDeg,
+            stale: false,
+            accessibleLabel,
+            stopped: isStopped
+          });
+        } else {
+          const icon = await createBusMarkerDivIcon(vehicle.VehicleID, state);
+          if (!icon) {
+            continue;
+          }
+          const marker = L.marker(pos, { icon, pane: 'busesPane', interactive: true });
+          marker.routeID = routeID;
+          marker.addTo(map);
+          markers[vehicle.VehicleID] = marker;
+          state.marker = marker;
+          registerBusMarkerElements(vehicle.VehicleID);
+          attachBusMarkerInteractions(vehicle.VehicleID);
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+        }
+
+        const bubble = nameBubbles[vehicle.VehicleID] || {};
+        const scale = markerMetricsForZoom.scale;
 
         if (showSpeed) {
-          const speedBubble = `
-            <svg width="60" height="20" viewBox="0 0 60 20" xmlns="http://www.w3.org/2000/svg">
-              <g>
-                <rect x="0" y="0" width="60" height="20" rx="10" ry="10" fill="${routeColor}" stroke="white" stroke-width="3" />
-                <text x="30" y="15" font-size="12" font-weight="bold" text-anchor="middle" fill="${getContrastColor(routeColor)}" font-family="FGDC">${Math.round(vehicle.GroundSpeed)} MPH</text>
-              </g>
-            </svg>`;
-          const speedIcon = L.divIcon({ html: speedBubble, className: '', iconSize: [60,20], iconAnchor: [30,-15] });
-          const sm = L.marker(startPos, { icon: speedIcon, interactive: false }).addTo(map);
-          if (playbackSpeed >= 10 && smoothDuration > 0) {
-            sm._icon.style.transition = `transform ${smoothDuration}ms linear`;
-            setTimeout(() => sm.setLatLng(pos), 0);
-          } else {
-            sm.setLatLng(pos);
+          const speedIcon = createSpeedBubbleDivIcon(routeColor, vehicle.GroundSpeed, scale, state.headingDeg);
+          if (speedIcon) {
+            if (bubble.speedMarker) {
+              animateMarkerTo(bubble.speedMarker, pos);
+              bubble.speedMarker.setIcon(speedIcon);
+            } else {
+              bubble.speedMarker = L.marker(pos, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+            }
+          } else if (bubble.speedMarker) {
+            map.removeLayer(bubble.speedMarker);
+            delete bubble.speedMarker;
           }
-          speedMarkers[vehicle.VehicleID] = sm;
+        } else if (bubble.speedMarker) {
+          map.removeLayer(bubble.speedMarker);
+          delete bubble.speedMarker;
+        }
+
+        if (showNameBubbles && busName) {
+          const nameIcon = createNameBubbleDivIcon(busName, routeColor, scale, state.headingDeg);
+          if (nameIcon) {
+            if (bubble.nameMarker) {
+              animateMarkerTo(bubble.nameMarker, pos);
+              bubble.nameMarker.setIcon(nameIcon);
+            } else {
+              bubble.nameMarker = L.marker(pos, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+            }
+          } else if (bubble.nameMarker) {
+            map.removeLayer(bubble.nameMarker);
+            delete bubble.nameMarker;
+          }
+        } else if (bubble.nameMarker) {
+          map.removeLayer(bubble.nameMarker);
+          delete bubble.nameMarker;
         }
 
         if (showBlockNumbers) {
           const blockName = blocks[vehicle.VehicleID];
           if (blockName && blockName.includes('[')) {
-            const ctx = document.createElement('canvas').getContext('2d');
-            ctx.font = 'bold 14px FGDC';
-            const textWidth = ctx.measureText(blockName).width;
-            const blockWidth = Math.max(40, textWidth + 20);
-            const blockBubble = `
-              <svg width="${blockWidth}" height="30" viewBox="0 0 ${blockWidth} 30" xmlns="http://www.w3.org/2000/svg">
-                <g>
-                  <rect x="0" y="5" width="${blockWidth}" height="20" rx="10" ry="10" fill="${routeColor}" stroke="white" stroke-width="3" />
-                  <text x="${blockWidth/2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(routeColor)}" font-family="FGDC">${blockName}</text>
-                </g>
-              </svg>`;
-            const blockIcon = L.divIcon({ html: blockBubble, className: '', iconSize: [blockWidth,30], iconAnchor: [blockWidth/2,-13] });
-            const bm = L.marker(startPos, { icon: blockIcon, interactive: false }).addTo(map);
-            if (playbackSpeed >= 10 && smoothDuration > 0) {
-              bm._icon.style.transition = `transform ${smoothDuration}ms linear`;
-              setTimeout(() => bm.setLatLng(pos), 0);
-            } else {
-              bm.setLatLng(pos);
+            const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, scale, state.headingDeg);
+            if (blockIcon) {
+              busBlocks[vehicle.VehicleID] = blockName;
+              if (bubble.blockMarker) {
+                animateMarkerTo(bubble.blockMarker, pos);
+                bubble.blockMarker.setIcon(blockIcon);
+              } else {
+                bubble.blockMarker = L.marker(pos, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+              }
+            } else if (bubble.blockMarker) {
+              map.removeLayer(bubble.blockMarker);
+              delete bubble.blockMarker;
+              delete busBlocks[vehicle.VehicleID];
             }
-            blockMarkers[vehicle.VehicleID] = bm;
-          }
-        }
-
-        const busName = vehicle.Name ? vehicle.Name.slice(0, -2) : '';
-        if (showNameBubbles && busName) {
-          const bubbleWidth = Math.max(40, busName.length * 10);
-          const nameBubble = `
-            <svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg">
-              <g>
-                <rect x="0" y="5" width="${bubbleWidth}" height="20" rx="10" ry="10" fill="${routeColor}" stroke="white" stroke-width="3" />
-                <text x="${bubbleWidth / 2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${getContrastColor(routeColor)}" font-family="FGDC">${busName}</text>
-              </g>
-            </svg>`;
-          const nameIcon = L.divIcon({ html: nameBubble, className: '', iconSize: [bubbleWidth,30], iconAnchor: [bubbleWidth/2,40] });
-          const nm = L.marker(startPos, { icon: nameIcon, interactive: false }).addTo(map);
-          if (playbackSpeed >= 10 && smoothDuration > 0) {
-            nm._icon.style.transition = `transform ${smoothDuration}ms linear`;
-            setTimeout(() => nm.setLatLng(pos), 0);
           } else {
-            nm.setLatLng(pos);
+            if (bubble.blockMarker) {
+              map.removeLayer(bubble.blockMarker);
+              delete bubble.blockMarker;
+            }
+            delete busBlocks[vehicle.VehicleID];
           }
-          nameMarkers[vehicle.VehicleID] = nm;
+        } else {
+          if (bubble.blockMarker) {
+            map.removeLayer(bubble.blockMarker);
+            delete bubble.blockMarker;
+          }
+          delete busBlocks[vehicle.VehicleID];
         }
 
-        lastPositions[vehicle.VehicleID] = pos;
-      });
-      for (let id in lastPositions) {
-        if (!seen.has(Number(id))) {
-          delete lastPositions[id];
+        if (bubble.speedMarker || bubble.nameMarker || bubble.blockMarker) {
+          bubble.lastScale = scale;
+          nameBubbles[vehicle.VehicleID] = bubble;
+        } else {
+          delete nameBubbles[vehicle.VehicleID];
         }
+
       }
-    }
 
+      Object.keys(markers).forEach(id => {
+        const numericId = Number(id);
+        if (!seen.has(numericId)) {
+          map.removeLayer(markers[id]);
+          delete markers[id];
+          clearBusMarkerState(numericId);
+        }
+      });
+
+      Object.keys(nameBubbles).forEach(id => {
+        const numericId = Number(id);
+        if (!seen.has(numericId)) {
+          const bubble = nameBubbles[id];
+          if (bubble?.speedMarker) map.removeLayer(bubble.speedMarker);
+          if (bubble?.nameMarker) map.removeLayer(bubble.nameMarker);
+          if (bubble?.blockMarker) map.removeLayer(bubble.blockMarker);
+          delete nameBubbles[id];
+        }
+      });
+      scheduleMarkerScaleUpdate();
+    }
     async function scheduleNext() {
       const current = currentFrameIndex;
       let next = current + 1;
@@ -1857,17 +3941,17 @@
           while (ms <= endMs && next >= playbackData.length) {
             await loadHour(ms);
             next = current + 1;
-            ms += 3600 * 1000; // step one hour forward
+            ms += 3600 * 1000;
           }
           if (next >= playbackData.length) { pause(); return; }
         } else { pause(); return; }
       }
       const rawDelta = playbackTimes[next] - playbackTimes[current];
       const safeDelta = Math.max(rawDelta, 0);
-      const maxGap = 60 * 1000; // cap wait to 60 seconds to skip long gaps quickly
+      const maxGap = 60 * 1000;
       const wait = Math.min(safeDelta, maxGap) / playbackSpeed;
-      timer = setTimeout(() => {
-        showFrame(next);
+      timer = setTimeout(async () => {
+        await showFrame(next);
         scheduleNext();
       }, wait);
     }
@@ -1913,6 +3997,10 @@
         playbackData = [];
         playbackTimes = [];
         loadedHours = new Set();
+        clearMarkers();
+        routeLayers.forEach(layer => map.removeLayer(layer));
+        routeLayers = [];
+        routePolylineCache.clear();
         const timeline = document.getElementById('timeline');
         timeline.min = startTime.getTime();
         timeline.max = userEndTime.getTime();
@@ -1940,7 +4028,7 @@
         if (playbackTimes.length) {
           const ms = startTime.getTime();
           const idx = findFrameIndex(ms);
-          showFrame(idx, ms);
+          await showFrame(idx, ms);
         }
       } finally {
         completeRangeLoad();
@@ -1985,12 +4073,19 @@
       const ms = parseInt(e.target.value);
       await ensureLoaded(ms);
       const idx = findFrameIndex(ms);
-      showFrame(idx, ms);
+      await showFrame(idx, ms);
     });
-    document.getElementById('loadRangeBtn').onclick = () => { pause(); applyRange(false); };
+    document.getElementById('loadRangeBtn').onclick = async () => {
+      pause();
+      await applyRange(false);
+    };
 
-    pause();
-    fetchRoutes().then(() => { applyRange(true); startAutoRefresh(); });
+    (async () => {
+      pause();
+      await fetchRoutes();
+      await applyRange(true);
+      startAutoRefresh();
+    })();
   </script>
 </body>
 </html>
