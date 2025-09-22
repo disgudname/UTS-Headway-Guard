@@ -3191,20 +3191,23 @@
         }
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
-        const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
-        const demoButtonPressed = demoIncidentActive ? 'true' : 'false';
-        const demoNoteText = demoIncidentActive
-          ? 'Showing sample alert using built-in data.'
-          : 'Load a sample alert using built-in data.';
-        const demoButtonHtml = `
-          <!-- Demo incident preview controls (remove when the demo is finished) -->
-          <div class="selector-section demo-incident-section">
-            <button type="button" id="demoIncidentButton" class="demo-incident-button${demoIncidentActive ? ' is-active' : ''}" aria-pressed="${demoButtonPressed}" onclick="toggleDemoIncident()">
-              ${escapeHtml(demoButtonLabel)}
-            </button>
-            <div class="demo-incident-note">${escapeHtml(demoNoteText)}</div>
-          </div>
-        `;
+        let demoButtonHtml = '';
+        if (adminMode) {
+          const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
+          const demoButtonPressed = demoIncidentActive ? 'true' : 'false';
+          const demoNoteText = demoIncidentActive
+            ? 'Showing sample alert using built-in data.'
+            : 'Load a sample alert using built-in data.';
+          demoButtonHtml = `
+            <!-- Demo incident preview controls (remove when the demo is finished) -->
+            <div class="selector-section demo-incident-section">
+              <button type="button" id="demoIncidentButton" class="demo-incident-button${demoIncidentActive ? ' is-active' : ''}" aria-pressed="${demoButtonPressed}" onclick="toggleDemoIncident()">
+                ${escapeHtml(demoButtonLabel)}
+              </button>
+              <div class="demo-incident-note">${escapeHtml(demoNoteText)}</div>
+            </div>
+          `;
+        }
         const incidentToggleHtml = incidentsAreAvailable() ? `
           <div class="selector-group">
             <div class="selector-label">Incidents</div>
