@@ -917,6 +917,7 @@
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;
+      const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
 
       let map;
       let markers = {};
@@ -928,19 +929,43 @@
       let pendingMarkerScaleMetrics = null;
       let textMeasurementCanvas = null;
 
+      let agencies = [];
+      let baseURL = '';
+
       let incidentsVisible = true;
+      let incidentsVisibilityPreference = true;
       let incidentLayerGroup = null;
       const incidentMarkers = new Map();
       const incidentIconCache = new Map();
       let isFetchingIncidents = false;
 
       function incidentsAreAvailable() {
-        return (adminMode && !kioskMode) || adminKioskMode;
+        const adminAccessAllowed = (adminMode && !kioskMode) || adminKioskMode;
+        if (!adminAccessAllowed) {
+          return false;
+        }
+        if (!Array.isArray(agencies) || agencies.length === 0) {
+          return true;
+        }
+        const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
+        const selectedAgency = agencies.find(agency => {
+          if (!agency || typeof agency.url !== 'string') return false;
+          const candidateUrl = agency.url.trim().replace(/\/+$/, '');
+          return candidateUrl === sanitizedBaseURL;
+        });
+        if (!selectedAgency || typeof selectedAgency.name !== 'string') {
+          return false;
+        }
+        const normalizedName = selectedAgency.name.trim().toLowerCase();
+        return INCIDENTS_ALLOWED_AGENCY_NAMES.some(name => {
+          return typeof name === 'string' && name.trim().toLowerCase() === normalizedName;
+        });
       }
 
       if (!incidentsAreAvailable()) {
         incidentsVisible = false;
       }
+      incidentsVisibilityPreference = incidentsVisible;
 
       function fetchPulsePointEncrypted() {
         return fetch(PULSEPOINT_ENDPOINT, {
@@ -1336,6 +1361,8 @@
           return;
         }
 
+        incidentsVisibilityPreference = incidentsVisible;
+
         if (map && incidentLayerGroup) {
           if (incidentsVisible) {
             incidentLayerGroup.addTo(map);
@@ -1350,6 +1377,14 @@
           refreshIncidents();
         }
         updateIncidentToggleButton();
+      }
+
+      function enforceIncidentVisibilityForCurrentAgency() {
+        if (incidentsAreAvailable()) {
+          setIncidentsVisibility(incidentsVisibilityPreference);
+        } else {
+          setIncidentsVisibility(false);
+        }
       }
 
       function toggleIncidentsVisibility() {
@@ -1471,9 +1506,6 @@
       const STOP_MARKER_OUTLINE_COLOR = '#FFFFFF';
       const STOP_MARKER_OUTLINE_WIDTH = 2;
 
-      let agencies = [];
-      let baseURL = '';
-
       let routePolylineCache = new Map();
       let lastRouteRenderState = {
         selectionKey: '',
@@ -1548,6 +1580,7 @@
             baseURL = agencies[0]?.url || '';
           }
           updateControlPanel();
+          enforceIncidentVisibilityForCurrentAgency();
           updateRouteSelector(activeRoutes, true);
         } catch (e) {
           console.error('Failed to load agencies', e);
@@ -2595,6 +2628,7 @@
         clearRefreshIntervals();
         baseURL = url;
         updateControlPanel();
+        enforceIncidentVisibilityForCurrentAgency();
         Object.values(markers).forEach(m => map.removeLayer(m));
         markers = {};
         Object.values(nameBubbles).forEach(b => {
@@ -5947,11 +5981,7 @@
           .then(() => {
             initMap();
             showCookieBanner();
-            if (incidentsAreAvailable()) {
-              refreshIncidents();
-            } else {
-              setIncidentsVisibility(false);
-            }
+            enforceIncidentVisibilityForCurrentAgency();
             return loadAgencyData()
               .then(() => {
                 startRefreshIntervals();
