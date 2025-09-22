@@ -376,6 +376,51 @@
         flex-direction: column;
         gap: 14px;
       }
+      /* ===== Demo incident preview styles (remove when demo is retired) ===== */
+      .selector-panel .demo-incident-section {
+        border: 3px dashed rgba(236, 72, 153, 0.65);
+        border-radius: 18px;
+        padding: 18px 20px;
+        background: repeating-linear-gradient(135deg, rgba(250, 204, 21, 0.38), rgba(250, 204, 21, 0.38) 16px, rgba(244, 63, 94, 0.45) 16px, rgba(244, 63, 94, 0.45) 32px);
+        box-shadow: 0 18px 32px rgba(190, 24, 93, 0.25);
+        text-align: center;
+      }
+      .demo-incident-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        padding: 12px 16px;
+        font-size: 15px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #0f172a;
+        background: linear-gradient(135deg, #f97316, #ec4899);
+        border: 4px solid #0f172a;
+        border-radius: 14px;
+        cursor: pointer;
+        box-shadow: 0 10px 18px rgba(15, 23, 42, 0.35);
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+      }
+      .demo-incident-button:hover {
+        transform: translateY(-2px) rotate(-1.5deg);
+        box-shadow: 0 16px 26px rgba(15, 23, 42, 0.45);
+      }
+      .demo-incident-button:active {
+        transform: translateY(1px) scale(0.97) rotate(1.5deg);
+      }
+      .demo-incident-button.is-active {
+        background: linear-gradient(135deg, #22d3ee, #a855f7);
+      }
+      .selector-panel .demo-incident-note {
+        margin-top: 10px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: rgba(15, 23, 42, 0.82);
+      }
       .selector-panel .incident-alert__item {
         display: flex;
         align-items: flex-start;
@@ -1125,6 +1170,11 @@
       let latestActiveIncidents = [];
       let incidentsNearRoutes = [];
       let incidentRouteAlertSignature = '';
+      // Demo incident preview state (delete when demo button is removed).
+      let demoIncidentActive = false;
+      let demoIncidentEntry = null;
+      let demoIncidentPreviousVisibility = null;
+      let demoIncidentCsvRow = null;
 
       function incidentsAreAvailable() {
         const adminAccessAllowed = (adminMode && !kioskMode) || adminKioskMode;
@@ -1381,6 +1431,162 @@
           }
         }
         return null;
+      }
+
+      // === Demo incident CSV helpers (remove alongside the demo button) ===
+      function parseCsvRows(text) {
+        if (typeof text !== 'string') return [];
+        const rows = [];
+        let current = [];
+        let field = '';
+        let inQuotes = false;
+        for (let i = 0; i < text.length; i += 1) {
+          const char = text[i];
+          if (inQuotes) {
+            if (char === '"') {
+              if (text[i + 1] === '"') {
+                field += '"';
+                i += 1;
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              field += char;
+            }
+            continue;
+          }
+          if (char === '"') {
+            inQuotes = true;
+            continue;
+          }
+          if (char === ',') {
+            current.push(field);
+            field = '';
+            continue;
+          }
+          if (char === '\r') {
+            continue;
+          }
+          if (char === '\n') {
+            current.push(field);
+            rows.push(current);
+            current = [];
+            field = '';
+            continue;
+          }
+          field += char;
+        }
+        if (field !== '' || current.length > 0) {
+          current.push(field);
+        }
+        if (current.length > 0) {
+          rows.push(current);
+        }
+        return rows.filter(row => Array.isArray(row) && row.some(value => String(value ?? '').trim() !== ''));
+      }
+
+      function extractFirstIncidentFromCsv(text) {
+        const rows = parseCsvRows(text);
+        if (!rows.length) return null;
+        const header = rows[0].map(cell => String(cell ?? '').trim());
+        for (let i = 1; i < rows.length; i += 1) {
+          const row = rows[i];
+          if (!row || !row.some(value => String(value ?? '').trim() !== '')) continue;
+          const obj = {};
+          header.forEach((key, index) => {
+            if (!key) return;
+            obj[key] = row[index] !== undefined ? row[index] : '';
+          });
+          const hasValue = Object.keys(obj).some(key => String(obj[key] ?? '').trim() !== '');
+          if (hasValue) {
+            return obj;
+          }
+        }
+        return null;
+      }
+
+      function buildDemoIncidentEntryFromRow(row) {
+        if (!row || typeof row !== 'object') return null;
+        const sanitize = value => (typeof value === 'string' ? value.trim() : value);
+        const typeValue = sanitize(row.Type) || 'INC';
+        const typeCode = String(typeValue || '').trim().toUpperCase();
+        const idRaw = sanitize(row.ID) || 'DEMO_INCIDENT';
+        const id = String(idRaw).trim() || 'DEMO_INCIDENT';
+        const markerUrl = sanitize(row.Marker) || '';
+        const category = sanitize(row.Category) || 'active';
+        const address = sanitize(row.Address) || 'Demo Address';
+        const received = sanitize(row.Received) || new Date().toISOString();
+        const agency = sanitize(row.Agency) || '';
+        const units = sanitize(row.Units) || '';
+        const lat = parseIncidentCoordinate(sanitize(row.Latitude));
+        const lon = parseIncidentCoordinate(sanitize(row.Longitude));
+        const label = (typeCode && Object.prototype.hasOwnProperty.call(INCIDENT_TYPE_LABELS, typeCode))
+          ? INCIDENT_TYPE_LABELS[typeCode]
+          : (typeValue ? String(typeValue) : 'Incident');
+        const incident = {
+          _markerUrl: markerUrl,
+          _markerType: typeCode || 'INC',
+          _category: category,
+          _demo: true,
+          ID: id,
+          IncidentID: id,
+          Type: typeCode || typeValue,
+          TypeCode: typeCode || typeValue,
+          PulsePointIncidentCallType: label,
+          PulsePointIncidentCallTypeCode: typeCode || typeValue,
+          CallType: label,
+          CallTypeCode: typeCode || typeValue,
+          Received: received,
+          DisplayAddress: address,
+          FullDisplayAddress: address,
+          Address: address,
+          Latitude: lat,
+          Longitude: lon,
+          Units: units,
+          Agency: agency
+        };
+        const timestamp = getIncidentTimestamp(incident) ?? Date.now();
+        return {
+          id: `demo-${id}`,
+          incident,
+          routes: [
+            { routeId: 404, name: 'Demo Route 404', distance: 42 }
+          ],
+          closestDistance: 42,
+          timestamp,
+          _demo: true
+        };
+      }
+
+      async function ensureDemoIncidentRow() {
+        if (demoIncidentCsvRow) return demoIncidentCsvRow;
+        if (typeof fetch !== 'function') return null;
+        try {
+          const response = await fetch('incidents.csv', { cache: 'no-store' });
+          if (!response || !response.ok) {
+            throw new Error(response ? `HTTP ${response.status}` : 'No response from incidents.csv');
+          }
+          const text = await response.text();
+          const row = extractFirstIncidentFromCsv(text);
+          if (row) {
+            demoIncidentCsvRow = row;
+            return demoIncidentCsvRow;
+          }
+        } catch (error) {
+          console.error('Failed to load demo incident data from incidents.csv', error);
+        }
+        return null;
+      }
+
+      function createDemoIncidentEntry() {
+        if (!demoIncidentCsvRow) return null;
+        const entry = buildDemoIncidentEntryFromRow(demoIncidentCsvRow);
+        if (!entry) return null;
+        entry.incident = entry.incident ? { ...entry.incident } : null;
+        entry.routes = Array.isArray(entry.routes)
+          ? entry.routes.map(route => ({ ...route }))
+          : [];
+        return entry;
       }
 
       function normalizeUnitStatus(value) {
@@ -1834,6 +2040,9 @@
       }
 
       function evaluateIncidentRouteAlerts() {
+        if (demoIncidentActive && demoIncidentEntry) {
+          return;
+        }
         const hadAlerts = incidentRouteAlertSignature !== '' || (Array.isArray(incidentsNearRoutes) && incidentsNearRoutes.length > 0);
         if (!incidentsAreAvailable()) {
           if (hadAlerts) {
@@ -1935,6 +2144,9 @@
           setIncidentsVisibility(false);
           return;
         }
+        if (demoIncidentActive && demoIncidentEntry) {
+          return;
+        }
         if (!map || isFetchingIncidents) return;
         isFetchingIncidents = true;
         try {
@@ -1956,6 +2168,10 @@
         const allowIncidents = incidentsAreAvailable();
         const hadAlerts = incidentRouteAlertSignature !== '' || (Array.isArray(incidentsNearRoutes) && incidentsNearRoutes.length > 0);
         incidentsVisible = allowIncidents && !!visible;
+
+        if (!incidentsVisible && demoIncidentActive) {
+          deactivateDemoIncidentPreview({ preserveVisibility: true });
+        }
 
         if (!allowIncidents) {
           if (map && incidentLayerGroup) {
@@ -1987,6 +2203,88 @@
           refreshIncidents();
         }
         updateIncidentToggleButton();
+      }
+
+      async function activateDemoIncidentPreview() {
+        if (demoIncidentActive) return;
+        const row = await ensureDemoIncidentRow();
+        if (!row) {
+          if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+            window.alert('Unable to load incidents.csv for the demo incident.');
+          }
+          return;
+        }
+        const entry = createDemoIncidentEntry();
+        if (!entry || !entry.incident) {
+          console.warn('Demo incident data is missing required fields.', entry);
+          if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+            window.alert('Demo incident data is missing required fields.');
+          }
+          return;
+        }
+        demoIncidentEntry = entry;
+        demoIncidentPreviousVisibility = incidentsVisible;
+        demoIncidentActive = true;
+        incidentsNearRoutes = [entry];
+        incidentRouteAlertSignature = entry.id || 'demo';
+        incidentsVisible = true;
+        incidentsVisibilityPreference = true;
+        if (!incidentLayerGroup && typeof L !== 'undefined' && typeof L.layerGroup === 'function') {
+          incidentLayerGroup = L.layerGroup();
+        }
+        if (map && incidentLayerGroup && typeof incidentLayerGroup.addTo === 'function') {
+          incidentLayerGroup.addTo(map);
+        }
+        if (entry.incident) {
+          applyIncidentMarkers([entry.incident]);
+        }
+        if (entry.incident && Number.isFinite(entry.incident.Latitude) && Number.isFinite(entry.incident.Longitude) && map && typeof map.setView === 'function') {
+          try {
+            const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : 0;
+            const targetZoom = Number.isFinite(currentZoom) ? Math.max(currentZoom, 15) : 15;
+            map.setView([entry.incident.Latitude, entry.incident.Longitude], targetZoom, { animate: true });
+          } catch (error) {
+            console.warn('Unable to move map to the demo incident location.', error);
+          }
+        }
+        updateControlPanel();
+        updateIncidentToggleButton();
+      }
+
+      function deactivateDemoIncidentPreview(options = {}) {
+        if (!demoIncidentActive) {
+          demoIncidentPreviousVisibility = null;
+          return;
+        }
+        const preserveVisibility = options && options.preserveVisibility;
+        demoIncidentActive = false;
+        demoIncidentEntry = null;
+        resetIncidentAlertState();
+        applyIncidentMarkers([]);
+        if (!preserveVisibility) {
+          if (demoIncidentPreviousVisibility !== null) {
+            incidentsVisible = !!demoIncidentPreviousVisibility;
+            incidentsVisibilityPreference = incidentsVisible;
+            if (map && incidentLayerGroup) {
+              if (incidentsVisible) {
+                incidentLayerGroup.addTo(map);
+              } else {
+                map.removeLayer(incidentLayerGroup);
+              }
+            }
+          }
+        }
+        demoIncidentPreviousVisibility = null;
+        updateControlPanel();
+        updateIncidentToggleButton();
+      }
+
+      async function toggleDemoIncident() {
+        if (demoIncidentActive) {
+          deactivateDemoIncidentPreview();
+        } else {
+          await activateDemoIncidentPreview();
+        }
       }
 
       function enforceIncidentVisibilityForCurrentAgency() {
@@ -2515,15 +2813,23 @@
       }
 
       function renderIncidentAlertsHtml() {
-        if (!incidentsAreAvailable()) return '';
-        if (!Array.isArray(incidentsNearRoutes) || incidentsNearRoutes.length === 0) return '';
-        const itemsHtml = incidentsNearRoutes.map(renderIncidentAlertItem).filter(Boolean).join('');
+        const hasDemo = demoIncidentActive && demoIncidentEntry && demoIncidentEntry.incident;
+        if (!hasDemo && !incidentsAreAvailable()) return '';
+        const sourceEntries = hasDemo
+          ? [demoIncidentEntry]
+          : (Array.isArray(incidentsNearRoutes) ? incidentsNearRoutes : []);
+        if (!Array.isArray(sourceEntries) || sourceEntries.length === 0) return '';
+        const itemsHtml = sourceEntries.map(renderIncidentAlertItem).filter(Boolean).join('');
         if (!itemsHtml) return '';
-        const multiple = incidentsNearRoutes.length > 1;
-        const heading = multiple ? 'Active Incidents Near Routes' : 'Active Incident Near a Route';
-        const subheading = multiple
-          ? 'Emergency responses are active along multiple transit corridors.'
-          : 'An emergency response is active along a transit corridor.';
+        const multiple = sourceEntries.length > 1;
+        const heading = hasDemo
+          ? 'Demo Incident Near a Route'
+          : (multiple ? 'Active Incidents Near Routes' : 'Active Incident Near a Route');
+        const subheading = hasDemo
+          ? 'Preview of an active incident alert pulled from incidents.csv.'
+          : (multiple
+            ? 'Emergency responses are active along multiple transit corridors.'
+            : 'An emergency response is active along a transit corridor.');
         return `
           <div class="selector-section incident-alert-block">
             <div class="incident-alert__header">
@@ -2565,6 +2871,20 @@
         }
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
+        const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
+        const demoButtonPressed = demoIncidentActive ? 'true' : 'false';
+        const demoNoteText = demoIncidentActive
+          ? 'Showing sample alert using incidents.csv.'
+          : 'Load a sample alert using incidents.csv.';
+        const demoButtonHtml = `
+          <!-- Demo incident preview controls (remove when the demo is finished) -->
+          <div class="selector-section demo-incident-section">
+            <button type="button" id="demoIncidentButton" class="demo-incident-button${demoIncidentActive ? ' is-active' : ''}" aria-pressed="${demoButtonPressed}" onclick="toggleDemoIncident()">
+              ${escapeHtml(demoButtonLabel)}
+            </button>
+            <div class="demo-incident-note">${escapeHtml(demoNoteText)}</div>
+          </div>
+        `;
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -2575,6 +2895,7 @@
           </div>
           <div class="selector-content">
             ${incidentAlertsHtml}
+            ${demoButtonHtml}
             <div class="selector-group">
               <label class="selector-label" for="agencySelect">Select System</label>
               <div class="selector-control">
