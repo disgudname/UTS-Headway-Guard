@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PulsePoint Incidents — Decrypted Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- CryptoJS (minimal set): core, AES, enc-utf8/base64, md5, evpkdf, mode-cbc, pad-pkcs7 -->
+  <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { margin: 24px; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; }
+    input[type="text"] { padding: 8px; min-width: 280px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
+    th { background: #fafafa; cursor: pointer; position: sticky; top: 0; }
+    .muted { color: #666; font-size: 12px; }
+    .status { margin: 8px 0; }
+    .pill { display:inline-block; padding:2px 6px; border-radius: 12px; background:#f2f2f2; font-size:12px; }
+  </style>
+</head>
+<body>
+  <h1>PulsePoint Incidents — Decrypted Viewer</h1>
+  <div class="muted">Source: <code>https://api.pulsepoint.org/v1/webapp?resource=incidents&amp;agencyid=54000,00300</code></div>
+
+  <div class="controls">
+    <input id="search" type="text" placeholder="Filter (address, type, ID, units…)" />
+    <button id="refresh">Refresh</button>
+    <button id="downloadCsv">Download CSV</button>
+    <span id="count" class="muted"></span>
+  </div>
+
+  <div id="status" class="status muted"></div>
+
+  <table id="grid">
+    <thead>
+      <tr>
+        <th data-key="_category">Category</th>
+        <th data-key="ID">ID</th>
+        <th data-key="PulsePointIncidentCallType">Type</th>
+        <th data-key="FullDisplayAddress">Address</th>
+        <th data-key="CallReceivedDateTime">Received</th>
+        <th data-key="AgencyID">Agency</th>
+        <th data-key="Latitude">Lat</th>
+        <th data-key="Longitude">Lon</th>
+        <th data-key="_units">Units</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+(async function () {
+  const ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
+  const PASSPHRASE = "tombrady5rings";
+
+  const $status   = document.getElementById("status");
+  const $tbody    = document.querySelector("#grid tbody");
+  const $search   = document.getElementById("search");
+  const $count    = document.getElementById("count");
+  const $refresh  = document.getElementById("refresh");
+  const $download = document.getElementById("downloadCsv");
+
+  // Add a tiny debug area
+  const $debug = document.createElement("pre");
+  $debug.className = "muted";
+  $debug.style.whiteSpace = "pre-wrap";
+  $debug.style.maxHeight = "200px";
+  $debug.style.overflow = "auto";
+  $debug.style.border = "1px solid #eee";
+  $debug.style.padding = "8px";
+  $debug.style.margin = "12px 0";
+  $debug.textContent = "Debug output will appear here.";
+  document.body.insertBefore($debug, document.getElementById("grid"));
+
+  function setStatus(msg){ $status.textContent = msg || ""; }
+
+  // CryptoJS formatter for {ct, iv, s}
+  const OpenSSLJSON = {
+    parse(input) {
+      const obj = typeof input === "string" ? JSON.parse(input) : input;
+      const params = CryptoJS.lib.CipherParams.create({
+        ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
+      });
+      if (obj.iv) params.iv = CryptoJS.enc.Hex.parse(obj.iv);
+      if (obj.s ) params.salt = CryptoJS.enc.Hex.parse(obj.s);
+      return params;
+    }
+  };
+
+  async function fetchEncrypted() {
+    const res = await fetch(ENDPOINT, { method: "GET", mode: "cors", cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json(); // browser will ungzip; response is JSON {ct,iv,s}
+  }
+
+  // Returns { parsed, rawText }
+function decryptPayload(encryptedObj) {
+  // Parse {ct,iv,s} -> CipherParams
+  const cp = (function OpenSSLJSON(input){
+    const obj = typeof input === "string" ? JSON.parse(input) : input;
+    const params = CryptoJS.lib.CipherParams.create({
+      ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
+    });
+    if (obj.iv) params.iv = CryptoJS.enc.Hex.parse(obj.iv);
+    if (obj.s ) params.salt = CryptoJS.enc.Hex.parse(obj.s);
+    return params;
+  })(encryptedObj);
+
+  // Decrypt with password (EvpKDF/OpenSSL)
+  const rawText = CryptoJS.AES.decrypt(cp, "tombrady5rings", {
+    mode: CryptoJS.mode.CBC,
+    padding: CryptoJS.pad.Pkcs7
+  }).toString(CryptoJS.enc.Utf8);
+
+  if (!rawText) throw new Error("Decryption returned empty string (wrong key/format?)");
+
+  // Robust parsing: keep unwrapping until we land on an object/array
+  let parsed = rawText;
+  for (let i = 0; i < 3; i++) {
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); continue; } catch { break; }
+    }
+    break;
+  }
+  if (typeof parsed === "string")
+    throw new Error("Decrypted payload is still a string after parsing attempts.");
+
+  return parsed; // e.g. { incidents: { active:[], recent:[...] } }
+}
+
+
+  function looksIncidentish(obj){
+    if (!obj || typeof obj !== "object") return false;
+    const keys = Object.keys(obj);
+    // Heuristics: has any of these fields
+    const hits = ["ID","FullDisplayAddress","PulsePointIncidentCallType","CallReceivedDateTime","Latitude","Longitude"]
+      .filter(k => k in obj).length;
+    return hits >= 2;
+  }
+
+  function normaliseIncidents(root) {
+    // Preferred shape: { incidents: { active:[], recent:[], alerts:[] } }
+    const out = [];
+
+    const inc = root && root.incidents;
+    const categories = [["active","active"],["recent","recent"],["alerts","alerts"]];
+    let pulled = 0;
+
+    if (inc && typeof inc === "object") {
+      for (const [catKey, label] of categories) {
+        const arr = Array.isArray(inc[catKey]) ? inc[catKey] : [];
+        arr.forEach(rec => out.push(decorate(rec, label)));
+        pulled += arr.length;
+      }
+      if (pulled) return out;
+    }
+
+    // Fallbacks:
+
+    // A) Some feeds put incidents under e.g. { data: { incidents: [...] } }
+    for (const k1 of Object.keys(root || {})) {
+      const v1 = root[k1];
+      if (Array.isArray(v1) && v1.every(looksIncidentish)) {
+        v1.forEach(rec => out.push(decorate(rec, k1)));
+      } else if (v1 && typeof v1 === "object") {
+        for (const k2 of Object.keys(v1)) {
+          const v2 = v1[k2];
+          if (Array.isArray(v2) && v2.every(looksIncidentish)) {
+            v2.forEach(rec => out.push(decorate(rec, k2)));
+          }
+        }
+      }
+    }
+    if (out.length) return out;
+
+    // B) Brute-force: find ANY array of incident-like objects anywhere
+    (function dig(x, label="misc"){
+      if (!x) return;
+      if (Array.isArray(x) && x.length && looksIncidentish(x[0])) {
+        x.forEach(rec => out.push(decorate(rec, label)));
+        return;
+      }
+      if (typeof x === "object") {
+        for (const k of Object.keys(x)) dig(x[k], k);
+      }
+    })(root);
+
+    return out;
+  }
+
+  function decorate(rec, category){
+    const copy = { ...rec, _category: category };
+    if (Array.isArray(copy.Unit)) {
+      copy._units = copy.Unit.map(u => {
+        const id = u.UnitID || u.Unit || "";
+        const st = u.PulsePointDispatchStatus || u.Status || "";
+        return st ? `${id} (${st})` : id;
+      }).join(", ");
+    } else {
+      copy._units = "";
+    }
+    return copy;
+  }
+
+  // ---------- Rendering / UX ----------
+  let ROWS = [];
+  let sortKey = "CallReceivedDateTime";
+  let sortDir = -1;
+
+  function render(rows) {
+    $tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td><span class="pill">${esc(r._category)}</span></td>
+        <td>${esc(r.ID)}</td>
+        <td>${esc(r.PulsePointIncidentCallType)}</td>
+        <td>${esc(r.FullDisplayAddress)}</td>
+        <td>${esc(r.CallReceivedDateTime)}</td>
+        <td>${esc(r.AgencyID)}</td>
+        <td>${esc(r.Latitude)}</td>
+        <td>${esc(r.Longitude)}</td>
+        <td>${esc(r._units)}</td>
+      </tr>
+    `).join("");
+    $count.textContent = rows.length ? `${rows.length} rows` : "No rows";
+  }
+
+  function esc(v){ return String(v ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function applyFilter() {
+    const q = $search.value.trim().toLowerCase();
+    let filtered = ROWS;
+    if (q) {
+      filtered = ROWS.filter(r => {
+        const hay = [
+          r.ID, r.PulsePointIncidentCallType, r.FullDisplayAddress,
+          r.CallReceivedDateTime, r.AgencyID, r._units
+        ].map(v => (v||"").toString().toLowerCase()).join(" ");
+        return hay.includes(q);
+      });
+    }
+    filtered.sort((a,b) => {
+      const av = (a[sortKey] ?? "").toString();
+      const bv = (b[sortKey] ?? "").toString();
+      return av < bv ? -1*sortDir : av > bv ? 1*sortDir : 0;
+    });
+    render(filtered);
+  }
+
+  document.querySelectorAll("#grid th").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.getAttribute("data-key");
+      if (key === sortKey) sortDir *= -1; else { sortKey = key; sortDir = 1; }
+      applyFilter();
+    });
+  });
+
+  $search.addEventListener("input", applyFilter);
+
+  $download.addEventListener("click", () => {
+    const headers = ["Category","ID","Type","Address","Received","Agency","Latitude","Longitude","Units"];
+    const rows = ROWS.map(r => [
+      r._category, r.ID, r.PulsePointIncidentCallType, r.FullDisplayAddress,
+      r.CallReceivedDateTime, r.AgencyID, r.Latitude, r.Longitude, r._units
+    ].map(s => csvCell(s)).join(","));
+    const blob = new Blob([[headers.join(",")].concat(rows).join("\n")], {type:"text/csv;charset=utf-8"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "incidents.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+  });
+  function csvCell(v){ const s=(v??"").toString().replace(/"/g,'""'); return /[",\n]/.test(s)?`"${s}"`:s; }
+
+  $refresh.addEventListener("click", load);
+
+  await load();
+
+  async function load() {
+    try {
+      setStatus("Fetching…");
+      const enc = await fetchEncrypted();
+      const encKeys = Object.keys(enc||{});
+      setStatus(`Decrypting… (encrypted keys: ${encKeys.join(", ")})`);
+      const { parsed, rawText } = decryptPayload(enc);
+
+      // Debug: show preview and some structure
+      const preview = rawText.slice(0, 600);
+      let stats = "";
+      try {
+        const k = parsed && typeof parsed === "object" ? Object.keys(parsed) : [];
+        stats = `Parsed type: ${typeof parsed}; top keys: ${k.slice(0,12).join(", ")}`;
+      } catch {}
+      $debug.textContent = `Decrypted preview:\n${preview}\n\n${stats}`;
+
+      const rows = normaliseIncidents(parsed);
+      ROWS = rows;
+      setStatus(rows.length ? "" : "No incidents found after decryption.");
+      applyFilter();
+    } catch (err) {
+      console.error(err);
+      setStatus("Error: " + (err && err.message ? err.message : String(err)));
+      $debug.textContent = (err && err.stack) ? err.stack : String(err);
+    }
+  }
+})();
+</script>
+
+</body>
+</html>
