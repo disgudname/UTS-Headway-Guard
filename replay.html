@@ -28,6 +28,7 @@
       --accent-bright: #ff9c3e;
       --accent-soft: rgba(229, 114, 0, 0.28);
       --controls-height: 180px;
+      --mobile-controls-peek: 0px;
     }
     html, body {
       height: 100%;
@@ -506,6 +507,9 @@
       }
     }
     @media (max-width: 720px) {
+      :root {
+        --mobile-controls-peek: 156px;
+      }
       #controls.playback-controls {
         gap: 6px;
         max-height: calc(100vh - 96px);
@@ -515,6 +519,7 @@
         scrollbar-color: rgba(35, 45, 75, 0.35) transparent;
         -webkit-overflow-scrolling: touch;
         align-items: stretch;
+        transition: transform 0.35s ease, opacity 0.3s ease, max-height 0.35s ease;
       }
       #controls.playback-controls::-webkit-scrollbar {
         width: 6px;
@@ -528,6 +533,12 @@
         align-items: stretch;
         gap: 4px;
         width: 100%;
+      }
+      #controls .controls-row--playback {
+        order: -1;
+      }
+      #controls .controls-row--filters {
+        order: 0;
       }
       .controls-row.controls-row--playback {
         gap: 6px;
@@ -576,6 +587,9 @@
         width: 100%;
         max-height: 160px;
       }
+      .controls-row.controls-row--playback .timeline-group {
+        order: -1;
+      }
       #timeline {
         min-height: 32px;
       }
@@ -583,9 +597,11 @@
         font-size: 13px;
       }
       #controls.playback-controls.is-collapsed {
-        transform: translateX(-50%) translateY(calc(100% + 24px));
-        opacity: 0;
-        pointer-events: none;
+        transform: translateX(-50%);
+        max-height: var(--mobile-controls-peek);
+        opacity: 1;
+        pointer-events: auto;
+        overflow-y: hidden;
       }
       #controlsToggle {
         position: fixed;
@@ -617,7 +633,7 @@
         box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 30px rgba(15, 23, 42, 0.3);
       }
       body.controls-collapsed #controlsToggle {
-        bottom: 16px;
+        bottom: calc(var(--controls-height) + 16px);
         color: #1f1300;
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));
         box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
@@ -627,6 +643,10 @@
       }
       body.controls-collapsed #controlsToggle:focus-visible {
         box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(229, 114, 0, 0.4);
+      }
+      body.controls-collapsed #controls .controls-row--filters,
+      body.controls-collapsed #controls .speed-button-group {
+        display: none;
       }
       .panel-toggle {
         width: 40px;
@@ -876,16 +896,22 @@
     function setControlsCollapsed(collapsed) {
       controlsCollapsed = collapsed;
       document.body.classList.toggle('controls-collapsed', collapsed);
+      const isMobileView = controlsViewportQuery ? controlsViewportQuery.matches : window.innerWidth <= 720;
       if (controlsContainer) {
         controlsContainer.classList.toggle('is-collapsed', collapsed);
+        const shouldInert = collapsed && !isMobileView;
         if (typeof controlsContainer.inert === 'boolean') {
-          controlsContainer.inert = collapsed;
-        } else if (collapsed) {
+          controlsContainer.inert = shouldInert;
+        } else if (shouldInert) {
           controlsContainer.setAttribute('inert', '');
         } else {
           controlsContainer.removeAttribute('inert');
         }
-        controlsContainer.setAttribute('aria-hidden', collapsed ? 'true' : 'false');
+        if (shouldInert) {
+          controlsContainer.setAttribute('aria-hidden', 'true');
+        } else {
+          controlsContainer.removeAttribute('aria-hidden');
+        }
       }
       if (controlsToggleButton) {
         controlsToggleButton.setAttribute('aria-expanded', String(!collapsed));
@@ -897,8 +923,23 @@
     function updateControlsHeight() {
       const controls = controlsContainer || document.getElementById('controls');
       if (!controls) return;
+      const isMobileView = controlsViewportQuery ? controlsViewportQuery.matches : window.innerWidth <= 720;
       if (controls.classList.contains('is-collapsed')) {
-        document.documentElement.style.setProperty('--controls-height', '0px');
+        if (isMobileView) {
+          const peekHeight = controls.offsetHeight;
+          if (Number.isFinite(peekHeight) && peekHeight > 0) {
+            const peekValue = `${Math.round(peekHeight)}px`;
+            document.documentElement.style.setProperty('--mobile-controls-peek', peekValue);
+            document.documentElement.style.setProperty('--controls-height', peekValue);
+          } else {
+            const fallbackPeek = window.getComputedStyle(document.documentElement)
+              .getPropertyValue('--mobile-controls-peek')
+              .trim();
+            document.documentElement.style.setProperty('--controls-height', fallbackPeek || '0px');
+          }
+        } else {
+          document.documentElement.style.setProperty('--controls-height', '0px');
+        }
       } else {
         const height = controls.offsetHeight;
         document.documentElement.style.setProperty('--controls-height', `${height}px`);
