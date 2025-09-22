@@ -2950,39 +2950,7 @@
         }
         marker.__activeAnimationHandle = null;
 
-        const startPos = marker.getLatLng();
-        if (!startPos) {
-          marker.setLatLng(endPos);
-          return;
-        }
-
-        const positionsMatch = typeof startPos.equals === 'function'
-          ? startPos.equals(endPos, 1e-7)
-          : (Math.abs(startPos.lat - endPos.lat) < 1e-7 && Math.abs(startPos.lng - endPos.lng) < 1e-7);
-
-        if (positionsMatch) {
-          marker.setLatLng(endPos);
-          return;
-        }
-
-        const duration = 1000;
-        const startTime = performance.now();
-        function animate(time) {
-          const elapsed = time - startTime;
-          const t = Math.min(elapsed / duration, 1);
-          const currentPos = L.latLng(
-            startPos.lat + t * (endPos.lat - startPos.lat),
-            startPos.lng + t * (endPos.lng - startPos.lng)
-          );
-          marker.setLatLng(currentPos);
-          if (t < 1) {
-            marker.__activeAnimationHandle = requestAnimationFrame(animate);
-          } else {
-            marker.__activeAnimationHandle = null;
-            marker.setLatLng(endPos);
-          }
-        }
-        marker.__activeAnimationHandle = requestAnimationFrame(animate);
+        marker.setLatLng(endPos);
       }
 
     function initializeMap() {
