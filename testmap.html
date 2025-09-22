@@ -1178,6 +1178,19 @@
       let demoIncidentActive = false;
       let demoIncidentEntry = null;
       let demoIncidentPreviousVisibility = null;
+      const DEMO_INCIDENT_STATIC_ROW = Object.freeze({
+        Marker: 'https://web.pulsepoint.org/images/respond_icons/me_map_active.png',
+        Category: 'active',
+        ID: '2296541797',
+        Type: 'ME',
+        Address: 'HILLSDALE DR, CHARLOTTESVILLE, VA',
+        Received: '2025-09-22T02:25:48Z',
+        Agency: '00300',
+        Latitude: '38.0739216008',
+        Longitude: '-78.4735028808',
+        Units: 'E83 (OS), RS18 (OS)'
+      });
+
       let demoIncidentCsvRow = null;
 
       function incidentsAreAvailable() {
@@ -1564,22 +1577,9 @@
 
       async function ensureDemoIncidentRow() {
         if (demoIncidentCsvRow) return demoIncidentCsvRow;
-        if (typeof fetch !== 'function') return null;
-        try {
-          const response = await fetch('incidents.csv', { cache: 'no-store' });
-          if (!response || !response.ok) {
-            throw new Error(response ? `HTTP ${response.status}` : 'No response from incidents.csv');
-          }
-          const text = await response.text();
-          const row = extractFirstIncidentFromCsv(text);
-          if (row) {
-            demoIncidentCsvRow = row;
-            return demoIncidentCsvRow;
-          }
-        } catch (error) {
-          console.error('Failed to load demo incident data from incidents.csv', error);
-        }
-        return null;
+        if (!DEMO_INCIDENT_STATIC_ROW) return null;
+        demoIncidentCsvRow = { ...DEMO_INCIDENT_STATIC_ROW };
+        return demoIncidentCsvRow;
       }
 
       function createDemoIncidentEntry() {
@@ -2214,7 +2214,7 @@
         const row = await ensureDemoIncidentRow();
         if (!row) {
           if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-            window.alert('Unable to load incidents.csv for the demo incident.');
+            window.alert('Demo incident data is unavailable.');
           }
           return;
         }
@@ -2830,7 +2830,7 @@
           ? 'Demo Incident Near a Route'
           : (multiple ? 'Active Incidents Near Routes' : 'Active Incident Near a Route');
         const subheading = hasDemo
-          ? 'Preview of an active incident alert pulled from incidents.csv.'
+          ? 'Preview of an active incident alert using built-in sample data.'
           : (multiple
             ? 'Emergency responses are active along multiple transit corridors.'
             : 'An emergency response is active along a transit corridor.');
@@ -2878,8 +2878,8 @@
         const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
         const demoButtonPressed = demoIncidentActive ? 'true' : 'false';
         const demoNoteText = demoIncidentActive
-          ? 'Showing sample alert using incidents.csv.'
-          : 'Load a sample alert using incidents.csv.';
+          ? 'Showing sample alert using built-in data.'
+          : 'Load a sample alert using built-in data.';
         const demoButtonHtml = `
           <!-- Demo incident preview controls (remove when the demo is finished) -->
           <div class="selector-section demo-incident-section">
