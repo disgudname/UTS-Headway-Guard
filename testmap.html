@@ -188,13 +188,13 @@
         position: absolute;
         left: 50%;
         top: 50%;
-        width: var(--incident-halo-diameter, 96px);
-        height: var(--incident-halo-diameter, 96px);
-        margin-left: calc(-0.5 * var(--incident-halo-diameter, 96px));
-        margin-top: calc(-0.5 * var(--incident-halo-diameter, 96px));
+        width: var(--incident-halo-diameter, 128px);
+        height: var(--incident-halo-diameter, 128px);
+        margin-left: calc(-0.5 * var(--incident-halo-diameter, 128px));
+        margin-top: calc(-0.5 * var(--incident-halo-diameter, 128px));
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(var(--incident-halo-color-rgb, 255, 90, 60), var(--incident-halo-base-opacity, 0.35)) 0%, rgba(var(--incident-halo-color-rgb, 255, 90, 60), 0) 72%);
-        opacity: var(--incident-halo-base-opacity, 0.35);
+        background: radial-gradient(circle, rgba(var(--incident-halo-color-rgb, 255, 90, 60), var(--incident-halo-base-opacity, 0.5)) 0%, rgba(var(--incident-halo-color-rgb, 255, 90, 60), 0) 72%);
+        opacity: var(--incident-halo-base-opacity, 0.5);
         transform: scale(var(--incident-halo-start-scale, 0.25));
         transform-origin: 50% 50%;
         pointer-events: none;
@@ -206,15 +206,15 @@
       }
       .incident-halo--static {
         transform: scale(1);
-        opacity: var(--incident-halo-base-opacity, 0.35);
+        opacity: var(--incident-halo-base-opacity, 0.5);
       }
       @keyframes incident-halo-pulse {
         0% {
           transform: scale(var(--incident-halo-start-scale, 0.25));
-          opacity: var(--incident-halo-base-opacity, 0.35);
+          opacity: var(--incident-halo-base-opacity, 0.5);
         }
         70% {
-          opacity: var(--incident-halo-base-opacity, 0.35);
+          opacity: var(--incident-halo-base-opacity, 0.5);
         }
         100% {
           transform: scale(1);
@@ -225,7 +225,7 @@
         .incident-halo--animated {
           animation: none;
           transform: scale(1);
-          opacity: var(--incident-halo-base-opacity, 0.35);
+          opacity: var(--incident-halo-base-opacity, 0.5);
         }
       }
       @font-face {
