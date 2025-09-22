@@ -1468,29 +1468,47 @@
         'DispatchDateTime'
       ]);
       const INCIDENT_UNIT_STATUS_INFO = Object.freeze({
-        ER: { label: 'En Route', color: '#15803d', background: 'rgba(21, 128, 61, 0.16)', border: 'rgba(21, 128, 61, 0.38)' },
-        AR: { label: 'Cleared', color: '#475569', background: 'rgba(71, 85, 105, 0.16)', border: 'rgba(71, 85, 105, 0.32)' },
-        TR: { label: 'Transporting', color: '#b68c4a', background: 'rgba(182, 140, 74, 0.2)', border: 'rgba(182, 140, 74, 0.38)' },
-        TA: { label: 'Transport Arrived', color: '#0e7490', background: 'rgba(14, 116, 144, 0.18)', border: 'rgba(14, 116, 144, 0.38)' },
-        OS: { label: 'On Scene', color: '#b91c1c', background: 'rgba(220, 38, 38, 0.16)', border: 'rgba(220, 38, 38, 0.4)' }
+        DP: { label: 'Dispatched', color: '#f57c00', background: 'rgba(245, 124, 0, 0.16)', border: 'rgba(245, 124, 0, 0.38)' },
+        AK: { label: 'Acknowledged', color: '#f57c00', background: 'rgba(245, 124, 0, 0.16)', border: 'rgba(245, 124, 0, 0.38)' },
+        ER: { label: 'En Route', color: '#00cc00', background: 'rgba(0, 204, 0, 0.16)', border: 'rgba(0, 204, 0, 0.38)' },
+        SG: { label: 'Staged', color: '#cc0000', background: 'rgba(204, 0, 0, 0.16)', border: 'rgba(204, 0, 0, 0.38)' },
+        OS: { label: 'On Scene', color: '#cc0000', background: 'rgba(204, 0, 0, 0.16)', border: 'rgba(204, 0, 0, 0.38)' },
+        AE: { label: 'Available On Scene', color: '#cc0000', background: 'rgba(204, 0, 0, 0.16)', border: 'rgba(204, 0, 0, 0.38)' },
+        TR: { label: 'Transport', color: '#ffc107', background: 'rgba(255, 193, 7, 0.16)', border: 'rgba(255, 193, 7, 0.38)' },
+        TA: { label: 'Transport Arrived', color: '#1976d2', background: 'rgba(25, 118, 210, 0.16)', border: 'rgba(25, 118, 210, 0.38)' },
+        AR: { label: 'Cleared From Incident', color: '#494949', background: 'rgba(73, 73, 73, 0.16)', border: 'rgba(73, 73, 73, 0.38)' }
       });
       const INCIDENT_UNIT_STATUS_ALIASES = Object.freeze({
+        DP: 'DP',
+        DISPATCHED: 'DP',
+        DISPATCH: 'DP',
+        AK: 'AK',
+        ACK: 'AK',
+        ACKNOWLEDGED: 'AK',
         ER: 'ER',
         'EN ROUTE': 'ER',
         ENROUTE: 'ER',
-        AR: 'AR',
-        CLEARED: 'AR',
+        SG: 'SG',
+        STAGED: 'SG',
+        OS: 'OS',
+        'ON SCENE': 'OS',
+        'ON-SCENE': 'OS',
+        ONSCENE: 'OS',
+        AE: 'AE',
+        'AVAILABLE ON SCENE': 'AE',
+        'AVAILABLE ONSCENE': 'AE',
+        'AVAILABLE ON-SCENE': 'AE',
+        'AVAIL ON SCENE': 'AE',
         TR: 'TR',
-        TRANSPORTING: 'TR',
         TRANSPORT: 'TR',
+        TRANSPORTING: 'TR',
         TA: 'TA',
         'TRANSPORT ARRIVED': 'TA',
         'TRANSPORT-ARRIVED': 'TA',
         'TRANSPORT ARRVD': 'TA',
-        OS: 'OS',
-        'ON SCENE': 'OS',
-        'ON-SCENE': 'OS',
-        ONSCENE: 'OS'
+        AR: 'AR',
+        CLEARED: 'AR',
+        'CLEARED FROM INCIDENT': 'AR'
       });
 
       let latestActiveIncidents = [];
