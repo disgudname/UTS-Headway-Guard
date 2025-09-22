@@ -962,6 +962,9 @@
     const MIN_HEADING_SPEED_METERS_PER_SECOND = 1;
     const METERS_PER_SECOND_PER_MPH = 0.44704;
     const GPS_STALE_THRESHOLD_SECONDS = 60;
+    const MARKER_ANIMATION_MIN_DURATION_MS = 16;
+    const MARKER_ANIMATION_MAX_DURATION_MS = 1200;
+    const MARKER_ANIMATION_MAX_DATA_GAP_MS = 2 * 60 * 1000;
 
     let map = null;
 
@@ -1007,6 +1010,8 @@
     let showBlockNumbers = false;
     let showNameBubbles = true;
     let currentFrameIndex = 0;
+    let lastFrameDisplayMs = null;
+    let lastFrameRealTime = null;
     const outOfServiceRouteColor = '#000000';
     let isPlaying = false;
     const playBtn = document.getElementById('playBtn');
@@ -2938,19 +2943,138 @@
           return false;
       }
 
-      function animateMarkerTo(marker, newPosition) {
-        if (!marker || !newPosition) return;
-        const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
-        const endPos = hasArrayPosition ? L.latLng(newPosition) : L.latLng(newPosition?.lat, newPosition?.lng);
-        if (!endPos || Number.isNaN(endPos.lat) || Number.isNaN(endPos.lng)) return;
+      function computeMarkerAnimationDuration(displayDeltaMs, actualElapsedMs) {
+        if (!isPlaying) {
+          return 0;
+        }
+        const delta = Number(displayDeltaMs);
+        if (!Number.isFinite(delta) || delta <= 0) {
+          return 0;
+        }
+        if (delta > MARKER_ANIMATION_MAX_DATA_GAP_MS) {
+          return 0;
+        }
+        const playbackFactor = Math.max(1, Number(playbackSpeed) || 1);
+        let expectedDuration = delta / playbackFactor;
+        if (!Number.isFinite(expectedDuration) || expectedDuration <= 0) {
+          return 0;
+        }
+        expectedDuration = Math.min(expectedDuration, MARKER_ANIMATION_MAX_DURATION_MS);
+        const actual = Number(actualElapsedMs);
+        const cappedActual = Number.isFinite(actual) && actual > 0
+          ? Math.min(actual, MARKER_ANIMATION_MAX_DURATION_MS)
+          : expectedDuration;
+        let duration = Math.min(expectedDuration, cappedActual);
+        if (!Number.isFinite(duration) || duration <= 0) {
+          return 0;
+        }
+        duration *= 0.85;
+        if (duration < MARKER_ANIMATION_MIN_DURATION_MS) {
+          return 0;
+        }
+        return duration;
+      }
 
-        const existingHandle = marker.__activeAnimationHandle;
-        if (typeof existingHandle === 'number') {
-          cancelAnimationFrame(existingHandle);
+      function easeInOutCubic(t) {
+        if (!Number.isFinite(t)) {
+          return 0;
+        }
+        const clamped = Math.max(0, Math.min(1, t));
+        return clamped < 0.5
+          ? 4 * clamped * clamped * clamped
+          : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
+      }
+
+      function stopMarkerAnimation(marker) {
+        if (!marker) {
+          return;
+        }
+        const handle = marker.__activeAnimationHandle;
+        if (typeof handle === 'number') {
+          cancelAnimationFrame(handle);
         }
         marker.__activeAnimationHandle = null;
+        marker.__animationState = null;
+      }
 
-        marker.setLatLng(endPos);
+      function animateMarkerTo(marker, newPosition, options = {}) {
+        if (!marker || !newPosition) {
+          return;
+        }
+        const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
+        const endPos = hasArrayPosition
+          ? L.latLng(newPosition)
+          : L.latLng(newPosition?.lat, newPosition?.lng);
+        if (!endPos || Number.isNaN(endPos.lat) || Number.isNaN(endPos.lng)) {
+          return;
+        }
+
+        stopMarkerAnimation(marker);
+
+        const durationRaw = Number(options?.durationMs);
+        const durationMs = Number.isFinite(durationRaw)
+          ? Math.min(Math.max(0, durationRaw), MARKER_ANIMATION_MAX_DURATION_MS)
+          : 0;
+
+        if (durationMs <= MARKER_ANIMATION_MIN_DURATION_MS || typeof requestAnimationFrame !== 'function') {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const startPos = marker.getLatLng();
+        if (!startPos || Number.isNaN(startPos.lat) || Number.isNaN(startPos.lng)) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const distanceMeters = typeof startPos.distanceTo === 'function'
+          ? startPos.distanceTo(endPos)
+          : null;
+        if (!Number.isFinite(distanceMeters) || distanceMeters < MIN_POSITION_UPDATE_METERS) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const animationState = {
+          startLatLng: startPos,
+          endLatLng: endPos,
+          durationMs,
+          startTime: null
+        };
+
+        const step = (timestamp) => {
+          if (marker.__animationState !== animationState) {
+            return;
+          }
+          const timeValue = Number(timestamp);
+          if (!Number.isFinite(timeValue)) {
+            marker.setLatLng(animationState.endLatLng);
+            marker.__animationState = null;
+            marker.__activeAnimationHandle = null;
+            return;
+          }
+          if (animationState.startTime === null) {
+            animationState.startTime = timeValue;
+          }
+          const elapsed = Math.max(0, timeValue - animationState.startTime);
+          const progressRaw = animationState.durationMs > 0
+            ? elapsed / animationState.durationMs
+            : 1;
+          const eased = easeInOutCubic(progressRaw);
+          const lat = animationState.startLatLng.lat + (animationState.endLatLng.lat - animationState.startLatLng.lat) * eased;
+          const lng = animationState.startLatLng.lng + (animationState.endLatLng.lng - animationState.startLatLng.lng) * eased;
+          marker.setLatLng([lat, lng]);
+          if (elapsed < animationState.durationMs) {
+            marker.__activeAnimationHandle = requestAnimationFrame(step);
+          } else {
+            marker.setLatLng(animationState.endLatLng);
+            marker.__animationState = null;
+            marker.__activeAnimationHandle = null;
+          }
+        };
+
+        marker.__animationState = animationState;
+        marker.__activeAnimationHandle = requestAnimationFrame(step);
       }
 
     function initializeMap() {
@@ -3898,6 +4022,7 @@
     function clearMarkers() {
       Object.keys(markers).forEach(id => {
         if (markers[id]) {
+          stopMarkerAnimation(markers[id]);
           map.removeLayer(markers[id]);
         }
       });
@@ -3905,14 +4030,25 @@
       Object.keys(nameBubbles).forEach(id => {
         const bubble = nameBubbles[id];
         if (!bubble) return;
-        if (bubble.speedMarker) map.removeLayer(bubble.speedMarker);
-        if (bubble.nameMarker) map.removeLayer(bubble.nameMarker);
-        if (bubble.blockMarker) map.removeLayer(bubble.blockMarker);
+        if (bubble.speedMarker) {
+          stopMarkerAnimation(bubble.speedMarker);
+          map.removeLayer(bubble.speedMarker);
+        }
+        if (bubble.nameMarker) {
+          stopMarkerAnimation(bubble.nameMarker);
+          map.removeLayer(bubble.nameMarker);
+        }
+        if (bubble.blockMarker) {
+          stopMarkerAnimation(bubble.blockMarker);
+          map.removeLayer(bubble.blockMarker);
+        }
       });
       nameBubbles = {};
       busMarkerStates = {};
       pendingBusVisualUpdates.clear();
       busBlocks = {};
+      lastFrameDisplayMs = null;
+      lastFrameRealTime = null;
     }
 
     function drawRoutes() {
@@ -4099,6 +4235,14 @@
       timeline.title = formatted;
       document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
 
+      const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const displayDeltaMs = Number.isFinite(lastFrameDisplayMs) ? Math.abs(timeMs - lastFrameDisplayMs) : 0;
+      const actualElapsedMs = Number.isFinite(lastFrameRealTime) ? Math.max(0, now - lastFrameRealTime) : 0;
+      const markerAnimationDuration = computeMarkerAnimationDuration(displayDeltaMs, actualElapsedMs);
+      const markerAnimationOptions = markerAnimationDuration > 0 ? { durationMs: markerAnimationDuration } : undefined;
+
       const activeRoutesSet = new Set();
       const activeBusesSet = new Set();
       entry.vehicles.forEach(v => {
@@ -4149,7 +4293,7 @@
         }
 
         if (markers[vehicle.VehicleID]) {
-          animateMarkerTo(markers[vehicle.VehicleID], pos);
+          animateMarkerTo(markers[vehicle.VehicleID], pos, markerAnimationOptions);
           markers[vehicle.VehicleID].routeID = routeID;
           queueBusMarkerVisualUpdate(vehicle.VehicleID, {
             fillColor: routeColor,
@@ -4183,16 +4327,18 @@
           const speedIcon = createSpeedBubbleDivIcon(routeColor, vehicle.GroundSpeed, scale, state.headingDeg);
           if (speedIcon) {
             if (bubble.speedMarker) {
-              animateMarkerTo(bubble.speedMarker, pos);
+              animateMarkerTo(bubble.speedMarker, pos, markerAnimationOptions);
               bubble.speedMarker.setIcon(speedIcon);
             } else {
               bubble.speedMarker = L.marker(pos, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
             }
           } else if (bubble.speedMarker) {
+            stopMarkerAnimation(bubble.speedMarker);
             map.removeLayer(bubble.speedMarker);
             delete bubble.speedMarker;
           }
         } else if (bubble.speedMarker) {
+          stopMarkerAnimation(bubble.speedMarker);
           map.removeLayer(bubble.speedMarker);
           delete bubble.speedMarker;
         }
@@ -4201,16 +4347,18 @@
           const nameIcon = createNameBubbleDivIcon(busName, routeColor, scale, state.headingDeg);
           if (nameIcon) {
             if (bubble.nameMarker) {
-              animateMarkerTo(bubble.nameMarker, pos);
+              animateMarkerTo(bubble.nameMarker, pos, markerAnimationOptions);
               bubble.nameMarker.setIcon(nameIcon);
             } else {
               bubble.nameMarker = L.marker(pos, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
             }
           } else if (bubble.nameMarker) {
+            stopMarkerAnimation(bubble.nameMarker);
             map.removeLayer(bubble.nameMarker);
             delete bubble.nameMarker;
           }
         } else if (bubble.nameMarker) {
+          stopMarkerAnimation(bubble.nameMarker);
           map.removeLayer(bubble.nameMarker);
           delete bubble.nameMarker;
         }
@@ -4222,18 +4370,20 @@
             if (blockIcon) {
               busBlocks[vehicle.VehicleID] = blockName;
               if (bubble.blockMarker) {
-                animateMarkerTo(bubble.blockMarker, pos);
+                animateMarkerTo(bubble.blockMarker, pos, markerAnimationOptions);
                 bubble.blockMarker.setIcon(blockIcon);
               } else {
                 bubble.blockMarker = L.marker(pos, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
               }
             } else if (bubble.blockMarker) {
+              stopMarkerAnimation(bubble.blockMarker);
               map.removeLayer(bubble.blockMarker);
               delete bubble.blockMarker;
               delete busBlocks[vehicle.VehicleID];
             }
           } else {
             if (bubble.blockMarker) {
+              stopMarkerAnimation(bubble.blockMarker);
               map.removeLayer(bubble.blockMarker);
               delete bubble.blockMarker;
             }
@@ -4241,6 +4391,7 @@
           }
         } else {
           if (bubble.blockMarker) {
+            stopMarkerAnimation(bubble.blockMarker);
             map.removeLayer(bubble.blockMarker);
             delete bubble.blockMarker;
           }
@@ -4259,7 +4410,11 @@
       Object.keys(markers).forEach(id => {
         const numericId = Number(id);
         if (!seen.has(numericId)) {
-          map.removeLayer(markers[id]);
+          const marker = markers[id];
+          if (marker) {
+            stopMarkerAnimation(marker);
+            map.removeLayer(marker);
+          }
           delete markers[id];
           clearBusMarkerState(numericId);
         }
@@ -4269,12 +4424,23 @@
         const numericId = Number(id);
         if (!seen.has(numericId)) {
           const bubble = nameBubbles[id];
-          if (bubble?.speedMarker) map.removeLayer(bubble.speedMarker);
-          if (bubble?.nameMarker) map.removeLayer(bubble.nameMarker);
-          if (bubble?.blockMarker) map.removeLayer(bubble.blockMarker);
+          if (bubble?.speedMarker) {
+            stopMarkerAnimation(bubble.speedMarker);
+            map.removeLayer(bubble.speedMarker);
+          }
+          if (bubble?.nameMarker) {
+            stopMarkerAnimation(bubble.nameMarker);
+            map.removeLayer(bubble.nameMarker);
+          }
+          if (bubble?.blockMarker) {
+            stopMarkerAnimation(bubble.blockMarker);
+            map.removeLayer(bubble.blockMarker);
+          }
           delete nameBubbles[id];
         }
       });
+      lastFrameDisplayMs = timeMs;
+      lastFrameRealTime = now;
       scheduleMarkerScaleUpdate();
     }
     async function scheduleNext() {
