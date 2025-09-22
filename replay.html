@@ -3052,21 +3052,40 @@
       }
     }
 
-    function fetchRoutes() {
-      return fetch('/v1/transloc/routes')
-        .then(r => r.json())
-        .then(data => {
-          if (Array.isArray(data)) {
-            data.forEach(route => {
-              routeColors[route.RouteID] = route.MapLineColor;
-              allRoutes[route.RouteID] = route;
-              if (route.EncodedPolyline) {
-                allRoutes[route.RouteID].decodedPolyline = polyline.decode(route.EncodedPolyline);
-              }
-            });
+    async function fetchRoutes() {
+      try {
+        const response = await fetch('/v1/transloc/routes');
+        const data = await response.json();
+        if (!Array.isArray(data)) {
+          return;
+        }
+
+        data.forEach(route => {
+          if (!route) return;
+          const numericId = Number(route.RouteID);
+          if (!Number.isFinite(numericId)) return;
+
+          const merged = Object.assign({}, allRoutes[numericId] || {}, route);
+
+          const color = typeof route.MapLineColor === 'string' ? route.MapLineColor.trim() : '';
+          if (color) {
+            routeColors[numericId] = color;
+            merged.MapLineColor = color;
           }
-        })
-        .catch(err => console.error('Error fetching routes', err));
+
+          const encodedPolylineRaw = route.EncodedPolyline ?? route.encodedPolyline;
+          const encoded = typeof encodedPolylineRaw === 'string' ? encodedPolylineRaw.trim() : '';
+          if (encoded) {
+            merged.EncodedPolyline = encoded;
+          } else {
+            delete merged.EncodedPolyline;
+          }
+
+          allRoutes[numericId] = merged;
+        });
+      } catch (err) {
+        console.error('Error fetching routes', err);
+      }
     }
 
     function getContrastColor(hexColor) {
@@ -3673,61 +3692,153 @@
     }
 
     function drawRoutes() {
-      routeLayers.forEach(layer => map.removeLayer(layer));
-      routeLayers = [];
-
       const rendererGeometries = new Map();
       const simpleGeometries = [];
       const selectedRouteIds = [];
+      const seenRouteIds = new Set();
+      const previousSelectedIds = new Set(
+        (lastRouteRenderState.selectionKey || '')
+          .split('|')
+          .map(id => Number(id))
+          .filter(id => Number.isFinite(id))
+      );
+      let geometryChanged = false;
+      const useOverlapRenderer = enableOverlapDashRendering && overlapRenderer;
 
       Object.keys(allRoutes).forEach(routeID => {
         const route = allRoutes[routeID];
         const numericId = Number(routeID);
         if (!route || Number.isNaN(numericId)) return;
-        if (!route.decodedPolyline || !Array.isArray(route.decodedPolyline)) return;
-        if (!isRouteSelected(numericId)) return;
 
-        let cacheEntry = routePolylineCache.get(numericId);
-        if (!cacheEntry || cacheEntry.raw !== route.decodedPolyline) {
-          const latLngs = route.decodedPolyline.map(coords => L.latLng(coords[0], coords[1]));
-          routePolylineCache.set(numericId, { raw: route.decodedPolyline, latLngs });
-          cacheEntry = routePolylineCache.get(numericId);
+        const color = typeof route.MapLineColor === 'string' ? route.MapLineColor.trim() : '';
+        if (color) {
+          routeColors[numericId] = color;
         }
 
-        const latLngPath = cacheEntry?.latLngs;
-        if (!Array.isArray(latLngPath) || latLngPath.length < 2) {
+        const encodedRaw = route.EncodedPolyline ?? route.encodedPolyline;
+        const encoded = typeof encodedRaw === 'string' ? encodedRaw.trim() : '';
+        if (encoded) {
+          seenRouteIds.add(numericId);
+          let cacheEntry = routePolylineCache.get(numericId);
+          if (!cacheEntry || cacheEntry.encoded !== encoded) {
+            try {
+              const decoded = polyline.decode(encoded);
+              const latLngPath = Array.isArray(decoded)
+                ? decoded.map(coords => L.latLng(coords[0], coords[1]))
+                : [];
+              if (latLngPath.length >= 2) {
+                routePolylineCache.set(numericId, { encoded, latLngPath });
+                cacheEntry = routePolylineCache.get(numericId);
+                if (isRouteSelected(numericId)) {
+                  geometryChanged = true;
+                }
+              } else {
+                routePolylineCache.delete(numericId);
+                cacheEntry = null;
+                if (isRouteSelected(numericId)) {
+                  geometryChanged = true;
+                }
+              }
+            } catch (error) {
+              console.error(`Failed to decode polyline for route ${numericId}:`, error);
+              routePolylineCache.delete(numericId);
+              if (isRouteSelected(numericId)) {
+                geometryChanged = true;
+              }
+              return;
+            }
+          }
+        } else {
+          if (routePolylineCache.has(numericId)) {
+            routePolylineCache.delete(numericId);
+            if (isRouteSelected(numericId)) {
+              geometryChanged = true;
+            }
+          }
+          return;
+        }
+
+        const cacheEntry = routePolylineCache.get(numericId);
+        if (!cacheEntry || !Array.isArray(cacheEntry.latLngPath) || cacheEntry.latLngPath.length < 2) {
+          return;
+        }
+
+        if (!isRouteSelected(numericId)) {
           return;
         }
 
         selectedRouteIds.push(numericId);
 
-        if (enableOverlapDashRendering && overlapRenderer) {
-          rendererGeometries.set(numericId, latLngPath);
+        if (useOverlapRenderer) {
+          rendererGeometries.set(numericId, cacheEntry.latLngPath);
         } else {
           simpleGeometries.push({
             routeId: numericId,
-            latLngPath,
+            latLngPath: cacheEntry.latLngPath,
             routeColor: getRouteColor(numericId)
           });
         }
       });
 
-      if (enableOverlapDashRendering && overlapRenderer && rendererGeometries.size > 0) {
-        const sorted = selectedRouteIds.slice().sort((a, b) => a - b);
-        routeLayers = overlapRenderer.updateRoutes(rendererGeometries, sorted) || [];
-      } else {
-        const currentWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
-        simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
-          const layer = L.polyline(latLngPath, mergeRouteLayerOptions({
-            color: routeColor,
-            weight: currentWeight,
-            opacity: 1,
-            lineCap: 'round',
-            lineJoin: 'round'
-          })).addTo(map);
-          routeLayers.push(layer);
-        });
+      Array.from(routePolylineCache.keys()).forEach(routeId => {
+        if (!seenRouteIds.has(routeId)) {
+          if (previousSelectedIds.has(routeId)) {
+            geometryChanged = true;
+          }
+          routePolylineCache.delete(routeId);
+        }
+      });
+
+      const selectedRouteIdsSorted = selectedRouteIds.slice().sort((a, b) => a - b);
+      const selectionKey = selectedRouteIdsSorted.join('|');
+      const colorSignature = selectedRouteIdsSorted
+        .map(id => `${id}:${getRouteColor(id) || ''}`)
+        .join('|');
+      const geometrySignature = selectedRouteIdsSorted
+        .map(id => `${id}:${routePolylineCache.get(id)?.encoded || ''}`)
+        .join('|');
+      const rendererFlag = !!useOverlapRenderer;
+
+      const shouldRender =
+        routeLayers.length === 0 ||
+        rendererFlag !== lastRouteRenderState.useOverlapRenderer ||
+        selectionKey !== lastRouteRenderState.selectionKey ||
+        colorSignature !== lastRouteRenderState.colorSignature ||
+        geometrySignature !== lastRouteRenderState.geometrySignature ||
+        geometryChanged;
+
+      if (shouldRender) {
+        routeLayers.forEach(layer => map.removeLayer(layer));
+        routeLayers = [];
+        if (useOverlapRenderer) {
+          const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted) || [];
+          routeLayers = Array.isArray(layers) ? layers : [];
+        } else if (simpleGeometries.length > 0) {
+          const currentWeight = computeRouteStrokeWeight(
+            typeof map?.getZoom === 'function' ? map.getZoom() : null
+          );
+          simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
+            const layer = L.polyline(
+              latLngPath,
+              mergeRouteLayerOptions({
+                color: routeColor,
+                weight: currentWeight,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+              })
+            ).addTo(map);
+            routeLayers.push(layer);
+          });
+        }
       }
+
+      lastRouteRenderState = {
+        selectionKey,
+        colorSignature,
+        geometrySignature,
+        useOverlapRenderer: rendererFlag
+      };
     }
 
 
