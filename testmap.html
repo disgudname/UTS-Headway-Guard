@@ -159,7 +159,23 @@
       .incident-popup__units {
         display: flex;
         flex-direction: column;
+        gap: 8px;
+      }
+      .incident-popup__unit-status-group {
+        display: flex;
+        flex-direction: column;
         gap: 6px;
+      }
+      .incident-popup__unit-status-group + .incident-popup__unit-status-group {
+        padding-top: 6px;
+        border-top: 1px solid rgba(255, 255, 255, 0.14);
+      }
+      .incident-popup__unit-status-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.82);
       }
       .incident-popup__unit-list {
         display: flex;
@@ -1510,6 +1526,18 @@
         CLEARED: 'AR',
         'CLEARED FROM INCIDENT': 'AR'
       });
+      const INCIDENT_UNIT_STATUS_SECTION_ORDER = Object.freeze([
+        'OS',
+        'AE',
+        'SG',
+        'ER',
+        'TR',
+        'TA',
+        'DP',
+        'AK',
+        'AR'
+      ]);
+      const INCIDENT_UNIT_STATUS_FALLBACK_LABEL = 'Status Unknown';
 
       let latestActiveIncidents = [];
       let incidentsNearRoutes = [];
@@ -1980,7 +2008,7 @@
               entry.ApparatusID,
               entry.VehicleID
             ];
-            const name = nameCandidates.find(value => typeof value === 'string' && value.trim());
+            let name = nameCandidates.find(value => typeof value === 'string' && value.trim());
             const statusCandidates = [
               entry.PulsePointDispatchStatus,
               entry.DispatchStatus,
@@ -1988,28 +2016,37 @@
               entry.UnitStatus
             ];
             let status = statusCandidates.find(value => typeof value === 'string' && value.trim());
-            if (!status && typeof entry === 'string') {
-              const parsed = parseUnitString(entry);
-              status = parsed.status;
+            let parsed = null;
+            if (typeof entry === 'string') {
+              parsed = parseUnitString(entry);
+              if (!status && parsed.status) {
+                status = parsed.status;
+              }
+              if (!name && parsed.name) {
+                name = parsed.name;
+              }
             }
             const normalized = normalizeUnitStatus(status);
-            const statusDisplay = normalized.key || (status ? status.trim() : '');
-            const unitName = name ? name.trim() : '';
-            let displayText = unitName;
-            if (statusDisplay) {
-              displayText = unitName ? `${unitName} (${statusDisplay})` : statusDisplay;
-            }
+            const statusKey = normalized.key || '';
+            const normalizedLabel = typeof normalized.label === 'string' ? normalized.label.trim() : '';
+            const statusLabel = normalizedLabel || (typeof normalized.raw === 'string' ? normalized.raw.trim() : '');
+            const unitName = typeof name === 'string' ? name.trim() : '';
+            const rawText = parsed?.raw && parsed.raw.trim()
+              ? parsed.raw.trim()
+              : (typeof entry === 'string' ? entry.trim() : '');
+            const displayText = unitName || statusLabel || rawText;
             if (!displayText) return;
             let tooltip = '';
-            if (normalized.info?.label) {
-              tooltip = normalized.info.label;
+            if (statusLabel) {
+              tooltip = statusLabel;
             }
-            if (normalized.raw && normalized.raw !== statusDisplay && (!tooltip || tooltip.toLowerCase() !== normalized.raw.toLowerCase())) {
+            if (normalized.raw && normalized.raw !== statusLabel && (!tooltip || tooltip.toLowerCase() !== normalized.raw.toLowerCase())) {
               tooltip = tooltip ? `${tooltip} • ${normalized.raw}` : normalized.raw;
             }
             units.push({
               displayText,
-              statusKey: normalized.key,
+              statusKey,
+              statusLabel,
               colorInfo: normalized.info || null,
               tooltip,
               rawStatus: normalized.raw,
@@ -2029,22 +2066,25 @@
             source.split(',').map(part => part.trim()).filter(Boolean).forEach(part => {
               const parsed = parseUnitString(part);
               const normalized = normalizeUnitStatus(parsed.status);
-              const statusDisplay = normalized.key || (parsed.status ? parsed.status : '');
-              const baseName = parsed.name || '';
+              const statusKey = normalized.key || '';
+              const normalizedLabel = typeof normalized.label === 'string' ? normalized.label.trim() : '';
+              const statusLabel = normalizedLabel || (typeof normalized.raw === 'string' ? normalized.raw.trim() : '');
+              const baseName = parsed.name ? parsed.name.trim() : '';
               const displayText = baseName
-                ? (statusDisplay ? `${baseName} (${statusDisplay})` : baseName)
-                : (statusDisplay || parsed.raw);
+                ? baseName
+                : (statusLabel || (parsed.raw ? parsed.raw.trim() : ''));
               if (!displayText) return;
               let tooltip = '';
-              if (normalized.info?.label) {
-                tooltip = normalized.info.label;
+              if (statusLabel) {
+                tooltip = statusLabel;
               }
-              if (normalized.raw && normalized.raw !== statusDisplay && (!tooltip || tooltip.toLowerCase() !== normalized.raw.toLowerCase())) {
+              if (normalized.raw && normalized.raw !== statusLabel && (!tooltip || tooltip.toLowerCase() !== normalized.raw.toLowerCase())) {
                 tooltip = tooltip ? `${tooltip} • ${normalized.raw}` : normalized.raw;
               }
               units.push({
                 displayText,
-                statusKey: normalized.key,
+                statusKey,
+                statusLabel,
                 colorInfo: normalized.info || null,
                 tooltip,
                 rawStatus: normalized.raw,
@@ -3329,7 +3369,9 @@
       }
 
       function renderIncidentUnit(unit) {
-        if (!unit || !unit.displayText) return '';
+        if (!unit) return '';
+        const text = typeof unit.displayText === 'string' ? unit.displayText.trim() : '';
+        if (!text) return '';
         const classes = ['incident-unit'];
         if (unit.statusKey) {
           classes.push(`incident-unit--${unit.statusKey.toLowerCase()}`);
@@ -3342,8 +3384,81 @@
           if (unit.colorInfo.border) styleParts.push(`border-color:${unit.colorInfo.border}`);
         }
         const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
-        const titleAttr = unit.tooltip ? ` title="${escapeAttribute(unit.tooltip)}"` : '';
-        return `<span class="${classAttr}"${styleAttr}${titleAttr}>${escapeHtml(unit.displayText)}</span>`;
+        const tooltipValue = typeof unit.tooltip === 'string' ? unit.tooltip.trim() : '';
+        const titleAttr = tooltipValue ? ` title="${escapeAttribute(tooltipValue)}"` : '';
+        return `<span class="${classAttr}"${styleAttr}${titleAttr}>${escapeHtml(text)}</span>`;
+      }
+
+      function getIncidentUnitStatusLabel(unit) {
+        if (!unit) return INCIDENT_UNIT_STATUS_FALLBACK_LABEL;
+        const candidates = [
+          typeof unit.statusLabel === 'string' ? unit.statusLabel.trim() : '',
+          typeof unit.rawStatus === 'string' ? unit.rawStatus.trim() : '',
+          typeof unit.statusKey === 'string' ? unit.statusKey.trim() : ''
+        ];
+        const label = candidates.find(value => value);
+        return label || INCIDENT_UNIT_STATUS_FALLBACK_LABEL;
+      }
+
+      function getIncidentUnitStatusSortIndex(statusKey) {
+        if (typeof statusKey === 'string' && statusKey) {
+          const index = INCIDENT_UNIT_STATUS_SECTION_ORDER.indexOf(statusKey);
+          if (index !== -1) return index;
+        }
+        return INCIDENT_UNIT_STATUS_SECTION_ORDER.length;
+      }
+
+      function buildIncidentUnitStatusGroups(units) {
+        if (!Array.isArray(units) || units.length === 0) return [];
+        const groupsMap = new Map();
+        units.forEach((unit, index) => {
+          if (!unit) return;
+          const text = typeof unit.displayText === 'string' ? unit.displayText.trim() : '';
+          if (!text) return;
+          const rawLabel = getIncidentUnitStatusLabel(unit);
+          const trimmedLabel = rawLabel ? rawLabel.trim() : '';
+          const label = trimmedLabel || INCIDENT_UNIT_STATUS_FALLBACK_LABEL;
+          const mapKey = unit.statusKey
+            ? `key:${unit.statusKey}`
+            : `label:${label.toLowerCase()}`;
+          let group = groupsMap.get(mapKey);
+          if (!group) {
+            group = {
+              key: unit.statusKey || '',
+              label,
+              units: [],
+              sortIndex: getIncidentUnitStatusSortIndex(unit.statusKey || ''),
+              firstUnitIndex: index
+            };
+            groupsMap.set(mapKey, group);
+          }
+          group.units.push(unit);
+          if (index < group.firstUnitIndex) {
+            group.firstUnitIndex = index;
+          }
+        });
+        return Array.from(groupsMap.values()).sort((a, b) => {
+          if (a.sortIndex !== b.sortIndex) return a.sortIndex - b.sortIndex;
+          if (a.firstUnitIndex !== b.firstUnitIndex) return a.firstUnitIndex - b.firstUnitIndex;
+          return a.label.localeCompare(b.label);
+        });
+      }
+
+      function renderIncidentPopupUnitsSection(units) {
+        const validUnits = Array.isArray(units)
+          ? units.filter(unit => unit && typeof unit.displayText === 'string' && unit.displayText.trim())
+          : [];
+        if (!validUnits.length) return '';
+        const groups = buildIncidentUnitStatusGroups(validUnits);
+        if (!groups.length) return '';
+        const groupsHtml = groups.map(group => {
+          const unitsHtml = group.units.map(renderIncidentUnit).filter(Boolean).join('');
+          if (!unitsHtml) return '';
+          const safeLabel = escapeHtml(group.label);
+          return `<div class="incident-popup__unit-status-group"><div class="incident-popup__unit-status-title">${safeLabel}</div><div class="incident-popup__unit-list">${unitsHtml}</div></div>`;
+        }).filter(Boolean).join('');
+        if (!groupsHtml) return '';
+        return `<div class="incident-popup__section incident-popup__units"><div class="incident-popup__section-title">Units</div>${groupsHtml}</div>`;
       }
 
       function renderIncidentAlertItem(entry) {
@@ -4951,12 +5066,7 @@
               : '';
 
           const units = extractIncidentUnits(incident);
-          const unitsContent = Array.isArray(units)
-              ? units.map(renderIncidentUnit).filter(Boolean).join('')
-              : '';
-          const unitsHtml = unitsContent
-              ? `<div class="incident-popup__section incident-popup__units"><div class="incident-popup__section-title">Units</div><div class="incident-popup__unit-list">${unitsContent}</div></div>`
-              : '';
+          const unitsHtml = renderIncidentPopupUnitsSection(units);
 
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
