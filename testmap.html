@@ -1198,6 +1198,9 @@
       let map;
       let markers = {};
       let busMarkerStates = {};
+      const vehicleHeadingCache = new Map();
+      let vehicleHeadingCachePromise = null;
+      const VEHICLE_HEADING_CACHE_ENDPOINT = '/v1/vehicle_headings';
       let pendingBusVisualUpdates = new Map();
       let busMarkerVisualUpdateFrame = null;
       let selectedVehicleId = null;
@@ -3947,10 +3950,11 @@
             updateCustomPopups();
             return allEtas;
           });
+          const headingCachePromise = loadVehicleHeadingCache();
           const tasks = [
             fetchBusStops(),
             fetchBlockAssignments(),
-            fetchBusLocations().then(() => fetchRoutePaths()),
+            headingCachePromise.then(() => fetchBusLocations().then(() => fetchRoutePaths())),
             stopArrivalsPromise
           ];
           return Promise.allSettled(tasks);
@@ -5865,6 +5869,14 @@
       }
 
       async function fetchBusLocations() {
+          try {
+              const headingPromise = loadVehicleHeadingCache();
+              if (headingPromise && typeof headingPromise.then === 'function') {
+                  await headingPromise;
+              }
+          } catch (error) {
+              console.info('Proceeding without cached vehicle headings.', error);
+          }
           const currentBaseURL = baseURL;
           const apiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           try {
@@ -5924,7 +5936,8 @@
                   const state = ensureBusMarkerState(vehicleID);
                   const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
                   const glyphColor = computeBusMarkerGlyphColor(routeColor);
-                  const headingDeg = updateBusMarkerHeading(state, newPosition, heading, groundSpeed);
+                  const fallbackHeading = getVehicleHeadingFallback(vehicleID, heading);
+                  const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeed);
                   const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
                   const gpsIsStale = isVehicleGpsStale(v);
                   const isStopped = isBusConsideredStopped(groundSpeed);
@@ -5939,6 +5952,7 @@
                   state.isStopped = isStopped;
                   state.groundSpeed = groundSpeed;
                   state.lastUpdateTimestamp = Date.now();
+                  rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
 
                   if (!state.size) {
                       setBusMarkerSize(state, markerMetricsForZoom);
@@ -6084,13 +6098,102 @@
           return { scale, widthPx: width, heightPx: height };
       }
 
+      function rememberCachedVehicleHeading(vehicleID, headingDeg, timestamp) {
+          if (!Number.isFinite(headingDeg)) {
+              return;
+          }
+          if (vehicleID === undefined || vehicleID === null) {
+              return;
+          }
+          const key = `${vehicleID}`;
+          if (!key || key === 'undefined' || key === 'null') {
+              return;
+          }
+          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
+          const updatedAt = Number.isFinite(timestamp) ? Number(timestamp) : Date.now();
+          vehicleHeadingCache.set(key, { heading: normalizedHeading, updatedAt });
+      }
+
+      function getCachedVehicleHeading(vehicleID) {
+          if (vehicleID === undefined || vehicleID === null) {
+              return null;
+          }
+          const key = `${vehicleID}`;
+          const entry = vehicleHeadingCache.get(key);
+          if (!entry) {
+              return null;
+          }
+          const heading = Number(entry.heading ?? entry.Heading);
+          if (!Number.isFinite(heading)) {
+              return null;
+          }
+          return normalizeHeadingDegrees(heading);
+      }
+
+      function getVehicleHeadingFallback(vehicleID, headingFromFeed) {
+          const cached = getCachedVehicleHeading(vehicleID);
+          if (cached !== null) {
+              return cached;
+          }
+          const fromFeed = Number(headingFromFeed);
+          if (Number.isFinite(fromFeed)) {
+              return normalizeHeadingDegrees(fromFeed);
+          }
+          return BUS_MARKER_DEFAULT_HEADING;
+      }
+
+      function loadVehicleHeadingCache() {
+          if (vehicleHeadingCachePromise) {
+              return vehicleHeadingCachePromise;
+          }
+          if (typeof fetch !== 'function') {
+              vehicleHeadingCachePromise = Promise.resolve(vehicleHeadingCache);
+              return vehicleHeadingCachePromise;
+          }
+          vehicleHeadingCachePromise = (async () => {
+              try {
+                  const response = await fetch(VEHICLE_HEADING_CACHE_ENDPOINT, { cache: 'no-store' });
+                  if (!response.ok) {
+                      throw new Error(`HTTP ${response.status}`);
+                  }
+                  const data = await response.json();
+                  if (data && typeof data === 'object' && data.headings && typeof data.headings === 'object') {
+                      Object.entries(data.headings).forEach(([vehicleID, entry]) => {
+                          if (!vehicleID) {
+                              return;
+                          }
+                          let headingValue = entry;
+                          let updatedAt = undefined;
+                          if (entry && typeof entry === 'object') {
+                              headingValue = entry.heading ?? entry.Heading;
+                              const tsCandidate = entry.updated_at ?? entry.updatedAt ?? entry.timestamp ?? entry.ts_ms ?? entry.ts;
+                              if (Number.isFinite(Number(tsCandidate))) {
+                                  updatedAt = Number(tsCandidate);
+                              }
+                          }
+                          const headingNumber = Number(headingValue);
+                          if (!Number.isFinite(headingNumber)) {
+                              return;
+                          }
+                          rememberCachedVehicleHeading(vehicleID, headingNumber, updatedAt);
+                      });
+                  }
+              } catch (error) {
+                  console.info('Vehicle heading cache unavailable; continuing without it.', error);
+              }
+              return vehicleHeadingCache;
+          })();
+          return vehicleHeadingCachePromise;
+      }
+
       function ensureBusMarkerState(vehicleID) {
           if (!busMarkerStates[vehicleID]) {
               const defaultRouteColor = BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              const cachedHeading = getCachedVehicleHeading(vehicleID);
               busMarkerStates[vehicleID] = {
                   vehicleID,
                   positionHistory: [],
-                  headingDeg: BUS_MARKER_DEFAULT_HEADING,
+                  headingDeg: Number.isFinite(cachedHeading) ? cachedHeading : BUS_MARKER_DEFAULT_HEADING,
                   fillColor: defaultRouteColor,
                   glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
                   accessibleLabel: '',
