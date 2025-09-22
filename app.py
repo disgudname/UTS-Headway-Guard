@@ -704,6 +704,7 @@ def save_device_stops() -> None:
     propagate_file(DEVICE_STOP_NAME, payload)
 
 load_device_stops()
+load_vehicle_headings()
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -777,6 +778,10 @@ class State:
         # bus is stationary and TransLoc stops reporting movement, preventing
         # leader picking from resetting the bus to direction 0.
         self.last_dir_sign: Dict[int, int] = {}
+        # Cache the most recent stabilised heading per vehicle so front-ends
+        # can restore orientation immediately on reload.
+        self.last_headings: Dict[int, Dict[str, Any]] = {}
+        self.last_headings_dirty: bool = False
         self.lock = asyncio.Lock()
         self.last_overpass_note: str = ""
         # Added: error surfacing & active route tracking
@@ -795,6 +800,98 @@ class State:
 state = State()
 MILEAGE_NAME = "mileage.json"
 MILEAGE_FILE = PRIMARY_DATA_DIR / MILEAGE_NAME
+
+VEHICLE_HEADINGS_NAME = Path(os.environ.get("VEHICLE_HEADINGS_FILE", "vehicle_headings.json")).name
+
+
+def normalize_heading_deg(value: float) -> float:
+    return ((value % 360) + 360) % 360
+
+
+def decode_vehicle_headings_payload(raw: Any) -> Dict[int, Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    result: Dict[int, Dict[str, Any]] = {}
+    for key, entry in raw.items():
+        try:
+            vid = int(key)
+        except (TypeError, ValueError):
+            continue
+        heading_val: Optional[float]
+        updated_at: Optional[int] = None
+        if isinstance(entry, dict):
+            heading_val = entry.get("heading")
+            if heading_val is None:
+                heading_val = entry.get("Heading")
+            ts_val = (
+                entry.get("updated_at")
+                or entry.get("updatedAt")
+                or entry.get("timestamp")
+                or entry.get("ts_ms")
+                or entry.get("ts")
+            )
+            if ts_val is not None:
+                try:
+                    updated_at = int(ts_val)
+                except (TypeError, ValueError):
+                    updated_at = None
+        else:
+            heading_val = entry
+        try:
+            heading_float = float(heading_val) if heading_val is not None else None
+        except (TypeError, ValueError):
+            heading_float = None
+        if heading_float is None or not math.isfinite(heading_float):
+            continue
+        normalized = normalize_heading_deg(heading_float)
+        result[vid] = {"heading": normalized, "updated_at": updated_at}
+    return result
+
+
+def load_vehicle_headings() -> None:
+    loaded: Dict[int, Dict[str, Any]] = {}
+    for base in DATA_DIRS:
+        path = base / VEHICLE_HEADINGS_NAME
+        if not path.exists():
+            continue
+        try:
+            raw = json.loads(path.read_text())
+        except Exception as e:
+            print(f"[vehicle_headings] error reading {path}: {e}")
+            continue
+        loaded = decode_vehicle_headings_payload(raw)
+        break
+    state.last_headings = loaded
+    state.last_headings_dirty = False
+
+
+def save_vehicle_headings() -> None:
+    try:
+        payload: Dict[str, Dict[str, Any]] = {}
+        for vid, entry in state.last_headings.items():
+            heading_val = entry.get("heading") if isinstance(entry, dict) else None
+            if heading_val is None or not math.isfinite(heading_val):
+                continue
+            record: Dict[str, Any] = {"heading": float(heading_val)}
+            ts_val = entry.get("updated_at") if isinstance(entry, dict) else None
+            if ts_val is not None:
+                try:
+                    record["updated_at"] = int(ts_val)
+                except (TypeError, ValueError):
+                    pass
+            payload[str(vid)] = record
+        payload_json = json.dumps(payload)
+    except Exception as e:
+        print(f"[vehicle_headings] encode error: {e}")
+        return
+    for base in DATA_DIRS:
+        path = base / VEHICLE_HEADINGS_NAME
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(payload_json)
+        except Exception as e:
+            print(f"[vehicle_headings] error writing {path}: {e}")
+    propagate_file(VEHICLE_HEADINGS_NAME, payload_json)
 
 def load_bus_days() -> None:
     for base in DATA_DIRS:
@@ -852,7 +949,7 @@ def save_bus_days() -> None:
 # ---------------------------
 
 @app.post("/sync")
-def receive_sync(payload: dict):
+async def receive_sync(payload: dict):
     secret = payload.get("secret")
     if SYNC_SECRET is None or secret != SYNC_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
@@ -860,10 +957,17 @@ def receive_sync(payload: dict):
     data = payload.get("data")
     if (
         not isinstance(name, str)
-        or name not in {DEVICE_STOP_NAME, CONFIG_NAME, MILEAGE_NAME}
+        or name not in {DEVICE_STOP_NAME, CONFIG_NAME, MILEAGE_NAME, VEHICLE_HEADINGS_NAME}
         or not isinstance(data, str)
     ):
         raise HTTPException(status_code=400, detail="invalid payload")
+    parsed_headings: Optional[Dict[int, Dict[str, Any]]] = None
+    if name == VEHICLE_HEADINGS_NAME:
+        try:
+            parsed_headings = decode_vehicle_headings_payload(json.loads(data))
+        except Exception as e:
+            print(f"[sync] error decoding vehicle headings payload: {e}")
+            parsed_headings = None
     for base in DATA_DIRS:
         path = base / name
         try:
@@ -871,6 +975,10 @@ def receive_sync(payload: dict):
             path.write_text(data)
         except Exception as e:
             print(f"[sync] error writing {path}: {e}")
+    if parsed_headings is not None:
+        async with state.lock:
+            state.last_headings = parsed_headings
+            state.last_headings_dirty = False
     return {"ok": True}
 
 # ---------------------------
@@ -889,6 +997,7 @@ async def health():
 async def startup():
     async with state.lock:
         load_bus_days()
+        load_vehicle_headings()
 
     async def updater():
         await asyncio.sleep(0.1)
@@ -978,19 +1087,35 @@ async def startup():
                             if rid not in keep_ids or rid not in state.routes:
                                 continue
                             name = str(v.get("Name") or "-")
-                            vid = v.get("VehicleID")
+                            raw_vid = v.get("VehicleID")
+                            try:
+                                vid = int(raw_vid) if raw_vid is not None else None
+                            except (TypeError, ValueError):
+                                vid = raw_vid
                             tsms = parse_msajax(v.get("TimeStampUTC") or v.get("TimeStamp")) or int(time.time()*1000)
                             mps = (v.get("GroundSpeed") or 0.0) * MPH_TO_MPS
                             lat = v.get("Latitude")
                             lon = v.get("Longitude")
                             prev = prev_map.get(rid, {}).get(vid)
-                            heading = v.get("Heading") or 0.0
+                            raw_heading = v.get("Heading")
+                            try:
+                                heading = float(raw_heading) if raw_heading is not None else 0.0
+                            except (TypeError, ValueError):
+                                heading = 0.0
+                            if (prev is None or getattr(prev, "heading", None) is None) and vid is not None:
+                                cached = state.last_headings.get(vid)
+                                cached_heading = cached.get("heading") if isinstance(cached, dict) else None
+                                if cached_heading is not None and math.isfinite(cached_heading):
+                                    heading = float(cached_heading)
                             if prev and prev.lat is not None and prev.lon is not None and lat is not None and lon is not None:
                                 move = haversine((prev.lat, prev.lon), (lat, lon))
                                 if move >= HEADING_JITTER_M:
                                     heading = bearing_between((prev.lat, prev.lon), (lat, lon))
                                 else:
                                     heading = prev.heading
+                            if heading is None or not math.isfinite(heading):
+                                heading = 0.0
+                            heading = normalize_heading_deg(float(heading))
                             age_s = v.get("Seconds")
                             if age_s is None:
                                 age_s = max(0, (time.time()*1000 - tsms) / 1000)
@@ -1030,6 +1155,40 @@ async def startup():
                             new_map[rid][vid] = veh
                             state.last_dir_sign[vid] = dir_sign
                         state.vehicles_by_route = new_map
+                        current_vehicle_ids: set[int] = set()
+                        for vehs in new_map.values():
+                            for veh in vehs.values():
+                                vid = veh.id
+                                if vid is None:
+                                    continue
+                                current_vehicle_ids.add(vid)
+                                heading_val = veh.heading
+                                if heading_val is None or not math.isfinite(heading_val):
+                                    continue
+                                normalized_heading = normalize_heading_deg(float(heading_val))
+                                entry = state.last_headings.get(vid)
+                                if not isinstance(entry, dict):
+                                    state.last_headings[vid] = {
+                                        "heading": normalized_heading,
+                                        "updated_at": int(veh.ts_ms),
+                                    }
+                                    state.last_headings_dirty = True
+                                else:
+                                    prev_heading = entry.get("heading")
+                                    if prev_heading is None or not math.isfinite(prev_heading) or abs(prev_heading - normalized_heading) > 1e-6:
+                                        entry["heading"] = normalized_heading
+                                        entry["updated_at"] = int(veh.ts_ms)
+                                        state.last_headings_dirty = True
+                                    else:
+                                        entry["updated_at"] = int(veh.ts_ms)
+                        stale_ids = [vid for vid in list(state.last_headings.keys()) if vid not in current_vehicle_ids]
+                        if stale_ids:
+                            for vid in stale_ids:
+                                state.last_headings.pop(vid, None)
+                            state.last_headings_dirty = True
+                        if state.last_headings_dirty:
+                            save_vehicle_headings()
+                            state.last_headings_dirty = False
                         # Track per-day mileage for all fresh vehicles (including RouteID 0)
                         today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
                         bus_days = state.bus_days.setdefault(today, {})
@@ -1290,6 +1449,28 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
         })
     items.sort(key=lambda x: str(x["name"]))
     return {"vehicles": items}
+
+
+@app.get("/v1/vehicle_headings")
+async def vehicle_headings():
+    async with state.lock:
+        payload: Dict[str, Dict[str, Any]] = {}
+        for vid, entry in state.last_headings.items():
+            if not isinstance(entry, dict):
+                continue
+            heading_val = entry.get("heading")
+            if heading_val is None or not math.isfinite(heading_val):
+                continue
+            record: Dict[str, Any] = {"heading": normalize_heading_deg(float(heading_val))}
+            ts_val = entry.get("updated_at")
+            if ts_val is not None:
+                try:
+                    record["updated_at"] = int(ts_val)
+                except (TypeError, ValueError):
+                    pass
+            payload[str(vid)] = record
+    return {"headings": payload}
+
 
 @app.get("/v1/routes/{route_id}/vehicles_raw")
 async def route_vehicles_raw(route_id: int):
