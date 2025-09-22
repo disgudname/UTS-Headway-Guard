@@ -343,6 +343,124 @@
         flex-direction: column;
         gap: 18px;
       }
+      .selector-panel .incident-alert-block {
+        background: linear-gradient(135deg, rgba(254, 226, 226, 0.92), rgba(254, 202, 202, 0.78));
+        border: 1px solid rgba(220, 38, 38, 0.35);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: 0 18px 32px rgba(220, 38, 38, 0.18);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .selector-panel .incident-alert__header {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .selector-panel .incident-alert__title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        color: rgba(136, 19, 19, 0.95);
+      }
+      .selector-panel .incident-alert__subtitle {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.4;
+        color: rgba(127, 29, 29, 0.85);
+      }
+      .selector-panel .incident-alert__list {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .selector-panel .incident-alert__item {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .selector-panel .incident-alert__media {
+        flex: 0 0 auto;
+        width: 60px;
+        height: 60px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.82);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.25);
+      }
+      .selector-panel .incident-alert__media img {
+        display: block;
+        max-width: 48px;
+        max-height: 48px;
+      }
+      .selector-panel .incident-alert__content {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .selector-panel .incident-alert__type {
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        color: rgba(136, 19, 19, 0.95);
+      }
+      .selector-panel .incident-alert__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        font-size: 13px;
+        color: rgba(120, 53, 15, 0.95);
+      }
+      .selector-panel .incident-alert__received {
+        font-weight: 600;
+      }
+      .selector-panel .incident-alert__routes-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 13px;
+        color: rgba(124, 45, 18, 0.95);
+      }
+      .selector-panel .incident-alert__routes-list {
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .selector-panel .incident-alert__routes-label,
+      .selector-panel .incident-alert__units-label {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 12px;
+        color: rgba(136, 19, 19, 0.9);
+      }
+      .selector-panel .incident-alert__units {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .selector-panel .incident-alert__unit-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .selector-panel .incident-unit {
+        display: inline-flex;
+        align-items: center;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        background: rgba(255, 255, 255, 0.82);
+        color: rgba(30, 41, 59, 0.85);
+        letter-spacing: 0.3px;
+      }
       .selector-panel .selector-content::-webkit-scrollbar {
         width: 8px;
       }
@@ -743,6 +861,19 @@
         .selector-panel .selector-section-heading h3 {
           font-size: 16px;
         }
+        .selector-panel .incident-alert__item {
+          flex-direction: column;
+        }
+        .selector-panel .incident-alert__media {
+          width: 56px;
+          height: 56px;
+        }
+        .selector-panel .incident-alert__meta {
+          gap: 6px;
+        }
+        .selector-panel .incident-alert__routes-line {
+          gap: 4px;
+        }
         .selector-panel button {
           font-size: 14px;
         }
@@ -943,6 +1074,58 @@
       const incidentIconCache = new Map();
       let isFetchingIncidents = false;
 
+      const INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS = 75;
+      const INCIDENT_TIME_ZONE = 'America/New_York';
+      const INCIDENT_LIST_ICON_BASE_URL = 'https://web.pulsepoint.org/images/respond_icons/';
+      const INCIDENT_TYPE_LABELS = Object.freeze({
+        ME: 'Medical Emergency',
+        ELR: 'Elevator Rescue',
+        TC: 'Traffic Collision',
+        CF: 'Commercial Fire',
+        OI: 'Odor Investigation',
+        VF: 'Vehicle Fire',
+        FA: 'Fire Alarm'
+      });
+      const INCIDENT_RECEIVED_FIELDS = Object.freeze([
+        'CallReceivedDateTime',
+        'ReceivedDateTime',
+        'Received',
+        'CallReceived',
+        'FirstReceived',
+        'CreateDate',
+        'CreatedDateTime',
+        'DispatchDateTime'
+      ]);
+      const INCIDENT_UNIT_STATUS_INFO = Object.freeze({
+        ER: { label: 'En Route', color: '#15803d', background: 'rgba(21, 128, 61, 0.16)', border: 'rgba(21, 128, 61, 0.38)' },
+        AR: { label: 'Cleared', color: '#475569', background: 'rgba(71, 85, 105, 0.16)', border: 'rgba(71, 85, 105, 0.32)' },
+        TR: { label: 'Transporting', color: '#b68c4a', background: 'rgba(182, 140, 74, 0.2)', border: 'rgba(182, 140, 74, 0.38)' },
+        TA: { label: 'Transport Arrived', color: '#0e7490', background: 'rgba(14, 116, 144, 0.18)', border: 'rgba(14, 116, 144, 0.38)' },
+        OS: { label: 'On Scene', color: '#b91c1c', background: 'rgba(220, 38, 38, 0.16)', border: 'rgba(220, 38, 38, 0.4)' }
+      });
+      const INCIDENT_UNIT_STATUS_ALIASES = Object.freeze({
+        ER: 'ER',
+        'EN ROUTE': 'ER',
+        ENROUTE: 'ER',
+        AR: 'AR',
+        CLEARED: 'AR',
+        TR: 'TR',
+        TRANSPORTING: 'TR',
+        TRANSPORT: 'TR',
+        TA: 'TA',
+        'TRANSPORT ARRIVED': 'TA',
+        'TRANSPORT-ARRIVED': 'TA',
+        'TRANSPORT ARRVD': 'TA',
+        OS: 'OS',
+        'ON SCENE': 'OS',
+        'ON-SCENE': 'OS',
+        ONSCENE: 'OS'
+      });
+
+      let latestActiveIncidents = [];
+      let incidentsNearRoutes = [];
+      let incidentRouteAlertSignature = '';
+
       function incidentsAreAvailable() {
         const adminAccessAllowed = (adminMode && !kioskMode) || adminKioskMode;
         if (!adminAccessAllowed) {
@@ -1135,6 +1318,238 @@
           }
         })(root);
         return out;
+      }
+
+      function resetIncidentAlertState() {
+        latestActiveIncidents = [];
+        incidentsNearRoutes = [];
+        incidentRouteAlertSignature = '';
+      }
+
+      function parseIncidentDate(value) {
+        if (value === undefined || value === null || value === '') return null;
+        if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          const fromNumber = new Date(value);
+          return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
+        }
+        const str = String(value).trim();
+        if (!str) return null;
+        let parsed = new Date(str);
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+        if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(str)) {
+          parsed = new Date(`${str}Z`);
+          if (!Number.isNaN(parsed.getTime())) return parsed;
+        }
+        return null;
+      }
+
+      function getIncidentReceivedTimeInfo(incident) {
+        if (!incident) return null;
+        for (const field of INCIDENT_RECEIVED_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(incident, field)) continue;
+          const date = parseIncidentDate(incident[field]);
+          if (!date) continue;
+          try {
+            const display = new Intl.DateTimeFormat('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZone: INCIDENT_TIME_ZONE
+            }).format(date);
+            const full = new Intl.DateTimeFormat('en-US', {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+              timeZone: INCIDENT_TIME_ZONE
+            }).format(date);
+            return { display, full };
+          } catch (error) {
+            const fallback = date.toLocaleString();
+            return { display: fallback, full: fallback };
+          }
+        }
+        return null;
+      }
+
+      function getIncidentTimestamp(incident) {
+        if (!incident) return null;
+        for (const field of INCIDENT_RECEIVED_FIELDS) {
+          if (!Object.prototype.hasOwnProperty.call(incident, field)) continue;
+          const date = parseIncidentDate(incident[field]);
+          if (date) {
+            return date.getTime();
+          }
+        }
+        return null;
+      }
+
+      function normalizeUnitStatus(value) {
+        if (value === undefined || value === null || value === '') {
+          return { key: '', raw: '' };
+        }
+        const raw = String(value).trim();
+        if (!raw) {
+          return { key: '', raw: '' };
+        }
+        const upper = raw.toUpperCase();
+        const canonical = INCIDENT_UNIT_STATUS_ALIASES[upper] || '';
+        const info = canonical ? INCIDENT_UNIT_STATUS_INFO[canonical] || null : null;
+        const label = info?.label || raw;
+        return { key: canonical, raw, info, label };
+      }
+
+      function parseUnitString(text) {
+        if (typeof text !== 'string') {
+          return { name: '', status: '', raw: '' };
+        }
+        const trimmed = text.trim();
+        if (!trimmed) {
+          return { name: '', status: '', raw: '' };
+        }
+        const match = trimmed.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+        if (match) {
+          return {
+            name: match[1].trim(),
+            status: match[2].trim(),
+            raw: trimmed
+          };
+        }
+        return { name: trimmed, status: '', raw: trimmed };
+      }
+
+      function extractIncidentUnits(incident) {
+        const units = [];
+        if (incident && Array.isArray(incident.Unit)) {
+          incident.Unit.forEach(entry => {
+            if (!entry) return;
+            const nameCandidates = [
+              entry.UnitID,
+              entry.Unit,
+              entry.Name,
+              entry.ApparatusID,
+              entry.VehicleID
+            ];
+            const name = nameCandidates.find(value => typeof value === 'string' && value.trim());
+            const statusCandidates = [
+              entry.PulsePointDispatchStatus,
+              entry.DispatchStatus,
+              entry.Status,
+              entry.UnitStatus
+            ];
+            let status = statusCandidates.find(value => typeof value === 'string' && value.trim());
+            if (!status && typeof entry === 'string') {
+              const parsed = parseUnitString(entry);
+              status = parsed.status;
+            }
+            const normalized = normalizeUnitStatus(status);
+            const statusDisplay = normalized.key || (status ? status.trim() : '');
+            const unitName = name ? name.trim() : '';
+            let displayText = unitName;
+            if (statusDisplay) {
+              displayText = unitName ? `${unitName} (${statusDisplay})` : statusDisplay;
+            }
+            if (!displayText) return;
+            let tooltip = '';
+            if (normalized.info?.label) {
+              tooltip = normalized.info.label;
+            }
+            if (normalized.raw && normalized.raw !== statusDisplay && (!tooltip || tooltip.toLowerCase() !== normalized.raw.toLowerCase())) {
+              tooltip = tooltip ? `${tooltip} • ${normalized.raw}` : normalized.raw;
+            }
+            units.push({
+              displayText,
+              statusKey: normalized.key,
+              colorInfo: normalized.info || null,
+              tooltip,
+              rawStatus: normalized.raw,
+              name: unitName
+            });
+          });
+        }
+        if (units.length === 0) {
+          const stringCandidates = [
+            incident?._units,
+            incident?.Units,
+            incident?.Apparatus,
+            incident?.UnitString
+          ];
+          const source = stringCandidates.find(value => typeof value === 'string' && value.trim());
+          if (source) {
+            source.split(',').map(part => part.trim()).filter(Boolean).forEach(part => {
+              const parsed = parseUnitString(part);
+              const normalized = normalizeUnitStatus(parsed.status);
+              const statusDisplay = normalized.key || (parsed.status ? parsed.status : '');
+              const baseName = parsed.name || '';
+              const displayText = baseName
+                ? (statusDisplay ? `${baseName} (${statusDisplay})` : baseName)
+                : (statusDisplay || parsed.raw);
+              if (!displayText) return;
+              let tooltip = '';
+              if (normalized.info?.label) {
+                tooltip = normalized.info.label;
+              }
+              if (normalized.raw && normalized.raw !== statusDisplay && (!tooltip || tooltip.toLowerCase() !== normalized.raw.toLowerCase())) {
+                tooltip = tooltip ? `${tooltip} • ${normalized.raw}` : normalized.raw;
+              }
+              units.push({
+                displayText,
+                statusKey: normalized.key,
+                colorInfo: normalized.info || null,
+                tooltip,
+                rawStatus: normalized.raw,
+                name: baseName
+              });
+            });
+          }
+        }
+        return units;
+      }
+
+      function getIncidentTypeCode(incident) {
+        if (!incident) return '';
+        const candidates = [
+          incident._markerType,
+          incident.PulsePointIncidentCallTypePrimaryCode,
+          incident.PulsePointIncidentCallTypeCode,
+          incident.PulsePointIncidentTypeCode,
+          incident.CallTypeCode,
+          incident.TypeCode,
+          incident.CallType,
+          incident.Type,
+          incident.IncidentType
+        ];
+        for (const value of candidates) {
+          if (value === undefined || value === null) continue;
+          const raw = String(value).trim();
+          if (!raw) continue;
+          const normalized = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+          if (normalized) return normalized;
+        }
+        return '';
+      }
+
+      function buildPulsePointListIconUrl(typeCode) {
+        if (!typeCode) return '';
+        const normalized = String(typeCode).trim().toLowerCase();
+        if (!normalized) return '';
+        return `${INCIDENT_LIST_ICON_BASE_URL}${normalized}_list.png`;
+      }
+
+      function getIncidentTypeLabel(incident) {
+        const code = getIncidentTypeCode(incident);
+        if (code && Object.prototype.hasOwnProperty.call(INCIDENT_TYPE_LABELS, code)) {
+          return INCIDENT_TYPE_LABELS[code];
+        }
+        const fallbackCandidates = [
+          incident?.PulsePointIncidentCallType,
+          incident?.CallType,
+          incident?.Type,
+          incident?.IncidentType
+        ];
+        const fallback = fallbackCandidates.find(value => typeof value === 'string' && value.trim());
+        if (fallback) return fallback.trim();
+        if (code) return code;
+        return 'Incident';
       }
 
       async function fetchPulsePointIncidents() {
@@ -1333,6 +1748,188 @@
         });
       }
 
+      function ensureRouteProjectedPath(entry) {
+        if (!entry) return null;
+        const latLngPath = Array.isArray(entry.latLngPath) ? entry.latLngPath : null;
+        if (!latLngPath || latLngPath.length < 2) return null;
+        const existing = Array.isArray(entry.projectedPath) ? entry.projectedPath : null;
+        if (existing && existing.length === latLngPath.length && existing.length >= 2) {
+          return existing;
+        }
+        if (typeof L === 'undefined' || !L.Projection || !L.Projection.SphericalMercator) return null;
+        entry.projectedPath = latLngPath.map(point => L.Projection.SphericalMercator.project(point));
+        return entry.projectedPath;
+      }
+
+      function computeDistanceFromProjectedPointToSegmentMeters(point, a, b) {
+        if (!point || !a || !b) return Infinity;
+        const ax = a.x;
+        const ay = a.y;
+        const bx = b.x;
+        const by = b.y;
+        if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) {
+          return Infinity;
+        }
+        const dx = bx - ax;
+        const dy = by - ay;
+        if (dx === 0 && dy === 0) {
+          const diffX = point.x - ax;
+          const diffY = point.y - ay;
+          return Math.sqrt(diffX * diffX + diffY * diffY);
+        }
+        const t = ((point.x - ax) * dx + (point.y - ay) * dy) / (dx * dx + dy * dy);
+        const clamped = Math.max(0, Math.min(1, t));
+        const projX = ax + clamped * dx;
+        const projY = ay + clamped * dy;
+        const diffX = point.x - projX;
+        const diffY = point.y - projY;
+        return Math.sqrt(diffX * diffX + diffY * diffY);
+      }
+
+      function computeDistanceFromProjectedPointToPathMeters(point, projectedPath) {
+        if (!point || !Array.isArray(projectedPath) || projectedPath.length < 2) {
+          return Infinity;
+        }
+        let minDistance = Infinity;
+        for (let i = 0; i < projectedPath.length - 1; i += 1) {
+          const segmentStart = projectedPath[i];
+          const segmentEnd = projectedPath[i + 1];
+          const distance = computeDistanceFromProjectedPointToSegmentMeters(point, segmentStart, segmentEnd);
+          if (!Number.isFinite(distance)) continue;
+          if (distance < minDistance) {
+            minDistance = distance;
+          }
+        }
+        return minDistance;
+      }
+
+      function getRouteDisplayName(routeId) {
+        const numericRouteId = Number(routeId);
+        const candidates = [];
+        if (Number.isFinite(numericRouteId) && allRoutes && allRoutes[numericRouteId]) {
+          candidates.push(allRoutes[numericRouteId]);
+        }
+        if (allRoutes && Object.prototype.hasOwnProperty.call(allRoutes, routeId)) {
+          candidates.push(allRoutes[routeId]);
+        }
+        const record = candidates.find(Boolean) || null;
+        if (record) {
+          const nameCandidates = [
+            record.Description,
+            record.RouteName,
+            record.Name,
+            record.LongName,
+            record.ShortName
+          ];
+          const name = nameCandidates.find(value => typeof value === 'string' && value.trim());
+          if (name) return name.trim();
+        }
+        if (Number.isFinite(numericRouteId)) {
+          return `Route ${numericRouteId}`;
+        }
+        if (typeof routeId === 'string' && routeId.trim()) {
+          return routeId.trim();
+        }
+        return 'Route';
+      }
+
+      function evaluateIncidentRouteAlerts() {
+        const hadAlerts = incidentRouteAlertSignature !== '' || (Array.isArray(incidentsNearRoutes) && incidentsNearRoutes.length > 0);
+        if (!incidentsAreAvailable()) {
+          if (hadAlerts) {
+            resetIncidentAlertState();
+            updateControlPanel();
+          } else {
+            resetIncidentAlertState();
+          }
+          return;
+        }
+        if (typeof L === 'undefined' || !L.Projection || !L.Projection.SphericalMercator) {
+          return;
+        }
+        const activeRecords = Array.isArray(latestActiveIncidents) ? latestActiveIncidents : [];
+        if (activeRecords.length === 0) {
+          if (hadAlerts) {
+            resetIncidentAlertState();
+            updateControlPanel();
+          } else {
+            resetIncidentAlertState();
+          }
+          return;
+        }
+        const routeEntries = [];
+        routePolylineCache.forEach((entry, key) => {
+          const numericRouteId = Number(key);
+          if (!Number.isFinite(numericRouteId) || numericRouteId === 0) return;
+          const projectedPath = ensureRouteProjectedPath(entry);
+          if (!projectedPath || projectedPath.length < 2) return;
+          routeEntries.push({ routeId: numericRouteId, projectedPath });
+        });
+        if (routeEntries.length === 0) {
+          if (hadAlerts) {
+            resetIncidentAlertState();
+            updateControlPanel();
+          }
+          return;
+        }
+        const projection = L.Projection.SphericalMercator;
+        const threshold = Number.isFinite(INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS) && INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS >= 0
+          ? INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS
+          : 0;
+        const matches = [];
+        activeRecords.forEach(incident => {
+          const lat = parseIncidentCoordinate(incident?.Latitude ?? incident?.latitude ?? incident?.lat);
+          const lon = parseIncidentCoordinate(incident?.Longitude ?? incident?.longitude ?? incident?.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          const incidentLatLng = L.latLng(lat, lon);
+          const projectedPoint = projection.project(incidentLatLng);
+          if (!projectedPoint) return;
+          const matchedRoutes = [];
+          const seenRoutes = new Set();
+          let closestDistance = Infinity;
+          routeEntries.forEach(({ routeId, projectedPath }) => {
+            const distance = computeDistanceFromProjectedPointToPathMeters(projectedPoint, projectedPath);
+            if (!Number.isFinite(distance)) return;
+            if (distance < closestDistance) {
+              closestDistance = distance;
+            }
+            if (distance <= threshold && !seenRoutes.has(routeId)) {
+              seenRoutes.add(routeId);
+              matchedRoutes.push({ routeId, name: getRouteDisplayName(routeId), distance });
+            }
+          });
+          if (!matchedRoutes.length) return;
+          matchedRoutes.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+          const id = getIncidentIdentifier(incident) || `${lat.toFixed(6)}_${lon.toFixed(6)}`;
+          const timestamp = getIncidentTimestamp(incident) ?? 0;
+          matches.push({
+            id,
+            incident,
+            routes: matchedRoutes,
+            closestDistance,
+            timestamp
+          });
+        });
+        if (!matches.length) {
+          if (hadAlerts) {
+            resetIncidentAlertState();
+            updateControlPanel();
+          }
+          return;
+        }
+        matches.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const signature = matches.map(match => {
+          const routePart = match.routes.map(route => route.routeId).join(',');
+          const distancePart = Number.isFinite(match.closestDistance) ? Math.round(match.closestDistance) : 'x';
+          return `${match.id || ''}:${routePart}:${distancePart}`;
+        }).join('|');
+        if (signature !== incidentRouteAlertSignature) {
+          incidentsNearRoutes = matches;
+          incidentRouteAlertSignature = signature;
+          updateControlPanel();
+        }
+      }
+
       async function refreshIncidents() {
         if (!incidentsAreAvailable()) {
           setIncidentsVisibility(false);
@@ -1345,6 +1942,8 @@
           const activeRecords = Array.isArray(records)
             ? records.filter(record => (record._category || '').toLowerCase() === 'active')
             : [];
+          latestActiveIncidents = activeRecords;
+          evaluateIncidentRouteAlerts();
           applyIncidentMarkers(activeRecords);
         } catch (error) {
           console.error('Failed to refresh PulsePoint incidents', error);
@@ -1355,11 +1954,18 @@
 
       function setIncidentsVisibility(visible) {
         const allowIncidents = incidentsAreAvailable();
+        const hadAlerts = incidentRouteAlertSignature !== '' || (Array.isArray(incidentsNearRoutes) && incidentsNearRoutes.length > 0);
         incidentsVisible = allowIncidents && !!visible;
 
         if (!allowIncidents) {
           if (map && incidentLayerGroup) {
             map.removeLayer(incidentLayerGroup);
+          }
+          if (hadAlerts || (Array.isArray(latestActiveIncidents) && latestActiveIncidents.length > 0)) {
+            resetIncidentAlertState();
+            updateControlPanel();
+          } else {
+            resetIncidentAlertState();
           }
           updateIncidentToggleButton();
           return;
@@ -1848,6 +2454,89 @@
         }
       }
 
+      function renderIncidentUnit(unit) {
+        if (!unit || !unit.displayText) return '';
+        const classes = ['incident-unit'];
+        if (unit.statusKey) {
+          classes.push(`incident-unit--${unit.statusKey.toLowerCase()}`);
+        }
+        const classAttr = classes.join(' ');
+        const styleParts = [];
+        if (unit.colorInfo) {
+          if (unit.colorInfo.color) styleParts.push(`color:${unit.colorInfo.color}`);
+          if (unit.colorInfo.background) styleParts.push(`background:${unit.colorInfo.background}`);
+          if (unit.colorInfo.border) styleParts.push(`border-color:${unit.colorInfo.border}`);
+        }
+        const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
+        const titleAttr = unit.tooltip ? ` title="${escapeAttribute(unit.tooltip)}"` : '';
+        return `<span class="${classAttr}"${styleAttr}${titleAttr}>${escapeHtml(unit.displayText)}</span>`;
+      }
+
+      function renderIncidentAlertItem(entry) {
+        if (!entry || !entry.incident) return '';
+        const incident = entry.incident;
+        const typeLabel = getIncidentTypeLabel(incident) || 'Incident';
+        const safeTypeLabel = escapeHtml(typeLabel);
+        const typeCode = getIncidentTypeCode(incident);
+        const iconUrl = buildPulsePointListIconUrl(typeCode);
+        const altText = typeLabel ? `${typeLabel} icon` : 'Incident icon';
+        const safeAltText = escapeAttribute(altText);
+        const iconHtml = iconUrl
+          ? `<div class="incident-alert__media"><img src="${escapeAttribute(iconUrl)}" alt="${safeAltText}" loading="lazy" onerror="this.style.display='none';"></div>`
+          : '';
+        const timeInfo = getIncidentReceivedTimeInfo(incident);
+        const metaParts = [];
+        if (timeInfo) {
+          metaParts.push(`<span class="incident-alert__received" title="${escapeAttribute(timeInfo.full)}">Received ${escapeHtml(timeInfo.display)}</span>`);
+        }
+        const metaHtml = metaParts.length ? `<div class="incident-alert__meta">${metaParts.join('')}</div>` : '';
+        const routeNames = Array.isArray(entry.routes)
+          ? entry.routes.map(route => (typeof route?.name === 'string' ? route.name.trim() : '')).filter(Boolean)
+          : [];
+        const routesHtml = routeNames.length
+          ? `<div class="incident-alert__routes-line"><span class="incident-alert__routes-label">Routes:</span><span class="incident-alert__routes-list">${routeNames.map(name => escapeHtml(name)).join(', ')}</span></div>`
+          : '';
+        const units = extractIncidentUnits(incident);
+        const unitsContent = units.map(renderIncidentUnit).filter(Boolean).join('');
+        const unitsHtml = unitsContent
+          ? `<div class="incident-alert__units"><span class="incident-alert__units-label">Units:</span><span class="incident-alert__unit-list">${unitsContent}</span></div>`
+          : '';
+        return `
+          <div class="incident-alert__item">
+            ${iconHtml}
+            <div class="incident-alert__content">
+              <div class="incident-alert__type">${safeTypeLabel}</div>
+              ${metaHtml}
+              ${routesHtml}
+              ${unitsHtml}
+            </div>
+          </div>
+        `;
+      }
+
+      function renderIncidentAlertsHtml() {
+        if (!incidentsAreAvailable()) return '';
+        if (!Array.isArray(incidentsNearRoutes) || incidentsNearRoutes.length === 0) return '';
+        const itemsHtml = incidentsNearRoutes.map(renderIncidentAlertItem).filter(Boolean).join('');
+        if (!itemsHtml) return '';
+        const multiple = incidentsNearRoutes.length > 1;
+        const heading = multiple ? 'Active Incidents Near Routes' : 'Active Incident Near a Route';
+        const subheading = multiple
+          ? 'Emergency responses are active along multiple transit corridors.'
+          : 'An emergency response is active along a transit corridor.';
+        return `
+          <div class="selector-section incident-alert-block">
+            <div class="incident-alert__header">
+              <div class="incident-alert__title">${escapeHtml(heading)}</div>
+              <div class="incident-alert__subtitle">${escapeHtml(subheading)}</div>
+            </div>
+            <div class="incident-alert__list">
+              ${itemsHtml}
+            </div>
+          </div>
+        `;
+      }
+
       function escapeAttribute(value) {
         return String(value || '')
           .replace(/&/g, '&amp;')
@@ -1875,6 +2564,7 @@
           `;
         }
 
+        const incidentAlertsHtml = renderIncidentAlertsHtml();
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -1884,6 +2574,7 @@
             ${logoHtml}
           </div>
           <div class="selector-content">
+            ${incidentAlertsHtml}
             <div class="selector-group">
               <label class="selector-label" for="agencySelect">Select System</label>
               <div class="selector-control">
@@ -2631,6 +3322,7 @@
         beginAgencyLoad();
         clearRefreshIntervals();
         baseURL = url;
+        resetIncidentAlertState();
         updateControlPanel();
         enforceIncidentVisibilityForCurrentAgency();
         Object.values(markers).forEach(m => map.removeLayer(m));
@@ -4289,11 +4981,13 @@
                                   if (Array.isArray(latLngPath) && latLngPath.length >= 2) {
                                       polyBounds = L.latLngBounds(latLngPath);
                                   }
-                                  routePolylineCache.set(numericRouteId, {
+                                  const entry = {
                                       encoded: route.EncodedPolyline,
                                       latLngPath,
                                       bounds: polyBounds
-                                  });
+                                  };
+                                  routePolylineCache.set(numericRouteId, entry);
+                                  ensureRouteProjectedPath(entry);
                                   cacheEntry = routePolylineCache.get(numericRouteId);
                                   if (isSelected) {
                                       geometryChanged = true;
@@ -4305,6 +4999,7 @@
                                       polyBounds = L.latLngBounds(latLngPath);
                                       cacheEntry.bounds = polyBounds;
                                   }
+                                  ensureRouteProjectedPath(cacheEntry);
                               }
 
                               let candidateBounds = polyBounds;
@@ -4442,6 +5137,7 @@
                               mapHasFitAllRoutes = true;
                           }
                       }
+                      evaluateIncidentRouteAlerts();
                       updateRouteSelector(activeRoutes);
                       stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
                   }
