@@ -533,13 +533,14 @@
         flex-direction: column;
         gap: 18px;
       }
-      .selector-panel .service-alerts {
+      .selector-panel .selector-section.service-alerts {
         border-radius: 16px;
         border: 1px solid rgba(35, 45, 75, 0.14);
         background: rgba(248, 250, 252, 0.92);
         box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
         display: flex;
         flex-direction: column;
+        gap: 0;
         transition: box-shadow 0.2s ease, border-color 0.2s ease;
       }
       .service-alerts.is-collapsed.has-active-alerts {
@@ -549,7 +550,7 @@
       .service-alerts__header {
         appearance: none;
         border: none;
-        border-bottom: 1px solid rgba(35, 45, 75, 0.12);
+        border-bottom: 1px solid transparent;
         background: none;
         padding: 16px 18px;
         display: flex;
@@ -560,20 +561,21 @@
         cursor: pointer;
         font: inherit;
         color: inherit;
-        transition: border-color 0.2s ease;
+        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
       }
       .service-alerts__header:hover,
       .service-alerts__header:focus-visible {
         outline: none;
-        text-decoration: underline;
-        text-decoration-thickness: 2px;
-        text-underline-offset: 4px;
+        text-decoration: none;
+        background: rgba(35, 45, 75, 0.06);
+      }
+      .service-alerts__header:focus-visible {
+        box-shadow: inset 0 0 0 2px rgba(56, 189, 248, 0.45);
       }
       .service-alerts.is-expanded .service-alerts__header {
         border-bottom-color: rgba(148, 163, 184, 0.32);
       }
       .service-alerts.is-collapsed.has-active-alerts .service-alerts__header {
-        border-bottom-color: rgba(220, 38, 38, 0.45);
         color: rgba(127, 29, 29, 0.95);
       }
       .service-alerts__header-main {
@@ -641,10 +643,7 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
-        background: rgba(248, 250, 252, 0.88);
-      }
-      .service-alerts.is-expanded .service-alerts__content {
-        background: rgba(248, 250, 252, 0.92);
+        background: inherit;
       }
       .service-alerts.is-collapsed .service-alerts__content {
         display: none;
