@@ -1666,9 +1666,34 @@
       const SERVICE_ALERT_STATUS_LOADING = 'Loading…';
       const SERVICE_ALERT_STATUS_ERROR = 'Unavailable';
       const SERVICE_ALERT_BADGE_MAX = 99;
-      const SERVICE_ALERT_DATE_FORMATTER = (typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat === 'function')
-        ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' })
-        : null;
+      const SERVICE_ALERT_DATE_FORMATTER = (() => {
+        if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
+          return null;
+        }
+        try {
+          return new Intl.DateTimeFormat('en-US', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZoneName: 'short'
+          });
+        } catch (error) {
+          // Some browsers (notably older Safari versions) do not support dateStyle/timeStyle.
+          // Fall back to an options object that is more widely supported so the formatter
+          // continues to work instead of throwing on initialization.
+          try {
+            return new Intl.DateTimeFormat('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              timeZoneName: 'short'
+            });
+          } catch (fallbackError) {
+            return null;
+          }
+        }
+      })();
       let serviceAlerts = [];
       let serviceAlertsLoading = false;
       let serviceAlertsError = null;
