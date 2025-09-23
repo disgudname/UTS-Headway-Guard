@@ -782,6 +782,80 @@
         flex-direction: column;
         gap: 10px;
       }
+      .selector-panel .radar-control-group .radar-control {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .selector-panel .radar-control-group .radar-control-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: rgba(35, 45, 75, 0.65);
+      }
+      .selector-panel .radar-opacity-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .selector-panel .radar-opacity-value {
+        font-size: 14px;
+        font-weight: 700;
+        min-width: 48px;
+        text-align: right;
+        color: rgba(35, 45, 75, 0.85);
+      }
+      .selector-panel .radar-control-group input[type="range"] {
+        width: 100%;
+        -webkit-appearance: none;
+        appearance: none;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(35, 45, 75, 0.18);
+        outline: none;
+      }
+      .selector-panel .radar-control-group input[type="range"]::-webkit-slider-runnable-track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(35, 45, 75, 0.18);
+      }
+      .selector-panel .radar-control-group input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 2px 6px rgba(229, 114, 0, 0.45);
+        cursor: pointer;
+        border: none;
+      }
+      .selector-panel .radar-control-group input[type="range"]::-moz-range-track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(35, 45, 75, 0.18);
+      }
+      .selector-panel .radar-control-group input[type="range"]::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 2px 6px rgba(229, 114, 0, 0.45);
+        cursor: pointer;
+        border: none;
+      }
+      .selector-panel .radar-status-message {
+        font-size: 12px;
+        letter-spacing: 0.3px;
+        color: rgba(185, 28, 28, 0.85);
+      }
+      .selector-panel .radar-toggle {
+        align-self: flex-start;
+      }
+      .selector-panel .radar-toggle[disabled] {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
       .selector-panel .service-alerts-group {
         gap: 12px;
       }
@@ -1512,6 +1586,467 @@
 
       const enableOverlapDashRendering = true;
 
+      const RADAR_PRODUCTS = Object.freeze({
+        BASE: 'base',
+        COMPOSITE: 'composite'
+      });
+      const RADAR_PRODUCT_ORDER = Object.freeze([RADAR_PRODUCTS.BASE, RADAR_PRODUCTS.COMPOSITE]);
+      const RADAR_PRODUCT_INFO = Object.freeze({
+        [RADAR_PRODUCTS.BASE]: {
+          label: "Base Reflectivity (QC’d)",
+          urlTemplate: "https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity/MapServer/tile/{z}/{y}/{x}"
+        },
+        [RADAR_PRODUCTS.COMPOSITE]: {
+          label: "Composite Reflectivity (QC’d)",
+          urlTemplate: "https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_composite/MapServer/tile/{z}/{y}/{x}"
+        }
+      });
+      const RADAR_DEFAULT_PRODUCT = RADAR_PRODUCTS.BASE;
+      const RADAR_DEFAULT_OPACITY = 0.5;
+      const RADAR_MIN_OPACITY = 0.3;
+      const RADAR_MAX_OPACITY = 0.8;
+      const RADAR_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+      const RADAR_SESSION_STORAGE_KEY = "hg.radar.state";
+      const RADAR_UNAVAILABLE_MESSAGE = "Radar temporarily unavailable.";
+      const RADAR_CONSECUTIVE_ERROR_THRESHOLD = 3;
+      const RADAR_PANE_NAME = "radarPane";
+
+      let showRadar = false;
+      let radarConfiguredProduct = RADAR_DEFAULT_PRODUCT;
+      let radarConfiguredOpacity = RADAR_DEFAULT_OPACITY;
+
+      let radarEnabled = false;
+      let radarProduct = RADAR_DEFAULT_PRODUCT;
+      let radarOpacity = RADAR_DEFAULT_OPACITY;
+      let radarLayer = null;
+      let radarLayerProduct = null;
+      let radarRefreshTimerId = null;
+      let radarCacheBustKey = "";
+      let radarTileErrorCount = 0;
+      let radarTemporarilyUnavailable = false;
+      let radarLastFailedUrl = "";
+      let radarSuppressedForErrors = false;
+      let radarSuppressionTimeoutId = null;
+
+      function isRadarInteractiveMode() {
+        return !kioskMode && !adminKioskMode;
+      }
+
+      function normalizeRadarProduct(value) {
+        if (typeof value !== 'string') {
+          return RADAR_DEFAULT_PRODUCT;
+        }
+        const key = value.trim().toLowerCase();
+        return Object.prototype.hasOwnProperty.call(RADAR_PRODUCT_INFO, key) ? key : RADAR_DEFAULT_PRODUCT;
+      }
+
+      function clampRadarOpacity(value) {
+        const numeric = Number.parseFloat(value);
+        if (!Number.isFinite(numeric)) {
+          return RADAR_DEFAULT_OPACITY;
+        }
+        return Math.min(RADAR_MAX_OPACITY, Math.max(RADAR_MIN_OPACITY, numeric));
+      }
+
+      function formatRadarOpacity(value) {
+        const numeric = Number.parseFloat(value);
+        if (!Number.isFinite(numeric)) {
+          return `${Math.round(RADAR_DEFAULT_OPACITY * 100)}%`;
+        }
+        const percentage = Math.round(Math.min(1, Math.max(0, numeric)) * 100);
+        return `${percentage}%`;
+      }
+
+      function buildRadarCacheBustKey(date = new Date()) {
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(date.getUTCDate()).padStart(2, "0");
+        const hours = String(date.getUTCHours()).padStart(2, "0");
+        const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+        return `${year}${month}${day}${hours}${minutes}`;
+      }
+
+      function getRadarTileUrlTemplate(productKey, cacheBustKey) {
+        const info = RADAR_PRODUCT_INFO[productKey] || RADAR_PRODUCT_INFO[RADAR_DEFAULT_PRODUCT];
+        if (!info) {
+          return "";
+        }
+        if (!cacheBustKey) {
+          return info.urlTemplate;
+        }
+        return info.urlTemplate.includes("?")
+          ? `${info.urlTemplate}&t=${cacheBustKey}`
+          : `${info.urlTemplate}?t=${cacheBustKey}`;
+      }
+
+      function loadRadarSessionState() {
+        if (!isRadarInteractiveMode()) {
+          return null;
+        }
+        try {
+          if (typeof window === "undefined" || !window.sessionStorage) {
+            return null;
+          }
+          const stored = window.sessionStorage.getItem(RADAR_SESSION_STORAGE_KEY);
+          if (!stored) {
+            return null;
+          }
+          const parsed = JSON.parse(stored);
+          if (!parsed || typeof parsed !== "object") {
+            return null;
+          }
+          return {
+            enabled: parsed.enabled === true,
+            product: normalizeRadarProduct(parsed.product),
+            opacity: clampRadarOpacity(parsed.opacity)
+          };
+        } catch (error) {
+          console.warn("Failed to load radar session state:", error);
+          return null;
+        }
+      }
+
+      function saveRadarSessionState() {
+        if (!isRadarInteractiveMode()) {
+          return;
+        }
+        try {
+          if (typeof window === "undefined" || !window.sessionStorage) {
+            return;
+          }
+          const payload = {
+            enabled: !!radarEnabled,
+            product: radarProduct,
+            opacity: radarOpacity
+          };
+          window.sessionStorage.setItem(RADAR_SESSION_STORAGE_KEY, JSON.stringify(payload));
+        } catch (error) {
+          console.warn("Failed to save radar session state:", error);
+        }
+      }
+
+      function initializeRadarPreferences() {
+        radarConfiguredProduct = normalizeRadarProduct(radarConfiguredProduct);
+        radarConfiguredOpacity = clampRadarOpacity(radarConfiguredOpacity);
+        radarProduct = radarConfiguredProduct;
+        radarOpacity = radarConfiguredOpacity;
+        radarEnabled = false;
+        radarTemporarilyUnavailable = false;
+        radarTileErrorCount = 0;
+        radarLastFailedUrl = "";
+        radarSuppressedForErrors = false;
+        if (radarSuppressionTimeoutId !== null) {
+          clearTimeout(radarSuppressionTimeoutId);
+          radarSuppressionTimeoutId = null;
+        }
+        if (adminKioskMode) {
+          radarEnabled = true;
+        } else if (kioskMode) {
+          radarEnabled = !!showRadar;
+        } else {
+          const storedState = loadRadarSessionState();
+          if (storedState) {
+            radarEnabled = !!storedState.enabled;
+            radarProduct = storedState.product;
+            radarOpacity = storedState.opacity;
+          }
+        }
+      }
+
+      function createRadarTileLayer(productKey) {
+        const normalizedProduct = normalizeRadarProduct(productKey);
+        const template = getRadarTileUrlTemplate(normalizedProduct, radarCacheBustKey);
+        if (!template) {
+          return null;
+        }
+        const layer = L.tileLayer(template, {
+          pane: RADAR_PANE_NAME,
+          opacity: radarOpacity,
+          attribution: "Radar tiles © NOAA/NWS.",
+          updateWhenIdle: true,
+          updateWhenZooming: true,
+          keepBuffer: 0,
+          crossOrigin: true
+        });
+        layer.on("tileload", handleRadarTileLoad);
+        layer.on("tileerror", handleRadarTileError);
+        return layer;
+      }
+
+      function applyRadarState() {
+        if (!map) {
+          return;
+        }
+        const shouldDisplay = radarEnabled && !radarTemporarilyUnavailable && !radarSuppressedForErrors;
+        if (!shouldDisplay) {
+          removeRadarLayer();
+          return;
+        }
+        radarProduct = normalizeRadarProduct(radarProduct);
+        radarOpacity = clampRadarOpacity(radarOpacity);
+        if (!radarLayer) {
+          radarCacheBustKey = buildRadarCacheBustKey();
+          const layer = createRadarTileLayer(radarProduct);
+          if (!layer) {
+            return;
+          }
+          radarLayer = layer;
+          radarLayerProduct = radarProduct;
+          radarLayer.setOpacity(radarOpacity);
+          radarLayer.addTo(map);
+        } else {
+          if (radarLayerProduct !== radarProduct) {
+            radarLayerProduct = radarProduct;
+            radarCacheBustKey = buildRadarCacheBustKey();
+            const template = getRadarTileUrlTemplate(radarProduct, radarCacheBustKey);
+            if (template) {
+              radarLayer.setUrl(template);
+            }
+          }
+          radarLayer.setOpacity(radarOpacity);
+        }
+        restartRadarRefreshTimer();
+      }
+
+      function removeRadarLayer() {
+        if (radarLayer) {
+          radarLayer.off("tileload", handleRadarTileLoad);
+          radarLayer.off("tileerror", handleRadarTileError);
+          if (map) {
+            map.removeLayer(radarLayer);
+          }
+          radarLayer = null;
+        }
+        radarLayerProduct = null;
+        radarCacheBustKey = "";
+        clearRadarRefreshTimer();
+      }
+
+      function refreshRadarTiles() {
+        if (!map || !radarLayer) {
+          return;
+        }
+        radarLayerProduct = normalizeRadarProduct(radarProduct);
+        radarCacheBustKey = buildRadarCacheBustKey();
+        const template = getRadarTileUrlTemplate(radarLayerProduct, radarCacheBustKey);
+        if (template) {
+          radarLayer.setUrl(template);
+        }
+      }
+
+      function startRadarRefreshTimer() {
+        if (radarRefreshTimerId !== null) {
+          return;
+        }
+        radarRefreshTimerId = window.setInterval(() => {
+          refreshRadarTiles();
+        }, RADAR_REFRESH_INTERVAL_MS);
+      }
+
+      function clearRadarRefreshTimer() {
+        if (radarRefreshTimerId !== null) {
+          clearInterval(radarRefreshTimerId);
+          radarRefreshTimerId = null;
+        }
+      }
+
+      function restartRadarRefreshTimer() {
+        clearRadarRefreshTimer();
+        if (radarLayer && radarEnabled && !radarTemporarilyUnavailable && !radarSuppressedForErrors) {
+          startRadarRefreshTimer();
+        }
+      }
+
+      function handleRadarTileLoad() {
+        radarTileErrorCount = 0;
+      }
+
+      function handleRadarTileError(event) {
+        const tile = event && event.tile ? event.tile : null;
+        const url = tile && (tile.src || tile.currentSrc) ? (tile.src || tile.currentSrc) : getRadarTileUrlTemplate(radarLayerProduct || radarProduct, radarCacheBustKey);
+        if (url) {
+          radarLastFailedUrl = url;
+        }
+        console.error("Radar tile fetch failed:", radarLastFailedUrl || "Unknown URL");
+        radarTileErrorCount += 1;
+        if (radarTileErrorCount < RADAR_CONSECUTIVE_ERROR_THRESHOLD) {
+          return;
+        }
+        radarTileErrorCount = 0;
+        if (isRadarInteractiveMode()) {
+          radarTemporarilyUnavailable = true;
+          radarEnabled = false;
+          removeRadarLayer();
+          saveRadarSessionState();
+          refreshRadarControlsUI();
+        } else {
+          radarSuppressedForErrors = true;
+          removeRadarLayer();
+          scheduleRadarSuppressionRecovery();
+        }
+      }
+
+      function scheduleRadarSuppressionRecovery() {
+        if (radarSuppressionTimeoutId !== null) {
+          clearTimeout(radarSuppressionTimeoutId);
+        }
+        radarSuppressionTimeoutId = window.setTimeout(() => {
+          radarSuppressionTimeoutId = null;
+          radarSuppressedForErrors = false;
+          radarTileErrorCount = 0;
+          if (radarEnabled) {
+            applyRadarState();
+          }
+        }, RADAR_REFRESH_INTERVAL_MS);
+      }
+
+      function setRadarEnabled(nextEnabled) {
+        const shouldEnable = !!nextEnabled;
+        if (shouldEnable && radarTemporarilyUnavailable) {
+          refreshRadarControlsUI();
+          return;
+        }
+        if (radarEnabled === shouldEnable) {
+          refreshRadarControlsUI();
+          return;
+        }
+        radarEnabled = shouldEnable;
+        if (!radarEnabled) {
+          removeRadarLayer();
+          radarSuppressedForErrors = false;
+          radarTileErrorCount = 0;
+          radarCacheBustKey = "";
+          if (radarSuppressionTimeoutId !== null) {
+            clearTimeout(radarSuppressionTimeoutId);
+            radarSuppressionTimeoutId = null;
+          }
+        }
+        applyRadarState();
+        if (isRadarInteractiveMode()) {
+          saveRadarSessionState();
+        }
+        refreshRadarControlsUI();
+      }
+
+      function setRadarProduct(nextProduct) {
+        const normalized = normalizeRadarProduct(nextProduct);
+        const productChanged = radarProduct !== normalized;
+        radarProduct = normalized;
+        radarTileErrorCount = 0;
+        radarLastFailedUrl = "";
+        if (radarTemporarilyUnavailable && productChanged) {
+          radarTemporarilyUnavailable = false;
+        }
+        if (radarSuppressedForErrors) {
+          radarSuppressedForErrors = false;
+          if (radarSuppressionTimeoutId !== null) {
+            clearTimeout(radarSuppressionTimeoutId);
+            radarSuppressionTimeoutId = null;
+          }
+        }
+        if (radarEnabled && map) {
+          radarCacheBustKey = buildRadarCacheBustKey();
+          if (radarLayer) {
+            radarLayerProduct = radarProduct;
+            const template = getRadarTileUrlTemplate(radarProduct, radarCacheBustKey);
+            if (template) {
+              radarLayer.setUrl(template);
+            }
+            radarLayer.setOpacity(radarOpacity);
+          } else {
+            applyRadarState();
+          }
+          restartRadarRefreshTimer();
+        }
+        if (isRadarInteractiveMode()) {
+          saveRadarSessionState();
+        }
+        refreshRadarControlsUI();
+      }
+
+      function setRadarOpacity(nextOpacity) {
+        const clamped = clampRadarOpacity(nextOpacity);
+        if (Math.abs(clamped - radarOpacity) < 0.0001) {
+          refreshRadarControlsUI();
+          return;
+        }
+        radarOpacity = clamped;
+        if (radarLayer) {
+          radarLayer.setOpacity(radarOpacity);
+        }
+        if (isRadarInteractiveMode()) {
+          saveRadarSessionState();
+        }
+        refreshRadarControlsUI();
+      }
+
+      function initializeRadarControls() {
+        const toggleButton = document.getElementById("radarToggleButton");
+        if (toggleButton) {
+          toggleButton.addEventListener("click", event => {
+            event.preventDefault();
+            if (toggleButton.disabled) {
+              return;
+            }
+            setRadarEnabled(!radarEnabled);
+          });
+        }
+        const productSelect = document.getElementById("radarProductSelect");
+        if (productSelect) {
+          productSelect.addEventListener("change", event => {
+            setRadarProduct(event.target.value);
+          });
+        }
+        const opacityRange = document.getElementById("radarOpacityRange");
+        if (opacityRange) {
+          const handleOpacityChange = event => {
+            const value = Number.parseFloat(event.target.value);
+            if (Number.isFinite(value)) {
+              setRadarOpacity(value);
+            }
+          };
+          opacityRange.addEventListener("input", handleOpacityChange);
+          opacityRange.addEventListener("change", handleOpacityChange);
+        }
+        refreshRadarControlsUI();
+      }
+
+      function refreshRadarControlsUI() {
+        const toggleButton = document.getElementById("radarToggleButton");
+        const isActive = radarEnabled && !radarTemporarilyUnavailable;
+        if (toggleButton) {
+          toggleButton.classList.toggle("is-active", isActive);
+          toggleButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+          toggleButton.disabled = radarTemporarilyUnavailable;
+          const indicator = toggleButton.querySelector(".toggle-indicator");
+          if (indicator) {
+            indicator.textContent = isActive ? "On" : "Off";
+          }
+        }
+        const productSelect = document.getElementById("radarProductSelect");
+        if (productSelect) {
+          productSelect.value = radarProduct;
+        }
+        const opacityRange = document.getElementById("radarOpacityRange");
+        if (opacityRange) {
+          opacityRange.value = radarOpacity.toFixed(2);
+        }
+        const opacityValue = document.getElementById("radarOpacityValue");
+        if (opacityValue) {
+          opacityValue.textContent = formatRadarOpacity(radarOpacity);
+        }
+        const statusMessage = document.getElementById("radarStatusMessage");
+        if (statusMessage) {
+          if (radarTemporarilyUnavailable) {
+            statusMessage.textContent = RADAR_UNAVAILABLE_MESSAGE;
+            statusMessage.style.display = "";
+          } else {
+            statusMessage.textContent = "";
+            statusMessage.style.display = "none";
+          }
+        }
+      }
+
       const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
         updateWhenZooming: true,
         updateWhenIdle: true,
@@ -1566,7 +2101,25 @@
       if (adminParam !== null) {
         adminMode = adminParam.toLowerCase() === 'true';
       }
-      
+
+      const showRadarParam = params.get('showRadar');
+      if (showRadarParam !== null) {
+        showRadar = showRadarParam.toLowerCase() === 'true';
+      }
+      const radarProductParam = params.get('radarProduct');
+      if (radarProductParam) {
+        radarConfiguredProduct = normalizeRadarProduct(radarProductParam);
+      }
+      const radarOpacityParam = params.get('radarOpacity');
+      if (radarOpacityParam !== null) {
+        const parsedOpacity = Number.parseFloat(radarOpacityParam);
+        if (Number.isFinite(parsedOpacity)) {
+          radarConfiguredOpacity = clampRadarOpacity(parsedOpacity);
+        }
+      }
+
+      initializeRadarPreferences();
+
       const outOfServiceRouteColor = '#000000';
 
       const PULSEPOINT_ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
@@ -4620,6 +5173,43 @@
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
         const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
+        let radarControlsHtml = '';
+        if (!kioskMode && !adminKioskMode) {
+          const toggleActive = radarEnabled && !radarTemporarilyUnavailable;
+          const toggleDisabledAttr = radarTemporarilyUnavailable ? ' disabled' : '';
+          const productOptions = RADAR_PRODUCT_ORDER.map(productKey => {
+            const info = RADAR_PRODUCT_INFO[productKey] || {};
+            const label = typeof info.label === 'string' ? info.label : productKey;
+            const safeLabel = escapeHtml(label);
+            const selected = radarProduct === productKey ? ' selected' : '';
+            return `<option value="${productKey}"${selected}>${safeLabel}</option>`;
+          }).join('');
+          const statusText = radarTemporarilyUnavailable ? escapeHtml(RADAR_UNAVAILABLE_MESSAGE) : '';
+          radarControlsHtml = `
+            <div class="selector-group radar-control-group">
+              <div class="selector-label">Radar</div>
+              <button type="button" id="radarToggleButton" class="pill-button radar-toggle${toggleActive ? ' is-active' : ''}" aria-pressed="${toggleActive ? 'true' : 'false'}"${toggleDisabledAttr}>
+                Radar<span class="toggle-indicator">${toggleActive ? 'On' : 'Off'}</span>
+              </button>
+              <div class="radar-control">
+                <label class="radar-control-label" for="radarProductSelect">Product</label>
+                <div class="selector-control">
+                  <select id="radarProductSelect">
+                    ${productOptions}
+                  </select>
+                </div>
+              </div>
+              <div class="radar-control">
+                <label class="radar-control-label" for="radarOpacityRange">Opacity</label>
+                <div class="radar-opacity-row">
+                  <input type="range" id="radarOpacityRange" min="${RADAR_MIN_OPACITY}" max="${RADAR_MAX_OPACITY}" step="0.01" value="${radarOpacity.toFixed(2)}">
+                  <span id="radarOpacityValue" class="radar-opacity-value">${formatRadarOpacity(radarOpacity)}</span>
+                </div>
+              </div>
+              <div id="radarStatusMessage" class="radar-status-message" role="status" aria-live="polite"${radarTemporarilyUnavailable ? '' : ' style="display:none;"'}>${statusText}</div>
+            </div>
+          `;
+        }
         let demoButtonHtml = '';
         if (adminMode) {
           const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
@@ -4668,6 +5258,7 @@
             </div>
         `;
         html += serviceAlertsSectionHtml;
+        html += radarControlsHtml;
 
         if (adminMode) {
           html += `
@@ -4696,6 +5287,7 @@
         `;
 
         panel.innerHTML = html;
+        initializeRadarControls();
         updateDisplayModeButtons();
         updateIncidentToggleButton();
         refreshServiceAlertsUI();
@@ -5484,6 +6076,12 @@
               zoomAnimation: true,
               markerZoomAnimation: true
           }).setView([38.03799212281404, -78.50981502838886], 15);
+          map.createPane(RADAR_PANE_NAME);
+          const radarPane = map.getPane(RADAR_PANE_NAME);
+          if (radarPane) {
+              radarPane.style.zIndex = 350;
+              radarPane.style.pointerEvents = 'none';
+          }
           sharedRouteRenderer = L.svg({ padding: 0 });
           if (sharedRouteRenderer) {
               map.addLayer(sharedRouteRenderer);
@@ -5536,6 +6134,7 @@
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           });
           cartoLight.addTo(map);
+          applyRadarState();
 
           if (enableOverlapDashRendering) {
             overlapRenderer = new OverlapRouteRenderer(map, {
@@ -9255,7 +9854,7 @@
     <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">
       <span class="panel-toggle__arrow" aria-hidden="true">&#9664;</span>
     </div>
-    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS.</div>
     <div id="cookieBanner" class="cookie-banner" style="display:none;">
       This site stores your selected transit agency on your device to remember your preference.
       <button id="cookieAccept">OK</button>
