@@ -2187,6 +2187,32 @@
       const TRAIN_API_URL = 'https://api-v3.amtraker.com/v3/trains';
       const TRAIN_POLL_INTERVAL_MS = 30000;
       const TRAIN_TARGET_STATION_CODE = 'CVS';
+      const TRAIN_CARDINAL_HEADING_DEGREES = Object.freeze({
+        N: 0,
+        NORTH: 0,
+        NORTHBOUND: 0,
+        NE: 45,
+        NORTHEAST: 45,
+        NORTHEASTBOUND: 45,
+        E: 90,
+        EAST: 90,
+        EASTBOUND: 90,
+        SE: 135,
+        SOUTHEAST: 135,
+        SOUTHEASTBOUND: 135,
+        S: 180,
+        SOUTH: 180,
+        SOUTHBOUND: 180,
+        SW: 225,
+        SOUTHWEST: 225,
+        SOUTHWESTBOUND: 225,
+        W: 270,
+        WEST: 270,
+        WESTBOUND: 270,
+        NW: 315,
+        NORTHWEST: 315,
+        NORTHWESTBOUND: 315
+      });
 
       let map;
       let markers = {};
@@ -9876,6 +9902,109 @@
           return parts.length > 0 ? parts.join(' — ') : 'Amtrak train';
       }
 
+      function getTrainHeadingValue(train) {
+          if (!train || typeof train !== 'object') {
+              return null;
+          }
+          const candidateFields = ['heading', 'Heading', 'direction', 'Direction', 'dir', 'Dir'];
+          for (let i = 0; i < candidateFields.length; i += 1) {
+              const field = candidateFields[i];
+              if (train[field] !== undefined && train[field] !== null) {
+                  return train[field];
+              }
+          }
+          return null;
+      }
+
+      function getTrainHeadingDegrees(headingValue, fallbackHeading) {
+          const fallback = Number.isFinite(fallbackHeading)
+              ? fallbackHeading
+              : BUS_MARKER_DEFAULT_HEADING;
+          if (Number.isFinite(headingValue)) {
+              return normalizeHeadingDegrees(headingValue);
+          }
+          if (typeof headingValue === 'string') {
+              const trimmed = headingValue.trim();
+              if (trimmed.length > 0) {
+                  const numericCandidate = Number(trimmed);
+                  if (Number.isFinite(numericCandidate)) {
+                      return normalizeHeadingDegrees(numericCandidate);
+                  }
+                  const normalized = trimmed.toUpperCase();
+                  const sanitized = normalized.replace(/[^A-Z]/g, '');
+                  const candidates = [];
+                  if (sanitized.length > 0) {
+                      candidates.push(sanitized);
+                      const withoutBound = sanitized.replace(/BOUND$/, '');
+                      if (withoutBound !== sanitized && withoutBound.length > 0) {
+                          candidates.push(withoutBound);
+                      }
+                      const withoutWard = sanitized.replace(/WARD$/, '');
+                      if (withoutWard !== sanitized && withoutWard.length > 0) {
+                          candidates.push(withoutWard);
+                      }
+                  }
+                  if (normalized !== sanitized && normalized.length > 0) {
+                      candidates.push(normalized);
+                  }
+                  for (let i = 0; i < candidates.length; i += 1) {
+                      const key = candidates[i];
+                      const degrees = TRAIN_CARDINAL_HEADING_DEGREES[key];
+                      if (Number.isFinite(degrees)) {
+                          return normalizeHeadingDegrees(degrees);
+                      }
+                  }
+              }
+          }
+          return normalizeHeadingDegrees(fallback);
+      }
+
+      function updateTrainMarkerHeading(state, newPosition, headingValue) {
+          if (!state) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const fallbackHeading = Number.isFinite(state.headingDeg)
+              ? state.headingDeg
+              : BUS_MARKER_DEFAULT_HEADING;
+          let lat = Number.NaN;
+          let lng = Number.NaN;
+          if (Array.isArray(newPosition)) {
+              if (newPosition.length >= 2) {
+                  lat = Number(newPosition[0]);
+                  lng = Number(newPosition[1]);
+              }
+          } else if (newPosition && typeof newPosition === 'object') {
+              lat = Number(newPosition.lat ?? newPosition.Latitude);
+              lng = Number(newPosition.lng ?? newPosition.Longitude);
+          }
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              const current = L.latLng(lat, lng);
+              const history = Array.isArray(state.positionHistory) ? state.positionHistory : [];
+              if (history.length === 0) {
+                  history.push(current);
+              } else {
+                  const previous = history[history.length - 1];
+                  if (previous && typeof previous.distanceTo === 'function') {
+                      const distance = previous.distanceTo(current);
+                      if (distance >= MIN_POSITION_UPDATE_METERS) {
+                          history.push(current);
+                          if (history.length > 2) {
+                              history.shift();
+                          }
+                      } else {
+                          history[history.length - 1] = current;
+                      }
+                  } else {
+                      history[history.length - 1] = current;
+                  }
+              }
+              state.positionHistory = history;
+          }
+          const headingDeg = getTrainHeadingDegrees(headingValue, fallbackHeading);
+          state.headingDeg = normalizeHeadingDegrees(headingDeg);
+          return state.headingDeg;
+      }
+
       function ensureTrainMarkerState(trainID) {
           if (trainID === null || trainID === undefined) {
               return null;
@@ -10063,12 +10192,14 @@
                           state.isStale = false;
                           state.isStopped = false;
                           state.lastUpdateTimestamp = timestamp;
+                          const headingValue = getTrainHeadingValue(train);
                           if (Number.isFinite(lat) && Number.isFinite(lon)) {
                               const latLng = L.latLng(lat, lon);
                               state.lastLatLng = latLng;
-                              state.headingDeg = updateBusMarkerHeading(state, [latLng.lat, latLng.lng], state.headingDeg, null);
+                              state.headingDeg = updateTrainMarkerHeading(state, latLng, headingValue);
                           } else {
                               state.lastLatLng = null;
+                              state.headingDeg = updateTrainMarkerHeading(state, null, headingValue);
                           }
                       });
                   });
