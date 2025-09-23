@@ -550,7 +550,6 @@
       .service-alerts__header {
         appearance: none;
         border: none;
-        border-bottom: 1px solid transparent;
         background: transparent;
         border-radius: 0;
         padding: 16px 18px;
@@ -562,19 +561,17 @@
         cursor: pointer;
         font: inherit;
         color: inherit;
-        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        transition: color 0.2s ease, border-color 0.2s ease;
       }
       .service-alerts__header:hover,
       .service-alerts__header:focus-visible {
-        outline: none;
         text-decoration: none;
-        background: rgba(35, 45, 75, 0.06);
       }
       .service-alerts__header:focus-visible {
         box-shadow: none;
       }
       .service-alerts.is-expanded .service-alerts__header {
-        border-bottom-color: rgba(148, 163, 184, 0.32);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.32);
       }
       .service-alerts.is-collapsed.has-active-alerts .service-alerts__header {
         color: rgba(127, 29, 29, 0.95);
@@ -644,7 +641,6 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
-        background: inherit;
       }
       .service-alerts.is-collapsed .service-alerts__content {
         display: none;
@@ -4372,8 +4368,8 @@
       }
 
       function renderServiceAlertsContent() {
-        const container = document.getElementById('serviceAlertsContent');
-        const statusEl = document.getElementById('serviceAlertsStatus');
+        const container = document.getElementById('serviceAlertsPanel');
+        const statusEl = document.querySelector('#serviceAlerts .service-alerts__status');
         if (statusEl) {
           statusEl.textContent = buildServiceAlertsStatusText();
         }
@@ -4401,7 +4397,7 @@
       }
 
       function updateServiceAlertsSectionState() {
-        const section = document.getElementById('serviceAlertsSection');
+        const section = document.getElementById('serviceAlerts');
         if (!section) return;
         section.classList.toggle('is-expanded', serviceAlertsExpanded);
         section.classList.toggle('is-collapsed', !serviceAlertsExpanded);
@@ -4413,7 +4409,7 @@
       }
 
       function syncServiceAlertsBadge() {
-        const headerBadge = document.getElementById('serviceAlertsBadge');
+        const headerBadge = document.querySelector('#serviceAlerts .service-alerts__badge');
         const toggleBadge = document.getElementById('controlPanelAlertBadge');
         const controlPanelElement = document.getElementById('controlPanel');
         const controlPanelTab = document.getElementById('controlPanelTab');
@@ -4436,17 +4432,9 @@
       }
 
       function applyServiceAlertsExpandedState() {
-        const toggle = document.getElementById('serviceAlertsToggle');
-        const content = document.getElementById('serviceAlertsContent');
+        const toggle = document.querySelector('#serviceAlerts .service-alerts__header');
         if (toggle) {
           toggle.setAttribute('aria-expanded', serviceAlertsExpanded ? 'true' : 'false');
-        }
-        if (content) {
-          if (serviceAlertsExpanded) {
-            content.removeAttribute('hidden');
-          } else {
-            content.setAttribute('hidden', '');
-          }
         }
         updateServiceAlertsSectionState();
         syncServiceAlertsBadge();
@@ -4466,7 +4454,7 @@
       }
 
       function initializeServiceAlertsSection() {
-        const toggle = document.getElementById('serviceAlertsToggle');
+        const toggle = document.querySelector('#serviceAlerts .service-alerts__header');
         if (toggle) {
           toggle.addEventListener('click', toggleServiceAlertsSection);
         }
@@ -4587,18 +4575,17 @@
         const serviceAlertsStatusText = buildServiceAlertsStatusText();
         const serviceAlertsBadgeText = formatServiceAlertsBadgeText(getActiveServiceAlertCount());
         const serviceAlertsBadgeAttr = serviceAlertsBadgeText ? '' : ' hidden';
-        const serviceAlertsContentHiddenAttr = serviceAlertsExpanded ? '' : ' hidden';
         const serviceAlertsSectionHtml = `
-          <div class="selector-section service-alerts ${serviceAlertsExpandedClass}" id="serviceAlertsSection">
-            <button type="button" class="service-alerts__header" id="serviceAlertsToggle" aria-expanded="${serviceAlertsExpanded ? 'true' : 'false'}" aria-controls="serviceAlertsContent">
-              <span class="service-alerts__header-main">
-                <span class="service-alerts__title">Service Alerts</span>
-                <span class="service-alerts__status" id="serviceAlertsStatus">${escapeHtml(serviceAlertsStatusText)}</span>
-              </span>
-              <span class="service-alerts__badge" id="serviceAlertsBadge"${serviceAlertsBadgeAttr}>${escapeHtml(serviceAlertsBadgeText)}</span>
-              <span class="service-alerts__chevron" aria-hidden="true">&#8250;</span>
+          <div class="selector-section service-alerts ${serviceAlertsExpandedClass}" id="serviceAlerts">
+            <button class="service-alerts__header" aria-expanded="${serviceAlertsExpanded ? 'true' : 'false'}" aria-controls="serviceAlertsPanel">
+              <div class="service-alerts__header-main">
+                <div class="service-alerts__title">Service Alerts</div>
+                <div class="service-alerts__status">${escapeHtml(serviceAlertsStatusText)}</div>
+              </div>
+              <span class="service-alerts__badge"${serviceAlertsBadgeAttr}>${escapeHtml(serviceAlertsBadgeText)}</span>
+              <span class="service-alerts__chevron">&#8250;</span>
             </button>
-            <div class="service-alerts__content" id="serviceAlertsContent"${serviceAlertsContentHiddenAttr}></div>
+            <div class="service-alerts__content" id="serviceAlertsPanel"></div>
           </div>
         `;
         let html = `
