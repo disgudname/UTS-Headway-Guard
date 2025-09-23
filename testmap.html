@@ -5325,8 +5325,7 @@
             </div>
         `;
         html += serviceAlertsSectionHtml;
-        html += radarControlsHtml;
-        html += trainToggleHtml;
+        html += incidentAlertsHtml;
 
         if (adminMode) {
           html += `
@@ -5347,10 +5346,12 @@
           `;
         }
 
+        html += incidentToggleHtml;
+        html += radarControlsHtml;
+        html += trainToggleHtml;
+        html += demoButtonHtml;
+
         html += `
-            ${incidentToggleHtml}
-            ${incidentAlertsHtml}
-            ${demoButtonHtml}
           </div>
         `;
 
