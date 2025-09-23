@@ -550,7 +550,7 @@
         appearance: none;
         border: none;
         border-bottom: 1px solid rgba(35, 45, 75, 0.12);
-        background: rgba(35, 45, 75, 0.05);
+        background: none;
         padding: 16px 18px;
         display: flex;
         align-items: center;
@@ -560,29 +560,21 @@
         cursor: pointer;
         font: inherit;
         color: inherit;
-        transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        transition: border-color 0.2s ease;
       }
       .service-alerts__header:hover,
       .service-alerts__header:focus-visible {
-        background: rgba(35, 45, 75, 0.12);
         outline: none;
-        box-shadow: 0 8px 18px rgba(35, 45, 75, 0.18);
+        text-decoration: underline;
+        text-decoration-thickness: 2px;
+        text-underline-offset: 4px;
       }
       .service-alerts.is-expanded .service-alerts__header {
-        background: rgba(248, 250, 252, 0.92);
         border-bottom-color: rgba(148, 163, 184, 0.32);
-        box-shadow: none;
-      }
-      .service-alerts.is-expanded .service-alerts__header:hover,
-      .service-alerts.is-expanded .service-alerts__header:focus-visible {
-        background: rgba(248, 250, 252, 0.96);
-        box-shadow: none;
       }
       .service-alerts.is-collapsed.has-active-alerts .service-alerts__header {
-        background: linear-gradient(135deg, rgba(220, 38, 38, 0.16), rgba(248, 113, 113, 0.28));
-        border-color: rgba(220, 38, 38, 0.45);
+        border-bottom-color: rgba(220, 38, 38, 0.45);
         color: rgba(127, 29, 29, 0.95);
-        box-shadow: 0 16px 32px rgba(220, 38, 38, 0.22);
       }
       .service-alerts__header-main {
         display: flex;
