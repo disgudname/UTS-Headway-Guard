@@ -2184,10 +2184,16 @@
         ? markerCentroidOverride.xFactor
         : 0;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
+      const TRAIN_API_URL = 'https://api-v3.amtraker.com/v3/trains';
+      const TRAIN_POLL_INTERVAL_MS = 30000;
+      const TRAIN_TARGET_STATION_CODE = 'CVS';
 
       let map;
       let markers = {};
       let busMarkerStates = {};
+      let trainMarkers = {};
+      let trainMarkerStates = {};
+      let trainFetchPromise = null;
       const vehicleHeadingCache = new Map();
       let vehicleHeadingCachePromise = null;
       const VEHICLE_HEADING_CACHE_ENDPOINT = '/v1/vehicle_headings';
@@ -5946,6 +5952,7 @@
         if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
           renderBusStops(stopDataCache);
         }
+        fetchTrains().catch(error => console.error('Error refreshing trains:', error));
       }
 
       function clearRefreshIntervals() {
@@ -5975,6 +5982,10 @@
         } else {
           setIncidentsVisibility(false);
         }
+        refreshIntervals.push(setInterval(() => {
+          fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+        }, TRAIN_POLL_INTERVAL_MS));
+        fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
         if (shouldFetchServiceAlerts()) {
           fetchServiceAlertsForCurrentAgency();
         }
@@ -6029,6 +6040,7 @@
         enforceIncidentVisibilityForCurrentAgency();
         Object.values(markers).forEach(m => map.removeLayer(m));
         markers = {};
+        clearAllTrainMarkers();
         Object.values(nameBubbles).forEach(b => {
           if (b.speedMarker) map.removeLayer(b.speedMarker);
           if (b.nameMarker) map.removeLayer(b.nameMarker);
@@ -6188,12 +6200,16 @@
           map.on('move', () => {
               updatePopupPositions();
           });
+          map.on('moveend', () => {
+              updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
+          });
           map.on('zoomend', () => {
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
+              updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
           applyIncidentHaloStates();
       }
@@ -9797,6 +9813,281 @@
               }
           }
           return false;
+      }
+
+      function getTrainIdentifier(train) {
+          if (!train) {
+              return null;
+          }
+          const candidateFields = ['trainID', 'trainId', 'trainNumRaw', 'trainNum'];
+          for (let i = 0; i < candidateFields.length; i += 1) {
+              const value = train?.[candidateFields[i]];
+              if (value !== undefined && value !== null) {
+                  const text = `${value}`.trim();
+                  if (text.length > 0) {
+                      return text;
+                  }
+              }
+          }
+          if (typeof train?.routeName === 'string' && train.routeName.trim().length > 0) {
+              return train.routeName.trim();
+          }
+          return null;
+      }
+
+      function trainIncludesStation(train, stationCode) {
+          if (!train || !Array.isArray(train?.stations)) {
+              return false;
+          }
+          if (typeof stationCode !== 'string' || stationCode.trim().length === 0) {
+              return false;
+          }
+          const target = stationCode.trim().toUpperCase();
+          return train.stations.some(stop => {
+              const code = typeof stop?.code === 'string' ? stop.code.trim().toUpperCase() : '';
+              return code === target;
+          });
+      }
+
+      function buildTrainAccessibleLabel(train) {
+          if (!train) {
+              return 'Amtrak train';
+          }
+          const parts = [];
+          const numberFields = ['trainNumRaw', 'trainNum'];
+          for (let i = 0; i < numberFields.length; i += 1) {
+              const value = train?.[numberFields[i]];
+              if (value !== undefined && value !== null) {
+                  const text = `${value}`.trim();
+                  if (text.length > 0) {
+                      parts.push(`Train ${text}`);
+                      break;
+                  }
+              }
+          }
+          const routeName = typeof train?.routeName === 'string' ? train.routeName.trim() : '';
+          if (routeName.length > 0) {
+              parts.push(routeName);
+          }
+          const status = typeof train?.trainTimely === 'string' ? train.trainTimely.trim() : '';
+          if (status.length > 0) {
+              parts.push(status);
+          }
+          return parts.length > 0 ? parts.join(' — ') : 'Amtrak train';
+      }
+
+      function ensureTrainMarkerState(trainID) {
+          if (trainID === null || trainID === undefined) {
+              return null;
+          }
+          const key = `${trainID}`;
+          const state = trainMarkerStates[key];
+          if (state) {
+              if (!state.markerId) {
+                  state.markerId = `train-${key.replace(/\s+/g, '-')}`;
+              }
+              return state;
+          }
+          const defaultFill = BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const newState = {
+              trainID: key,
+              markerId: `train-${key.replace(/\s+/g, '-')}`,
+              positionHistory: [],
+              headingDeg: BUS_MARKER_DEFAULT_HEADING,
+              fillColor: defaultFill,
+              glyphColor: computeBusMarkerGlyphColor(defaultFill),
+              accessibleLabel: 'Amtrak train',
+              isStale: false,
+              isStopped: false,
+              lastLatLng: null,
+              marker: null,
+              size: null,
+              lastUpdateTimestamp: 0
+          };
+          trainMarkerStates[key] = newState;
+          return newState;
+      }
+
+      function clearTrainMarker(trainID) {
+          if (trainID === null || trainID === undefined) {
+              return;
+          }
+          const key = `${trainID}`;
+          const marker = trainMarkers[key];
+          if (marker) {
+              if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                  map.removeLayer(marker);
+              } else if (typeof marker.remove === 'function') {
+                  marker.remove();
+              }
+          }
+          delete trainMarkers[key];
+          delete trainMarkerStates[key];
+      }
+
+      function clearAllTrainMarkers() {
+          Object.keys(trainMarkers).forEach(trainID => {
+              const marker = trainMarkers[trainID];
+              if (!marker) {
+                  return;
+              }
+              if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                  map.removeLayer(marker);
+              } else if (typeof marker.remove === 'function') {
+                  marker.remove();
+              }
+          });
+          trainMarkers = {};
+          trainMarkerStates = {};
+      }
+
+      async function updateTrainMarkersVisibility() {
+          if (!map || typeof map.getBounds !== 'function') {
+              return;
+          }
+          const bounds = map.getBounds();
+          if (!bounds || typeof bounds.contains !== 'function') {
+              return;
+          }
+          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+          const metrics = computeBusMarkerMetrics(zoom);
+          for (const trainID of Object.keys(trainMarkerStates)) {
+              const state = trainMarkerStates[trainID];
+              if (!state) {
+                  continue;
+              }
+              const latLng = state.lastLatLng;
+              const marker = trainMarkers[trainID];
+              if (!latLng || !Number.isFinite(latLng.lat) || !Number.isFinite(latLng.lng)) {
+                  if (marker && map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                      map.removeLayer(marker);
+                  }
+                  state.marker = marker || null;
+                  continue;
+              }
+              if (!bounds.contains(latLng)) {
+                  if (marker && map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                      map.removeLayer(marker);
+                  }
+                  state.marker = marker || null;
+                  continue;
+              }
+              setBusMarkerSize(state, metrics);
+              let icon = null;
+              try {
+                  icon = await createBusMarkerDivIcon(state.markerId || `train-${trainID}`, state);
+              } catch (error) {
+                  console.error('Failed to create train marker icon:', error);
+                  continue;
+              }
+              if (!icon) {
+                  continue;
+              }
+              let trainMarker = marker;
+              if (!trainMarker) {
+                  trainMarker = L.marker(latLng, {
+                      icon,
+                      pane: 'busesPane',
+                      interactive: false,
+                      keyboard: false
+                  });
+                  trainMarkers[trainID] = trainMarker;
+              } else {
+                  trainMarker.setIcon(icon);
+              }
+              state.marker = trainMarker;
+              if (!map.hasLayer(trainMarker)) {
+                  trainMarker.addTo(map);
+              }
+              animateMarkerTo(trainMarker, latLng);
+          }
+      }
+
+      async function fetchTrains() {
+          if (trainFetchPromise) {
+              return trainFetchPromise;
+          }
+          const fetchTask = (async () => {
+              const stationCode = typeof TRAIN_TARGET_STATION_CODE === 'string'
+                  ? TRAIN_TARGET_STATION_CODE.trim().toUpperCase()
+                  : '';
+              let response;
+              try {
+                  response = await fetch(TRAIN_API_URL, { cache: 'no-store' });
+              } catch (error) {
+                  console.error('Failed to fetch trains:', error);
+                  return;
+              }
+              if (!response || !response.ok) {
+                  const statusText = response ? `${response.status} ${response.statusText}` : 'No response';
+                  console.error('Failed to fetch trains:', statusText);
+                  return;
+              }
+              let payload;
+              try {
+                  payload = await response.json();
+              } catch (error) {
+                  console.error('Failed to parse train response:', error);
+                  return;
+              }
+              const seenTrainIds = new Set();
+              const timestamp = Date.now();
+              if (payload && typeof payload === 'object') {
+                  Object.values(payload).forEach(group => {
+                      if (!Array.isArray(group)) {
+                          return;
+                      }
+                      group.forEach(train => {
+                          if (stationCode && !trainIncludesStation(train, stationCode)) {
+                              return;
+                          }
+                          const identifier = getTrainIdentifier(train);
+                          if (!identifier) {
+                              return;
+                          }
+                          seenTrainIds.add(identifier);
+                          const state = ensureTrainMarkerState(identifier);
+                          if (!state) {
+                              return;
+                          }
+                          const lat = Number(train?.lat);
+                          const lon = Number(train?.lon);
+                          const fillColor = normalizeRouteColor(train?.iconColor);
+                          const rawTextColor = typeof train?.textColor === 'string' ? train.textColor.trim() : '';
+                          const glyphColor = rawTextColor.length > 0
+                              ? normalizeGlyphColor(rawTextColor, fillColor)
+                              : computeBusMarkerGlyphColor(fillColor);
+                          state.fillColor = fillColor;
+                          state.glyphColor = glyphColor;
+                          state.accessibleLabel = buildTrainAccessibleLabel(train);
+                          state.isStale = false;
+                          state.isStopped = false;
+                          state.lastUpdateTimestamp = timestamp;
+                          if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                              const latLng = L.latLng(lat, lon);
+                              state.lastLatLng = latLng;
+                              state.headingDeg = updateBusMarkerHeading(state, [latLng.lat, latLng.lng], state.headingDeg, null);
+                          } else {
+                              state.lastLatLng = null;
+                          }
+                      });
+                  });
+              }
+              Object.keys(trainMarkerStates).forEach(trainID => {
+                  if (!seenTrainIds.has(trainID)) {
+                      clearTrainMarker(trainID);
+                  }
+              });
+              try {
+                  await updateTrainMarkersVisibility();
+              } catch (error) {
+                  console.error('Error updating train markers visibility:', error);
+              }
+          })();
+          trainFetchPromise = fetchTask.finally(() => {
+              trainFetchPromise = null;
+          });
+          return trainFetchPromise;
       }
 
       function animateMarkerTo(marker, newPosition) {
