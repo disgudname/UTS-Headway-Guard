@@ -4448,6 +4448,9 @@
       }
 
       function refreshServiceAlertsUI() {
+        if (serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && getActiveServiceAlertCount() === 0) {
+          serviceAlertsExpanded = false;
+        }
         updateServiceAlertsButtonState();
         updateServiceAlertsPanelContent();
         updateServiceAlertsPanelVisibility();
@@ -4558,6 +4561,10 @@
       function toggleServiceAlertsPanel(event) {
         if (event && typeof event.preventDefault === 'function') {
           event.preventDefault();
+        }
+        const hasActiveAlerts = getActiveServiceAlertCount() > 0;
+        if (!serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && !hasActiveAlerts) {
+          return;
         }
         serviceAlertsExpanded = !serviceAlertsExpanded;
         refreshServiceAlertsUI();
