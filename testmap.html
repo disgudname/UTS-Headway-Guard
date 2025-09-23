@@ -4442,21 +4442,22 @@
         return (Date.now() - serviceAlertsLastFetchTime) > SERVICE_ALERT_REFRESH_INTERVAL_MS;
       }
 
-      async function fetchServiceAlertsForCurrentAgency() {
-        if (serviceAlertsFetchPromise) {
-          return serviceAlertsFetchPromise;
-        }
-        const sanitizedBase = sanitizeBaseUrl(baseURL);
-        if (!sanitizedBase) {
-          serviceAlerts = [];
-          serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
-          serviceAlertsLoading = false;
-          serviceAlertsLastFetchAgency = baseURL;
-          serviceAlertsLastFetchTime = Date.now();
-          serviceAlertsHasLoaded = true;
-          refreshServiceAlertsUI();
-          return [];
-        }
+        async function fetchServiceAlertsForCurrentAgency() {
+          if (serviceAlertsFetchPromise) {
+            return serviceAlertsFetchPromise;
+          }
+          const fetchBaseURL = baseURL;
+          const sanitizedBase = sanitizeBaseUrl(fetchBaseURL);
+          if (!sanitizedBase) {
+            serviceAlerts = [];
+            serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+            serviceAlertsLoading = false;
+            serviceAlertsLastFetchAgency = fetchBaseURL;
+            serviceAlertsLastFetchTime = Date.now();
+            serviceAlertsHasLoaded = true;
+            refreshServiceAlertsUI();
+            return [];
+          }
         serviceAlertsLoading = true;
         serviceAlertsError = null;
         refreshServiceAlertsUI();
@@ -4492,30 +4493,40 @@
           }
           return rows.map(normalizeServiceAlertRow).filter(Boolean);
         })();
-        serviceAlertsFetchPromise = requestPromise;
-        try {
-          const alerts = await requestPromise;
-          serviceAlerts = alerts;
-          serviceAlertsError = null;
-          serviceAlertsLoading = false;
-          serviceAlertsLastFetchAgency = baseURL;
-          serviceAlertsLastFetchTime = Date.now();
-          serviceAlertsHasLoaded = true;
-          return alerts;
-        } catch (error) {
-          console.error('Failed to fetch service alerts:', error);
-          serviceAlerts = [];
-          serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
-          serviceAlertsLoading = false;
-          serviceAlertsLastFetchAgency = baseURL;
-          serviceAlertsLastFetchTime = Date.now();
-          serviceAlertsHasLoaded = true;
-          return [];
-        } finally {
-          serviceAlertsFetchPromise = null;
-          refreshServiceAlertsUI();
+          serviceAlertsFetchPromise = requestPromise;
+          try {
+            const alerts = await requestPromise;
+            if (baseURL !== fetchBaseURL) {
+              return alerts;
+            }
+            serviceAlerts = alerts;
+            serviceAlertsError = null;
+            serviceAlertsLoading = false;
+            serviceAlertsLastFetchAgency = fetchBaseURL;
+            serviceAlertsLastFetchTime = Date.now();
+            serviceAlertsHasLoaded = true;
+            return alerts;
+          } catch (error) {
+            console.error('Failed to fetch service alerts:', error);
+            if (baseURL !== fetchBaseURL) {
+              return [];
+            }
+            serviceAlerts = [];
+            serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+            serviceAlertsLoading = false;
+            serviceAlertsLastFetchAgency = fetchBaseURL;
+            serviceAlertsLastFetchTime = Date.now();
+            serviceAlertsHasLoaded = true;
+            return [];
+          } finally {
+            if (serviceAlertsFetchPromise === requestPromise) {
+              serviceAlertsFetchPromise = null;
+            }
+            if (baseURL === fetchBaseURL) {
+              refreshServiceAlertsUI();
+            }
+          }
         }
-      }
 
       function toggleServiceAlertsPanel(event) {
         if (event && typeof event.preventDefault === 'function') {
