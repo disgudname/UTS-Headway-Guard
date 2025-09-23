@@ -2219,6 +2219,7 @@
       let busMarkerStates = {};
       let trainMarkers = {};
       let trainMarkerStates = {};
+      let trainsVisible = false;
       let trainFetchPromise = null;
       const vehicleHeadingCache = new Map();
       let vehicleHeadingCachePromise = null;
@@ -4361,6 +4362,18 @@
         });
       }
 
+      function updateTrainToggleButton() {
+        const button = document.getElementById('trainToggleButton');
+        if (!button) return;
+        const isActive = !!trainsVisible;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
+      }
+
       function updateIncidentToggleButton() {
         const button = document.getElementById('incidentToggleButton');
         if (!button) return;
@@ -5219,6 +5232,14 @@
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
         const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
+        const trainToggleHtml = `
+          <div class="selector-group">
+            <div class="selector-label">Trains</div>
+            <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsVisible ? ' is-active' : ''}" aria-pressed="${trainsVisible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
+              Show Trains<span class="toggle-indicator">${trainsVisible ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+        `;
         let radarControlsHtml = '';
         if (!kioskMode && !adminKioskMode) {
           const toggleActive = radarEnabled && !radarTemporarilyUnavailable;
@@ -5305,6 +5326,7 @@
         `;
         html += serviceAlertsSectionHtml;
         html += radarControlsHtml;
+        html += trainToggleHtml;
 
         if (adminMode) {
           html += `
@@ -5335,6 +5357,7 @@
         panel.innerHTML = html;
         initializeRadarControls();
         updateDisplayModeButtons();
+        updateTrainToggleButton();
         updateIncidentToggleButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
@@ -10070,7 +10093,46 @@
           trainMarkerStates = {};
       }
 
+      function setTrainsVisibility(visible) {
+          const previousVisibility = !!trainsVisible;
+          trainsVisible = !!visible;
+          updateTrainToggleButton();
+          try {
+              const visibilityPromise = updateTrainMarkersVisibility();
+              if (visibilityPromise && typeof visibilityPromise.catch === 'function') {
+                  visibilityPromise.catch(error => console.error('Error updating train markers visibility:', error));
+              }
+          } catch (error) {
+              console.error('Error updating train markers visibility:', error);
+          }
+          if (trainsVisible && !previousVisibility) {
+              fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+          }
+      }
+
+      function toggleTrainsVisibility() {
+          setTrainsVisibility(!trainsVisible);
+      }
+
       async function updateTrainMarkersVisibility() {
+          if (!trainsVisible) {
+              Object.keys(trainMarkers).forEach(trainID => {
+                  const marker = trainMarkers[trainID];
+                  if (!marker) {
+                      return;
+                  }
+                  if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                      map.removeLayer(marker);
+                  } else if (typeof marker.remove === 'function') {
+                      marker.remove();
+                  }
+                  const state = trainMarkerStates[trainID];
+                  if (state) {
+                      state.marker = marker || null;
+                  }
+              });
+              return;
+          }
           if (!map || typeof map.getBounds !== 'function') {
               return;
           }
@@ -10136,7 +10198,13 @@
           if (trainFetchPromise) {
               return trainFetchPromise;
           }
+          if (!trainsVisible) {
+              return;
+          }
           const fetchTask = (async () => {
+              if (!trainsVisible) {
+                  return;
+              }
               const stationCode = typeof TRAIN_TARGET_STATION_CODE === 'string'
                   ? TRAIN_TARGET_STATION_CODE.trim().toUpperCase()
                   : '';
@@ -10157,6 +10225,9 @@
                   payload = await response.json();
               } catch (error) {
                   console.error('Failed to parse train response:', error);
+                  return;
+              }
+              if (!trainsVisible) {
                   return;
               }
               const seenTrainIds = new Set();
