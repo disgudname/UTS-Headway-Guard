@@ -2032,11 +2032,12 @@
           Agency: agency
         };
         const timestamp = getIncidentTimestamp(incident) ?? Date.now();
+        const demoRouteColor = sanitizeCssColor(routeColors?.[404] || '#F97316');
         return {
           id: normalizedId,
           incident,
           routes: [
-            { routeId: 404, name: 'Demo Route 404', distance: 42 }
+            { routeId: 404, name: 'Demo Route 404', distance: 42, color: demoRouteColor }
           ],
           closestDistance: 42,
           timestamp,
@@ -2825,7 +2826,28 @@
             }
             if (distance <= threshold && !seenRoutes.has(routeId)) {
               seenRoutes.add(routeId);
-              matchedRoutes.push({ routeId, name: getRouteDisplayName(routeId), distance });
+              const colorCandidates = [];
+              if (routeColors && typeof routeColors[routeId] === 'string') {
+                colorCandidates.push(routeColors[routeId]);
+              }
+              const storedRoute = allRoutes ? (allRoutes[routeId] || allRoutes[`${routeId}`] || null) : null;
+              if (storedRoute) {
+                const storedColorCandidates = [storedRoute.MapLineColor, storedRoute.RouteColor, storedRoute.Color, storedRoute.color];
+                storedColorCandidates.forEach(value => {
+                  if (typeof value === 'string') {
+                    colorCandidates.push(value);
+                  }
+                });
+              }
+              let matchedColor = '';
+              for (const candidate of colorCandidates) {
+                const sanitized = sanitizeCssColor(candidate);
+                if (sanitized) {
+                  matchedColor = sanitized;
+                  break;
+                }
+              }
+              matchedRoutes.push({ routeId, name: getRouteDisplayName(routeId), distance, color: matchedColor });
             }
           });
           if (!matchedRoutes.length) return;
@@ -5016,6 +5038,32 @@
           return `${JSON.stringify(normalizedIds)}|${fallbackStopIdText || ''}`;
       }
 
+      function sanitizeCssColor(color) {
+          if (typeof color !== 'string') {
+              return '';
+          }
+          let trimmed = color.trim();
+          if (trimmed.length === 0) {
+              return '';
+          }
+          if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) {
+              return trimmed;
+          }
+          if (/^[0-9a-fA-F]{3,8}$/.test(trimmed)) {
+              return `#${trimmed}`;
+          }
+          if (/^rgba?\(\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed)) {
+              return trimmed.replace(/\s+/g, ' ');
+          }
+          if (/^hsla?\(\s*\d+(?:\.\d+)?(?:deg|rad|turn)?\s*,\s*\d+(?:\.\d+)?%\s*,\s*\d+(?:\.\d+)?%(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed)) {
+              return trimmed.replace(/\s+/g, ' ');
+          }
+          if (/^[a-zA-Z]+$/.test(trimmed)) {
+              return trimmed;
+          }
+          return '';
+      }
+
       function getColorWithAlpha(color, alpha) {
           const safeAlpha = Math.min(1, Math.max(0, Number(alpha) || 0));
           if (typeof color !== 'string' || color.trim() === '') {
@@ -5264,18 +5312,81 @@
           const metaHtml = metaLines ? `<div class="incident-popup__meta">${metaLines}</div>` : '';
 
           const routes = Array.isArray(config?.routes) ? config.routes : [];
-          const routeNames = routes
-              .map(route => {
-                  if (!route) return '';
-                  if (typeof route === 'string') return route.trim();
-                  if (typeof route.name === 'string') return route.name.trim();
-                  if (typeof route.RouteName === 'string') return route.RouteName.trim();
-                  if (typeof route.Description === 'string') return route.Description.trim();
-                  return '';
-              })
-              .filter(Boolean);
-          const routesHtml = routeNames.length
-              ? `<div class="incident-popup__section"><div class="incident-popup__section-title">Routes Nearby</div><div class="incident-popup__routes-list">${routeNames.map(name => `<span class="incident-popup__route">${escapeHtml(name)}</span>`).join('')}</div></div>`
+          const routeBadges = Array.isArray(routes)
+              ? routes
+                  .map(route => {
+                      if (!route) return '';
+                      if (typeof route === 'string') {
+                          const trimmed = route.trim();
+                          if (!trimmed) return '';
+                          return `<span class="incident-popup__route">${escapeHtml(trimmed)}</span>`;
+                      }
+                      const nameCandidates = [route.name, route.RouteName, route.Description, route.Label];
+                      let routeName = '';
+                      for (const value of nameCandidates) {
+                          if (typeof value !== 'string') continue;
+                          const trimmed = value.trim();
+                          if (trimmed) {
+                              routeName = trimmed;
+                              break;
+                          }
+                      }
+                      if (!routeName) return '';
+                      const colorCandidates = [route.color, route.Color, route.routeColor, route.RouteColor, route.fillColor, route.FillColor];
+                      let routeColor = '';
+                      for (const candidate of colorCandidates) {
+                          const sanitized = sanitizeCssColor(candidate);
+                          if (sanitized) {
+                              routeColor = sanitized;
+                              break;
+                          }
+                      }
+                      if (!routeColor) {
+                          const idCandidates = [route.routeId, route.RouteId, route.RouteID];
+                          for (const idCandidate of idCandidates) {
+                              if (idCandidate === undefined || idCandidate === null) continue;
+                              const directColor = sanitizeCssColor(routeColors ? routeColors[idCandidate] : '');
+                              if (directColor) {
+                                  routeColor = directColor;
+                                  break;
+                              }
+                              const numericId = Number(idCandidate);
+                              if (!Number.isFinite(numericId)) continue;
+                              const numericColor = sanitizeCssColor(routeColors ? routeColors[numericId] : '');
+                              if (numericColor) {
+                                  routeColor = numericColor;
+                                  break;
+                              }
+                              const storedRoute = allRoutes ? (allRoutes[numericId] || allRoutes[`${numericId}`] || null) : null;
+                              if (storedRoute) {
+                                  const storedColor = sanitizeCssColor(storedRoute.MapLineColor || storedRoute.Color || storedRoute.RouteColor);
+                                  if (storedColor) {
+                                      routeColor = storedColor;
+                                      break;
+                                  }
+                              }
+                          }
+                      }
+                      const styleParts = [];
+                      if (routeColor) {
+                          styleParts.push(`background:${escapeAttribute(routeColor)}`);
+                          styleParts.push(`border-color:${escapeAttribute(routeColor)}`);
+                          const textColor = contrastBW(routeColor);
+                          if (textColor) {
+                              styleParts.push(`color:${escapeAttribute(textColor)}`);
+                          }
+                          const shadowColor = getColorWithAlpha(routeColor, 0.35);
+                          if (shadowColor) {
+                              styleParts.push(`box-shadow:0 10px 24px ${escapeAttribute(shadowColor)}`);
+                          }
+                      }
+                      const styleAttr = styleParts.length ? ` style="${styleParts.join(';')}"` : '';
+                      return `<span class="incident-popup__route"${styleAttr}>${escapeHtml(routeName)}</span>`;
+                  })
+                  .filter(Boolean)
+              : [];
+          const routesHtml = routeBadges.length
+              ? `<div class="incident-popup__section"><div class="incident-popup__section-title">Routes Nearby</div><div class="incident-popup__routes-list">${routeBadges.join('')}</div></div>`
               : '';
 
           const units = extractIncidentUnits(incident);
