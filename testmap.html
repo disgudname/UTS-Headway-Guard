@@ -5110,7 +5110,7 @@
               const entryTitle = entry.displayName ? `<span class="stop-entry-title">${sanitizeStopName(entry.displayName)}</span>` : '';
               const entryIdLine = entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
               const entryAddressIdText = normalizeIdentifier(entry?.addressId);
-              const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Address ID: ${entryAddressIdText}</span>` : '';
+              const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Stop ID: ${entryAddressIdText}</span>` : '';
               const tableHtml = buildEtaTableHtml(entry.routeStopIds || []);
               return `<div class="stop-entry">${entryTitle}${entryIdLine}${entryAddressLine}${tableHtml}</div>`;
           }).join('');
