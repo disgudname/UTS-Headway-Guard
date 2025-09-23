@@ -568,6 +568,16 @@
         outline: none;
         box-shadow: 0 8px 18px rgba(35, 45, 75, 0.18);
       }
+      .service-alerts.is-expanded .service-alerts__header {
+        background: rgba(248, 250, 252, 0.92);
+        border-bottom-color: rgba(148, 163, 184, 0.32);
+        box-shadow: none;
+      }
+      .service-alerts.is-expanded .service-alerts__header:hover,
+      .service-alerts.is-expanded .service-alerts__header:focus-visible {
+        background: rgba(248, 250, 252, 0.96);
+        box-shadow: none;
+      }
       .service-alerts.is-collapsed.has-active-alerts .service-alerts__header {
         background: linear-gradient(135deg, rgba(220, 38, 38, 0.16), rgba(248, 113, 113, 0.28));
         border-color: rgba(220, 38, 38, 0.45);
@@ -640,6 +650,9 @@
         flex-direction: column;
         gap: 16px;
         background: rgba(248, 250, 252, 0.88);
+      }
+      .service-alerts.is-expanded .service-alerts__content {
+        background: rgba(248, 250, 252, 0.92);
       }
       .service-alerts.is-collapsed .service-alerts__content {
         display: none;
