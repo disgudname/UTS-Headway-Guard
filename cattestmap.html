@@ -1672,6 +1672,95 @@
       const vehicleHeadingCache = new Map();
       let vehicleHeadingCachePromise = null;
       const VEHICLE_HEADING_CACHE_ENDPOINT = '/v1/vehicle_headings';
+
+      function rememberCachedVehicleHeading(vehicleID, headingDeg, timestamp) {
+        if (!Number.isFinite(headingDeg)) {
+          return;
+        }
+        if (vehicleID === undefined || vehicleID === null) {
+          return;
+        }
+        const key = `${vehicleID}`;
+        if (!key || key === 'undefined' || key === 'null') {
+          return;
+        }
+        const normalizedHeading = normalizeHeadingDegrees(headingDeg);
+        const updatedAt = Number.isFinite(timestamp) ? Number(timestamp) : Date.now();
+        vehicleHeadingCache.set(key, { heading: normalizedHeading, updatedAt });
+      }
+
+      function getCachedVehicleHeading(vehicleID) {
+        if (vehicleID === undefined || vehicleID === null) {
+          return null;
+        }
+        const key = `${vehicleID}`;
+        const entry = vehicleHeadingCache.get(key);
+        if (!entry) {
+          return null;
+        }
+        const heading = Number(entry.heading ?? entry.Heading);
+        if (!Number.isFinite(heading)) {
+          return null;
+        }
+        return normalizeHeadingDegrees(heading);
+      }
+
+      function getVehicleHeadingFallback(vehicleID, headingFromFeed) {
+        const cached = getCachedVehicleHeading(vehicleID);
+        if (cached !== null) {
+          return cached;
+        }
+        const fromFeed = Number(headingFromFeed);
+        if (Number.isFinite(fromFeed)) {
+          return normalizeHeadingDegrees(fromFeed);
+        }
+        return BUS_MARKER_DEFAULT_HEADING;
+      }
+
+      function loadVehicleHeadingCache() {
+        if (vehicleHeadingCachePromise) {
+          return vehicleHeadingCachePromise;
+        }
+        if (typeof fetch !== 'function') {
+          vehicleHeadingCachePromise = Promise.resolve(vehicleHeadingCache);
+          return vehicleHeadingCachePromise;
+        }
+        vehicleHeadingCachePromise = (async () => {
+          try {
+            const response = await fetch(VEHICLE_HEADING_CACHE_ENDPOINT, { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            if (data && typeof data === 'object' && data.headings && typeof data.headings === 'object') {
+              Object.entries(data.headings).forEach(([vehicleID, entry]) => {
+                if (!vehicleID) {
+                  return;
+                }
+                let headingValue = entry;
+                let updatedAt = undefined;
+                if (entry && typeof entry === 'object') {
+                  headingValue = entry.heading ?? entry.Heading;
+                  const tsCandidate = entry.updated_at ?? entry.updatedAt ?? entry.timestamp ?? entry.ts_ms ?? entry.ts;
+                  if (Number.isFinite(Number(tsCandidate))) {
+                    updatedAt = Number(tsCandidate);
+                  }
+                }
+                const headingNumber = Number(headingValue);
+                if (!Number.isFinite(headingNumber)) {
+                  return;
+                }
+                rememberCachedVehicleHeading(vehicleID, headingNumber, updatedAt);
+              });
+            }
+          } catch (error) {
+            console.info('Vehicle heading cache unavailable; continuing without it.', error);
+          }
+          return vehicleHeadingCache;
+        })();
+        return vehicleHeadingCachePromise;
+      }
+
       let pendingBusVisualUpdates = new Map();
       let busMarkerVisualUpdateFrame = null;
       let selectedVehicleId = null;
