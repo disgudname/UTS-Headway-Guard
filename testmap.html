@@ -719,9 +719,29 @@
       }
       .selector-panel .incident-alert__units {
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+        flex-direction: column;
+        gap: 10px;
         align-items: flex-start;
+      }
+      .selector-panel .incident-alert__units-label {
+        display: block;
+      }
+      .selector-panel .incident-alert__unit-status-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+      }
+      .selector-panel .incident-alert__unit-status-group + .incident-alert__unit-status-group {
+        padding-top: 6px;
+        border-top: 1px solid rgba(136, 19, 19, 0.2);
+      }
+      .selector-panel .incident-alert__unit-status-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 700;
+        color: rgba(136, 19, 19, 0.9);
       }
       .selector-panel .incident-alert__unit-list {
         display: flex;
@@ -3545,6 +3565,23 @@
         return `<div class="incident-popup__section incident-popup__units"><div class="incident-popup__section-title">Units</div>${groupsHtml}</div>`;
       }
 
+      function renderIncidentAlertUnitsSection(units) {
+        const validUnits = Array.isArray(units)
+          ? units.filter(unit => unit && typeof unit.displayText === 'string' && unit.displayText.trim())
+          : [];
+        if (!validUnits.length) return '';
+        const groups = buildIncidentUnitStatusGroups(validUnits);
+        if (!groups.length) return '';
+        const groupsHtml = groups.map(group => {
+          const unitsHtml = group.units.map(renderIncidentUnit).filter(Boolean).join('');
+          if (!unitsHtml) return '';
+          const safeLabel = escapeHtml(group.label);
+          return `<div class="incident-alert__unit-status-group"><div class="incident-alert__unit-status-title">${safeLabel}</div><div class="incident-alert__unit-list">${unitsHtml}</div></div>`;
+        }).filter(Boolean).join('');
+        if (!groupsHtml) return '';
+        return `<div class="incident-alert__units"><div class="incident-alert__units-label">Units</div>${groupsHtml}</div>`;
+      }
+
       function renderIncidentAlertItem(entry) {
         if (!entry || !entry.incident) return '';
         const incident = entry.incident;
@@ -3581,10 +3618,7 @@
           ? `<div class="incident-alert__routes-line"><span class="incident-alert__routes-label">Routes:</span><span class="incident-alert__routes-list">${routeNames.map(name => escapeHtml(name)).join(', ')}</span></div>`
           : '';
         const units = extractIncidentUnits(incident);
-        const unitsContent = units.map(renderIncidentUnit).filter(Boolean).join('');
-        const unitsHtml = unitsContent
-          ? `<div class="incident-alert__units"><span class="incident-alert__units-label">Units:</span><span class="incident-alert__unit-list">${unitsContent}</span></div>`
-          : '';
+        const unitsHtml = renderIncidentAlertUnitsSection(units);
         const buttonTitleParts = [];
         if (typeLabel) {
           buttonTitleParts.push(`View ${typeLabel}`);
