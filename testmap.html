@@ -782,6 +782,213 @@
         flex-direction: column;
         gap: 10px;
       }
+      .selector-panel .service-alerts-group {
+        gap: 12px;
+      }
+      .selector-panel .service-alerts-toggle {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        text-align: left;
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(79, 70, 229, 0.18));
+        border: 1px solid rgba(67, 56, 202, 0.28);
+        color: var(--panel-text-color);
+        box-shadow: 0 10px 18px rgba(37, 99, 235, 0.18);
+        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .selector-panel .service-alerts-toggle:hover {
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(79, 70, 229, 0.26));
+        border-color: rgba(67, 56, 202, 0.36);
+        box-shadow: 0 14px 24px rgba(37, 99, 235, 0.25);
+      }
+      .selector-panel .service-alerts-toggle.is-expanded {
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.26), rgba(59, 130, 246, 0.3));
+        border-color: rgba(59, 130, 246, 0.45);
+        box-shadow: 0 16px 26px rgba(59, 130, 246, 0.3);
+      }
+      .selector-panel .service-alerts-toggle.has-active-alerts {
+        background: linear-gradient(135deg, rgba(13, 148, 136, 0.24), rgba(14, 116, 144, 0.26));
+        border-color: rgba(13, 148, 136, 0.42);
+        box-shadow: 0 16px 26px rgba(13, 148, 136, 0.25);
+      }
+      .selector-panel .service-alerts-toggle.has-active-alerts:hover {
+        background: linear-gradient(135deg, rgba(13, 148, 136, 0.28), rgba(14, 116, 144, 0.32));
+        border-color: rgba(13, 148, 136, 0.5);
+      }
+      .selector-panel .service-alerts-toggle.has-error {
+        background: linear-gradient(135deg, rgba(248, 113, 113, 0.2), rgba(220, 38, 38, 0.22));
+        border-color: rgba(220, 38, 38, 0.42);
+        box-shadow: 0 12px 22px rgba(220, 38, 38, 0.22);
+      }
+      .selector-panel .service-alerts-toggle.has-error:hover {
+        background: linear-gradient(135deg, rgba(248, 113, 113, 0.24), rgba(220, 38, 38, 0.28));
+        border-color: rgba(220, 38, 38, 0.5);
+      }
+      .selector-panel .service-alerts-toggle.is-loading {
+        cursor: progress;
+      }
+      .selector-panel .service-alerts-toggle__text {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .selector-panel .service-alerts-toggle__label {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 1.1px;
+        text-transform: uppercase;
+        color: rgba(30, 41, 59, 0.92);
+      }
+      .selector-panel .service-alerts-toggle__status {
+        font-size: 13px;
+        letter-spacing: 0.35px;
+        color: rgba(30, 64, 175, 0.85);
+      }
+      .selector-panel .service-alerts-toggle.has-error .service-alerts-toggle__status {
+        color: rgba(185, 28, 28, 0.9);
+        font-weight: 600;
+      }
+      .selector-panel .service-alerts-toggle.is-loading .service-alerts-toggle__status {
+        color: rgba(30, 41, 59, 0.7);
+      }
+      .selector-panel .service-alerts-toggle.has-active-alerts .service-alerts-toggle__status {
+        color: rgba(13, 148, 136, 0.95);
+        font-weight: 700;
+      }
+      .selector-panel .service-alerts-toggle__chevron {
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: rgba(30, 41, 59, 0.12);
+        color: rgba(30, 41, 59, 0.7);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+      .selector-panel .service-alerts-toggle:hover .service-alerts-toggle__chevron {
+        background: rgba(30, 41, 59, 0.18);
+      }
+      .selector-panel .service-alerts-toggle__chevron::before {
+        content: '\25BC';
+      }
+      .selector-panel .service-alerts-toggle.is-expanded .service-alerts-toggle__chevron::before {
+        content: '\25B2';
+      }
+      .selector-panel .service-alerts-panel {
+        border-radius: 12px;
+        border: 1px solid rgba(67, 56, 202, 0.26);
+        background: rgba(255, 255, 255, 0.9);
+        padding: 16px 18px;
+        box-shadow: 0 14px 28px rgba(37, 99, 235, 0.18);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .selector-panel .service-alerts-panel.is-loading {
+        opacity: 0.75;
+      }
+      .selector-panel .service-alerts-panel.has-error {
+        border-color: rgba(220, 38, 38, 0.32);
+        box-shadow: 0 12px 24px rgba(220, 38, 38, 0.2);
+      }
+      .selector-panel .service-alerts-panel .service-alerts-state {
+        font-size: 14px;
+        letter-spacing: 0.3px;
+        color: rgba(30, 41, 59, 0.82);
+        line-height: 1.4;
+      }
+      .selector-panel .service-alerts-panel .service-alerts-state--loading {
+        color: rgba(37, 99, 235, 0.85);
+        font-weight: 600;
+      }
+      .selector-panel .service-alerts-panel .service-alerts-state--error {
+        color: rgba(185, 28, 28, 0.9);
+        font-weight: 600;
+      }
+      .selector-panel .service-alerts-panel .service-alerts-state--empty {
+        color: rgba(30, 41, 59, 0.7);
+      }
+      .selector-panel .service-alerts-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .selector-panel .service-alerts-item {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: rgba(37, 99, 235, 0.08);
+        border: 1px solid rgba(67, 56, 202, 0.22);
+      }
+      .selector-panel .service-alerts-item.is-inactive {
+        opacity: 0.75;
+      }
+      .selector-panel .service-alerts-item__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .selector-panel .service-alerts-item__title {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.45px;
+        color: rgba(30, 41, 59, 0.95);
+      }
+      .selector-panel .service-alerts-item__status {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(37, 99, 235, 0.16);
+        color: rgba(30, 64, 175, 0.9);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .selector-panel .service-alerts-item.is-inactive .service-alerts-item__status {
+        background: rgba(248, 113, 113, 0.18);
+        color: rgba(185, 28, 28, 0.9);
+      }
+      .selector-panel .service-alerts-item__message {
+        font-size: 14px;
+        line-height: 1.55;
+        color: rgba(30, 41, 59, 0.85);
+        white-space: pre-line;
+      }
+      .selector-panel .service-alerts-item__meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .selector-panel .service-alerts-item__meta-row {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+        letter-spacing: 0.3px;
+        color: rgba(37, 99, 235, 0.9);
+      }
+      .selector-panel .service-alerts-item__meta-label {
+        font-weight: 700;
+        text-transform: uppercase;
+        color: rgba(30, 64, 175, 0.88);
+      }
+      .selector-panel .service-alerts-item__meta-value {
+        flex: 1;
+        font-weight: 600;
+        color: rgba(30, 41, 59, 0.85);
+        overflow-wrap: anywhere;
+      }
       .selector-panel .selector-label {
         font-size: 12px;
         text-transform: uppercase;
@@ -1431,6 +1638,91 @@
         ? window.matchMedia('(prefers-reduced-motion: reduce)')
         : null;
       let isFetchingIncidents = false;
+
+      const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
+      const SERVICE_ALERT_START_FIELDS = Object.freeze([
+        'StartDateText',
+        'StartDateDisplay',
+        'StartDateLocalText',
+        'StartDateLocal',
+        'StartDate',
+        'StartDateUtc',
+        'StartDateTime',
+        'StartDateISO',
+        'StartTimestamp',
+        'StartTime',
+        'Start',
+        'BeginDateText',
+        'BeginDate',
+        'BeginDateUtc',
+        'BeginTime',
+        'EffectiveStart',
+        'EffectiveStartDate',
+        'EffectiveStartUtc'
+      ]);
+      const SERVICE_ALERT_END_FIELDS = Object.freeze([
+        'EndDateText',
+        'EndDateDisplay',
+        'EndDateLocalText',
+        'EndDateLocal',
+        'EndDate',
+        'EndDateUtc',
+        'EndDateTime',
+        'EndDateISO',
+        'EndTimestamp',
+        'EndTime',
+        'End',
+        'StopDateText',
+        'StopDate',
+        'StopDateUtc',
+        'StopTime',
+        'ExpirationDate',
+        'ExpirationDateUtc',
+        'ExpireDate',
+        'ExpireDateUtc',
+        'EffectiveEnd',
+        'EffectiveEndDate',
+        'EffectiveEndUtc'
+      ]);
+      const SERVICE_ALERT_EMPTY_MESSAGE = 'No active service alerts.';
+      const SERVICE_ALERT_UNAVAILABLE_MESSAGE = 'Service alerts unavailable.';
+      const SERVICE_ALERT_STATUS_NO_ALERTS = 'No active alerts';
+      const SERVICE_ALERT_STATUS_LOADING = 'Loading…';
+      const SERVICE_ALERT_STATUS_ERROR = 'Unavailable';
+      const SERVICE_ALERT_STATUS_READY = 'View alerts';
+      const SERVICE_ALERT_DATE_FORMATTER = (() => {
+        if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
+          return null;
+        }
+        try {
+          return new Intl.DateTimeFormat('en-US', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZoneName: 'short'
+          });
+        } catch (error) {
+          try {
+            return new Intl.DateTimeFormat('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              timeZoneName: 'short'
+            });
+          } catch (fallbackError) {
+            return null;
+          }
+        }
+      })();
+      let serviceAlerts = [];
+      let serviceAlertsLoading = false;
+      let serviceAlertsError = null;
+      let serviceAlertsExpanded = false;
+      let serviceAlertsLastFetchAgency = '';
+      let serviceAlertsLastFetchTime = 0;
+      let serviceAlertsFetchPromise = null;
+      let serviceAlertsHasLoaded = false;
 
       function hasIncidentsRequiringVisibility() {
         return incidentsNearRoutesLookup instanceof Map && incidentsNearRoutesLookup.size > 0;
@@ -3237,6 +3529,7 @@
           } else {
             baseURL = agencies[0]?.url || '';
           }
+          resetServiceAlertsState();
           updateControlPanel();
           enforceIncidentVisibilityForCurrentAgency();
           updateRouteSelector(activeRoutes, true);
@@ -3777,6 +4070,476 @@
         }
       }
 
+      function formatServiceAlertDate(date) {
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+          return '';
+        }
+        if (SERVICE_ALERT_DATE_FORMATTER) {
+          try {
+            return SERVICE_ALERT_DATE_FORMATTER.format(date);
+          } catch (error) {
+            // fall through to native formatting
+          }
+        }
+        try {
+          return date.toLocaleString();
+        } catch (error) {
+          return date.toString();
+        }
+      }
+
+      function formatServiceAlertTimeValue(value) {
+        if (value === null || value === undefined) {
+          return { display: '', raw: '' };
+        }
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+          return {
+            display: formatServiceAlertDate(value),
+            raw: value.toISOString()
+          };
+        }
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          const date = new Date(value);
+          if (!Number.isNaN(date.getTime())) {
+            return {
+              display: formatServiceAlertDate(date),
+              raw: String(value)
+            };
+          }
+          return { display: String(value), raw: String(value) };
+        }
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (!trimmed) {
+            return { display: '', raw: '' };
+          }
+          const unixMatch = trimmed.match(/\/Date\((\d+)\)\/?/i);
+          if (unixMatch && unixMatch[1]) {
+            const millis = Number(unixMatch[1]);
+            if (Number.isFinite(millis)) {
+              const date = new Date(millis);
+              if (!Number.isNaN(date.getTime())) {
+                return {
+                  display: formatServiceAlertDate(date),
+                  raw: trimmed
+                };
+              }
+            }
+          }
+          const parsed = new Date(trimmed);
+          if (!Number.isNaN(parsed.getTime())) {
+            return {
+              display: formatServiceAlertDate(parsed),
+              raw: trimmed
+            };
+          }
+          return { display: trimmed, raw: trimmed };
+        }
+        if (typeof value === 'object') {
+          const stringValue = String(value);
+          if (stringValue && stringValue !== '[object Object]') {
+            return formatServiceAlertTimeValue(stringValue);
+          }
+        }
+        return { display: '', raw: '' };
+      }
+
+      function extractServiceAlertTime(record, type) {
+        if (!record || typeof record !== 'object') {
+          return { display: '', raw: '' };
+        }
+        const fields = type === 'end' ? SERVICE_ALERT_END_FIELDS : SERVICE_ALERT_START_FIELDS;
+        for (const field of fields) {
+          if (Object.prototype.hasOwnProperty.call(record, field)) {
+            const info = formatServiceAlertTimeValue(record[field]);
+            if (info.display) {
+              return info;
+            }
+          }
+        }
+        const lowerKeyMap = Object.keys(record).reduce((acc, key) => {
+          acc[key.toLowerCase()] = key;
+          return acc;
+        }, {});
+        for (const field of fields) {
+          const originalKey = lowerKeyMap[field.toLowerCase()];
+          if (originalKey && Object.prototype.hasOwnProperty.call(record, originalKey)) {
+            const info = formatServiceAlertTimeValue(record[originalKey]);
+            if (info.display) {
+              return info;
+            }
+          }
+        }
+        return { display: '', raw: '' };
+      }
+
+      function normalizeServiceAlertRoutes(record) {
+        const collected = [];
+        const candidateKeys = ['Routes', 'routes', 'RoutesAffected', 'routesAffected', 'AffectedRoutes', 'affectedRoutes', 'RouteNames', 'routeNames'];
+        for (const key of candidateKeys) {
+          if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+          const value = record[key];
+          if (Array.isArray(value)) {
+            value.forEach(entry => {
+              if (!entry) return;
+              if (typeof entry === 'string') {
+                const trimmed = entry.trim();
+                if (trimmed) collected.push(trimmed);
+                return;
+              }
+              if (typeof entry === 'object') {
+                const nameCandidates = [
+                  typeof entry.Name === 'string' ? entry.Name.trim() : '',
+                  typeof entry.RouteName === 'string' ? entry.RouteName.trim() : '',
+                  typeof entry.Description === 'string' ? entry.Description.trim() : '',
+                  typeof entry.Title === 'string' ? entry.Title.trim() : '',
+                  typeof entry.label === 'string' ? entry.label.trim() : ''
+                ];
+                const label = nameCandidates.find(candidate => candidate);
+                if (label) collected.push(label);
+              }
+            });
+          } else if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (trimmed) {
+              trimmed.split(/[,;]+/).map(part => part.trim()).filter(Boolean).forEach(part => collected.push(part));
+            }
+          }
+          if (collected.length) break;
+        }
+        if (!collected.length) {
+          return [];
+        }
+        const seen = new Set();
+        return collected.filter(route => {
+          const key = route.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+
+      function normalizeServiceAlertRow(row) {
+        if (!row || typeof row !== 'object') return null;
+        const titleCandidates = [
+          typeof row.MessageTitle === 'string' ? row.MessageTitle.trim() : '',
+          typeof row.Title === 'string' ? row.Title.trim() : '',
+          typeof row.Subject === 'string' ? row.Subject.trim() : ''
+        ];
+        const messageCandidates = [
+          typeof row.MessageText === 'string' ? row.MessageText.trim() : '',
+          typeof row.MessageBody === 'string' ? row.MessageBody.trim() : '',
+          typeof row.Text === 'string' ? row.Text.trim() : '',
+          typeof row.Description === 'string' ? row.Description.trim() : '',
+          typeof row.Details === 'string' ? row.Details.trim() : '',
+          typeof row.Body === 'string' ? row.Body.trim() : ''
+        ];
+        const title = titleCandidates.find(candidate => candidate) || '';
+        const message = messageCandidates.find(candidate => candidate) || '';
+        const startInfo = extractServiceAlertTime(row, 'start');
+        const endInfo = extractServiceAlertTime(row, 'end');
+        const idCandidates = [
+          row.MessageID,
+          row.MessageId,
+          row.MessageGuid,
+          row.Guid,
+          row.ID,
+          row.Id,
+          row.AlertId,
+          row.AlertID,
+          row.RecordId,
+          row.RecordID
+        ];
+        const rawId = idCandidates.find(value => value !== null && value !== undefined);
+        const statusValue = typeof row.Status === 'string' ? row.Status.trim().toLowerCase() : '';
+        let isActive = true;
+        if (Object.prototype.hasOwnProperty.call(row, 'IsActive')) {
+          isActive = !!row.IsActive;
+        } else if (Object.prototype.hasOwnProperty.call(row, 'Active')) {
+          isActive = !!row.Active;
+        } else if (Object.prototype.hasOwnProperty.call(row, 'Visible')) {
+          isActive = !!row.Visible;
+        } else if (statusValue) {
+          isActive = !(statusValue === 'inactive' || statusValue === 'expired' || statusValue === 'inactive alert');
+        }
+        const routes = normalizeServiceAlertRoutes(row);
+        return {
+          id: rawId !== undefined && rawId !== null ? String(rawId) : (title || message || null),
+          title,
+          message,
+          startDisplay: startInfo.display,
+          startRaw: startInfo.raw,
+          endDisplay: endInfo.display,
+          endRaw: endInfo.raw,
+          isActive,
+          routes
+        };
+      }
+
+      function extractServiceAlertRows(data) {
+        if (!data) return [];
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data.Rows)) return data.Rows;
+        if (Array.isArray(data.rows)) return data.rows;
+        if (Array.isArray(data.Result?.Rows)) return data.Result.Rows;
+        if (Array.isArray(data.Result)) return data.Result;
+        if (Array.isArray(data.Data)) return data.Data;
+        if (Array.isArray(data.data)) return data.data;
+        if (Array.isArray(data.Messages)) return data.Messages;
+        if (Array.isArray(data.messages)) return data.messages;
+        if (data.d) return extractServiceAlertRows(data.d);
+        return [];
+      }
+
+      function getActiveServiceAlertCount() {
+        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
+          return 0;
+        }
+        return serviceAlerts.reduce((total, alert) => {
+          if (!alert) return total;
+          return total + (alert.isActive === false ? 0 : 1);
+        }, 0);
+      }
+
+      function buildServiceAlertsStatusText() {
+        if (serviceAlertsLoading) {
+          return SERVICE_ALERT_STATUS_LOADING;
+        }
+        if (serviceAlertsError) {
+          return SERVICE_ALERT_STATUS_ERROR;
+        }
+        if (!serviceAlertsHasLoaded) {
+          return SERVICE_ALERT_STATUS_READY;
+        }
+        const count = getActiveServiceAlertCount();
+        if (count > 0) {
+          return count === 1 ? '1 active alert' : `${count} active alerts`;
+        }
+        return SERVICE_ALERT_STATUS_NO_ALERTS;
+      }
+
+      function renderServiceAlertItem(alert) {
+        if (!alert) return '';
+        const itemClasses = ['service-alerts-item'];
+        if (alert.isActive === false) {
+          itemClasses.push('is-inactive');
+        }
+        const idAttr = alert.id ? ` data-alert-id="${escapeAttribute(alert.id)}"` : '';
+        const titleTextRaw = typeof alert.title === 'string' ? alert.title.trim() : '';
+        const messageTextRaw = typeof alert.message === 'string' ? alert.message.trim() : '';
+        const titleText = titleTextRaw || 'Service Alert';
+        const statusText = alert.isActive === false ? 'Inactive' : 'Active';
+        const headerHtml = `<div class="service-alerts-item__header"><div class="service-alerts-item__title">${escapeHtml(titleText)}</div><span class="service-alerts-item__status">${escapeHtml(statusText)}</span></div>`;
+        const messageHtml = messageTextRaw ? `<div class="service-alerts-item__message">${escapeHtml(messageTextRaw)}</div>` : '';
+        const metaRows = [];
+        if (alert.startDisplay) {
+          const titleAttr = alert.startRaw ? ` title="${escapeAttribute(alert.startRaw)}"` : '';
+          metaRows.push(`<div class="service-alerts-item__meta-row"><span class="service-alerts-item__meta-label">Start</span><span class="service-alerts-item__meta-value"${titleAttr}>${escapeHtml(alert.startDisplay)}</span></div>`);
+        }
+        if (alert.endDisplay) {
+          const titleAttr = alert.endRaw ? ` title="${escapeAttribute(alert.endRaw)}"` : '';
+          metaRows.push(`<div class="service-alerts-item__meta-row"><span class="service-alerts-item__meta-label">End</span><span class="service-alerts-item__meta-value"${titleAttr}>${escapeHtml(alert.endDisplay)}</span></div>`);
+        }
+        if (Array.isArray(alert.routes) && alert.routes.length > 0) {
+          const routesHtml = alert.routes.map(route => escapeHtml(route)).join(', ');
+          metaRows.push(`<div class="service-alerts-item__meta-row"><span class="service-alerts-item__meta-label">Routes</span><span class="service-alerts-item__meta-value">${routesHtml}</span></div>`);
+        }
+        const metaHtml = metaRows.length ? `<div class="service-alerts-item__meta">${metaRows.join('')}</div>` : '';
+        return `<li class="${itemClasses.join(' ')}"${idAttr}>${headerHtml}${messageHtml}${metaHtml}</li>`;
+      }
+
+      function renderServiceAlertsPanelContentHtml() {
+        if (serviceAlertsLoading) {
+          return `<div class="service-alerts-state service-alerts-state--loading">Loading service alerts…</div>`;
+        }
+        if (serviceAlertsError) {
+          return `<div class="service-alerts-state service-alerts-state--error">${escapeHtml(serviceAlertsError)}</div>`;
+        }
+        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
+          return `<div class="service-alerts-state service-alerts-state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
+        }
+        const itemsHtml = serviceAlerts.map(renderServiceAlertItem).filter(Boolean).join('');
+        if (!itemsHtml) {
+          return `<div class="service-alerts-state service-alerts-state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
+        }
+        return `<ul class="service-alerts-list">${itemsHtml}</ul>`;
+      }
+
+      function renderServiceAlertsSectionHtml() {
+        const buttonClasses = ['pill-button', 'service-alerts-toggle'];
+        if (serviceAlertsExpanded) buttonClasses.push('is-expanded');
+        if (serviceAlertsLoading) buttonClasses.push('is-loading');
+        if (serviceAlertsError) buttonClasses.push('has-error');
+        if (getActiveServiceAlertCount() > 0) buttonClasses.push('has-active-alerts');
+        const panelClasses = ['service-alerts-panel'];
+        if (serviceAlertsExpanded) panelClasses.push('is-expanded');
+        if (serviceAlertsLoading) panelClasses.push('is-loading');
+        if (serviceAlertsError) panelClasses.push('has-error');
+        const statusText = escapeHtml(buildServiceAlertsStatusText());
+        const hiddenAttr = serviceAlertsExpanded ? '' : ' hidden';
+        return `
+          <div class="selector-group service-alerts-group">
+            <button type="button" id="serviceAlertsToggle" class="${buttonClasses.join(' ')}" aria-expanded="${serviceAlertsExpanded ? 'true' : 'false'}" aria-controls="serviceAlertsPanel" onclick="toggleServiceAlertsPanel(event)">
+              <span class="service-alerts-toggle__text">
+                <span class="service-alerts-toggle__label">Service Alerts</span>
+                <span class="service-alerts-toggle__status">${statusText}</span>
+              </span>
+              <span class="service-alerts-toggle__chevron" aria-hidden="true"></span>
+            </button>
+            <div id="serviceAlertsPanel" class="${panelClasses.join(' ')}"${hiddenAttr}>${renderServiceAlertsPanelContentHtml()}</div>
+          </div>
+        `;
+      }
+
+      function updateServiceAlertsButtonState() {
+        const button = document.getElementById('serviceAlertsToggle');
+        if (!button) return;
+        button.setAttribute('aria-expanded', serviceAlertsExpanded ? 'true' : 'false');
+        button.classList.toggle('is-expanded', !!serviceAlertsExpanded);
+        button.classList.toggle('is-loading', !!serviceAlertsLoading);
+        button.classList.toggle('has-error', !!serviceAlertsError);
+        button.classList.toggle('has-active-alerts', getActiveServiceAlertCount() > 0);
+        const statusEl = button.querySelector('.service-alerts-toggle__status');
+        if (statusEl) {
+          statusEl.textContent = buildServiceAlertsStatusText();
+        }
+      }
+
+      function updateServiceAlertsPanelVisibility() {
+        const panel = document.getElementById('serviceAlertsPanel');
+        if (!panel) return;
+        panel.hidden = !serviceAlertsExpanded;
+        panel.classList.toggle('is-expanded', !!serviceAlertsExpanded);
+        panel.classList.toggle('is-loading', !!serviceAlertsLoading);
+        panel.classList.toggle('has-error', !!serviceAlertsError);
+      }
+
+      function updateServiceAlertsPanelContent() {
+        const panel = document.getElementById('serviceAlertsPanel');
+        if (!panel) return;
+        panel.innerHTML = renderServiceAlertsPanelContentHtml();
+      }
+
+      function refreshServiceAlertsUI() {
+        updateServiceAlertsButtonState();
+        updateServiceAlertsPanelContent();
+        updateServiceAlertsPanelVisibility();
+      }
+
+      function shouldFetchServiceAlerts() {
+        if (serviceAlertsLoading || serviceAlertsFetchPromise) {
+          return false;
+        }
+        if (!baseURL) {
+          return true;
+        }
+        if (serviceAlertsLastFetchAgency !== baseURL) {
+          return true;
+        }
+        if (!serviceAlertsLastFetchTime) {
+          return true;
+        }
+        return (Date.now() - serviceAlertsLastFetchTime) > SERVICE_ALERT_REFRESH_INTERVAL_MS;
+      }
+
+      async function fetchServiceAlertsForCurrentAgency() {
+        if (serviceAlertsFetchPromise) {
+          return serviceAlertsFetchPromise;
+        }
+        const sanitizedBase = sanitizeBaseUrl(baseURL);
+        if (!sanitizedBase) {
+          serviceAlerts = [];
+          serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+          serviceAlertsLoading = false;
+          serviceAlertsLastFetchAgency = baseURL;
+          serviceAlertsLastFetchTime = Date.now();
+          serviceAlertsHasLoaded = true;
+          refreshServiceAlertsUI();
+          return [];
+        }
+        serviceAlertsLoading = true;
+        serviceAlertsError = null;
+        refreshServiceAlertsUI();
+        const query = new URLSearchParams({
+          showInactive: 'false',
+          includeDeleted: 'false',
+          messageTypeId: '1',
+          search: 'false',
+          rows: '10',
+          page: '1',
+          sortIndex: 'StartDateUtc',
+          sortOrder: 'asc'
+        });
+        const endpoint = `${sanitizedBase}/Secure/Services/RoutesService.svc/GetMessagesPaged?${query.toString()}`;
+        const requestPromise = (async () => {
+          const response = await fetch(endpoint, { cache: 'no-store' });
+          if (!response.ok) {
+            throw new Error(`Service alerts request failed: ${response.status}`);
+          }
+          const text = await response.text();
+          let payload = {};
+          if (text) {
+            try {
+              payload = JSON.parse(text);
+            } catch (parseError) {
+              console.error('Failed to parse service alerts response:', parseError);
+              throw parseError;
+            }
+          }
+          let rows = extractServiceAlertRows(payload);
+          if (!rows.length && payload && typeof payload === 'object' && payload.d) {
+            rows = extractServiceAlertRows(payload.d);
+          }
+          return rows.map(normalizeServiceAlertRow).filter(Boolean);
+        })();
+        serviceAlertsFetchPromise = requestPromise;
+        try {
+          const alerts = await requestPromise;
+          serviceAlerts = alerts;
+          serviceAlertsError = null;
+          serviceAlertsLoading = false;
+          serviceAlertsLastFetchAgency = baseURL;
+          serviceAlertsLastFetchTime = Date.now();
+          serviceAlertsHasLoaded = true;
+          return alerts;
+        } catch (error) {
+          console.error('Failed to fetch service alerts:', error);
+          serviceAlerts = [];
+          serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+          serviceAlertsLoading = false;
+          serviceAlertsLastFetchAgency = baseURL;
+          serviceAlertsLastFetchTime = Date.now();
+          serviceAlertsHasLoaded = true;
+          return [];
+        } finally {
+          serviceAlertsFetchPromise = null;
+          refreshServiceAlertsUI();
+        }
+      }
+
+      function toggleServiceAlertsPanel(event) {
+        if (event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        serviceAlertsExpanded = !serviceAlertsExpanded;
+        refreshServiceAlertsUI();
+        if (serviceAlertsExpanded && shouldFetchServiceAlerts()) {
+          fetchServiceAlertsForCurrentAgency();
+        }
+      }
+
+      function resetServiceAlertsState() {
+        serviceAlerts = [];
+        serviceAlertsLoading = false;
+        serviceAlertsError = null;
+        serviceAlertsExpanded = false;
+        serviceAlertsLastFetchAgency = '';
+        serviceAlertsLastFetchTime = 0;
+        serviceAlertsFetchPromise = null;
+        serviceAlertsHasLoaded = false;
+        refreshServiceAlertsUI();
+      }
+
       function escapeAttribute(value) {
         return String(value || '')
           .replace(/&/g, '&amp;')
@@ -3811,6 +4574,7 @@
         }
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
+        const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
         let demoButtonHtml = '';
         if (adminMode) {
           const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
@@ -3858,6 +4622,7 @@
               </div>
             </div>
         `;
+        html += serviceAlertsSectionHtml;
 
         if (adminMode) {
           html += `
@@ -3888,6 +4653,7 @@
         panel.innerHTML = html;
         updateDisplayModeButtons();
         updateIncidentToggleButton();
+        refreshServiceAlertsUI();
         positionAllPanelTabs();
       }
 
@@ -4596,6 +5362,7 @@
         clearRefreshIntervals();
         baseURL = url;
         resetIncidentAlertState();
+        resetServiceAlertsState();
         updateControlPanel();
         enforceIncidentVisibilityForCurrentAgency();
         Object.values(markers).forEach(m => map.removeLayer(m));
