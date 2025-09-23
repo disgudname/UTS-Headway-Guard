@@ -1661,6 +1661,10 @@
         ? markerCentroidOverride.xFactor
         : 0;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
+      const AGENCY_TYPE_RIDESYSTEMS = 'ridesystems';
+      const AGENCY_TYPE_ETASPOT = 'etaspot';
+      const ETASPOT_DEFAULT_TOKEN = 'TESTING';
+      const EARTH_RADIUS_METERS = 6371000;
 
       let map;
       let markers = {};
@@ -1677,6 +1681,53 @@
 
       let agencies = [];
       let baseURL = '';
+      let currentAgencyType = AGENCY_TYPE_RIDESYSTEMS;
+      let currentAgencyConfig = null;
+
+      function setCurrentAgencyByUrl(url) {
+        if (!Array.isArray(agencies) || agencies.length === 0) {
+          currentAgencyConfig = null;
+          currentAgencyType = AGENCY_TYPE_RIDESYSTEMS;
+          return;
+        }
+        const matchedAgency = agencies.find(agency => agency && typeof agency.url === 'string' && agency.url === url) || null;
+        currentAgencyConfig = matchedAgency;
+        currentAgencyType = matchedAgency?.type || AGENCY_TYPE_RIDESYSTEMS;
+      }
+
+      function isEtaSpotAgencyConfig(config) {
+        return !!config && config.type === AGENCY_TYPE_ETASPOT;
+      }
+
+      function isEtaSpotAgency() {
+        return isEtaSpotAgencyConfig(currentAgencyConfig);
+      }
+
+      function getEtaSpotServiceUrl() {
+        if (!isEtaSpotAgency()) {
+          return '';
+        }
+        const configUrl = typeof currentAgencyConfig?.serviceUrl === 'string'
+          ? currentAgencyConfig.serviceUrl
+          : '';
+        const sanitizedConfigUrl = sanitizeBaseUrl(configUrl);
+        if (sanitizedConfigUrl) {
+          return sanitizedConfigUrl;
+        }
+        const sanitizedBase = sanitizeBaseUrl(baseURL);
+        if (!sanitizedBase) {
+          return '';
+        }
+        return `${sanitizedBase}/service.php`;
+      }
+
+      function getEtaSpotToken() {
+        if (!isEtaSpotAgency()) {
+          return '';
+        }
+        const token = typeof currentAgencyConfig?.token === 'string' ? currentAgencyConfig.token.trim() : '';
+        return token || ETASPOT_DEFAULT_TOKEN;
+      }
 
       const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
       const SERVICE_ALERT_START_FIELDS = Object.freeze([
@@ -3565,13 +3616,31 @@
             const url = webAddress.startsWith('http')
               ? webAddress.replace(/^http:\/\//i, 'https://')
               : `https://${webAddress}`;
-            return { name, url };
+            return { name, url, type: AGENCY_TYPE_RIDESYSTEMS };
           }).filter(Boolean);
           agencies.sort((a, b) => a.name.localeCompare(b.name));
           const uvaIndex = agencies.findIndex(a => a.name === 'University of Virginia');
+          let uvaAgency = null;
           if (uvaIndex > -1) {
-            const uva = agencies.splice(uvaIndex, 1)[0];
-            agencies.unshift(uva);
+            uvaAgency = agencies.splice(uvaIndex, 1)[0];
+          }
+          if (uvaAgency) {
+            agencies.unshift(uvaAgency);
+          }
+          const catAgency = {
+            name: 'Charlottesville Area Transit',
+            url: 'https://catpublic.etaspot.net',
+            serviceUrl: 'https://catpublic.etaspot.net/service.php',
+            token: ETASPOT_DEFAULT_TOKEN,
+            type: AGENCY_TYPE_ETASPOT
+          };
+          const hasCatAgency = agencies.some(agency => agency && agency.url === catAgency.url);
+          if (!hasCatAgency) {
+            if (uvaAgency) {
+              agencies.splice(1, 0, catAgency);
+            } else {
+              agencies.unshift(catAgency);
+            }
           }
           const consent = localStorage.getItem('agencyConsent') === 'true';
           const storedAgency = consent ? localStorage.getItem('selectedAgency') : null;
@@ -3580,6 +3649,7 @@
           } else {
             baseURL = agencies[0]?.url || '';
           }
+          setCurrentAgencyByUrl(baseURL);
           resetServiceAlertsState();
           updateControlPanel();
           enforceIncidentVisibilityForCurrentAgency();
@@ -4525,6 +4595,13 @@
       }
 
       async function fetchServiceAlerts() {
+        if (isEtaSpotAgency()) {
+          serviceAlerts = [];
+          serviceAlertsLoading = false;
+          serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+          updateServiceAlertsUI();
+          return [];
+        }
         const currentBaseUrl = baseURL;
         const sanitizedBase = sanitizeBaseUrl(currentBaseUrl);
         if (!sanitizedBase) {
@@ -4748,7 +4825,7 @@
         });
 
         const agenciesSignature = agencies
-          .map(a => `${a.url || ''}::${a.name || ''}`)
+          .map(a => `${a.url || ''}::${a.name || ''}::${a.type || ''}`)
           .join('|');
 
         const routeSignatureParts = routeIDs.map(routeID => {
@@ -5414,6 +5491,7 @@
         }
         beginAgencyLoad();
         clearRefreshIntervals();
+        setCurrentAgencyByUrl(url);
         baseURL = url;
         resetIncidentAlertState();
         resetServiceAlertsState();
@@ -5586,6 +5664,13 @@
       }
 
       function fetchBusStops() {
+          if (isEtaSpotAgency()) {
+              return fetchBusStopsEtaSpot();
+          }
+          return fetchBusStopsRideSystems();
+      }
+
+      function fetchBusStopsRideSystems() {
           const currentBaseURL = baseURL;
           const stopsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
           return fetch(stopsApiUrl)
@@ -5598,7 +5683,81 @@
                       renderBusStops(stopDataCache);
                   }
               })
-              .catch(error => console.error("Error fetching bus stops:", error));
+              .catch(error => console.error('Error fetching bus stops:', error));
+      }
+
+      function fetchBusStopsEtaSpot() {
+          const expectedBase = baseURL;
+          const expectedType = currentAgencyType;
+          const serviceUrl = getEtaSpotServiceUrl();
+          if (!serviceUrl) {
+              stopDataCache = [];
+              renderBusStops(stopDataCache);
+              return Promise.resolve();
+          }
+          const params = new URLSearchParams({
+              service: 'get_stops',
+              token: getEtaSpotToken()
+          });
+          const endpoint = `${serviceUrl}?${params.toString()}`;
+          return fetch(endpoint)
+              .then(response => response.json())
+              .then(data => {
+                  if (expectedBase !== baseURL || currentAgencyType !== expectedType) {
+                      return;
+                  }
+                  const stopsArray = Array.isArray(data?.get_stops) ? data.get_stops : [];
+                  const normalizedStops = [];
+                  const newRouteStopRouteMap = {};
+                  stopsArray.forEach(stop => {
+                      const rawLat = stop?.lat ?? stop?.latitude ?? stop?.Latitude;
+                      const rawLng = stop?.lng ?? stop?.longitude ?? stop?.Longitude;
+                      const lat = Number(rawLat);
+                      const lng = Number(rawLng);
+                      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                          return;
+                      }
+                      const rawStopId = stop?.id ?? stop?.stopID ?? stop?.StopID;
+                      const numericStopId = Number(rawStopId);
+                      const stopId = Number.isFinite(numericStopId) ? numericStopId : (typeof rawStopId === 'string' ? rawStopId.trim() : null);
+                      const candidateRouteIds = [];
+                      if (Array.isArray(stop?.routes)) {
+                          stop.routes.forEach(value => candidateRouteIds.push(value));
+                      }
+                      if (Array.isArray(stop?.routeIDs)) {
+                          stop.routeIDs.forEach(value => candidateRouteIds.push(value));
+                      }
+                      if (stop?.rid !== undefined && stop?.rid !== null) {
+                          candidateRouteIds.push(stop.rid);
+                      }
+                      const uniqueRouteIds = Array.from(new Set(candidateRouteIds.map(value => Number(value)).filter(Number.isFinite)));
+                      const name = typeof stop?.name === 'string'
+                          ? stop.name.trim()
+                          : (typeof stop?.Name === 'string' ? stop.Name.trim() : '');
+                      const routeStopId = stopId !== null && stopId !== undefined ? stopId : `${lat},${lng}`;
+                      if (uniqueRouteIds.length > 0) {
+                          newRouteStopRouteMap[`${routeStopId}`] = uniqueRouteIds.slice();
+                      }
+                      const normalized = {
+                          StopID: stopId ?? routeStopId,
+                          RouteStopID: routeStopId,
+                          Latitude: lat,
+                          Longitude: lng,
+                          Description: name || `Stop ${routeStopId}`,
+                          Name: name || `Stop ${routeStopId}`,
+                          Routes: uniqueRouteIds.map(id => ({ RouteID: id })),
+                          RouteIDs: uniqueRouteIds.slice(),
+                          RouteID: uniqueRouteIds[0],
+                          Code: typeof stop?.code === 'string' ? stop.code.trim() : '',
+                          Direction: typeof stop?.direction === 'string' ? stop.direction.trim() : ''
+                      };
+                      normalizedStops.push(normalized);
+                  });
+                  routeStopRouteMap = newRouteStopRouteMap;
+                  stopDataCache = normalizedStops;
+                  renderBusStops(stopDataCache);
+              })
+              .catch(error => console.error('Error fetching CAT stops:', error));
       }
 
       function groupStopsByPixelDistance(stops, thresholdPx) {
@@ -5772,21 +5931,33 @@
           if (!entry) {
               return routeIds;
           }
-          if (Array.isArray(entry.routeIds)) {
-              entry.routeIds.forEach(routeId => {
-                  const numeric = Number(routeId);
-                  if (!Number.isNaN(numeric)) {
-                      routeIds.add(numeric);
+          const addRouteId = value => {
+              if (Array.isArray(value)) {
+                  value.forEach(innerValue => addRouteId(innerValue));
+                  return;
+              }
+              if (value === undefined || value === null) {
+                  return;
+              }
+              let candidate = value;
+              if (typeof candidate === 'string') {
+                  candidate = candidate.trim();
+                  if (candidate === '') {
+                      return;
                   }
-              });
+              }
+              const numeric = Number(candidate);
+              if (!Number.isNaN(numeric)) {
+                  routeIds.add(numeric);
+              }
+          };
+          if (Array.isArray(entry.routeIds)) {
+              entry.routeIds.forEach(routeId => addRouteId(routeId));
           }
           if (Array.isArray(entry.routeStopIds)) {
               entry.routeStopIds.forEach(routeStopId => {
                   const mapped = routeStopRouteMap[routeStopId];
-                  const numeric = Number(mapped);
-                  if (!Number.isNaN(numeric)) {
-                      routeIds.add(numeric);
-                  }
+                  addRouteId(mapped);
               });
           }
           return routeIds;
@@ -5799,6 +5970,10 @@
           }
 
           const addRouteId = value => {
+              if (Array.isArray(value)) {
+                  value.forEach(innerValue => addRouteId(innerValue));
+                  return;
+              }
               if (value === undefined || value === null) {
                   return;
               }
@@ -5958,6 +6133,16 @@
           return `rgba(0, 0, 0, ${safeAlpha})`;
       }
 
+      function areStopArrivalsSupported() {
+          return !isEtaSpotAgency();
+      }
+
+      function getNoArrivalDataMessage() {
+          return areStopArrivalsSupported()
+              ? 'No upcoming arrivals'
+              : 'Real-time arrivals unavailable';
+      }
+
       function buildEtaTableHtml(routeStopIds) {
           const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
           const etas = [];
@@ -5966,6 +6151,7 @@
                   cachedEtas[routeStopId].forEach(eta => etas.push(eta));
               }
           });
+          const noArrivalMessage = getNoArrivalDataMessage();
           const etaRows = etas.length > 0
               ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
                     .map(eta => {
@@ -5975,7 +6161,7 @@
                         return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
                     })
                     .join('')
-              : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
+              : `<tr><td colspan="2" style="padding: 5px; text-align: center;">${noArrivalMessage}</td></tr>`;
           return `
             <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
               <thead>
@@ -5992,8 +6178,9 @@
       }
 
       function buildStopEntriesSectionHtml(stopEntries, multipleStops) {
+          const noArrivalMessage = getNoArrivalDataMessage();
           if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
-              return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
+              return `<div style="margin-top: 10px;">${noArrivalMessage}</div>`;
           }
 
           if (!multipleStops) {
@@ -6626,30 +6813,43 @@
       }
 
       function fetchStopArrivalTimes() {
+          if (!areStopArrivalsSupported()) {
+              return Promise.resolve({});
+          }
+          return fetchStopArrivalTimesRideSystems();
+      }
+
+      function fetchStopArrivalTimesRideSystems() {
           const currentBaseURL = baseURL;
           const arrivalTimesApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681`;
           return fetch(arrivalTimesApiUrl)
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return {};
-                  let allEtas = {};
-                  data.forEach(arrival => {
-                      if (!allEtas[arrival.RouteStopId]) {
-                          allEtas[arrival.RouteStopId] = [];
+                  const allEtas = {};
+                  const records = Array.isArray(data?.StopArrivalTimes) ? data.StopArrivalTimes : (Array.isArray(data) ? data : []);
+                  records.forEach(arrival => {
+                      const routeStopId = arrival?.RouteStopId ?? arrival?.RouteStopID;
+                      if (routeStopId === undefined || routeStopId === null) {
+                          return;
                       }
-                      arrival.Times.forEach(time => {
-                          const etaMinutes = Math.round(time.Seconds / 60);
-                          allEtas[arrival.RouteStopId].push({
-                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription),
-                              etaMinutes: etaMinutes,
-                              RouteId: arrival.RouteId
+                      if (!allEtas[routeStopId]) {
+                          allEtas[routeStopId] = [];
+                      }
+                      const times = Array.isArray(arrival?.Times) ? arrival.Times : [];
+                      times.forEach(time => {
+                          const etaMinutes = Number.isFinite(time?.Seconds) ? Math.max(0, Math.round(time.Seconds / 60)) : null;
+                          allEtas[routeStopId].push({
+                              routeDescription: arrival?.RouteDescription ?? arrival?.RouteLongName ?? arrival?.RouteName ?? '',
+                              etaMinutes,
+                              RouteId: arrival?.RouteId ?? arrival?.RouteID
                           });
                       });
                   });
                   return allEtas;
               })
               .catch(error => {
-                  console.error("Error fetching stop arrival times:", error);
+                  console.error('Error fetching stop arrival times:', error);
                   return {};
               });
       }
@@ -7337,6 +7537,13 @@
       }
       // Fetch routes from GetRoutes.
       function fetchRouteColors() {
+        if (isEtaSpotAgency()) {
+          return fetchEtaSpotRouteColors();
+        }
+        return fetchRideSystemsRouteColors();
+      }
+
+      function fetchRideSystemsRouteColors() {
         console.log('Fetching route colors...');
         const routesApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681`;
         return fetch(routesApiUrl)
@@ -7356,11 +7563,74 @@
               });
             }
           })
-          .catch(error => console.error("Error fetching route colors:", error));
+          .catch(error => console.error('Error fetching route colors:', error));
+      }
+
+      function fetchEtaSpotRouteColors() {
+        const expectedBase = baseURL;
+        const expectedType = currentAgencyType;
+        const serviceUrl = getEtaSpotServiceUrl();
+        if (!serviceUrl) {
+          routeColors = {};
+          return Promise.resolve();
+        }
+        const params = new URLSearchParams({
+          service: 'get_routes',
+          token: getEtaSpotToken()
+        });
+        const endpoint = `${serviceUrl}?${params.toString()}`;
+        return fetch(endpoint)
+          .then(response => response.json())
+          .then(data => {
+            if (baseURL !== expectedBase || currentAgencyType !== expectedType) {
+              return;
+            }
+            const routes = Array.isArray(data?.get_routes) ? data.get_routes : [];
+            const updatedRouteColors = {};
+            routes.forEach(route => {
+              const rawId = route?.id ?? route?.routeID ?? route?.RouteID;
+              const numericRouteId = Number(rawId);
+              if (!Number.isFinite(numericRouteId)) {
+                return;
+              }
+              const name = typeof route?.name === 'string' ? route.name.trim() : '';
+              const shortName = typeof route?.shortName === 'string' ? route.shortName.trim() : '';
+              const description = name || shortName || `Route ${numericRouteId}`;
+              const color = typeof route?.color === 'string' ? route.color.trim() : '';
+              const textColor = typeof route?.textColor === 'string' ? route.textColor.trim() : '';
+              const record = {
+                RouteID: numericRouteId,
+                RouteName: shortName || description,
+                Description: description,
+                Name: name || description,
+                ShortName: shortName || '',
+                MapLineColor: color || '#000000',
+                TextColor: textColor || '',
+                IsVisibleOnMap: route?.isActive !== false && route?.isActive !== 0,
+                _source: 'etaspot'
+              };
+              setRouteVisibility(record);
+              allRoutes[numericRouteId] = Object.assign(allRoutes[numericRouteId] || {}, record);
+              if (canDisplayRoute(numericRouteId)) {
+                updatedRouteColors[numericRouteId] = record.MapLineColor;
+              }
+            });
+            routeColors = updatedRouteColors;
+          })
+          .catch(error => {
+            console.error('Error fetching CAT route colors:', error);
+          });
+      }
+
+      function fetchRoutePaths() {
+          if (isEtaSpotAgency()) {
+              return fetchRoutePathsEtaSpot();
+          }
+          return fetchRoutePathsRideSystems();
       }
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on relevant routes.
-      function fetchRoutePaths() {
+      function fetchRoutePathsRideSystems() {
           const currentBaseURL = baseURL;
           const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
           return fetch(routePathsApiUrl)
@@ -7399,11 +7669,17 @@
                           const routeStopId = Number(stop.RouteStopID ?? stop.RouteStopId);
                           const addressId = stop.AddressID ?? stop.AddressId;
                           if (!Number.isNaN(routeStopId)) {
+                              const routeStopKey = `${routeStopId}`;
                               if (isNumericRoute) {
-                                  updatedRouteStopRouteMap[routeStopId] = numericRouteId;
+                                  if (!Array.isArray(updatedRouteStopRouteMap[routeStopKey])) {
+                                      updatedRouteStopRouteMap[routeStopKey] = [];
+                                  }
+                                  if (!updatedRouteStopRouteMap[routeStopKey].includes(numericRouteId)) {
+                                      updatedRouteStopRouteMap[routeStopKey].push(numericRouteId);
+                                  }
                               }
                               if (addressId !== undefined && addressId !== null && `${addressId}`.trim() !== '') {
-                                  updatedRouteStopAddressMap[routeStopId] = `${addressId}`;
+                                  updatedRouteStopAddressMap[routeStopKey] = `${addressId}`;
                               }
                           }
                       });
@@ -7603,7 +7879,265 @@
               });
       }
 
+      function fetchRoutePathsEtaSpot() {
+          const expectedBase = baseURL;
+          const expectedType = currentAgencyType;
+          const serviceUrl = getEtaSpotServiceUrl();
+          if (!serviceUrl) {
+              routeLayers.forEach(layer => map && map.removeLayer(layer));
+              routeLayers = [];
+              routePolylineCache.clear();
+              updateRouteLegend([], { forceHide: true });
+              return Promise.resolve();
+          }
+          const params = new URLSearchParams({
+              service: 'get_patterns',
+              token: getEtaSpotToken()
+          });
+          const endpoint = `${serviceUrl}?${params.toString()}`;
+          return fetch(endpoint)
+              .then(response => response.json())
+              .then(data => {
+                  if (expectedBase !== baseURL || currentAgencyType !== expectedType) {
+                      return;
+                  }
+                  const patterns = Array.isArray(data?.get_patterns) ? data.get_patterns : [];
+                  const routeSegments = new Map();
+                  patterns.forEach(pattern => {
+                      const segments = decodeEtaSpotPatternSegments(pattern);
+                      if (!Array.isArray(segments) || segments.length === 0) {
+                          return;
+                      }
+                      const routes = Array.isArray(pattern?.routes) ? pattern.routes : [];
+                      routes.forEach(routeIdValue => {
+                          const numericRouteId = Number(routeIdValue);
+                          if (!Number.isFinite(numericRouteId)) {
+                              return;
+                          }
+                          if (!routeSegments.has(numericRouteId)) {
+                              routeSegments.set(numericRouteId, []);
+                          }
+                          const segmentClones = segments.map(segment => segment.map(point => {
+                              if (typeof L !== 'undefined' && typeof L.latLng === 'function') {
+                                  return L.latLng(point.lat, point.lng);
+                              }
+                              return { lat: point.lat, lng: point.lng };
+                          }));
+                          routeSegments.get(numericRouteId).push(...segmentClones);
+                      });
+                  });
+
+                  const updatedCache = new Map();
+                  routeLayers.forEach(layer => map && map.removeLayer(layer));
+                  routeLayers = [];
+
+                  const displayedRoutes = [];
+                  let bounds = null;
+                  const zoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+                  const strokeWeight = computeRouteStrokeWeight(zoom);
+
+                  routeSegments.forEach((segments, routeId) => {
+                      const validSegments = (Array.isArray(segments) ? segments : [])
+                          .map(segment => Array.isArray(segment) ? segment.filter(point => point && Number.isFinite(point.lat) && Number.isFinite(point.lng)) : [])
+                          .filter(segment => segment.length >= 2);
+                      if (validSegments.length === 0) {
+                          return;
+                      }
+
+                      let aggregatedBounds = null;
+                      validSegments.forEach(segment => {
+                          if (typeof L !== 'undefined' && typeof L.latLngBounds === 'function') {
+                              const segmentBounds = L.latLngBounds(segment);
+                              if (!aggregatedBounds) {
+                                  aggregatedBounds = segmentBounds;
+                              } else {
+                                  aggregatedBounds.extend(segmentBounds);
+                              }
+                          }
+                      });
+
+                      const longestSegment = validSegments.reduce((longest, segment) => {
+                          if (!longest) return segment;
+                          return segment.length > longest.length ? segment : longest;
+                      }, null);
+
+                      if (longestSegment) {
+                          updatedCache.set(routeId, {
+                              encoded: null,
+                              latLngPath: longestSegment,
+                              bounds: aggregatedBounds,
+                              latLngSegments: validSegments
+                          });
+                      }
+
+                      if (!isRouteSelected(routeId)) {
+                          return;
+                      }
+
+                      const routeColor = getRouteColor(routeId);
+                      const legendName = getRouteDisplayName(routeId);
+                      displayedRoutes.push({ routeId, name: legendName, color: routeColor });
+
+                      validSegments.forEach(segment => {
+                          if (typeof L !== 'undefined' && typeof L.polyline === 'function') {
+                              const layer = L.polyline(segment, mergeRouteLayerOptions({
+                                  color: routeColor,
+                                  weight: strokeWeight,
+                                  opacity: 1,
+                                  lineCap: 'round',
+                                  lineJoin: 'round'
+                              })).addTo(map);
+                              routeLayers.push(layer);
+                          }
+                          if (typeof L !== 'undefined' && typeof L.latLngBounds === 'function') {
+                              const segmentBounds = L.latLngBounds(segment);
+                              if (!bounds) {
+                                  bounds = segmentBounds;
+                              } else {
+                                  bounds.extend(segmentBounds);
+                              }
+                          }
+                      });
+                  });
+
+                  routePolylineCache.clear();
+                  updatedCache.forEach((value, key) => {
+                      routePolylineCache.set(key, value);
+                  });
+
+                  updateCustomPopups();
+                  if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
+                      renderBusStops(stopDataCache);
+                  }
+                  evaluateIncidentRouteAlerts();
+                  updateRouteSelector(activeRoutes);
+                  stopMarkers.forEach(marker => {
+                      if (marker && typeof marker.bringToFront === 'function') {
+                          marker.bringToFront();
+                      }
+                  });
+
+                  if (bounds && map) {
+                      allRouteBounds = bounds;
+                      if (!mapHasFitAllRoutes) {
+                          if (!kioskMode && !adminKioskMode) {
+                              try {
+                                  map.fitBounds(bounds, { padding: [20, 20] });
+                              } catch (error) {
+                                  console.error('Failed to fit bounds for CAT routes:', error);
+                              }
+                          }
+                          mapHasFitAllRoutes = true;
+                      }
+                  }
+
+                  if (displayedRoutes.length > 0) {
+                      updateRouteLegend(displayedRoutes, { preserveOnEmpty: true });
+                  } else if (kioskMode || adminKioskMode) {
+                      updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
+                  } else {
+                      updateRouteLegend([], { forceHide: true });
+                  }
+              })
+              .catch(error => {
+                  console.error('Error fetching CAT route paths:', error);
+                  if (kioskMode || adminKioskMode) {
+                      updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
+                  } else {
+                      updateRouteLegend([], { forceHide: true });
+                  }
+              });
+      }
+
+      function decodeEtaSpotPatternSegments(pattern) {
+          const rawPoints = [];
+          if (Array.isArray(pattern?.decLine)) {
+              pattern.decLine.forEach(point => {
+                  const lat = Number(point?.lat ?? point?.Lat ?? point?.latitude ?? point?.Latitude);
+                  const lng = Number(point?.lng ?? point?.Lng ?? point?.longitude ?? point?.Longitude);
+                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                      rawPoints.push({ lat, lng });
+                  }
+              });
+          }
+          if (rawPoints.length === 0 && typeof pattern?.encLine === 'string' && pattern.encLine.trim() !== '') {
+              try {
+                  const decoded = polyline.decode(pattern.encLine.trim());
+                  decoded.forEach(coords => {
+                      if (!Array.isArray(coords) || coords.length < 2) {
+                          return;
+                      }
+                      const lat = Number(coords[0]);
+                      const lng = Number(coords[1]);
+                      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                          rawPoints.push({ lat, lng });
+                      }
+                  });
+              } catch (error) {
+                  console.error('Failed to decode CAT pattern polyline:', error);
+              }
+          }
+          return splitPolylineSegmentsByDistance(rawPoints, 600);
+      }
+
+      function splitPolylineSegmentsByDistance(points, thresholdMeters) {
+          const segments = [];
+          if (!Array.isArray(points) || points.length < 2) {
+              return segments;
+          }
+          const maxDistance = Number.isFinite(thresholdMeters) ? thresholdMeters : 600;
+          let currentSegment = [];
+          for (let i = 0; i < points.length; i += 1) {
+              const currentPoint = points[i];
+              if (!currentPoint || !Number.isFinite(currentPoint.lat) || !Number.isFinite(currentPoint.lng)) {
+                  continue;
+              }
+              if (currentSegment.length === 0) {
+                  currentSegment.push({ lat: currentPoint.lat, lng: currentPoint.lng });
+                  continue;
+              }
+              const previousPoint = currentSegment[currentSegment.length - 1];
+              const distance = computeHaversineDistanceMeters(previousPoint.lat, previousPoint.lng, currentPoint.lat, currentPoint.lng);
+              if (!Number.isFinite(distance) || distance > maxDistance) {
+                  if (currentSegment.length >= 2) {
+                      segments.push(currentSegment);
+                  }
+                  currentSegment = [{ lat: currentPoint.lat, lng: currentPoint.lng }];
+              } else {
+                  currentSegment.push({ lat: currentPoint.lat, lng: currentPoint.lng });
+              }
+          }
+          if (currentSegment.length >= 2) {
+              segments.push(currentSegment);
+          }
+          return segments;
+      }
+
+      function computeHaversineDistanceMeters(lat1, lon1, lat2, lon2) {
+          if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) {
+              return Infinity;
+          }
+          const toRadians = Math.PI / 180;
+          const deltaLat = (lat2 - lat1) * toRadians;
+          const deltaLon = (lon2 - lon1) * toRadians;
+          const sinLat = Math.sin(deltaLat / 2);
+          const sinLon = Math.sin(deltaLon / 2);
+          const startLatRad = lat1 * toRadians;
+          const endLatRad = lat2 * toRadians;
+          const a = sinLat * sinLat + Math.cos(startLatRad) * Math.cos(endLatRad) * sinLon * sinLon;
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+          return EARTH_RADIUS_METERS * c;
+      }
+
       function fetchBlockAssignments() {
+          if (isEtaSpotAgency()) {
+              busBlocks = {};
+              return Promise.resolve();
+          }
+          return fetchBlockAssignmentsRideSystems();
+      }
+
+      function fetchBlockAssignmentsRideSystems() {
           const currentBaseURL = baseURL;
           const d = new Date();
           const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
@@ -7641,7 +8175,7 @@
                       "[24] AM": "[24]/[18] AM",
                       "[26] AM": "[26]/[15]"
                   };
-                  let mapping = {};
+                  const mapping = {};
                   groups.forEach(g => {
                       const block = (g.BlockGroupId || '').trim();
                       const vehicleId = g.Blocks?.[0]?.Trips?.[0]?.VehicleID ?? g.VehicleId;
@@ -7651,7 +8185,7 @@
                   });
                   busBlocks = mapping;
               })
-              .catch(error => console.error("Error fetching block assignments:", error));
+              .catch(error => console.error('Error fetching block assignments:', error));
       }
 
       async function fetchBusLocations() {
@@ -7663,32 +8197,40 @@
           } catch (error) {
               console.info('Proceeding without cached vehicle headings.', error);
           }
-          const currentBaseURL = baseURL;
-          const apiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           try {
               await loadBusSVG();
           } catch (error) {
               console.error('Failed to load bus marker SVG before fetching locations:', error);
           }
+          if (isEtaSpotAgency()) {
+              return fetchBusLocationsEtaSpot();
+          }
+          return fetchBusLocationsRideSystems();
+      }
+
+      async function fetchBusLocationsRideSystems() {
+          const expectedBase = baseURL;
+          const expectedType = currentAgencyType;
+          const apiUrl = `${expectedBase}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           try {
               const response = await fetch(apiUrl);
               if (!response.ok) {
-                  throw new Error(`Network response was not ok: ${response.statusText}`);
+                  throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
               }
               const data = await response.json();
-              if (currentBaseURL !== baseURL || !Array.isArray(data)) {
+              if (baseURL !== expectedBase || currentAgencyType !== expectedType || !Array.isArray(data)) {
                   return;
               }
-              const currentBusData = {};
               const activeRoutesSet = new Set();
               const vehicles = [];
-
               data.forEach(vehicle => {
-                  const vehicleID = vehicle.VehicleID;
-                  const newPosition = [vehicle.Latitude, vehicle.Longitude];
-                  const isMoving = vehicle.GroundSpeed > 0;
-                  const busName = vehicle.Name;
-                  let routeID = vehicle.RouteID;
+                  const vehicleID = vehicle?.VehicleID;
+                  const lat = Number(vehicle?.Latitude);
+                  const lng = Number(vehicle?.Longitude);
+                  if (vehicleID === undefined || vehicleID === null || Number.isNaN(lat) || Number.isNaN(lng)) {
+                      return;
+                  }
+                  let routeID = vehicle?.RouteID;
                   if (!routeID && adminMode) {
                       routeID = 0;
                   } else if (!routeID) {
@@ -7696,387 +8238,261 @@
                   }
                   const numericRouteId = Number(routeID);
                   const effectiveRouteId = Number.isNaN(numericRouteId) ? routeID : numericRouteId;
-                  if (!canDisplayRoute(effectiveRouteId)) return;
-                  if (!adminMode && !routeColors.hasOwnProperty(effectiveRouteId)) return;
+                  if (!canDisplayRoute(effectiveRouteId)) {
+                      return;
+                  }
+                  if (!adminMode && !Object.prototype.hasOwnProperty.call(routeColors, effectiveRouteId)) {
+                      return;
+                  }
                   activeRoutesSet.add(effectiveRouteId);
                   vehicles.push({
                       vehicleID,
-                      newPosition,
-                      isMoving,
-                      busName,
+                      newPosition: [lat, lng],
+                      isMoving: Number(vehicle?.GroundSpeed) > 0,
+                      busName: vehicle?.Name,
                       routeID: effectiveRouteId,
-                      heading: vehicle.Heading,
-                      groundSpeed: vehicle.GroundSpeed
+                      heading: vehicle?.Heading,
+                      groundSpeed: vehicle?.GroundSpeed
                   });
               });
+              await renderVehiclesOnMap(vehicles, activeRoutesSet);
+          } catch (error) {
+              console.error('Error fetching bus locations:', error);
+          }
+      }
 
-              activeRoutes = activeRoutesSet;
-              updateRouteSelector(activeRoutesSet);
-
-              const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
-
-              for (const v of vehicles) {
-                  const { vehicleID, newPosition, busName, routeID, heading, groundSpeed } = v;
-                  if (!isRouteSelected(routeID)) continue;
-                  currentBusData[vehicleID] = true;
-                  const state = ensureBusMarkerState(vehicleID);
-                  const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
-                  const glyphColor = computeBusMarkerGlyphColor(routeColor);
-                  const fallbackHeading = getVehicleHeadingFallback(vehicleID, heading);
-                  const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeed);
-                  const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
-                  const gpsIsStale = isVehicleGpsStale(v);
-                  const isStopped = isBusConsideredStopped(groundSpeed);
-
-                  state.busName = busName;
-                  state.routeID = routeID;
-                  state.fillColor = routeColor;
-                  state.glyphColor = glyphColor;
-                  state.headingDeg = headingDeg;
-                  state.accessibleLabel = accessibleLabel;
-                  state.isStale = gpsIsStale;
-                  state.isStopped = isStopped;
-                  state.groundSpeed = groundSpeed;
-                  state.lastUpdateTimestamp = Date.now();
-                  rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
-
-                  if (!state.size) {
-                      setBusMarkerSize(state, markerMetricsForZoom);
+      async function fetchBusLocationsEtaSpot() {
+          const expectedBase = baseURL;
+          const expectedType = currentAgencyType;
+          const serviceUrl = getEtaSpotServiceUrl();
+          if (!serviceUrl) {
+              await renderVehiclesOnMap([], new Set());
+              return;
+          }
+          const params = new URLSearchParams({
+              service: 'get_vehicles',
+              token: getEtaSpotToken()
+          });
+          const endpoint = `${serviceUrl}?${params.toString()}`;
+          try {
+              const response = await fetch(endpoint, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`Vehicle request failed: ${response.status} ${response.statusText}`);
+              }
+              const payload = await response.json();
+              if (baseURL !== expectedBase || currentAgencyType !== expectedType) {
+                  return;
+              }
+              const records = Array.isArray(payload?.get_vehicles) ? payload.get_vehicles : [];
+              const activeRoutesSet = new Set();
+              const vehicles = [];
+              records.forEach(vehicle => {
+                  const vehicleID = vehicle?.equipmentID ?? vehicle?.vehicleID ?? vehicle?.id;
+                  const lat = Number(vehicle?.lat ?? vehicle?.latitude);
+                  const lng = Number(vehicle?.lng ?? vehicle?.longitude);
+                  if (vehicleID === undefined || vehicleID === null || Number.isNaN(lat) || Number.isNaN(lng)) {
+                      return;
                   }
+                  let routeID = vehicle?.routeID ?? vehicle?.routeId ?? vehicle?.route;
+                  if (!routeID && adminMode) {
+                      routeID = 0;
+                  } else if (!routeID) {
+                      return;
+                  }
+                  const numericRouteId = Number(routeID);
+                  const effectiveRouteId = Number.isNaN(numericRouteId) ? routeID : numericRouteId;
+                  if (!canDisplayRoute(effectiveRouteId)) {
+                      return;
+                  }
+                  if (!adminMode && !Object.prototype.hasOwnProperty.call(routeColors, effectiveRouteId)) {
+                      return;
+                  }
+                  activeRoutesSet.add(effectiveRouteId);
+                  const groundSpeedValue = Number(vehicle?.speed ?? vehicle?.groundSpeed ?? vehicle?.velocity);
+                  const groundSpeed = Number.isFinite(groundSpeedValue) ? groundSpeedValue : 0;
+                  const busName = typeof vehicle?.name === 'string' && vehicle.name.trim() !== ''
+                      ? vehicle.name.trim()
+                      : (vehicleID !== undefined && vehicleID !== null ? `Vehicle ${vehicleID}` : `Route ${effectiveRouteId}`);
+                  vehicles.push({
+                      vehicleID,
+                      newPosition: [lat, lng],
+                      isMoving: groundSpeed > 0,
+                      busName,
+                      routeID: effectiveRouteId,
+                      heading: vehicle?.heading,
+                      groundSpeed
+                  });
+              });
+              await renderVehiclesOnMap(vehicles, activeRoutesSet);
+          } catch (error) {
+              console.error('Error fetching CAT vehicle locations:', error);
+          }
+      }
 
-                  if (markers[vehicleID]) {
-                      animateMarkerTo(markers[vehicleID], newPosition);
-                      markers[vehicleID].routeID = routeID;
-                      queueBusMarkerVisualUpdate(vehicleID, {
-                          fillColor: routeColor,
-                          glyphColor,
-                          headingDeg,
-                          stale: gpsIsStale,
-                          accessibleLabel,
-                          stopped: isStopped
-                      });
-                  } else {
-                      try {
-                          const icon = await createBusMarkerDivIcon(vehicleID, state);
-                          if (!icon) {
-                              continue;
-                          }
-                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
-                          marker.routeID = routeID;
-                          marker.addTo(map);
-                          markers[vehicleID] = marker;
-                          state.marker = marker;
-                          registerBusMarkerElements(vehicleID);
-                          attachBusMarkerInteractions(vehicleID);
-                          updateBusMarkerRootClasses(state);
-                          updateBusMarkerZIndex(state);
-                          applyBusMarkerOutlineWidth(state);
-                      } catch (error) {
-                          console.error(`Failed to create bus marker icon for vehicle ${vehicleID}:`, error);
+      async function renderVehiclesOnMap(vehicles, activeRoutesSet) {
+          const normalizedVehicles = Array.isArray(vehicles) ? vehicles : [];
+          const normalizedActiveRoutes = activeRoutesSet instanceof Set
+              ? activeRoutesSet
+              : new Set(Array.isArray(activeRoutesSet) ? activeRoutesSet : []);
+          activeRoutes = normalizedActiveRoutes;
+          updateRouteSelector(normalizedActiveRoutes);
+
+          const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+          const currentBusData = {};
+
+          for (const v of normalizedVehicles) {
+              if (!v || v.vehicleID === undefined || v.vehicleID === null) {
+                  continue;
+              }
+              const { vehicleID, newPosition, busName, routeID, heading, groundSpeed } = v;
+              if (!isRouteSelected(routeID)) {
+                  continue;
+              }
+              currentBusData[vehicleID] = true;
+              const state = ensureBusMarkerState(vehicleID);
+              const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
+              const glyphColor = computeBusMarkerGlyphColor(routeColor);
+              const fallbackHeading = getVehicleHeadingFallback(vehicleID, heading);
+              const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeed);
+              const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
+              const gpsIsStale = isVehicleGpsStale(v);
+              const isStopped = isBusConsideredStopped(groundSpeed);
+
+              state.busName = busName;
+              state.routeID = routeID;
+              state.fillColor = routeColor;
+              state.glyphColor = glyphColor;
+              state.headingDeg = headingDeg;
+              state.accessibleLabel = accessibleLabel;
+              state.isStale = gpsIsStale;
+              state.isStopped = isStopped;
+              state.groundSpeed = groundSpeed;
+              state.lastUpdateTimestamp = Date.now();
+              rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
+
+              if (!state.size) {
+                  setBusMarkerSize(state, markerMetricsForZoom);
+              }
+
+              if (markers[vehicleID]) {
+                  animateMarkerTo(markers[vehicleID], newPosition);
+                  markers[vehicleID].routeID = routeID;
+                  queueBusMarkerVisualUpdate(vehicleID, {
+                      fillColor: routeColor,
+                      glyphColor,
+                      headingDeg,
+                      stale: gpsIsStale,
+                      accessibleLabel,
+                      stopped: isStopped
+                  });
+              } else {
+                  try {
+                      const icon = await createBusMarkerDivIcon(vehicleID, state);
+                      if (!icon) {
+                          continue;
                       }
+                      const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
+                      marker.routeID = routeID;
+                      marker.addTo(map);
+                      markers[vehicleID] = marker;
+                      state.marker = marker;
+                      registerBusMarkerElements(vehicleID);
+                      attachBusMarkerInteractions(vehicleID);
+                      updateBusMarkerRootClasses(state);
+                      updateBusMarkerZIndex(state);
+                      applyBusMarkerOutlineWidth(state);
+                  } catch (error) {
+                      console.error(`Failed to create bus marker icon for vehicle ${vehicleID}:`, error);
                   }
+              }
 
-                  if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
-                      const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
-                      if (speedIcon) {
-                          nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                          if (nameBubbles[vehicleID].speedMarker) {
-                              animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
-                              nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
-                          } else {
-                              nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                          }
-                      } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
-                          map.removeLayer(nameBubbles[vehicleID].speedMarker);
-                          delete nameBubbles[vehicleID].speedMarker;
+              if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                  const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
+                  if (speedIcon) {
+                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                      if (nameBubbles[vehicleID].speedMarker) {
+                          animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
+                          nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
+                      } else {
+                          nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                       }
                   } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
                       map.removeLayer(nameBubbles[vehicleID].speedMarker);
                       delete nameBubbles[vehicleID].speedMarker;
                   }
+              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
+                  map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                  delete nameBubbles[vehicleID].speedMarker;
+              }
 
-                  if (adminMode && !kioskMode) {
-                      const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
-                      if (nameIcon) {
-                          nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                          if (nameBubbles[vehicleID].nameMarker) {
-                              animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
-                              nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
-                          } else {
-                              nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                          }
-                      } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
-                          map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                          delete nameBubbles[vehicleID].nameMarker;
+              if (adminMode && !kioskMode) {
+                  const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
+                  if (nameIcon) {
+                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                      if (nameBubbles[vehicleID].nameMarker) {
+                          animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
+                          nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
+                      } else {
+                          nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                       }
+                  } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
+                      map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                      delete nameBubbles[vehicleID].nameMarker;
+                  }
 
-                      const blockName = busBlocks[vehicleID];
-                      if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
-                          const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale, headingDeg);
-                          if (blockIcon) {
-                              nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                              if (nameBubbles[vehicleID].blockMarker) {
-                                  animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
-                                  nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
-                              } else {
-                                  nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                              }
-                          } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
-                              map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                              delete nameBubbles[vehicleID].blockMarker;
+                  const blockName = busBlocks[vehicleID];
+                  if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
+                      const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale, headingDeg);
+                      if (blockIcon) {
+                          nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                          if (nameBubbles[vehicleID].blockMarker) {
+                              animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
+                              nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
+                          } else {
+                              nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                           }
                       } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                           map.removeLayer(nameBubbles[vehicleID].blockMarker);
                           delete nameBubbles[vehicleID].blockMarker;
                       }
+                  } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                      map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                      delete nameBubbles[vehicleID].blockMarker;
+                  }
+              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
+                  map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                  delete nameBubbles[vehicleID].nameMarker;
+              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                  map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                  delete nameBubbles[vehicleID].blockMarker;
+              }
+
+              if (nameBubbles[vehicleID]) {
+                  const hasMarkers = Boolean(nameBubbles[vehicleID].speedMarker || nameBubbles[vehicleID].nameMarker || nameBubbles[vehicleID].blockMarker);
+                  if (hasMarkers) {
+                      nameBubbles[vehicleID].lastScale = markerMetricsForZoom.scale;
                   } else {
-                      if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
-                          map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                          delete nameBubbles[vehicleID].nameMarker;
-                      }
-                      if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
-                          map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                          delete nameBubbles[vehicleID].blockMarker;
-                      }
+                      delete nameBubbles[vehicleID];
                   }
+              }
+          }
 
+          Object.keys(markers).forEach(vehicleID => {
+              if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
+                  map.removeLayer(markers[vehicleID]);
+                  delete markers[vehicleID];
+                  clearBusMarkerState(vehicleID);
                   if (nameBubbles[vehicleID]) {
-                      const hasMarkers = Boolean(nameBubbles[vehicleID].speedMarker || nameBubbles[vehicleID].nameMarker || nameBubbles[vehicleID].blockMarker);
-                      if (hasMarkers) {
-                          nameBubbles[vehicleID].lastScale = markerMetricsForZoom.scale;
-                      } else {
-                          delete nameBubbles[vehicleID];
-                      }
+                      if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                      if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                      if (nameBubbles[vehicleID].blockMarker) map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                      delete nameBubbles[vehicleID];
                   }
               }
+          });
 
-              Object.keys(markers).forEach(vehicleID => {
-                  if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
-                      map.removeLayer(markers[vehicleID]);
-                      delete markers[vehicleID];
-                      clearBusMarkerState(vehicleID);
-                      if (nameBubbles[vehicleID]) {
-                          if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
-                          if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                          if (nameBubbles[vehicleID].blockMarker) map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                          delete nameBubbles[vehicleID];
-                      }
-                  }
-              });
-              previousBusData = currentBusData;
-          } catch (error) {
-              console.error("Error fetching bus locations:", error);
-          }
+          previousBusData = currentBusData;
       }
-
-      function clamp(value, min, max) {
-          return Math.min(Math.max(value, min), max);
-      }
-
-      function computeMarkerScale(zoom) {
-          return 1;
-      }
-
-      function computeBusMarkerMetrics(zoom) {
-          const scale = computeMarkerScale(zoom);
-          const width = BUS_MARKER_BASE_WIDTH_PX * scale;
-          const height = width * BUS_MARKER_ASPECT_RATIO;
-          return { scale, widthPx: width, heightPx: height };
-      }
-
-      function rememberCachedVehicleHeading(vehicleID, headingDeg, timestamp) {
-          if (!Number.isFinite(headingDeg)) {
-              return;
-          }
-          if (vehicleID === undefined || vehicleID === null) {
-              return;
-          }
-          const key = `${vehicleID}`;
-          if (!key || key === 'undefined' || key === 'null') {
-              return;
-          }
-          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
-          const updatedAt = Number.isFinite(timestamp) ? Number(timestamp) : Date.now();
-          vehicleHeadingCache.set(key, { heading: normalizedHeading, updatedAt });
-      }
-
-      function getCachedVehicleHeading(vehicleID) {
-          if (vehicleID === undefined || vehicleID === null) {
-              return null;
-          }
-          const key = `${vehicleID}`;
-          const entry = vehicleHeadingCache.get(key);
-          if (!entry) {
-              return null;
-          }
-          const heading = Number(entry.heading ?? entry.Heading);
-          if (!Number.isFinite(heading)) {
-              return null;
-          }
-          return normalizeHeadingDegrees(heading);
-      }
-
-      function getVehicleHeadingFallback(vehicleID, headingFromFeed) {
-          const cached = getCachedVehicleHeading(vehicleID);
-          if (cached !== null) {
-              return cached;
-          }
-          const fromFeed = Number(headingFromFeed);
-          if (Number.isFinite(fromFeed)) {
-              return normalizeHeadingDegrees(fromFeed);
-          }
-          return BUS_MARKER_DEFAULT_HEADING;
-      }
-
-      function loadVehicleHeadingCache() {
-          if (vehicleHeadingCachePromise) {
-              return vehicleHeadingCachePromise;
-          }
-          if (typeof fetch !== 'function') {
-              vehicleHeadingCachePromise = Promise.resolve(vehicleHeadingCache);
-              return vehicleHeadingCachePromise;
-          }
-          vehicleHeadingCachePromise = (async () => {
-              try {
-                  const response = await fetch(VEHICLE_HEADING_CACHE_ENDPOINT, { cache: 'no-store' });
-                  if (!response.ok) {
-                      throw new Error(`HTTP ${response.status}`);
-                  }
-                  const data = await response.json();
-                  if (data && typeof data === 'object' && data.headings && typeof data.headings === 'object') {
-                      Object.entries(data.headings).forEach(([vehicleID, entry]) => {
-                          if (!vehicleID) {
-                              return;
-                          }
-                          let headingValue = entry;
-                          let updatedAt = undefined;
-                          if (entry && typeof entry === 'object') {
-                              headingValue = entry.heading ?? entry.Heading;
-                              const tsCandidate = entry.updated_at ?? entry.updatedAt ?? entry.timestamp ?? entry.ts_ms ?? entry.ts;
-                              if (Number.isFinite(Number(tsCandidate))) {
-                                  updatedAt = Number(tsCandidate);
-                              }
-                          }
-                          const headingNumber = Number(headingValue);
-                          if (!Number.isFinite(headingNumber)) {
-                              return;
-                          }
-                          rememberCachedVehicleHeading(vehicleID, headingNumber, updatedAt);
-                      });
-                  }
-              } catch (error) {
-                  console.info('Vehicle heading cache unavailable; continuing without it.', error);
-              }
-              return vehicleHeadingCache;
-          })();
-          return vehicleHeadingCachePromise;
-      }
-
-      function ensureBusMarkerState(vehicleID) {
-          if (!busMarkerStates[vehicleID]) {
-              const defaultRouteColor = BUS_MARKER_DEFAULT_ROUTE_COLOR;
-              const cachedHeading = getCachedVehicleHeading(vehicleID);
-              busMarkerStates[vehicleID] = {
-                  vehicleID,
-                  positionHistory: [],
-                  headingDeg: Number.isFinite(cachedHeading) ? cachedHeading : BUS_MARKER_DEFAULT_HEADING,
-                  fillColor: defaultRouteColor,
-                  glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
-                  accessibleLabel: '',
-                  isStale: false,
-                  isStopped: false,
-                  isSelected: false,
-                  isHovered: false,
-                  lastUpdateTimestamp: 0,
-                  size: null,
-                  elements: null,
-                  marker: null,
-                  markerEventsBound: false
-              };
-          }
-          return busMarkerStates[vehicleID];
-      }
-
-      function setBusMarkerSize(state, metrics) {
-          if (!state || !metrics) {
-              return;
-          }
-          state.size = {
-              widthPx: metrics.widthPx,
-              heightPx: metrics.heightPx,
-              scale: metrics.scale
-          };
-      }
- 
-      function computeBusMarkerGlyphColor(routeColor) {
-          if (typeof busMarkerContrastOverrideColor === 'string' && busMarkerContrastOverrideColor.trim().length > 0) {
-              return busMarkerContrastOverrideColor;
-          }
-          const fallback = BUS_MARKER_DEFAULT_CONTRAST_COLOR;
-          const candidate = typeof routeColor === 'string' && routeColor.trim().length > 0 ? routeColor : BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const contrast = contrastBW(candidate);
-          return contrast || fallback;
-      }
-
-      function normalizeRouteColor(color) {
-          if (typeof color === 'string') {
-              const trimmed = color.trim();
-              if (trimmed.length > 0) {
-                  return trimmed;
-              }
-          } else if (color !== undefined && color !== null) {
-              const stringValue = `${color}`.trim();
-              if (stringValue.length > 0) {
-                  return stringValue;
-              }
-          }
-          return BUS_MARKER_DEFAULT_ROUTE_COLOR;
-      }
-
-      function normalizeGlyphColor(color, routeColor) {
-          if (typeof color === 'string') {
-              const trimmed = color.trim();
-              if (trimmed.length > 0) {
-                  return trimmed;
-              }
-          } else if (color !== undefined && color !== null) {
-              const stringValue = `${color}`.trim();
-              if (stringValue.length > 0) {
-                  return stringValue;
-              }
-          }
-          const fallbackRouteColor = normalizeRouteColor(routeColor);
-          return computeBusMarkerGlyphColor(fallbackRouteColor);
-      }
-
-      function applyColorsToBusMarkerSvg(svgEl, routeColor, glyphColor) {
-          if (!svgEl) {
-              return;
-          }
-          const fillColor = normalizeRouteColor(routeColor);
-          const contrastColor = normalizeGlyphColor(glyphColor, fillColor);
-          const routeShape = svgEl.querySelector('#route_color');
-          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
-          const centerSquare = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
-          const heading = svgEl.querySelector('#heading');
-          if (routeShape) {
-              routeShape.setAttribute('fill', fillColor);
-              routeShape.style.fill = fillColor;
-          }
-          if (centerRing) {
-              centerRing.setAttribute('fill', contrastColor);
-              centerRing.style.fill = contrastColor;
-          }
-          if (centerSquare) {
-              centerSquare.setAttribute('fill', contrastColor);
-              centerSquare.style.fill = contrastColor;
-          }
-          if (heading) {
-              heading.setAttribute('fill', contrastColor);
-              heading.style.fill = contrastColor;
-          }
-      }
-
       function updateBusMarkerColorElements(state) {
           if (!state) {
               return;
