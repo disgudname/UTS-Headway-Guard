@@ -10199,7 +10199,7 @@
               return trainFetchPromise;
           }
           if (!trainsVisible) {
-              return;
+              return Promise.resolve();
           }
           const fetchTask = (async () => {
               if (!trainsVisible) {
