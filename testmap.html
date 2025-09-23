@@ -559,12 +559,22 @@
         --service-alerts-status-dot: rgba(59, 130, 246, 0.75);
         --service-alerts-status-glow: rgba(59, 130, 246, 0.22);
         --service-alerts-header-text: rgba(30, 41, 59, 0.72);
+        --service-alerts-accent: rgba(59, 130, 246, 0.85);
+        --service-alerts-header-surface: rgba(226, 232, 240, 0.78);
+        --service-alerts-header-surface-hover: rgba(226, 232, 240, 0.9);
+        --service-alerts-header-border: rgba(148, 163, 184, 0.26);
+        --service-alerts-header-ring: rgba(59, 130, 246, 0.32);
       }
       .service-alerts.has-alerts {
         --service-alerts-highlight: rgba(248, 113, 113, 0.16);
         --service-alerts-status-dot: rgba(239, 68, 68, 0.85);
         --service-alerts-status-glow: rgba(239, 68, 68, 0.28);
         --service-alerts-header-text: rgba(127, 29, 29, 0.95);
+        --service-alerts-accent: rgba(239, 68, 68, 0.85);
+        --service-alerts-header-surface: rgba(254, 215, 215, 0.82);
+        --service-alerts-header-surface-hover: rgba(254, 202, 202, 0.94);
+        --service-alerts-header-border: rgba(248, 113, 113, 0.32);
+        --service-alerts-header-ring: rgba(239, 68, 68, 0.35);
       }
       .service-alerts.is-collapsed.has-active-alerts {
         border-color: rgba(239, 68, 68, 0.42);
@@ -573,50 +583,51 @@
       .service-alerts__header {
         appearance: none;
         border: none;
-        background: transparent;
-        padding: 20px 24px 18px;
+        background: linear-gradient(90deg, var(--service-alerts-header-surface), rgba(255, 255, 255, 0));
+        padding: 20px 24px 18px 36px;
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto auto;
         align-items: center;
-        gap: 18px;
+        gap: 16px;
         width: 100%;
         text-align: left;
         cursor: pointer;
         font: inherit;
         color: inherit;
         position: relative;
-        transition: color 0.25s ease, transform 0.25s ease;
+        transition: color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
         z-index: 0;
+        border-bottom: 1px solid transparent;
+        box-shadow: inset 4px 0 0 0 var(--service-alerts-accent);
       }
-      .service-alerts__header::before {
-        content: '';
-        position: absolute;
-        inset: 12px 18px;
-        border-radius: 18px;
-        background: linear-gradient(135deg, var(--service-alerts-highlight), transparent 70%);
-        opacity: 0.75;
-        transition: opacity 0.25s ease, transform 0.25s ease;
-        z-index: -1;
-      }
-      .service-alerts__header:hover::before,
-      .service-alerts__header:focus-visible::before {
-        opacity: 1;
-        transform: scale(1.02);
-      }
-      .service-alerts__header:hover,
-      .service-alerts__header:focus-visible {
+      .service-alerts__header:hover {
         color: var(--service-alerts-header-text);
+        background: linear-gradient(90deg, var(--service-alerts-header-surface-hover), rgba(255, 255, 255, 0.18));
+        box-shadow:
+          inset 6px 0 0 0 var(--service-alerts-accent),
+          0 12px 22px rgba(15, 23, 42, 0.12);
+        transform: translateY(-1px);
       }
       .service-alerts__header:focus-visible {
         outline: none;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        color: var(--service-alerts-header-text);
+        background: linear-gradient(90deg, var(--service-alerts-header-surface-hover), rgba(255, 255, 255, 0.22));
+        box-shadow:
+          inset 6px 0 0 0 var(--service-alerts-accent),
+          0 0 0 3px var(--service-alerts-header-ring);
+        transform: translateY(-1px);
       }
       .service-alerts.is-expanded .service-alerts__header {
-        border-bottom: 1px solid rgba(148, 163, 184, 0.26);
         padding-bottom: 16px;
+        border-bottom-color: var(--service-alerts-header-border);
+        box-shadow: inset 6px 0 0 0 var(--service-alerts-accent);
       }
-      .service-alerts.is-expanded .service-alerts__header::before {
-        bottom: 10px;
+      .service-alerts.is-collapsed .service-alerts__header {
+        border-bottom-color: transparent;
+      }
+      .service-alerts.is-collapsed.has-active-alerts .service-alerts__header {
+        background: linear-gradient(90deg, var(--service-alerts-header-surface-hover), rgba(255, 255, 255, 0.28));
+        box-shadow: inset 6px 0 0 0 var(--service-alerts-accent);
       }
       .service-alerts__header-main {
         display: grid;
