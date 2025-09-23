@@ -889,6 +889,9 @@
         flex-direction: column;
         gap: 14px;
       }
+      .selector-panel .service-alerts-panel[hidden] {
+        display: none;
+      }
       .selector-panel .service-alerts-panel.is-empty {
         padding: 0;
         border: none;
@@ -4383,6 +4386,7 @@
         if (!panelHasContent) panelClasses.push('is-empty');
         const statusText = escapeHtml(buildServiceAlertsStatusText());
         const hiddenAttr = serviceAlertsExpanded ? '' : ' hidden';
+        const ariaHiddenAttr = ` aria-hidden="${serviceAlertsExpanded ? 'false' : 'true'}"`;
         return `
           <div class="selector-group service-alerts-group">
             <button type="button" id="serviceAlertsToggle" class="${buttonClasses.join(' ')}" aria-expanded="${serviceAlertsExpanded ? 'true' : 'false'}" aria-controls="serviceAlertsPanel" onclick="toggleServiceAlertsPanel(event)">
@@ -4392,7 +4396,7 @@
               </span>
               <span class="service-alerts-toggle__chevron" aria-hidden="true"></span>
             </button>
-            <div id="serviceAlertsPanel" class="${panelClasses.join(' ')}"${hiddenAttr}>${panelContentHtml}</div>
+            <div id="serviceAlertsPanel" class="${panelClasses.join(' ')}"${hiddenAttr}${ariaHiddenAttr}>${panelContentHtml}</div>
           </div>
         `;
       }
@@ -4415,6 +4419,18 @@
         const panel = document.getElementById('serviceAlertsPanel');
         if (!panel) return;
         panel.hidden = !serviceAlertsExpanded;
+        panel.setAttribute('aria-hidden', serviceAlertsExpanded ? 'false' : 'true');
+        if (panel.style) {
+          if (serviceAlertsExpanded) {
+            if (typeof panel.style.removeProperty === 'function') {
+              panel.style.removeProperty('display');
+            } else {
+              panel.style.display = '';
+            }
+          } else {
+            panel.style.display = 'none';
+          }
+        }
         panel.classList.toggle('is-expanded', !!serviceAlertsExpanded);
         panel.classList.toggle('is-loading', !!serviceAlertsLoading);
         panel.classList.toggle('has-error', !!serviceAlertsError);
