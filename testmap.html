@@ -1593,12 +1593,14 @@
       const RADAR_PRODUCT_ORDER = Object.freeze([RADAR_PRODUCTS.BASE, RADAR_PRODUCTS.COMPOSITE]);
       const RADAR_PRODUCT_INFO = Object.freeze({
         [RADAR_PRODUCTS.BASE]: {
-          label: "Base Reflectivity (QC’d)",
-          urlTemplate: "https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity/MapServer/tile/{z}/{y}/{x}"
+          label: "Base Reflectivity (0.5° Tilt)",
+          urlTemplate: "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png",
+          cacheBustingStrategy: "none"
         },
         [RADAR_PRODUCTS.COMPOSITE]: {
-          label: "Composite Reflectivity (QC’d)",
-          urlTemplate: "https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_composite/MapServer/tile/{z}/{y}/{x}"
+          label: "Composite Reflectivity",
+          urlTemplate: "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0r-900913/{z}/{x}/{y}.png",
+          cacheBustingStrategy: "none"
         }
       });
       const RADAR_DEFAULT_PRODUCT = RADAR_PRODUCTS.BASE;
@@ -1610,6 +1612,7 @@
       const RADAR_UNAVAILABLE_MESSAGE = "Radar temporarily unavailable.";
       const RADAR_CONSECUTIVE_ERROR_THRESHOLD = 3;
       const RADAR_PANE_NAME = "radarPane";
+      const RADAR_CACHE_BUST_PLACEHOLDER = "{cacheBust}";
 
       let showRadar = false;
       let radarConfiguredProduct = RADAR_DEFAULT_PRODUCT;
@@ -1666,17 +1669,28 @@
         return `${year}${month}${day}${hours}${minutes}`;
       }
 
+      function removeCacheBustPlaceholder(template) {
+        if (typeof template !== "string" || !template.includes(RADAR_CACHE_BUST_PLACEHOLDER)) {
+          return template;
+        }
+        return template.split(RADAR_CACHE_BUST_PLACEHOLDER).join("");
+      }
+
       function getRadarTileUrlTemplate(productKey, cacheBustKey) {
         const info = RADAR_PRODUCT_INFO[productKey] || RADAR_PRODUCT_INFO[RADAR_DEFAULT_PRODUCT];
-        if (!info) {
+        if (!info || typeof info.urlTemplate !== "string" || !info.urlTemplate) {
           return "";
         }
-        if (!cacheBustKey) {
-          return info.urlTemplate;
+        const template = info.urlTemplate;
+        const strategy = info.cacheBustingStrategy || "query";
+        if (!cacheBustKey || strategy === "none") {
+          return removeCacheBustPlaceholder(template);
         }
-        return info.urlTemplate.includes("?")
-          ? `${info.urlTemplate}&t=${cacheBustKey}`
-          : `${info.urlTemplate}?t=${cacheBustKey}`;
+        if (strategy === "path" && template.includes(RADAR_CACHE_BUST_PLACEHOLDER)) {
+          return template.split(RADAR_CACHE_BUST_PLACEHOLDER).join(cacheBustKey);
+        }
+        const separator = template.includes("?") ? "&" : "?";
+        return `${template}${separator}t=${encodeURIComponent(cacheBustKey)}`;
       }
 
       function loadRadarSessionState() {
@@ -9854,7 +9868,7 @@
     <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">
       <span class="panel-toggle__arrow" aria-hidden="true">&#9664;</span>
     </div>
-    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS.</div>
+    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS via Iowa Environmental Mesonet.</div>
     <div id="cookieBanner" class="cookie-banner" style="display:none;">
       This site stores your selected transit agency on your device to remember your preference.
       <button id="cookieAccept">OK</button>
