@@ -889,6 +889,14 @@
         flex-direction: column;
         gap: 14px;
       }
+      .selector-panel .service-alerts-panel.is-empty {
+        padding: 0;
+        border: none;
+        box-shadow: none;
+        background: transparent;
+        gap: 0;
+        min-height: 0;
+      }
       .selector-panel .service-alerts-panel.is-loading {
         opacity: 0.75;
       }
@@ -909,9 +917,6 @@
       .selector-panel .service-alerts-panel .service-alerts-state--error {
         color: rgba(185, 28, 28, 0.9);
         font-weight: 600;
-      }
-      .selector-panel .service-alerts-panel .service-alerts-state--empty {
-        color: rgba(30, 41, 59, 0.7);
       }
       .selector-panel .service-alerts-list {
         margin: 0;
@@ -1684,12 +1689,10 @@
         'EffectiveEndDate',
         'EffectiveEndUtc'
       ]);
-      const SERVICE_ALERT_EMPTY_MESSAGE = 'No active service alerts.';
       const SERVICE_ALERT_UNAVAILABLE_MESSAGE = 'Service alerts unavailable.';
-      const SERVICE_ALERT_STATUS_NO_ALERTS = 'No active alerts';
+      const SERVICE_ALERT_STATUS_NO_ALERTS = 'No Active Alerts';
       const SERVICE_ALERT_STATUS_LOADING = 'Loading…';
       const SERVICE_ALERT_STATUS_ERROR = 'Unavailable';
-      const SERVICE_ALERT_STATUS_READY = 'View alerts';
       const SERVICE_ALERT_DATE_FORMATTER = (() => {
         if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
           return null;
@@ -4309,11 +4312,11 @@
           return SERVICE_ALERT_STATUS_ERROR;
         }
         if (!serviceAlertsHasLoaded) {
-          return SERVICE_ALERT_STATUS_READY;
+          return SERVICE_ALERT_STATUS_LOADING;
         }
         const count = getActiveServiceAlertCount();
         if (count > 0) {
-          return count === 1 ? '1 active alert' : `${count} active alerts`;
+          return count === 1 ? '1 Active Alert' : `${count} Active Alerts`;
         }
         return SERVICE_ALERT_STATUS_NO_ALERTS;
       }
@@ -4356,11 +4359,11 @@
           return `<div class="service-alerts-state service-alerts-state--error">${escapeHtml(serviceAlertsError)}</div>`;
         }
         if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
-          return `<div class="service-alerts-state service-alerts-state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
+          return '';
         }
         const itemsHtml = serviceAlerts.map(renderServiceAlertItem).filter(Boolean).join('');
         if (!itemsHtml) {
-          return `<div class="service-alerts-state service-alerts-state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
+          return '';
         }
         return `<ul class="service-alerts-list">${itemsHtml}</ul>`;
       }
@@ -4375,6 +4378,9 @@
         if (serviceAlertsExpanded) panelClasses.push('is-expanded');
         if (serviceAlertsLoading) panelClasses.push('is-loading');
         if (serviceAlertsError) panelClasses.push('has-error');
+        const panelContentHtml = renderServiceAlertsPanelContentHtml();
+        const panelHasContent = typeof panelContentHtml === 'string' && panelContentHtml.trim().length > 0;
+        if (!panelHasContent) panelClasses.push('is-empty');
         const statusText = escapeHtml(buildServiceAlertsStatusText());
         const hiddenAttr = serviceAlertsExpanded ? '' : ' hidden';
         return `
@@ -4386,7 +4392,7 @@
               </span>
               <span class="service-alerts-toggle__chevron" aria-hidden="true"></span>
             </button>
-            <div id="serviceAlertsPanel" class="${panelClasses.join(' ')}"${hiddenAttr}>${renderServiceAlertsPanelContentHtml()}</div>
+            <div id="serviceAlertsPanel" class="${panelClasses.join(' ')}"${hiddenAttr}>${panelContentHtml}</div>
           </div>
         `;
       }
@@ -4412,12 +4418,17 @@
         panel.classList.toggle('is-expanded', !!serviceAlertsExpanded);
         panel.classList.toggle('is-loading', !!serviceAlertsLoading);
         panel.classList.toggle('has-error', !!serviceAlertsError);
+        const panelHasContent = typeof panel.innerHTML === 'string' && panel.innerHTML.trim().length > 0;
+        panel.classList.toggle('is-empty', !panelHasContent && !serviceAlertsLoading && !serviceAlertsError);
       }
 
       function updateServiceAlertsPanelContent() {
         const panel = document.getElementById('serviceAlertsPanel');
         if (!panel) return;
-        panel.innerHTML = renderServiceAlertsPanelContentHtml();
+        const contentHtml = renderServiceAlertsPanelContentHtml();
+        panel.innerHTML = contentHtml;
+        const hasContent = typeof contentHtml === 'string' && contentHtml.trim().length > 0;
+        panel.classList.toggle('is-empty', !hasContent);
       }
 
       function refreshServiceAlertsUI() {
@@ -5324,11 +5335,19 @@
           });
         }, 15000));
         refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
+        refreshIntervals.push(setInterval(() => {
+          if (shouldFetchServiceAlerts()) {
+            fetchServiceAlertsForCurrentAgency();
+          }
+        }, SERVICE_ALERT_REFRESH_INTERVAL_MS));
         if (incidentsAreAvailable()) {
           refreshIntervals.push(setInterval(refreshIncidents, INCIDENT_REFRESH_INTERVAL_MS));
           refreshIncidents();
         } else {
           setIncidentsVisibility(false);
+        }
+        if (shouldFetchServiceAlerts()) {
+          fetchServiceAlertsForCurrentAgency();
         }
       }
 
@@ -5361,6 +5380,9 @@
             headingCachePromise.then(() => fetchBusLocations().then(() => fetchRoutePaths())),
             stopArrivalsPromise
           ];
+          if (shouldFetchServiceAlerts()) {
+            tasks.push(fetchServiceAlertsForCurrentAgency());
+          }
           return Promise.allSettled(tasks);
         });
       }
