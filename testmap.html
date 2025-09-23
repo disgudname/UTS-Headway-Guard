@@ -1586,6 +1586,10 @@
 
       const enableOverlapDashRendering = true;
 
+      function adminFeaturesAllowed() {
+        return (adminMode && !kioskMode) || adminKioskMode;
+      }
+
       const RADAR_PRODUCTS = Object.freeze({
         BASE: 'base',
         COMPOSITE: 'composite'
@@ -1753,6 +1757,10 @@
           clearTimeout(radarSuppressionTimeoutId);
           radarSuppressionTimeoutId = null;
         }
+        if (!adminFeaturesAllowed()) {
+          radarEnabled = false;
+          return;
+        }
         if (adminKioskMode) {
           radarEnabled = true;
         } else if (kioskMode) {
@@ -1788,6 +1796,10 @@
       }
 
       function applyRadarState() {
+        if (!adminFeaturesAllowed()) {
+          removeRadarLayer();
+          return;
+        }
         if (!map) {
           return;
         }
@@ -1915,7 +1927,8 @@
       }
 
       function setRadarEnabled(nextEnabled) {
-        const shouldEnable = !!nextEnabled;
+        const allowRadar = adminFeaturesAllowed();
+        const shouldEnable = allowRadar && !!nextEnabled;
         if (shouldEnable && radarTemporarilyUnavailable) {
           refreshRadarControlsUI();
           return;
@@ -1943,6 +1956,10 @@
       }
 
       function setRadarProduct(nextProduct) {
+        if (!adminFeaturesAllowed()) {
+          refreshRadarControlsUI();
+          return;
+        }
         const normalized = normalizeRadarProduct(nextProduct);
         const productChanged = radarProduct !== normalized;
         radarProduct = normalized;
@@ -1979,6 +1996,10 @@
       }
 
       function setRadarOpacity(nextOpacity) {
+        if (!adminFeaturesAllowed()) {
+          refreshRadarControlsUI();
+          return;
+        }
         const clamped = clampRadarOpacity(nextOpacity);
         if (Math.abs(clamped - radarOpacity) < 0.0001) {
           refreshRadarControlsUI();
@@ -2026,12 +2047,13 @@
       }
 
       function refreshRadarControlsUI() {
+        const allowRadar = adminFeaturesAllowed();
         const toggleButton = document.getElementById("radarToggleButton");
-        const isActive = radarEnabled && !radarTemporarilyUnavailable;
+        const isActive = allowRadar && radarEnabled && !radarTemporarilyUnavailable;
         if (toggleButton) {
           toggleButton.classList.toggle("is-active", isActive);
           toggleButton.setAttribute("aria-pressed", isActive ? "true" : "false");
-          toggleButton.disabled = radarTemporarilyUnavailable;
+          toggleButton.disabled = !allowRadar || radarTemporarilyUnavailable;
           const indicator = toggleButton.querySelector(".toggle-indicator");
           if (indicator) {
             indicator.textContent = isActive ? "On" : "Off";
@@ -2040,10 +2062,12 @@
         const productSelect = document.getElementById("radarProductSelect");
         if (productSelect) {
           productSelect.value = radarProduct;
+          productSelect.disabled = !allowRadar;
         }
         const opacityRange = document.getElementById("radarOpacityRange");
         if (opacityRange) {
           opacityRange.value = radarOpacity.toFixed(2);
+          opacityRange.disabled = !allowRadar;
         }
         const opacityValue = document.getElementById("radarOpacityValue");
         if (opacityValue) {
@@ -2569,8 +2593,7 @@
       let demoIncidentCsvRow = null;
 
       function incidentsAreAvailable() {
-        const adminAccessAllowed = (adminMode && !kioskMode) || adminKioskMode;
-        if (!adminAccessAllowed) {
+        if (!adminFeaturesAllowed()) {
           return false;
         }
         if (!Array.isArray(agencies) || agencies.length === 0) {
@@ -4365,9 +4388,11 @@
       function updateTrainToggleButton() {
         const button = document.getElementById('trainToggleButton');
         if (!button) return;
-        const isActive = !!trainsVisible;
+        const allowTrains = adminFeaturesAllowed();
+        const isActive = allowTrains && !!trainsVisible;
         button.classList.toggle('is-active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        button.disabled = !allowTrains;
         const indicator = button.querySelector('.toggle-indicator');
         if (indicator) {
           indicator.textContent = isActive ? 'On' : 'Off';
@@ -5232,16 +5257,20 @@
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
         const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
-        const trainToggleHtml = `
-          <div class="selector-group">
-            <div class="selector-label">Trains</div>
-            <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsVisible ? ' is-active' : ''}" aria-pressed="${trainsVisible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
-              Show Trains<span class="toggle-indicator">${trainsVisible ? 'On' : 'Off'}</span>
-            </button>
-          </div>
-        `;
+        const allowAdminFeatures = adminFeaturesAllowed();
+        let trainToggleHtml = '';
+        if (allowAdminFeatures) {
+          trainToggleHtml = `
+            <div class="selector-group">
+              <div class="selector-label">Trains</div>
+              <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsVisible ? ' is-active' : ''}" aria-pressed="${trainsVisible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
+                Show Trains<span class="toggle-indicator">${trainsVisible ? 'On' : 'Off'}</span>
+              </button>
+            </div>
+          `;
+        }
         let radarControlsHtml = '';
-        if (!kioskMode && !adminKioskMode) {
+        if (allowAdminFeatures) {
           const toggleActive = radarEnabled && !radarTemporarilyUnavailable;
           const toggleDisabledAttr = radarTemporarilyUnavailable ? ' disabled' : '';
           const productOptions = RADAR_PRODUCT_ORDER.map(productKey => {
@@ -10095,8 +10124,10 @@
       }
 
       function setTrainsVisibility(visible) {
+          const allowTrains = adminFeaturesAllowed();
+          const desiredVisibility = allowTrains && !!visible;
           const previousVisibility = !!trainsVisible;
-          trainsVisible = !!visible;
+          trainsVisible = desiredVisibility;
           updateTrainToggleButton();
           try {
               const visibilityPromise = updateTrainMarkersVisibility();
@@ -10116,6 +10147,10 @@
       }
 
       async function updateTrainMarkersVisibility() {
+          if (!adminFeaturesAllowed()) {
+              clearAllTrainMarkers();
+              return;
+          }
           if (!trainsVisible) {
               Object.keys(trainMarkers).forEach(trainID => {
                   const marker = trainMarkers[trainID];
@@ -10198,6 +10233,9 @@
       async function fetchTrains() {
           if (trainFetchPromise) {
               return trainFetchPromise;
+          }
+          if (!adminFeaturesAllowed()) {
+              return Promise.resolve();
           }
           if (!trainsVisible) {
               return Promise.resolve();
