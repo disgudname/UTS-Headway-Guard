@@ -534,153 +534,182 @@
         gap: 18px;
       }
       .selector-panel .selector-section.service-alerts {
-        border-radius: 16px;
-        border: 1px solid rgba(35, 45, 75, 0.14);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.9));
-        box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
+        position: relative;
+        border-radius: 20px;
+        border: 1px solid rgba(35, 45, 75, 0.18);
+        background:
+          radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 55%),
+          radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.08), transparent 45%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 255, 0.92));
+        box-shadow: 0 22px 45px rgba(15, 23, 42, 0.16);
         display: flex;
         flex-direction: column;
-        gap: 0;
-        transition: box-shadow 0.2s ease, border-color 0.2s ease;
-        backdrop-filter: blur(6px);
+        overflow: hidden;
+        transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+        isolation: isolate;
       }
       .selector-panel .selector-section.service-alerts.is-expanded {
-        box-shadow: 0 22px 44px rgba(15, 23, 42, 0.16);
+        box-shadow: 0 28px 60px rgba(15, 23, 42, 0.2);
+        border-color: rgba(59, 130, 246, 0.32);
+        transform: translateY(-1px);
+      }
+      .service-alerts {
+        --service-alerts-highlight: rgba(59, 130, 246, 0.14);
+        --service-alerts-status-dot: rgba(59, 130, 246, 0.75);
+        --service-alerts-status-glow: rgba(59, 130, 246, 0.22);
+        --service-alerts-header-text: rgba(30, 41, 59, 0.72);
+      }
+      .service-alerts.has-alerts {
+        --service-alerts-highlight: rgba(248, 113, 113, 0.16);
+        --service-alerts-status-dot: rgba(239, 68, 68, 0.85);
+        --service-alerts-status-glow: rgba(239, 68, 68, 0.28);
+        --service-alerts-header-text: rgba(127, 29, 29, 0.95);
       }
       .service-alerts.is-collapsed.has-active-alerts {
-        border-color: rgba(220, 38, 38, 0.45);
-        box-shadow: 0 16px 32px rgba(220, 38, 38, 0.18);
+        border-color: rgba(239, 68, 68, 0.42);
+        box-shadow: 0 26px 50px rgba(239, 68, 68, 0.22);
       }
       .service-alerts__header {
         appearance: none;
         border: none;
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.08), rgba(35, 45, 75, 0.02));
-        border-radius: 16px;
-        border-bottom: 1px solid transparent;
-        padding: 18px 20px;
-        display: flex;
+        background: transparent;
+        padding: 20px 24px 18px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
         align-items: center;
-        gap: 16px;
+        gap: 18px;
         width: 100%;
         text-align: left;
         cursor: pointer;
         font: inherit;
         color: inherit;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
         position: relative;
-        transition: color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        transition: color 0.25s ease, transform 0.25s ease;
+        z-index: 0;
+      }
+      .service-alerts__header::before {
+        content: '';
+        position: absolute;
+        inset: 12px 18px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, var(--service-alerts-highlight), transparent 70%);
+        opacity: 0.75;
+        transition: opacity 0.25s ease, transform 0.25s ease;
+        z-index: -1;
+      }
+      .service-alerts__header:hover::before,
+      .service-alerts__header:focus-visible::before {
+        opacity: 1;
+        transform: scale(1.02);
       }
       .service-alerts__header:hover,
       .service-alerts__header:focus-visible {
-        text-decoration: none;
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.16), rgba(35, 45, 75, 0.05));
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 12px 24px rgba(15, 23, 42, 0.12);
+        color: var(--service-alerts-header-text);
       }
       .service-alerts__header:focus-visible {
         outline: none;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 0 0 3px var(--accent-soft), 0 18px 32px rgba(15, 23, 42, 0.16);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
       }
       .service-alerts.is-expanded .service-alerts__header {
-        border-bottom-color: rgba(148, 163, 184, 0.26);
-        border-bottom-left-radius: 0;
-        border-bottom-right-radius: 0;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.26);
+        padding-bottom: 16px;
       }
-      .service-alerts.is-collapsed .service-alerts__header {
-        border-bottom-color: transparent;
-      }
-      .service-alerts.is-collapsed.has-active-alerts .service-alerts__header {
-        color: rgba(127, 29, 29, 0.95);
-        background: linear-gradient(135deg, rgba(220, 38, 38, 0.12), rgba(220, 38, 38, 0.04));
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 14px 30px rgba(220, 38, 38, 0.18);
+      .service-alerts.is-expanded .service-alerts__header::before {
+        bottom: 10px;
       }
       .service-alerts__header-main {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        flex: 1;
+        display: grid;
+        gap: 6px;
         min-width: 0;
       }
       .service-alerts__title {
-        font-size: 16px;
-        font-weight: 700;
-        letter-spacing: 0.4px;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0.6px;
+        color: #111827;
       }
       .service-alerts__status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
         font-size: 13px;
+        font-weight: 600;
         letter-spacing: 0.3px;
-        color: rgba(35, 45, 75, 0.65);
-        text-transform: uppercase;
+        color: var(--service-alerts-header-text);
+        text-transform: none;
       }
-      .service-alerts.is-collapsed.has-active-alerts .service-alerts__status {
-        color: rgba(127, 29, 29, 0.78);
+      .service-alerts__status::before {
+        content: '';
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--service-alerts-status-dot);
+        box-shadow: 0 0 0 4px var(--service-alerts-status-glow);
+        margin-right: 6px;
       }
       .service-alerts__badge,
       .panel-toggle__badge {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 26px;
-        height: 26px;
-        padding: 0 6px;
+        min-width: 32px;
+        height: 32px;
+        padding: 0 8px;
         border-radius: 999px;
-        background: linear-gradient(135deg, #dc2626, #ef4444);
-        color: #fef2f2;
+        background: linear-gradient(135deg, #f97316, #ef4444);
+        color: #fff7ed;
         font-weight: 700;
-        font-size: 13px;
+        font-size: 14px;
         letter-spacing: 0.4px;
-        box-shadow: 0 8px 18px rgba(220, 38, 38, 0.25);
+        box-shadow: 0 12px 22px rgba(239, 68, 68, 0.35);
       }
       .service-alerts__badge[hidden],
       .panel-toggle__badge[hidden] {
         display: none !important;
       }
       .service-alerts__badge {
-        box-shadow: none;
+        justify-self: end;
       }
       .service-alerts__chevron {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.95), rgba(35, 45, 75, 0.7));
-        color: #f8fafc;
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        background: rgba(17, 24, 39, 0.08);
+        color: rgba(17, 24, 39, 0.7);
         font-size: 18px;
         font-weight: 700;
         line-height: 1;
-        box-shadow: 0 12px 24px rgba(35, 45, 75, 0.25);
-        transition: transform 0.25s ease, background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
-        flex-shrink: 0;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+        transition: transform 0.3s ease, background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
       }
       .service-alerts__header:hover .service-alerts__chevron,
       .service-alerts__header:focus-visible .service-alerts__chevron {
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.85), rgba(35, 45, 75, 0.65));
-        box-shadow: 0 14px 28px rgba(35, 45, 75, 0.28);
+        background: rgba(17, 24, 39, 0.12);
+        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
       }
       .service-alerts.is-collapsed.has-active-alerts .service-alerts__chevron {
-        background: linear-gradient(135deg, #dc2626, #ef4444);
-        box-shadow: 0 16px 30px rgba(220, 38, 38, 0.32);
-        color: #fef2f2;
+        background: linear-gradient(135deg, #ef4444, #f97316);
+        color: #fff7ed;
+        box-shadow: 0 18px 34px rgba(239, 68, 68, 0.28);
       }
       .service-alerts.is-expanded .service-alerts__chevron {
-        transform: rotate(90deg);
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.88), rgba(35, 45, 75, 0.68));
+        transform: rotate(180deg);
       }
       .service-alerts__content {
-        padding: 20px 20px 22px;
+        padding: 22px 24px 24px;
         display: flex;
         flex-direction: column;
-        gap: 16px;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.94));
-        border-top: 1px solid rgba(148, 163, 184, 0.24);
-        border-bottom-left-radius: 16px;
-        border-bottom-right-radius: 16px;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        gap: 20px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(236, 244, 255, 0.95));
+        border-top: 1px solid rgba(148, 163, 184, 0.2);
+        position: relative;
       }
       .service-alerts.is-expanded .service-alerts__content {
-        animation: service-alerts-fade-in 180ms ease;
+        animation: service-alerts-fade-in 220ms ease;
       }
       .service-alerts.is-collapsed .service-alerts__content {
         display: none;
@@ -691,87 +720,301 @@
         padding: 0;
         display: flex;
         flex-direction: column;
+        gap: 20px;
+      }
+      .service-alert-card {
+        --service-alert-card-accent: linear-gradient(180deg, #94a3b8, #64748b);
+        --service-alert-card-pill-background: rgba(148, 163, 184, 0.16);
+        --service-alert-card-pill-text: rgba(71, 85, 105, 0.9);
+        --service-alert-card-outline: rgba(148, 163, 184, 0.24);
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 20px 22px 22px 26px;
+        border-radius: 20px;
+        border: 1px solid var(--service-alert-card-outline);
+        background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(226, 232, 240, 0.92));
+        box-shadow: 0 18px 34px rgba(15, 23, 42, 0.14);
+        overflow: hidden;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .service-alert-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent 50%);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+      }
+      .service-alert-card::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        background: var(--service-alert-card-accent);
+      }
+      .service-alert-card:hover,
+      .service-alert-card:focus-within {
+        transform: translateY(-2px);
+        box-shadow: 0 26px 42px rgba(15, 23, 42, 0.2);
+      }
+      .service-alert-card:hover::before,
+      .service-alert-card:focus-within::before {
+        opacity: 1;
+      }
+      .service-alert-card--active {
+        --service-alert-card-accent: linear-gradient(180deg, #f97316, #ef4444);
+        --service-alert-card-pill-background: rgba(253, 186, 116, 0.28);
+        --service-alert-card-pill-text: rgba(194, 65, 12, 0.95);
+        --service-alert-card-outline: rgba(249, 115, 22, 0.36);
+      }
+      .service-alert-card--inactive {
+        --service-alert-card-accent: linear-gradient(180deg, #38bdf8, #2563eb);
+        --service-alert-card-pill-background: rgba(191, 219, 254, 0.4);
+        --service-alert-card-pill-text: rgba(30, 64, 175, 0.9);
+        --service-alert-card-outline: rgba(59, 130, 246, 0.28);
+      }
+      .service-alert-card__header {
+        display: flex;
+        align-items: flex-start;
         gap: 16px;
       }
-      .service-alerts__item {
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.92));
-        border: 1px solid rgba(148, 163, 184, 0.32);
-        border-radius: 14px;
-        padding: 16px 18px;
+      .service-alert-card__icon {
+        flex: 0 0 auto;
+        width: 48px;
+        height: 48px;
+        border-radius: 16px;
+        background: var(--service-alert-card-pill-background);
+        color: var(--service-alert-card-pill-text);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        font-weight: 800;
+        box-shadow: inset 0 0 0 1px var(--service-alert-card-outline), 0 12px 24px rgba(15, 23, 42, 0.12);
+      }
+      .service-alert-card__headline {
         display: flex;
         flex-direction: column;
         gap: 10px;
-        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
+        min-width: 0;
       }
-      .service-alerts__item-title {
-        font-size: 15px;
-        font-weight: 700;
-        letter-spacing: 0.3px;
-        color: rgba(35, 45, 75, 0.92);
-      }
-      .service-alerts__item-message {
-        font-size: 14px;
-        line-height: 1.45;
-        color: rgba(15, 23, 42, 0.85);
-        white-space: pre-wrap;
-      }
-      .service-alerts__meta {
-        display: grid;
+      .service-alert-card__status {
+        display: inline-flex;
+        align-items: center;
         gap: 6px;
-        font-size: 13px;
-        color: rgba(55, 65, 81, 0.88);
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--service-alert-card-pill-background);
+        color: var(--service-alert-card-pill-text);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        align-self: flex-start;
       }
-      .service-alerts__meta-row {
+      .service-alert-card__status::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--service-alert-card-pill-text);
+        opacity: 0.85;
+        margin-right: 6px;
+      }
+      .service-alert-card__title {
+        font-size: 17px;
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        color: #0f172a;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+      .service-alert-card__summary {
+        font-size: 12px;
+        color: rgba(71, 85, 105, 0.85);
+        letter-spacing: 0.3px;
+      }
+      .service-alert-card--active .service-alert-card__summary {
+        color: rgba(124, 45, 18, 0.85);
+      }
+      .service-alert-card__message {
+        font-size: 14px;
+        line-height: 1.55;
+        color: rgba(15, 23, 42, 0.85);
+        white-space: pre-line;
+      }
+      .service-alert-card__timeline {
+        position: relative;
+        margin: 0;
+        padding-left: 26px;
         display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 8px;
-        align-items: baseline;
+        gap: 12px;
       }
-      .service-alerts__meta-row dt {
+      .service-alert-card__timeline::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        top: 6px;
+        bottom: 6px;
+        width: 2px;
+        background: rgba(148, 163, 184, 0.35);
+      }
+      .service-alert-card__time {
+        position: relative;
+        padding-left: 6px;
+      }
+      .service-alert-card__time::before {
+        content: '';
+        position: absolute;
+        left: -16px;
+        top: 4px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--service-alert-card-pill-background);
+        border: 2px solid var(--service-alert-card-pill-text);
+        box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.05);
+      }
+      .service-alert-card__time-label {
+        font-size: 12px;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.6px;
-        color: rgba(30, 41, 59, 0.72);
-      }
-      .service-alerts__meta-row dd {
+        letter-spacing: 0.55px;
+        color: rgba(71, 85, 105, 0.9);
         margin: 0;
+      }
+      .service-alert-card__time-value {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: rgba(15, 23, 42, 0.85);
         overflow-wrap: anywhere;
+      }
+      .service-alert-card__routes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .service-alert-card__routes-label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        color: rgba(71, 85, 105, 0.85);
+      }
+      .service-alert-card__chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: var(--service-alert-card-pill-background);
+        color: var(--service-alert-card-pill-text);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.35px;
+        border: 1px solid var(--service-alert-card-outline);
       }
       .service-alerts__state {
         display: flex;
         align-items: center;
-        gap: 12px;
-        font-size: 14px;
-        color: rgba(30, 41, 59, 0.8);
-        padding: 16px 18px;
-        border-radius: 14px;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(237, 242, 247, 0.92));
-        border: 1px solid rgba(148, 163, 184, 0.28);
-        box-shadow: 0 12px 22px rgba(15, 23, 42, 0.1);
+        gap: 16px;
+        padding: 20px 20px;
+        border-radius: 18px;
+        border: 1px dashed rgba(148, 163, 184, 0.38);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(226, 232, 240, 0.88));
+        color: rgba(30, 41, 59, 0.75);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
       }
-      .service-alerts__spinner {
-        width: 18px;
-        height: 18px;
+      .service-alerts__state-figure {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 46px;
+        height: 46px;
+        border-radius: 16px;
+        background: rgba(59, 130, 246, 0.12);
+        color: rgba(37, 99, 235, 0.85);
+        font-size: 22px;
+        font-weight: 800;
+        box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.18);
+      }
+      .service-alerts__state-glyph {
+        font-size: 22px;
+        font-weight: 800;
+        line-height: 1;
+      }
+      .service-alerts__state-figure--loading {
+        background: rgba(59, 130, 246, 0.12);
+        color: rgba(37, 99, 235, 0.75);
+      }
+      .service-alerts__state-figure--error {
+        background: rgba(248, 113, 113, 0.22);
+        color: rgba(185, 28, 28, 0.88);
+        box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.35);
+      }
+      .service-alerts__state-figure--empty {
+        background: rgba(74, 222, 128, 0.22);
+        color: rgba(22, 101, 52, 0.88);
+        box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.32);
+      }
+      .service-alerts__state-spinner {
+        width: 26px;
+        height: 26px;
         border-radius: 50%;
-        border: 2px solid rgba(30, 64, 175, 0.2);
-        border-top-color: rgba(30, 64, 175, 0.7);
-        animation: loading-overlay-spin 1s linear infinite;
+        border: 3px solid rgba(59, 130, 246, 0.25);
+        border-top-color: rgba(37, 99, 235, 0.85);
+        animation: loading-overlay-spin 0.9s linear infinite;
+      }
+      .service-alerts__state-text {
+        display: grid;
+        gap: 4px;
+      }
+      .service-alerts__state-title {
+        font-size: 12px;
+        letter-spacing: 0.55px;
+        text-transform: uppercase;
+        font-weight: 700;
+        color: rgba(71, 85, 105, 0.9);
+      }
+      .service-alerts__state-message {
+        font-size: 14px;
+        color: rgba(30, 41, 59, 0.78);
+      }
+      .service-alerts__state--loading .service-alerts__state-title {
+        color: rgba(37, 99, 235, 0.85);
       }
       .service-alerts__state--error {
-        color: rgba(153, 27, 27, 0.9);
-        font-weight: 600;
-        border-color: rgba(220, 38, 38, 0.3);
-        box-shadow: 0 16px 32px rgba(220, 38, 38, 0.18);
+        border-style: solid;
+        border-color: rgba(248, 113, 113, 0.38);
+        color: rgba(153, 27, 27, 0.92);
+        box-shadow: 0 22px 36px rgba(248, 113, 113, 0.2);
+      }
+      .service-alerts__state--error .service-alerts__state-title {
+        color: rgba(185, 28, 28, 0.95);
+      }
+      .service-alerts__state--error .service-alerts__state-message {
+        color: rgba(153, 27, 27, 0.92);
       }
       .service-alerts__state--empty {
-        color: rgba(30, 41, 59, 0.6);
-        font-style: italic;
-        border-style: dashed;
+        border-style: solid;
+        border-color: rgba(74, 222, 128, 0.28);
+      }
+      .service-alerts__state--empty .service-alerts__state-title {
+        color: rgba(21, 128, 61, 0.9);
+      }
+      .service-alerts__state--empty .service-alerts__state-message {
+        color: rgba(22, 101, 52, 0.85);
       }
       @keyframes service-alerts-fade-in {
         from {
           opacity: 0;
-          transform: translateY(-6px);
+          transform: translateY(8px);
         }
         to {
           opacity: 1;
@@ -780,6 +1023,14 @@
       }
       @media (prefers-reduced-motion: reduce) {
         .service-alerts.is-expanded .service-alerts__content {
+          animation: none;
+        }
+        .service-alert-card:hover,
+        .service-alert-card:focus-within {
+          transform: none;
+          box-shadow: 0 18px 34px rgba(15, 23, 42, 0.14);
+        }
+        .service-alerts__state-spinner {
           animation: none;
         }
       }
@@ -1761,6 +2012,7 @@
       let serviceAlertsLoading = false;
       let serviceAlertsError = null;
       let serviceAlertsExpanded = false;
+      let serviceAlertsUserInteracted = false;
 
       let incidentsVisible = false;
       let incidentsVisibilityPreference = false;
@@ -4163,6 +4415,7 @@
         serviceAlertsLoading = false;
         serviceAlertsError = null;
         serviceAlertsExpanded = false;
+        serviceAlertsUserInteracted = false;
         updateServiceAlertsUI();
       }
 
@@ -4406,28 +4659,107 @@
       function renderServiceAlertItem(alert) {
         if (!alert) return '';
         const idAttr = alert.id ? ` data-alert-id="${escapeAttribute(alert.id)}"` : '';
-        const title = typeof alert.title === 'string' ? alert.title : '';
-        const message = typeof alert.message === 'string' ? alert.message : '';
-        const titleHtml = title ? `<div class="service-alerts__item-title">${escapeHtml(title)}</div>` : '';
-        const messageHtml = message ? `<div class="service-alerts__item-message">${escapeHtml(message)}</div>` : '';
-        const metaRows = [];
+        const title = typeof alert.title === 'string' ? alert.title.trim() : '';
+        const message = typeof alert.message === 'string' ? alert.message.trim() : '';
+        const fallbackTitle = !title && message
+          ? message.split(/\r?\n/).map(part => part.trim()).find(Boolean)
+          : '';
+        const displayTitle = title || fallbackTitle || 'Service Alert';
+        const isActive = alert.isActive === false ? false : true;
+        const cardStateClass = isActive ? 'service-alert-card--active' : 'service-alert-card--inactive';
+        const iconHtml = isActive ? '&#9888;' : '&#9432;';
+        const statusLabel = isActive ? 'Active' : 'Resolved';
+        const messageHtml = message
+          ? `<div class="service-alert-card__message">${escapeHtml(message)}</div>`
+          : '';
+        const summaryParts = [];
+        if (alert.startDisplay) {
+          summaryParts.push(`Start ${alert.startDisplay}`);
+        }
+        if (alert.endDisplay) {
+          summaryParts.push(`${isActive ? 'Ends' : 'Ended'} ${alert.endDisplay}`);
+        }
+        const summaryText = summaryParts.join(' • ');
+        const summaryHtml = summaryText
+          ? `<div class="service-alert-card__summary">${escapeHtml(summaryText)}</div>`
+          : '';
+        const timelineParts = [];
         if (alert.startDisplay) {
           const titleAttr = alert.startRaw ? ` title="${escapeAttribute(alert.startRaw)}"` : '';
-          metaRows.push(`<div class="service-alerts__meta-row"><dt>Start</dt><dd${titleAttr}>${escapeHtml(alert.startDisplay)}</dd></div>`);
+          timelineParts.push(
+            `<div class="service-alert-card__time service-alert-card__time--start"><dt class="service-alert-card__time-label">Start</dt><dd class="service-alert-card__time-value"${titleAttr}>${escapeHtml(alert.startDisplay)}</dd></div>`
+          );
         }
         if (alert.endDisplay) {
           const titleAttr = alert.endRaw ? ` title="${escapeAttribute(alert.endRaw)}"` : '';
-          metaRows.push(`<div class="service-alerts__meta-row"><dt>End</dt><dd${titleAttr}>${escapeHtml(alert.endDisplay)}</dd></div>`);
+          timelineParts.push(
+            `<div class="service-alert-card__time service-alert-card__time--end"><dt class="service-alert-card__time-label">${isActive ? 'Ends' : 'Ended'}</dt><dd class="service-alert-card__time-value"${titleAttr}>${escapeHtml(alert.endDisplay)}</dd></div>`
+          );
         }
+        const timelineHtml = timelineParts.length
+          ? `<dl class="service-alert-card__timeline">${timelineParts.join('')}</dl>`
+          : '';
+        let routesHtml = '';
         if (Array.isArray(alert.routes) && alert.routes.length > 0) {
-          const routesHtml = alert.routes.map(route => escapeHtml(route)).join(', ');
-          metaRows.push(`<div class="service-alerts__meta-row"><dt>Routes</dt><dd>${routesHtml}</dd></div>`);
+          const chips = alert.routes
+            .filter(route => typeof route === 'string' && route.trim())
+            .map(route => `<span class="service-alert-card__chip">${escapeHtml(route)}</span>`)
+            .join('');
+          if (chips) {
+            routesHtml = `<div class="service-alert-card__routes" aria-label="Affected routes"><span class="service-alert-card__routes-label">Routes</span>${chips}</div>`;
+          }
         }
-        const metaHtml = metaRows.length ? `<dl class="service-alerts__meta">${metaRows.join('')}</dl>` : '';
-        if (!titleHtml && !messageHtml && !metaHtml) {
+        const bodySections = [messageHtml, timelineHtml, routesHtml].filter(Boolean).join('');
+        if (!displayTitle && !bodySections) {
           return '';
         }
-        return `<li class="service-alerts__item"${idAttr}>${titleHtml}${messageHtml}${metaHtml}</li>`;
+        return `
+          <li class="service-alert-card service-alerts__item ${cardStateClass}"${idAttr}>
+            <div class="service-alert-card__header">
+              <span class="service-alert-card__icon" aria-hidden="true">${iconHtml}</span>
+              <div class="service-alert-card__headline">
+                <span class="service-alert-card__status">${escapeHtml(statusLabel)}</span>
+                <div class="service-alert-card__title">${escapeHtml(displayTitle)}</div>
+                ${summaryHtml}
+              </div>
+            </div>
+            ${bodySections}
+          </li>
+        `.trim();
+      }
+
+      function renderServiceAlertsState(state, message) {
+        const normalized = state === 'loading' ? 'loading' : state === 'error' ? 'error' : 'empty';
+        const safeMessage = typeof message === 'string' ? escapeHtml(message) : '';
+        let figureClass = 'service-alerts__state-figure';
+        let figureInner = '';
+        let titleText = '';
+        if (normalized === 'loading') {
+          figureClass += ' service-alerts__state-figure--loading';
+          figureInner = '<span class="service-alerts__state-spinner" aria-hidden="true"></span>';
+          titleText = 'Refreshing alerts';
+        } else if (normalized === 'error') {
+          figureClass += ' service-alerts__state-figure--error';
+          figureInner = '<span class="service-alerts__state-glyph" aria-hidden="true">!</span>';
+          titleText = 'Unable to load';
+        } else {
+          figureClass += ' service-alerts__state-figure--empty';
+          figureInner = '<span class="service-alerts__state-glyph" aria-hidden="true">✓</span>';
+          titleText = 'All clear';
+        }
+        const titleHtml = titleText ? `<div class="service-alerts__state-title">${escapeHtml(titleText)}</div>` : '';
+        const messageHtml = safeMessage ? `<div class="service-alerts__state-message">${safeMessage}</div>` : '';
+        return `
+          <div class="service-alerts__state service-alerts__state--${normalized}">
+            <span class="${figureClass}">
+              ${figureInner}
+            </span>
+            <div class="service-alerts__state-text">
+              ${titleHtml}
+              ${messageHtml}
+            </div>
+          </div>
+        `.trim();
       }
 
       function renderServiceAlertsContent() {
@@ -4440,20 +4772,20 @@
           return;
         }
         if (serviceAlertsLoading) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--loading"><span class="service-alerts__spinner" aria-hidden="true"></span><span>Loading service alerts…</span></div>`;
+          container.innerHTML = renderServiceAlertsState('loading', 'Loading service alerts…');
           return;
         }
         if (serviceAlertsError) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--error">${escapeHtml(serviceAlertsError)}</div>`;
+          container.innerHTML = renderServiceAlertsState('error', serviceAlertsError);
           return;
         }
         if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
+          container.innerHTML = renderServiceAlertsState('empty', SERVICE_ALERT_EMPTY_MESSAGE);
           return;
         }
         const itemsHtml = serviceAlerts.map(renderServiceAlertItem).filter(Boolean).join('');
         if (!itemsHtml) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
+          container.innerHTML = renderServiceAlertsState('empty', SERVICE_ALERT_EMPTY_MESSAGE);
           return;
         }
         container.innerHTML = `<ul class="service-alerts__list">${itemsHtml}</ul>`;
@@ -4512,6 +4844,7 @@
         if (event && typeof event.preventDefault === 'function') {
           event.preventDefault();
         }
+        serviceAlertsUserInteracted = true;
         serviceAlertsExpanded = !serviceAlertsExpanded;
         applyServiceAlertsExpandedState();
       }
@@ -4574,6 +4907,10 @@
           serviceAlerts = normalized;
           serviceAlertsError = null;
           serviceAlertsLoading = false;
+          if (!serviceAlertsUserInteracted) {
+            const hasActiveAlerts = getActiveServiceAlertCount() > 0;
+            serviceAlertsExpanded = hasActiveAlerts;
+          }
           updateServiceAlertsUI();
           return normalized;
         } catch (error) {
@@ -4643,9 +4980,9 @@
             <button class="service-alerts__header" aria-expanded="${serviceAlertsExpanded ? 'true' : 'false'}" aria-controls="serviceAlertsPanel">
               <div class="service-alerts__header-main">
                 <div class="service-alerts__title">Service Alerts</div>
-                <div class="service-alerts__status">${escapeHtml(serviceAlertsStatusText)}</div>
+                <div class="service-alerts__status" aria-live="polite">${escapeHtml(serviceAlertsStatusText)}</div>
               </div>
-              <span class="service-alerts__badge"${serviceAlertsBadgeAttr}>${escapeHtml(serviceAlertsBadgeText)}</span>
+              <span class="service-alerts__badge"${serviceAlertsBadgeAttr} aria-hidden="true">${escapeHtml(serviceAlertsBadgeText)}</span>
               <span class="service-alerts__chevron">&#8250;</span>
             </button>
             <div class="service-alerts__content" id="serviceAlertsPanel"></div>
