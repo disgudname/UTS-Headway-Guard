@@ -643,6 +643,7 @@ DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 TESTMAP_HTML = (BASE_DIR / "testmap.html").read_text(encoding="utf-8")
+CATTESTMAP_HTML = (BASE_DIR / "cattestmap.html").read_text(encoding="utf-8")
 MADMAP_HTML = (BASE_DIR / "madmap.html").read_text(encoding="utf-8")
 METROMAP_HTML = (BASE_DIR / "metromap.html").read_text(encoding="utf-8")
 ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
@@ -1733,6 +1734,13 @@ async def map_page():
 @app.get("/testmap")
 async def testmap_page():
     return HTMLResponse(TESTMAP_HTML)
+
+# ---------------------------
+# CAT TEST MAP PAGE
+# ---------------------------
+@app.get("/cattestmap")
+async def cattestmap_page():
+    return HTMLResponse(CATTESTMAP_HTML)
 
 # ---------------------------
 # MAD MAP PAGE
