@@ -512,14 +512,16 @@
     }
   }
 
-  function cleanupMarkers(now) {
+  function cleanupMarkers(now, referenceCenter, referenceRadiusNM) {
+    const center = referenceCenter || state.lastFetchCenter;
+    const radiusNM = Number.isFinite(referenceRadiusNM) ? referenceRadiusNM : state.lastFetchRadiusNM;
     state.markers.forEach((entry, id) => {
       const tooOld = now - entry.lastSeen > STALE_REMOVE_MS;
       let outside = false;
-      if (state.lastFetchCenter && Number.isFinite(state.lastFetchRadiusNM)) {
-        const distMeters = metersBetween(state.lastFetchCenter.lat, state.lastFetchCenter.lon, entry.lat, entry.lon);
+      if (center && Number.isFinite(radiusNM)) {
+        const distMeters = metersBetween(center.lat, center.lon, entry.lat, entry.lon);
         const distNM = metersToNM(distMeters);
-        if (distNM > state.lastFetchRadiusNM + 5) {
+        if (Number.isFinite(distNM) && distNM > radiusNM + 5) {
           outside = true;
         }
       }
@@ -713,7 +715,9 @@
       }
       ensureMarkerForRow(row, lat, lon, iconInfo, now);
     });
-    cleanupMarkers(now);
+    const cleanupCenter = context && context.center ? context.center : null;
+    const cleanupRadius = context && Number.isFinite(context.distNM) ? context.distNM : undefined;
+    cleanupMarkers(now, cleanupCenter, cleanupRadius);
   }
 
   function requestFetch(reason) {
