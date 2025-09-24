@@ -608,7 +608,8 @@
         throw new Error('Invalid JSON payload');
       }
       state.backoffUntil = 0;
-      processPayload(Array.isArray(payload) ? payload : [], context);
+      const rows = extractRowsFromPayload(payload);
+      processPayload(rows, context);
     } catch (error) {
       const abortReason = controller ? (controller.signal && 'reason' in controller.signal ? controller.signal.reason : controller.__planeAbortReason) : null;
       if (abortReason === SUPERSEDED_REASON) {
@@ -628,6 +629,39 @@
       }
       state.inflightController = null;
     }
+  }
+
+  function extractRowsFromPayload(payload) {
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+    if (!payload || typeof payload !== 'object') {
+      return [];
+    }
+
+    if (Array.isArray(payload.ac)) {
+      return payload.ac;
+    }
+    if (Array.isArray(payload.aircraft)) {
+      return payload.aircraft;
+    }
+    if (Array.isArray(payload.rows)) {
+      return payload.rows;
+    }
+    if (Array.isArray(payload.data)) {
+      return payload.data;
+    }
+
+    for (const key in payload) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        const value = payload[key];
+        if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+          return value;
+        }
+      }
+    }
+
+    return [];
   }
 
   function processPayload(rows, context) {
