@@ -9331,6 +9331,18 @@
           return ((normalized % 360) + 360) % 360;
       }
 
+      function setMarkerSvgRotation(svgElement, rotationDeg) {
+          if (!svgElement) {
+              return;
+          }
+          const normalizedRotation = normalizeHeadingDegrees(
+              Number.isFinite(rotationDeg) ? rotationDeg : BUS_MARKER_DEFAULT_HEADING
+          );
+          svgElement.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+          svgElement.style.transformBox = 'fill-box';
+          svgElement.style.transform = `rotate(${normalizedRotation.toFixed(2)}deg)`;
+      }
+
       function buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed) {
           const name = busName && `${busName}`.trim().length > 0 ? `${busName}`.trim() : 'Vehicle';
           const direction = bearingToDirection(headingDeg);
@@ -9460,7 +9472,6 @@
           const anchorX = width * BUS_MARKER_ICON_ANCHOR_X_RATIO;
           const anchorY = height * BUS_MARKER_ICON_ANCHOR_Y_RATIO;
           const headingDeg = Number.isFinite(state?.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
-          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
           const label = state?.accessibleLabel && state.accessibleLabel.trim().length > 0
               ? state.accessibleLabel.trim()
               : `Vehicle ${vehicleID}`;
@@ -9479,9 +9490,7 @@
           svgEl.setAttribute('overflow', 'visible');
           svgEl.style.width = '100%';
           svgEl.style.height = '100%';
-          svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
-          // svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`; // Rotation disabled for troubleshooting (orig ~L9483)
-          svgEl.style.transform = 'rotate(0deg)';
+          setMarkerSvgRotation(svgEl, headingDeg);
 
           const routeFillColor = normalizeRouteColor(state.fillColor);
           const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
@@ -9567,6 +9576,8 @@
           if (svg) {
               svg.style.pointerEvents = 'none';
               svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+              svg.style.transformBox = 'fill-box';
+              setMarkerSvgRotation(svg, state.headingDeg);
           }
           updateBusMarkerColorElements(state);
           applyBusMarkerStoppedVisualState(state);
@@ -9624,8 +9635,7 @@
           applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
-              // elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`; // Rotation disabled for troubleshooting (orig ~L9626)
-              elements.svg.style.transform = 'rotate(0deg)';
+              setMarkerSvgRotation(elements.svg, rotationDeg);
               if (state.accessibleLabel) {
                   elements.svg.setAttribute('aria-label', state.accessibleLabel);
               }
