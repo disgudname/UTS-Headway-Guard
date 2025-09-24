@@ -2268,6 +2268,7 @@
       let trainMarkers = {};
       let trainMarkerStates = {};
       let trainsVisible = false;
+      let planesVisible = false;
       let trainFetchPromise = null;
       const vehicleHeadingCache = new Map();
       let vehicleHeadingCachePromise = null;
@@ -4423,6 +4424,22 @@
         }
       }
 
+      function updateAircraftToggleButton() {
+        const button = document.getElementById('aircraftToggleButton');
+        if (!button) return;
+        const allowPlanes = adminFeaturesAllowed();
+        const planeLayer = window.PlaneLayer;
+        const planeLayerStarted = !!(planeLayer && planeLayer.isStarted);
+        const isActive = allowPlanes && !!planesVisible && planeLayerStarted;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        button.disabled = !allowPlanes;
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
+      }
+
       function updateIncidentToggleButton() {
         const button = document.getElementById('incidentToggleButton');
         if (!button) return;
@@ -5282,13 +5299,19 @@
         const incidentAlertsHtml = renderIncidentAlertsHtml();
         const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
         const allowAdminFeatures = adminFeaturesAllowed();
+        if (!allowAdminFeatures && planesVisible) {
+          setPlanesVisibility(false);
+        }
         let trainToggleHtml = '';
         if (allowAdminFeatures) {
           trainToggleHtml = `
             <div class="selector-group">
               <div class="selector-label">Trains</div>
               <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsVisible ? ' is-active' : ''}" aria-pressed="${trainsVisible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
-                Show Trains<span class="toggle-indicator">${trainsVisible ? 'On' : 'Off'}</span>
+                Show Amtrak<span class="toggle-indicator">${trainsVisible ? 'On' : 'Off'}</span>
+              </button>
+              <button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesVisible ? ' is-active' : ''}" aria-pressed="${planesVisible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
+                Show Aircraft<span class="toggle-indicator">${planesVisible ? 'On' : 'Off'}</span>
               </button>
             </div>
           `;
@@ -5412,6 +5435,7 @@
         initializeRadarControls();
         updateDisplayModeButtons();
         updateTrainToggleButton();
+        updateAircraftToggleButton();
         updateIncidentToggleButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
@@ -6314,11 +6338,13 @@
               updatePopupPositions();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
-          if (window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
+          if (planesVisible && window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
               try {
                   window.PlaneLayer.init(map);
               } catch (error) {
                   console.error('PlaneLayer init failed:', error);
+                  planesVisible = false;
+                  updateAircraftToggleButton();
               }
           }
           applyIncidentHaloStates();
@@ -10164,6 +10190,56 @@
           });
           trainMarkers = {};
           trainMarkerStates = {};
+      }
+
+      function setPlanesVisibility(visible) {
+          const allowPlanes = adminFeaturesAllowed();
+          const desiredVisibility = allowPlanes && !!visible;
+          const planeLayer = window.PlaneLayer;
+          if (!desiredVisibility) {
+              if (planeLayer && planeLayer.isStarted) {
+                  try {
+                      if (typeof planeLayer.dispose === 'function') {
+                          planeLayer.dispose();
+                      } else if (typeof planeLayer.stop === 'function') {
+                          planeLayer.stop();
+                      }
+                  } catch (error) {
+                      console.error('Error stopping aircraft layer:', error);
+                  }
+              }
+              planesVisible = false;
+              updateAircraftToggleButton();
+              return;
+          }
+          if (!map) {
+              planesVisible = false;
+              updateAircraftToggleButton();
+              return;
+          }
+          if (!planeLayer) {
+              console.warn('Plane layer is unavailable; unable to show aircraft.');
+              planesVisible = false;
+              updateAircraftToggleButton();
+              return;
+          }
+          try {
+              if (!planeLayer.isStarted) {
+                  if (typeof planeLayer.init === 'function') {
+                      planeLayer.init(map);
+                  } else if (typeof planeLayer.start === 'function') {
+                      planeLayer.start();
+                  }
+              }
+          } catch (error) {
+              console.error('Error initializing aircraft layer:', error);
+          }
+          planesVisible = !!(planeLayer && planeLayer.isStarted);
+          updateAircraftToggleButton();
+      }
+
+      function toggleAircraftVisibility() {
+          setPlanesVisibility(!planesVisible);
       }
 
       function setTrainsVisibility(visible) {
