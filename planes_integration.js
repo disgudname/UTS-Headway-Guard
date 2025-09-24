@@ -454,6 +454,18 @@
     }
   }
 
+  function refreshMarkerRotations() {
+    state.markers.forEach(entry => {
+      if (!entry || !entry.marker) {
+        return;
+      }
+      if (!Number.isFinite(entry.rotation)) {
+        return;
+      }
+      applyLeafletRotation(entry.marker, entry.rotation);
+    });
+  }
+
   function abortInflight(reason) {
     const controller = state.inflightController;
     if (controller && !controller.signal.aborted) {
@@ -472,6 +484,7 @@
 
   function handleInteractionEnd() {
     clearMoveDebounce();
+    refreshMarkerRotations();
     if (!state.started || state.disposed) {
       return;
     }
@@ -484,7 +497,7 @@
 
   function applyLeafletRotation(marker, radians) {
     if (!marker) return;
-    const degrees = radians * 180 / Math.PI;
+    const degrees = Number.isFinite(radians) ? (radians * 180 / Math.PI) : 0;
     if (typeof marker.setRotationAngle === 'function') {
       marker.setRotationAngle(degrees);
       if (typeof marker.setRotationOrigin === 'function') {
@@ -493,7 +506,19 @@
     } else if (marker._icon) {
       const icon = marker._icon;
       icon.style.transformOrigin = '50% 50%';
-      icon.style.transform = `rotate(${degrees}deg)`;
+      const rotationTransform = `rotate(${degrees}deg)`;
+      if (typeof icon.style.rotate !== 'undefined') {
+        icon.style.rotate = rotationTransform;
+        if (icon.style.transform && icon.style.transform.includes('rotate(')) {
+          const cleaned = icon.style.transform.replace(/rotate\([^)]*\)/g, '').trim();
+          icon.style.transform = cleaned;
+        }
+      } else {
+        const existing = icon.style.transform || '';
+        const withoutRotate = existing.replace(/rotate\([^)]*\)/g, '').trim();
+        const spacer = withoutRotate ? ' ' : '';
+        icon.style.transform = `${withoutRotate}${spacer}${rotationTransform}`.trim();
+      }
     }
   }
 
@@ -558,6 +583,8 @@
       markerOptions.pane = state.leafletPaneName;
     }
 
+    const rotationRadians = Number.isFinite(iconInfo.rotationRadians) ? iconInfo.rotationRadians : 0;
+
     if (!entry.marker) {
       const marker = global.L.marker([lat, lon], markerOptions);
       if (state.markerLayer && typeof state.markerLayer.addLayer === 'function') {
@@ -567,8 +594,8 @@
       }
       entry.marker = marker;
       entry.iconKey = iconInfo.iconKey;
-      entry.rotation = iconInfo.rotationRadians;
-      applyLeafletRotation(marker, iconInfo.rotationRadians);
+      entry.rotation = rotationRadians;
+      applyLeafletRotation(marker, rotationRadians);
       return;
     }
 
@@ -583,10 +610,8 @@
       entry.marker.setLatLng([lat, lon]);
     }
 
-    if (entry.rotation !== iconInfo.rotationRadians) {
-      applyLeafletRotation(entry.marker, iconInfo.rotationRadians);
-      entry.rotation = iconInfo.rotationRadians;
-    }
+    applyLeafletRotation(entry.marker, rotationRadians);
+    entry.rotation = rotationRadians;
   }
 
   async function doFetch(reason) {
