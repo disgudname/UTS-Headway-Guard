@@ -503,23 +503,48 @@
       if (typeof marker.setRotationOrigin === 'function') {
         marker.setRotationOrigin('center center');
       }
-    } else if (marker._icon) {
-      const icon = marker._icon;
-      icon.style.transformOrigin = '50% 50%';
-      const rotationTransform = `rotate(${degrees}deg)`;
-      if (typeof icon.style.rotate !== 'undefined') {
-        icon.style.rotate = `${degrees}deg`;
-        if (icon.style.transform && icon.style.transform.includes('rotate(')) {
-          const cleaned = icon.style.transform.replace(/rotate\([^)]*\)/g, '').trim();
-          icon.style.transform = cleaned;
-        }
-      } else {
-        const existing = icon.style.transform || '';
-        const withoutRotate = existing.replace(/rotate\([^)]*\)/g, '').trim();
-        const spacer = withoutRotate ? ' ' : '';
-        icon.style.transform = `${withoutRotate}${spacer}${rotationTransform}`.trim();
+      return;
+    }
+
+    const icon = marker._icon;
+    if (!icon) {
+      return;
+    }
+
+    icon.style.transformOrigin = '50% 50%';
+    const rotationTransform = `rotate(${degrees}deg)`;
+
+    if (typeof icon.style.rotate !== 'undefined') {
+      icon.style.rotate = `${degrees}deg`;
+      if (icon.style.transform && icon.style.transform.includes('rotate(')) {
+        const cleaned = icon.style.transform.replace(/rotate\([^)]*\)/g, '').trim();
+        icon.style.transform = cleaned;
+      }
+      return;
+    }
+
+    const existing = icon.style.transform || '';
+    let baseTransform = existing.replace(/rotate\([^)]*\)/g, '').trim();
+
+    if (!baseTransform) {
+      const currentPos = icon._leaflet_pos
+        || (marker._map && marker._latlng && marker._map.latLngToLayerPoint
+          ? marker._map.latLngToLayerPoint(marker._latlng)
+          : null);
+      if (currentPos && Number.isFinite(currentPos.x) && Number.isFinite(currentPos.y)) {
+        const x = Math.round(currentPos.x);
+        const y = Math.round(currentPos.y);
+        baseTransform = `translate3d(${x}px, ${y}px, 0px)`;
+        icon._leaflet_pos = currentPos;
       }
     }
+
+    if (!baseTransform) {
+      return;
+    }
+
+    const spacer = baseTransform ? ' ' : '';
+    icon.style.transform = `${baseTransform}${spacer}${rotationTransform}`.trim();
   }
 
   function removeMarkerEntry(entry) {
