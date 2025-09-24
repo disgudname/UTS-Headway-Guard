@@ -73,6 +73,27 @@
     return m / NM_IN_METERS;
   }
 
+  function buildAdsbUrl(lat, lon, dist) {
+    const customEndpointRaw = (typeof global.ADSB_PROXY_ENDPOINT === 'string') ? global.ADSB_PROXY_ENDPOINT.trim() : '';
+    const latStr = String(lat);
+    const lonStr = String(lon);
+    const distStr = String(dist);
+    if (customEndpointRaw) {
+      const params = `lat=${encodeURIComponent(latStr)}&lon=${encodeURIComponent(lonStr)}&dist=${encodeURIComponent(distStr)}`;
+      const hasQuery = customEndpointRaw.includes('?');
+      let base = customEndpointRaw;
+      if (hasQuery) {
+        if (!base.endsWith('?') && !base.endsWith('&')) {
+          base += '&';
+        }
+      } else {
+        base += '?';
+      }
+      return `${base}${params}`;
+    }
+    return `https://opendata.adsb.fi/api//v2/lat/${latStr}/lon/${lonStr}/dist/${distStr}`;
+  }
+
   function getMapCenterLatLng(map) {
     if (map && typeof map.getCenter === 'function') {
       const c = map.getCenter();
@@ -140,7 +161,7 @@
       const nm = metersToNM(meters);
       distNM = clampNumber(Math.ceil(nm * 1.10), MIN_RADIUS_NM, MAX_RADIUS_NM);
     }
-    const url = `https://opendata.adsb.fi/api//v2/lat/${center.lat}/lon/${center.lon}/dist/${distNM}`;
+    const url = buildAdsbUrl(center.lat, center.lon, distNM);
     return { url, center, distNM };
   }
 
