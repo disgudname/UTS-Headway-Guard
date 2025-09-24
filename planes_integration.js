@@ -1,15 +1,21 @@
 (function (global) {
   'use strict';
 
-  if (typeof global.shapes === 'undefined' && typeof shapes !== 'undefined') {
-    global.shapes = shapes;
+  function adoptIfEmpty(key, candidate) {
+    if (!candidate || typeof candidate !== 'object') {
+      return;
+    }
+    const current = global[key];
+    const hasEntries = current && typeof current === 'object' && Object.keys(current).length > 0;
+    if (!hasEntries) {
+      global[key] = candidate;
+    }
   }
-  if (typeof global.TypeDesignatorIcons === 'undefined' && typeof TypeDesignatorIcons !== 'undefined') {
-    global.TypeDesignatorIcons = TypeDesignatorIcons;
-  }
-  if (typeof global.CategoryIcons === 'undefined' && typeof CategoryIcons !== 'undefined') {
-    global.CategoryIcons = CategoryIcons;
-  }
+
+  adoptIfEmpty('shapes', typeof shapes !== 'undefined' ? shapes : undefined);
+  adoptIfEmpty('TypeDesignatorIcons', typeof TypeDesignatorIcons !== 'undefined' ? TypeDesignatorIcons : undefined);
+  adoptIfEmpty('CategoryIcons', typeof CategoryIcons !== 'undefined' ? CategoryIcons : undefined);
+  adoptIfEmpty('TypeDescriptionIcons', typeof TypeDescriptionIcons !== 'undefined' ? TypeDescriptionIcons : undefined);
 
   const IDLE_INTERVAL_MS = 5000;
   const MOVE_DEBOUNCE_MS = 300;
@@ -45,7 +51,6 @@
     lastFetchCenter: null,
     lastFetchRadiusNM: DEFAULT_RADIUS_NM,
   };
-
   function isLeafletMap(map) {
     return typeof global.L !== 'undefined' && map && typeof global.L.marker === 'function';
   }
