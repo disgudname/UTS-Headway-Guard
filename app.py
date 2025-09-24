@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from collections import deque
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
 from urllib.parse import quote
@@ -659,6 +659,13 @@ REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="u
 BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
 NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
 
+ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
+ADSB_CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+}
+
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: HTTPException):
     if "text/html" in request.headers.get("accept", ""):
@@ -946,6 +953,30 @@ def save_bus_days() -> None:
         except Exception as e:
             print(f"[save_bus_days] error writing {path}: {e}")
     propagate_file(MILEAGE_NAME, payload_json)
+
+# ---------------------------
+# ADS-B proxy
+# ---------------------------
+
+
+@app.api_route("/adsb", methods=["GET", "OPTIONS"])
+async def adsb_proxy(request: Request, lat: Optional[str] = None, lon: Optional[str] = None, dist: Optional[str] = None):
+    cors_headers = ADSB_CORS_HEADERS.copy()
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=cors_headers)
+    if lat is None or lon is None or dist is None:
+        raise HTTPException(status_code=400, detail="lat, lon, and dist are required", headers=cors_headers)
+    upstream_url = ADSB_URL_TEMPLATE.format(lat=lat, lon=lon, dist=dist)
+    try:
+        async with httpx.AsyncClient() as client:
+            upstream_resp = await client.get(upstream_url, timeout=10)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="upstream request failed", headers=cors_headers) from exc
+    try:
+        payload = upstream_resp.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="invalid upstream response", headers=cors_headers) from exc
+    return JSONResponse(content=payload, status_code=upstream_resp.status_code, headers=cors_headers)
 
 # ---------------------------
 # Sync endpoint
