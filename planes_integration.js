@@ -508,7 +508,7 @@
       icon.style.transformOrigin = '50% 50%';
       const rotationTransform = `rotate(${degrees}deg)`;
       if (typeof icon.style.rotate !== 'undefined') {
-        icon.style.rotate = rotationTransform;
+        icon.style.rotate = `${degrees}deg`;
         if (icon.style.transform && icon.style.transform.includes('rotate(')) {
           const cleaned = icon.style.transform.replace(/rotate\([^)]*\)/g, '').trim();
           icon.style.transform = cleaned;
