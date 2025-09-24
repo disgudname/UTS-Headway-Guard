@@ -1572,6 +1572,30 @@
       // kioskMode: true to hide the route selector/tab and suppress vehicle overlays for a public display.
       // adminKioskMode: true to hide the route selector/tab while retaining admin overlays (previous kiosk behavior).
       // displayMode selects whether admin overlays show speed, block numbers, or neither.
+      if (typeof window !== 'undefined' && typeof window.usp === 'undefined') {
+        let searchParams = null;
+        if (typeof URLSearchParams === 'function' && typeof window.location === 'object' && typeof window.location.search === 'string') {
+          try {
+            searchParams = new URLSearchParams(window.location.search || '');
+          } catch (error) {
+            searchParams = null;
+          }
+        }
+        window.usp = {
+          has(name) {
+            if (!searchParams) return false;
+            return searchParams.has(name);
+          },
+          getInt(name, defaultValue = 0) {
+            if (!searchParams) return defaultValue;
+            const raw = searchParams.get(name);
+            if (raw === null) return defaultValue;
+            const parsed = Number.parseInt(raw, 10);
+            return Number.isFinite(parsed) ? parsed : defaultValue;
+          }
+        };
+      }
+
       const DISPLAY_MODES = Object.freeze({
         SPEED: 'speed',
         BLOCK: 'block',
@@ -6290,6 +6314,13 @@
               updatePopupPositions();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
+          if (window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
+              try {
+                  window.PlaneLayer.init(map);
+              } catch (error) {
+                  console.error('PlaneLayer init failed:', error);
+              }
+          }
           applyIncidentHaloStates();
       }
 
@@ -10388,6 +10419,10 @@
           });
       });
     </script>
+    <script src="plane_globals.js"></script>
+    <script src="markers.js"></script>
+    <script src="planeObject.js"></script>
+    <script src="planes_integration.js"></script>
   </head>
   <body>
     <div id="map"></div>
