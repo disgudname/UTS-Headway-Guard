@@ -467,6 +467,44 @@
     };
   }
 
+  function applyLeafletMarkerRotation(marker, rotationDeg) {
+    if (!marker) return false;
+    const element = (typeof marker.getElement === 'function') ? marker.getElement() : marker._icon;
+    if (!element) return false;
+
+    const rotation = Number.isFinite(rotationDeg) ? rotationDeg : 0;
+    const existing = element.style.transform || '';
+    const base = existing.replace(/(?:\s*rotate\([^)]*\))+/g, '').trim();
+
+    if (rotation === 0) {
+      element.style.transform = base;
+    } else if (base) {
+      element.style.transform = `${base} rotate(${rotation}deg)`;
+    } else {
+      element.style.transform = `rotate(${rotation}deg)`;
+    }
+
+    if (!element.style.transformOrigin) {
+      element.style.transformOrigin = 'center center';
+    }
+    element.style.willChange = 'transform';
+    return true;
+  }
+
+  function scheduleLeafletMarkerRotation(marker, rotationDeg) {
+    if (!marker) return;
+    if (applyLeafletMarkerRotation(marker, rotationDeg)) {
+      return;
+    }
+    if (typeof marker.once === 'function') {
+      marker.once('add', () => {
+        applyLeafletMarkerRotation(marker, rotationDeg);
+      });
+    } else if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => applyLeafletMarkerRotation(marker, rotationDeg));
+    }
+  }
+
   function ensureLeafletPane(map) {
     if (!isLeafletMap(map)) {
       return;
@@ -647,6 +685,7 @@
       return;
     }
 
+    const rotationDeg = Number.isFinite(iconInfo.headingDeg) ? iconInfo.headingDeg : 0;
     const markerOptions = { icon: leafletIcon, interactive: false };
     if (state.leafletPaneName) {
       markerOptions.pane = state.leafletPaneName;
@@ -661,6 +700,8 @@
       }
       entry.marker = marker;
       entry.iconKey = iconInfo.iconKey;
+      entry.rotationDeg = rotationDeg;
+      scheduleLeafletMarkerRotation(marker, rotationDeg);
       return;
     }
 
@@ -669,11 +710,15 @@
         entry.marker.setIcon(leafletIcon);
       }
       entry.iconKey = iconInfo.iconKey;
+      entry.rotationDeg = rotationDeg;
+      scheduleLeafletMarkerRotation(entry.marker, rotationDeg);
     }
 
     if (typeof entry.marker.setLatLng === 'function') {
       entry.marker.setLatLng([lat, lon]);
     }
+    entry.rotationDeg = rotationDeg;
+    scheduleLeafletMarkerRotation(entry.marker, rotationDeg);
   }
 
   async function doFetch(reason) {
