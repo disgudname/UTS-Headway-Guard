@@ -10423,6 +10423,13 @@
       window.ADSB_PROXY_ENDPOINT = '/adsb';
     </script>
     <script src="plane_globals.js"></script>
+    <script>
+      if (typeof window.setPlaneStyleOptions === 'function') {
+        window.setPlaneStyleOptions({ atcStyle: false });
+      } else {
+        window.atcStyle = false;
+      }
+    </script>
     <script src="markers.js"></script>
     <script src="planeObject.js"></script>
     <script src="planes_integration.js"></script>
