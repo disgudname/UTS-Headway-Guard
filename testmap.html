@@ -9480,7 +9480,8 @@
           svgEl.style.width = '100%';
           svgEl.style.height = '100%';
           svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
-          svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
+          // svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`; // Rotation disabled for troubleshooting (orig ~L9483)
+          svgEl.style.transform = 'rotate(0deg)';
 
           const routeFillColor = normalizeRouteColor(state.fillColor);
           const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
@@ -9623,7 +9624,8 @@
           applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
-              elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`;
+              // elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`; // Rotation disabled for troubleshooting (orig ~L9626)
+              elements.svg.style.transform = 'rotate(0deg)';
               if (state.accessibleLabel) {
                   elements.svg.setAttribute('aria-label', state.accessibleLabel);
               }
