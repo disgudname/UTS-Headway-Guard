@@ -495,13 +495,77 @@
     }, MOVE_DEBOUNCE_MS);
   }
 
+  function resolveMarkerRotationOrigin(marker) {
+    const icon = marker && marker.options && marker.options.icon;
+    const iconOptions = icon && icon.options;
+    let anchorX;
+    let anchorY;
+    let width;
+    let height;
+
+    if (iconOptions) {
+      const anchor = iconOptions.iconAnchor;
+      if (Array.isArray(anchor)) {
+        if (anchor.length >= 2) {
+          const ax = toFiniteNumber(anchor[0]);
+          const ay = toFiniteNumber(anchor[1]);
+          if (Number.isFinite(ax)) anchorX = ax;
+          if (Number.isFinite(ay)) anchorY = ay;
+        }
+      } else if (anchor && typeof anchor === 'object') {
+        const ax = toFiniteNumber(anchor.x);
+        const ay = toFiniteNumber(anchor.y);
+        if (Number.isFinite(ax)) anchorX = ax;
+        if (Number.isFinite(ay)) anchorY = ay;
+      }
+
+      const size = iconOptions.iconSize;
+      if (Array.isArray(size)) {
+        if (size.length >= 2) {
+          const sx = toFiniteNumber(size[0]);
+          const sy = toFiniteNumber(size[1]);
+          if (Number.isFinite(sx)) width = sx;
+          if (Number.isFinite(sy)) height = sy;
+        }
+      } else if (size && typeof size === 'object') {
+        const sx = toFiniteNumber(size.x ?? size.w ?? size.width);
+        const sy = toFiniteNumber(size.y ?? size.h ?? size.height);
+        if (Number.isFinite(sx)) width = sx;
+        if (Number.isFinite(sy)) height = sy;
+      }
+    }
+
+    if (!Number.isFinite(anchorX) && Number.isFinite(width)) {
+      anchorX = width / 2;
+    }
+    if (!Number.isFinite(anchorY) && Number.isFinite(height)) {
+      anchorY = height / 2;
+    }
+
+    if (Number.isFinite(anchorX) && Number.isFinite(anchorY)) {
+      const cssValue = `${anchorX}px ${anchorY}px`;
+      return { css: cssValue, plugin: cssValue };
+    }
+
+    return { css: '50% 50%', plugin: 'center center' };
+  }
+
   function applyLeafletRotation(marker, radians) {
     if (!marker) return;
     const degrees = Number.isFinite(radians) ? (radians * 180 / Math.PI) : 0;
+    const origin = resolveMarkerRotationOrigin(marker);
+
     if (typeof marker.setRotationAngle === 'function') {
       marker.setRotationAngle(degrees);
       if (typeof marker.setRotationOrigin === 'function') {
-        marker.setRotationOrigin('center center');
+        marker.setRotationOrigin(origin.plugin);
+      }
+      const iconEl = marker._icon;
+      if (iconEl) {
+        iconEl.style.transformOrigin = origin.css;
+        if (typeof iconEl.style.transformBox !== 'undefined') {
+          iconEl.style.transformBox = 'fill-box';
+        }
       }
       return;
     }
@@ -511,7 +575,11 @@
       return;
     }
 
-    icon.style.transformOrigin = '50% 50%';
+    icon.style.transformOrigin = origin.css;
+    if (typeof icon.style.transformBox !== 'undefined') {
+      icon.style.transformBox = 'fill-box';
+    }
+
     const rotationTransform = `rotate(${degrees}deg)`;
 
     if (typeof icon.style.rotate !== 'undefined') {
