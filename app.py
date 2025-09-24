@@ -1690,6 +1690,10 @@ async def stream_api_calls():
 # Static assets
 # ---------------------------
 
+def _serve_js_asset(name: str) -> FileResponse:
+    return FileResponse(BASE_DIR / name, media_type="application/javascript")
+
+
 @app.get("/FGDC.ttf", include_in_schema=False)
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
@@ -1698,6 +1702,26 @@ async def fgdc_font():
 @app.get("/busmarker.svg", include_in_schema=False)
 async def busmarker_svg():
     return FileResponse(BASE_DIR / "busmarker.svg", media_type="image/svg+xml")
+
+
+@app.get("/plane_globals.js", include_in_schema=False)
+async def plane_globals_js():
+    return _serve_js_asset("plane_globals.js")
+
+
+@app.get("/markers.js", include_in_schema=False)
+async def markers_js():
+    return _serve_js_asset("markers.js")
+
+
+@app.get("/planeObject.js", include_in_schema=False)
+async def plane_object_js():
+    return _serve_js_asset("planeObject.js")
+
+
+@app.get("/planes_integration.js", include_in_schema=False)
+async def planes_integration_js():
+    return _serve_js_asset("planes_integration.js")
 
 
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
