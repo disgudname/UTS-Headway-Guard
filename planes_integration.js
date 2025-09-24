@@ -563,18 +563,6 @@
     }
   }
 
-  function refreshMarkerRotations() {
-    state.markers.forEach(entry => {
-      if (!entry || !entry.marker) {
-        return;
-      }
-      if (!Number.isFinite(entry.rotation)) {
-        return;
-      }
-      applyLeafletRotation(entry.marker, entry.rotation);
-    });
-  }
-
   function abortInflight(reason) {
     const controller = state.inflightController;
     if (controller && !controller.signal.aborted) {
@@ -593,7 +581,6 @@
 
   function handleInteractionEnd() {
     clearMoveDebounce();
-    refreshMarkerRotations();
     if (!state.started || state.disposed) {
       return;
     }
@@ -602,126 +589,6 @@
       requestFetch('viewport');
       resumeIdle();
     }, MOVE_DEBOUNCE_MS);
-  }
-
-  function resolveMarkerRotationOrigin(marker) {
-    const icon = marker && marker.options && marker.options.icon;
-    const iconOptions = icon && icon.options;
-    let anchorX;
-    let anchorY;
-    let width;
-    let height;
-
-    if (iconOptions) {
-      const anchor = iconOptions.iconAnchor;
-      if (Array.isArray(anchor)) {
-        if (anchor.length >= 2) {
-          const ax = toFiniteNumber(anchor[0]);
-          const ay = toFiniteNumber(anchor[1]);
-          if (Number.isFinite(ax)) anchorX = ax;
-          if (Number.isFinite(ay)) anchorY = ay;
-        }
-      } else if (anchor && typeof anchor === 'object') {
-        const ax = toFiniteNumber(anchor.x);
-        const ay = toFiniteNumber(anchor.y);
-        if (Number.isFinite(ax)) anchorX = ax;
-        if (Number.isFinite(ay)) anchorY = ay;
-      }
-
-      const size = iconOptions.iconSize;
-      if (Array.isArray(size)) {
-        if (size.length >= 2) {
-          const sx = toFiniteNumber(size[0]);
-          const sy = toFiniteNumber(size[1]);
-          if (Number.isFinite(sx)) width = sx;
-          if (Number.isFinite(sy)) height = sy;
-        }
-      } else if (size && typeof size === 'object') {
-        const sx = toFiniteNumber(size.x ?? size.w ?? size.width);
-        const sy = toFiniteNumber(size.y ?? size.h ?? size.height);
-        if (Number.isFinite(sx)) width = sx;
-        if (Number.isFinite(sy)) height = sy;
-      }
-    }
-
-    if (!Number.isFinite(anchorX) && Number.isFinite(width)) {
-      anchorX = width / 2;
-    }
-    if (!Number.isFinite(anchorY) && Number.isFinite(height)) {
-      anchorY = height / 2;
-    }
-
-    if (Number.isFinite(anchorX) && Number.isFinite(anchorY)) {
-      const cssValue = `${anchorX}px ${anchorY}px`;
-      return { css: cssValue, plugin: cssValue };
-    }
-
-    return { css: '50% 50%', plugin: 'center center' };
-  }
-
-  function applyLeafletRotation(marker, radians) {
-    if (!marker) return;
-    const degrees = Number.isFinite(radians) ? (radians * 180 / Math.PI) : 0;
-    const origin = resolveMarkerRotationOrigin(marker);
-
-    if (typeof marker.setRotationAngle === 'function') {
-      marker.setRotationAngle(degrees);
-      if (typeof marker.setRotationOrigin === 'function') {
-        marker.setRotationOrigin(origin.plugin);
-      }
-      const iconEl = marker._icon;
-      if (iconEl) {
-        iconEl.style.transformOrigin = origin.css;
-        if (typeof iconEl.style.transformBox !== 'undefined') {
-          iconEl.style.transformBox = 'fill-box';
-        }
-      }
-      return;
-    }
-
-    const icon = marker._icon;
-    if (!icon) {
-      return;
-    }
-
-    icon.style.transformOrigin = origin.css;
-    if (typeof icon.style.transformBox !== 'undefined') {
-      icon.style.transformBox = 'fill-box';
-    }
-
-    const rotationTransform = `rotate(${degrees}deg)`;
-
-    if (typeof icon.style.rotate !== 'undefined') {
-      icon.style.rotate = `${degrees}deg`;
-      if (icon.style.transform && icon.style.transform.includes('rotate(')) {
-        const cleaned = icon.style.transform.replace(/rotate\([^)]*\)/g, '').trim();
-        icon.style.transform = cleaned;
-      }
-      return;
-    }
-
-    const existing = icon.style.transform || '';
-    let baseTransform = existing.replace(/rotate\([^)]*\)/g, '').trim();
-
-    if (!baseTransform) {
-      const currentPos = icon._leaflet_pos
-        || (marker._map && marker._latlng && marker._map.latLngToLayerPoint
-          ? marker._map.latLngToLayerPoint(marker._latlng)
-          : null);
-      if (currentPos && Number.isFinite(currentPos.x) && Number.isFinite(currentPos.y)) {
-        const x = Math.round(currentPos.x);
-        const y = Math.round(currentPos.y);
-        baseTransform = `translate3d(${x}px, ${y}px, 0px)`;
-        icon._leaflet_pos = currentPos;
-      }
-    }
-
-    if (!baseTransform) {
-      return;
-    }
-
-    const spacer = baseTransform ? ' ' : '';
-    icon.style.transform = `${baseTransform}${spacer}${rotationTransform}`.trim();
   }
 
   function removeMarkerEntry(entry) {
@@ -764,7 +631,7 @@
     if (!id) return;
     let entry = state.markers.get(id);
     if (!entry) {
-      entry = { marker: null, iconKey: null, rotation: null, lastSeen: timestamp, lat, lon };
+      entry = { marker: null, iconKey: null, lastSeen: timestamp, lat, lon };
       state.markers.set(id, entry);
     }
     entry.lastSeen = timestamp;
@@ -785,8 +652,6 @@
       markerOptions.pane = state.leafletPaneName;
     }
 
-    const rotationRadians = Number.isFinite(iconInfo.rotationRadians) ? iconInfo.rotationRadians : 0;
-
     if (!entry.marker) {
       const marker = global.L.marker([lat, lon], markerOptions);
       if (state.markerLayer && typeof state.markerLayer.addLayer === 'function') {
@@ -796,8 +661,6 @@
       }
       entry.marker = marker;
       entry.iconKey = iconInfo.iconKey;
-      entry.rotation = rotationRadians;
-      applyLeafletRotation(marker, rotationRadians);
       return;
     }
 
@@ -811,9 +674,6 @@
     if (typeof entry.marker.setLatLng === 'function') {
       entry.marker.setLatLng([lat, lon]);
     }
-
-    applyLeafletRotation(entry.marker, rotationRadians);
-    entry.rotation = rotationRadians;
   }
 
   async function doFetch(reason) {
