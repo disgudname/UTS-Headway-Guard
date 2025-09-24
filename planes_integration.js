@@ -26,6 +26,10 @@
   const MAX_RADIUS_NM = 250;
   const DEFAULT_RADIUS_NM = 25;
   const NM_IN_METERS = 1852;
+  const LATITUDE_MIN = -90;
+  const LATITUDE_MAX = 90;
+  const LONGITUDE_MIN = -180;
+  const LONGITUDE_MAX = 180;
   const SUPERSEDED_REASON = 'PlaneLayerFetchSuperseded';
   const TIMEOUT_REASON = 'PlaneLayerFetchTimeout';
   const PLANE_PANE_NAME = 'planesPane';
@@ -76,6 +80,111 @@
 
   function metersToNM(m) {
     return m / NM_IN_METERS;
+  }
+
+  function isValidLatitude(value) {
+    return Number.isFinite(value) && value >= LATITUDE_MIN && value <= LATITUDE_MAX;
+  }
+
+  function isValidLongitude(value) {
+    return Number.isFinite(value) && value >= LONGITUDE_MIN && value <= LONGITUDE_MAX;
+  }
+
+  function tryLat(candidate) {
+    const numeric = toFiniteNumber(candidate);
+    return isValidLatitude(numeric) ? numeric : NaN;
+  }
+
+  function tryLon(candidate) {
+    const numeric = toFiniteNumber(candidate);
+    return isValidLongitude(numeric) ? numeric : NaN;
+  }
+
+  function extractLatLon(row) {
+    // Extract purely horizontal coordinates from the payload.  We intentionally
+    // ignore altitude, velocity, or extrapolated metadata so zoom level changes
+    // never influence the marker's geodetic position.
+    if (!row || typeof row !== 'object') {
+      return null;
+    }
+
+    let lat = tryLat(row.lat);
+    if (!Number.isFinite(lat)) {
+      lat = tryLat(row.latitude);
+    }
+    if (!Number.isFinite(lat)) {
+      lat = tryLat(row.Latitude);
+    }
+    if (!Number.isFinite(lat)) {
+      lat = tryLat(row.Lat);
+    }
+    if (!Number.isFinite(lat)) {
+      lat = tryLat(row.latDeg ?? row.lat_deg ?? row.lat_deg_m);
+    }
+
+    let lon = tryLon(row.lon);
+    if (!Number.isFinite(lon)) {
+      lon = tryLon(row.lng);
+    }
+    if (!Number.isFinite(lon)) {
+      lon = tryLon(row.long);
+    }
+    if (!Number.isFinite(lon)) {
+      lon = tryLon(row.longitude);
+    }
+    if (!Number.isFinite(lon)) {
+      lon = tryLon(row.Lon);
+    }
+    if (!Number.isFinite(lon)) {
+      lon = tryLon(row.Longitude);
+    }
+    if (!Number.isFinite(lon)) {
+      lon = tryLon(row.lonDeg ?? row.lon_deg ?? row.lon_deg_m);
+    }
+
+    const fallbackSources = [
+      row.position,
+      row.pos,
+      row.location,
+      row.loc,
+      row.coordinates,
+      row.coord
+    ];
+
+    for (let i = 0; i < fallbackSources.length && (!Number.isFinite(lat) || !Number.isFinite(lon)); i += 1) {
+      const source = fallbackSources[i];
+      if (!source) continue;
+
+      if (Array.isArray(source)) {
+        if (source.length < 2) continue;
+        const first = toFiniteNumber(source[0]);
+        const second = toFiniteNumber(source[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          if (!Number.isFinite(lat) && isValidLatitude(first) && isValidLongitude(second)) {
+            lat = first;
+            lon = second;
+            continue;
+          }
+          if (!Number.isFinite(lat) && isValidLatitude(second) && isValidLongitude(first)) {
+            lat = second;
+            lon = first;
+            continue;
+          }
+        }
+      } else if (typeof source === 'object') {
+        if (!Number.isFinite(lat)) {
+          lat = tryLat(source.lat ?? source.latitude ?? source.Latitude ?? source.Lat ?? source.latDeg ?? source.lat_deg);
+        }
+        if (!Number.isFinite(lon)) {
+          lon = tryLon(source.lon ?? source.lng ?? source.long ?? source.longitude ?? source.Lon ?? source.Longitude ?? source.lonDeg ?? source.lon_deg);
+        }
+      }
+    }
+
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return { lat, lon };
+    }
+    return null;
   }
 
   function buildAdsbUrl(lat, lon, dist) {
@@ -818,11 +927,11 @@
     ensureLeafletPane(state.map);
     rows.forEach(row => {
       if (!row) return;
-      const lat = toFiniteNumber(row.lat);
-      const lon = toFiniteNumber(row.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      const coords = extractLatLon(row);
+      if (!coords) {
         return;
       }
+      const { lat, lon } = coords;
       const altitude = computeAltitude(row);
       const altitudeInfo = { altitude, isGround: !Number.isFinite(altitude) };
       const headingDeg = normalizeHeading(row.track);
