@@ -2350,6 +2350,7 @@
       const catStopsById = new Map();
       const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
       const CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID = 777;
+      const kioskModeAllowedCatRouteIds = new Set([7, 12]);
       const catRouteSelections = new Map();
       let catActiveRouteKeys = new Set();
       const catVehiclesById = new Map();
@@ -9305,6 +9306,10 @@
           catRefreshIntervals = [];
       }
 
+      if (!catOverlayEnabled && kioskMode && !adminKioskMode) {
+          enableCatOverlay();
+      }
+
       function ensureCatBusMarkerSvgLoaded() {
           if (BUS_MARKER_SVG_TEXT) {
               return Promise.resolve(true);
@@ -9354,6 +9359,21 @@
               return CAT_OUT_OF_SERVICE_ROUTE_KEY;
           }
           return text;
+      }
+
+      function isCatRouteAllowedInCurrentMode(routeKeyOrId) {
+          if (!kioskMode || adminKioskMode) {
+              return true;
+          }
+          const normalized = catRouteKey(routeKeyOrId);
+          if (!normalized || isCatOutOfServiceRouteValue(normalized)) {
+              return false;
+          }
+          const numeric = Number(normalized);
+          if (!Number.isFinite(numeric)) {
+              return false;
+          }
+          return kioskModeAllowedCatRouteIds.has(numeric);
       }
 
       function catStopKey(stopId) {
@@ -9497,6 +9517,10 @@
               if (!key || key === CAT_OUT_OF_SERVICE_ROUTE_KEY || unique.has(key)) {
                   return;
               }
+              const routeIdentifier = Number.isFinite(route?.id) ? route.id : key;
+              if (!isCatRouteAllowedInCurrentMode(routeIdentifier)) {
+                  return;
+              }
               unique.set(key, route);
           });
           return Array.from(unique.values());
@@ -9564,6 +9588,9 @@
           }
           const normalized = catRouteKey(routeKey);
           if (!normalized) {
+              return false;
+          }
+          if (!isCatRouteAllowedInCurrentMode(normalized)) {
               return false;
           }
           if (catRouteSelections.has(normalized)) {
@@ -10009,6 +10036,10 @@
                   .map(routeKey => catRouteKey(routeKey))
                   .filter(key => key && key !== CAT_OUT_OF_SERVICE_ROUTE_KEY)))
                   .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+              const filteredRouteKeys = normalizedRouteKeys.filter(routeKey => isCatRouteAllowedInCurrentMode(routeKey));
+              if (kioskMode && !adminKioskMode && filteredRouteKeys.length === 0) {
+                  return null;
+              }
               const routeStopIdsSource = stop?.routeStopIds ?? stop?.catRouteStopIds;
               const routeStopIdsIterable = Array.isArray(routeStopIdsSource)
                   ? routeStopIdsSource
@@ -10024,8 +10055,8 @@
                   Name: name,
                   Latitude: lat,
                   Longitude: lon,
-                  catRouteKeys: normalizedRouteKeys,
-                  CatRouteKeys: normalizedRouteKeys.slice(),
+                  catRouteKeys: filteredRouteKeys,
+                  CatRouteKeys: filteredRouteKeys.slice(),
                   catRouteStopIds: normalizedRouteStopIds
               };
           }).filter(Boolean);
@@ -10356,7 +10387,7 @@
               const effectiveRouteKey = getEffectiveCatRouteKey(vehicle);
               const cachedVehicle = Object.assign({}, vehicle, { catEffectiveRouteKey: effectiveRouteKey });
               catVehiclesById.set(vehicleId, cachedVehicle);
-              if (effectiveRouteKey !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              if (effectiveRouteKey !== CAT_OUT_OF_SERVICE_ROUTE_KEY && isCatRouteAllowedInCurrentMode(effectiveRouteKey)) {
                   activeKeys.add(effectiveRouteKey);
               }
           });
