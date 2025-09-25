@@ -54,6 +54,7 @@
     leafletPaneName: null,
     lastFetchCenter: null,
     lastFetchRadiusNM: DEFAULT_RADIUS_NM,
+    pendingRotationRefresh: false,
   };
   function isLeafletMap(map) {
     return typeof global.L !== 'undefined' && map && typeof global.L.marker === 'function';
@@ -505,6 +506,34 @@
     }
   }
 
+  function refreshAllMarkerRotations() {
+    if (!isLeafletMap(state.map)) {
+      return;
+    }
+    if (state.pendingRotationRefresh) {
+      return;
+    }
+
+    state.pendingRotationRefresh = true;
+
+    const applyAll = () => {
+      state.pendingRotationRefresh = false;
+      if (!isLeafletMap(state.map) || state.disposed) {
+        return;
+      }
+      state.markers.forEach(entry => {
+        if (!entry || !entry.marker) return;
+        scheduleLeafletMarkerRotation(entry.marker, entry.rotationDeg);
+      });
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(applyAll);
+    } else {
+      setTimeout(applyAll, 0);
+    }
+  }
+
   function ensureLeafletPane(map) {
     if (!isLeafletMap(map)) {
       return;
@@ -895,6 +924,9 @@
       addMapListener(map, 'movestart', handleInteractionStart);
       addMapListener(map, 'zoomend', handleInteractionEnd);
       addMapListener(map, 'moveend', handleInteractionEnd);
+      addMapListener(map, 'zoomanim', refreshAllMarkerRotations);
+      addMapListener(map, 'zoom', refreshAllMarkerRotations);
+      addMapListener(map, 'zoomend', refreshAllMarkerRotations);
       startInternal();
       return PlaneLayer;
     },
@@ -924,6 +956,7 @@
       state.markerLayer = null;
       state.leafletPaneName = null;
       state.iconCache.clear();
+      state.pendingRotationRefresh = false;
       state.map = null;
       state.initialized = false;
       state.disposed = true;
