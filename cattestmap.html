@@ -2369,6 +2369,7 @@
       let catServiceAlertsError = null;
       let catServiceAlertsFetchPromise = null;
       let catServiceAlertsLastFetchTime = 0;
+      let catBusMarkerSvgPromise = null;
 
       let incidentsVisible = false;
       let incidentsVisibilityPreference = false;
@@ -9054,6 +9055,7 @@
       function enableCatOverlay() {
           catOverlayEnabled = true;
           ensureCatLayerGroup();
+          ensureCatBusMarkerSvgLoaded();
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
           updateRouteSelector(activeRoutes, true);
@@ -9125,6 +9127,25 @@
               catRefreshIntervals.forEach(intervalId => clearInterval(intervalId));
           }
           catRefreshIntervals = [];
+      }
+
+      function ensureCatBusMarkerSvgLoaded() {
+          if (BUS_MARKER_SVG_TEXT) {
+              return Promise.resolve(true);
+          }
+          if (!catBusMarkerSvgPromise && typeof loadBusSVG === 'function') {
+              catBusMarkerSvgPromise = loadBusSVG()
+                  .then(() => {
+                      catBusMarkerSvgPromise = null;
+                      return !!BUS_MARKER_SVG_TEXT;
+                  })
+                  .catch(error => {
+                      catBusMarkerSvgPromise = null;
+                      console.error('Failed to load bus marker SVG for CAT overlay:', error);
+                      return false;
+                  });
+          }
+          return catBusMarkerSvgPromise || Promise.resolve(false);
       }
 
       function isCatOutOfServiceRouteValue(value) {
@@ -9969,19 +9990,60 @@
           return CAT_VEHICLE_MARKER_DEFAULT_COLOR;
       }
 
-      function buildCatVehicleIcon(vehicle) {
-          const color = sanitizeCssColor(getCatRouteColor(vehicle.routeKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
-          const label = vehicle.routeAbbrev || getCatRouteInfo(vehicle.routeKey)?.shortName || getCatRouteInfo(vehicle.routeKey)?.displayName || vehicle.routeName || vehicle.id || CAT_VEHICLE_MARKER_MIN_LABEL;
-          const safeColor = escapeAttribute(color);
-          const safeLabel = escapeHtml(label || CAT_VEHICLE_MARKER_MIN_LABEL);
+      function buildLegacyCatVehicleIcon(label, color) {
+          const fallbackLabel = label || CAT_VEHICLE_MARKER_MIN_LABEL;
+          const safeColor = escapeAttribute(color || CAT_VEHICLE_MARKER_DEFAULT_COLOR);
+          const safeLabel = escapeHtml(fallbackLabel);
           const html = `<div class="cat-vehicle-marker" style="--cat-marker-color:${safeColor};"><span class="cat-vehicle-marker__label">${safeLabel}</span></div>`;
           return L.divIcon({ className: 'cat-vehicle-icon', html, iconSize: [38, 38], iconAnchor: [19, 19] });
       }
 
-      function buildCatVehicleTooltip(vehicle) {
+      function buildCatVehicleIcon(vehicle, routeKeyOverride) {
+          if (!vehicle || !vehicle.id) {
+              return null;
+          }
+          const effectiveRouteKey = routeKeyOverride || vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+          const routeInfo = getCatRouteInfo(effectiveRouteKey);
+          const label = vehicle.routeAbbrev
+              || routeInfo?.shortName
+              || routeInfo?.displayName
+              || vehicle.routeName
+              || vehicle.id
+              || CAT_VEHICLE_MARKER_MIN_LABEL;
+          const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          const headingDeg = normalizeHeadingDegrees(Number(vehicle.heading));
+          const groundSpeed = Number(vehicle.speed);
+          const accessibleName = vehicle.displayName || label;
+          const accessibleLabel = buildBusMarkerAccessibleLabel(accessibleName, headingDeg, groundSpeed);
+          const glyphColor = computeBusMarkerGlyphColor(routeColor);
+          const markerMetrics = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+          const state = {
+              fillColor: routeColor,
+              glyphColor,
+              accessibleLabel,
+              headingDeg,
+              isStopped: isBusConsideredStopped(groundSpeed),
+              isStale: false,
+              isSelected: false,
+              isHovered: false,
+              size: {
+                  widthPx: markerMetrics.widthPx,
+                  heightPx: markerMetrics.heightPx,
+                  scale: markerMetrics.scale
+              }
+          };
+          const icon = BUS_MARKER_SVG_TEXT ? buildBusMarkerDivIconSync(`cat-${vehicle.id}`, state) : null;
+          if (icon) {
+              return icon;
+          }
+          return buildLegacyCatVehicleIcon(label, routeColor);
+      }
+
+      function buildCatVehicleTooltip(vehicle, routeKeyOverride) {
           const parts = [];
           const headerPieces = [];
-          const routeInfo = getCatRouteInfo(vehicle.routeKey);
+          const effectiveRouteKey = routeKeyOverride || vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+          const routeInfo = getCatRouteInfo(effectiveRouteKey);
           const routeLabel = vehicle.routeAbbrev || routeInfo?.shortName || routeInfo?.displayName || vehicle.routeName;
           if (routeLabel) {
               headerPieces.push(routeLabel);
@@ -10037,6 +10099,14 @@
           if (!catOverlayEnabled) {
               return;
           }
+          const busMarkerReady = !!BUS_MARKER_SVG_TEXT;
+          if (!busMarkerReady) {
+              ensureCatBusMarkerSvgLoaded().then(loaded => {
+                  if (loaded && catOverlayEnabled) {
+                      renderCatVehiclesUsingCache();
+                  }
+              });
+          }
           const layerGroup = ensureCatLayerGroup();
           if (!layerGroup) {
               return;
@@ -10063,7 +10133,7 @@
                   return;
               }
               seen.add(markerKey);
-              const icon = buildCatVehicleIcon(vehicle);
+              const icon = buildCatVehicleIcon(vehicle, effectiveRouteKey);
               if (!marker) {
                   marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, pane: catVehiclesPaneName, keyboard: false });
                   marker.addTo(layerGroup);
@@ -10075,7 +10145,7 @@
                       layerGroup.addLayer(marker);
                   }
               }
-              const tooltipHtml = buildCatVehicleTooltip(vehicle);
+              const tooltipHtml = buildCatVehicleTooltip(vehicle, effectiveRouteKey);
               const existingTooltip = marker.getTooltip && marker.getTooltip();
               if (tooltipHtml) {
                   if (existingTooltip) {
@@ -11149,22 +11219,9 @@
           return BUS_MARKER_SVG_LOAD_PROMISE;
       }
 
-      async function createBusMarkerDivIcon(vehicleID, state) {
-          if (!state) {
+      function buildBusMarkerDivIconSync(vehicleID, state) {
+          if (!state || !BUS_MARKER_SVG_TEXT) {
               return null;
-          }
-          try {
-              await loadBusSVG();
-          } catch (error) {
-              console.error('Failed to load bus marker SVG:', error);
-              return null;
-          }
-          if (!BUS_MARKER_SVG_TEXT) {
-              return null;
-          }
-          if (!state.size) {
-              const zoom = map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
-              setBusMarkerSize(state, computeBusMarkerMetrics(zoom));
           }
           const width = state.size?.widthPx ?? BUS_MARKER_BASE_WIDTH_PX;
           const height = state.size?.heightPx ?? width * BUS_MARKER_ASPECT_RATIO;
@@ -11230,6 +11287,26 @@
               iconSize: [width, height],
               iconAnchor: [anchorX, anchorY]
           });
+      }
+
+      async function createBusMarkerDivIcon(vehicleID, state) {
+          if (!state) {
+              return null;
+          }
+          try {
+              await loadBusSVG();
+          } catch (error) {
+              console.error('Failed to load bus marker SVG:', error);
+              return null;
+          }
+          if (!BUS_MARKER_SVG_TEXT) {
+              return null;
+          }
+          if (!state.size) {
+              const zoom = map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+              setBusMarkerSize(state, computeBusMarkerMetrics(zoom));
+          }
+          return buildBusMarkerDivIconSync(vehicleID, state);
       }
 
       function registerBusMarkerElements(vehicleID) {
