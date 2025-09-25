@@ -755,6 +755,7 @@ schedulePlaneStyleOverride();
       let busMarkerStates = {};
       let trainMarkers = {};
       let trainMarkerStates = {};
+      let trainNameBubbles = {};
       let trainsVisible = false;
       let planesVisible = false;
       let trainFetchPromise = null;
@@ -11467,6 +11468,40 @@ schedulePlaneStyleOverride();
                   delete nameBubbles[vehicleID];
               }
           });
+
+          Object.keys(trainNameBubbles).forEach(key => {
+              const bubble = trainNameBubbles[key];
+              if (!bubble) {
+                  return;
+              }
+              const trainID = bubble.trainID || (key.startsWith('train:') ? key.slice(6) : key);
+              const state = trainMarkerStates[trainID];
+              const latLng = state?.lastLatLng;
+              if (!state || !latLng || !Number.isFinite(latLng.lat) || !Number.isFinite(latLng.lng)) {
+                  removeTrainNameBubble(trainID ?? key);
+                  return;
+              }
+              const labelText = typeof state.routeName === 'string' ? state.routeName.trim() : '';
+              if (!(adminMode && !kioskMode && labelText)) {
+                  removeTrainNameBubble(trainID ?? key);
+                  return;
+              }
+              const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              const nameIcon = createNameBubbleDivIcon(labelText, routeColor, scale, state.headingDeg);
+              if (!nameIcon) {
+                  removeTrainNameBubble(trainID ?? key);
+                  return;
+              }
+              if (bubble.nameMarker) {
+                  animateMarkerTo(bubble.nameMarker, latLng);
+                  bubble.nameMarker.setIcon(nameIcon);
+              } else {
+                  bubble.nameMarker = L.marker(latLng, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+              }
+              bubble.lastScale = scale;
+              bubble.trainID = trainID;
+              trainNameBubbles[key] = bubble;
+          });
       }
 
       function scheduleMarkerScaleUpdate() {
@@ -11725,10 +11760,49 @@ schedulePlaneStyleOverride();
               lastLatLng: null,
               marker: null,
               size: null,
-              lastUpdateTimestamp: 0
+              lastUpdateTimestamp: 0,
+              routeName: ''
           };
           trainMarkerStates[key] = newState;
           return newState;
+      }
+
+      function getTrainNameBubbleKey(trainID) {
+          if (trainID === null || trainID === undefined) {
+              return 'train:';
+          }
+          const text = `${trainID}`;
+          return text.startsWith('train:') ? text : `train:${text}`;
+      }
+
+      function removeTrainNameBubble(trainID) {
+          if (trainID === null || trainID === undefined) {
+              return;
+          }
+          const key = getTrainNameBubbleKey(trainID);
+          const bubble = trainNameBubbles[key];
+          if (bubble?.nameMarker && map) {
+              if (typeof map.hasLayer === 'function' && map.hasLayer(bubble.nameMarker)) {
+                  map.removeLayer(bubble.nameMarker);
+              } else if (typeof bubble.nameMarker.remove === 'function') {
+                  bubble.nameMarker.remove();
+              }
+          }
+          delete trainNameBubbles[key];
+      }
+
+      function clearAllTrainNameBubbles() {
+          Object.keys(trainNameBubbles).forEach(key => {
+              const bubble = trainNameBubbles[key];
+              if (bubble?.nameMarker && map) {
+                  if (typeof map.hasLayer === 'function' && map.hasLayer(bubble.nameMarker)) {
+                      map.removeLayer(bubble.nameMarker);
+                  } else if (typeof bubble.nameMarker.remove === 'function') {
+                      bubble.nameMarker.remove();
+                  }
+              }
+          });
+          trainNameBubbles = {};
       }
 
       function clearTrainMarker(trainID) {
@@ -11746,6 +11820,7 @@ schedulePlaneStyleOverride();
           }
           delete trainMarkers[key];
           delete trainMarkerStates[key];
+          removeTrainNameBubble(key);
       }
 
       function clearAllTrainMarkers() {
@@ -11762,6 +11837,7 @@ schedulePlaneStyleOverride();
           });
           trainMarkers = {};
           trainMarkerStates = {};
+          clearAllTrainNameBubbles();
       }
 
       function setPlanesVisibility(visible) {
@@ -11858,6 +11934,7 @@ schedulePlaneStyleOverride();
                       state.marker = marker || null;
                   }
               });
+              clearAllTrainNameBubbles();
               return;
           }
           if (!map || typeof map.getBounds !== 'function') {
@@ -11881,6 +11958,7 @@ schedulePlaneStyleOverride();
                       map.removeLayer(marker);
                   }
                   state.marker = marker || null;
+                  removeTrainNameBubble(trainID);
                   continue;
               }
               if (!bounds.contains(latLng)) {
@@ -11888,6 +11966,7 @@ schedulePlaneStyleOverride();
                       map.removeLayer(marker);
                   }
                   state.marker = marker || null;
+                  removeTrainNameBubble(trainID);
                   continue;
               }
               setBusMarkerSize(state, metrics);
@@ -11918,6 +11997,29 @@ schedulePlaneStyleOverride();
                   trainMarker.addTo(map);
               }
               animateMarkerTo(trainMarker, latLng);
+
+              const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              const labelText = typeof state.routeName === 'string' ? state.routeName.trim() : '';
+              const bubbleKey = getTrainNameBubbleKey(trainID);
+              if (adminMode && !kioskMode && labelText) {
+                  const nameIcon = createNameBubbleDivIcon(labelText, routeColor, metrics.scale, state.headingDeg);
+                  if (nameIcon) {
+                      const bubble = trainNameBubbles[bubbleKey] || { trainID };
+                      if (bubble.nameMarker) {
+                          animateMarkerTo(bubble.nameMarker, latLng);
+                          bubble.nameMarker.setIcon(nameIcon);
+                      } else {
+                          bubble.nameMarker = L.marker(latLng, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      }
+                      bubble.trainID = trainID;
+                      bubble.lastScale = metrics.scale;
+                      trainNameBubbles[bubbleKey] = bubble;
+                  } else {
+                      removeTrainNameBubble(trainID);
+                  }
+              } else {
+                  removeTrainNameBubble(trainID);
+              }
           }
       }
 
@@ -11986,6 +12088,7 @@ schedulePlaneStyleOverride();
                           state.isStale = false;
                           state.isStopped = false;
                           state.lastUpdateTimestamp = timestamp;
+                          state.routeName = typeof train?.routeName === 'string' ? train.routeName.trim() : '';
                           const headingValue = getTrainHeadingValue(train);
                           if (Number.isFinite(lat) && Number.isFinite(lon)) {
                               const latLng = L.latLng(lat, lon);
