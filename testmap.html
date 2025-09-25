@@ -194,6 +194,58 @@
         color: rgba(248, 250, 252, 0.92);
         letter-spacing: 0.35px;
       }
+      .cat-vehicle-icon {
+        width: 0;
+        height: 0;
+      }
+      .cat-vehicle-marker {
+        --cat-marker-size: 38px;
+        --cat-marker-color: #0f172a;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--cat-marker-size);
+        height: var(--cat-marker-size);
+        border-radius: 50%;
+        background: var(--cat-marker-color);
+        color: #fff7ed;
+        border: 3px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
+        font-family: 'FGDC', sans-serif;
+        font-weight: 800;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        font-size: 14px;
+      }
+      .cat-vehicle-marker__label {
+        display: block;
+        padding: 0 4px;
+        text-align: center;
+      }
+      .cat-vehicle-tooltip {
+        background: rgba(15, 23, 42, 0.92);
+        color: #f8fafc;
+        border-radius: 10px;
+        padding: 8px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-family: 'FGDC', sans-serif;
+        font-size: 13px;
+        letter-spacing: 0.35px;
+        text-transform: none;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.4);
+      }
+      .cat-vehicle-tooltip strong {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 4px;
+        letter-spacing: 0.45px;
+      }
+      .cat-vehicle-tooltip__etas {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
       .route-pill {
         display: inline-block;
         padding: 5px 12px;
@@ -2261,6 +2313,17 @@
         NORTHWEST: 315,
         NORTHWESTBOUND: 315
       });
+      const CAT_API_BASE_URL = 'https://catpublic.etaspot.net/service.php';
+      const CAT_API_TOKEN = 'TESTING';
+      const CAT_VEHICLE_FETCH_INTERVAL_MS = 5000;
+      const CAT_METADATA_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+      const CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
+      const CAT_SERVICE_ALERT_UNAVAILABLE_MESSAGE = 'CAT service alerts are unavailable.';
+      const CAT_VEHICLE_MARKER_DEFAULT_COLOR = '#0f172a';
+      const CAT_VEHICLE_MARKER_MIN_LABEL = 'CAT';
+      const CAT_MAX_TOOLTIP_ETAS = 3;
+      const CAT_VEHICLE_ETA_CACHE_TTL_MS = 30000;
+      const CAT_STOP_ETA_CACHE_TTL_MS = 30000;
 
       let map;
       let markers = {};
@@ -2282,6 +2345,38 @@
 
       let agencies = [];
       let baseURL = '';
+      let catOverlayEnabled = false;
+      let catLayerGroup = null;
+      const catVehicleMarkers = new Map();
+      const catVehicleEtaCache = new Map();
+      const catStopEtaCache = new Map();
+      const catStopEtaRequests = new Map();
+      let catActiveVehicleTooltip = null;
+      const catRoutesById = new Map();
+      const catStopsById = new Map();
+      const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
+      const CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID = 777;
+      const kioskModeAllowedCatRouteIds = new Set([7, 12]);
+      const catRouteSelections = new Map();
+      let catActiveRouteKeys = new Set();
+      const catVehiclesById = new Map();
+      let catRefreshIntervals = [];
+      let catRoutesLastFetchTime = 0;
+      let catStopsLastFetchTime = 0;
+      const catRoutePatternGeometries = new Map();
+      const catRoutePatternLayers = new Map();
+      const catOverlapPatternIdMap = new Map();
+      const catOverlapInfoByNumericId = new Map();
+      let nextCatOverlapNumericId = 1000000;
+      let catRoutePatternsLastFetchTime = 0;
+      let catRoutePatternsCache = [];
+      let catVehiclesPaneName = 'catVehiclesPane';
+      let catServiceAlerts = [];
+      let catServiceAlertsLoading = false;
+      let catServiceAlertsError = null;
+      let catServiceAlertsFetchPromise = null;
+      let catServiceAlertsLastFetchTime = 0;
+      let catBusMarkerSvgPromise = null;
 
       let incidentsVisible = false;
       let incidentsVisibilityPreference = false;
@@ -3643,6 +3738,19 @@
         return entry.projectedPath;
       }
 
+      function ensureCatProjectedPath(geometry) {
+        if (!geometry) return null;
+        const latLngs = Array.isArray(geometry.latLngs) ? geometry.latLngs : null;
+        if (!latLngs || latLngs.length < 2) return null;
+        const existing = Array.isArray(geometry.projectedPath) ? geometry.projectedPath : null;
+        if (existing && existing.length === latLngs.length && existing.length >= 2) {
+          return existing;
+        }
+        if (typeof L === 'undefined' || !L.Projection || !L.Projection.SphericalMercator) return null;
+        geometry.projectedPath = latLngs.map(point => L.Projection.SphericalMercator.project(point));
+        return geometry.projectedPath;
+      }
+
       function computeDistanceFromProjectedPointToSegmentMeters(point, a, b) {
         if (!point || !a || !b) return Infinity;
         const ax = a.x;
@@ -3748,8 +3856,59 @@
           if (!Number.isFinite(numericRouteId) || numericRouteId === 0) return;
           const projectedPath = ensureRouteProjectedPath(entry);
           if (!projectedPath || projectedPath.length < 2) return;
-          routeEntries.push({ routeId: numericRouteId, projectedPath });
+          routeEntries.push({
+            routeId: numericRouteId,
+            rawRouteId: numericRouteId,
+            projectedPath,
+            source: 'transloc'
+          });
         });
+        if (catOverlayEnabled) {
+          catRoutePatternGeometries.forEach(geometry => {
+            if (!geometry || !Array.isArray(geometry.latLngs) || geometry.latLngs.length < 2) {
+              return;
+            }
+            const routeKey = catRouteKey(geometry.routeKey);
+            if (!routeKey || routeKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return;
+            }
+            if (!isCatRouteAllowedInCurrentMode(routeKey)) {
+              return;
+            }
+            const projectedPath = ensureCatProjectedPath(geometry);
+            if (!projectedPath || projectedPath.length < 2) {
+              return;
+            }
+            const color = sanitizeCssColor(geometry.color)
+              || sanitizeCssColor(getCatRouteColor(routeKey))
+              || '';
+            const info = getCatRouteInfo(routeKey) || null;
+            const nameCandidates = [
+              info?.displayName,
+              info?.shortName,
+              info?.longName,
+              routeKey ? `Route ${routeKey}` : ''
+            ];
+            let displayName = '';
+            for (const candidate of nameCandidates) {
+              if (typeof candidate !== 'string') continue;
+              const trimmed = candidate.trim();
+              if (trimmed) {
+                displayName = trimmed;
+                break;
+              }
+            }
+            routeEntries.push({
+              routeId: `cat:${routeKey}`,
+              rawRouteId: routeKey,
+              projectedPath,
+              source: 'cat',
+              routeKey,
+              color,
+              name: displayName
+            });
+          });
+        }
         if (routeEntries.length === 0) {
           if (hadAlerts) {
             resetIncidentAlertState();
@@ -3772,7 +3931,17 @@
           const matchedRoutes = [];
           const seenRoutes = new Set();
           let closestDistance = Infinity;
-          routeEntries.forEach(({ routeId, projectedPath }) => {
+          routeEntries.forEach(entry => {
+            if (!entry || !Array.isArray(entry.projectedPath) || entry.projectedPath.length < 2) {
+              return;
+            }
+            const routeId = entry.routeId;
+            const rawRouteId = entry.rawRouteId;
+            const projectedPath = entry.projectedPath;
+            const source = entry.source;
+            const routeKey = entry.routeKey;
+            const presetColor = entry.color;
+            const presetName = entry.name;
             const distance = computeDistanceFromProjectedPointToPathMeters(projectedPoint, projectedPath);
             if (!Number.isFinite(distance)) return;
             if (distance < closestDistance) {
@@ -3781,16 +3950,47 @@
             if (distance <= threshold && !seenRoutes.has(routeId)) {
               seenRoutes.add(routeId);
               const colorCandidates = [];
-              if (routeColors && typeof routeColors[routeId] === 'string') {
-                colorCandidates.push(routeColors[routeId]);
-              }
-              const storedRoute = allRoutes ? (allRoutes[routeId] || allRoutes[`${routeId}`] || null) : null;
-              if (storedRoute) {
-                const storedColorCandidates = [storedRoute.MapLineColor, storedRoute.RouteColor, storedRoute.Color, storedRoute.color];
-                storedColorCandidates.forEach(value => {
-                  if (typeof value === 'string') {
-                    colorCandidates.push(value);
+              if (source === 'cat') {
+                if (presetColor) {
+                  colorCandidates.push(presetColor);
+                }
+                const fallbackCatColor = sanitizeCssColor(getCatRouteColor(routeKey || rawRouteId));
+                if (fallbackCatColor) {
+                  colorCandidates.push(fallbackCatColor);
+                }
+              } else {
+                const lookupCandidates = [];
+                if (rawRouteId !== undefined && rawRouteId !== null) {
+                  lookupCandidates.push(rawRouteId);
+                }
+                if (routeId !== undefined && routeId !== null && routeId !== rawRouteId) {
+                  lookupCandidates.push(routeId);
+                }
+                lookupCandidates.forEach(idCandidate => {
+                  if (routeColors && typeof routeColors[idCandidate] === 'string') {
+                    colorCandidates.push(routeColors[idCandidate]);
                   }
+                  const numericCandidate = Number(idCandidate);
+                  if (Number.isFinite(numericCandidate) && routeColors && typeof routeColors[numericCandidate] === 'string') {
+                    colorCandidates.push(routeColors[numericCandidate]);
+                  }
+                });
+                const numericRouteId = Number(rawRouteId);
+                const storedRouteCandidates = [];
+                if (Number.isFinite(numericRouteId) && allRoutes) {
+                  storedRouteCandidates.push(allRoutes[numericRouteId], allRoutes[`${numericRouteId}`]);
+                }
+                if (rawRouteId !== undefined && rawRouteId !== null && allRoutes && Object.prototype.hasOwnProperty.call(allRoutes, rawRouteId)) {
+                  storedRouteCandidates.push(allRoutes[rawRouteId]);
+                }
+                storedRouteCandidates.forEach(storedRoute => {
+                  if (!storedRoute) return;
+                  const storedColorCandidates = [storedRoute.MapLineColor, storedRoute.RouteColor, storedRoute.Color, storedRoute.color];
+                  storedColorCandidates.forEach(value => {
+                    if (typeof value === 'string') {
+                      colorCandidates.push(value);
+                    }
+                  });
                 });
               }
               let matchedColor = '';
@@ -3801,7 +4001,38 @@
                   break;
                 }
               }
-              matchedRoutes.push({ routeId, name: getRouteDisplayName(routeId), distance, color: matchedColor });
+              let routeName = '';
+              if (source === 'cat') {
+                if (typeof presetName === 'string' && presetName.trim()) {
+                  routeName = presetName.trim();
+                } else {
+                  const info = getCatRouteInfo(routeKey || rawRouteId);
+                  if (info) {
+                    const infoNameCandidates = [info.displayName, info.shortName, info.longName];
+                    for (const value of infoNameCandidates) {
+                      if (typeof value !== 'string') continue;
+                      const trimmed = value.trim();
+                      if (trimmed) {
+                        routeName = trimmed;
+                        break;
+                      }
+                    }
+                  }
+                  if (!routeName && rawRouteId) {
+                    routeName = `Route ${rawRouteId}`;
+                  }
+                }
+              } else {
+                routeName = getRouteDisplayName(rawRouteId ?? routeId);
+              }
+              matchedRoutes.push({
+                routeId,
+                rawRouteId: rawRouteId ?? routeId,
+                routeKey: routeKey || null,
+                name: routeName,
+                distance,
+                color: matchedColor
+              });
             }
           });
           if (!matchedRoutes.length) return;
@@ -3858,6 +4089,7 @@
           latestActiveIncidents = activeRecords;
           evaluateIncidentRouteAlerts();
           applyIncidentMarkers(activeRecords);
+          updateControlPanel();
         } catch (error) {
           console.error('Failed to refresh PulsePoint incidents', error);
         } finally {
@@ -4063,6 +4295,7 @@
       let routeLayers = [];
       let stopMarkers = [];
       let stopDataCache = [];
+      let catStopDataCache = [];
       let routeStopAddressMap = {};
       let routeStopRouteMap = {};
       let nameBubbles = {};
@@ -4075,6 +4308,9 @@
       let refreshIntervals = [];
 
       let overlapRenderer = null;
+
+      let currentTranslocRendererGeometries = new Map();
+      let currentTranslocSelectedRouteIds = [];
 
       let activeAgencyLoadCount = 0;
 
@@ -4316,6 +4552,8 @@
       let activeRoutes = new Set();
       // Tracks which routes the API designates as public-facing.
       let routeVisibility = {};
+      // Routes that should be forced visible in kiosk mode when they have vehicles.
+      const kioskModeAlwaysVisibleRoutes = new Set([7, 12]);
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
@@ -4381,7 +4619,12 @@
           return adminKioskMode || (!kioskMode && adminMode);
         }
         if (adminKioskMode) return true;
-        if (kioskMode) return isRoutePublicById(id);
+        if (kioskMode) {
+          if (kioskModeAlwaysVisibleRoutes.has(id) && routeHasActiveVehicles(id)) {
+            return true;
+          }
+          return isRoutePublicById(id);
+        }
         if (adminMode) return true;
         return isRoutePublicById(id);
       }
@@ -4466,6 +4709,35 @@
             delete bubble.blockMarker;
           }
         });
+      }
+
+      function removeNameBubbleForKey(key) {
+        if (!key || !Object.prototype.hasOwnProperty.call(nameBubbles, key)) return;
+        const bubble = nameBubbles[key];
+        if (bubble) {
+          if (bubble.speedMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.speedMarker);
+            } else if (typeof bubble.speedMarker.remove === 'function') {
+              bubble.speedMarker.remove();
+            }
+          }
+          if (bubble.nameMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.nameMarker);
+            } else if (typeof bubble.nameMarker.remove === 'function') {
+              bubble.nameMarker.remove();
+            }
+          }
+          if (bubble.blockMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.blockMarker);
+            } else if (typeof bubble.blockMarker.remove === 'function') {
+              bubble.blockMarker.remove();
+            }
+          }
+        }
+        delete nameBubbles[key];
       }
 
       function applyRouteOptionState(inputElement) {
@@ -4975,24 +5247,51 @@
         return [];
       }
 
+      function getVisibleServiceAlerts() {
+        const baseAlerts = Array.isArray(serviceAlerts) ? serviceAlerts : [];
+        if (!catOverlayEnabled) {
+          return baseAlerts;
+        }
+        const catAlerts = Array.isArray(catServiceAlerts) ? catServiceAlerts : [];
+        return baseAlerts.concat(catAlerts);
+      }
+
       function getActiveServiceAlertCount() {
-        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
+        const alerts = getVisibleServiceAlerts();
+        if (!Array.isArray(alerts) || alerts.length === 0) {
           return 0;
         }
-        return serviceAlerts.reduce((total, alert) => {
+        return alerts.reduce((total, alert) => {
           if (!alert) return total;
           return total + (alert.isActive === false ? 0 : 1);
         }, 0);
       }
 
+      function isAnyServiceAlertsLoading() {
+        return !!serviceAlertsLoading || (catOverlayEnabled && !!catServiceAlertsLoading);
+      }
+
+      function getCombinedServiceAlertsError() {
+        const alerts = getVisibleServiceAlerts();
+        const hasVisibleAlerts = Array.isArray(alerts) && alerts.length > 0;
+        if (serviceAlertsError && !hasVisibleAlerts) {
+          return serviceAlertsError;
+        }
+        if (catOverlayEnabled && catServiceAlertsError && !hasVisibleAlerts && !isAnyServiceAlertsLoading()) {
+          return catServiceAlertsError;
+        }
+        return null;
+      }
+
       function buildServiceAlertsStatusText() {
-        if (serviceAlertsLoading) {
+        if (isAnyServiceAlertsLoading()) {
           return SERVICE_ALERT_STATUS_LOADING;
         }
-        if (serviceAlertsError) {
+        const errorMessage = getCombinedServiceAlertsError();
+        if (errorMessage) {
           return SERVICE_ALERT_STATUS_ERROR;
         }
-        if (!serviceAlertsHasLoaded) {
+        if (!serviceAlertsHasLoaded && !(catOverlayEnabled && Array.isArray(catServiceAlerts) && catServiceAlerts.length > 0)) {
           return SERVICE_ALERT_STATUS_LOADING;
         }
         const count = getActiveServiceAlertCount();
@@ -5033,16 +5332,19 @@
       }
 
       function renderServiceAlertsPanelContentHtml() {
-        if (serviceAlertsLoading) {
+        const alerts = getVisibleServiceAlerts();
+        const loading = isAnyServiceAlertsLoading();
+        const errorMessage = getCombinedServiceAlertsError();
+        if (loading && (!Array.isArray(alerts) || alerts.length === 0)) {
           return `<div class="service-alerts-state service-alerts-state--loading">Loading service alerts…</div>`;
         }
-        if (serviceAlertsError) {
-          return `<div class="service-alerts-state service-alerts-state--error">${escapeHtml(serviceAlertsError)}</div>`;
+        if (errorMessage && (!Array.isArray(alerts) || alerts.length === 0)) {
+          return `<div class="service-alerts-state service-alerts-state--error">${escapeHtml(errorMessage)}</div>`;
         }
-        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
+        if (!Array.isArray(alerts) || alerts.length === 0) {
           return '';
         }
-        const itemsHtml = serviceAlerts.map(renderServiceAlertItem).filter(Boolean).join('');
+        const itemsHtml = alerts.map(renderServiceAlertItem).filter(Boolean).join('');
         if (!itemsHtml) {
           return '';
         }
@@ -5052,13 +5354,13 @@
       function renderServiceAlertsSectionHtml() {
         const buttonClasses = ['pill-button', 'service-alerts-toggle'];
         if (serviceAlertsExpanded) buttonClasses.push('is-expanded');
-        if (serviceAlertsLoading) buttonClasses.push('is-loading');
-        if (serviceAlertsError) buttonClasses.push('has-error');
+        if (isAnyServiceAlertsLoading()) buttonClasses.push('is-loading');
+        if (getCombinedServiceAlertsError()) buttonClasses.push('has-error');
         if (getActiveServiceAlertCount() > 0) buttonClasses.push('has-active-alerts');
         const panelClasses = ['service-alerts-panel'];
         if (serviceAlertsExpanded) panelClasses.push('is-expanded');
-        if (serviceAlertsLoading) panelClasses.push('is-loading');
-        if (serviceAlertsError) panelClasses.push('has-error');
+        if (isAnyServiceAlertsLoading()) panelClasses.push('is-loading');
+        if (getCombinedServiceAlertsError()) panelClasses.push('has-error');
         const panelContentHtml = renderServiceAlertsPanelContentHtml();
         const panelHasContent = typeof panelContentHtml === 'string' && panelContentHtml.trim().length > 0;
         if (!panelHasContent) panelClasses.push('is-empty');
@@ -5084,8 +5386,8 @@
         if (!button) return;
         button.setAttribute('aria-expanded', serviceAlertsExpanded ? 'true' : 'false');
         button.classList.toggle('is-expanded', !!serviceAlertsExpanded);
-        button.classList.toggle('is-loading', !!serviceAlertsLoading);
-        button.classList.toggle('has-error', !!serviceAlertsError);
+        button.classList.toggle('is-loading', isAnyServiceAlertsLoading());
+        button.classList.toggle('has-error', !!getCombinedServiceAlertsError());
         button.classList.toggle('has-active-alerts', getActiveServiceAlertCount() > 0);
         const statusEl = button.querySelector('.service-alerts-toggle__status');
         if (statusEl) {
@@ -5110,10 +5412,10 @@
           }
         }
         panel.classList.toggle('is-expanded', !!serviceAlertsExpanded);
-        panel.classList.toggle('is-loading', !!serviceAlertsLoading);
-        panel.classList.toggle('has-error', !!serviceAlertsError);
+        panel.classList.toggle('is-loading', isAnyServiceAlertsLoading());
+        panel.classList.toggle('has-error', !!getCombinedServiceAlertsError());
         const panelHasContent = typeof panel.innerHTML === 'string' && panel.innerHTML.trim().length > 0;
-        panel.classList.toggle('is-empty', !panelHasContent && !serviceAlertsLoading && !serviceAlertsError);
+        panel.classList.toggle('is-empty', !panelHasContent && !isAnyServiceAlertsLoading() && !getCombinedServiceAlertsError());
       }
 
       function updateServiceAlertsPanelContent() {
@@ -5126,7 +5428,8 @@
       }
 
       function refreshServiceAlertsUI() {
-        if (serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && getActiveServiceAlertCount() === 0) {
+        const hasVisibleAlerts = getVisibleServiceAlerts().length > 0;
+        if (serviceAlertsExpanded && !hasVisibleAlerts && !isAnyServiceAlertsLoading() && !getCombinedServiceAlertsError() && (serviceAlertsHasLoaded || (catOverlayEnabled && !catServiceAlertsLoading))) {
           serviceAlertsExpanded = false;
         }
         updateServiceAlertsButtonState();
@@ -5240,8 +5543,10 @@
         if (event && typeof event.preventDefault === 'function') {
           event.preventDefault();
         }
-        const hasActiveAlerts = getActiveServiceAlertCount() > 0;
-        if (!serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && !hasActiveAlerts) {
+        const hasVisibleAlerts = getVisibleServiceAlerts().length > 0;
+        const loading = isAnyServiceAlertsLoading();
+        const errorMessage = getCombinedServiceAlertsError();
+        if (!serviceAlertsExpanded && !hasVisibleAlerts && !loading && !errorMessage && (serviceAlertsHasLoaded || (catOverlayEnabled && !catServiceAlertsLoading))) {
           return;
         }
         serviceAlertsExpanded = !serviceAlertsExpanded;
@@ -5399,6 +5704,11 @@
                 </select>
               </div>
             </div>
+            <div class="selector-group">
+              <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
+                Show CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
+              </button>
+            </div>
         `;
         html += serviceAlertsSectionHtml;
         html += incidentAlertsHtml;
@@ -5432,6 +5742,7 @@
         `;
 
         panel.innerHTML = html;
+        updateCatToggleButtonState();
         initializeRadarControls();
         updateDisplayModeButtons();
         updateTrainToggleButton();
@@ -5496,6 +5807,44 @@
           return `${routeID}:${checked ? 1 : 0}:${color}:${desc}:${infoText}:${hasActiveVehicle ? 1 : 0}`;
         });
 
+        const catRoutesList = catOverlayEnabled ? getSortedCatRoutes() : [];
+        const activeCatRouteKeysSet = catOverlayEnabled
+          ? (catActiveRouteKeys instanceof Set ? new Set(catActiveRouteKeys) : new Set())
+          : new Set();
+        const catRouteRenderData = catRoutesList.map(route => {
+          const key = catRouteKey(route.idKey);
+          if (!key || key === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+            return null;
+          }
+          const checked = getCatRouteSelectionState(key, activeCatRouteKeysSet);
+          const hasActiveVehicle = activeCatRouteKeysSet.has(key);
+          const displayNameRaw = (route.displayName || route.shortName || route.longName || key || '').trim();
+          const displayName = displayNameRaw || `Route ${key}`;
+          const longName = typeof route.longName === 'string' ? route.longName.trim() : '';
+          const detailLines = [];
+          if (longName && longName.toUpperCase() !== displayName.toUpperCase()) {
+            detailLines.push(longName);
+          }
+          if (!hasActiveVehicle) {
+            detailLines.push('No buses currently assigned');
+          }
+          const color = route.color || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          return {
+            route,
+            key,
+            checked,
+            hasActiveVehicle,
+            displayName,
+            detailLines,
+            color
+          };
+        }).filter(Boolean);
+        const catRouteSignatureParts = catRouteRenderData.map(entry => {
+          const detailSignature = entry.detailLines.join('||');
+          return `${entry.key}:${entry.checked ? 1 : 0}:${entry.color || ''}:${entry.displayName || ''}:${detailSignature}:${entry.hasActiveVehicle ? 1 : 0}`;
+        });
+        const catActiveSignature = Array.from(activeCatRouteKeysSet).sort().join('|');
+
         const outOfServiceChecked = adminMode && canDisplayRoute(0)
           ? (Object.prototype.hasOwnProperty.call(routeSelections, 0)
             ? routeSelections[0]
@@ -5510,7 +5859,9 @@
           displayMode || '',
           agenciesSignature,
           outOfServiceChecked === null ? 'na' : (outOfServiceChecked ? '1' : '0'),
-          routeSignatureParts.join('|')
+          routeSignatureParts.join('|'),
+          catOverlayEnabled ? '1' : '0',
+          `${catRouteRenderData.length}:${catRouteSignatureParts.join('|')}::${catActiveSignature}`
         ];
 
         const signature = signatureParts.join('||');
@@ -5591,6 +5942,29 @@
           `;
         });
 
+        if (catRouteRenderData.length > 0) {
+          html += `
+                <div class="selector-label">CAT Routes</div>
+          `;
+          catRouteRenderData.forEach(entry => {
+            const detailHtml = entry.detailLines.map(text => `<span class="route-option-detail">${escapeHtml(text)}</span>`).join('');
+            const checkboxId = getCatRouteCheckboxId(entry.key);
+            const safeValue = escapeAttribute(entry.key);
+            const safeColor = escapeAttribute(entry.color || CAT_VEHICLE_MARKER_DEFAULT_COLOR);
+            const safeName = escapeHtml(entry.displayName);
+            html += `
+                <label class="route-option route-option--cat">
+                  <input type="checkbox" id="${checkboxId}" value="${safeValue}" ${entry.checked ? "checked" : ""}>
+                  <span class="color-box route-option-swatch" style="background:${safeColor};"></span>
+                  <span class="route-option-text">
+                    <span class="route-option-name">${safeName}</span>
+                    ${detailHtml}
+                  </span>
+                </label>
+            `;
+          });
+        }
+
         html += `
               </div>
             </div>
@@ -5635,6 +6009,25 @@
           }
         });
 
+        if (catRouteRenderData.length > 0) {
+          catRouteRenderData.forEach(entry => {
+            const checkboxId = getCatRouteCheckboxId(entry.key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (!catCheckbox) {
+              return;
+            }
+            catCheckbox.checked = entry.checked;
+            applyRouteOptionState(catCheckbox);
+            catCheckbox.addEventListener('change', function() {
+              catRouteSelections.set(entry.key, catCheckbox.checked);
+              applyRouteOptionState(catCheckbox);
+              renderCatVehiclesUsingCache();
+              renderCatRoutes();
+              renderBusStops(stopDataCache);
+            });
+          });
+        }
+
         positionAllPanelTabs();
       }
 
@@ -5655,6 +6048,24 @@
             applyRouteOptionState(chk);
           }
           routeSelections[routeID] = true;
+        }
+        if (catOverlayEnabled) {
+          const catRoutes = getUniqueCatRoutes();
+          catRoutes.forEach(route => {
+            const key = catRouteKey(route.idKey);
+            if (!key) {
+              return;
+            }
+            const checkboxId = getCatRouteCheckboxId(key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (catCheckbox) {
+              catCheckbox.checked = true;
+              applyRouteOptionState(catCheckbox);
+            }
+            catRouteSelections.set(key, true);
+          });
+          renderCatVehiclesUsingCache();
+          renderCatRoutes();
         }
         refreshMap();
       }
@@ -5686,6 +6097,27 @@
           routeSelections[numericRouteId] = shouldSelect;
         }
 
+        if (catOverlayEnabled) {
+          const activeCatKeys = catActiveRouteKeys instanceof Set ? new Set(catActiveRouteKeys) : new Set();
+          const catRoutes = getUniqueCatRoutes();
+          catRoutes.forEach(route => {
+            const key = catRouteKey(route.idKey);
+            if (!key) {
+              return;
+            }
+            const shouldSelectCat = activeCatKeys.has(key);
+            const checkboxId = getCatRouteCheckboxId(key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (catCheckbox) {
+              catCheckbox.checked = shouldSelectCat;
+              applyRouteOptionState(catCheckbox);
+            }
+            catRouteSelections.set(key, shouldSelectCat);
+          });
+          renderCatVehiclesUsingCache();
+          renderCatRoutes();
+        }
+
         refreshMap();
       }
 
@@ -5706,6 +6138,24 @@
             applyRouteOptionState(chk);
           }
           routeSelections[routeID] = false;
+        }
+        if (catOverlayEnabled) {
+          const catRoutes = getUniqueCatRoutes();
+          catRoutes.forEach(route => {
+            const key = catRouteKey(route.idKey);
+            if (!key) {
+              return;
+            }
+            const checkboxId = getCatRouteCheckboxId(key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (catCheckbox) {
+              catCheckbox.checked = false;
+              applyRouteOptionState(catCheckbox);
+            }
+            catRouteSelections.set(key, false);
+          });
+          renderCatVehiclesUsingCache();
+          renderCatRoutes();
         }
         refreshMap();
       }
@@ -5838,6 +6288,14 @@
       }
 
       function buildLegendRouteKey(route) {
+        if (route !== null && route !== undefined) {
+          const rawLegendKey = route.legendKey !== undefined && route.legendKey !== null
+            ? `${route.legendKey}`.trim()
+            : '';
+          if (rawLegendKey !== '') {
+            return `custom:${rawLegendKey.toLowerCase()}`;
+          }
+        }
         const identifiers = extractLegendRouteIdentifiers(route);
         if (Number.isFinite(identifiers.numericId)) {
           return `num:${identifiers.numericId}`;
@@ -5889,6 +6347,111 @@
         const mergedRoutes = Array.from(mergedMap.values());
         mergedRoutes.sort(compareLegendRoutes);
         return mergedRoutes;
+      }
+
+      function buildCatLegendEntry(routeKey) {
+        if (!catOverlayEnabled) {
+          return null;
+        }
+
+        const normalizedKey = catRouteKey(routeKey);
+        if (!normalizedKey || isCatOutOfServiceRouteValue(normalizedKey)) {
+          return null;
+        }
+
+        const routeInfo = getCatRouteInfo(normalizedKey);
+        const nameCandidates = [
+          routeInfo?.displayName,
+          routeInfo?.shortName,
+          routeInfo?.longName,
+          normalizedKey
+        ];
+        const legendName = nameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const name = legendName ? legendName.trim() : `CAT Route ${normalizedKey}`;
+
+        let description = '';
+        const longName = typeof routeInfo?.longName === 'string' ? routeInfo.longName.trim() : '';
+        if (longName && longName.toUpperCase() !== name.toUpperCase()) {
+          description = longName;
+        }
+
+        const colorCandidates = [
+          routeInfo?.color,
+          getCatRouteColor(normalizedKey),
+          CAT_VEHICLE_MARKER_DEFAULT_COLOR
+        ];
+        const colorCandidate = colorCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const color = sanitizeCssColor(colorCandidate) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+
+        return {
+          routeId: Number.isFinite(routeInfo?.id) ? routeInfo.id : normalizedKey,
+          routeKey: normalizedKey,
+          legendKey: `cat:${normalizedKey}`,
+          name,
+          description,
+          color,
+          isCatRoute: true
+        };
+      }
+
+      function deriveCatLegendRoutes() {
+        if (!catOverlayEnabled) {
+          return [];
+        }
+
+        const visibleKeys = new Set();
+        const addKeyIfVisible = candidate => {
+          const normalized = catRouteKey(candidate);
+          if (!normalized || isCatOutOfServiceRouteValue(normalized)) {
+            return;
+          }
+          if (!isCatRouteVisible(normalized)) {
+            return;
+          }
+          visibleKeys.add(normalized);
+        };
+
+        if (catRouteSelections instanceof Map) {
+          catRouteSelections.forEach((selected, key) => {
+            if (selected) {
+              addKeyIfVisible(key);
+            }
+          });
+        }
+
+        if (catActiveRouteKeys instanceof Set) {
+          catActiveRouteKeys.forEach(addKeyIfVisible);
+        }
+
+        catRoutePatternGeometries.forEach(geometry => {
+          if (!geometry) {
+            return;
+          }
+          addKeyIfVisible(geometry.routeKey);
+        });
+
+        catVehiclesById.forEach(vehicle => {
+          if (!vehicle) {
+            return;
+          }
+          const candidateKey = vehicle.catEffectiveRouteKey ?? vehicle.routeKey ?? vehicle.routeId;
+          addKeyIfVisible(candidateKey);
+        });
+
+        if (visibleKeys.size === 0) {
+          return [];
+        }
+
+        const legendEntries = [];
+        visibleKeys.forEach(key => {
+          const entry = buildCatLegendEntry(key);
+          if (entry) {
+            legendEntries.push(entry);
+          }
+        });
+
+        legendEntries.sort(compareLegendRoutes);
+        return legendEntries;
       }
 
       function buildLegendEntryFromState(routeId) {
@@ -6009,14 +6572,17 @@
           };
         });
 
+        const catLegendRoutes = deriveCatLegendRoutes();
+        const combinedSanitizedRoutes = mergeLegendRoutes(sanitizedRoutes, catLegendRoutes);
+
         const shouldIncludeOutOfServiceLegend = isRouteSelected(0) && routeHasActiveVehicles(0);
         if (shouldIncludeOutOfServiceLegend) {
-          const hasOutOfServiceEntry = sanitizedRoutes.some(route => {
+          const hasOutOfServiceEntry = combinedSanitizedRoutes.some(route => {
             const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
             return Number(candidateId) === 0;
           });
           if (!hasOutOfServiceEntry) {
-            sanitizedRoutes.push(createOutOfServiceLegendEntry());
+            combinedSanitizedRoutes.push(createOutOfServiceLegendEntry());
           }
         }
 
@@ -6026,17 +6592,28 @@
           }
           if (!Array.isArray(routes)) return [];
           return routes.filter(route => {
+            if (route?.isCatRoute) {
+              const candidateKey = catRouteKey(route.routeKey ?? route.routeId ?? route.routeID ?? route.id);
+              if (!candidateKey) {
+                return false;
+              }
+              if (isCatOutOfServiceRouteValue(candidateKey)) {
+                return isOutOfServiceRouteVisible();
+              }
+              return isCatRouteVisible(candidateKey);
+            }
             const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
             return routeHasActiveVehicles(candidateId);
           });
         };
 
-        let routesToRender = filterAdminLegendRoutes(sanitizedRoutes);
+        let routesToRender = filterAdminLegendRoutes(combinedSanitizedRoutes);
 
         if (routesToRender.length === 0) {
           let fallbackRoutes = deriveLegendRoutesFromState({
             includeAllAvailableRoutes: adminKioskMode
           });
+          fallbackRoutes = mergeLegendRoutes(fallbackRoutes, catLegendRoutes);
           fallbackRoutes = filterAdminLegendRoutes(fallbackRoutes);
           if (fallbackRoutes.length > 0) {
             routesToRender = fallbackRoutes;
@@ -6076,10 +6653,15 @@
       // refreshMap updates route paths and bus locations.
       function refreshMap() {
         fetchBusLocations().then(fetchRoutePaths);
-        if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
+        const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
+        const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+        if (hasTranslocStops || hasCatStops) {
           renderBusStops(stopDataCache);
         }
         fetchTrains().catch(error => console.error('Error refreshing trains:', error));
+        if (catOverlayEnabled) {
+          renderCatVehiclesUsingCache();
+        }
       }
 
       function clearRefreshIntervals() {
@@ -6189,9 +6771,14 @@
         if (overlapRenderer) {
           overlapRenderer.reset();
         }
+        currentTranslocRendererGeometries = new Map();
+        currentTranslocSelectedRouteIds = [];
+        resetCatOverlapRenderingState();
         busBlocks = {};
         previousBusData = {};
         cachedEtas = {};
+        catStopEtaCache.clear();
+        catStopEtaRequests.clear();
         customPopups.forEach(p => p.remove());
         customPopups = [];
         allRoutes = {};
@@ -6219,6 +6806,20 @@
 
       function getRouteColor(routeID) {
         if (routeID === 0) return outOfServiceRouteColor;
+        const numeric = Number(routeID);
+        if (!Number.isNaN(numeric) && isCatOverlapRouteId(numeric)) {
+          const info = catOverlapInfoByNumericId.get(numeric);
+          if (info && info.color) {
+            return info.color;
+          }
+          if (info && info.routeKey) {
+            const fallbackColor = sanitizeCssColor(getCatRouteColor(info.routeKey));
+            if (fallbackColor) {
+              return fallbackColor;
+            }
+          }
+          return CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+        }
         return routeColors[routeID] || '#000000';
       }
 
@@ -6229,6 +6830,9 @@
               zoomAnimation: true,
               markerZoomAnimation: true
           }).setView([38.03799212281404, -78.50981502838886], 15);
+          map.on('click', () => {
+              closeCatVehicleTooltip();
+          });
           map.createPane(RADAR_PANE_NAME);
           const radarPane = map.getPane(RADAR_PANE_NAME);
           if (radarPane) {
@@ -6250,6 +6854,12 @@
           if (busesPane) {
               busesPane.style.zIndex = 500;
               busesPane.style.pointerEvents = 'auto';
+          }
+          map.createPane(catVehiclesPaneName);
+          const catPane = map.getPane(catVehiclesPaneName);
+          if (catPane) {
+              catPane.style.zIndex = 505;
+              catPane.style.pointerEvents = 'auto';
           }
           map.createPane('incidentHalosPane');
           const incidentHalosPane = map.getPane('incidentHalosPane');
@@ -6331,11 +6941,14 @@
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
           map.on('zoomend', () => {
-              if (stopDataCache.length > 0) {
+              const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
+              const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+              if (hasTranslocStops || hasCatStops) {
                   renderBusStops(stopDataCache);
               }
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
+              renderCatRoutes();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
           if (planesVisible && window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
@@ -6471,8 +7084,10 @@
                       addressId: addressIdFromStop || addressIdFromMap || null,
                       routeStopIds: new Set(),
                       stopIds: new Set(),
+                      catStopIds: new Set(),
                       names: new Set(),
-                      routeIds: new Set()
+                      routeIds: new Set(),
+                      catRouteKeys: new Set()
                   });
               }
 
@@ -6482,8 +7097,39 @@
                   entry.routeStopIds.add(routeStopId);
               }
 
+              const catRouteStopIds = stop.catRouteStopIds ?? stop.CatRouteStopIds;
+              if (Array.isArray(catRouteStopIds)) {
+                  catRouteStopIds.forEach(value => {
+                      const normalized = normalizeIdentifier(value);
+                      if (normalized) {
+                          entry.routeStopIds.add(normalized);
+                      }
+                  });
+              }
+
               if (fallbackStopId) {
                   entry.stopIds.add(fallbackStopId);
+              }
+
+              const addCatStopId = value => {
+                  const keyValue = catStopKey(value);
+                  if (keyValue) {
+                      entry.catStopIds.add(keyValue);
+                  }
+              };
+
+              if (stop.isCatStop) {
+                  if (fallbackStopId) {
+                      addCatStopId(fallbackStopId);
+                  }
+                  const explicitCatStopId = stop.catStopId ?? stop.CatStopId;
+                  if (explicitCatStopId !== undefined && explicitCatStopId !== null) {
+                      addCatStopId(explicitCatStopId);
+                  }
+                  const explicitCatStopIds = stop.catStopIds ?? stop.CatStopIds;
+                  if (Array.isArray(explicitCatStopIds)) {
+                      explicitCatStopIds.forEach(addCatStopId);
+                  }
               }
 
               const descriptionCandidates = [
@@ -6521,21 +7167,32 @@
                       entry.routeIds.add(numericRouteId);
                   }
               });
+
+              const catKeysFromStop = extractCatRouteKeys(stop);
+              catKeysFromStop.forEach(routeKey => entry.catRouteKeys.add(routeKey));
           });
 
-          return Array.from(entriesByKey.values()).map(entry => ({
-              addressId: entry.addressId,
-              routeStopIds: Array.from(entry.routeStopIds),
-              stopIdText: Array.from(entry.stopIds).join(', '),
-              displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
-              routeIds: Array.from(entry.routeIds)
-          }));
+          return Array.from(entriesByKey.values()).map(entry => {
+              const stopIdsArray = Array.from(entry.stopIds);
+              const catStopIdsArray = Array.from(entry.catStopIds);
+              return {
+                  addressId: entry.addressId,
+                  routeStopIds: Array.from(entry.routeStopIds),
+                  stopIds: stopIdsArray,
+                  catStopIds: catStopIdsArray,
+                  stopIdText: stopIdsArray.join(', '),
+                  displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
+                  routeIds: Array.from(entry.routeIds),
+                  catRouteKeys: Array.from(entry.catRouteKeys)
+              };
+          });
       }
 
       function collectRouteIdsForEntry(entry) {
           const routeIds = new Set();
+          const catRouteKeys = new Set();
           if (!entry) {
-              return routeIds;
+              return { routeIds, catRouteKeys };
           }
           if (Array.isArray(entry.routeIds)) {
               entry.routeIds.forEach(routeId => {
@@ -6554,17 +7211,85 @@
                   }
               });
           }
-          return routeIds;
+
+          const addCatRouteKey = value => {
+              if (value === undefined || value === null) {
+                  return;
+              }
+              if (value instanceof Set) {
+                  value.forEach(addCatRouteKey);
+                  return;
+              }
+              if (Array.isArray(value)) {
+                  value.forEach(addCatRouteKey);
+                  return;
+              }
+              const normalized = catRouteKey(value);
+              if (normalized && normalized !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  catRouteKeys.add(normalized);
+              }
+          };
+
+          addCatRouteKey(entry.catRouteKeys);
+
+          return { routeIds, catRouteKeys };
+      }
+
+      function extractCatRouteKeys(stop) {
+          const keys = new Set();
+          if (!stop) {
+              return keys;
+          }
+
+          const addKey = value => {
+              if (value === undefined || value === null) {
+                  return;
+              }
+              if (value instanceof Set) {
+                  value.forEach(addKey);
+                  return;
+              }
+              if (Array.isArray(value)) {
+                  value.forEach(addKey);
+                  return;
+              }
+              const normalized = catRouteKey(value);
+              if (normalized && normalized !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  keys.add(normalized);
+              }
+          };
+
+          addKey(stop.catRouteKeys);
+          addKey(stop.CatRouteKeys);
+          addKey(stop.catRouteKey);
+          addKey(stop.CatRouteKey);
+          addKey(stop.routeKeys);
+          addKey(stop.RouteKeys);
+
+          if (stop.isCatStop) {
+              addKey(stop.rid ?? stop.Rid ?? stop.RID);
+              addKey(stop.routeKey ?? stop.RouteKey);
+              addKey(stop.RouteID ?? stop.RouteId ?? stop.routeID ?? stop.routeId);
+          }
+
+          return keys;
       }
 
       function collectRouteIdsForStop(stop) {
           const routeIds = new Set();
+          const catRouteKeys = extractCatRouteKeys(stop);
           if (!stop) {
-              return routeIds;
+              return { routeIds, catRouteKeys };
           }
+
+          const isCatStop = !!stop.isCatStop;
 
           const addRouteId = value => {
               if (value === undefined || value === null) {
+                  return;
+              }
+              if (value instanceof Set || Array.isArray(value)) {
+                  value.forEach(addRouteId);
                   return;
               }
               let candidate = value;
@@ -6580,35 +7305,59 @@
               }
           };
 
-          addRouteId(stop.RouteID ?? stop.RouteId);
+          if (!isCatStop) {
+              addRouteId(stop.RouteID ?? stop.RouteId);
 
-          const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
-          if (routeStopId) {
-              addRouteId(routeStopRouteMap[routeStopId]);
+              const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
+              if (routeStopId) {
+                  addRouteId(routeStopRouteMap[routeStopId]);
+              }
+
+              const routeIdsList = Array.isArray(stop.RouteIDs ?? stop.RouteIds)
+                  ? (stop.RouteIDs ?? stop.RouteIds)
+                  : [];
+              routeIdsList.forEach(routeIdValue => addRouteId(routeIdValue));
+
+              const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
+              routesArray.forEach(routeInfo => {
+                  addRouteId(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id ?? routeInfo);
+              });
+
+              const singleRoute = stop.Route ?? stop.route;
+              if (singleRoute && typeof singleRoute === 'object') {
+                  addRouteId(singleRoute.RouteID ?? singleRoute.RouteId ?? singleRoute.Id);
+              }
           }
 
-          const routeIdsList = Array.isArray(stop.RouteIDs ?? stop.RouteIds)
-              ? (stop.RouteIDs ?? stop.RouteIds)
-              : [];
-          routeIdsList.forEach(routeIdValue => addRouteId(routeIdValue));
-
-          const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
-          routesArray.forEach(routeInfo => {
-              addRouteId(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id ?? routeInfo);
-          });
-
-          const singleRoute = stop.Route ?? stop.route;
-          if (singleRoute && typeof singleRoute === 'object') {
-              addRouteId(singleRoute.RouteID ?? singleRoute.RouteId ?? singleRoute.Id);
-          }
-
-          return routeIds;
+          return { routeIds, catRouteKeys };
       }
 
-      function buildStopMarkerGradient(routeIds) {
-          const colors = Array.from(new Set((Array.isArray(routeIds) ? routeIds : [])
-              .map(routeId => getRouteColor(routeId))
-              .filter(color => typeof color === 'string' && color.trim() !== '')));
+      function buildStopMarkerGradient(routeIds, catRouteKeys = []) {
+          const colorSet = new Set();
+
+          const numericRouteIds = Array.isArray(routeIds) ? routeIds : [];
+          numericRouteIds.forEach(routeId => {
+              const color = sanitizeCssColor(getRouteColor(routeId));
+              if (color) {
+                  colorSet.add(color);
+              }
+          });
+
+          const catKeysArray = catRouteKeys instanceof Set
+              ? Array.from(catRouteKeys)
+              : (Array.isArray(catRouteKeys) ? catRouteKeys : [catRouteKeys]);
+          catKeysArray.forEach(routeKey => {
+              const normalized = catRouteKey(routeKey);
+              if (!normalized || normalized === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  return;
+              }
+              const color = sanitizeCssColor(getCatRouteColor(normalized));
+              if (color) {
+                  colorSet.add(color);
+              }
+          });
+
+          const colors = Array.from(colorSet);
 
           if (colors.length === 0) {
               return '#FFFFFF';
@@ -6626,8 +7375,8 @@
           return `conic-gradient(${segments.join(', ')})`;
       }
 
-      function createStopMarkerIcon(routeIds) {
-          const gradient = buildStopMarkerGradient(routeIds);
+      function createStopMarkerIcon(routeIds, catRouteKeys = []) {
+          const gradient = buildStopMarkerGradient(routeIds, catRouteKeys);
           const size = STOP_MARKER_ICON_SIZE;
           const outline = Math.max(0, Number(STOP_MARKER_OUTLINE_WIDTH) || 0);
           const html = `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`;
@@ -6723,24 +7472,129 @@
           return `rgba(0, 0, 0, ${safeAlpha})`;
       }
 
-      function buildEtaTableHtml(routeStopIds) {
+      function buildEtaTableHtml(routeStopIds, catStopIds = [], stopIds = []) {
           const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
-          const etas = [];
+          const etaEntries = [];
+
           normalizedRouteStopIds.forEach(routeStopId => {
-              if (cachedEtas[routeStopId]) {
-                  cachedEtas[routeStopId].forEach(eta => etas.push(eta));
+              const key = typeof routeStopId === 'string' ? routeStopId.trim() : `${routeStopId}`.trim();
+              if (!key) {
+                  return;
               }
+              const stopEtas = cachedEtas[key];
+              if (!Array.isArray(stopEtas)) {
+                  return;
+              }
+              stopEtas.forEach(eta => {
+                  if (!eta) {
+                      return;
+                  }
+                  const etaMinutes = Number(eta.etaMinutes);
+                  etaEntries.push({
+                      isCat: false,
+                      routeStopId: key,
+                      routeDescription: eta.routeDescription,
+                      RouteId: eta.RouteId,
+                      etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+                      text: typeof eta.text === 'string' ? eta.text : ''
+                  });
+              });
           });
-          const etaRows = etas.length > 0
-              ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
-                    .map(eta => {
-                        const routeColor = getRouteColor(eta.RouteId);
-                        const textColor = contrastBW(routeColor);
-                        const shadowColor = getColorWithAlpha(routeColor, 0.35);
-                        return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
-                    })
-                    .join('')
-              : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
+
+          const catStopIdSet = new Set();
+          const addCatStopCandidate = value => {
+              const normalized = catStopKey(value);
+              if (normalized) {
+                  catStopIdSet.add(normalized);
+              }
+          };
+          if (Array.isArray(catStopIds)) {
+              catStopIds.forEach(addCatStopCandidate);
+          }
+          if (Array.isArray(stopIds)) {
+              stopIds.forEach(addCatStopCandidate);
+          }
+
+          const catStopIdList = Array.from(catStopIdSet);
+          let hasCatEtaData = false;
+          catStopIdList.forEach(stopId => {
+              const cacheEntry = catStopEtaCache.get(stopId);
+              if (!cacheEntry || !Array.isArray(cacheEntry.etas)) {
+                  return;
+              }
+              if (cacheEntry.etas.length > 0) {
+                  hasCatEtaData = true;
+              }
+              cacheEntry.etas.forEach(eta => {
+                  if (!eta) {
+                      return;
+                  }
+                  const etaMinutes = Number(eta.etaMinutes);
+                  etaEntries.push(Object.assign({}, eta, {
+                      isCat: true,
+                      stopId,
+                      etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+                      text: typeof eta.text === 'string' ? eta.text : ''
+                  }));
+              });
+          });
+
+          const hasPendingCatRequest = catStopIdList.some(stopId => catStopEtaRequests.has(stopId));
+
+          if (etaEntries.length === 0) {
+              if (catStopIdList.length > 0 && hasPendingCatRequest && !hasCatEtaData) {
+                  return '<div style="margin-top: 10px;">Loading arrival times…</div>';
+              }
+              return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
+          }
+
+          const sortedEtas = etaEntries.slice().sort((a, b) => {
+              const aMinutes = Number.isFinite(a.etaMinutes) ? a.etaMinutes : Number.POSITIVE_INFINITY;
+              const bMinutes = Number.isFinite(b.etaMinutes) ? b.etaMinutes : Number.POSITIVE_INFINITY;
+              if (aMinutes !== bMinutes) {
+                  return aMinutes - bMinutes;
+              }
+              const aLabel = toNonEmptyString(a.routeDescription) || '';
+              const bLabel = toNonEmptyString(b.routeDescription) || '';
+              return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: 'base' });
+          });
+
+          const etaRows = sortedEtas.map(eta => {
+              const isCatEta = !!eta.isCat;
+              let routeLabel = toNonEmptyString(eta.routeDescription) || '';
+              let routeColor;
+              if (isCatEta) {
+                  const routeKey = catRouteKey(eta.routeKey ?? eta.routeId);
+                  const routeInfo = getCatRouteInfo(routeKey);
+                  if (!routeLabel) {
+                      if (routeInfo) {
+                          routeLabel = routeInfo.displayName || routeInfo.shortName || routeInfo.longName || '';
+                      }
+                      if (!routeLabel) {
+                          if (routeKey) {
+                              routeLabel = `Route ${routeKey}`;
+                          } else if (Number.isFinite(Number(eta.routeId))) {
+                              routeLabel = `Route ${Number(eta.routeId)}`;
+                          }
+                      }
+                  }
+                  routeColor = sanitizeCssColor(getCatRouteColor(routeKey || eta.routeId)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+              } else {
+                  if (!routeLabel) {
+                      if (Number.isFinite(Number(eta.RouteId))) {
+                          routeLabel = `Route ${Number(eta.RouteId)}`;
+                      } else {
+                          routeLabel = 'Route';
+                      }
+                  }
+                  routeColor = sanitizeCssColor(getRouteColor(eta.RouteId)) || '#1f2937';
+              }
+              const textColor = contrastBW(routeColor);
+              const shadowColor = getColorWithAlpha(routeColor, 0.35);
+              const etaText = getEtaDisplayText(eta);
+              return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${escapeHtml(routeLabel)}</div></td><td style="padding: 5px; text-align: center;">${escapeHtml(etaText)}</td></tr>`;
+          }).join('');
+
           return `
             <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
               <thead>
@@ -6756,6 +7610,22 @@
           `;
       }
 
+      function getEtaDisplayText(eta) {
+          if (!eta) {
+              return '';
+          }
+          const textCandidate = toNonEmptyString(eta.text);
+          if (textCandidate) {
+              return textCandidate;
+          }
+          const minutes = Number(eta.etaMinutes);
+          if (Number.isFinite(minutes)) {
+              const rounded = Math.max(0, Math.round(minutes));
+              return rounded <= 0 ? 'Arriving' : `${rounded} min`;
+          }
+          return 'Scheduled';
+      }
+
       function buildStopEntriesSectionHtml(stopEntries, multipleStops) {
           if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
               return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
@@ -6763,7 +7633,7 @@
 
           if (!multipleStops) {
               const entry = stopEntries[0];
-              return buildEtaTableHtml(entry?.routeStopIds || []);
+              return buildEtaTableHtml(entry?.routeStopIds || [], entry?.catStopIds || [], entry?.stopIds || []);
           }
 
           return stopEntries.map(entry => {
@@ -6771,7 +7641,7 @@
               const entryIdLine = entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
               const entryAddressIdText = normalizeIdentifier(entry?.addressId);
               const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Stop ID: ${entryAddressIdText}</span>` : '';
-              const tableHtml = buildEtaTableHtml(entry.routeStopIds || []);
+              const tableHtml = buildEtaTableHtml(entry.routeStopIds || [], entry.catStopIds || [], entry.stopIds || []);
               return `<div class="stop-entry">${entryTitle}${entryIdLine}${entryAddressLine}${tableHtml}</div>`;
           }).join('');
       }
@@ -6833,6 +7703,28 @@
             ${entriesHtml}
             <div class="custom-popup-arrow"></div>
           `;
+
+          if (catOverlayEnabled) {
+              const catStopIdsToFetch = new Set();
+              stopEntries.forEach(entry => {
+                  if (!entry || !Array.isArray(entry.catStopIds)) {
+                      return;
+                  }
+                  entry.catStopIds.forEach(value => {
+                      const key = catStopKey(value);
+                      if (key) {
+                          catStopIdsToFetch.add(key);
+                      }
+                  });
+              });
+              const fallbackCatStopId = catStopKey(fallbackStopIdText);
+              if (fallbackCatStopId && (catStopIdsToFetch.size === 0 || catStopsById.has(fallbackCatStopId))) {
+                  catStopIdsToFetch.add(fallbackCatStopId);
+              }
+              if (catStopIdsToFetch.size > 0) {
+                  ensureCatStopEtas(Array.from(catStopIdsToFetch));
+              }
+          }
 
           attachPopupCloseHandler(popupElement);
       }
@@ -6954,7 +7846,7 @@
                           }
                       }
                       if (!routeColor) {
-                          const idCandidates = [route.routeId, route.RouteId, route.RouteID];
+                          const idCandidates = [route.routeId, route.RouteId, route.RouteID, route.rawRouteId, route.routeKey];
                           for (const idCandidate of idCandidates) {
                               if (idCandidate === undefined || idCandidate === null) continue;
                               const directColor = sanitizeCssColor(routeColors ? routeColors[idCandidate] : '');
@@ -7117,31 +8009,56 @@
       }
 
       function renderBusStops(stopsArray) {
-          if (!Array.isArray(stopsArray) || !map) {
+          if (!map) {
               return;
           }
 
           stopMarkers.forEach(marker => map.removeLayer(marker));
           stopMarkers = [];
 
+          const baseStops = Array.isArray(stopsArray) ? stopsArray.slice() : [];
+          const includeCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+          if (includeCatStops) {
+              baseStops.push(...catStopDataCache);
+          }
+
+          if (baseStops.length === 0) {
+              return;
+          }
+
           const selectedRouteIdsSet = getSelectedRouteIdSet();
 
-          const stopsForSelectedRoutes = selectedRouteIdsSet.size > 0
-              ? stopsArray.filter(stop => {
-                  const routeIds = collectRouteIdsForStop(stop);
-                  if (routeIds.size === 0) {
-                      return false;
-                  }
+          const stopsForVisibleRoutes = baseStops.filter(stop => {
+              if (!stop) {
+                  return false;
+              }
+              const { routeIds, catRouteKeys } = collectRouteIdsForStop(stop);
+              let matchesTransloc = false;
+              if (selectedRouteIdsSet.size > 0 && routeIds.size > 0) {
                   for (const routeId of routeIds) {
                       if (selectedRouteIdsSet.has(routeId)) {
-                          return true;
+                          matchesTransloc = true;
+                          break;
                       }
                   }
-                  return false;
-              })
-              : [];
+              }
+              let matchesCat = false;
+              if (catOverlayEnabled && catRouteKeys.size > 0) {
+                  for (const routeKey of catRouteKeys) {
+                      if (isCatRouteVisible(routeKey)) {
+                          matchesCat = true;
+                          break;
+                      }
+                  }
+              }
+              return matchesTransloc || matchesCat;
+          });
 
-          const groupedStops = groupStopsByPixelDistance(stopsForSelectedRoutes, STOP_GROUPING_PIXEL_DISTANCE);
+          if (stopsForVisibleRoutes.length === 0) {
+              return;
+          }
+
+          const groupedStops = groupStopsByPixelDistance(stopsForVisibleRoutes, STOP_GROUPING_PIXEL_DISTANCE);
           const groupedData = [];
 
           groupedStops.forEach(group => {
@@ -7150,28 +8067,31 @@
                   return;
               }
 
-              const allRouteIdsForMarker = new Set();
+              const aggregatedRouteIds = new Set();
+              const aggregatedCatRouteKeys = new Set();
+
               stopEntries.forEach(entry => {
-                  collectRouteIdsForEntry(entry).forEach(routeId => {
-                      if (!Number.isNaN(routeId)) {
-                          allRouteIdsForMarker.add(routeId);
-                      }
-                  });
+                  const entryRoutes = collectRouteIdsForEntry(entry);
+                  entryRoutes.routeIds.forEach(routeId => aggregatedRouteIds.add(routeId));
+                  entryRoutes.catRouteKeys.forEach(routeKey => aggregatedCatRouteKeys.add(routeKey));
               });
 
-              if (allRouteIdsForMarker.size === 0) {
+              if (aggregatedRouteIds.size === 0 && aggregatedCatRouteKeys.size === 0) {
                   group.stops.forEach(stop => {
-                      collectRouteIdsForStop(stop).forEach(routeId => {
-                          allRouteIdsForMarker.add(routeId);
-                      });
+                      const stopRoutes = collectRouteIdsForStop(stop);
+                      stopRoutes.routeIds.forEach(routeId => aggregatedRouteIds.add(routeId));
+                      stopRoutes.catRouteKeys.forEach(routeKey => aggregatedCatRouteKeys.add(routeKey));
                   });
               }
 
-              const servesSelectedRoute = selectedRouteIdsSet.size > 0
-                  ? Array.from(allRouteIdsForMarker).some(routeId => selectedRouteIdsSet.has(routeId))
+              const servesTranslocSelection = selectedRouteIdsSet.size > 0
+                  ? Array.from(aggregatedRouteIds).some(routeId => selectedRouteIdsSet.has(routeId))
+                  : false;
+              const servesCatSelection = catOverlayEnabled
+                  ? Array.from(aggregatedCatRouteKeys).some(routeKey => isCatRouteVisible(routeKey))
                   : false;
 
-              if (!servesSelectedRoute) {
+              if (!servesTranslocSelection && !servesCatSelection) {
                   return;
               }
 
@@ -7198,10 +8118,13 @@
                   .filter(Boolean)))
                   .join(' / ') || 'Stop';
               const groupKey = createStopGroupKey(aggregatedRouteStopIds, fallbackStopIdText);
-              const markerRouteIds = Array.from(allRouteIdsForMarker)
+              const markerRouteIds = Array.from(aggregatedRouteIds)
                   .filter(routeId => selectedRouteIdsSet.has(routeId))
                   .sort((a, b) => a - b);
-              const markerIcon = createStopMarkerIcon(markerRouteIds);
+              const markerCatRouteKeys = Array.from(aggregatedCatRouteKeys)
+                  .filter(routeKey => isCatRouteVisible(routeKey))
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+              const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
 
               const groupInfo = {
                   position: stopPosition,
@@ -7209,7 +8132,8 @@
                   fallbackStopId: fallbackStopIdText,
                   stopEntries,
                   aggregatedRouteStopIds,
-                  groupKey
+                  groupKey,
+                  catRouteKeys: Array.from(aggregatedCatRouteKeys).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
               };
 
               const stopMarker = L.marker(stopPosition, {
@@ -8292,10 +9216,12 @@
                       });
 
                       const selectedRouteIdsSorted = selectedRouteIds.slice().sort((a, b) => a - b);
+                      currentTranslocSelectedRouteIds = selectedRouteIdsSorted.slice();
+                      currentTranslocRendererGeometries = new Map(rendererGeometries);
                       const selectionKey = selectedRouteIdsSorted.join('|');
                       const colorSignature = selectedRouteIdsSorted.map(id => `${id}:${getRouteColor(id)}`).join('|');
                       const geometrySignature = selectedRouteIdsSorted
-                          .map(id => `${id}:${routePolylineCache.get(id)?.encoded || ''}`)
+                          .map(id => `${id}:${getRouteGeometrySignature(id, rendererGeometries)}`)
                           .join('|');
                       const rendererFlag = !!useOverlapRenderer;
 
@@ -8306,15 +9232,13 @@
                         geometrySignature !== lastRouteRenderState.geometrySignature ||
                         geometryChanged;
 
-                      if (shouldRender) {
+                      if (useOverlapRenderer) {
+                          updateOverlapRendererWithCatRoutes();
+                      } else if (shouldRender) {
                           routeLayers.forEach(layer => map.removeLayer(layer));
                           routeLayers = [];
-                          if (useOverlapRenderer) {
-                              const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted);
-                              routeLayers = layers;
-                          } else {
-                              const currentStrokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
-                              simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
+                          const currentStrokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
+                          simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
                               const routeLayer = L.polyline(latLngPath, mergeRouteLayerOptions({
                                       color: routeColor,
                                       weight: currentStrokeWeight,
@@ -8323,21 +9247,24 @@
                                       lineJoin: 'round'
                                   })).addTo(map);
                                   routeLayers.push(routeLayer);
-                              });
-                          }
+                          });
                       }
 
-                      lastRouteRenderState = {
-                          selectionKey,
-                          colorSignature,
-                          geometrySignature,
-                          useOverlapRenderer: rendererFlag
-                      };
+                      if (!rendererFlag) {
+                          lastRouteRenderState = {
+                              selectionKey,
+                              colorSignature,
+                              geometrySignature,
+                              useOverlapRenderer: rendererFlag
+                          };
+                      }
 
                       routeStopAddressMap = updatedRouteStopAddressMap;
                       routeStopRouteMap = updatedRouteStopRouteMap;
                       updateCustomPopups();
-                      if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
+                      const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
+                      const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+                      if (hasTranslocStops || hasCatStops) {
                           renderBusStops(stopDataCache);
                       }
                       if (!bounds && fallbackBounds) {
@@ -8354,7 +9281,18 @@
                       }
                       evaluateIncidentRouteAlerts();
                       updateRouteSelector(activeRoutes);
-                      stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
+                      stopMarkers.forEach(stopMarker => {
+                          if (!stopMarker) {
+                              return;
+                          }
+                          if (typeof stopMarker.bringToFront === 'function') {
+                              stopMarker.bringToFront();
+                              return;
+                          }
+                          if (typeof stopMarker.setZIndexOffset === 'function') {
+                              stopMarker.setZIndexOffset(1000);
+                          }
+                      });
                   }
                   updateRouteLegend(Array.from(displayedRoutes.values()), { preserveOnEmpty: true });
               })
@@ -8735,6 +9673,1968 @@
               return vehicleHeadingCache;
           })();
           return vehicleHeadingCachePromise;
+      }
+
+      function toggleCatOverlay() {
+          if (catOverlayEnabled) {
+              disableCatOverlay();
+          } else {
+              enableCatOverlay();
+          }
+      }
+
+      function enableCatOverlay() {
+          catOverlayEnabled = true;
+          ensureCatLayerGroup();
+          ensureCatBusMarkerSvgLoaded();
+          updateCatToggleButtonState();
+          refreshServiceAlertsUI();
+          updateRouteSelector(activeRoutes, true);
+          renderCatRoutes();
+          fetchCatRoutes().catch(error => console.error('Failed to fetch CAT routes:', error));
+          fetchCatStops().catch(error => console.error('Failed to fetch CAT stops:', error));
+          fetchCatRoutePatterns().catch(error => console.error('Failed to fetch CAT route patterns:', error));
+          fetchCatVehicles().catch(error => console.error('Failed to fetch CAT vehicles:', error));
+          fetchCatServiceAlerts().catch(error => console.error('Failed to fetch CAT service alerts:', error));
+          startCatRefreshIntervals();
+          evaluateIncidentRouteAlerts();
+          updateControlPanel();
+      }
+
+      function disableCatOverlay() {
+          catOverlayEnabled = false;
+          stopCatRefreshIntervals();
+          clearCatVehicleMarkers();
+          if (catLayerGroup && map && map.hasLayer(catLayerGroup)) {
+              map.removeLayer(catLayerGroup);
+          }
+          catActiveRouteKeys = new Set();
+          catRouteSelections.clear();
+          catServiceAlerts = [];
+          catServiceAlertsLoading = false;
+          catServiceAlertsError = null;
+          catServiceAlertsFetchPromise = null;
+          catServiceAlertsLastFetchTime = 0;
+          resetCatOverlapRenderingState();
+          catStopDataCache = [];
+          catStopEtaCache.clear();
+          catStopEtaRequests.clear();
+          renderBusStops(stopDataCache);
+          updateCatToggleButtonState();
+          refreshServiceAlertsUI();
+          updateRouteSelector(activeRoutes, true);
+          if (enableOverlapDashRendering && overlapRenderer) {
+              updateOverlapRendererWithCatRoutes();
+          }
+          evaluateIncidentRouteAlerts();
+          updateControlPanel();
+      }
+
+      function ensureCatLayerGroup() {
+          if (!map) {
+              return null;
+          }
+          if (!catLayerGroup) {
+              catLayerGroup = L.layerGroup();
+          }
+          if (!map.hasLayer(catLayerGroup)) {
+              catLayerGroup.addTo(map);
+          }
+          return catLayerGroup;
+      }
+
+      function startCatRefreshIntervals() {
+          stopCatRefreshIntervals();
+          if (!catOverlayEnabled) {
+              return;
+          }
+          catRefreshIntervals.push(setInterval(() => {
+              fetchCatVehicles().catch(error => console.error('Failed to refresh CAT vehicles:', error));
+          }, CAT_VEHICLE_FETCH_INTERVAL_MS));
+          catRefreshIntervals.push(setInterval(() => {
+              fetchCatRoutes().catch(error => console.error('Failed to refresh CAT routes:', error));
+              fetchCatStops().catch(error => console.error('Failed to refresh CAT stops:', error));
+              fetchCatRoutePatterns().catch(error => console.error('Failed to refresh CAT route patterns:', error));
+          }, CAT_METADATA_REFRESH_INTERVAL_MS));
+          catRefreshIntervals.push(setInterval(() => {
+              fetchCatServiceAlerts().catch(error => console.error('Failed to refresh CAT service alerts:', error));
+          }, CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS));
+      }
+
+      function stopCatRefreshIntervals() {
+          if (Array.isArray(catRefreshIntervals)) {
+              catRefreshIntervals.forEach(intervalId => clearInterval(intervalId));
+          }
+          catRefreshIntervals = [];
+      }
+
+      if (!catOverlayEnabled && kioskMode && !adminKioskMode) {
+          enableCatOverlay();
+      }
+
+      function ensureCatBusMarkerSvgLoaded() {
+          if (BUS_MARKER_SVG_TEXT) {
+              return Promise.resolve(true);
+          }
+          if (!catBusMarkerSvgPromise && typeof loadBusSVG === 'function') {
+              catBusMarkerSvgPromise = loadBusSVG()
+                  .then(() => {
+                      catBusMarkerSvgPromise = null;
+                      return !!BUS_MARKER_SVG_TEXT;
+                  })
+                  .catch(error => {
+                      catBusMarkerSvgPromise = null;
+                      console.error('Failed to load bus marker SVG for CAT overlay:', error);
+                      return false;
+                  });
+          }
+          return catBusMarkerSvgPromise || Promise.resolve(false);
+      }
+
+      function isCatOutOfServiceRouteValue(value) {
+          if (value === undefined || value === null) {
+              return false;
+          }
+          const text = `${value}`.trim();
+          if (text === '') {
+              return false;
+          }
+          if (text === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return true;
+          }
+          const numeric = Number(text);
+          if (Number.isFinite(numeric) && numeric === CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID) {
+              return true;
+          }
+          return false;
+      }
+
+      function catRouteKey(routeId) {
+          if (routeId === undefined || routeId === null) {
+              return '';
+          }
+          const text = `${routeId}`.trim();
+          if (text === '') {
+              return '';
+          }
+          if (isCatOutOfServiceRouteValue(text)) {
+              return CAT_OUT_OF_SERVICE_ROUTE_KEY;
+          }
+          return text;
+      }
+
+      function isCatRouteAllowedInCurrentMode(routeKeyOrId) {
+          if (!kioskMode || adminKioskMode) {
+              return true;
+          }
+          const normalized = catRouteKey(routeKeyOrId);
+          if (!normalized || isCatOutOfServiceRouteValue(normalized)) {
+              return false;
+          }
+          const numeric = Number(normalized);
+          if (!Number.isFinite(numeric)) {
+              return false;
+          }
+          return kioskModeAllowedCatRouteIds.has(numeric);
+      }
+
+      function catStopKey(stopId) {
+          if (stopId === undefined || stopId === null) {
+              return '';
+          }
+          return `${stopId}`.trim();
+      }
+
+      function isCatOverlapRouteId(routeId) {
+          const numeric = Number(routeId);
+          if (Number.isNaN(numeric)) {
+              return false;
+          }
+          return catOverlapInfoByNumericId.has(numeric);
+      }
+
+      function resetCatOverlapRenderingState() {
+          catOverlapPatternIdMap.clear();
+          catOverlapInfoByNumericId.clear();
+          nextCatOverlapNumericId = 1000000;
+      }
+
+      function mergeNumericRouteIds(...lists) {
+          const merged = new Set();
+          lists.forEach(list => {
+              if (!Array.isArray(list)) {
+                  return;
+              }
+              list.forEach(id => {
+                  const numeric = Number(id);
+                  if (!Number.isNaN(numeric)) {
+                      merged.add(numeric);
+                  }
+              });
+          });
+          return Array.from(merged).sort((a, b) => a - b);
+      }
+
+      function buildLatLngSignature(latLngs) {
+          if (!Array.isArray(latLngs) || latLngs.length === 0) {
+              return '';
+          }
+          const parts = [];
+          const limit = Math.min(latLngs.length, 256);
+          for (let i = 0; i < limit; i += 1) {
+              const point = latLngs[i];
+              if (!point) {
+                  continue;
+              }
+              const lat = Number(point.lat ?? point.latitude ?? (Array.isArray(point) ? point[0] : null));
+              const lng = Number(point.lng ?? point.lon ?? point.longitude ?? (Array.isArray(point) ? point[1] : null));
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                  continue;
+              }
+              parts.push(`${lat.toFixed(6)},${lng.toFixed(6)}`);
+          }
+          return parts.join(';');
+      }
+
+      function ensureCatOverlapPatternEntry(patternKey, geometry) {
+          if (!patternKey || !geometry) {
+              return null;
+          }
+          let numericId = catOverlapPatternIdMap.get(patternKey);
+          if (!Number.isFinite(numericId)) {
+              numericId = nextCatOverlapNumericId;
+              nextCatOverlapNumericId += 1;
+              catOverlapPatternIdMap.set(patternKey, numericId);
+          }
+          const normalizedRouteKey = catRouteKey(geometry.routeKey);
+          const color = sanitizeCssColor(geometry.color)
+              || sanitizeCssColor(getCatRouteColor(normalizedRouteKey))
+              || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          const encoded = typeof geometry.encoded === 'string' ? geometry.encoded : '';
+          const latLngs = Array.isArray(geometry.latLngs) ? geometry.latLngs : [];
+          const geometrySignature = encoded || buildLatLngSignature(latLngs);
+          catOverlapInfoByNumericId.set(numericId, {
+              patternKey,
+              routeKey: normalizedRouteKey,
+              color,
+              geometrySignature,
+              encoded
+          });
+          return numericId;
+      }
+
+      function buildCatOverlapRendererData() {
+          const geometries = new Map();
+          const routeIds = [];
+          if (!catOverlayEnabled) {
+              return { geometries, routeIds };
+          }
+          catRoutePatternGeometries.forEach((geometry, patternKey) => {
+              if (!geometry || !Array.isArray(geometry.latLngs) || geometry.latLngs.length < 2) {
+                  return;
+              }
+              if (!isCatRouteVisible(geometry.routeKey)) {
+                  return;
+              }
+              const numericId = ensureCatOverlapPatternEntry(patternKey, geometry);
+              if (!Number.isFinite(numericId)) {
+                  return;
+              }
+              geometries.set(numericId, geometry.latLngs);
+              routeIds.push(numericId);
+          });
+          return {
+              geometries,
+              routeIds: mergeNumericRouteIds(routeIds)
+          };
+      }
+
+      function getRouteGeometrySignature(routeId, geometryMap = currentTranslocRendererGeometries) {
+          const numeric = Number(routeId);
+          if (!Number.isNaN(numeric) && routePolylineCache.has(numeric)) {
+              const cacheEntry = routePolylineCache.get(numeric);
+              if (cacheEntry && typeof cacheEntry.encoded === 'string') {
+                  return cacheEntry.encoded;
+              }
+          }
+          if (!Number.isNaN(numeric) && catOverlapInfoByNumericId.has(numeric)) {
+              const info = catOverlapInfoByNumericId.get(numeric);
+              if (info && info.geometrySignature) {
+                  return info.geometrySignature;
+              }
+          }
+          if (geometryMap instanceof Map && geometryMap.has(numeric)) {
+              return buildLatLngSignature(geometryMap.get(numeric));
+          }
+          return '';
+      }
+
+      function getUniqueCatRoutes() {
+          const unique = new Map();
+          catRoutesById.forEach(route => {
+              if (!route || typeof route !== 'object') {
+                  return;
+              }
+              const key = route.idKey ? `${route.idKey}`.trim() : '';
+              if (!key || key === CAT_OUT_OF_SERVICE_ROUTE_KEY || unique.has(key)) {
+                  return;
+              }
+              const routeIdentifier = Number.isFinite(route?.id) ? route.id : key;
+              if (!isCatRouteAllowedInCurrentMode(routeIdentifier)) {
+                  return;
+              }
+              unique.set(key, route);
+          });
+          return Array.from(unique.values());
+      }
+
+      function getSortedCatRoutes() {
+          const routes = getUniqueCatRoutes();
+          routes.sort((a, b) => {
+              const nameA = (a.displayName || a.shortName || a.longName || a.idKey || '').trim().toUpperCase();
+              const nameB = (b.displayName || b.shortName || b.longName || b.idKey || '').trim().toUpperCase();
+              if (nameA < nameB) return -1;
+              if (nameA > nameB) return 1;
+              return 0;
+          });
+          return routes;
+      }
+
+      function getCatRouteCheckboxId(routeKey) {
+          const normalized = catRouteKey(routeKey);
+          const safeId = normalized ? normalized.replace(/[^A-Za-z0-9_-]/g, '_') : 'unassigned';
+          return `cat_route_${safeId}`;
+      }
+
+      function getCatRouteSelectionState(routeKey, activeFallbackSet = catActiveRouteKeys) {
+          const normalized = catRouteKey(routeKey);
+          if (!normalized) {
+              return false;
+          }
+          if (normalized === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return isOutOfServiceRouteVisible();
+          }
+          if (catRouteSelections.has(normalized)) {
+              return !!catRouteSelections.get(normalized);
+          }
+          return activeFallbackSet instanceof Set ? activeFallbackSet.has(normalized) : false;
+      }
+
+      function isOutOfServiceRouteVisible() {
+          if (!canDisplayRoute(0)) {
+              return false;
+          }
+          if (Object.prototype.hasOwnProperty.call(routeSelections, 0)) {
+              return !!routeSelections[0];
+          }
+          return activeRoutes instanceof Set ? activeRoutes.has(0) : false;
+      }
+
+      function getEffectiveCatRouteKey(vehicle) {
+          if (!vehicle || typeof vehicle !== 'object') {
+              return CAT_OUT_OF_SERVICE_ROUTE_KEY;
+          }
+          const candidates = [vehicle.routeKey, vehicle.routeId];
+          for (let i = 0; i < candidates.length; i += 1) {
+              const normalized = catRouteKey(candidates[i]);
+              if (normalized) {
+                  return normalized;
+              }
+          }
+          return CAT_OUT_OF_SERVICE_ROUTE_KEY;
+      }
+
+      function isCatRouteVisible(routeKey, activeFallbackSet = catActiveRouteKeys) {
+          if (isCatOutOfServiceRouteValue(routeKey)) {
+              return isOutOfServiceRouteVisible();
+          }
+          const normalized = catRouteKey(routeKey);
+          if (!normalized) {
+              return false;
+          }
+          if (!isCatRouteAllowedInCurrentMode(normalized)) {
+              return false;
+          }
+          if (catRouteSelections.has(normalized)) {
+              return !!catRouteSelections.get(normalized);
+          }
+          return activeFallbackSet instanceof Set ? activeFallbackSet.has(normalized) : false;
+      }
+
+      function toNonEmptyString(value) {
+          if (value === undefined || value === null) {
+              return '';
+          }
+          const text = `${value}`.trim();
+          return text;
+      }
+
+      function toNumberOrNull(value) {
+          const num = Number(value);
+          return Number.isFinite(num) ? num : null;
+      }
+
+      function getFirstDefined(source, keys) {
+          if (!source || typeof source !== 'object' || !Array.isArray(keys)) {
+              return undefined;
+          }
+          for (const key of keys) {
+              if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined && source[key] !== null) {
+                  return source[key];
+              }
+          }
+          return undefined;
+      }
+
+      function toCatLatLng(latCandidate, lonCandidate) {
+          let lat = Number(latCandidate);
+          let lon = Number(lonCandidate);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+              return null;
+          }
+          if (Math.abs(lat) > 90 && Math.abs(lon) <= 90) {
+              const swappedLat = Number(lonCandidate);
+              const swappedLon = Number(latCandidate);
+              if (Number.isFinite(swappedLat) && Number.isFinite(swappedLon)) {
+                  lat = swappedLat;
+                  lon = swappedLon;
+              }
+          }
+          if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+              return null;
+          }
+          try {
+              return L.latLng(lat, lon);
+          } catch (error) {
+              return null;
+          }
+      }
+
+      function decodeCatPolyline(encoded) {
+          if (typeof encoded !== 'string') {
+              return [];
+          }
+          const trimmed = encoded.trim();
+          if (trimmed.length === 0) {
+              return [];
+          }
+          try {
+              const coords = polyline.decode(trimmed);
+              if (!Array.isArray(coords)) {
+                  return [];
+              }
+              return coords
+                  .map(pair => {
+                      if (!Array.isArray(pair) || pair.length < 2) {
+                          return null;
+                      }
+                      const lat = Number(pair[0]);
+                      const lon = Number(pair[1]);
+                      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                          return null;
+                      }
+                      try {
+                          return L.latLng(lat, lon);
+                      } catch (error) {
+                          return null;
+                      }
+                  })
+                  .filter(Boolean);
+          } catch (error) {
+              console.warn('Failed to decode CAT pattern polyline:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatPatternCoordinates(entry) {
+          const encoded = toNonEmptyString(getFirstDefined(entry, [
+              'encLine',
+              'EncLine',
+              'encodedPolyline',
+              'EncodedPolyline',
+              'polyline',
+              'Polyline'
+          ]));
+          if (encoded) {
+              const encodedCoords = decodeCatPolyline(encoded);
+              if (encodedCoords.length >= 2) {
+                  return { latLngs: encodedCoords, encoded };
+              }
+          }
+
+          const decodedLine = entry && typeof entry === 'object'
+              ? (entry.decLine || entry.DecLine || entry.decodedLine || entry.DecodedLine)
+              : null;
+          const latLngs = [];
+          if (Array.isArray(decodedLine)) {
+              decodedLine.forEach(point => {
+                  let candidate = null;
+                  if (Array.isArray(point) && point.length >= 2) {
+                      candidate = toCatLatLng(point[0], point[1]) || toCatLatLng(point[1], point[0]);
+                  } else if (point && typeof point === 'object') {
+                      const latValue = getFirstDefined(point, ['lat', 'Lat', 'latitude', 'Latitude', 'y', 'Y']);
+                      const lonValue = getFirstDefined(point, ['lon', 'Lon', 'lng', 'Lng', 'long', 'Long', 'longitude', 'Longitude', 'x', 'X']);
+                      candidate = toCatLatLng(latValue, lonValue);
+                  }
+                  if (candidate) {
+                      latLngs.push(candidate);
+                  }
+              });
+          }
+
+          if (latLngs.length >= 2) {
+              return { latLngs, encoded: encoded || '' };
+          }
+
+          return { latLngs: [], encoded: encoded || '' };
+      }
+
+      function extractCatArray(root, candidateKeys = []) {
+          if (Array.isArray(root)) {
+              return root;
+          }
+          if (!root || typeof root !== 'object') {
+              return [];
+          }
+          const candidateList = Array.isArray(candidateKeys) ? candidateKeys : (candidateKeys ? [candidateKeys] : []);
+          const extendedCandidateKeys = candidateList.concat([
+                  'get_routes',
+                  'get_stops',
+                  'get_vehicles',
+                  'get_patterns',
+                  'get_service_announcements',
+                  'GetRoutes',
+                  'GetStops',
+                  'GetVehicles',
+                  'GetPatterns',
+                  'GetServiceAnnouncements'
+              ]);
+          for (const key of extendedCandidateKeys) {
+              const value = root[key];
+              if (Array.isArray(value)) {
+                  return value;
+              }
+          }
+          const fallbackKeys = ['data', 'Data', 'result', 'Result', 'results', 'Results', 'items', 'Items', 'values', 'Values'];
+          for (const key of fallbackKeys) {
+              const value = root[key];
+              if (Array.isArray(value)) {
+                  return value;
+              }
+          }
+          for (const key of Object.keys(root)) {
+              const value = root[key];
+              if (Array.isArray(value)) {
+                  return value;
+              }
+          }
+          return [];
+      }
+
+      function normalizeCatRoute(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'ID', 'Id', 'id']);
+          const idKey = catRouteKey(rawId);
+          if (!idKey || idKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return null;
+          }
+          const numericId = toNumberOrNull(rawId);
+          const colorValue = getFirstDefined(entry, ['Color', 'color', 'RouteColor', 'RouteHexColor', 'HexColor', 'DisplayColor', 'MapColor', 'RGB']);
+          const color = sanitizeCssColor(colorValue) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          const shortName = toNonEmptyString(getFirstDefined(entry, ['RouteAbbreviation', 'routeAbbreviation', 'RouteShortName', 'routeShortName', 'ShortName', 'shortName', 'Abbreviation', 'abbreviation', 'abbr']));
+          const longName = toNonEmptyString(getFirstDefined(entry, ['RouteName', 'routeName', 'Description', 'description', 'LongName', 'longName', 'Name', 'name']));
+          const displayName = shortName || longName || `Route ${idKey}`;
+          return {
+              id: numericId,
+              idKey,
+              color,
+              shortName,
+              longName,
+              displayName
+          };
+      }
+
+      function normalizeCatRoutes(root) {
+          const entries = extractCatArray(root, ['routes', 'Routes']);
+          const routes = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatRoute(entry);
+              if (normalized) {
+                  routes.push(normalized);
+              }
+          });
+          return routes;
+      }
+
+      function normalizeCatPattern(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+
+          const coordinates = normalizeCatPatternCoordinates(entry);
+          if (!Array.isArray(coordinates.latLngs) || coordinates.latLngs.length < 2) {
+              return null;
+          }
+
+          const routeCandidates = [];
+          [entry.routes, entry.Routes, entry.routeIDs, entry.RouteIDs, entry.routeIds, entry.RouteIds]
+              .filter(Array.isArray)
+              .forEach(list => {
+                  list.forEach(value => routeCandidates.push(value));
+              });
+          [
+              entry.routeID,
+              entry.RouteID,
+              entry.routeId,
+              entry.RouteId,
+              entry.route,
+              entry.Route
+          ].forEach(value => {
+              if (value !== undefined && value !== null) {
+                  routeCandidates.push(value);
+              }
+          });
+
+          const extIdText = toNonEmptyString(getFirstDefined(entry, ['extID', 'ExtID', 'externalId', 'ExternalId']));
+          if (extIdText) {
+              const extMatch = extIdText.match(/^(\s*\d+)/);
+              if (extMatch && extMatch[1]) {
+                  routeCandidates.push(extMatch[1]);
+              }
+          }
+
+          const nameText = toNonEmptyString(getFirstDefined(entry, ['name', 'Name']));
+          if (nameText) {
+              const nameMatch = nameText.match(/^(\s*\d+)/);
+              if (nameMatch && nameMatch[1]) {
+                  routeCandidates.push(nameMatch[1]);
+              }
+          }
+
+          const uniqueRouteKeys = new Set();
+          routeCandidates.forEach(value => {
+              const key = catRouteKey(value);
+              if (key && key !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  uniqueRouteKeys.add(key);
+              }
+          });
+
+          if (uniqueRouteKeys.size === 0) {
+              return null;
+          }
+
+          const colorValue = sanitizeCssColor(getFirstDefined(entry, [
+              'color',
+              'Color',
+              'routeColor',
+              'RouteColor',
+              'lineColor',
+              'LineColor',
+              'displayColor',
+              'DisplayColor'
+          ]));
+
+          const idText = toNonEmptyString(getFirstDefined(entry, ['id', 'Id', 'patternId', 'PatternId', 'PatternID', 'patternID']));
+
+          return {
+              id: idText,
+              extId: extIdText,
+              name: nameText,
+              routeKeys: Array.from(uniqueRouteKeys.values()),
+              latLngs: coordinates.latLngs,
+              color: colorValue || '',
+              encoded: coordinates.encoded || ''
+          };
+      }
+
+      function normalizeCatPatterns(root) {
+          const entries = extractCatArray(root, ['patterns', 'Patterns']);
+          const patterns = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatPattern(entry);
+              if (normalized) {
+                  patterns.push(normalized);
+              }
+          });
+          return patterns;
+      }
+
+      async function fetchCatRoutes(force = false) {
+          if (!catOverlayEnabled && !force) {
+              return [];
+          }
+          const now = Date.now();
+          if (!force && catRoutesById.size > 0 && (now - catRoutesLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
+              return Array.from(catRoutesById.values());
+          }
+          const params = new URLSearchParams({ service: 'get_routes', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const routes = normalizeCatRoutes(payload);
+              if (!catOverlayEnabled && !force) {
+                  return routes;
+              }
+              catRoutesById.clear();
+              routes.forEach(route => {
+                  if (!route || route.idKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                      return;
+                  }
+                  catRoutesById.set(route.idKey, route);
+                  catRoutesById.set(`${route.idKey}`, route);
+                  if (Number.isFinite(route.id)) {
+                      catRoutesById.set(`${route.id}`, route);
+                  }
+              });
+              catRoutesLastFetchTime = now;
+              if (catOverlayEnabled) {
+                  updateRouteSelector(activeRoutes);
+                  renderCatRoutes();
+              }
+              return routes;
+          } catch (error) {
+              console.error('Failed to fetch CAT routes:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatStop(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawId = getFirstDefined(entry, ['StopID', 'stopID', 'StopId', 'stopId', 'ID', 'Id', 'id']);
+          const idKey = catStopKey(rawId);
+          if (!idKey) {
+              return null;
+          }
+          const name = toNonEmptyString(getFirstDefined(entry, ['StopName', 'stopName', 'Name', 'name', 'Description', 'description'])) || `Stop ${idKey}`;
+          const lat = toNumberOrNull(getFirstDefined(entry, ['Latitude', 'latitude', 'Lat', 'lat']));
+          const lon = toNumberOrNull(getFirstDefined(entry, ['Longitude', 'longitude', 'Lon', 'lon', 'Lng', 'lng']));
+          const rawRouteId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'rid', 'Rid', 'RID', 'Route', 'route']);
+          const routeKey = catRouteKey(rawRouteId);
+          const rawRouteStopId = getFirstDefined(entry, ['RouteStopID', 'RouteStopId', 'rsid', 'Rsid', 'RSID']);
+          const routeStopId = normalizeIdentifier(rawRouteStopId);
+          return {
+              id: idKey,
+              rawId,
+              name,
+              latitude: lat,
+              longitude: lon,
+              routeKey: routeKey && routeKey !== CAT_OUT_OF_SERVICE_ROUTE_KEY ? routeKey : null,
+              routeStopId: routeStopId || null
+          };
+      }
+
+      function normalizeCatStops(root) {
+          const entries = extractCatArray(root, ['stops', 'Stops']);
+          const stopsById = new Map();
+          entries.forEach(entry => {
+              const normalized = normalizeCatStop(entry);
+              if (!normalized) {
+                  return;
+              }
+              const stopId = normalized.id;
+              if (!stopsById.has(stopId)) {
+                  stopsById.set(stopId, {
+                      id: stopId,
+                      rawId: normalized.rawId,
+                      name: normalized.name,
+                      latitude: Number.isFinite(normalized.latitude) ? normalized.latitude : null,
+                      longitude: Number.isFinite(normalized.longitude) ? normalized.longitude : null,
+                      routeKeys: new Set(),
+                      routeStopIds: new Set()
+                  });
+              }
+              const stop = stopsById.get(stopId);
+              if (toNonEmptyString(normalized.name)) {
+                  stop.name = normalized.name;
+              }
+              if (Number.isFinite(normalized.latitude) && Number.isFinite(normalized.longitude)) {
+                  stop.latitude = normalized.latitude;
+                  stop.longitude = normalized.longitude;
+              }
+              if (normalized.routeKey) {
+                  stop.routeKeys.add(normalized.routeKey);
+              }
+              if (normalized.routeStopId) {
+                  stop.routeStopIds.add(normalized.routeStopId);
+              }
+          });
+          return Array.from(stopsById.values()).map(stop => ({
+              id: stop.id,
+              rawId: stop.rawId,
+              name: toNonEmptyString(stop.name) || `Stop ${stop.id}`,
+              latitude: Number.isFinite(stop.latitude) ? stop.latitude : null,
+              longitude: Number.isFinite(stop.longitude) ? stop.longitude : null,
+              routeKeys: Array.from(stop.routeKeys),
+              routeStopIds: Array.from(stop.routeStopIds),
+              isCatStop: true
+          })).filter(stop => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude));
+      }
+
+      function buildCatStopDataForRendering(catStops) {
+          if (!Array.isArray(catStops)) {
+              return [];
+          }
+          return catStops.map(stop => {
+              const stopId = catStopKey(stop?.id ?? stop?.rawId);
+              const lat = Number(stop?.latitude);
+              const lon = Number(stop?.longitude);
+              if (!stopId || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+                  return null;
+              }
+              const name = toNonEmptyString(stop?.name) || `Stop ${stopId}`;
+              const routeKeysSource = stop?.routeKeys;
+              const routeKeysIterable = Array.isArray(routeKeysSource)
+                  ? routeKeysSource
+                  : (routeKeysSource instanceof Set ? Array.from(routeKeysSource) : []);
+              const normalizedRouteKeys = Array.from(new Set(routeKeysIterable
+                  .map(routeKey => catRouteKey(routeKey))
+                  .filter(key => key && key !== CAT_OUT_OF_SERVICE_ROUTE_KEY)))
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+              const filteredRouteKeys = normalizedRouteKeys.filter(routeKey => isCatRouteAllowedInCurrentMode(routeKey));
+              if (kioskMode && !adminKioskMode && filteredRouteKeys.length === 0) {
+                  return null;
+              }
+              const routeStopIdsSource = stop?.routeStopIds ?? stop?.catRouteStopIds;
+              const routeStopIdsIterable = Array.isArray(routeStopIdsSource)
+                  ? routeStopIdsSource
+                  : (routeStopIdsSource instanceof Set ? Array.from(routeStopIdsSource) : []);
+              const normalizedRouteStopIds = routeStopIdsIterable
+                  .map(value => `${value}`.trim())
+                  .filter(value => value !== '' && value.toLowerCase() !== 'null' && value.toLowerCase() !== 'undefined');
+              return {
+                  isCatStop: true,
+                  StopID: stopId,
+                  StopId: stopId,
+                  StopName: name,
+                  Name: name,
+                  Latitude: lat,
+                  Longitude: lon,
+                  catRouteKeys: filteredRouteKeys,
+                  CatRouteKeys: filteredRouteKeys.slice(),
+                  catRouteStopIds: normalizedRouteStopIds
+              };
+          }).filter(Boolean);
+      }
+
+      function decorateCatEtaForStop(rawEta, fallbackStopId) {
+          if (!rawEta || typeof rawEta !== 'object') {
+              return null;
+          }
+          const stopId = catStopKey(rawEta.stopId || fallbackStopId);
+          if (!stopId) {
+              return null;
+          }
+          const stopInfo = catStopsById.get(stopId);
+          const stopName = toNonEmptyString(rawEta.stopName) || (stopInfo ? stopInfo.name : '');
+          const routeKey = catRouteKey(rawEta.routeKey || rawEta.routeId);
+          const routeInfo = getCatRouteInfo(routeKey);
+          const numericRouteId = Number.isFinite(rawEta.routeId) ? Number(rawEta.routeId) : (routeInfo && Number.isFinite(routeInfo.id) ? Number(routeInfo.id) : null);
+          let routeDescription = toNonEmptyString(rawEta.routeDescription);
+          if (!routeDescription && routeInfo) {
+              routeDescription = routeInfo.displayName || routeInfo.shortName || routeInfo.longName || '';
+          }
+          if (!routeDescription) {
+              if (routeKey) {
+                  routeDescription = `Route ${routeKey}`;
+              } else if (Number.isFinite(numericRouteId)) {
+                  routeDescription = `Route ${numericRouteId}`;
+              } else {
+                  routeDescription = 'Route';
+              }
+          }
+          let etaMinutes = Number.isFinite(rawEta.minutes) ? Number(rawEta.minutes) : null;
+          if (!Number.isFinite(etaMinutes) && Number.isFinite(rawEta.seconds)) {
+              etaMinutes = Number(rawEta.seconds) / 60;
+          }
+          let text = toNonEmptyString(rawEta.text);
+          if (!text && Number.isFinite(etaMinutes)) {
+              const rounded = Math.max(0, Math.round(etaMinutes));
+              text = rounded <= 0 ? 'Arriving' : `${rounded} min`;
+          }
+          return {
+              isCat: true,
+              stopId,
+              stopName,
+              routeId: Number.isFinite(numericRouteId) ? numericRouteId : null,
+              routeKey: routeKey || '',
+              routeDescription,
+              etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+              text: text || ''
+          };
+      }
+
+      function ensureCatStopEtas(stopIds) {
+          if (!catOverlayEnabled || typeof fetch !== 'function') {
+              return Promise.resolve([]);
+          }
+          if (!Array.isArray(stopIds) || stopIds.length === 0) {
+              return Promise.resolve([]);
+          }
+          const normalizedIds = Array.from(new Set(stopIds.map(catStopKey).filter(id => typeof id === 'string' && id !== '')));
+          if (normalizedIds.length === 0) {
+              return Promise.resolve([]);
+          }
+          const now = Date.now();
+          const pending = [];
+          normalizedIds.forEach(stopId => {
+              const cacheEntry = catStopEtaCache.get(stopId);
+              if (cacheEntry && (now - cacheEntry.timestamp) <= CAT_STOP_ETA_CACHE_TTL_MS) {
+                  return;
+              }
+              if (catStopEtaRequests.has(stopId)) {
+                  pending.push(catStopEtaRequests.get(stopId));
+                  return;
+              }
+              const params = new URLSearchParams({ service: 'get_stop_etas', token: CAT_API_TOKEN, stopID: stopId, statusData: '1' });
+              const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+              const request = fetch(url, { cache: 'no-store' })
+                  .then(response => {
+                      if (!response.ok) {
+                          throw new Error(`HTTP ${response.status}`);
+                      }
+                      return response.json();
+                  })
+                  .then(payload => {
+                      const entries = extractCatArray(payload, ['get_stop_etas']);
+                      const timestamp = Date.now();
+                      let updated = false;
+                      if (Array.isArray(entries) && entries.length > 0) {
+                          entries.forEach(entry => {
+                              const entryStopId = catStopKey(entry?.id ?? entry?.stopID ?? entry?.StopID ?? entry?.StopId ?? stopId);
+                              const targetStopId = entryStopId || stopId;
+                              const rawEtas = normalizeCatEtas(entry);
+                              const decorated = rawEtas.map(rawEta => decorateCatEtaForStop(rawEta, targetStopId)).filter(Boolean);
+                              catStopEtaCache.set(targetStopId, { timestamp, etas: decorated });
+                              updated = true;
+                          });
+                      } else {
+                          catStopEtaCache.set(stopId, { timestamp, etas: [] });
+                          updated = true;
+                      }
+                      return updated;
+                  })
+                  .catch(error => {
+                      console.error('Failed to fetch CAT stop ETAs:', error);
+                      return false;
+                  })
+                  .finally(() => {
+                      catStopEtaRequests.delete(stopId);
+                  });
+              catStopEtaRequests.set(stopId, request);
+              pending.push(request);
+          });
+          if (pending.length === 0) {
+              return Promise.resolve([]);
+          }
+          return Promise.allSettled(pending).then(results => {
+              const shouldRefresh = results.some(result => result.status === 'fulfilled' && result.value);
+              if (shouldRefresh) {
+                  updateCustomPopups();
+              }
+              return results;
+          });
+      }
+
+      async function fetchCatStops(force = false) {
+          if (!catOverlayEnabled && !force) {
+              return [];
+          }
+          const now = Date.now();
+          if (!force && catStopsById.size > 0 && (now - catStopsLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
+              return Array.from(catStopsById.values());
+          }
+          const params = new URLSearchParams({ service: 'get_stops', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const stops = normalizeCatStops(payload);
+              if (!catOverlayEnabled && !force) {
+                  return stops;
+              }
+              catStopsById.clear();
+              stops.forEach(stop => {
+                  catStopsById.set(stop.id, stop);
+              });
+              catStopDataCache = buildCatStopDataForRendering(stops);
+              catStopsLastFetchTime = now;
+              if (catOverlayEnabled) {
+                  renderBusStops(stopDataCache);
+              }
+              return stops;
+          } catch (error) {
+              console.error('Failed to fetch CAT stops:', error);
+              return [];
+          }
+      }
+
+      async function fetchCatRoutePatterns(force = false) {
+          if (!catOverlayEnabled && !force) {
+              return catRoutePatternsCache.slice();
+          }
+          const now = Date.now();
+          if (!force && catRoutePatternGeometries.size > 0 && (now - catRoutePatternsLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
+              return catRoutePatternsCache.slice();
+          }
+          const params = new URLSearchParams({ service: 'get_patterns', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const patterns = normalizeCatPatterns(payload);
+              if (!catOverlayEnabled && !force) {
+                  return patterns;
+              }
+              const newGeometries = new Map();
+              patterns.forEach((pattern, index) => {
+                  if (!pattern || !Array.isArray(pattern.routeKeys) || pattern.routeKeys.length === 0) {
+                      return;
+                  }
+                  const baseKey = pattern.id || pattern.extId || pattern.name || (pattern.encoded ? `enc:${pattern.encoded}` : `idx:${index}`);
+                  pattern.routeKeys.forEach(routeKey => {
+                      const key = `${routeKey}::${baseKey}`;
+                      newGeometries.set(key, {
+                          routeKey,
+                          color: sanitizeCssColor(pattern.color) || '',
+                          latLngs: Array.isArray(pattern.latLngs) ? pattern.latLngs.slice() : [],
+                          encoded: pattern.encoded || ''
+                      });
+                  });
+              });
+
+              const keysToRemove = new Set(catRoutePatternGeometries.keys());
+              newGeometries.forEach((geometry, key) => {
+                  catRoutePatternGeometries.set(key, geometry);
+                  keysToRemove.delete(key);
+              });
+              keysToRemove.forEach(key => {
+                  catRoutePatternGeometries.delete(key);
+                  const numericId = catOverlapPatternIdMap.get(key);
+                  if (Number.isFinite(numericId)) {
+                      catOverlapPatternIdMap.delete(key);
+                      catOverlapInfoByNumericId.delete(numericId);
+                  }
+              });
+
+              catRoutePatternsLastFetchTime = now;
+              catRoutePatternsCache = patterns;
+              renderCatRoutes();
+              return patterns;
+          } catch (error) {
+              console.error('Failed to fetch CAT route patterns:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatEta(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawStopId = getFirstDefined(entry, ['StopID', 'stopID', 'StopId', 'stopId', 'Stop', 'stop']);
+          const stopId = catStopKey(rawStopId);
+          const stopInfo = stopId ? catStopsById.get(stopId) : null;
+          const stopName = toNonEmptyString(getFirstDefined(entry, ['StopName', 'stopName', 'Name', 'name', 'Description', 'description'])) || (stopInfo ? stopInfo.name : '');
+          const rawRouteId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'Route', 'route', 'rid', 'Rid', 'RID']);
+          const routeId = toNumberOrNull(rawRouteId);
+          const routeKey = catRouteKey(rawRouteId);
+          const routeInfo = getCatRouteInfo(routeKey);
+          let routeDescription = toNonEmptyString(getFirstDefined(entry, ['RouteDescription', 'routeDescription', 'RouteName', 'routeName', 'RouteLabel', 'routeLabel', 'RouteAbbreviation', 'routeAbbreviation']));
+          if (!routeDescription && routeInfo) {
+              routeDescription = routeInfo.displayName || routeInfo.shortName || routeInfo.longName || '';
+          }
+          let minutes = toNumberOrNull(getFirstDefined(entry, ['Minutes', 'minutes', 'Min', 'min', 'EtaMinutes', 'etaMinutes']));
+          const seconds = toNumberOrNull(getFirstDefined(entry, ['Seconds', 'seconds', 'Sec', 'sec', 'EtaSeconds', 'etaSeconds']));
+          if (!Number.isFinite(minutes) && Number.isFinite(seconds)) {
+              minutes = seconds / 60;
+          }
+          let text = toNonEmptyString(getFirstDefined(entry, ['DisplayTime', 'displayTime', 'Display', 'display', 'Text', 'text', 'Formatted', 'formatted']));
+          if (!text) {
+              if (Number.isFinite(minutes)) {
+                  const rounded = Math.max(0, Math.round(minutes));
+                  text = rounded <= 0 ? 'Due' : `${rounded} min`;
+              } else if (Number.isFinite(seconds)) {
+                  const roundedSeconds = Math.max(0, Math.round(seconds));
+                  text = roundedSeconds <= 30 ? 'Due' : `${Math.round(roundedSeconds / 60)} min`;
+              }
+          }
+          if (!text) {
+              const fallbackTime = toNonEmptyString(getFirstDefined(entry, ['Time', 'time', 'ArrivalTime', 'arrivalTime', 'Scheduled', 'scheduled']));
+              if (fallbackTime) {
+                  text = fallbackTime;
+              }
+          }
+          return {
+              stopId,
+              stopName,
+              minutes: Number.isFinite(minutes) ? minutes : null,
+              seconds: Number.isFinite(seconds) ? seconds : null,
+              text: text || '',
+              routeId: Number.isFinite(routeId) ? routeId : null,
+              routeKey: routeKey || '',
+              routeDescription: routeDescription || '',
+              isCat: true
+          };
+      }
+
+      function normalizeCatEtas(root) {
+          const entries = extractCatArray(root, ['ETAs', 'etas', 'Eta', 'eta', 'Predictions', 'predictions', 'MinutesToNextStops', 'minutesToNextStops', 'MinutesToStops', 'minutesToStops', 'EnRoute', 'enRoute', 'Enroute', 'enroute']);
+          const etas = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatEta(entry);
+              if (normalized) {
+                  etas.push(normalized);
+              }
+          });
+          return etas;
+      }
+
+      function normalizeCatVehicle(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawId = getFirstDefined(entry, ['VehicleID', 'vehicleID', 'VehicleId', 'vehicleId', 'ID', 'Id', 'id', 'Name', 'name', 'EquipmentID', 'equipmentID', 'EquipmentId', 'equipmentId']);
+          const vehicleId = toNonEmptyString(rawId);
+          if (!vehicleId) {
+              return null;
+          }
+          const equipmentId = toNonEmptyString(getFirstDefined(entry, ['EquipmentID', 'equipmentID', 'EquipmentId', 'equipmentId']));
+          const latitude = toNumberOrNull(getFirstDefined(entry, ['Latitude', 'latitude', 'Lat', 'lat']));
+          const longitude = toNumberOrNull(getFirstDefined(entry, ['Longitude', 'longitude', 'Lon', 'lon', 'Lng', 'lng']));
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+              return null;
+          }
+          const heading = toNumberOrNull(getFirstDefined(entry, ['h', 'H', 'Heading', 'heading', 'Direction', 'direction']));
+          const speed = toNumberOrNull(getFirstDefined(entry, ['Speed', 'speed', 'Velocity', 'velocity', 'GpsSpeed', 'GPSSpeed', 'GroundSpeed', 'groundSpeed']));
+          const rawRouteId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'Route', 'route']);
+          const routeKey = catRouteKey(rawRouteId);
+          const routeAbbrev = toNonEmptyString(getFirstDefined(entry, ['RouteAbbreviation', 'routeAbbreviation', 'RouteShortName', 'routeShortName', 'ShortName', 'shortName']));
+          const routeName = toNonEmptyString(getFirstDefined(entry, ['RouteName', 'routeName', 'Description', 'description']));
+          const displayName = toNonEmptyString(getFirstDefined(entry, ['VehicleName', 'vehicleName', 'Name', 'name', 'Label', 'label']))
+              || equipmentId
+              || `Vehicle ${vehicleId}`;
+          const etaSource = getFirstDefined(entry, [
+              'ETAs',
+              'etas',
+              'Eta',
+              'eta',
+              'Predictions',
+              'predictions',
+              'MinutesToNextStops',
+              'minutesToNextStops',
+              'MinutesToStops',
+              'minutesToStops'
+          ]);
+          const etas = normalizeCatEtas(etaSource);
+          return {
+              id: vehicleId,
+              equipmentId,
+              latitude,
+              longitude,
+              heading,
+              speed,
+              routeKey,
+              routeId: rawRouteId,
+              routeAbbrev,
+              routeName,
+              displayName,
+              etas
+          };
+      }
+
+      function normalizeCatVehicles(root) {
+          const entries = extractCatArray(root, ['vehicles', 'Vehicles']);
+          const vehicles = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatVehicle(entry);
+              if (normalized) {
+                  vehicles.push(normalized);
+              }
+          });
+          return vehicles;
+      }
+
+      function getCatRouteInfo(routeKey) {
+          if (!routeKey) {
+              return null;
+          }
+          const key = `${routeKey}`.trim();
+          if (key === '' || key === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return null;
+          }
+          if (catRoutesById.has(key)) {
+              return catRoutesById.get(key);
+          }
+          if (Number.isFinite(Number(routeKey))) {
+              const numericKey = `${Number(routeKey)}`;
+              return catRoutesById.get(numericKey) || null;
+          }
+          return null;
+      }
+
+      function getCatRouteColor(routeKey) {
+          const routeInfo = getCatRouteInfo(routeKey);
+          if (routeInfo && routeInfo.color) {
+              return routeInfo.color;
+          }
+          return CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+      }
+
+      function buildLegacyCatVehicleIcon(label, color) {
+          const fallbackLabel = label || CAT_VEHICLE_MARKER_MIN_LABEL;
+          const safeColor = escapeAttribute(color || CAT_VEHICLE_MARKER_DEFAULT_COLOR);
+          const safeLabel = escapeHtml(fallbackLabel);
+          const html = `<div class="cat-vehicle-marker" style="--cat-marker-color:${safeColor};"><span class="cat-vehicle-marker__label">${safeLabel}</span></div>`;
+          return L.divIcon({ className: 'cat-vehicle-icon', html, iconSize: [38, 38], iconAnchor: [19, 19] });
+      }
+
+      function buildCatVehicleIcon(vehicle, routeKeyOverride) {
+          if (!vehicle || !vehicle.id) {
+              return null;
+          }
+          const effectiveRouteKey = routeKeyOverride || vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+          const routeInfo = getCatRouteInfo(effectiveRouteKey);
+          const label = vehicle.routeAbbrev
+              || routeInfo?.shortName
+              || routeInfo?.displayName
+              || vehicle.routeName
+              || vehicle.id
+              || CAT_VEHICLE_MARKER_MIN_LABEL;
+          const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          const headingDeg = normalizeHeadingDegrees(Number(vehicle.heading));
+          const groundSpeed = Number(vehicle.speed);
+          const accessibleName = toNonEmptyString(vehicle.displayName)
+              || toNonEmptyString(vehicle.equipmentId)
+              || label;
+          const accessibleLabel = buildBusMarkerAccessibleLabel(accessibleName, headingDeg, groundSpeed);
+          const glyphColor = computeBusMarkerGlyphColor(routeColor);
+          const markerMetrics = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+          const state = {
+              fillColor: routeColor,
+              glyphColor,
+              accessibleLabel,
+              headingDeg,
+              isStopped: isBusConsideredStopped(groundSpeed),
+              isStale: false,
+              isSelected: false,
+              isHovered: false,
+              size: {
+                  widthPx: markerMetrics.widthPx,
+                  heightPx: markerMetrics.heightPx,
+                  scale: markerMetrics.scale
+              }
+          };
+          const icon = BUS_MARKER_SVG_TEXT ? buildBusMarkerDivIconSync(`cat-${vehicle.id}`, state) : null;
+          if (icon) {
+              return icon;
+          }
+          return buildLegacyCatVehicleIcon(label, routeColor);
+      }
+
+      function buildCatVehicleTooltip(vehicle, routeKeyOverride, options = {}) {
+          const parts = [];
+          const headerPieces = [];
+          const effectiveRouteKey = routeKeyOverride || vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+          const routeInfo = getCatRouteInfo(effectiveRouteKey);
+          const routeLabel = vehicle.routeAbbrev || routeInfo?.shortName || routeInfo?.displayName || vehicle.routeName;
+          if (routeLabel) {
+              headerPieces.push(routeLabel);
+          }
+          if (vehicle.displayName && vehicle.displayName !== routeLabel) {
+              headerPieces.push(vehicle.displayName);
+          }
+          if (headerPieces.length) {
+              parts.push(`<strong>${escapeHtml(headerPieces.join(' • '))}</strong>`);
+          }
+          const statusMessage = toNonEmptyString(options?.statusMessage);
+          if (statusMessage) {
+              parts.push(`<span>${escapeHtml(statusMessage)}</span>`);
+          }
+          const etaLines = [];
+          const rawEtas = Array.isArray(options?.etas)
+              ? options.etas
+              : (Array.isArray(vehicle.etas) ? vehicle.etas : []);
+          const etas = rawEtas.slice(0, CAT_MAX_TOOLTIP_ETAS);
+          etas.forEach(eta => {
+              const stopLabel = eta.stopName || (eta.stopId ? `Stop ${eta.stopId}` : 'Stop');
+              const text = eta.text || (Number.isFinite(eta.minutes) ? `${Math.max(0, Math.round(eta.minutes))} min` : 'Scheduled');
+              etaLines.push(`<span>${escapeHtml(stopLabel)}: ${escapeHtml(text)}</span>`);
+          });
+          if (etaLines.length) {
+              parts.push(`<div class="cat-vehicle-tooltip__etas">${etaLines.join('')}</div>`);
+          } else if (!statusMessage) {
+              parts.push(`<span>${escapeHtml('No upcoming ETAs')}</span>`);
+          }
+          return parts.join('');
+      }
+
+      function closeCatVehicleTooltip(preserveIntent = false) {
+          if (!catActiveVehicleTooltip) {
+              return;
+          }
+          const { marker, tooltip } = catActiveVehicleTooltip;
+          if (!preserveIntent && marker) {
+              marker._catTooltipShouldRemainOpen = false;
+          }
+          if (tooltip && map && typeof map.removeLayer === 'function') {
+              map.removeLayer(tooltip);
+          }
+          catActiveVehicleTooltip = null;
+      }
+
+      function ensureCatVehicleTooltipForMarker(marker) {
+          if (!marker) {
+              return null;
+          }
+          if (!marker._catVehicleTooltipInstance) {
+              marker._catVehicleTooltipInstance = L.tooltip({
+                  direction: 'top',
+                  offset: [0, -26],
+                  className: 'cat-vehicle-tooltip'
+              });
+          }
+          return marker._catVehicleTooltipInstance;
+      }
+
+      function openCatVehicleTooltip(marker, options = {}) {
+          if (!marker || !map) {
+              return;
+          }
+          const vehicle = marker.catVehicleData;
+          if (!vehicle) {
+              return;
+          }
+          const tooltip = ensureCatVehicleTooltipForMarker(marker);
+          if (!tooltip) {
+              return;
+          }
+          tooltip.setContent(buildCatVehicleTooltip(vehicle, marker.catEffectiveRouteKey, options));
+          tooltip.setLatLng(marker.getLatLng());
+          const preserveIntent = catActiveVehicleTooltip?.marker === marker;
+          closeCatVehicleTooltip(preserveIntent);
+          tooltip.addTo(map);
+          catActiveVehicleTooltip = { marker, tooltip };
+      }
+
+      async function fetchCatVehicleEtasForVehicle(vehicle) {
+          if (!vehicle) {
+              return [];
+          }
+          const equipmentId = toNonEmptyString(vehicle.equipmentId);
+          const vehicleId = toNonEmptyString(vehicle.id);
+          const cacheKey = (equipmentId || vehicleId || '').toLowerCase();
+          if (!cacheKey) {
+              return [];
+          }
+          const now = Date.now();
+          const cached = catVehicleEtaCache.get(cacheKey);
+          if (cached && now - cached.timestamp <= CAT_VEHICLE_ETA_CACHE_TTL_MS) {
+              return cached.etas;
+          }
+          const params = new URLSearchParams({
+              service: 'get_vehicles',
+              token: CAT_API_TOKEN,
+              includeETAData: '1',
+              orderedETAArray: '1'
+          });
+          if (equipmentId) {
+              params.set('equipmentID', equipmentId);
+          } else if (vehicleId) {
+              params.set('vehicleID', vehicleId);
+          }
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const vehicles = normalizeCatVehicles(payload);
+              let target = null;
+              if (Array.isArray(vehicles) && vehicles.length) {
+                  target = vehicles.find(entry => {
+                      const entryEquipmentId = toNonEmptyString(entry.equipmentId);
+                      const entryVehicleId = toNonEmptyString(entry.id);
+                      return (equipmentId && entryEquipmentId === equipmentId) || (vehicleId && entryVehicleId === vehicleId);
+                  }) || vehicles[0];
+              }
+              const etas = Array.isArray(target?.etas) ? target.etas : [];
+              catVehicleEtaCache.set(cacheKey, { etas, timestamp: now });
+              return etas;
+          } catch (error) {
+              catVehicleEtaCache.delete(cacheKey);
+              throw error;
+          }
+      }
+
+      async function handleCatVehicleMarkerClick(event) {
+          if (!event || !event.target) {
+              return;
+          }
+          const marker = event.target;
+          if (!marker.catVehicleData) {
+              return;
+          }
+          if (event.originalEvent) {
+              if (typeof event.originalEvent.stopPropagation === 'function') {
+                  event.originalEvent.stopPropagation();
+              }
+              if (typeof event.originalEvent.preventDefault === 'function') {
+                  event.originalEvent.preventDefault();
+              }
+          }
+          if (marker._catTooltipLoading) {
+              return;
+          }
+          if (catActiveVehicleTooltip && catActiveVehicleTooltip.marker === marker) {
+              closeCatVehicleTooltip();
+          }
+          marker._catTooltipShouldRemainOpen = true;
+          marker._catTooltipLoading = true;
+          marker._catTooltipRequestId = (marker._catTooltipRequestId || 0) + 1;
+          const requestId = marker._catTooltipRequestId;
+          openCatVehicleTooltip(marker, { statusMessage: 'Loading arrival times…' });
+          try {
+              const etas = await fetchCatVehicleEtasForVehicle(marker.catVehicleData);
+              if (marker._catTooltipRequestId !== requestId || marker._catTooltipShouldRemainOpen === false) {
+                  return;
+              }
+              if (Array.isArray(etas)) {
+                  marker.catVehicleData = Object.assign({}, marker.catVehicleData, { etas });
+              }
+              if (marker._catTooltipShouldRemainOpen !== false) {
+                  openCatVehicleTooltip(marker);
+              }
+          } catch (error) {
+              console.error('Failed to load CAT vehicle ETAs:', error);
+              if (marker._catTooltipRequestId === requestId && marker._catTooltipShouldRemainOpen !== false) {
+                  openCatVehicleTooltip(marker, { statusMessage: 'Unable to load ETAs' });
+              }
+          } finally {
+              if (marker._catTooltipRequestId === requestId) {
+                  marker._catTooltipLoading = false;
+              }
+          }
+      }
+
+      function updateCatVehicleCache(vehicles) {
+          catVehiclesById.clear();
+          const activeKeys = new Set();
+          if (!Array.isArray(vehicles)) {
+              catActiveRouteKeys = activeKeys;
+              return;
+          }
+          vehicles.forEach(vehicle => {
+              if (!vehicle || typeof vehicle !== 'object') {
+                  return;
+              }
+              const vehicleId = vehicle.id;
+              if (!vehicleId) {
+                  return;
+              }
+              const effectiveRouteKey = getEffectiveCatRouteKey(vehicle);
+              const cachedVehicle = Object.assign({}, vehicle, { catEffectiveRouteKey: effectiveRouteKey });
+              catVehiclesById.set(vehicleId, cachedVehicle);
+              if (effectiveRouteKey !== CAT_OUT_OF_SERVICE_ROUTE_KEY && isCatRouteAllowedInCurrentMode(effectiveRouteKey)) {
+                  activeKeys.add(effectiveRouteKey);
+              }
+          });
+          catActiveRouteKeys = activeKeys;
+          renderCatRoutes();
+          if (catOverlayEnabled) {
+              renderBusStops(stopDataCache);
+          }
+      }
+
+      function renderCatVehiclesUsingCache() {
+          if (!catOverlayEnabled) {
+              return;
+          }
+          const busMarkerReady = !!BUS_MARKER_SVG_TEXT;
+          if (!busMarkerReady) {
+              ensureCatBusMarkerSvgLoaded().then(loaded => {
+                  if (loaded && catOverlayEnabled) {
+                      renderCatVehiclesUsingCache();
+                  }
+              });
+          }
+          const layerGroup = ensureCatLayerGroup();
+          if (!layerGroup) {
+              return;
+          }
+          const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+          const seen = new Set();
+          catVehiclesById.forEach(vehicle => {
+              if (!vehicle || !vehicle.id) {
+                  return;
+              }
+              const markerKey = `cat-${vehicle.id}`;
+              const lat = Number(vehicle.latitude);
+              const lng = Number(vehicle.longitude);
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                  removeNameBubbleForKey(markerKey);
+                  return;
+              }
+              const newPosition = [lat, lng];
+              const effectiveRouteKey = vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+              const shouldDisplay = isCatRouteVisible(effectiveRouteKey);
+              let marker = catVehicleMarkers.get(markerKey);
+              if (!shouldDisplay) {
+                  if (marker) {
+                      if (layerGroup.hasLayer(marker)) {
+                          layerGroup.removeLayer(marker);
+                      }
+                      if (typeof marker.remove === 'function') {
+                          marker.remove();
+                      }
+                      catVehicleMarkers.delete(markerKey);
+                  }
+                  removeNameBubbleForKey(markerKey);
+                  return;
+              }
+              seen.add(markerKey);
+              const icon = buildCatVehicleIcon(vehicle, effectiveRouteKey);
+              if (!marker) {
+                  marker = L.marker(newPosition, { icon, pane: catVehiclesPaneName, keyboard: false });
+                  marker.addTo(layerGroup);
+                  catVehicleMarkers.set(markerKey, marker);
+              } else {
+                  animateMarkerTo(marker, newPosition);
+                  marker.setIcon(icon);
+                  if (!layerGroup.hasLayer(marker)) {
+                      layerGroup.addLayer(marker);
+                  }
+              }
+              if (typeof marker.unbindTooltip === 'function') {
+                  marker.unbindTooltip();
+              }
+              const existingMarkerEtas = Array.isArray(marker.catVehicleData?.etas)
+                  ? marker.catVehicleData.etas.slice()
+                  : [];
+              const incomingEtas = Array.isArray(vehicle.etas) ? vehicle.etas.slice() : [];
+              const combinedEtas = incomingEtas.length ? incomingEtas : existingMarkerEtas;
+              marker.catEffectiveRouteKey = effectiveRouteKey;
+              marker.catVehicleData = Object.assign({}, vehicle, {
+                  etas: combinedEtas
+              });
+              if (!marker._catVehicleClickHandlerAttached) {
+                  marker.on('click', handleCatVehicleMarkerClick);
+                  marker._catVehicleClickHandlerAttached = true;
+              }
+              if (catActiveVehicleTooltip && catActiveVehicleTooltip.marker === marker && !marker._catTooltipLoading) {
+                  openCatVehicleTooltip(marker);
+              }
+
+              const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+              const headingDeg = normalizeHeadingDegrees(Number(vehicle.heading));
+              const groundSpeed = Number(vehicle.speed);
+              const bubbleKey = markerKey;
+
+              if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                  const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
+                  if (speedIcon) {
+                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                      if (nameBubbles[bubbleKey].speedMarker) {
+                          animateMarkerTo(nameBubbles[bubbleKey].speedMarker, newPosition);
+                          nameBubbles[bubbleKey].speedMarker.setIcon(speedIcon);
+                      } else if (map) {
+                          nameBubbles[bubbleKey].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      }
+                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].speedMarker) {
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(nameBubbles[bubbleKey].speedMarker);
+                      }
+                      delete nameBubbles[bubbleKey].speedMarker;
+                  }
+              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].speedMarker) {
+                  if (map && typeof map.removeLayer === 'function') {
+                      map.removeLayer(nameBubbles[bubbleKey].speedMarker);
+                  }
+                  delete nameBubbles[bubbleKey].speedMarker;
+              }
+
+              if (adminMode && !kioskMode) {
+                  const labelText = toNonEmptyString(vehicle.equipmentId)
+                      || toNonEmptyString(vehicle.displayName)
+                      || toNonEmptyString(vehicle.id);
+                  const nameIcon = labelText
+                      ? createNameBubbleDivIcon(labelText, routeColor, markerMetricsForZoom.scale, headingDeg)
+                      : null;
+                  if (nameIcon) {
+                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                      if (nameBubbles[bubbleKey].nameMarker) {
+                          animateMarkerTo(nameBubbles[bubbleKey].nameMarker, newPosition);
+                          nameBubbles[bubbleKey].nameMarker.setIcon(nameIcon);
+                      } else if (map) {
+                          nameBubbles[bubbleKey].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      }
+                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(nameBubbles[bubbleKey].nameMarker);
+                      }
+                      delete nameBubbles[bubbleKey].nameMarker;
+                  }
+              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
+                  if (map && typeof map.removeLayer === 'function') {
+                      map.removeLayer(nameBubbles[bubbleKey].nameMarker);
+                  }
+                  delete nameBubbles[bubbleKey].nameMarker;
+              }
+
+              if (nameBubbles[bubbleKey]) {
+                  const hasMarkers = Boolean(nameBubbles[bubbleKey].speedMarker || nameBubbles[bubbleKey].nameMarker || nameBubbles[bubbleKey].blockMarker);
+                  if (hasMarkers) {
+                      nameBubbles[bubbleKey].lastScale = markerMetricsForZoom.scale;
+                  } else {
+                      delete nameBubbles[bubbleKey];
+                  }
+              }
+          });
+          catVehicleMarkers.forEach((marker, key) => {
+              if (!seen.has(key)) {
+                  if (catLayerGroup && catLayerGroup.hasLayer(marker)) {
+                      catLayerGroup.removeLayer(marker);
+                  }
+                  if (marker && typeof marker.remove === 'function') {
+                      marker.remove();
+                  }
+                  if (catActiveVehicleTooltip && catActiveVehicleTooltip.marker === marker) {
+                      closeCatVehicleTooltip();
+                  }
+                  catVehicleMarkers.delete(key);
+                  removeNameBubbleForKey(key);
+              }
+          });
+      }
+
+      function removeCatRouteLayer(layer) {
+          if (!layer) {
+              return;
+          }
+          if (catLayerGroup && catLayerGroup.hasLayer(layer)) {
+              catLayerGroup.removeLayer(layer);
+          }
+          if (typeof layer.remove === 'function') {
+              layer.remove();
+          }
+      }
+
+      function clearCatRouteLayers() {
+          catRoutePatternLayers.forEach(layer => {
+              removeCatRouteLayer(layer);
+          });
+          catRoutePatternLayers.clear();
+      }
+
+      function renderCatRoutes() {
+          if (!catOverlayEnabled) {
+              clearCatRouteLayers();
+              if (enableOverlapDashRendering && overlapRenderer) {
+                  updateOverlapRendererWithCatRoutes();
+              }
+              return;
+          }
+          if (enableOverlapDashRendering && overlapRenderer) {
+              clearCatRouteLayers();
+              updateOverlapRendererWithCatRoutes();
+              return;
+          }
+          const layerGroup = ensureCatLayerGroup();
+          if (!layerGroup || !map) {
+              return;
+          }
+          const zoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+          const strokeWeight = computeRouteStrokeWeight(zoom);
+          const seenKeys = new Set();
+
+          catRoutePatternGeometries.forEach((geometry, key) => {
+              if (!geometry || !Array.isArray(geometry.latLngs) || geometry.latLngs.length < 2) {
+                  const existingLayer = catRoutePatternLayers.get(key);
+                  if (existingLayer) {
+                      removeCatRouteLayer(existingLayer);
+                      catRoutePatternLayers.delete(key);
+                  }
+                  return;
+              }
+              const routeKey = geometry.routeKey;
+              if (!isCatRouteVisible(routeKey)) {
+                  const existingLayer = catRoutePatternLayers.get(key);
+                  if (existingLayer) {
+                      removeCatRouteLayer(existingLayer);
+                      catRoutePatternLayers.delete(key);
+                  }
+                  return;
+              }
+              const color = sanitizeCssColor(geometry.color) || sanitizeCssColor(getCatRouteColor(routeKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+              const options = {
+                  color,
+                  weight: strokeWeight,
+                  opacity: 1,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+              };
+              let layer = catRoutePatternLayers.get(key);
+              if (!layer) {
+                  layer = L.polyline(geometry.latLngs, mergeRouteLayerOptions(options));
+                  layer.addTo(layerGroup);
+                  catRoutePatternLayers.set(key, layer);
+              } else {
+                  if (typeof layer.setLatLngs === 'function') {
+                      layer.setLatLngs(geometry.latLngs);
+                  }
+                  if (typeof layer.setStyle === 'function') {
+                      layer.setStyle(options);
+                  }
+                  if (!layerGroup.hasLayer(layer)) {
+                      layerGroup.addLayer(layer);
+                  }
+              }
+              seenKeys.add(key);
+          });
+
+          catRoutePatternLayers.forEach((layer, key) => {
+              if (!seenKeys.has(key)) {
+                  removeCatRouteLayer(layer);
+                  catRoutePatternLayers.delete(key);
+              }
+          });
+      }
+
+      function clearCatVehicleMarkers() {
+          closeCatVehicleTooltip();
+          catVehicleMarkers.forEach(marker => {
+              if (catLayerGroup) {
+                  catLayerGroup.removeLayer(marker);
+              }
+              if (marker && typeof marker.remove === 'function') {
+                  marker.remove();
+              }
+          });
+          catVehicleMarkers.clear();
+          catVehiclesById.clear();
+          catActiveRouteKeys = new Set();
+          catVehicleEtaCache.clear();
+          Object.keys(nameBubbles).forEach(key => {
+              if (typeof key === 'string' && key.startsWith('cat-')) {
+                  removeNameBubbleForKey(key);
+              }
+          });
+          clearCatRouteLayers();
+      }
+
+      function updateCatVehicleMarkers(vehicles) {
+          if (!catOverlayEnabled) {
+              return;
+          }
+          updateCatVehicleCache(vehicles);
+          renderCatVehiclesUsingCache();
+          updateRouteSelector(activeRoutes);
+      }
+
+      function updateOverlapRendererWithCatRoutes() {
+          if (!enableOverlapDashRendering || !overlapRenderer) {
+              return;
+          }
+          const baseGeometries = currentTranslocRendererGeometries instanceof Map
+              ? new Map(currentTranslocRendererGeometries)
+              : new Map();
+          const baseRouteIds = Array.isArray(currentTranslocSelectedRouteIds)
+              ? currentTranslocSelectedRouteIds.slice()
+              : [];
+          const catData = buildCatOverlapRendererData();
+          catData.geometries.forEach((latLngs, routeId) => {
+              baseGeometries.set(routeId, latLngs);
+          });
+          const combinedRouteIds = mergeNumericRouteIds(baseRouteIds, catData.routeIds);
+          const selectionKey = combinedRouteIds.join('|');
+          const colorSignature = combinedRouteIds.map(id => `${id}:${getRouteColor(id)}`).join('|');
+          const geometrySignature = combinedRouteIds
+              .map(id => `${id}:${getRouteGeometrySignature(id, baseGeometries)}`)
+              .join('|');
+          const rendererFlag = true;
+          const shouldUpdate = routeLayers.length === 0
+              || !lastRouteRenderState.useOverlapRenderer
+              || lastRouteRenderState.selectionKey !== selectionKey
+              || lastRouteRenderState.colorSignature !== colorSignature
+              || lastRouteRenderState.geometrySignature !== geometrySignature;
+          if (!shouldUpdate) {
+              return;
+          }
+          routeLayers.forEach(layer => {
+              if (layer && map && typeof map.hasLayer === 'function' && map.hasLayer(layer)) {
+                  map.removeLayer(layer);
+              }
+          });
+          const layers = overlapRenderer.updateRoutes(baseGeometries, combinedRouteIds);
+          routeLayers = layers;
+          lastRouteRenderState = {
+              selectionKey,
+              colorSignature,
+              geometrySignature,
+              useOverlapRenderer: rendererFlag
+          };
+      }
+
+      async function fetchCatVehicles() {
+          if (!catOverlayEnabled) {
+              return [];
+          }
+          const params = new URLSearchParams({
+              service: 'get_vehicles',
+              token: CAT_API_TOKEN,
+              includeETAData: '1',
+              inService: '0',
+              orderedETAArray: '1'
+          });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const vehicles = normalizeCatVehicles(payload);
+              updateCatVehicleMarkers(vehicles);
+              return vehicles;
+          } catch (error) {
+              console.error('Failed to fetch CAT vehicles:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatServiceAlert(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const id = toNonEmptyString(getFirstDefined(entry, ['ID', 'Id', 'id', 'AlertID', 'alertID', 'alertId', 'Guid', 'guid']));
+          const title = toNonEmptyString(getFirstDefined(entry, ['Title', 'title', 'Name', 'name', 'Headline', 'headline'])) || 'Service Alert';
+          const message = toNonEmptyString(getFirstDefined(entry, ['Message', 'message', 'Description', 'description', 'Details', 'details']));
+          const routesRaw = getFirstDefined(entry, ['Routes', 'routes', 'Route', 'route', 'RouteNames', 'routeNames']);
+          let routes = [];
+          if (Array.isArray(routesRaw)) {
+              routes = routesRaw.map(value => toNonEmptyString(value)).filter(Boolean);
+          } else if (typeof routesRaw === 'string') {
+              routes = routesRaw.split(/[,;]+/).map(part => part.trim()).filter(Boolean);
+          }
+          const startRaw = toNonEmptyString(getFirstDefined(entry, ['StartDate', 'startDate', 'Start', 'start', 'Effective', 'effective', 'EffectiveDate', 'effectiveDate']));
+          const endRaw = toNonEmptyString(getFirstDefined(entry, ['EndDate', 'endDate', 'End', 'end', 'Expiration', 'expiration', 'Expires', 'expires']));
+          const isActiveField = getFirstDefined(entry, ['IsActive', 'isActive', 'Active', 'active', 'Status', 'status']);
+          let isActive = undefined;
+          if (typeof isActiveField === 'string') {
+              isActive = !/^false$/i.test(isActiveField) && !/^inactive$/i.test(isActiveField);
+          } else if (typeof isActiveField === 'boolean') {
+              isActive = isActiveField;
+          } else if (typeof isActiveField === 'number') {
+              isActive = isActiveField !== 0;
+          }
+          if (isActive === undefined && endRaw) {
+              const endTime = Date.parse(endRaw);
+              if (Number.isFinite(endTime)) {
+                  isActive = endTime > Date.now();
+              }
+          }
+          return {
+              id,
+              title,
+              message,
+              routes,
+              startDisplay: startRaw || '',
+              startRaw,
+              endDisplay: endRaw || '',
+              endRaw,
+              isActive: isActive !== undefined ? !!isActive : true
+          };
+      }
+
+      function normalizeCatServiceAlerts(root) {
+          const entries = extractCatArray(root, ['announcements', 'Announcements', 'alerts', 'Alerts']);
+          const alerts = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatServiceAlert(entry);
+              if (normalized) {
+                  alerts.push(normalized);
+              }
+          });
+          return alerts;
+      }
+
+      async function fetchCatServiceAlerts() {
+          if (!catOverlayEnabled) {
+              return [];
+          }
+          if (catServiceAlertsFetchPromise) {
+              return catServiceAlertsFetchPromise;
+          }
+          const now = Date.now();
+          if (catServiceAlerts.length > 0 && (now - catServiceAlertsLastFetchTime) < CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS) {
+              return catServiceAlerts;
+          }
+          catServiceAlertsLoading = true;
+          catServiceAlertsError = null;
+          refreshServiceAlertsUI();
+          const params = new URLSearchParams({ service: 'get_service_announcements', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          const requestPromise = (async () => {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              return normalizeCatServiceAlerts(payload);
+          })();
+          catServiceAlertsFetchPromise = requestPromise;
+          try {
+              const alerts = await requestPromise;
+              if (!catOverlayEnabled) {
+                  return alerts;
+              }
+              catServiceAlerts = alerts;
+              catServiceAlertsError = null;
+              catServiceAlertsLoading = false;
+              catServiceAlertsLastFetchTime = Date.now();
+              refreshServiceAlertsUI();
+              return alerts;
+          } catch (error) {
+              console.error('Failed to fetch CAT service alerts:', error);
+              if (catOverlayEnabled) {
+                  catServiceAlerts = [];
+                  catServiceAlertsError = CAT_SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+                  catServiceAlertsLoading = false;
+                  catServiceAlertsLastFetchTime = Date.now();
+                  refreshServiceAlertsUI();
+              }
+              return [];
+          } finally {
+              if (catServiceAlertsFetchPromise === requestPromise) {
+                  catServiceAlertsFetchPromise = null;
+              }
+          }
+      }
+
+      function updateCatToggleButtonState() {
+          const button = document.getElementById('catToggleButton');
+          if (!button) {
+              return;
+          }
+          button.classList.toggle('is-active', !!catOverlayEnabled);
+          button.setAttribute('aria-pressed', catOverlayEnabled ? 'true' : 'false');
+          const indicator = button.querySelector('.toggle-indicator');
+          if (indicator) {
+              indicator.textContent = catOverlayEnabled ? 'On' : 'Off';
+          }
       }
 
       function ensureBusMarkerState(vehicleID) {
@@ -9476,22 +12376,9 @@
           return BUS_MARKER_SVG_LOAD_PROMISE;
       }
 
-      async function createBusMarkerDivIcon(vehicleID, state) {
-          if (!state) {
+      function buildBusMarkerDivIconSync(vehicleID, state) {
+          if (!state || !BUS_MARKER_SVG_TEXT) {
               return null;
-          }
-          try {
-              await loadBusSVG();
-          } catch (error) {
-              console.error('Failed to load bus marker SVG:', error);
-              return null;
-          }
-          if (!BUS_MARKER_SVG_TEXT) {
-              return null;
-          }
-          if (!state.size) {
-              const zoom = map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
-              setBusMarkerSize(state, computeBusMarkerMetrics(zoom));
           }
           const width = state.size?.widthPx ?? BUS_MARKER_BASE_WIDTH_PX;
           const height = state.size?.heightPx ?? width * BUS_MARKER_ASPECT_RATIO;
@@ -9557,6 +12444,26 @@
               iconSize: [width, height],
               iconAnchor: [anchorX, anchorY]
           });
+      }
+
+      async function createBusMarkerDivIcon(vehicleID, state) {
+          if (!state) {
+              return null;
+          }
+          try {
+              await loadBusSVG();
+          } catch (error) {
+              console.error('Failed to load bus marker SVG:', error);
+              return null;
+          }
+          if (!BUS_MARKER_SVG_TEXT) {
+              return null;
+          }
+          if (!state.size) {
+              const zoom = map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+              setBusMarkerSize(state, computeBusMarkerMetrics(zoom));
+          }
+          return buildBusMarkerDivIconSync(vehicleID, state);
       }
 
       function registerBusMarkerElements(vehicleID) {
