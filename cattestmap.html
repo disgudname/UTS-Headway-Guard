@@ -3866,7 +3866,7 @@
             if (!routeKey || routeKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
               return;
             }
-            if (!isCatRouteVisible(routeKey)) {
+            if (!isCatRouteAllowedInCurrentMode(routeKey)) {
               return;
             }
             const projectedPath = ensureCatProjectedPath(geometry);
