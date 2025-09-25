@@ -25,7 +25,7 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any, Iterable
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib
 from datetime import datetime
@@ -2069,16 +2069,130 @@ def _trim_cat_patterns(payload: Any) -> List[Dict[str, Any]]:
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        rid = entry.get("RouteID") or entry.get("routeID") or entry.get("RouteId")
-        result.append(
-            {
-                "RouteID": rid,
-                "EncodedPolyline": entry.get("encLine")
-                or entry.get("EncLine")
-                or entry.get("EncodedPolyline"),
-                "DecodedPath": entry.get("DecLine") or entry.get("decLine") or entry.get("decodedLine"),
-            }
+        # Preserve the raw entry while normalising key casing so the front-end
+        # has enough context (pattern id + route ids) to associate the polyline
+        # with a route.
+        normalized: Dict[str, Any] = {}
+
+        def copy_if_present(keys: Iterable[str]) -> None:
+            for key in keys:
+                if key in entry:
+                    normalized[key] = entry[key]
+
+        copy_if_present(
+            [
+                "id",
+                "Id",
+                "patternId",
+                "PatternId",
+                "PatternID",
+                "patternID",
+                "extID",
+                "ExtID",
+                "name",
+                "Name",
+                "color",
+                "Color",
+                "routeColor",
+                "RouteColor",
+                "lineColor",
+                "LineColor",
+                "displayColor",
+                "DisplayColor",
+                "routes",
+                "Routes",
+                "routeIDs",
+                "RouteIDs",
+                "routeIds",
+                "RouteIds",
+                "encLine",
+                "EncLine",
+                "encodedPolyline",
+                "EncodedPolyline",
+                "polyline",
+                "Polyline",
+                "decLine",
+                "DecLine",
+                "decodedLine",
+                "DecodedLine",
+                "RouteID",
+                "routeID",
+                "RouteId",
+                "routeId",
+                "Route",
+                "route",
+            ]
         )
+
+        pattern_id = (
+            entry.get("PatternID")
+            or entry.get("patternID")
+            or entry.get("PatternId")
+            or entry.get("patternId")
+            or entry.get("id")
+            or entry.get("Id")
+        )
+        if pattern_id is not None:
+            normalized.setdefault("PatternID", pattern_id)
+            normalized.setdefault("PatternId", pattern_id)
+            normalized.setdefault("patternID", pattern_id)
+            normalized.setdefault("patternId", pattern_id)
+            normalized.setdefault("id", pattern_id)
+            normalized.setdefault("Id", pattern_id)
+
+        route_candidates: List[Any] = []
+        for key in ["routes", "Routes", "routeIDs", "RouteIDs", "routeIds", "RouteIds"]:
+            values = entry.get(key)
+            if isinstance(values, list):
+                route_candidates.extend(values)
+        for key in ["RouteID", "routeID", "RouteId", "routeId", "Route", "route"]:
+            value = entry.get(key)
+            if value is not None:
+                route_candidates.append(value)
+
+        rid: Optional[Any] = None
+        for candidate in route_candidates:
+            if candidate is None:
+                continue
+            if isinstance(candidate, str) and candidate.strip() == "":
+                continue
+            rid = candidate
+            break
+
+        if rid is not None:
+            normalized.setdefault("RouteID", rid)
+            normalized.setdefault("routeID", rid)
+            normalized.setdefault("RouteId", rid)
+            normalized.setdefault("routeId", rid)
+            normalized.setdefault("Route", rid)
+            normalized.setdefault("route", rid)
+
+        if route_candidates:
+            normalized.setdefault("routes", route_candidates)
+            normalized.setdefault("Routes", route_candidates)
+
+        encoded = (
+            entry.get("encLine")
+            or entry.get("EncLine")
+            or entry.get("encodedPolyline")
+            or entry.get("EncodedPolyline")
+            or entry.get("polyline")
+            or entry.get("Polyline")
+        )
+        if encoded is not None:
+            normalized.setdefault("encLine", encoded)
+            normalized.setdefault("EncLine", encoded)
+            normalized.setdefault("EncodedPolyline", encoded)
+
+        decoded = entry.get("DecLine") or entry.get("decLine") or entry.get("decodedLine") or entry.get("DecodedLine")
+        if decoded is not None:
+            normalized.setdefault("DecLine", decoded)
+            normalized.setdefault("decLine", decoded)
+            normalized.setdefault("decodedLine", decoded)
+            normalized.setdefault("DecodedLine", decoded)
+            normalized.setdefault("DecodedPath", decoded)
+
+        result.append(normalized)
     return result
 
 
