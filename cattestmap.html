@@ -4083,6 +4083,7 @@
           latestActiveIncidents = activeRecords;
           evaluateIncidentRouteAlerts();
           applyIncidentMarkers(activeRecords);
+          updateControlPanel();
         } catch (error) {
           console.error('Failed to refresh PulsePoint incidents', error);
         } finally {
@@ -9377,6 +9378,7 @@
           fetchCatVehicles().catch(error => console.error('Failed to fetch CAT vehicles:', error));
           fetchCatServiceAlerts().catch(error => console.error('Failed to fetch CAT service alerts:', error));
           startCatRefreshIntervals();
+          updateControlPanel();
       }
 
       function disableCatOverlay() {
@@ -9402,6 +9404,7 @@
           if (enableOverlapDashRendering && overlapRenderer) {
               updateOverlapRendererWithCatRoutes();
           }
+          updateControlPanel();
       }
 
       function ensureCatLayerGroup() {
