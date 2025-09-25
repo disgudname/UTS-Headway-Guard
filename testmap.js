@@ -655,8 +655,9 @@ schedulePlaneStyleOverride();
 
       const outOfServiceRouteColor = '#000000';
 
-      const PULSEPOINT_ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
-      const PULSEPOINT_PASSPHRASE = "tombrady5rings";
+      const TRANSLOC_SNAPSHOT_ENDPOINT = '/v1/testmap/transloc';
+      const TRANSLOC_SNAPSHOT_TTL_MS = 2000;
+      const PULSEPOINT_ENDPOINT = '/v1/testmap/pulsepoint';
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;
@@ -703,7 +704,7 @@ schedulePlaneStyleOverride();
         ? markerCentroidOverride.xFactor
         : 0;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
-      const TRAIN_API_URL = 'https://api-v3.amtraker.com/v3/trains';
+      const TRAINS_ENDPOINT = '/v1/testmap/trains';
       const TRAIN_POLL_INTERVAL_MS = 30000;
       const TRAIN_TARGET_STATION_CODE = 'CVS';
       const TRAIN_CARDINAL_HEADING_DEGREES = Object.freeze({
@@ -732,8 +733,13 @@ schedulePlaneStyleOverride();
         NORTHWEST: 315,
         NORTHWESTBOUND: 315
       });
-      const CAT_API_BASE_URL = 'https://catpublic.etaspot.net/service.php';
-      const CAT_API_TOKEN = 'TESTING';
+      const CAT_ROUTES_ENDPOINT = '/v1/testmap/cat/routes';
+      const CAT_STOPS_ENDPOINT = '/v1/testmap/cat/stops';
+      const CAT_PATTERNS_ENDPOINT = '/v1/testmap/cat/patterns';
+      const CAT_VEHICLES_ENDPOINT = '/v1/testmap/cat/vehicles';
+      const CAT_SERVICE_ALERTS_ENDPOINT = '/v1/testmap/cat/service-alerts';
+      const CAT_STOP_ETAS_ENDPOINT = '/v1/testmap/cat/stop-etas';
+      const RIDESYSTEMS_CLIENTS_ENDPOINT = '/v1/testmap/ridesystems/clients';
       const CAT_VEHICLE_FETCH_INTERVAL_MS = 5000;
       const CAT_METADATA_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
       const CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
@@ -809,6 +815,46 @@ schedulePlaneStyleOverride();
         ? window.matchMedia('(prefers-reduced-motion: reduce)')
         : null;
       let isFetchingIncidents = false;
+
+      let translocSnapshotCache = null;
+      let translocSnapshotPromise = null;
+      let translocSnapshotTimestamp = 0;
+
+      function resetTranslocSnapshotCache() {
+        translocSnapshotCache = null;
+        translocSnapshotPromise = null;
+        translocSnapshotTimestamp = 0;
+      }
+
+      function loadTranslocSnapshot(force = false) {
+        const now = Date.now();
+        if (!force && translocSnapshotCache && (now - translocSnapshotTimestamp) < TRANSLOC_SNAPSHOT_TTL_MS) {
+          return Promise.resolve(translocSnapshotCache);
+        }
+        if (translocSnapshotPromise) {
+          return translocSnapshotPromise;
+        }
+        translocSnapshotPromise = fetch(TRANSLOC_SNAPSHOT_ENDPOINT, { cache: 'no-store' })
+          .then(response => {
+            if (!response || !response.ok) {
+              throw new Error(response ? `HTTP ${response.status}` : 'No response');
+            }
+            return response.json();
+          })
+          .then(data => {
+            translocSnapshotCache = data || {};
+            translocSnapshotTimestamp = Date.now();
+            return translocSnapshotCache;
+          })
+          .catch(error => {
+            console.error('Failed to load TransLoc snapshot:', error);
+            throw error;
+          })
+          .finally(() => {
+            translocSnapshotPromise = null;
+          });
+        return translocSnapshotPromise;
+      }
 
       const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
       const SERVICE_ALERT_START_FIELDS = Object.freeze([
@@ -1157,57 +1203,6 @@ schedulePlaneStyleOverride();
         incidentsVisible = false;
       }
       incidentsVisibilityPreference = incidentsVisible;
-
-      function fetchPulsePointEncrypted() {
-        return fetch(PULSEPOINT_ENDPOINT, {
-          method: 'GET',
-          mode: 'cors',
-          cache: 'no-store'
-        }).then(response => {
-          if (!response || !response.ok) {
-            throw new Error(response ? `PulsePoint HTTP ${response.status}` : 'PulsePoint request failed');
-          }
-          return response.json();
-        });
-      }
-
-      function decryptPulsePointPayload(encryptedObj) {
-        if (!encryptedObj) {
-          throw new Error('Missing PulsePoint payload.');
-        }
-        const obj = typeof encryptedObj === 'string' ? JSON.parse(encryptedObj) : encryptedObj;
-        if (!obj || typeof obj !== 'object' || !obj.ct) {
-          throw new Error('PulsePoint payload is malformed.');
-        }
-        const cipherParams = CryptoJS.lib.CipherParams.create({
-          ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
-        });
-        if (obj.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(obj.iv);
-        if (obj.s) cipherParams.salt = CryptoJS.enc.Hex.parse(obj.s);
-        const rawText = CryptoJS.AES.decrypt(cipherParams, PULSEPOINT_PASSPHRASE, {
-          mode: CryptoJS.mode.CBC,
-          padding: CryptoJS.pad.Pkcs7
-        }).toString(CryptoJS.enc.Utf8);
-        if (!rawText) {
-          throw new Error('PulsePoint decryption returned empty payload.');
-        }
-        let parsed = rawText;
-        for (let i = 0; i < 3; i += 1) {
-          if (typeof parsed === 'string') {
-            try {
-              parsed = JSON.parse(parsed);
-              continue;
-            } catch (error) {
-              break;
-            }
-          }
-          break;
-        }
-        if (typeof parsed === 'string') {
-          throw new Error('PulsePoint decrypted payload is not valid JSON.');
-        }
-        return { parsed, rawText };
-      }
 
       function looksLikePulsePointIncident(obj) {
         if (!obj || typeof obj !== 'object') return false;
@@ -1714,9 +1709,20 @@ schedulePlaneStyleOverride();
       }
 
       async function fetchPulsePointIncidents() {
-        const encrypted = await fetchPulsePointEncrypted();
-        const { parsed } = decryptPulsePointPayload(encrypted);
-        return normalizePulsePointIncidents(parsed);
+        try {
+          const response = await fetch(PULSEPOINT_ENDPOINT, { cache: 'no-store' });
+          if (!response || !response.ok) {
+            throw new Error(response ? `PulsePoint HTTP ${response.status}` : 'PulsePoint request failed');
+          }
+          const payload = await response.json();
+          if (Array.isArray(payload)) {
+            return payload;
+          }
+          return normalizePulsePointIncidents(payload);
+        } catch (error) {
+          console.error('Failed to fetch PulsePoint incidents:', error);
+          return [];
+        }
       }
 
       function parseIncidentCoordinate(value) {
@@ -2808,27 +2814,16 @@ schedulePlaneStyleOverride();
 
       async function loadAgencies() {
         try {
-          const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
-          const contentType = response.headers.get('content-type') || '';
-          let clients = [];
-          if (contentType.includes('application/json')) {
-            clients = await response.json();
-          } else {
-            const text = await response.text();
-            const parser = new DOMParser();
-            const xml = parser.parseFromString(text, 'application/xml');
-            clients = Array.from(xml.getElementsByTagName('Client')).map(c => ({
-              Name: c.getElementsByTagName('Name')[0]?.textContent.trim(),
-              WebAddress: c.getElementsByTagName('WebAddress')[0]?.textContent.trim()
-            }));
+          const response = await fetch(RIDESYSTEMS_CLIENTS_ENDPOINT, { cache: 'no-store' });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
           }
-          agencies = clients.map(c => {
-            const name = c.Name?.trim();
-            const webAddress = c.WebAddress?.trim();
-            if (!name || !webAddress) return null;
-            const url = webAddress.startsWith('http')
-              ? webAddress.replace(/^http:\/\//i, 'https://')
-              : `https://${webAddress}`;
+          const payload = await response.json();
+          const clients = Array.isArray(payload?.clients) ? payload.clients : [];
+          agencies = clients.map(client => {
+            const name = typeof client?.name === 'string' ? client.name.trim() : '';
+            const url = typeof client?.url === 'string' ? client.url.trim() : '';
+            if (!name || !url) return null;
             return { name, url };
           }).filter(Boolean);
           agencies.sort((a, b) => a.name.localeCompare(b.name));
@@ -5141,6 +5136,7 @@ schedulePlaneStyleOverride();
       }
 
       function loadAgencyData() {
+        resetTranslocSnapshotCache();
         return fetchRouteColors().then(() => {
           const stopArrivalsPromise = fetchStopArrivalTimes().then(allEtas => {
             cachedEtas = allEtas || {};
@@ -5167,6 +5163,7 @@ schedulePlaneStyleOverride();
         }
         beginAgencyLoad();
         clearRefreshIntervals();
+        resetTranslocSnapshotCache();
         baseURL = url;
         resetIncidentAlertState();
         resetServiceAlertsState();
@@ -5388,20 +5385,19 @@ schedulePlaneStyleOverride();
           applyIncidentHaloStates();
       }
 
-      function fetchBusStops() {
+      async function fetchBusStops() {
           const currentBaseURL = baseURL;
-          const stopsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
-          return fetch(stopsApiUrl)
-              .then(response => response.json())
-              .then(data => {
-                  if (currentBaseURL !== baseURL) return;
-                  let stopsArray = data.stops || data;
-                  if (stopsArray && Array.isArray(stopsArray)) {
-                      stopDataCache = stopsArray;
-                      renderBusStops(stopDataCache);
-                  }
-              })
-              .catch(error => console.error("Error fetching bus stops:", error));
+          try {
+              const snapshot = await loadTranslocSnapshot();
+              if (currentBaseURL !== baseURL) return;
+              const stopsArray = Array.isArray(snapshot?.stops) ? snapshot.stops : [];
+              if (stopsArray.length > 0) {
+                  stopDataCache = stopsArray;
+                  renderBusStops(stopDataCache);
+              }
+          } catch (error) {
+              console.error('Error fetching bus stops:', error);
+          }
       }
 
       function groupStopsByPixelDistance(stops, thresholdPx) {
@@ -6811,33 +6807,36 @@ schedulePlaneStyleOverride();
           });
       }
 
-      function fetchStopArrivalTimes() {
+      async function fetchStopArrivalTimes() {
           const currentBaseURL = baseURL;
-          const arrivalTimesApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681`;
-          return fetch(arrivalTimesApiUrl)
-              .then(response => response.json())
-              .then(data => {
-                  if (currentBaseURL !== baseURL) return {};
-                  let allEtas = {};
-                  data.forEach(arrival => {
-                      if (!allEtas[arrival.RouteStopId]) {
-                          allEtas[arrival.RouteStopId] = [];
-                      }
-                      arrival.Times.forEach(time => {
-                          const etaMinutes = Math.round(time.Seconds / 60);
-                          allEtas[arrival.RouteStopId].push({
-                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription),
-                              etaMinutes: etaMinutes,
-                              RouteId: arrival.RouteId
-                          });
+          try {
+              const snapshot = await loadTranslocSnapshot();
+              if (currentBaseURL !== baseURL) return {};
+              const arrivals = Array.isArray(snapshot?.arrivals) ? snapshot.arrivals : [];
+              const allEtas = {};
+              arrivals.forEach(arrival => {
+                  const routeStopId = arrival?.RouteStopId ?? arrival?.RouteStopID;
+                  if (!routeStopId) return;
+                  if (!allEtas[routeStopId]) {
+                      allEtas[routeStopId] = [];
+                  }
+                  const times = Array.isArray(arrival?.Times) ? arrival.Times : [];
+                  times.forEach(time => {
+                      const seconds = Number(time?.Seconds);
+                      if (!Number.isFinite(seconds)) return;
+                      const etaMinutes = Math.round(seconds / 60);
+                      allEtas[routeStopId].push({
+                          routeDescription: arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription,
+                          etaMinutes,
+                          RouteId: arrival.RouteId ?? arrival.RouteID
                       });
                   });
-                  return allEtas;
-              })
-              .catch(error => {
-                  console.error("Error fetching stop arrival times:", error);
-                  return {};
               });
+              return allEtas;
+          } catch (error) {
+              console.error('Error fetching stop arrival times:', error);
+              return {};
+          }
       }
 
 
@@ -7521,38 +7520,34 @@ schedulePlaneStyleOverride();
           return diff;
         }
       }
-      // Fetch routes from GetRoutes.
-      function fetchRouteColors() {
-        console.log('Fetching route colors...');
-        const routesApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681`;
-        return fetch(routesApiUrl)
-          .then(response => response.json())
-          .then(data => {
-            if (Array.isArray(data)) {
-              data.forEach(route => {
-                setRouteVisibility(route);
-                allRoutes[route.RouteID] = Object.assign(allRoutes[route.RouteID] || {}, route);
-                if (canDisplayRoute(route.RouteID)) {
-                  routeColors[route.RouteID] = route.MapLineColor;
-                  console.log(`Route ID: ${route.RouteID}, Color: ${route.MapLineColor}`);
-                } else {
-                  delete routeColors[route.RouteID];
-                  console.log(`Route ID: ${route.RouteID} hidden due to display settings`);
-                }
-              });
+      // Fetch routes from cached snapshot.
+      async function fetchRouteColors() {
+        try {
+          const snapshot = await loadTranslocSnapshot();
+          const routes = Array.isArray(snapshot?.routes) ? snapshot.routes : [];
+          routes.forEach(route => {
+            if (!route || typeof route !== 'object') return;
+            setRouteVisibility(route);
+            const routeId = route.RouteID;
+            allRoutes[routeId] = Object.assign(allRoutes[routeId] || {}, route);
+            if (canDisplayRoute(routeId)) {
+              routeColors[routeId] = route.MapLineColor;
+            } else if (Object.prototype.hasOwnProperty.call(routeColors, routeId)) {
+              delete routeColors[routeId];
             }
-          })
-          .catch(error => console.error("Error fetching route colors:", error));
+          });
+        } catch (error) {
+          console.error('Error fetching route colors:', error);
+        }
       }
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on relevant routes.
-      function fetchRoutePaths() {
+      async function fetchRoutePaths() {
           const currentBaseURL = baseURL;
-          const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
-          return fetch(routePathsApiUrl)
-              .then(response => response.json())
-              .then(data => {
-                  if (currentBaseURL !== baseURL) return;
+          try {
+              const snapshot = await loadTranslocSnapshot();
+              if (currentBaseURL !== baseURL) return;
+              const data = Array.isArray(snapshot?.routes) ? snapshot.routes : [];
                   const activeRoutesForBounds = new Set();
                   activeRoutes.forEach(routeId => {
                       const numericRouteId = Number(routeId);
@@ -7792,66 +7787,28 @@ schedulePlaneStyleOverride();
                       });
                   }
                   updateRouteLegend(Array.from(displayedRoutes.values()), { preserveOnEmpty: true });
-              })
-              .catch(error => {
-                  console.error("Error fetching route paths:", error);
-                  if (kioskMode || adminKioskMode) {
-                      updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
-                  } else {
-                      updateRouteLegend([], { forceHide: true });
-                  }
-              });
+          } catch (error) {
+              console.error('Error fetching route paths:', error);
+              if (kioskMode || adminKioskMode) {
+                  updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
+              } else {
+                  updateRouteLegend([], { forceHide: true });
+              }
+          }
       }
 
-      function fetchBlockAssignments() {
+      async function fetchBlockAssignments() {
           const currentBaseURL = baseURL;
-          const d = new Date();
-          const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-          const schedUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetScheduleVehicleCalendarByDateAndRoute?dateString=${encodeURIComponent(ds)}`;
-          return fetch(schedUrl)
-              .then(response => response.json())
-              .then(sched => {
-                  if (currentBaseURL !== baseURL) return;
-                  const ids = (sched || []).map(s => s.ScheduleVehicleCalendarID).join(',');
-                  if (!ids) {
-                      busBlocks = {};
-                      return;
-                  }
-                  const blockUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString=${ids}`;
-                  return fetch(blockUrl).then(r => r.json());
-              })
-              .then(data => {
-                  if (currentBaseURL !== baseURL || !data) return;
-                  const groups = data?.BlockGroups || [];
-                  const alias = {
-                      "[01]": "[01]/[04]",
-                      "[03]": "[05]/[03]",
-                      "[04]": "[01]/[04]",
-                      "[05]": "[05]/[03]",
-                      "[06]": "[22]/[06]",
-                      "[10]": "[20]/[10]",
-                      "[15]": "[26]/[15]",
-                      "[16] AM": "[21]/[16] AM",
-                      "[17]": "[23]/[17]",
-                      "[18] AM": "[24]/[18] AM",
-                      "[20] AM": "[20]/[10]",
-                      "[21] AM": "[21]/[16] AM",
-                      "[22] AM": "[22]/[06]",
-                      "[23]": "[23]/[17]",
-                      "[24] AM": "[24]/[18] AM",
-                      "[26] AM": "[26]/[15]"
-                  };
-                  let mapping = {};
-                  groups.forEach(g => {
-                      const block = (g.BlockGroupId || '').trim();
-                      const vehicleId = g.Blocks?.[0]?.Trips?.[0]?.VehicleID ?? g.VehicleId;
-                      if (block && block.includes('[') && vehicleId != null) {
-                          mapping[vehicleId] = alias[block] || block;
-                      }
-                  });
-                  busBlocks = mapping;
-              })
-              .catch(error => console.error("Error fetching block assignments:", error));
+          try {
+              const snapshot = await loadTranslocSnapshot();
+              if (currentBaseURL !== baseURL) return;
+              const mapping = snapshot?.blocks && typeof snapshot.blocks === 'object'
+                  ? snapshot.blocks
+                  : {};
+              busBlocks = Object.assign({}, mapping);
+          } catch (error) {
+              console.error('Error fetching block assignments:', error);
+          }
       }
 
       async function fetchBusLocations() {
@@ -7864,29 +7821,30 @@ schedulePlaneStyleOverride();
               console.info('Proceeding without cached vehicle headings.', error);
           }
           const currentBaseURL = baseURL;
-          const apiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           try {
               await loadBusSVG();
           } catch (error) {
               console.error('Failed to load bus marker SVG before fetching locations:', error);
           }
           try {
-              const response = await fetch(apiUrl);
-              if (!response.ok) {
-                  throw new Error(`Network response was not ok: ${response.statusText}`);
-              }
-              const data = await response.json();
-              if (currentBaseURL !== baseURL || !Array.isArray(data)) {
+              const snapshot = await loadTranslocSnapshot();
+              if (currentBaseURL !== baseURL) {
                   return;
               }
+              const data = Array.isArray(snapshot?.vehicles) ? snapshot.vehicles : [];
               const currentBusData = {};
               const activeRoutesSet = new Set();
               const vehicles = [];
 
               data.forEach(vehicle => {
+                  if (!vehicle) return;
                   const vehicleID = vehicle.VehicleID;
-                  const newPosition = [vehicle.Latitude, vehicle.Longitude];
-                  const isMoving = vehicle.GroundSpeed > 0;
+                  const lat = Number(vehicle.Latitude);
+                  const lon = Number(vehicle.Longitude);
+                  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+                  const newPosition = [lat, lon];
+                  const groundSpeed = Number(vehicle.GroundSpeed) || 0;
+                  const isMoving = groundSpeed > 0;
                   const busName = vehicle.Name;
                   let routeID = vehicle.RouteID;
                   if (!routeID && adminMode) {
@@ -7906,7 +7864,7 @@ schedulePlaneStyleOverride();
                       busName,
                       routeID: effectiveRouteId,
                       heading: vehicle.Heading,
-                      groundSpeed: vehicle.GroundSpeed
+                      groundSpeed
                   });
               });
 
@@ -8866,10 +8824,8 @@ schedulePlaneStyleOverride();
           if (!force && catRoutesById.size > 0 && (now - catRoutesLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
               return Array.from(catRoutesById.values());
           }
-          const params = new URLSearchParams({ service: 'get_routes', token: CAT_API_TOKEN });
-          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
           try {
-              const response = await fetch(url, { cache: 'no-store' });
+              const response = await fetch(CAT_ROUTES_ENDPOINT, { cache: 'no-store' });
               if (!response.ok) {
                   throw new Error(`HTTP ${response.status}`);
               }
@@ -9090,8 +9046,7 @@ schedulePlaneStyleOverride();
                   pending.push(catStopEtaRequests.get(stopId));
                   return;
               }
-              const params = new URLSearchParams({ service: 'get_stop_etas', token: CAT_API_TOKEN, stopID: stopId, statusData: '1' });
-              const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+              const url = `${CAT_STOP_ETAS_ENDPOINT}?stop_id=${encodeURIComponent(stopId)}`;
               const request = fetch(url, { cache: 'no-store' })
                   .then(response => {
                       if (!response.ok) {
@@ -9100,7 +9055,9 @@ schedulePlaneStyleOverride();
                       return response.json();
                   })
                   .then(payload => {
-                      const entries = extractCatArray(payload, ['get_stop_etas']);
+                      const entries = Array.isArray(payload?.etas)
+                          ? payload.etas
+                          : extractCatArray(payload, ['get_stop_etas']);
                       const timestamp = Date.now();
                       let updated = false;
                       if (Array.isArray(entries) && entries.length > 0) {
@@ -9148,10 +9105,8 @@ schedulePlaneStyleOverride();
           if (!force && catStopsById.size > 0 && (now - catStopsLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
               return Array.from(catStopsById.values());
           }
-          const params = new URLSearchParams({ service: 'get_stops', token: CAT_API_TOKEN });
-          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
           try {
-              const response = await fetch(url, { cache: 'no-store' });
+              const response = await fetch(CAT_STOPS_ENDPOINT, { cache: 'no-store' });
               if (!response.ok) {
                   throw new Error(`HTTP ${response.status}`);
               }
@@ -9184,10 +9139,8 @@ schedulePlaneStyleOverride();
           if (!force && catRoutePatternGeometries.size > 0 && (now - catRoutePatternsLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
               return catRoutePatternsCache.slice();
           }
-          const params = new URLSearchParams({ service: 'get_patterns', token: CAT_API_TOKEN });
-          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
           try {
-              const response = await fetch(url, { cache: 'no-store' });
+              const response = await fetch(CAT_PATTERNS_ENDPOINT, { cache: 'no-store' });
               if (!response.ok) {
                   throw new Error(`HTTP ${response.status}`);
               }
@@ -9541,20 +9494,8 @@ schedulePlaneStyleOverride();
           if (cached && now - cached.timestamp <= CAT_VEHICLE_ETA_CACHE_TTL_MS) {
               return cached.etas;
           }
-          const params = new URLSearchParams({
-              service: 'get_vehicles',
-              token: CAT_API_TOKEN,
-              includeETAData: '1',
-              orderedETAArray: '1'
-          });
-          if (equipmentId) {
-              params.set('equipmentID', equipmentId);
-          } else if (vehicleId) {
-              params.set('vehicleID', vehicleId);
-          }
-          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
           try {
-              const response = await fetch(url, { cache: 'no-store' });
+              const response = await fetch(CAT_VEHICLES_ENDPOINT, { cache: 'no-store' });
               if (!response.ok) {
                   throw new Error(`HTTP ${response.status}`);
               }
@@ -9989,16 +9930,8 @@ schedulePlaneStyleOverride();
           if (!catOverlayEnabled) {
               return [];
           }
-          const params = new URLSearchParams({
-              service: 'get_vehicles',
-              token: CAT_API_TOKEN,
-              includeETAData: '1',
-              inService: '0',
-              orderedETAArray: '1'
-          });
-          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
           try {
-              const response = await fetch(url, { cache: 'no-store' });
+              const response = await fetch(CAT_VEHICLES_ENDPOINT, { cache: 'no-store' });
               if (!response.ok) {
                   throw new Error(`HTTP ${response.status}`);
               }
@@ -10091,10 +10024,8 @@ schedulePlaneStyleOverride();
           catServiceAlertsLoading = true;
           catServiceAlertsError = null;
           refreshServiceAlertsUI();
-          const params = new URLSearchParams({ service: 'get_service_announcements', token: CAT_API_TOKEN });
-          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
           const requestPromise = (async () => {
-              const response = await fetch(url, { cache: 'no-store' });
+              const response = await fetch(CAT_SERVICE_ALERTS_ENDPOINT, { cache: 'no-store' });
               if (!response.ok) {
                   throw new Error(`HTTP ${response.status}`);
               }
@@ -11779,23 +11710,16 @@ schedulePlaneStyleOverride();
               const stationCode = typeof TRAIN_TARGET_STATION_CODE === 'string'
                   ? TRAIN_TARGET_STATION_CODE.trim().toUpperCase()
                   : '';
-              let response;
-              try {
-                  response = await fetch(TRAIN_API_URL, { cache: 'no-store' });
-              } catch (error) {
-                  console.error('Failed to fetch trains:', error);
-                  return;
-              }
-              if (!response || !response.ok) {
-                  const statusText = response ? `${response.status} ${response.statusText}` : 'No response';
-                  console.error('Failed to fetch trains:', statusText);
-                  return;
-              }
               let payload;
               try {
+                  const response = await fetch(TRAINS_ENDPOINT, { cache: 'no-store' });
+                  if (!response || !response.ok) {
+                      const statusText = response ? `${response.status} ${response.statusText}` : 'No response';
+                      throw new Error(statusText);
+                  }
                   payload = await response.json();
               } catch (error) {
-                  console.error('Failed to parse train response:', error);
+                  console.error('Failed to fetch trains:', error);
                   return;
               }
               if (!trainsVisible) {

@@ -27,11 +27,14 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re
+import asyncio, time, math, os, json, re, base64, hashlib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import httpx
-from collections import deque
+from collections import deque, defaultdict
+import xml.etree.ElementTree as ET
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
@@ -49,6 +52,19 @@ if hasattr(time, "tzset"):
 TRANSLOC_BASE = os.getenv("TRANSLOC_BASE", "https://uva.transloc.com/Services/JSONPRelay.svc")
 TRANSLOC_KEY  = os.getenv("TRANSLOC_KEY", "8882812681")
 OVERPASS_EP   = os.getenv("OVERPASS_EP", "https://overpass-api.de/api/interpreter")
+CAT_API_BASE  = os.getenv("CAT_API_BASE", "https://catpublic.etaspot.net/service.php")
+CAT_API_TOKEN = os.getenv("CAT_API_TOKEN", "TESTING")
+PULSEPOINT_ENDPOINT = os.getenv(
+    "PULSEPOINT_ENDPOINT",
+    "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300",
+)
+PULSEPOINT_PASSPHRASE = os.getenv("PULSEPOINT_PASSPHRASE", "tombrady5rings")
+AMTRAKER_URL = os.getenv("AMTRAKER_URL", "https://api-v3.amtraker.com/v3/trains")
+RIDESYSTEMS_CLIENTS_URL = os.getenv(
+    "RIDESYSTEMS_CLIENTS_URL",
+    "https://admin.ridesystems.net/api/Clients/GetClients",
+)
+TRAIN_TARGET_STATION_CODE = os.getenv("TRAIN_TARGET_STATION_CODE", "CVS").strip().upper()
 
 VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "10"))
 ROUTE_REFRESH_S = int(os.getenv("ROUTE_REFRESH_S", "60"))
@@ -121,6 +137,17 @@ VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
 VEH_LOG_MIN_MOVE_M = float(os.getenv("VEH_LOG_MIN_MOVE_M", "3"))
 LAST_LOG_POS: Dict[int, Tuple[float, float]] = {}
+
+TRANSLOC_ARRIVALS_TTL_S = int(os.getenv("TRANSLOC_ARRIVALS_TTL_S", "15"))
+TRANSLOC_BLOCKS_TTL_S = int(os.getenv("TRANSLOC_BLOCKS_TTL_S", "60"))
+CAT_METADATA_TTL_S = int(os.getenv("CAT_METADATA_TTL_S", str(5 * 60)))
+CAT_VEHICLE_TTL_S = int(os.getenv("CAT_VEHICLE_TTL_S", "5"))
+CAT_SERVICE_ALERT_TTL_S = int(os.getenv("CAT_SERVICE_ALERT_TTL_S", "60"))
+CAT_STOP_ETA_TTL_S = int(os.getenv("CAT_STOP_ETA_TTL_S", "30"))
+PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
+AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
+RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
+ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
 
 def prune_old_entries() -> None:
     cutoff = int(time.time() * 1000) - VEH_LOG_RETENTION_MS
@@ -735,6 +762,40 @@ CONFIG_KEYS = [
 CONFIG_NAME = "config.json"
 CONFIG_FILE = PRIMARY_DATA_DIR / CONFIG_NAME
 
+class TTLCache:
+    def __init__(self, ttl: float):
+        self.ttl = ttl
+        self.value: Any = None
+        self.ts: float = 0.0
+        self.lock = asyncio.Lock()
+
+    async def get(self, fetcher):
+        async with self.lock:
+            now = time.time()
+            if self.value is not None and now - self.ts < self.ttl:
+                return self.value
+        data = await fetcher()
+        async with self.lock:
+            self.value = data
+            self.ts = time.time()
+        return data
+
+
+class PerKeyTTLCache:
+    def __init__(self, ttl: float):
+        self.ttl = ttl
+        self._caches: Dict[Any, TTLCache] = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, key: Any, fetcher):
+        async with self._lock:
+            cache = self._caches.get(key)
+            if cache is None:
+                cache = TTLCache(self.ttl)
+                self._caches[key] = cache
+        return await cache.get(fetcher)
+
+
 def load_config() -> None:
     for base in DATA_DIRS:
         path = base / CONFIG_NAME
@@ -803,10 +864,25 @@ class State:
         self.anti_cache_ts: float = 0.0
         # Per-day mileage and block history
         self.bus_days: Dict[str, Dict[str, BusDay]] = {}
+        self.vehicles_raw: List[Dict[str, Any]] = []
 
 state = State()
 MILEAGE_NAME = "mileage.json"
 MILEAGE_FILE = PRIMARY_DATA_DIR / MILEAGE_NAME
+
+transloc_arrivals_cache = TTLCache(TRANSLOC_ARRIVALS_TTL_S)
+transloc_blocks_cache = TTLCache(TRANSLOC_BLOCKS_TTL_S)
+cat_routes_cache = TTLCache(CAT_METADATA_TTL_S)
+cat_stops_cache = TTLCache(CAT_METADATA_TTL_S)
+cat_patterns_cache = TTLCache(CAT_METADATA_TTL_S)
+cat_vehicles_cache = TTLCache(CAT_VEHICLE_TTL_S)
+cat_service_alerts_cache = TTLCache(CAT_SERVICE_ALERT_TTL_S)
+cat_stop_etas_cache = PerKeyTTLCache(CAT_STOP_ETA_TTL_S)
+pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
+amtraker_cache = TTLCache(AMTRAKER_TTL_S)
+ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
+adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
+adsb_cache_lock = asyncio.Lock()
 
 VEHICLE_HEADINGS_NAME = Path(os.environ.get("VEHICLE_HEADINGS_FILE", "vehicle_headings.json")).name
 
@@ -967,15 +1043,24 @@ async def adsb_proxy(request: Request, lat: Optional[str] = None, lon: Optional[
     if lat is None or lon is None or dist is None:
         raise HTTPException(status_code=400, detail="lat, lon, and dist are required", headers=cors_headers)
     upstream_url = ADSB_URL_TEMPLATE.format(lat=lat, lon=lon, dist=dist)
+    key = (lat, lon, dist)
+    now = time.time()
+    async with adsb_cache_lock:
+        cached = adsb_cache.get(key)
+        if cached and now - cached[0] < ADSB_CACHE_TTL_S:
+            return JSONResponse(content=cached[1], status_code=200, headers=cors_headers)
     try:
         async with httpx.AsyncClient() as client:
             upstream_resp = await client.get(upstream_url, timeout=10)
+            record_api_call("GET", upstream_url, upstream_resp.status_code)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="upstream request failed", headers=cors_headers) from exc
     try:
         payload = upstream_resp.json()
     except ValueError as exc:
         raise HTTPException(status_code=502, detail="invalid upstream response", headers=cors_headers) from exc
+    async with adsb_cache_lock:
+        adsb_cache[key] = (time.time(), payload)
     return JSONResponse(content=payload, status_code=upstream_resp.status_code, headers=cors_headers)
 
 # ---------------------------
@@ -1048,6 +1133,7 @@ async def startup():
                         print(f"[updater] block fetch error: {e}")
                     async with state.lock:
                         state.routes_raw = routes_raw
+                        state.vehicles_raw = vehicles_raw
                         # Update complete routes & roster (all buses/all routes)
                         try:
                             state.routes_all = {}
@@ -1562,6 +1648,641 @@ async def dispatch_blocks():
         state.blocks_cache = res
         state.blocks_cache_ts = time.time()
         return res
+
+
+def _normalize_hex_color(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if not text.startswith("#") and len(text) in {3, 6}:
+        return f"#{text}"
+    return text if text.startswith("#") else f"#{text}"
+
+
+def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
+    rid = raw.get("RouteID") or raw.get("RouteId")
+    color = (
+        raw.get("MapLineColor")
+        or raw.get("RouteColor")
+        or raw.get("Color")
+    )
+    trimmed: Dict[str, Any] = {
+        "RouteID": rid,
+        "Description": raw.get("Description"),
+        "InfoText": raw.get("InfoText"),
+        "RouteName": raw.get("RouteName"),
+        "LongName": raw.get("LongName"),
+        "ShortName": raw.get("ShortName"),
+        "MapLineColor": _normalize_hex_color(color),
+        "EncodedPolyline": raw.get("EncodedPolyline") or raw.get("Polyline"),
+        "IsVisibleOnMap": raw.get("IsVisibleOnMap"),
+    }
+    stops: List[Dict[str, Any]] = []
+    for stop in raw.get("Stops") or []:
+        route_stop_id = stop.get("RouteStopID") or stop.get("RouteStopId")
+        stop_id = stop.get("StopID") or stop.get("StopId")
+        name = (
+            stop.get("StopName")
+            or stop.get("Name")
+            or stop.get("Description")
+            or "Stop"
+        )
+        stops.append(
+            {
+                "RouteStopID": route_stop_id,
+                "RouteStopId": route_stop_id,
+                "StopID": stop_id,
+                "StopId": stop_id,
+                "StopName": name,
+                "Name": name,
+                "Description": stop.get("Description") or name,
+                "Latitude": stop.get("Latitude") or stop.get("Lat"),
+                "Longitude": stop.get("Longitude") or stop.get("Lon") or stop.get("Lng"),
+                "AddressID": stop.get("AddressID") or stop.get("AddressId"),
+                "RouteID": rid,
+                "RouteIds": [rid] if rid is not None else [],
+                "RouteIDs": [rid] if rid is not None else [],
+                "Routes": [{"RouteID": rid}] if rid is not None else [],
+            }
+        )
+    trimmed["Stops"] = stops
+    return trimmed
+
+
+def _build_transloc_stops(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    stops: List[Dict[str, Any]] = []
+    for route in routes:
+        rid = route.get("RouteID")
+        for stop in route.get("Stops", []):
+            entry = dict(stop)
+            entry.setdefault("RouteID", rid)
+            entry.setdefault("RouteIds", [rid] if rid is not None else [])
+            entry.setdefault("RouteIDs", [rid] if rid is not None else [])
+            entry.setdefault("Routes", [{"RouteID": rid}] if rid is not None else [])
+            stops.append(entry)
+    return stops
+
+
+async def _get_transloc_arrivals() -> List[Dict[str, Any]]:
+    async def fetch():
+        async with httpx.AsyncClient() as client:
+            url = f"{TRANSLOC_BASE}/GetStopArrivalTimes?APIKey={TRANSLOC_KEY}"
+            resp = await client.get(url, timeout=20)
+            record_api_call("GET", url, resp.status_code)
+            resp.raise_for_status()
+            data = resp.json()
+        items = data if isinstance(data, list) else data.get("d") or data.get("Arrivals") or []
+        trimmed: List[Dict[str, Any]] = []
+        for entry in items:
+            route_stop_id = entry.get("RouteStopId") or entry.get("RouteStopID")
+            route_id = entry.get("RouteId") or entry.get("RouteID")
+            times = []
+            for t in entry.get("Times") or []:
+                seconds = t.get("Seconds")
+                if seconds is None:
+                    continue
+                times.append({"Seconds": seconds})
+            trimmed.append(
+                {
+                    "RouteStopId": route_stop_id,
+                    "RouteId": route_id,
+                    "RouteDescription": entry.get("RouteDescription") or entry.get("RouteName"),
+                    "Times": times,
+                }
+            )
+        return trimmed
+
+    return await transloc_arrivals_cache.get(fetch)
+
+
+async def _get_transloc_blocks() -> Dict[str, str]:
+    async def fetch():
+        async with httpx.AsyncClient() as client:
+            block_groups = await fetch_block_groups(client)
+        alias = {
+            "[01]": "[01]/[04]",
+            "[03]": "[05]/[03]",
+            "[04]": "[01]/[04]",
+            "[05]": "[05]/[03]",
+            "[06]": "[22]/[06]",
+            "[10]": "[20]/[10]",
+            "[15]": "[26]/[15]",
+            "[16] AM": "[21]/[16] AM",
+            "[17]": "[23]/[17]",
+            "[18] AM": "[24]/[18] AM",
+            "[20] AM": "[20]/[10]",
+            "[21] AM": "[21]/[16] AM",
+            "[22] AM": "[22]/[06]",
+            "[23]": "[23]/[17]",
+            "[24] AM": "[24]/[18] AM",
+            "[26] AM": "[26]/[15]",
+        }
+        mapping: Dict[str, str] = {}
+        for group in block_groups or []:
+            raw_block = str(group.get("BlockGroupId") or "").strip()
+            if not raw_block:
+                continue
+            block_name = alias.get(raw_block, raw_block)
+            vehicle_ids: List[Any] = []
+            vehicle_ids.append(group.get("VehicleId") or group.get("VehicleID"))
+            for block in group.get("Blocks") or []:
+                for trip in block.get("Trips") or []:
+                    vehicle_ids.append(trip.get("VehicleID") or trip.get("VehicleId"))
+            for vid in vehicle_ids:
+                if vid is None:
+                    continue
+                mapping[str(vid)] = block_name
+        return mapping
+
+    return await transloc_blocks_cache.get(fetch)
+
+
+async def build_transloc_snapshot() -> Dict[str, Any]:
+    async with state.lock:
+        raw_routes = [_trim_transloc_route(r) for r in getattr(state, "routes_raw", [])]
+        assigned: Dict[Any, Tuple[int, Vehicle]] = {}
+        for rid, vehs in state.vehicles_by_route.items():
+            for veh in vehs.values():
+                if veh.id is None:
+                    continue
+                assigned[veh.id] = (rid, veh)
+        raw_vehicle_records = list(getattr(state, "vehicles_raw", []))
+    stops = _build_transloc_stops(raw_routes)
+    arrivals = await _get_transloc_arrivals()
+    blocks = await _get_transloc_blocks()
+
+    vehicles: List[Dict[str, Any]] = []
+    for rec in raw_vehicle_records:
+        vid = rec.get("VehicleID") or rec.get("VehicleId")
+        if vid is None:
+            continue
+        rid = rec.get("RouteID") or rec.get("RouteId")
+        lat = rec.get("Latitude") or rec.get("Lat")
+        lon = rec.get("Longitude") or rec.get("Lon") or rec.get("Lng")
+        if lat is None or lon is None:
+            continue
+        heading = rec.get("Heading")
+        ground_speed = rec.get("GroundSpeed") or rec.get("Speed") or 0.0
+        seconds = rec.get("Seconds") or rec.get("SecondsSinceReport")
+        is_stale = False
+        assigned_rec = assigned.get(vid)
+        if assigned_rec:
+            rid = assigned_rec[0]
+            veh = assigned_rec[1]
+            heading = getattr(veh, "heading", heading)
+            ground_speed = veh.ground_mps / MPH_TO_MPS
+            seconds = getattr(veh, "age_s", seconds)
+            is_stale = bool(seconds is not None and float(seconds) > STALE_FIX_S)
+        else:
+            is_stale = bool(seconds is not None and float(seconds) > STALE_FIX_S)
+        vehicles.append(
+            {
+                "VehicleID": vid,
+                "RouteID": rid if rid is not None else 0,
+                "Latitude": lat,
+                "Longitude": lon,
+                "Heading": heading,
+                "GroundSpeed": ground_speed,
+                "Name": rec.get("Name") or rec.get("VehicleName"),
+                "SecondsSinceReport": seconds,
+                "IsStale": is_stale,
+            }
+        )
+
+    return {
+        "fetched_at": int(time.time()),
+        "routes": raw_routes,
+        "stops": stops,
+        "vehicles": vehicles,
+        "arrivals": arrivals,
+        "blocks": blocks,
+    }
+
+
+@app.get("/v1/testmap/transloc")
+async def testmap_transloc_snapshot():
+    return await build_transloc_snapshot()
+
+
+def _extract_cat_array(root: Any, keys: List[str]) -> List[Any]:
+    if isinstance(root, list):
+        return root
+    if not isinstance(root, dict):
+        return []
+    for key in keys:
+        val = root.get(key)
+        if isinstance(val, list):
+            return val
+    for key in ["data", "Data", "result", "Result", "items", "Items"]:
+        val = root.get(key)
+        if isinstance(val, list):
+            return val
+    return []
+
+
+async def _cat_api_request(service: str, extra: Optional[Dict[str, Any]] = None) -> Any:
+    params = {"service": service, "token": CAT_API_TOKEN}
+    if extra:
+        for k, v in extra.items():
+            if v is not None:
+                params[k] = v
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(CAT_API_BASE, params=params, timeout=20)
+        record_api_call("GET", str(resp.request.url), resp.status_code)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _trim_cat_routes(payload: Any) -> List[Dict[str, Any]]:
+    entries = _extract_cat_array(payload, ["routes", "Routes", "get_routes", "GetRoutes"])
+    result: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        rid = entry.get("RouteID") or entry.get("routeID") or entry.get("RouteId") or entry.get("routeId") or entry.get("ID")
+        color = (
+            entry.get("Color")
+            or entry.get("RouteColor")
+            or entry.get("RouteHexColor")
+            or entry.get("HexColor")
+        )
+        result.append(
+            {
+                "RouteID": rid,
+                "RouteName": entry.get("RouteName") or entry.get("Description") or entry.get("Name"),
+                "RouteAbbreviation": entry.get("RouteAbbreviation") or entry.get("ShortName"),
+                "Description": entry.get("Description"),
+                "Color": color,
+            }
+        )
+    return result
+
+
+def _trim_cat_stops(payload: Any) -> List[Dict[str, Any]]:
+    entries = _extract_cat_array(payload, ["stops", "Stops", "get_stops", "GetStops"])
+    result: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        stop_id = entry.get("StopID") or entry.get("stopID") or entry.get("Id") or entry.get("id")
+        route_stop_id = entry.get("RouteStopID") or entry.get("rsid") or entry.get("RouteStopId")
+        result.append(
+            {
+                "StopID": stop_id,
+                "StopName": entry.get("StopName") or entry.get("Name"),
+                "Latitude": entry.get("Latitude") or entry.get("Lat"),
+                "Longitude": entry.get("Longitude") or entry.get("Lon") or entry.get("Lng"),
+                "RouteID": entry.get("RouteID") or entry.get("rid") or entry.get("RouteId"),
+                "RouteStopID": route_stop_id,
+                "RouteStopId": route_stop_id,
+            }
+        )
+    return result
+
+
+def _trim_cat_patterns(payload: Any) -> List[Dict[str, Any]]:
+    entries = _extract_cat_array(payload, ["patterns", "Patterns", "get_patterns", "GetPatterns"])
+    result: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        rid = entry.get("RouteID") or entry.get("routeID") or entry.get("RouteId")
+        result.append(
+            {
+                "RouteID": rid,
+                "EncodedPolyline": entry.get("encLine")
+                or entry.get("EncLine")
+                or entry.get("EncodedPolyline"),
+                "DecodedPath": entry.get("DecLine") or entry.get("decLine") or entry.get("decodedLine"),
+            }
+        )
+    return result
+
+
+def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
+    entries = _extract_cat_array(payload, ["vehicles", "Vehicles", "get_vehicles", "GetVehicles"])
+    result: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        result.append(
+            {
+                "VehicleID": entry.get("VehicleID") or entry.get("vehicleID") or entry.get("ID") or entry.get("id"),
+                "Name": entry.get("VehicleName") or entry.get("Name"),
+                "EquipmentID": entry.get("EquipmentID") or entry.get("equipmentID"),
+                "Latitude": entry.get("Latitude") or entry.get("Lat"),
+                "Longitude": entry.get("Longitude") or entry.get("Lon") or entry.get("Lng"),
+                "Heading": entry.get("Heading") or entry.get("h"),
+                "Speed": entry.get("Speed") or entry.get("speed") or entry.get("GpsSpeed"),
+                "RouteID": entry.get("RouteID") or entry.get("routeID") or entry.get("route"),
+                "RouteAbbreviation": entry.get("RouteAbbreviation") or entry.get("ShortName"),
+                "RouteName": entry.get("RouteName") or entry.get("Description"),
+                "ETAs": entry.get("ETAs") or entry.get("etas") or entry.get("MinutesToStops"),
+            }
+        )
+    return result
+
+
+def _trim_cat_service_alerts(payload: Any) -> List[Dict[str, Any]]:
+    entries = _extract_cat_array(payload, ["announcements", "Announcements", "alerts", "Alerts"])
+    result: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        result.append(
+            {
+                "ID": entry.get("ID") or entry.get("Id") or entry.get("AlertID") or entry.get("guid"),
+                "Title": entry.get("Title") or entry.get("Name"),
+                "Message": entry.get("Message") or entry.get("Description"),
+                "Routes": entry.get("Routes") or entry.get("RouteNames") or entry.get("Route"),
+                "StartDate": entry.get("StartDate") or entry.get("Effective"),
+                "EndDate": entry.get("EndDate") or entry.get("Expiration"),
+                "IsActive": entry.get("IsActive") or entry.get("Active") or entry.get("Status"),
+            }
+        )
+    return result
+
+
+def _trim_cat_stop_etas(payload: Any) -> List[Dict[str, Any]]:
+    entries = _extract_cat_array(payload, ["etas", "ETAs", "get_stop_etas", "GetStopEtas"])
+    result: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        result.append(
+            {
+                "stopId": entry.get("stopId") or entry.get("StopID") or entry.get("StopId"),
+                "routeId": entry.get("routeId") or entry.get("RouteID"),
+                "routeKey": entry.get("route"),
+                "routeDescription": entry.get("routeName") or entry.get("RouteName"),
+                "minutes": entry.get("minutes"),
+                "etaText": entry.get("text") or entry.get("Text"),
+            }
+        )
+    return result
+
+
+async def _get_cat_routes() -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _cat_api_request("get_routes")
+        return _trim_cat_routes(payload)
+
+    return await cat_routes_cache.get(fetch)
+
+
+async def _get_cat_stops() -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _cat_api_request("get_stops")
+        return _trim_cat_stops(payload)
+
+    return await cat_stops_cache.get(fetch)
+
+
+async def _get_cat_patterns() -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _cat_api_request("get_patterns")
+        return _trim_cat_patterns(payload)
+
+    return await cat_patterns_cache.get(fetch)
+
+
+async def _get_cat_vehicles() -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _cat_api_request(
+            "get_vehicles",
+            {
+                "includeETAData": "1",
+                "inService": "0",
+                "orderedETAArray": "1",
+            },
+        )
+        return _trim_cat_vehicles(payload)
+
+    return await cat_vehicles_cache.get(fetch)
+
+
+async def _get_cat_service_alerts() -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _cat_api_request("get_service_announcements")
+        return _trim_cat_service_alerts(payload)
+
+    return await cat_service_alerts_cache.get(fetch)
+
+
+async def _get_cat_stop_etas(stop_id: str) -> List[Dict[str, Any]]:
+    async def fetch():
+        payload = await _cat_api_request(
+            "get_stop_etas",
+            {"stopID": stop_id, "statusData": "1"},
+        )
+        return _trim_cat_stop_etas(payload)
+
+    return await cat_stop_etas_cache.get(stop_id, fetch)
+
+
+@app.get("/v1/testmap/cat/routes")
+async def cat_routes_endpoint():
+    return {"routes": await _get_cat_routes()}
+
+
+@app.get("/v1/testmap/cat/stops")
+async def cat_stops_endpoint():
+    return {"stops": await _get_cat_stops()}
+
+
+@app.get("/v1/testmap/cat/patterns")
+async def cat_patterns_endpoint():
+    return {"patterns": await _get_cat_patterns()}
+
+
+@app.get("/v1/testmap/cat/vehicles")
+async def cat_vehicles_endpoint():
+    return {"vehicles": await _get_cat_vehicles()}
+
+
+@app.get("/v1/testmap/cat/service-alerts")
+async def cat_service_alerts_endpoint():
+    return {"alerts": await _get_cat_service_alerts()}
+
+
+@app.get("/v1/testmap/cat/stop-etas")
+async def cat_stop_etas_endpoint(stop_id: str):
+    data = await _get_cat_stop_etas(stop_id)
+    return {"etas": data}
+
+
+def _derive_aes_key_iv(password: bytes, salt: bytes, key_len: int = 32, iv_len: int = 16) -> Tuple[bytes, bytes]:
+    d = b""
+    prev = b""
+    while len(d) < key_len + iv_len:
+        prev = hashlib.md5(prev + password + salt).digest()
+        d += prev
+    key = d[:key_len]
+    iv = d[key_len:key_len + iv_len]
+    return key, iv
+
+
+def _decrypt_pulsepoint_payload(payload: Dict[str, Any]) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    cipher_text = payload.get("ct")
+    if not cipher_text:
+        return payload
+    try:
+        ciphertext_bytes = base64.b64decode(cipher_text)
+    except Exception:
+        return payload
+    salt_hex = payload.get("s")
+    salt = bytes.fromhex(salt_hex) if isinstance(salt_hex, str) else b""
+    iv_hex = payload.get("iv")
+    pass_bytes = PULSEPOINT_PASSPHRASE.encode("utf-8")
+    key, derived_iv = _derive_aes_key_iv(pass_bytes, salt)
+    iv = bytes.fromhex(iv_hex) if isinstance(iv_hex, str) else derived_iv
+    cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+    try:
+        decrypted = cipher.decrypt(ciphertext_bytes)
+        plaintext = unpad(decrypted, AES.block_size)
+    except Exception:
+        return payload
+    text = plaintext.decode("utf-8", errors="ignore")
+    parsed: Any = text
+    for _ in range(3):
+        if isinstance(parsed, str):
+            try:
+                parsed = json.loads(parsed)
+                continue
+            except Exception:
+                break
+        break
+    return parsed
+
+
+async def _get_pulsepoint_incidents() -> Any:
+    async def fetch():
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(PULSEPOINT_ENDPOINT, timeout=20)
+            record_api_call("GET", str(resp.request.url), resp.status_code)
+            resp.raise_for_status()
+            data = resp.json()
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                return data
+        return _decrypt_pulsepoint_payload(data)
+
+    return await pulsepoint_cache.get(fetch)
+
+
+def _train_includes_station(train: Dict[str, Any], station: str) -> bool:
+    if not station:
+        return True
+    stations = train.get("stations")
+    if not isinstance(stations, list):
+        return False
+    target = station.upper()
+    for stop in stations:
+        if isinstance(stop, dict):
+            code = stop.get("code") or stop.get("Code")
+            if code and str(code).strip().upper() == target:
+                return True
+    return False
+
+
+def _filter_trains_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    if not TRAIN_TARGET_STATION_CODE:
+        return payload
+    filtered: Dict[str, Any] = {}
+    for key, value in payload.items():
+        if not isinstance(value, list):
+            continue
+        subset = [train for train in value if isinstance(train, dict) and _train_includes_station(train, TRAIN_TARGET_STATION_CODE)]
+        if subset:
+            filtered[key] = subset
+    return filtered
+
+
+async def _get_amtraker_trains() -> Any:
+    async def fetch():
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(AMTRAKER_URL, timeout=20)
+            record_api_call("GET", str(resp.request.url), resp.status_code)
+            resp.raise_for_status()
+            data = resp.json()
+        return _filter_trains_payload(data)
+
+    return await amtraker_cache.get(fetch)
+
+
+async def _fetch_ridesystems_clients() -> List[Dict[str, str]]:
+    async def fetch():
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(RIDESYSTEMS_CLIENTS_URL, timeout=20)
+            record_api_call("GET", str(resp.request.url), resp.status_code)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "").lower()
+            if "application/json" in content_type:
+                payload = resp.json()
+                clients = payload if isinstance(payload, list) else payload.get("clients") or []
+                items = []
+                for entry in clients:
+                    if not isinstance(entry, dict):
+                        continue
+                    name = (entry.get("Name") or entry.get("name") or "").strip()
+                    web = (entry.get("WebAddress") or entry.get("webAddress") or "").strip()
+                    if not name or not web:
+                        continue
+                    items.append({"name": name, "url": web})
+                return items
+            text = resp.text
+            items: List[Dict[str, str]] = []
+            try:
+                root = ET.fromstring(text)
+                for client_el in root.findall(".//Client"):
+                    name_el = client_el.find("Name")
+                    url_el = client_el.find("WebAddress")
+                    name = name_el.text.strip() if name_el is not None and name_el.text else ""
+                    web = url_el.text.strip() if url_el is not None and url_el.text else ""
+                    if name and web:
+                        items.append({"name": name, "url": web})
+            except ET.ParseError:
+                return []
+            return items
+
+    data = await ridesystems_clients_cache.get(fetch)
+    # Normalise URLs to https
+    normalised: List[Dict[str, str]] = []
+    for entry in data:
+        name = entry.get("name", "").strip()
+        url = entry.get("url", "").strip()
+        if not name or not url:
+            continue
+        if not url.startswith("http"):
+            url = f"https://{url}"
+        url = re.sub(r"^http://", "https://", url, flags=re.IGNORECASE)
+        normalised.append({"name": name, "url": url})
+    normalised.sort(key=lambda x: x["name"].lower())
+    return normalised
+
+
+@app.get("/v1/testmap/pulsepoint")
+async def pulsepoint_endpoint():
+    return await _get_pulsepoint_incidents()
+
+
+@app.get("/v1/testmap/trains")
+async def trains_endpoint():
+    return await _get_amtraker_trains()
+
+
+@app.get("/v1/testmap/ridesystems/clients")
+async def ridesystems_clients_endpoint():
+    clients = await _fetch_ridesystems_clients()
+    return {"clients": clients}
 
 @app.get("/v1/transloc/routes")
 async def transloc_routes():
