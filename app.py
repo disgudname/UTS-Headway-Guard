@@ -1978,19 +1978,37 @@ def _trim_cat_routes(payload: Any) -> List[Dict[str, Any]]:
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        rid = entry.get("RouteID") or entry.get("routeID") or entry.get("RouteId") or entry.get("routeId") or entry.get("ID")
+        rid = (
+            entry.get("RouteID")
+            or entry.get("routeID")
+            or entry.get("RouteId")
+            or entry.get("routeId")
+            or entry.get("ID")
+            or entry.get("Id")
+            or entry.get("id")
+        )
         color = (
             entry.get("Color")
             or entry.get("RouteColor")
             or entry.get("RouteHexColor")
             or entry.get("HexColor")
+            or entry.get("color")
         )
         result.append(
             {
                 "RouteID": rid,
-                "RouteName": entry.get("RouteName") or entry.get("Description") or entry.get("Name"),
-                "RouteAbbreviation": entry.get("RouteAbbreviation") or entry.get("ShortName"),
-                "Description": entry.get("Description"),
+                "RouteName": entry.get("RouteName")
+                or entry.get("Description")
+                or entry.get("description")
+                or entry.get("Name")
+                or entry.get("name"),
+                "RouteAbbreviation": entry.get("RouteAbbreviation")
+                or entry.get("ShortName")
+                or entry.get("shortName")
+                or entry.get("Abbreviation")
+                or entry.get("abbreviation")
+                or entry.get("abbr"),
+                "Description": entry.get("Description") or entry.get("description"),
                 "Color": color,
             }
         )
@@ -2003,15 +2021,41 @@ def _trim_cat_stops(payload: Any) -> List[Dict[str, Any]]:
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        stop_id = entry.get("StopID") or entry.get("stopID") or entry.get("Id") or entry.get("id")
-        route_stop_id = entry.get("RouteStopID") or entry.get("rsid") or entry.get("RouteStopId")
+        stop_id = (
+            entry.get("StopID")
+            or entry.get("stopID")
+            or entry.get("StopId")
+            or entry.get("stopId")
+            or entry.get("Id")
+            or entry.get("id")
+        )
+        route_stop_id = (
+            entry.get("RouteStopID")
+            or entry.get("rsid")
+            or entry.get("RouteStopId")
+            or entry.get("RSID")
+        )
         result.append(
             {
                 "StopID": stop_id,
-                "StopName": entry.get("StopName") or entry.get("Name"),
-                "Latitude": entry.get("Latitude") or entry.get("Lat"),
-                "Longitude": entry.get("Longitude") or entry.get("Lon") or entry.get("Lng"),
-                "RouteID": entry.get("RouteID") or entry.get("rid") or entry.get("RouteId"),
+                "StopName": entry.get("StopName")
+                or entry.get("Name")
+                or entry.get("name"),
+                "Latitude": entry.get("Latitude")
+                or entry.get("Lat")
+                or entry.get("lat"),
+                "Longitude": entry.get("Longitude")
+                or entry.get("Lon")
+                or entry.get("lon")
+                or entry.get("Lng")
+                or entry.get("lng"),
+                "RouteID": entry.get("RouteID")
+                or entry.get("rid")
+                or entry.get("RouteId")
+                or entry.get("routeID")
+                or entry.get("routeId")
+                or entry.get("Route")
+                or entry.get("route"),
                 "RouteStopID": route_stop_id,
                 "RouteStopId": route_stop_id,
             }
@@ -2046,16 +2090,43 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
             continue
         result.append(
             {
-                "VehicleID": entry.get("VehicleID") or entry.get("vehicleID") or entry.get("ID") or entry.get("id"),
-                "Name": entry.get("VehicleName") or entry.get("Name"),
+                "VehicleID": entry.get("VehicleID")
+                or entry.get("vehicleID")
+                or entry.get("VehicleId")
+                or entry.get("vehicleId")
+                or entry.get("ID")
+                or entry.get("Id")
+                or entry.get("id"),
+                "Name": entry.get("VehicleName")
+                or entry.get("vehicleName")
+                or entry.get("Name")
+                or entry.get("name"),
                 "EquipmentID": entry.get("EquipmentID") or entry.get("equipmentID"),
-                "Latitude": entry.get("Latitude") or entry.get("Lat"),
-                "Longitude": entry.get("Longitude") or entry.get("Lon") or entry.get("Lng"),
+                "Latitude": entry.get("Latitude")
+                or entry.get("Lat")
+                or entry.get("lat"),
+                "Longitude": entry.get("Longitude")
+                or entry.get("Lon")
+                or entry.get("lon")
+                or entry.get("Lng")
+                or entry.get("lng"),
                 "Heading": entry.get("Heading") or entry.get("h"),
-                "Speed": entry.get("Speed") or entry.get("speed") or entry.get("GpsSpeed"),
-                "RouteID": entry.get("RouteID") or entry.get("routeID") or entry.get("route"),
-                "RouteAbbreviation": entry.get("RouteAbbreviation") or entry.get("ShortName"),
-                "RouteName": entry.get("RouteName") or entry.get("Description"),
+                "Speed": entry.get("Speed")
+                or entry.get("speed")
+                or entry.get("GpsSpeed")
+                or entry.get("gpsSpeed"),
+                "RouteID": entry.get("RouteID")
+                or entry.get("routeID")
+                or entry.get("RouteId")
+                or entry.get("routeId")
+                or entry.get("route"),
+                "RouteAbbreviation": entry.get("RouteAbbreviation")
+                or entry.get("ShortName")
+                or entry.get("shortName"),
+                "RouteName": entry.get("RouteName")
+                or entry.get("Description")
+                or entry.get("routeName")
+                or entry.get("name"),
                 "ETAs": entry.get("ETAs") or entry.get("etas") or entry.get("MinutesToStops"),
             }
         )
