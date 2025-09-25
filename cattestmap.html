@@ -533,256 +533,6 @@
         flex-direction: column;
         gap: 18px;
       }
-      .selector-panel .selector-section.service-alerts {
-        border-radius: 16px;
-        border: 1px solid rgba(35, 45, 75, 0.14);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.9));
-        box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-        transition: box-shadow 0.2s ease, border-color 0.2s ease;
-        backdrop-filter: blur(6px);
-      }
-      .selector-panel .selector-section.service-alerts.is-expanded {
-        box-shadow: 0 22px 44px rgba(15, 23, 42, 0.16);
-      }
-      .service-alerts.is-collapsed.has-active-alerts {
-        border-color: rgba(220, 38, 38, 0.45);
-        box-shadow: 0 16px 32px rgba(220, 38, 38, 0.18);
-      }
-      .service-alerts__header {
-        appearance: none;
-        border: none;
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.08), rgba(35, 45, 75, 0.02));
-        border-radius: 16px;
-        border-bottom: 1px solid transparent;
-        padding: 18px 20px;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        width: 100%;
-        text-align: left;
-        cursor: pointer;
-        font: inherit;
-        color: inherit;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
-        position: relative;
-        transition: color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-      }
-      .service-alerts__header:hover,
-      .service-alerts__header:focus-visible {
-        text-decoration: none;
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.16), rgba(35, 45, 75, 0.05));
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 12px 24px rgba(15, 23, 42, 0.12);
-      }
-      .service-alerts__header:focus-visible {
-        outline: none;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), 0 0 0 3px var(--accent-soft), 0 18px 32px rgba(15, 23, 42, 0.16);
-      }
-      .service-alerts.is-expanded .service-alerts__header {
-        border-bottom-color: rgba(148, 163, 184, 0.26);
-        border-bottom-left-radius: 0;
-        border-bottom-right-radius: 0;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
-      }
-      .service-alerts.is-collapsed .service-alerts__header {
-        border-bottom-color: transparent;
-      }
-      .service-alerts.is-collapsed.has-active-alerts .service-alerts__header {
-        color: rgba(127, 29, 29, 0.95);
-        background: linear-gradient(135deg, rgba(220, 38, 38, 0.12), rgba(220, 38, 38, 0.04));
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 14px 30px rgba(220, 38, 38, 0.18);
-      }
-      .service-alerts__header-main {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        flex: 1;
-        min-width: 0;
-      }
-      .service-alerts__title {
-        font-size: 16px;
-        font-weight: 700;
-        letter-spacing: 0.4px;
-      }
-      .service-alerts__status {
-        font-size: 13px;
-        letter-spacing: 0.3px;
-        color: rgba(35, 45, 75, 0.65);
-        text-transform: uppercase;
-      }
-      .service-alerts.is-collapsed.has-active-alerts .service-alerts__status {
-        color: rgba(127, 29, 29, 0.78);
-      }
-      .service-alerts__badge,
-      .panel-toggle__badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 26px;
-        height: 26px;
-        padding: 0 6px;
-        border-radius: 999px;
-        background: linear-gradient(135deg, #dc2626, #ef4444);
-        color: #fef2f2;
-        font-weight: 700;
-        font-size: 13px;
-        letter-spacing: 0.4px;
-        box-shadow: 0 8px 18px rgba(220, 38, 38, 0.25);
-      }
-      .service-alerts__badge[hidden],
-      .panel-toggle__badge[hidden] {
-        display: none !important;
-      }
-      .service-alerts__badge {
-        box-shadow: none;
-      }
-      .service-alerts__chevron {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.95), rgba(35, 45, 75, 0.7));
-        color: #f8fafc;
-        font-size: 18px;
-        font-weight: 700;
-        line-height: 1;
-        box-shadow: 0 12px 24px rgba(35, 45, 75, 0.25);
-        transition: transform 0.25s ease, background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
-        flex-shrink: 0;
-      }
-      .service-alerts__header:hover .service-alerts__chevron,
-      .service-alerts__header:focus-visible .service-alerts__chevron {
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.85), rgba(35, 45, 75, 0.65));
-        box-shadow: 0 14px 28px rgba(35, 45, 75, 0.28);
-      }
-      .service-alerts.is-collapsed.has-active-alerts .service-alerts__chevron {
-        background: linear-gradient(135deg, #dc2626, #ef4444);
-        box-shadow: 0 16px 30px rgba(220, 38, 38, 0.32);
-        color: #fef2f2;
-      }
-      .service-alerts.is-expanded .service-alerts__chevron {
-        transform: rotate(90deg);
-        background: linear-gradient(135deg, rgba(35, 45, 75, 0.88), rgba(35, 45, 75, 0.68));
-      }
-      .service-alerts__content {
-        padding: 20px 20px 22px;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.94));
-        border-top: 1px solid rgba(148, 163, 184, 0.24);
-        border-bottom-left-radius: 16px;
-        border-bottom-right-radius: 16px;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-      }
-      .service-alerts.is-expanded .service-alerts__content {
-        animation: service-alerts-fade-in 180ms ease;
-      }
-      .service-alerts.is-collapsed .service-alerts__content {
-        display: none;
-      }
-      .service-alerts__list {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-      }
-      .service-alerts__item {
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.92));
-        border: 1px solid rgba(148, 163, 184, 0.32);
-        border-radius: 14px;
-        padding: 16px 18px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
-      }
-      .service-alerts__item-title {
-        font-size: 15px;
-        font-weight: 700;
-        letter-spacing: 0.3px;
-        color: rgba(35, 45, 75, 0.92);
-      }
-      .service-alerts__item-message {
-        font-size: 14px;
-        line-height: 1.45;
-        color: rgba(15, 23, 42, 0.85);
-        white-space: pre-wrap;
-      }
-      .service-alerts__meta {
-        display: grid;
-        gap: 6px;
-        font-size: 13px;
-        color: rgba(55, 65, 81, 0.88);
-      }
-      .service-alerts__meta-row {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 8px;
-        align-items: baseline;
-      }
-      .service-alerts__meta-row dt {
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.6px;
-        color: rgba(30, 41, 59, 0.72);
-      }
-      .service-alerts__meta-row dd {
-        margin: 0;
-        overflow-wrap: anywhere;
-      }
-      .service-alerts__state {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-size: 14px;
-        color: rgba(30, 41, 59, 0.8);
-        padding: 16px 18px;
-        border-radius: 14px;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(237, 242, 247, 0.92));
-        border: 1px solid rgba(148, 163, 184, 0.28);
-        box-shadow: 0 12px 22px rgba(15, 23, 42, 0.1);
-      }
-      .service-alerts__spinner {
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        border: 2px solid rgba(30, 64, 175, 0.2);
-        border-top-color: rgba(30, 64, 175, 0.7);
-        animation: loading-overlay-spin 1s linear infinite;
-      }
-      .service-alerts__state--error {
-        color: rgba(153, 27, 27, 0.9);
-        font-weight: 600;
-        border-color: rgba(220, 38, 38, 0.3);
-        box-shadow: 0 16px 32px rgba(220, 38, 38, 0.18);
-      }
-      .service-alerts__state--empty {
-        color: rgba(30, 41, 59, 0.6);
-        font-style: italic;
-        border-style: dashed;
-      }
-      @keyframes service-alerts-fade-in {
-        from {
-          opacity: 0;
-          transform: translateY(-6px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .service-alerts.is-expanded .service-alerts__content {
-          animation: none;
-        }
-      }
       .selector-panel .incident-alert-block {
         background: linear-gradient(135deg, rgba(254, 226, 226, 0.92), rgba(254, 202, 202, 0.78));
         border: 1px solid rgba(220, 38, 38, 0.35);
@@ -1031,6 +781,295 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
+      }
+      .selector-panel .radar-control-group .radar-control {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .selector-panel .radar-control-group .radar-control-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: rgba(35, 45, 75, 0.65);
+      }
+      .selector-panel .radar-opacity-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .selector-panel .radar-opacity-value {
+        font-size: 14px;
+        font-weight: 700;
+        min-width: 48px;
+        text-align: right;
+        color: rgba(35, 45, 75, 0.85);
+      }
+      .selector-panel .radar-control-group input[type="range"] {
+        width: 100%;
+        -webkit-appearance: none;
+        appearance: none;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(35, 45, 75, 0.18);
+        outline: none;
+      }
+      .selector-panel .radar-control-group input[type="range"]::-webkit-slider-runnable-track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(35, 45, 75, 0.18);
+      }
+      .selector-panel .radar-control-group input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 2px 6px rgba(229, 114, 0, 0.45);
+        cursor: pointer;
+        border: none;
+      }
+      .selector-panel .radar-control-group input[type="range"]::-moz-range-track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(35, 45, 75, 0.18);
+      }
+      .selector-panel .radar-control-group input[type="range"]::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 2px 6px rgba(229, 114, 0, 0.45);
+        cursor: pointer;
+        border: none;
+      }
+      .selector-panel .radar-status-message {
+        font-size: 12px;
+        letter-spacing: 0.3px;
+        color: rgba(185, 28, 28, 0.85);
+      }
+      .selector-panel .radar-toggle {
+        align-self: flex-start;
+      }
+      .selector-panel .radar-toggle[disabled] {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+      .selector-panel .service-alerts-group {
+        gap: 12px;
+      }
+      .selector-panel .service-alerts-toggle {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        text-align: left;
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.16), rgba(79, 70, 229, 0.18));
+        border: 1px solid rgba(67, 56, 202, 0.28);
+        color: var(--panel-text-color);
+        box-shadow: 0 10px 18px rgba(37, 99, 235, 0.18);
+        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .selector-panel .service-alerts-toggle:hover {
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(79, 70, 229, 0.26));
+        border-color: rgba(67, 56, 202, 0.36);
+        box-shadow: 0 14px 24px rgba(37, 99, 235, 0.25);
+      }
+      .selector-panel .service-alerts-toggle.is-expanded {
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.26), rgba(59, 130, 246, 0.3));
+        border-color: rgba(59, 130, 246, 0.45);
+        box-shadow: 0 16px 26px rgba(59, 130, 246, 0.3);
+      }
+      .selector-panel .service-alerts-toggle.has-active-alerts {
+        background: linear-gradient(135deg, rgba(13, 148, 136, 0.24), rgba(14, 116, 144, 0.26));
+        border-color: rgba(13, 148, 136, 0.42);
+        box-shadow: 0 16px 26px rgba(13, 148, 136, 0.25);
+      }
+      .selector-panel .service-alerts-toggle.has-active-alerts:hover {
+        background: linear-gradient(135deg, rgba(13, 148, 136, 0.28), rgba(14, 116, 144, 0.32));
+        border-color: rgba(13, 148, 136, 0.5);
+      }
+      .selector-panel .service-alerts-toggle.has-error {
+        background: linear-gradient(135deg, rgba(248, 113, 113, 0.2), rgba(220, 38, 38, 0.22));
+        border-color: rgba(220, 38, 38, 0.42);
+        box-shadow: 0 12px 22px rgba(220, 38, 38, 0.22);
+      }
+      .selector-panel .service-alerts-toggle.has-error:hover {
+        background: linear-gradient(135deg, rgba(248, 113, 113, 0.24), rgba(220, 38, 38, 0.28));
+        border-color: rgba(220, 38, 38, 0.5);
+      }
+      .selector-panel .service-alerts-toggle.is-loading {
+        cursor: progress;
+      }
+      .selector-panel .service-alerts-toggle__text {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .selector-panel .service-alerts-toggle__label {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 1.1px;
+        text-transform: uppercase;
+        color: rgba(30, 41, 59, 0.92);
+      }
+      .selector-panel .service-alerts-toggle__status {
+        font-size: 13px;
+        letter-spacing: 0.35px;
+        color: rgba(30, 64, 175, 0.85);
+      }
+      .selector-panel .service-alerts-toggle.has-error .service-alerts-toggle__status {
+        color: rgba(185, 28, 28, 0.9);
+        font-weight: 600;
+      }
+      .selector-panel .service-alerts-toggle.is-loading .service-alerts-toggle__status {
+        color: rgba(30, 41, 59, 0.7);
+      }
+      .selector-panel .service-alerts-toggle.has-active-alerts .service-alerts-toggle__status {
+        color: rgba(13, 148, 136, 0.95);
+        font-weight: 700;
+      }
+      .selector-panel .service-alerts-toggle__chevron {
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: rgba(30, 41, 59, 0.12);
+        color: rgba(30, 41, 59, 0.7);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+      .selector-panel .service-alerts-toggle:hover .service-alerts-toggle__chevron {
+        background: rgba(30, 41, 59, 0.18);
+      }
+      .selector-panel .service-alerts-toggle__chevron::before {
+        content: '\25BC';
+      }
+      .selector-panel .service-alerts-toggle.is-expanded .service-alerts-toggle__chevron::before {
+        content: '\25B2';
+      }
+      .selector-panel .service-alerts-panel {
+        border-radius: 12px;
+        border: 1px solid rgba(67, 56, 202, 0.26);
+        background: rgba(255, 255, 255, 0.9);
+        padding: 16px 18px;
+        box-shadow: 0 14px 28px rgba(37, 99, 235, 0.18);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .selector-panel .service-alerts-panel[hidden] {
+        display: none;
+      }
+      .selector-panel .service-alerts-panel.is-empty {
+        padding: 0;
+        border: none;
+        box-shadow: none;
+        background: transparent;
+        gap: 0;
+        min-height: 0;
+      }
+      .selector-panel .service-alerts-panel.is-loading {
+        opacity: 0.75;
+      }
+      .selector-panel .service-alerts-panel.has-error {
+        border-color: rgba(220, 38, 38, 0.32);
+        box-shadow: 0 12px 24px rgba(220, 38, 38, 0.2);
+      }
+      .selector-panel .service-alerts-panel .service-alerts-state {
+        font-size: 14px;
+        letter-spacing: 0.3px;
+        color: rgba(30, 41, 59, 0.82);
+        line-height: 1.4;
+      }
+      .selector-panel .service-alerts-panel .service-alerts-state--loading {
+        color: rgba(37, 99, 235, 0.85);
+        font-weight: 600;
+      }
+      .selector-panel .service-alerts-panel .service-alerts-state--error {
+        color: rgba(185, 28, 28, 0.9);
+        font-weight: 600;
+      }
+      .selector-panel .service-alerts-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .selector-panel .service-alerts-item {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: rgba(37, 99, 235, 0.08);
+        border: 1px solid rgba(67, 56, 202, 0.22);
+      }
+      .selector-panel .service-alerts-item.is-inactive {
+        opacity: 0.75;
+      }
+      .selector-panel .service-alerts-item__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .selector-panel .service-alerts-item__title {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.45px;
+        color: rgba(30, 41, 59, 0.95);
+      }
+      .selector-panel .service-alerts-item__status {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(37, 99, 235, 0.16);
+        color: rgba(30, 64, 175, 0.9);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .selector-panel .service-alerts-item.is-inactive .service-alerts-item__status {
+        background: rgba(248, 113, 113, 0.18);
+        color: rgba(185, 28, 28, 0.9);
+      }
+      .selector-panel .service-alerts-item__message {
+        font-size: 14px;
+        line-height: 1.55;
+        color: rgba(30, 41, 59, 0.85);
+        white-space: pre-line;
+      }
+      .selector-panel .service-alerts-item__meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .selector-panel .service-alerts-item__meta-row {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+        letter-spacing: 0.3px;
+        color: rgba(37, 99, 235, 0.9);
+      }
+      .selector-panel .service-alerts-item__meta-label {
+        font-weight: 700;
+        text-transform: uppercase;
+        color: rgba(30, 64, 175, 0.88);
+      }
+      .selector-panel .service-alerts-item__meta-value {
+        flex: 1;
+        font-weight: 600;
+        color: rgba(30, 41, 59, 0.85);
+        overflow-wrap: anywhere;
       }
       .selector-panel .selector-label {
         font-size: 12px;
@@ -1305,15 +1344,6 @@
         justify-content: center;
         width: 100%;
       }
-      .panel-toggle__badge {
-        position: absolute;
-        top: 8px;
-        right: 6px;
-      }
-      .panel-toggle--right .panel-toggle__badge {
-        left: 6px;
-        right: auto;
-      }
       #routeLegend {
         position: fixed;
         top: 10px;
@@ -1542,6 +1572,30 @@
       // kioskMode: true to hide the route selector/tab and suppress vehicle overlays for a public display.
       // adminKioskMode: true to hide the route selector/tab while retaining admin overlays (previous kiosk behavior).
       // displayMode selects whether admin overlays show speed, block numbers, or neither.
+      if (typeof window !== 'undefined' && typeof window.usp === 'undefined') {
+        let searchParams = null;
+        if (typeof URLSearchParams === 'function' && typeof window.location === 'object' && typeof window.location.search === 'string') {
+          try {
+            searchParams = new URLSearchParams(window.location.search || '');
+          } catch (error) {
+            searchParams = null;
+          }
+        }
+        window.usp = {
+          has(name) {
+            if (!searchParams) return false;
+            return searchParams.has(name);
+          },
+          getInt(name, defaultValue = 0) {
+            if (!searchParams) return defaultValue;
+            const raw = searchParams.get(name);
+            if (raw === null) return defaultValue;
+            const parsed = Number.parseInt(raw, 10);
+            return Number.isFinite(parsed) ? parsed : defaultValue;
+          }
+        };
+      }
+
       const DISPLAY_MODES = Object.freeze({
         SPEED: 'speed',
         BLOCK: 'block',
@@ -1555,6 +1609,505 @@
       const PANEL_COLLAPSE_BREAKPOINT = 600;
 
       const enableOverlapDashRendering = true;
+
+      function adminFeaturesAllowed() {
+        return (adminMode && !kioskMode) || adminKioskMode;
+      }
+
+      const RADAR_PRODUCTS = Object.freeze({
+        BASE: 'base',
+        COMPOSITE: 'composite'
+      });
+      const RADAR_PRODUCT_ORDER = Object.freeze([RADAR_PRODUCTS.BASE, RADAR_PRODUCTS.COMPOSITE]);
+      const RADAR_PRODUCT_INFO = Object.freeze({
+        [RADAR_PRODUCTS.BASE]: {
+          label: "Base Reflectivity (0.5° Tilt)",
+          urlTemplate: "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png",
+          cacheBustingStrategy: "none"
+        },
+        [RADAR_PRODUCTS.COMPOSITE]: {
+          label: "Composite Reflectivity",
+          urlTemplate: "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0r-900913/{z}/{x}/{y}.png",
+          cacheBustingStrategy: "none"
+        }
+      });
+      const RADAR_DEFAULT_PRODUCT = RADAR_PRODUCTS.BASE;
+      const RADAR_DEFAULT_OPACITY = 0.5;
+      const RADAR_MIN_OPACITY = 0.3;
+      const RADAR_MAX_OPACITY = 0.8;
+      const RADAR_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+      const RADAR_SESSION_STORAGE_KEY = "hg.radar.state";
+      const RADAR_UNAVAILABLE_MESSAGE = "Radar temporarily unavailable.";
+      const RADAR_CONSECUTIVE_ERROR_THRESHOLD = 3;
+      const RADAR_PANE_NAME = "radarPane";
+      const RADAR_CACHE_BUST_PLACEHOLDER = "{cacheBust}";
+
+      let showRadar = false;
+      let radarConfiguredProduct = RADAR_DEFAULT_PRODUCT;
+      let radarConfiguredOpacity = RADAR_DEFAULT_OPACITY;
+
+      let radarEnabled = false;
+      let radarProduct = RADAR_DEFAULT_PRODUCT;
+      let radarOpacity = RADAR_DEFAULT_OPACITY;
+      let radarLayer = null;
+      let radarLayerProduct = null;
+      let radarRefreshTimerId = null;
+      let radarCacheBustKey = "";
+      let radarTileErrorCount = 0;
+      let radarTemporarilyUnavailable = false;
+      let radarLastFailedUrl = "";
+      let radarSuppressedForErrors = false;
+      let radarSuppressionTimeoutId = null;
+
+      function isRadarInteractiveMode() {
+        return !kioskMode && !adminKioskMode;
+      }
+
+      function normalizeRadarProduct(value) {
+        if (typeof value !== 'string') {
+          return RADAR_DEFAULT_PRODUCT;
+        }
+        const key = value.trim().toLowerCase();
+        return Object.prototype.hasOwnProperty.call(RADAR_PRODUCT_INFO, key) ? key : RADAR_DEFAULT_PRODUCT;
+      }
+
+      function clampRadarOpacity(value) {
+        const numeric = Number.parseFloat(value);
+        if (!Number.isFinite(numeric)) {
+          return RADAR_DEFAULT_OPACITY;
+        }
+        return Math.min(RADAR_MAX_OPACITY, Math.max(RADAR_MIN_OPACITY, numeric));
+      }
+
+      function formatRadarOpacity(value) {
+        const numeric = Number.parseFloat(value);
+        if (!Number.isFinite(numeric)) {
+          return `${Math.round(RADAR_DEFAULT_OPACITY * 100)}%`;
+        }
+        const percentage = Math.round(Math.min(1, Math.max(0, numeric)) * 100);
+        return `${percentage}%`;
+      }
+
+      function buildRadarCacheBustKey(date = new Date()) {
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(date.getUTCDate()).padStart(2, "0");
+        const hours = String(date.getUTCHours()).padStart(2, "0");
+        const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+        return `${year}${month}${day}${hours}${minutes}`;
+      }
+
+      function removeCacheBustPlaceholder(template) {
+        if (typeof template !== "string" || !template.includes(RADAR_CACHE_BUST_PLACEHOLDER)) {
+          return template;
+        }
+        return template.split(RADAR_CACHE_BUST_PLACEHOLDER).join("");
+      }
+
+      function getRadarTileUrlTemplate(productKey, cacheBustKey) {
+        const info = RADAR_PRODUCT_INFO[productKey] || RADAR_PRODUCT_INFO[RADAR_DEFAULT_PRODUCT];
+        if (!info || typeof info.urlTemplate !== "string" || !info.urlTemplate) {
+          return "";
+        }
+        const template = info.urlTemplate;
+        const strategy = info.cacheBustingStrategy || "query";
+        if (!cacheBustKey || strategy === "none") {
+          return removeCacheBustPlaceholder(template);
+        }
+        if (strategy === "path" && template.includes(RADAR_CACHE_BUST_PLACEHOLDER)) {
+          return template.split(RADAR_CACHE_BUST_PLACEHOLDER).join(cacheBustKey);
+        }
+        const separator = template.includes("?") ? "&" : "?";
+        return `${template}${separator}t=${encodeURIComponent(cacheBustKey)}`;
+      }
+
+      function loadRadarSessionState() {
+        if (!isRadarInteractiveMode()) {
+          return null;
+        }
+        try {
+          if (typeof window === "undefined" || !window.sessionStorage) {
+            return null;
+          }
+          const stored = window.sessionStorage.getItem(RADAR_SESSION_STORAGE_KEY);
+          if (!stored) {
+            return null;
+          }
+          const parsed = JSON.parse(stored);
+          if (!parsed || typeof parsed !== "object") {
+            return null;
+          }
+          return {
+            enabled: parsed.enabled === true,
+            product: normalizeRadarProduct(parsed.product),
+            opacity: clampRadarOpacity(parsed.opacity)
+          };
+        } catch (error) {
+          console.warn("Failed to load radar session state:", error);
+          return null;
+        }
+      }
+
+      function saveRadarSessionState() {
+        if (!isRadarInteractiveMode()) {
+          return;
+        }
+        try {
+          if (typeof window === "undefined" || !window.sessionStorage) {
+            return;
+          }
+          const payload = {
+            enabled: !!radarEnabled,
+            product: radarProduct,
+            opacity: radarOpacity
+          };
+          window.sessionStorage.setItem(RADAR_SESSION_STORAGE_KEY, JSON.stringify(payload));
+        } catch (error) {
+          console.warn("Failed to save radar session state:", error);
+        }
+      }
+
+      function initializeRadarPreferences() {
+        radarConfiguredProduct = normalizeRadarProduct(radarConfiguredProduct);
+        radarConfiguredOpacity = clampRadarOpacity(radarConfiguredOpacity);
+        radarProduct = radarConfiguredProduct;
+        radarOpacity = radarConfiguredOpacity;
+        radarEnabled = false;
+        radarTemporarilyUnavailable = false;
+        radarTileErrorCount = 0;
+        radarLastFailedUrl = "";
+        radarSuppressedForErrors = false;
+        if (radarSuppressionTimeoutId !== null) {
+          clearTimeout(radarSuppressionTimeoutId);
+          radarSuppressionTimeoutId = null;
+        }
+        if (!adminFeaturesAllowed()) {
+          radarEnabled = false;
+          return;
+        }
+        if (adminKioskMode) {
+          radarEnabled = true;
+        } else if (kioskMode) {
+          radarEnabled = !!showRadar;
+        } else {
+          const storedState = loadRadarSessionState();
+          if (storedState) {
+            radarEnabled = !!storedState.enabled;
+            radarProduct = storedState.product;
+            radarOpacity = storedState.opacity;
+          }
+        }
+      }
+
+      function createRadarTileLayer(productKey) {
+        const normalizedProduct = normalizeRadarProduct(productKey);
+        const template = getRadarTileUrlTemplate(normalizedProduct, radarCacheBustKey);
+        if (!template) {
+          return null;
+        }
+        const layer = L.tileLayer(template, {
+          pane: RADAR_PANE_NAME,
+          opacity: radarOpacity,
+          attribution: "Radar tiles © NOAA/NWS.",
+          updateWhenIdle: true,
+          updateWhenZooming: true,
+          keepBuffer: 0,
+          crossOrigin: true
+        });
+        layer.on("tileload", handleRadarTileLoad);
+        layer.on("tileerror", handleRadarTileError);
+        return layer;
+      }
+
+      function applyRadarState() {
+        if (!adminFeaturesAllowed()) {
+          removeRadarLayer();
+          return;
+        }
+        if (!map) {
+          return;
+        }
+        const shouldDisplay = radarEnabled && !radarTemporarilyUnavailable && !radarSuppressedForErrors;
+        if (!shouldDisplay) {
+          removeRadarLayer();
+          return;
+        }
+        radarProduct = normalizeRadarProduct(radarProduct);
+        radarOpacity = clampRadarOpacity(radarOpacity);
+        if (!radarLayer) {
+          radarCacheBustKey = buildRadarCacheBustKey();
+          const layer = createRadarTileLayer(radarProduct);
+          if (!layer) {
+            return;
+          }
+          radarLayer = layer;
+          radarLayerProduct = radarProduct;
+          radarLayer.setOpacity(radarOpacity);
+          radarLayer.addTo(map);
+        } else {
+          if (radarLayerProduct !== radarProduct) {
+            radarLayerProduct = radarProduct;
+            radarCacheBustKey = buildRadarCacheBustKey();
+            const template = getRadarTileUrlTemplate(radarProduct, radarCacheBustKey);
+            if (template) {
+              radarLayer.setUrl(template);
+            }
+          }
+          radarLayer.setOpacity(radarOpacity);
+        }
+        restartRadarRefreshTimer();
+      }
+
+      function removeRadarLayer() {
+        if (radarLayer) {
+          radarLayer.off("tileload", handleRadarTileLoad);
+          radarLayer.off("tileerror", handleRadarTileError);
+          if (map) {
+            map.removeLayer(radarLayer);
+          }
+          radarLayer = null;
+        }
+        radarLayerProduct = null;
+        radarCacheBustKey = "";
+        clearRadarRefreshTimer();
+      }
+
+      function refreshRadarTiles() {
+        if (!map || !radarLayer) {
+          return;
+        }
+        radarLayerProduct = normalizeRadarProduct(radarProduct);
+        radarCacheBustKey = buildRadarCacheBustKey();
+        const template = getRadarTileUrlTemplate(radarLayerProduct, radarCacheBustKey);
+        if (template) {
+          radarLayer.setUrl(template);
+        }
+      }
+
+      function startRadarRefreshTimer() {
+        if (radarRefreshTimerId !== null) {
+          return;
+        }
+        radarRefreshTimerId = window.setInterval(() => {
+          refreshRadarTiles();
+        }, RADAR_REFRESH_INTERVAL_MS);
+      }
+
+      function clearRadarRefreshTimer() {
+        if (radarRefreshTimerId !== null) {
+          clearInterval(radarRefreshTimerId);
+          radarRefreshTimerId = null;
+        }
+      }
+
+      function restartRadarRefreshTimer() {
+        clearRadarRefreshTimer();
+        if (radarLayer && radarEnabled && !radarTemporarilyUnavailable && !radarSuppressedForErrors) {
+          startRadarRefreshTimer();
+        }
+      }
+
+      function handleRadarTileLoad() {
+        radarTileErrorCount = 0;
+      }
+
+      function handleRadarTileError(event) {
+        const tile = event && event.tile ? event.tile : null;
+        const url = tile && (tile.src || tile.currentSrc) ? (tile.src || tile.currentSrc) : getRadarTileUrlTemplate(radarLayerProduct || radarProduct, radarCacheBustKey);
+        if (url) {
+          radarLastFailedUrl = url;
+        }
+        console.error("Radar tile fetch failed:", radarLastFailedUrl || "Unknown URL");
+        radarTileErrorCount += 1;
+        if (radarTileErrorCount < RADAR_CONSECUTIVE_ERROR_THRESHOLD) {
+          return;
+        }
+        radarTileErrorCount = 0;
+        if (isRadarInteractiveMode()) {
+          radarTemporarilyUnavailable = true;
+          radarEnabled = false;
+          removeRadarLayer();
+          saveRadarSessionState();
+          refreshRadarControlsUI();
+        } else {
+          radarSuppressedForErrors = true;
+          removeRadarLayer();
+          scheduleRadarSuppressionRecovery();
+        }
+      }
+
+      function scheduleRadarSuppressionRecovery() {
+        if (radarSuppressionTimeoutId !== null) {
+          clearTimeout(radarSuppressionTimeoutId);
+        }
+        radarSuppressionTimeoutId = window.setTimeout(() => {
+          radarSuppressionTimeoutId = null;
+          radarSuppressedForErrors = false;
+          radarTileErrorCount = 0;
+          if (radarEnabled) {
+            applyRadarState();
+          }
+        }, RADAR_REFRESH_INTERVAL_MS);
+      }
+
+      function setRadarEnabled(nextEnabled) {
+        const allowRadar = adminFeaturesAllowed();
+        const shouldEnable = allowRadar && !!nextEnabled;
+        if (shouldEnable && radarTemporarilyUnavailable) {
+          refreshRadarControlsUI();
+          return;
+        }
+        if (radarEnabled === shouldEnable) {
+          refreshRadarControlsUI();
+          return;
+        }
+        radarEnabled = shouldEnable;
+        if (!radarEnabled) {
+          removeRadarLayer();
+          radarSuppressedForErrors = false;
+          radarTileErrorCount = 0;
+          radarCacheBustKey = "";
+          if (radarSuppressionTimeoutId !== null) {
+            clearTimeout(radarSuppressionTimeoutId);
+            radarSuppressionTimeoutId = null;
+          }
+        }
+        applyRadarState();
+        if (isRadarInteractiveMode()) {
+          saveRadarSessionState();
+        }
+        refreshRadarControlsUI();
+      }
+
+      function setRadarProduct(nextProduct) {
+        if (!adminFeaturesAllowed()) {
+          refreshRadarControlsUI();
+          return;
+        }
+        const normalized = normalizeRadarProduct(nextProduct);
+        const productChanged = radarProduct !== normalized;
+        radarProduct = normalized;
+        radarTileErrorCount = 0;
+        radarLastFailedUrl = "";
+        if (radarTemporarilyUnavailable && productChanged) {
+          radarTemporarilyUnavailable = false;
+        }
+        if (radarSuppressedForErrors) {
+          radarSuppressedForErrors = false;
+          if (radarSuppressionTimeoutId !== null) {
+            clearTimeout(radarSuppressionTimeoutId);
+            radarSuppressionTimeoutId = null;
+          }
+        }
+        if (radarEnabled && map) {
+          radarCacheBustKey = buildRadarCacheBustKey();
+          if (radarLayer) {
+            radarLayerProduct = radarProduct;
+            const template = getRadarTileUrlTemplate(radarProduct, radarCacheBustKey);
+            if (template) {
+              radarLayer.setUrl(template);
+            }
+            radarLayer.setOpacity(radarOpacity);
+          } else {
+            applyRadarState();
+          }
+          restartRadarRefreshTimer();
+        }
+        if (isRadarInteractiveMode()) {
+          saveRadarSessionState();
+        }
+        refreshRadarControlsUI();
+      }
+
+      function setRadarOpacity(nextOpacity) {
+        if (!adminFeaturesAllowed()) {
+          refreshRadarControlsUI();
+          return;
+        }
+        const clamped = clampRadarOpacity(nextOpacity);
+        if (Math.abs(clamped - radarOpacity) < 0.0001) {
+          refreshRadarControlsUI();
+          return;
+        }
+        radarOpacity = clamped;
+        if (radarLayer) {
+          radarLayer.setOpacity(radarOpacity);
+        }
+        if (isRadarInteractiveMode()) {
+          saveRadarSessionState();
+        }
+        refreshRadarControlsUI();
+      }
+
+      function initializeRadarControls() {
+        const toggleButton = document.getElementById("radarToggleButton");
+        if (toggleButton) {
+          toggleButton.addEventListener("click", event => {
+            event.preventDefault();
+            if (toggleButton.disabled) {
+              return;
+            }
+            setRadarEnabled(!radarEnabled);
+          });
+        }
+        const productSelect = document.getElementById("radarProductSelect");
+        if (productSelect) {
+          productSelect.addEventListener("change", event => {
+            setRadarProduct(event.target.value);
+          });
+        }
+        const opacityRange = document.getElementById("radarOpacityRange");
+        if (opacityRange) {
+          const handleOpacityChange = event => {
+            const value = Number.parseFloat(event.target.value);
+            if (Number.isFinite(value)) {
+              setRadarOpacity(value);
+            }
+          };
+          opacityRange.addEventListener("input", handleOpacityChange);
+          opacityRange.addEventListener("change", handleOpacityChange);
+        }
+        refreshRadarControlsUI();
+      }
+
+      function refreshRadarControlsUI() {
+        const allowRadar = adminFeaturesAllowed();
+        const toggleButton = document.getElementById("radarToggleButton");
+        const isActive = allowRadar && radarEnabled && !radarTemporarilyUnavailable;
+        if (toggleButton) {
+          toggleButton.classList.toggle("is-active", isActive);
+          toggleButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+          toggleButton.disabled = !allowRadar || radarTemporarilyUnavailable;
+          const indicator = toggleButton.querySelector(".toggle-indicator");
+          if (indicator) {
+            indicator.textContent = isActive ? "On" : "Off";
+          }
+        }
+        const productSelect = document.getElementById("radarProductSelect");
+        if (productSelect) {
+          productSelect.value = radarProduct;
+          productSelect.disabled = !allowRadar;
+        }
+        const opacityRange = document.getElementById("radarOpacityRange");
+        if (opacityRange) {
+          opacityRange.value = radarOpacity.toFixed(2);
+          opacityRange.disabled = !allowRadar;
+        }
+        const opacityValue = document.getElementById("radarOpacityValue");
+        if (opacityValue) {
+          opacityValue.textContent = formatRadarOpacity(radarOpacity);
+        }
+        const statusMessage = document.getElementById("radarStatusMessage");
+        if (statusMessage) {
+          if (radarTemporarilyUnavailable) {
+            statusMessage.textContent = RADAR_UNAVAILABLE_MESSAGE;
+            statusMessage.style.display = "";
+          } else {
+            statusMessage.textContent = "";
+            statusMessage.style.display = "none";
+          }
+        }
+      }
 
       const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
         updateWhenZooming: true,
@@ -1610,7 +2163,25 @@
       if (adminParam !== null) {
         adminMode = adminParam.toLowerCase() === 'true';
       }
-      
+
+      const showRadarParam = params.get('showRadar');
+      if (showRadarParam !== null) {
+        showRadar = showRadarParam.toLowerCase() === 'true';
+      }
+      const radarProductParam = params.get('radarProduct');
+      if (radarProductParam) {
+        radarConfiguredProduct = normalizeRadarProduct(radarProductParam);
+      }
+      const radarOpacityParam = params.get('radarOpacity');
+      if (radarOpacityParam !== null) {
+        const parsedOpacity = Number.parseFloat(radarOpacityParam);
+        if (Number.isFinite(parsedOpacity)) {
+          radarConfiguredOpacity = clampRadarOpacity(parsedOpacity);
+        }
+      }
+
+      initializeRadarPreferences();
+
       const outOfServiceRouteColor = '#000000';
 
       const PULSEPOINT_ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
@@ -1661,106 +2232,47 @@
         ? markerCentroidOverride.xFactor
         : 0;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
-      const AGENCY_TYPE_RIDESYSTEMS = 'ridesystems';
-      const AGENCY_TYPE_ETASPOT = 'etaspot';
-      const ETASPOT_DEFAULT_TOKEN = 'TESTING';
-      const EARTH_RADIUS_METERS = 6371000;
+      const TRAIN_API_URL = 'https://api-v3.amtraker.com/v3/trains';
+      const TRAIN_POLL_INTERVAL_MS = 30000;
+      const TRAIN_TARGET_STATION_CODE = 'CVS';
+      const TRAIN_CARDINAL_HEADING_DEGREES = Object.freeze({
+        N: 0,
+        NORTH: 0,
+        NORTHBOUND: 0,
+        NE: 45,
+        NORTHEAST: 45,
+        NORTHEASTBOUND: 45,
+        E: 90,
+        EAST: 90,
+        EASTBOUND: 90,
+        SE: 135,
+        SOUTHEAST: 135,
+        SOUTHEASTBOUND: 135,
+        S: 180,
+        SOUTH: 180,
+        SOUTHBOUND: 180,
+        SW: 225,
+        SOUTHWEST: 225,
+        SOUTHWESTBOUND: 225,
+        W: 270,
+        WEST: 270,
+        WESTBOUND: 270,
+        NW: 315,
+        NORTHWEST: 315,
+        NORTHWESTBOUND: 315
+      });
 
       let map;
       let markers = {};
       let busMarkerStates = {};
+      let trainMarkers = {};
+      let trainMarkerStates = {};
+      let trainsVisible = false;
+      let planesVisible = false;
+      let trainFetchPromise = null;
       const vehicleHeadingCache = new Map();
       let vehicleHeadingCachePromise = null;
       const VEHICLE_HEADING_CACHE_ENDPOINT = '/v1/vehicle_headings';
-
-      function rememberCachedVehicleHeading(vehicleID, headingDeg, timestamp) {
-        if (!Number.isFinite(headingDeg)) {
-          return;
-        }
-        if (vehicleID === undefined || vehicleID === null) {
-          return;
-        }
-        const key = `${vehicleID}`;
-        if (!key || key === 'undefined' || key === 'null') {
-          return;
-        }
-        const normalizedHeading = normalizeHeadingDegrees(headingDeg);
-        const updatedAt = Number.isFinite(timestamp) ? Number(timestamp) : Date.now();
-        vehicleHeadingCache.set(key, { heading: normalizedHeading, updatedAt });
-      }
-
-      function getCachedVehicleHeading(vehicleID) {
-        if (vehicleID === undefined || vehicleID === null) {
-          return null;
-        }
-        const key = `${vehicleID}`;
-        const entry = vehicleHeadingCache.get(key);
-        if (!entry) {
-          return null;
-        }
-        const heading = Number(entry.heading ?? entry.Heading);
-        if (!Number.isFinite(heading)) {
-          return null;
-        }
-        return normalizeHeadingDegrees(heading);
-      }
-
-      function getVehicleHeadingFallback(vehicleID, headingFromFeed) {
-        const cached = getCachedVehicleHeading(vehicleID);
-        if (cached !== null) {
-          return cached;
-        }
-        const fromFeed = Number(headingFromFeed);
-        if (Number.isFinite(fromFeed)) {
-          return normalizeHeadingDegrees(fromFeed);
-        }
-        return BUS_MARKER_DEFAULT_HEADING;
-      }
-
-      function loadVehicleHeadingCache() {
-        if (vehicleHeadingCachePromise) {
-          return vehicleHeadingCachePromise;
-        }
-        if (typeof fetch !== 'function') {
-          vehicleHeadingCachePromise = Promise.resolve(vehicleHeadingCache);
-          return vehicleHeadingCachePromise;
-        }
-        vehicleHeadingCachePromise = (async () => {
-          try {
-            const response = await fetch(VEHICLE_HEADING_CACHE_ENDPOINT, { cache: 'no-store' });
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-            const data = await response.json();
-            if (data && typeof data === 'object' && data.headings && typeof data.headings === 'object') {
-              Object.entries(data.headings).forEach(([vehicleID, entry]) => {
-                if (!vehicleID) {
-                  return;
-                }
-                let headingValue = entry;
-                let updatedAt = undefined;
-                if (entry && typeof entry === 'object') {
-                  headingValue = entry.heading ?? entry.Heading;
-                  const tsCandidate = entry.updated_at ?? entry.updatedAt ?? entry.timestamp ?? entry.ts_ms ?? entry.ts;
-                  if (Number.isFinite(Number(tsCandidate))) {
-                    updatedAt = Number(tsCandidate);
-                  }
-                }
-                const headingNumber = Number(headingValue);
-                if (!Number.isFinite(headingNumber)) {
-                  return;
-                }
-                rememberCachedVehicleHeading(vehicleID, headingNumber, updatedAt);
-              });
-            }
-          } catch (error) {
-            console.info('Vehicle heading cache unavailable; continuing without it.', error);
-          }
-          return vehicleHeadingCache;
-        })();
-        return vehicleHeadingCachePromise;
-      }
-
       let pendingBusVisualUpdates = new Map();
       let busMarkerVisualUpdateFrame = null;
       let selectedVehicleId = null;
@@ -1770,53 +2282,19 @@
 
       let agencies = [];
       let baseURL = '';
-      let currentAgencyType = AGENCY_TYPE_RIDESYSTEMS;
-      let currentAgencyConfig = null;
 
-      function setCurrentAgencyByUrl(url) {
-        if (!Array.isArray(agencies) || agencies.length === 0) {
-          currentAgencyConfig = null;
-          currentAgencyType = AGENCY_TYPE_RIDESYSTEMS;
-          return;
-        }
-        const matchedAgency = agencies.find(agency => agency && typeof agency.url === 'string' && agency.url === url) || null;
-        currentAgencyConfig = matchedAgency;
-        currentAgencyType = matchedAgency?.type || AGENCY_TYPE_RIDESYSTEMS;
-      }
-
-      function isEtaSpotAgencyConfig(config) {
-        return !!config && config.type === AGENCY_TYPE_ETASPOT;
-      }
-
-      function isEtaSpotAgency() {
-        return isEtaSpotAgencyConfig(currentAgencyConfig);
-      }
-
-      function getEtaSpotServiceUrl() {
-        if (!isEtaSpotAgency()) {
-          return '';
-        }
-        const configUrl = typeof currentAgencyConfig?.serviceUrl === 'string'
-          ? currentAgencyConfig.serviceUrl
-          : '';
-        const sanitizedConfigUrl = sanitizeBaseUrl(configUrl);
-        if (sanitizedConfigUrl) {
-          return sanitizedConfigUrl;
-        }
-        const sanitizedBase = sanitizeBaseUrl(baseURL);
-        if (!sanitizedBase) {
-          return '';
-        }
-        return `${sanitizedBase}/service.php`;
-      }
-
-      function getEtaSpotToken() {
-        if (!isEtaSpotAgency()) {
-          return '';
-        }
-        const token = typeof currentAgencyConfig?.token === 'string' ? currentAgencyConfig.token.trim() : '';
-        return token || ETASPOT_DEFAULT_TOKEN;
-      }
+      let incidentsVisible = false;
+      let incidentsVisibilityPreference = false;
+      let incidentLayerGroup = null;
+      const incidentMarkers = new Map();
+      const incidentIconCache = new Map();
+      const incidentHaloIconCache = new Map();
+      let incidentHaloLayerGroup = null;
+      let incidentsNearRoutesLookup = new Map();
+      const reduceMotionMediaQuery = (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+        ? window.matchMedia('(prefers-reduced-motion: reduce)')
+        : null;
+      let isFetchingIncidents = false;
 
       const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
       const SERVICE_ALERT_START_FIELDS = Object.freeze([
@@ -1863,12 +2341,10 @@
         'EffectiveEndDate',
         'EffectiveEndUtc'
       ]);
-      const SERVICE_ALERT_EMPTY_MESSAGE = 'No active service alerts.';
       const SERVICE_ALERT_UNAVAILABLE_MESSAGE = 'Service alerts unavailable.';
-      const SERVICE_ALERT_STATUS_NO_ALERTS = 'No active alerts';
+      const SERVICE_ALERT_STATUS_NO_ALERTS = 'No Active Alerts';
       const SERVICE_ALERT_STATUS_LOADING = 'Loading…';
       const SERVICE_ALERT_STATUS_ERROR = 'Unavailable';
-      const SERVICE_ALERT_BADGE_MAX = 99;
       const SERVICE_ALERT_DATE_FORMATTER = (() => {
         if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
           return null;
@@ -1880,9 +2356,6 @@
             timeZoneName: 'short'
           });
         } catch (error) {
-          // Some browsers (notably older Safari versions) do not support dateStyle/timeStyle.
-          // Fall back to an options object that is more widely supported so the formatter
-          // continues to work instead of throwing on initialization.
           try {
             return new Intl.DateTimeFormat('en-US', {
               year: 'numeric',
@@ -1901,19 +2374,10 @@
       let serviceAlertsLoading = false;
       let serviceAlertsError = null;
       let serviceAlertsExpanded = false;
-
-      let incidentsVisible = false;
-      let incidentsVisibilityPreference = false;
-      let incidentLayerGroup = null;
-      const incidentMarkers = new Map();
-      const incidentIconCache = new Map();
-      const incidentHaloIconCache = new Map();
-      let incidentHaloLayerGroup = null;
-      let incidentsNearRoutesLookup = new Map();
-      const reduceMotionMediaQuery = (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
-        ? window.matchMedia('(prefers-reduced-motion: reduce)')
-        : null;
-      let isFetchingIncidents = false;
+      let serviceAlertsLastFetchAgency = '';
+      let serviceAlertsLastFetchTime = 0;
+      let serviceAlertsFetchPromise = null;
+      let serviceAlertsHasLoaded = false;
 
       function hasIncidentsRequiringVisibility() {
         return incidentsNearRoutesLookup instanceof Map && incidentsNearRoutesLookup.size > 0;
@@ -2154,8 +2618,7 @@
       let demoIncidentCsvRow = null;
 
       function incidentsAreAvailable() {
-        const adminAccessAllowed = (adminMode && !kioskMode) || adminKioskMode;
-        if (!adminAccessAllowed) {
+        if (!adminFeaturesAllowed()) {
           return false;
         }
         if (!Array.isArray(agencies) || agencies.length === 0) {
@@ -3705,31 +4168,13 @@
             const url = webAddress.startsWith('http')
               ? webAddress.replace(/^http:\/\//i, 'https://')
               : `https://${webAddress}`;
-            return { name, url, type: AGENCY_TYPE_RIDESYSTEMS };
+            return { name, url };
           }).filter(Boolean);
           agencies.sort((a, b) => a.name.localeCompare(b.name));
           const uvaIndex = agencies.findIndex(a => a.name === 'University of Virginia');
-          let uvaAgency = null;
           if (uvaIndex > -1) {
-            uvaAgency = agencies.splice(uvaIndex, 1)[0];
-          }
-          if (uvaAgency) {
-            agencies.unshift(uvaAgency);
-          }
-          const catAgency = {
-            name: 'Charlottesville Area Transit',
-            url: 'https://catpublic.etaspot.net',
-            serviceUrl: 'https://catpublic.etaspot.net/service.php',
-            token: ETASPOT_DEFAULT_TOKEN,
-            type: AGENCY_TYPE_ETASPOT
-          };
-          const hasCatAgency = agencies.some(agency => agency && agency.url === catAgency.url);
-          if (!hasCatAgency) {
-            if (uvaAgency) {
-              agencies.splice(1, 0, catAgency);
-            } else {
-              agencies.unshift(catAgency);
-            }
+            const uva = agencies.splice(uvaIndex, 1)[0];
+            agencies.unshift(uva);
           }
           const consent = localStorage.getItem('agencyConsent') === 'true';
           const storedAgency = consent ? localStorage.getItem('selectedAgency') : null;
@@ -3738,12 +4183,10 @@
           } else {
             baseURL = agencies[0]?.url || '';
           }
-          setCurrentAgencyByUrl(baseURL);
           resetServiceAlertsState();
           updateControlPanel();
           enforceIncidentVisibilityForCurrentAgency();
           updateRouteSelector(activeRoutes, true);
-          fetchServiceAlerts();
         } catch (e) {
           console.error('Failed to load agencies', e);
         }
@@ -3860,7 +4303,6 @@
         positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
         positionPanelTab('controlPanel', 'controlPanelTab', 'left');
         updatePanelTabVisibility();
-        syncServiceAlertsBadge();
       }
 
       window.addEventListener("load", positionAllPanelTabs);
@@ -3966,6 +4408,36 @@
           const isActive = buttonMode === displayMode;
           button.classList.toggle('is-active', isActive);
         });
+      }
+
+      function updateTrainToggleButton() {
+        const button = document.getElementById('trainToggleButton');
+        if (!button) return;
+        const allowTrains = adminFeaturesAllowed();
+        const isActive = allowTrains && !!trainsVisible;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        button.disabled = !allowTrains;
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
+      }
+
+      function updateAircraftToggleButton() {
+        const button = document.getElementById('aircraftToggleButton');
+        if (!button) return;
+        const allowPlanes = adminFeaturesAllowed();
+        const planeLayer = window.PlaneLayer;
+        const planeLayerStarted = !!(planeLayer && planeLayer.isStarted);
+        const isActive = allowPlanes && !!planesVisible && planeLayerStarted;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        button.disabled = !allowPlanes;
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
       }
 
       function updateIncidentToggleButton() {
@@ -4282,49 +4754,6 @@
         }
       }
 
-      function escapeAttribute(value) {
-        return String(value || '')
-          .replace(/&/g, '&amp;')
-          .replace(/"/g, '&quot;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-      }
-
-
-      function sanitizeBaseUrl(url) {
-        if (typeof url !== 'string') return '';
-        return url.trim().replace(/\/+$/, '');
-      }
-
-      function formatServiceAlertsBadgeText(count) {
-        const numeric = Number(count);
-        if (!Number.isFinite(numeric) || numeric <= 0) {
-          return '';
-        }
-        if (numeric > SERVICE_ALERT_BADGE_MAX) {
-          return `${SERVICE_ALERT_BADGE_MAX}+`;
-        }
-        return `${Math.round(numeric)}`;
-      }
-
-      function getActiveServiceAlertCount() {
-        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
-          return 0;
-        }
-        return serviceAlerts.reduce((total, alert) => {
-          if (!alert) return total;
-          return total + (alert.isActive === false ? 0 : 1);
-        }, 0);
-      }
-
-      function resetServiceAlertsState() {
-        serviceAlerts = [];
-        serviceAlertsLoading = false;
-        serviceAlertsError = null;
-        serviceAlertsExpanded = false;
-        updateServiceAlertsUI();
-      }
-
       function formatServiceAlertDate(date) {
         if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
           return '';
@@ -4333,7 +4762,7 @@
           try {
             return SERVICE_ALERT_DATE_FORMATTER.format(date);
           } catch (error) {
-            // ignore formatting errors and fall back
+            // fall through to native formatting
           }
         }
         try {
@@ -4546,6 +4975,16 @@
         return [];
       }
 
+      function getActiveServiceAlertCount() {
+        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
+          return 0;
+        }
+        return serviceAlerts.reduce((total, alert) => {
+          if (!alert) return total;
+          return total + (alert.isActive === false ? 0 : 1);
+        }, 0);
+      }
+
       function buildServiceAlertsStatusText() {
         if (serviceAlertsLoading) {
           return SERVICE_ALERT_STATUS_LOADING;
@@ -4553,156 +4992,183 @@
         if (serviceAlertsError) {
           return SERVICE_ALERT_STATUS_ERROR;
         }
+        if (!serviceAlertsHasLoaded) {
+          return SERVICE_ALERT_STATUS_LOADING;
+        }
         const count = getActiveServiceAlertCount();
         if (count > 0) {
-          const badgeText = formatServiceAlertsBadgeText(count);
-          const labelCount = badgeText || `${count}`;
-          return count === 1 ? '1 active alert' : `${labelCount} active alerts`;
+          return count === 1 ? '1 Active Alert' : `${count} Active Alerts`;
         }
         return SERVICE_ALERT_STATUS_NO_ALERTS;
       }
 
       function renderServiceAlertItem(alert) {
         if (!alert) return '';
+        const itemClasses = ['service-alerts-item'];
+        if (alert.isActive === false) {
+          itemClasses.push('is-inactive');
+        }
         const idAttr = alert.id ? ` data-alert-id="${escapeAttribute(alert.id)}"` : '';
-        const title = typeof alert.title === 'string' ? alert.title : '';
-        const message = typeof alert.message === 'string' ? alert.message : '';
-        const titleHtml = title ? `<div class="service-alerts__item-title">${escapeHtml(title)}</div>` : '';
-        const messageHtml = message ? `<div class="service-alerts__item-message">${escapeHtml(message)}</div>` : '';
+        const titleTextRaw = typeof alert.title === 'string' ? alert.title.trim() : '';
+        const messageTextRaw = typeof alert.message === 'string' ? alert.message.trim() : '';
+        const titleText = titleTextRaw || 'Service Alert';
+        const statusText = alert.isActive === false ? 'Inactive' : 'Active';
+        const headerHtml = `<div class="service-alerts-item__header"><div class="service-alerts-item__title">${escapeHtml(titleText)}</div><span class="service-alerts-item__status">${escapeHtml(statusText)}</span></div>`;
+        const messageHtml = messageTextRaw ? `<div class="service-alerts-item__message">${escapeHtml(messageTextRaw)}</div>` : '';
         const metaRows = [];
         if (alert.startDisplay) {
           const titleAttr = alert.startRaw ? ` title="${escapeAttribute(alert.startRaw)}"` : '';
-          metaRows.push(`<div class="service-alerts__meta-row"><dt>Start</dt><dd${titleAttr}>${escapeHtml(alert.startDisplay)}</dd></div>`);
+          metaRows.push(`<div class="service-alerts-item__meta-row"><span class="service-alerts-item__meta-label">Start</span><span class="service-alerts-item__meta-value"${titleAttr}>${escapeHtml(alert.startDisplay)}</span></div>`);
         }
         if (alert.endDisplay) {
           const titleAttr = alert.endRaw ? ` title="${escapeAttribute(alert.endRaw)}"` : '';
-          metaRows.push(`<div class="service-alerts__meta-row"><dt>End</dt><dd${titleAttr}>${escapeHtml(alert.endDisplay)}</dd></div>`);
+          metaRows.push(`<div class="service-alerts-item__meta-row"><span class="service-alerts-item__meta-label">End</span><span class="service-alerts-item__meta-value"${titleAttr}>${escapeHtml(alert.endDisplay)}</span></div>`);
         }
         if (Array.isArray(alert.routes) && alert.routes.length > 0) {
           const routesHtml = alert.routes.map(route => escapeHtml(route)).join(', ');
-          metaRows.push(`<div class="service-alerts__meta-row"><dt>Routes</dt><dd>${routesHtml}</dd></div>`);
+          metaRows.push(`<div class="service-alerts-item__meta-row"><span class="service-alerts-item__meta-label">Routes</span><span class="service-alerts-item__meta-value">${routesHtml}</span></div>`);
         }
-        const metaHtml = metaRows.length ? `<dl class="service-alerts__meta">${metaRows.join('')}</dl>` : '';
-        if (!titleHtml && !messageHtml && !metaHtml) {
-          return '';
-        }
-        return `<li class="service-alerts__item"${idAttr}>${titleHtml}${messageHtml}${metaHtml}</li>`;
+        const metaHtml = metaRows.length ? `<div class="service-alerts-item__meta">${metaRows.join('')}</div>` : '';
+        return `<li class="${itemClasses.join(' ')}"${idAttr}>${headerHtml}${messageHtml}${metaHtml}</li>`;
       }
 
-      function renderServiceAlertsContent() {
-        const container = document.getElementById('serviceAlertsPanel');
-        const statusEl = document.querySelector('#serviceAlerts .service-alerts__status');
-        if (statusEl) {
-          statusEl.textContent = buildServiceAlertsStatusText();
-        }
-        if (!container) {
-          return;
-        }
+      function renderServiceAlertsPanelContentHtml() {
         if (serviceAlertsLoading) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--loading"><span class="service-alerts__spinner" aria-hidden="true"></span><span>Loading service alerts…</span></div>`;
-          return;
+          return `<div class="service-alerts-state service-alerts-state--loading">Loading service alerts…</div>`;
         }
         if (serviceAlertsError) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--error">${escapeHtml(serviceAlertsError)}</div>`;
-          return;
+          return `<div class="service-alerts-state service-alerts-state--error">${escapeHtml(serviceAlertsError)}</div>`;
         }
         if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
-          return;
+          return '';
         }
         const itemsHtml = serviceAlerts.map(renderServiceAlertItem).filter(Boolean).join('');
         if (!itemsHtml) {
-          container.innerHTML = `<div class="service-alerts__state service-alerts__state--empty">${escapeHtml(SERVICE_ALERT_EMPTY_MESSAGE)}</div>`;
-          return;
+          return '';
         }
-        container.innerHTML = `<ul class="service-alerts__list">${itemsHtml}</ul>`;
+        return `<ul class="service-alerts-list">${itemsHtml}</ul>`;
       }
 
-      function updateServiceAlertsSectionState() {
-        const section = document.getElementById('serviceAlerts');
-        if (!section) return;
-        section.classList.toggle('is-expanded', serviceAlertsExpanded);
-        section.classList.toggle('is-collapsed', !serviceAlertsExpanded);
-        section.classList.toggle('is-loading', !!serviceAlertsLoading);
-        section.classList.toggle('has-error', !!serviceAlertsError);
-        const hasAlerts = getActiveServiceAlertCount() > 0;
-        section.classList.toggle('has-alerts', hasAlerts);
-        section.classList.toggle('has-active-alerts', hasAlerts && !serviceAlertsExpanded);
+      function renderServiceAlertsSectionHtml() {
+        const buttonClasses = ['pill-button', 'service-alerts-toggle'];
+        if (serviceAlertsExpanded) buttonClasses.push('is-expanded');
+        if (serviceAlertsLoading) buttonClasses.push('is-loading');
+        if (serviceAlertsError) buttonClasses.push('has-error');
+        if (getActiveServiceAlertCount() > 0) buttonClasses.push('has-active-alerts');
+        const panelClasses = ['service-alerts-panel'];
+        if (serviceAlertsExpanded) panelClasses.push('is-expanded');
+        if (serviceAlertsLoading) panelClasses.push('is-loading');
+        if (serviceAlertsError) panelClasses.push('has-error');
+        const panelContentHtml = renderServiceAlertsPanelContentHtml();
+        const panelHasContent = typeof panelContentHtml === 'string' && panelContentHtml.trim().length > 0;
+        if (!panelHasContent) panelClasses.push('is-empty');
+        const statusText = escapeHtml(buildServiceAlertsStatusText());
+        const hiddenAttr = serviceAlertsExpanded ? '' : ' hidden';
+        const ariaHiddenAttr = ` aria-hidden="${serviceAlertsExpanded ? 'false' : 'true'}"`;
+        return `
+          <div class="selector-group service-alerts-group">
+            <button type="button" id="serviceAlertsToggle" class="${buttonClasses.join(' ')}" aria-expanded="${serviceAlertsExpanded ? 'true' : 'false'}" aria-controls="serviceAlertsPanel" onclick="toggleServiceAlertsPanel(event)">
+              <span class="service-alerts-toggle__text">
+                <span class="service-alerts-toggle__label">Service Alerts</span>
+                <span class="service-alerts-toggle__status">${statusText}</span>
+              </span>
+              <span class="service-alerts-toggle__chevron" aria-hidden="true"></span>
+            </button>
+            <div id="serviceAlertsPanel" class="${panelClasses.join(' ')}"${hiddenAttr}${ariaHiddenAttr}>${panelContentHtml}</div>
+          </div>
+        `;
       }
 
-      function syncServiceAlertsBadge() {
-        const headerBadge = document.querySelector('#serviceAlerts .service-alerts__badge');
-        const toggleBadge = document.getElementById('controlPanelAlertBadge');
-        const controlPanelElement = document.getElementById('controlPanel');
-        const controlPanelTab = document.getElementById('controlPanelTab');
-        const badgeText = formatServiceAlertsBadgeText(getActiveServiceAlertCount());
-        const panelHidden = controlPanelElement ? controlPanelElement.classList.contains('hidden') : false;
-        const panelDisplayNone = controlPanelElement ? controlPanelElement.style.display === 'none' : false;
-        const toggleHidden = controlPanelTab
-          ? (controlPanelTab.style.display === 'none' || controlPanelTab.classList.contains('is-hidden-mobile'))
-          : false;
-        if (headerBadge) {
-          const shouldShowHeader = !!badgeText && !panelHidden && !panelDisplayNone;
-          headerBadge.hidden = !shouldShowHeader;
-          headerBadge.textContent = shouldShowHeader ? badgeText : '';
-        }
-        if (toggleBadge) {
-          const shouldShowToggle = !!badgeText && panelHidden && !panelDisplayNone && !toggleHidden;
-          toggleBadge.hidden = !shouldShowToggle;
-          toggleBadge.textContent = shouldShowToggle ? badgeText : '';
+      function updateServiceAlertsButtonState() {
+        const button = document.getElementById('serviceAlertsToggle');
+        if (!button) return;
+        button.setAttribute('aria-expanded', serviceAlertsExpanded ? 'true' : 'false');
+        button.classList.toggle('is-expanded', !!serviceAlertsExpanded);
+        button.classList.toggle('is-loading', !!serviceAlertsLoading);
+        button.classList.toggle('has-error', !!serviceAlertsError);
+        button.classList.toggle('has-active-alerts', getActiveServiceAlertCount() > 0);
+        const statusEl = button.querySelector('.service-alerts-toggle__status');
+        if (statusEl) {
+          statusEl.textContent = buildServiceAlertsStatusText();
         }
       }
 
-      function applyServiceAlertsExpandedState() {
-        const toggle = document.querySelector('#serviceAlerts .service-alerts__header');
-        if (toggle) {
-          toggle.setAttribute('aria-expanded', serviceAlertsExpanded ? 'true' : 'false');
+      function updateServiceAlertsPanelVisibility() {
+        const panel = document.getElementById('serviceAlertsPanel');
+        if (!panel) return;
+        panel.hidden = !serviceAlertsExpanded;
+        panel.setAttribute('aria-hidden', serviceAlertsExpanded ? 'false' : 'true');
+        if (panel.style) {
+          if (serviceAlertsExpanded) {
+            if (typeof panel.style.removeProperty === 'function') {
+              panel.style.removeProperty('display');
+            } else {
+              panel.style.display = '';
+            }
+          } else {
+            panel.style.display = 'none';
+          }
         }
-        updateServiceAlertsSectionState();
-        syncServiceAlertsBadge();
+        panel.classList.toggle('is-expanded', !!serviceAlertsExpanded);
+        panel.classList.toggle('is-loading', !!serviceAlertsLoading);
+        panel.classList.toggle('has-error', !!serviceAlertsError);
+        const panelHasContent = typeof panel.innerHTML === 'string' && panel.innerHTML.trim().length > 0;
+        panel.classList.toggle('is-empty', !panelHasContent && !serviceAlertsLoading && !serviceAlertsError);
       }
 
-      function updateServiceAlertsUI() {
-        renderServiceAlertsContent();
-        applyServiceAlertsExpandedState();
+      function updateServiceAlertsPanelContent() {
+        const panel = document.getElementById('serviceAlertsPanel');
+        if (!panel) return;
+        const contentHtml = renderServiceAlertsPanelContentHtml();
+        panel.innerHTML = contentHtml;
+        const hasContent = typeof contentHtml === 'string' && contentHtml.trim().length > 0;
+        panel.classList.toggle('is-empty', !hasContent);
       }
 
-      function toggleServiceAlertsSection(event) {
-        if (event && typeof event.preventDefault === 'function') {
-          event.preventDefault();
+      function refreshServiceAlertsUI() {
+        if (serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && getActiveServiceAlertCount() === 0) {
+          serviceAlertsExpanded = false;
         }
-        serviceAlertsExpanded = !serviceAlertsExpanded;
-        applyServiceAlertsExpandedState();
+        updateServiceAlertsButtonState();
+        updateServiceAlertsPanelContent();
+        updateServiceAlertsPanelVisibility();
       }
 
-      function initializeServiceAlertsSection() {
-        const toggle = document.querySelector('#serviceAlerts .service-alerts__header');
-        if (toggle) {
-          toggle.addEventListener('click', toggleServiceAlertsSection);
+      function shouldFetchServiceAlerts() {
+        if (serviceAlertsLoading || serviceAlertsFetchPromise) {
+          return false;
         }
-        updateServiceAlertsUI();
+        if (!baseURL) {
+          return true;
+        }
+        if (serviceAlertsLastFetchAgency !== baseURL) {
+          return true;
+        }
+        if (!serviceAlertsLastFetchTime) {
+          return true;
+        }
+        return (Date.now() - serviceAlertsLastFetchTime) > SERVICE_ALERT_REFRESH_INTERVAL_MS;
       }
 
-      async function fetchServiceAlerts() {
-        if (isEtaSpotAgency()) {
-          serviceAlerts = [];
-          serviceAlertsLoading = false;
-          serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
-          updateServiceAlertsUI();
-          return [];
-        }
-        const currentBaseUrl = baseURL;
-        const sanitizedBase = sanitizeBaseUrl(currentBaseUrl);
-        if (!sanitizedBase) {
-          serviceAlerts = [];
-          serviceAlertsError = null;
-          serviceAlertsLoading = false;
-          updateServiceAlertsUI();
-          return [];
-        }
+        async function fetchServiceAlertsForCurrentAgency() {
+          if (serviceAlertsFetchPromise) {
+            return serviceAlertsFetchPromise;
+          }
+          const fetchBaseURL = baseURL;
+          const sanitizedBase = sanitizeBaseUrl(fetchBaseURL);
+          if (!sanitizedBase) {
+            serviceAlerts = [];
+            serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+            serviceAlertsLoading = false;
+            serviceAlertsLastFetchAgency = fetchBaseURL;
+            serviceAlertsLastFetchTime = Date.now();
+            serviceAlertsHasLoaded = true;
+            refreshServiceAlertsUI();
+            return [];
+          }
         serviceAlertsLoading = true;
         serviceAlertsError = null;
-        updateServiceAlertsUI();
+        refreshServiceAlertsUI();
         const query = new URLSearchParams({
           showInactive: 'false',
           includeDeleted: 'false',
@@ -4714,7 +5180,7 @@
           sortOrder: 'asc'
         });
         const endpoint = `${sanitizedBase}/Secure/Services/RoutesService.svc/GetMessagesPaged?${query.toString()}`;
-        try {
+        const requestPromise = (async () => {
           const response = await fetch(endpoint, { cache: 'no-store' });
           if (!response.ok) {
             throw new Error(`Service alerts request failed: ${response.status}`);
@@ -4733,26 +5199,82 @@
           if (!rows.length && payload && typeof payload === 'object' && payload.d) {
             rows = extractServiceAlertRows(payload.d);
           }
-          const normalized = rows.map(normalizeServiceAlertRow).filter(Boolean);
-          if (currentBaseUrl !== baseURL) {
-            return normalized;
-          }
-          serviceAlerts = normalized;
-          serviceAlertsError = null;
-          serviceAlertsLoading = false;
-          updateServiceAlertsUI();
-          return normalized;
-        } catch (error) {
-          console.error('Failed to fetch service alerts:', error);
-          if (currentBaseUrl !== baseURL) {
+          return rows.map(normalizeServiceAlertRow).filter(Boolean);
+        })();
+          serviceAlertsFetchPromise = requestPromise;
+          try {
+            const alerts = await requestPromise;
+            if (baseURL !== fetchBaseURL) {
+              return alerts;
+            }
+            serviceAlerts = alerts;
+            serviceAlertsError = null;
+            serviceAlertsLoading = false;
+            serviceAlertsLastFetchAgency = fetchBaseURL;
+            serviceAlertsLastFetchTime = Date.now();
+            serviceAlertsHasLoaded = true;
+            return alerts;
+          } catch (error) {
+            console.error('Failed to fetch service alerts:', error);
+            if (baseURL !== fetchBaseURL) {
+              return [];
+            }
+            serviceAlerts = [];
+            serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+            serviceAlertsLoading = false;
+            serviceAlertsLastFetchAgency = fetchBaseURL;
+            serviceAlertsLastFetchTime = Date.now();
+            serviceAlertsHasLoaded = true;
             return [];
+          } finally {
+            if (serviceAlertsFetchPromise === requestPromise) {
+              serviceAlertsFetchPromise = null;
+            }
+            if (baseURL === fetchBaseURL) {
+              refreshServiceAlertsUI();
+            }
           }
-          serviceAlerts = [];
-          serviceAlertsError = SERVICE_ALERT_UNAVAILABLE_MESSAGE;
-          serviceAlertsLoading = false;
-          updateServiceAlertsUI();
-          return [];
         }
+
+      function toggleServiceAlertsPanel(event) {
+        if (event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        const hasActiveAlerts = getActiveServiceAlertCount() > 0;
+        if (!serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && !hasActiveAlerts) {
+          return;
+        }
+        serviceAlertsExpanded = !serviceAlertsExpanded;
+        refreshServiceAlertsUI();
+        if (serviceAlertsExpanded && shouldFetchServiceAlerts()) {
+          fetchServiceAlertsForCurrentAgency();
+        }
+      }
+
+      function resetServiceAlertsState() {
+        serviceAlerts = [];
+        serviceAlertsLoading = false;
+        serviceAlertsError = null;
+        serviceAlertsExpanded = false;
+        serviceAlertsLastFetchAgency = '';
+        serviceAlertsLastFetchTime = 0;
+        serviceAlertsFetchPromise = null;
+        serviceAlertsHasLoaded = false;
+        refreshServiceAlertsUI();
+      }
+
+      function escapeAttribute(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+
+      function sanitizeBaseUrl(url) {
+        if (typeof url !== 'string') return '';
+        return url.trim().replace(/\/+$/, '');
       }
 
       function updateControlPanel() {
@@ -4775,6 +5297,62 @@
         }
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
+        const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
+        const allowAdminFeatures = adminFeaturesAllowed();
+        if (!allowAdminFeatures && planesVisible) {
+          setPlanesVisibility(false);
+        }
+        let trainToggleHtml = '';
+        if (allowAdminFeatures) {
+          trainToggleHtml = `
+            <div class="selector-group">
+              <div class="selector-label">Trains and Planes</div>
+              <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsVisible ? ' is-active' : ''}" aria-pressed="${trainsVisible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
+                Show Amtrak<span class="toggle-indicator">${trainsVisible ? 'On' : 'Off'}</span>
+              </button>
+              <button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesVisible ? ' is-active' : ''}" aria-pressed="${planesVisible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
+                Show Aircraft<span class="toggle-indicator">${planesVisible ? 'On' : 'Off'}</span>
+              </button>
+            </div>
+          `;
+        }
+        let radarControlsHtml = '';
+        if (allowAdminFeatures) {
+          const toggleActive = radarEnabled && !radarTemporarilyUnavailable;
+          const toggleDisabledAttr = radarTemporarilyUnavailable ? ' disabled' : '';
+          const productOptions = RADAR_PRODUCT_ORDER.map(productKey => {
+            const info = RADAR_PRODUCT_INFO[productKey] || {};
+            const label = typeof info.label === 'string' ? info.label : productKey;
+            const safeLabel = escapeHtml(label);
+            const selected = radarProduct === productKey ? ' selected' : '';
+            return `<option value="${productKey}"${selected}>${safeLabel}</option>`;
+          }).join('');
+          const statusText = radarTemporarilyUnavailable ? escapeHtml(RADAR_UNAVAILABLE_MESSAGE) : '';
+          radarControlsHtml = `
+            <div class="selector-group radar-control-group">
+              <div class="selector-label">Radar</div>
+              <button type="button" id="radarToggleButton" class="pill-button radar-toggle${toggleActive ? ' is-active' : ''}" aria-pressed="${toggleActive ? 'true' : 'false'}"${toggleDisabledAttr}>
+                Show Radar<span class="toggle-indicator">${toggleActive ? 'On' : 'Off'}</span>
+              </button>
+              <div class="radar-control">
+                <label class="radar-control-label" for="radarProductSelect">Product</label>
+                <div class="selector-control">
+                  <select id="radarProductSelect">
+                    ${productOptions}
+                  </select>
+                </div>
+              </div>
+              <div class="radar-control">
+                <label class="radar-control-label" for="radarOpacityRange">Opacity</label>
+                <div class="radar-opacity-row">
+                  <input type="range" id="radarOpacityRange" min="${RADAR_MIN_OPACITY}" max="${RADAR_MAX_OPACITY}" step="0.01" value="${radarOpacity.toFixed(2)}">
+                  <span id="radarOpacityValue" class="radar-opacity-value">${formatRadarOpacity(radarOpacity)}</span>
+                </div>
+              </div>
+              <div id="radarStatusMessage" class="radar-status-message" role="status" aria-live="polite"${radarTemporarilyUnavailable ? '' : ' style="display:none;"'}>${statusText}</div>
+            </div>
+          `;
+        }
         let demoButtonHtml = '';
         if (adminMode) {
           const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
@@ -4800,23 +5378,6 @@
             </button>
           </div>
         ` : '';
-        const serviceAlertsExpandedClass = serviceAlertsExpanded ? 'is-expanded' : 'is-collapsed';
-        const serviceAlertsStatusText = buildServiceAlertsStatusText();
-        const serviceAlertsBadgeText = formatServiceAlertsBadgeText(getActiveServiceAlertCount());
-        const serviceAlertsBadgeAttr = serviceAlertsBadgeText ? '' : ' hidden';
-        const serviceAlertsSectionHtml = `
-          <div class="selector-section service-alerts ${serviceAlertsExpandedClass}" id="serviceAlerts">
-            <button class="service-alerts__header" aria-expanded="${serviceAlertsExpanded ? 'true' : 'false'}" aria-controls="serviceAlertsPanel">
-              <div class="service-alerts__header-main">
-                <div class="service-alerts__title">Service Alerts</div>
-                <div class="service-alerts__status">${escapeHtml(serviceAlertsStatusText)}</div>
-              </div>
-              <span class="service-alerts__badge"${serviceAlertsBadgeAttr}>${escapeHtml(serviceAlertsBadgeText)}</span>
-              <span class="service-alerts__chevron">&#8250;</span>
-            </button>
-            <div class="service-alerts__content" id="serviceAlertsPanel"></div>
-          </div>
-        `;
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -4840,6 +5401,7 @@
             </div>
         `;
         html += serviceAlertsSectionHtml;
+        html += incidentAlertsHtml;
 
         if (adminMode) {
           html += `
@@ -4860,17 +5422,22 @@
           `;
         }
 
+        html += incidentToggleHtml;
+        html += radarControlsHtml;
+        html += trainToggleHtml;
+        html += demoButtonHtml;
+
         html += `
-            ${incidentToggleHtml}
-            ${incidentAlertsHtml}
-            ${demoButtonHtml}
           </div>
         `;
 
         panel.innerHTML = html;
-        initializeServiceAlertsSection();
+        initializeRadarControls();
         updateDisplayModeButtons();
+        updateTrainToggleButton();
+        updateAircraftToggleButton();
         updateIncidentToggleButton();
+        refreshServiceAlertsUI();
         positionAllPanelTabs();
       }
 
@@ -4914,7 +5481,7 @@
         });
 
         const agenciesSignature = agencies
-          .map(a => `${a.url || ''}::${a.name || ''}::${a.type || ''}`)
+          .map(a => `${a.url || ''}::${a.name || ''}`)
           .join('|');
 
         const routeSignatureParts = routeIDs.map(routeID => {
@@ -5161,7 +5728,6 @@
         const isHidden = panel.classList.toggle('hidden');
         setPanelToggleArrow(tab, isHidden ? collapsedArrow : expandedArrow);
         positionAllPanelTabs();
-        syncServiceAlertsBadge();
       }
 
       function toggleRoutePanel() {
@@ -5199,7 +5765,6 @@
         }
 
         positionAllPanelTabs();
-        syncServiceAlertsBadge();
       }
 
       function renderRouteLegendContent(legendElement, routes) {
@@ -5514,6 +6079,7 @@
         if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
           renderBusStops(stopDataCache);
         }
+        fetchTrains().catch(error => console.error('Error refreshing trains:', error));
       }
 
       function clearRefreshIntervals() {
@@ -5532,12 +6098,23 @@
           });
         }, 15000));
         refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
-        refreshIntervals.push(setInterval(fetchServiceAlerts, SERVICE_ALERT_REFRESH_INTERVAL_MS));
+        refreshIntervals.push(setInterval(() => {
+          if (shouldFetchServiceAlerts()) {
+            fetchServiceAlertsForCurrentAgency();
+          }
+        }, SERVICE_ALERT_REFRESH_INTERVAL_MS));
         if (incidentsAreAvailable()) {
           refreshIntervals.push(setInterval(refreshIncidents, INCIDENT_REFRESH_INTERVAL_MS));
           refreshIncidents();
         } else {
           setIncidentsVisibility(false);
+        }
+        refreshIntervals.push(setInterval(() => {
+          fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+        }, TRAIN_POLL_INTERVAL_MS));
+        fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+        if (shouldFetchServiceAlerts()) {
+          fetchServiceAlertsForCurrentAgency();
         }
       }
 
@@ -5570,6 +6147,9 @@
             headingCachePromise.then(() => fetchBusLocations().then(() => fetchRoutePaths())),
             stopArrivalsPromise
           ];
+          if (shouldFetchServiceAlerts()) {
+            tasks.push(fetchServiceAlertsForCurrentAgency());
+          }
           return Promise.allSettled(tasks);
         });
       }
@@ -5580,15 +6160,14 @@
         }
         beginAgencyLoad();
         clearRefreshIntervals();
-        setCurrentAgencyByUrl(url);
         baseURL = url;
         resetIncidentAlertState();
         resetServiceAlertsState();
         updateControlPanel();
         enforceIncidentVisibilityForCurrentAgency();
-        fetchServiceAlerts();
         Object.values(markers).forEach(m => map.removeLayer(m));
         markers = {};
+        clearAllTrainMarkers();
         Object.values(nameBubbles).forEach(b => {
           if (b.speedMarker) map.removeLayer(b.speedMarker);
           if (b.nameMarker) map.removeLayer(b.nameMarker);
@@ -5650,6 +6229,12 @@
               zoomAnimation: true,
               markerZoomAnimation: true
           }).setView([38.03799212281404, -78.50981502838886], 15);
+          map.createPane(RADAR_PANE_NAME);
+          const radarPane = map.getPane(RADAR_PANE_NAME);
+          if (radarPane) {
+              radarPane.style.zIndex = 350;
+              radarPane.style.pointerEvents = 'none';
+          }
           sharedRouteRenderer = L.svg({ padding: 0 });
           if (sharedRouteRenderer) {
               map.addLayer(sharedRouteRenderer);
@@ -5702,6 +6287,7 @@
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           });
           cartoLight.addTo(map);
+          applyRadarState();
 
           if (enableOverlapDashRendering) {
             overlapRenderer = new OverlapRouteRenderer(map, {
@@ -5733,7 +6319,6 @@
             if (controlPanelTab) {
               controlPanelTab.style.display = "none";
             }
-            syncServiceAlertsBadge();
           }
           map.on('zoom', () => {
               scheduleMarkerScaleUpdate();
@@ -5742,24 +6327,30 @@
           map.on('move', () => {
               updatePopupPositions();
           });
+          map.on('moveend', () => {
+              updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
+          });
           map.on('zoomend', () => {
               if (stopDataCache.length > 0) {
                   renderBusStops(stopDataCache);
               }
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
+              updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
+          if (planesVisible && window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
+              try {
+                  window.PlaneLayer.init(map);
+              } catch (error) {
+                  console.error('PlaneLayer init failed:', error);
+                  planesVisible = false;
+                  updateAircraftToggleButton();
+              }
+          }
           applyIncidentHaloStates();
       }
 
       function fetchBusStops() {
-          if (isEtaSpotAgency()) {
-              return fetchBusStopsEtaSpot();
-          }
-          return fetchBusStopsRideSystems();
-      }
-
-      function fetchBusStopsRideSystems() {
           const currentBaseURL = baseURL;
           const stopsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStops?APIKey=8882812681`;
           return fetch(stopsApiUrl)
@@ -5772,81 +6363,7 @@
                       renderBusStops(stopDataCache);
                   }
               })
-              .catch(error => console.error('Error fetching bus stops:', error));
-      }
-
-      function fetchBusStopsEtaSpot() {
-          const expectedBase = baseURL;
-          const expectedType = currentAgencyType;
-          const serviceUrl = getEtaSpotServiceUrl();
-          if (!serviceUrl) {
-              stopDataCache = [];
-              renderBusStops(stopDataCache);
-              return Promise.resolve();
-          }
-          const params = new URLSearchParams({
-              service: 'get_stops',
-              token: getEtaSpotToken()
-          });
-          const endpoint = `${serviceUrl}?${params.toString()}`;
-          return fetch(endpoint)
-              .then(response => response.json())
-              .then(data => {
-                  if (expectedBase !== baseURL || currentAgencyType !== expectedType) {
-                      return;
-                  }
-                  const stopsArray = Array.isArray(data?.get_stops) ? data.get_stops : [];
-                  const normalizedStops = [];
-                  const newRouteStopRouteMap = {};
-                  stopsArray.forEach(stop => {
-                      const rawLat = stop?.lat ?? stop?.latitude ?? stop?.Latitude;
-                      const rawLng = stop?.lng ?? stop?.longitude ?? stop?.Longitude;
-                      const lat = Number(rawLat);
-                      const lng = Number(rawLng);
-                      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-                          return;
-                      }
-                      const rawStopId = stop?.id ?? stop?.stopID ?? stop?.StopID;
-                      const numericStopId = Number(rawStopId);
-                      const stopId = Number.isFinite(numericStopId) ? numericStopId : (typeof rawStopId === 'string' ? rawStopId.trim() : null);
-                      const candidateRouteIds = [];
-                      if (Array.isArray(stop?.routes)) {
-                          stop.routes.forEach(value => candidateRouteIds.push(value));
-                      }
-                      if (Array.isArray(stop?.routeIDs)) {
-                          stop.routeIDs.forEach(value => candidateRouteIds.push(value));
-                      }
-                      if (stop?.rid !== undefined && stop?.rid !== null) {
-                          candidateRouteIds.push(stop.rid);
-                      }
-                      const uniqueRouteIds = Array.from(new Set(candidateRouteIds.map(value => Number(value)).filter(Number.isFinite)));
-                      const name = typeof stop?.name === 'string'
-                          ? stop.name.trim()
-                          : (typeof stop?.Name === 'string' ? stop.Name.trim() : '');
-                      const routeStopId = stopId !== null && stopId !== undefined ? stopId : `${lat},${lng}`;
-                      if (uniqueRouteIds.length > 0) {
-                          newRouteStopRouteMap[`${routeStopId}`] = uniqueRouteIds.slice();
-                      }
-                      const normalized = {
-                          StopID: stopId ?? routeStopId,
-                          RouteStopID: routeStopId,
-                          Latitude: lat,
-                          Longitude: lng,
-                          Description: name || `Stop ${routeStopId}`,
-                          Name: name || `Stop ${routeStopId}`,
-                          Routes: uniqueRouteIds.map(id => ({ RouteID: id })),
-                          RouteIDs: uniqueRouteIds.slice(),
-                          RouteID: uniqueRouteIds[0],
-                          Code: typeof stop?.code === 'string' ? stop.code.trim() : '',
-                          Direction: typeof stop?.direction === 'string' ? stop.direction.trim() : ''
-                      };
-                      normalizedStops.push(normalized);
-                  });
-                  routeStopRouteMap = newRouteStopRouteMap;
-                  stopDataCache = normalizedStops;
-                  renderBusStops(stopDataCache);
-              })
-              .catch(error => console.error('Error fetching CAT stops:', error));
+              .catch(error => console.error("Error fetching bus stops:", error));
       }
 
       function groupStopsByPixelDistance(stops, thresholdPx) {
@@ -6020,33 +6537,21 @@
           if (!entry) {
               return routeIds;
           }
-          const addRouteId = value => {
-              if (Array.isArray(value)) {
-                  value.forEach(innerValue => addRouteId(innerValue));
-                  return;
-              }
-              if (value === undefined || value === null) {
-                  return;
-              }
-              let candidate = value;
-              if (typeof candidate === 'string') {
-                  candidate = candidate.trim();
-                  if (candidate === '') {
-                      return;
-                  }
-              }
-              const numeric = Number(candidate);
-              if (!Number.isNaN(numeric)) {
-                  routeIds.add(numeric);
-              }
-          };
           if (Array.isArray(entry.routeIds)) {
-              entry.routeIds.forEach(routeId => addRouteId(routeId));
+              entry.routeIds.forEach(routeId => {
+                  const numeric = Number(routeId);
+                  if (!Number.isNaN(numeric)) {
+                      routeIds.add(numeric);
+                  }
+              });
           }
           if (Array.isArray(entry.routeStopIds)) {
               entry.routeStopIds.forEach(routeStopId => {
                   const mapped = routeStopRouteMap[routeStopId];
-                  addRouteId(mapped);
+                  const numeric = Number(mapped);
+                  if (!Number.isNaN(numeric)) {
+                      routeIds.add(numeric);
+                  }
               });
           }
           return routeIds;
@@ -6059,10 +6564,6 @@
           }
 
           const addRouteId = value => {
-              if (Array.isArray(value)) {
-                  value.forEach(innerValue => addRouteId(innerValue));
-                  return;
-              }
               if (value === undefined || value === null) {
                   return;
               }
@@ -6222,16 +6723,6 @@
           return `rgba(0, 0, 0, ${safeAlpha})`;
       }
 
-      function areStopArrivalsSupported() {
-          return !isEtaSpotAgency();
-      }
-
-      function getNoArrivalDataMessage() {
-          return areStopArrivalsSupported()
-              ? 'No upcoming arrivals'
-              : 'Real-time arrivals unavailable';
-      }
-
       function buildEtaTableHtml(routeStopIds) {
           const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
           const etas = [];
@@ -6240,7 +6731,6 @@
                   cachedEtas[routeStopId].forEach(eta => etas.push(eta));
               }
           });
-          const noArrivalMessage = getNoArrivalDataMessage();
           const etaRows = etas.length > 0
               ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
                     .map(eta => {
@@ -6250,7 +6740,7 @@
                         return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
                     })
                     .join('')
-              : `<tr><td colspan="2" style="padding: 5px; text-align: center;">${noArrivalMessage}</td></tr>`;
+              : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
           return `
             <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
               <thead>
@@ -6267,9 +6757,8 @@
       }
 
       function buildStopEntriesSectionHtml(stopEntries, multipleStops) {
-          const noArrivalMessage = getNoArrivalDataMessage();
           if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
-              return `<div style="margin-top: 10px;">${noArrivalMessage}</div>`;
+              return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
           }
 
           if (!multipleStops) {
@@ -6902,43 +7391,30 @@
       }
 
       function fetchStopArrivalTimes() {
-          if (!areStopArrivalsSupported()) {
-              return Promise.resolve({});
-          }
-          return fetchStopArrivalTimesRideSystems();
-      }
-
-      function fetchStopArrivalTimesRideSystems() {
           const currentBaseURL = baseURL;
           const arrivalTimesApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetStopArrivalTimes?APIKey=8882812681`;
           return fetch(arrivalTimesApiUrl)
               .then(response => response.json())
               .then(data => {
                   if (currentBaseURL !== baseURL) return {};
-                  const allEtas = {};
-                  const records = Array.isArray(data?.StopArrivalTimes) ? data.StopArrivalTimes : (Array.isArray(data) ? data : []);
-                  records.forEach(arrival => {
-                      const routeStopId = arrival?.RouteStopId ?? arrival?.RouteStopID;
-                      if (routeStopId === undefined || routeStopId === null) {
-                          return;
+                  let allEtas = {};
+                  data.forEach(arrival => {
+                      if (!allEtas[arrival.RouteStopId]) {
+                          allEtas[arrival.RouteStopId] = [];
                       }
-                      if (!allEtas[routeStopId]) {
-                          allEtas[routeStopId] = [];
-                      }
-                      const times = Array.isArray(arrival?.Times) ? arrival.Times : [];
-                      times.forEach(time => {
-                          const etaMinutes = Number.isFinite(time?.Seconds) ? Math.max(0, Math.round(time.Seconds / 60)) : null;
-                          allEtas[routeStopId].push({
-                              routeDescription: arrival?.RouteDescription ?? arrival?.RouteLongName ?? arrival?.RouteName ?? '',
-                              etaMinutes,
-                              RouteId: arrival?.RouteId ?? arrival?.RouteID
+                      arrival.Times.forEach(time => {
+                          const etaMinutes = Math.round(time.Seconds / 60);
+                          allEtas[arrival.RouteStopId].push({
+                              routeDescription: (arrival.RouteDescription === 'Night Pilot' ? arrival.RouteDescription : arrival.RouteDescription),
+                              etaMinutes: etaMinutes,
+                              RouteId: arrival.RouteId
                           });
                       });
                   });
                   return allEtas;
               })
               .catch(error => {
-                  console.error('Error fetching stop arrival times:', error);
+                  console.error("Error fetching stop arrival times:", error);
                   return {};
               });
       }
@@ -7626,13 +8102,6 @@
       }
       // Fetch routes from GetRoutes.
       function fetchRouteColors() {
-        if (isEtaSpotAgency()) {
-          return fetchEtaSpotRouteColors();
-        }
-        return fetchRideSystemsRouteColors();
-      }
-
-      function fetchRideSystemsRouteColors() {
         console.log('Fetching route colors...');
         const routesApiUrl = `${baseURL}/Services/JSONPRelay.svc/GetRoutes?APIKey=8882812681`;
         return fetch(routesApiUrl)
@@ -7652,74 +8121,11 @@
               });
             }
           })
-          .catch(error => console.error('Error fetching route colors:', error));
-      }
-
-      function fetchEtaSpotRouteColors() {
-        const expectedBase = baseURL;
-        const expectedType = currentAgencyType;
-        const serviceUrl = getEtaSpotServiceUrl();
-        if (!serviceUrl) {
-          routeColors = {};
-          return Promise.resolve();
-        }
-        const params = new URLSearchParams({
-          service: 'get_routes',
-          token: getEtaSpotToken()
-        });
-        const endpoint = `${serviceUrl}?${params.toString()}`;
-        return fetch(endpoint)
-          .then(response => response.json())
-          .then(data => {
-            if (baseURL !== expectedBase || currentAgencyType !== expectedType) {
-              return;
-            }
-            const routes = Array.isArray(data?.get_routes) ? data.get_routes : [];
-            const updatedRouteColors = {};
-            routes.forEach(route => {
-              const rawId = route?.id ?? route?.routeID ?? route?.RouteID;
-              const numericRouteId = Number(rawId);
-              if (!Number.isFinite(numericRouteId)) {
-                return;
-              }
-              const name = typeof route?.name === 'string' ? route.name.trim() : '';
-              const shortName = typeof route?.shortName === 'string' ? route.shortName.trim() : '';
-              const description = name || shortName || `Route ${numericRouteId}`;
-              const color = typeof route?.color === 'string' ? route.color.trim() : '';
-              const textColor = typeof route?.textColor === 'string' ? route.textColor.trim() : '';
-              const record = {
-                RouteID: numericRouteId,
-                RouteName: shortName || description,
-                Description: description,
-                Name: name || description,
-                ShortName: shortName || '',
-                MapLineColor: color || '#000000',
-                TextColor: textColor || '',
-                IsVisibleOnMap: route?.isActive !== false && route?.isActive !== 0,
-                _source: 'etaspot'
-              };
-              setRouteVisibility(record);
-              allRoutes[numericRouteId] = Object.assign(allRoutes[numericRouteId] || {}, record);
-              if (canDisplayRoute(numericRouteId)) {
-                updatedRouteColors[numericRouteId] = record.MapLineColor;
-              }
-            });
-            routeColors = updatedRouteColors;
-          })
-          .catch(error => {
-            console.error('Error fetching CAT route colors:', error);
-          });
-      }
-
-      function fetchRoutePaths() {
-          if (isEtaSpotAgency()) {
-              return fetchRoutePathsEtaSpot();
-          }
-          return fetchRoutePathsRideSystems();
+          .catch(error => console.error("Error fetching route colors:", error));
       }
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on relevant routes.
-      function fetchRoutePathsRideSystems() {
+      function fetchRoutePaths() {
           const currentBaseURL = baseURL;
           const routePathsApiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681`;
           return fetch(routePathsApiUrl)
@@ -7758,17 +8164,11 @@
                           const routeStopId = Number(stop.RouteStopID ?? stop.RouteStopId);
                           const addressId = stop.AddressID ?? stop.AddressId;
                           if (!Number.isNaN(routeStopId)) {
-                              const routeStopKey = `${routeStopId}`;
                               if (isNumericRoute) {
-                                  if (!Array.isArray(updatedRouteStopRouteMap[routeStopKey])) {
-                                      updatedRouteStopRouteMap[routeStopKey] = [];
-                                  }
-                                  if (!updatedRouteStopRouteMap[routeStopKey].includes(numericRouteId)) {
-                                      updatedRouteStopRouteMap[routeStopKey].push(numericRouteId);
-                                  }
+                                  updatedRouteStopRouteMap[routeStopId] = numericRouteId;
                               }
                               if (addressId !== undefined && addressId !== null && `${addressId}`.trim() !== '') {
-                                  updatedRouteStopAddressMap[routeStopKey] = `${addressId}`;
+                                  updatedRouteStopAddressMap[routeStopId] = `${addressId}`;
                               }
                           }
                       });
@@ -7968,265 +8368,7 @@
               });
       }
 
-      function fetchRoutePathsEtaSpot() {
-          const expectedBase = baseURL;
-          const expectedType = currentAgencyType;
-          const serviceUrl = getEtaSpotServiceUrl();
-          if (!serviceUrl) {
-              routeLayers.forEach(layer => map && map.removeLayer(layer));
-              routeLayers = [];
-              routePolylineCache.clear();
-              updateRouteLegend([], { forceHide: true });
-              return Promise.resolve();
-          }
-          const params = new URLSearchParams({
-              service: 'get_patterns',
-              token: getEtaSpotToken()
-          });
-          const endpoint = `${serviceUrl}?${params.toString()}`;
-          return fetch(endpoint)
-              .then(response => response.json())
-              .then(data => {
-                  if (expectedBase !== baseURL || currentAgencyType !== expectedType) {
-                      return;
-                  }
-                  const patterns = Array.isArray(data?.get_patterns) ? data.get_patterns : [];
-                  const routeSegments = new Map();
-                  patterns.forEach(pattern => {
-                      const segments = decodeEtaSpotPatternSegments(pattern);
-                      if (!Array.isArray(segments) || segments.length === 0) {
-                          return;
-                      }
-                      const routes = Array.isArray(pattern?.routes) ? pattern.routes : [];
-                      routes.forEach(routeIdValue => {
-                          const numericRouteId = Number(routeIdValue);
-                          if (!Number.isFinite(numericRouteId)) {
-                              return;
-                          }
-                          if (!routeSegments.has(numericRouteId)) {
-                              routeSegments.set(numericRouteId, []);
-                          }
-                          const segmentClones = segments.map(segment => segment.map(point => {
-                              if (typeof L !== 'undefined' && typeof L.latLng === 'function') {
-                                  return L.latLng(point.lat, point.lng);
-                              }
-                              return { lat: point.lat, lng: point.lng };
-                          }));
-                          routeSegments.get(numericRouteId).push(...segmentClones);
-                      });
-                  });
-
-                  const updatedCache = new Map();
-                  routeLayers.forEach(layer => map && map.removeLayer(layer));
-                  routeLayers = [];
-
-                  const displayedRoutes = [];
-                  let bounds = null;
-                  const zoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
-                  const strokeWeight = computeRouteStrokeWeight(zoom);
-
-                  routeSegments.forEach((segments, routeId) => {
-                      const validSegments = (Array.isArray(segments) ? segments : [])
-                          .map(segment => Array.isArray(segment) ? segment.filter(point => point && Number.isFinite(point.lat) && Number.isFinite(point.lng)) : [])
-                          .filter(segment => segment.length >= 2);
-                      if (validSegments.length === 0) {
-                          return;
-                      }
-
-                      let aggregatedBounds = null;
-                      validSegments.forEach(segment => {
-                          if (typeof L !== 'undefined' && typeof L.latLngBounds === 'function') {
-                              const segmentBounds = L.latLngBounds(segment);
-                              if (!aggregatedBounds) {
-                                  aggregatedBounds = segmentBounds;
-                              } else {
-                                  aggregatedBounds.extend(segmentBounds);
-                              }
-                          }
-                      });
-
-                      const longestSegment = validSegments.reduce((longest, segment) => {
-                          if (!longest) return segment;
-                          return segment.length > longest.length ? segment : longest;
-                      }, null);
-
-                      if (longestSegment) {
-                          updatedCache.set(routeId, {
-                              encoded: null,
-                              latLngPath: longestSegment,
-                              bounds: aggregatedBounds,
-                              latLngSegments: validSegments
-                          });
-                      }
-
-                      if (!isRouteSelected(routeId)) {
-                          return;
-                      }
-
-                      const routeColor = getRouteColor(routeId);
-                      const legendName = getRouteDisplayName(routeId);
-                      displayedRoutes.push({ routeId, name: legendName, color: routeColor });
-
-                      validSegments.forEach(segment => {
-                          if (typeof L !== 'undefined' && typeof L.polyline === 'function') {
-                              const layer = L.polyline(segment, mergeRouteLayerOptions({
-                                  color: routeColor,
-                                  weight: strokeWeight,
-                                  opacity: 1,
-                                  lineCap: 'round',
-                                  lineJoin: 'round'
-                              })).addTo(map);
-                              routeLayers.push(layer);
-                          }
-                          if (typeof L !== 'undefined' && typeof L.latLngBounds === 'function') {
-                              const segmentBounds = L.latLngBounds(segment);
-                              if (!bounds) {
-                                  bounds = segmentBounds;
-                              } else {
-                                  bounds.extend(segmentBounds);
-                              }
-                          }
-                      });
-                  });
-
-                  routePolylineCache.clear();
-                  updatedCache.forEach((value, key) => {
-                      routePolylineCache.set(key, value);
-                  });
-
-                  updateCustomPopups();
-                  if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
-                      renderBusStops(stopDataCache);
-                  }
-                  evaluateIncidentRouteAlerts();
-                  updateRouteSelector(activeRoutes);
-                  stopMarkers.forEach(marker => {
-                      if (marker && typeof marker.bringToFront === 'function') {
-                          marker.bringToFront();
-                      }
-                  });
-
-                  if (bounds && map) {
-                      allRouteBounds = bounds;
-                      if (!mapHasFitAllRoutes) {
-                          if (!kioskMode && !adminKioskMode) {
-                              try {
-                                  map.fitBounds(bounds, { padding: [20, 20] });
-                              } catch (error) {
-                                  console.error('Failed to fit bounds for CAT routes:', error);
-                              }
-                          }
-                          mapHasFitAllRoutes = true;
-                      }
-                  }
-
-                  if (displayedRoutes.length > 0) {
-                      updateRouteLegend(displayedRoutes, { preserveOnEmpty: true });
-                  } else if (kioskMode || adminKioskMode) {
-                      updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
-                  } else {
-                      updateRouteLegend([], { forceHide: true });
-                  }
-              })
-              .catch(error => {
-                  console.error('Error fetching CAT route paths:', error);
-                  if (kioskMode || adminKioskMode) {
-                      updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
-                  } else {
-                      updateRouteLegend([], { forceHide: true });
-                  }
-              });
-      }
-
-      function decodeEtaSpotPatternSegments(pattern) {
-          const rawPoints = [];
-          if (Array.isArray(pattern?.decLine)) {
-              pattern.decLine.forEach(point => {
-                  const lat = Number(point?.lat ?? point?.Lat ?? point?.latitude ?? point?.Latitude);
-                  const lng = Number(point?.lng ?? point?.Lng ?? point?.longitude ?? point?.Longitude);
-                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                      rawPoints.push({ lat, lng });
-                  }
-              });
-          }
-          if (rawPoints.length === 0 && typeof pattern?.encLine === 'string' && pattern.encLine.trim() !== '') {
-              try {
-                  const decoded = polyline.decode(pattern.encLine.trim());
-                  decoded.forEach(coords => {
-                      if (!Array.isArray(coords) || coords.length < 2) {
-                          return;
-                      }
-                      const lat = Number(coords[0]);
-                      const lng = Number(coords[1]);
-                      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                          rawPoints.push({ lat, lng });
-                      }
-                  });
-              } catch (error) {
-                  console.error('Failed to decode CAT pattern polyline:', error);
-              }
-          }
-          return splitPolylineSegmentsByDistance(rawPoints, 600);
-      }
-
-      function splitPolylineSegmentsByDistance(points, thresholdMeters) {
-          const segments = [];
-          if (!Array.isArray(points) || points.length < 2) {
-              return segments;
-          }
-          const maxDistance = Number.isFinite(thresholdMeters) ? thresholdMeters : 600;
-          let currentSegment = [];
-          for (let i = 0; i < points.length; i += 1) {
-              const currentPoint = points[i];
-              if (!currentPoint || !Number.isFinite(currentPoint.lat) || !Number.isFinite(currentPoint.lng)) {
-                  continue;
-              }
-              if (currentSegment.length === 0) {
-                  currentSegment.push({ lat: currentPoint.lat, lng: currentPoint.lng });
-                  continue;
-              }
-              const previousPoint = currentSegment[currentSegment.length - 1];
-              const distance = computeHaversineDistanceMeters(previousPoint.lat, previousPoint.lng, currentPoint.lat, currentPoint.lng);
-              if (!Number.isFinite(distance) || distance > maxDistance) {
-                  if (currentSegment.length >= 2) {
-                      segments.push(currentSegment);
-                  }
-                  currentSegment = [{ lat: currentPoint.lat, lng: currentPoint.lng }];
-              } else {
-                  currentSegment.push({ lat: currentPoint.lat, lng: currentPoint.lng });
-              }
-          }
-          if (currentSegment.length >= 2) {
-              segments.push(currentSegment);
-          }
-          return segments;
-      }
-
-      function computeHaversineDistanceMeters(lat1, lon1, lat2, lon2) {
-          if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) {
-              return Infinity;
-          }
-          const toRadians = Math.PI / 180;
-          const deltaLat = (lat2 - lat1) * toRadians;
-          const deltaLon = (lon2 - lon1) * toRadians;
-          const sinLat = Math.sin(deltaLat / 2);
-          const sinLon = Math.sin(deltaLon / 2);
-          const startLatRad = lat1 * toRadians;
-          const endLatRad = lat2 * toRadians;
-          const a = sinLat * sinLat + Math.cos(startLatRad) * Math.cos(endLatRad) * sinLon * sinLon;
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
-          return EARTH_RADIUS_METERS * c;
-      }
-
       function fetchBlockAssignments() {
-          if (isEtaSpotAgency()) {
-              busBlocks = {};
-              return Promise.resolve();
-          }
-          return fetchBlockAssignmentsRideSystems();
-      }
-
-      function fetchBlockAssignmentsRideSystems() {
           const currentBaseURL = baseURL;
           const d = new Date();
           const ds = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
@@ -8264,7 +8406,7 @@
                       "[24] AM": "[24]/[18] AM",
                       "[26] AM": "[26]/[15]"
                   };
-                  const mapping = {};
+                  let mapping = {};
                   groups.forEach(g => {
                       const block = (g.BlockGroupId || '').trim();
                       const vehicleId = g.Blocks?.[0]?.Trips?.[0]?.VehicleID ?? g.VehicleId;
@@ -8274,7 +8416,7 @@
                   });
                   busBlocks = mapping;
               })
-              .catch(error => console.error('Error fetching block assignments:', error));
+              .catch(error => console.error("Error fetching block assignments:", error));
       }
 
       async function fetchBusLocations() {
@@ -8286,103 +8428,32 @@
           } catch (error) {
               console.info('Proceeding without cached vehicle headings.', error);
           }
+          const currentBaseURL = baseURL;
+          const apiUrl = `${currentBaseURL}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           try {
               await loadBusSVG();
           } catch (error) {
               console.error('Failed to load bus marker SVG before fetching locations:', error);
           }
-          if (isEtaSpotAgency()) {
-              return fetchBusLocationsEtaSpot();
-          }
-          return fetchBusLocationsRideSystems();
-      }
-
-      async function fetchBusLocationsRideSystems() {
-          const expectedBase = baseURL;
-          const expectedType = currentAgencyType;
-          const apiUrl = `${expectedBase}/Services/JSONPRelay.svc/GetMapVehiclePoints?APIKey=8882812681&returnVehiclesNotAssignedToRoute=true`;
           try {
               const response = await fetch(apiUrl);
               if (!response.ok) {
-                  throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
+                  throw new Error(`Network response was not ok: ${response.statusText}`);
               }
               const data = await response.json();
-              if (baseURL !== expectedBase || currentAgencyType !== expectedType || !Array.isArray(data)) {
+              if (currentBaseURL !== baseURL || !Array.isArray(data)) {
                   return;
               }
+              const currentBusData = {};
               const activeRoutesSet = new Set();
               const vehicles = [];
-              data.forEach(vehicle => {
-                  const vehicleID = vehicle?.VehicleID;
-                  const lat = Number(vehicle?.Latitude);
-                  const lng = Number(vehicle?.Longitude);
-                  if (vehicleID === undefined || vehicleID === null || Number.isNaN(lat) || Number.isNaN(lng)) {
-                      return;
-                  }
-                  let routeID = vehicle?.RouteID;
-                  if (!routeID && adminMode) {
-                      routeID = 0;
-                  } else if (!routeID) {
-                      return;
-                  }
-                  const numericRouteId = Number(routeID);
-                  const effectiveRouteId = Number.isNaN(numericRouteId) ? routeID : numericRouteId;
-                  if (!canDisplayRoute(effectiveRouteId)) {
-                      return;
-                  }
-                  if (!adminMode && !Object.prototype.hasOwnProperty.call(routeColors, effectiveRouteId)) {
-                      return;
-                  }
-                  activeRoutesSet.add(effectiveRouteId);
-                  vehicles.push({
-                      vehicleID,
-                      newPosition: [lat, lng],
-                      isMoving: Number(vehicle?.GroundSpeed) > 0,
-                      busName: vehicle?.Name,
-                      routeID: effectiveRouteId,
-                      heading: vehicle?.Heading,
-                      groundSpeed: vehicle?.GroundSpeed
-                  });
-              });
-              await renderVehiclesOnMap(vehicles, activeRoutesSet);
-          } catch (error) {
-              console.error('Error fetching bus locations:', error);
-          }
-      }
 
-      async function fetchBusLocationsEtaSpot() {
-          const expectedBase = baseURL;
-          const expectedType = currentAgencyType;
-          const serviceUrl = getEtaSpotServiceUrl();
-          if (!serviceUrl) {
-              await renderVehiclesOnMap([], new Set());
-              return;
-          }
-          const params = new URLSearchParams({
-              service: 'get_vehicles',
-              token: getEtaSpotToken()
-          });
-          const endpoint = `${serviceUrl}?${params.toString()}`;
-          try {
-              const response = await fetch(endpoint, { cache: 'no-store' });
-              if (!response.ok) {
-                  throw new Error(`Vehicle request failed: ${response.status} ${response.statusText}`);
-              }
-              const payload = await response.json();
-              if (baseURL !== expectedBase || currentAgencyType !== expectedType) {
-                  return;
-              }
-              const records = Array.isArray(payload?.get_vehicles) ? payload.get_vehicles : [];
-              const activeRoutesSet = new Set();
-              const vehicles = [];
-              records.forEach(vehicle => {
-                  const vehicleID = vehicle?.equipmentID ?? vehicle?.vehicleID ?? vehicle?.id;
-                  const lat = Number(vehicle?.lat ?? vehicle?.latitude);
-                  const lng = Number(vehicle?.lng ?? vehicle?.longitude);
-                  if (vehicleID === undefined || vehicleID === null || Number.isNaN(lat) || Number.isNaN(lng)) {
-                      return;
-                  }
-                  let routeID = vehicle?.routeID ?? vehicle?.routeId ?? vehicle?.route;
+              data.forEach(vehicle => {
+                  const vehicleID = vehicle.VehicleID;
+                  const newPosition = [vehicle.Latitude, vehicle.Longitude];
+                  const isMoving = vehicle.GroundSpeed > 0;
+                  const busName = vehicle.Name;
+                  let routeID = vehicle.RouteID;
                   if (!routeID && adminMode) {
                       routeID = 0;
                   } else if (!routeID) {
@@ -8390,198 +8461,387 @@
                   }
                   const numericRouteId = Number(routeID);
                   const effectiveRouteId = Number.isNaN(numericRouteId) ? routeID : numericRouteId;
-                  if (!canDisplayRoute(effectiveRouteId)) {
-                      return;
-                  }
-                  if (!adminMode && !Object.prototype.hasOwnProperty.call(routeColors, effectiveRouteId)) {
-                      return;
-                  }
+                  if (!canDisplayRoute(effectiveRouteId)) return;
+                  if (!adminMode && !routeColors.hasOwnProperty(effectiveRouteId)) return;
                   activeRoutesSet.add(effectiveRouteId);
-                  const groundSpeedValue = Number(vehicle?.speed ?? vehicle?.groundSpeed ?? vehicle?.velocity);
-                  const groundSpeed = Number.isFinite(groundSpeedValue) ? groundSpeedValue : 0;
-                  const busName = typeof vehicle?.name === 'string' && vehicle.name.trim() !== ''
-                      ? vehicle.name.trim()
-                      : (vehicleID !== undefined && vehicleID !== null ? `Vehicle ${vehicleID}` : `Route ${effectiveRouteId}`);
                   vehicles.push({
                       vehicleID,
-                      newPosition: [lat, lng],
-                      isMoving: groundSpeed > 0,
+                      newPosition,
+                      isMoving,
                       busName,
                       routeID: effectiveRouteId,
-                      heading: vehicle?.heading,
-                      groundSpeed
+                      heading: vehicle.Heading,
+                      groundSpeed: vehicle.GroundSpeed
                   });
               });
-              await renderVehiclesOnMap(vehicles, activeRoutesSet);
-          } catch (error) {
-              console.error('Error fetching CAT vehicle locations:', error);
-          }
-      }
 
-      async function renderVehiclesOnMap(vehicles, activeRoutesSet) {
-          const normalizedVehicles = Array.isArray(vehicles) ? vehicles : [];
-          const normalizedActiveRoutes = activeRoutesSet instanceof Set
-              ? activeRoutesSet
-              : new Set(Array.isArray(activeRoutesSet) ? activeRoutesSet : []);
-          activeRoutes = normalizedActiveRoutes;
-          updateRouteSelector(normalizedActiveRoutes);
+              activeRoutes = activeRoutesSet;
+              updateRouteSelector(activeRoutesSet);
 
-          const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
-          const currentBusData = {};
+              const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
 
-          for (const v of normalizedVehicles) {
-              if (!v || v.vehicleID === undefined || v.vehicleID === null) {
-                  continue;
-              }
-              const { vehicleID, newPosition, busName, routeID, heading, groundSpeed } = v;
-              if (!isRouteSelected(routeID)) {
-                  continue;
-              }
-              currentBusData[vehicleID] = true;
-              const state = ensureBusMarkerState(vehicleID);
-              const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
-              const glyphColor = computeBusMarkerGlyphColor(routeColor);
-              const fallbackHeading = getVehicleHeadingFallback(vehicleID, heading);
-              const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeed);
-              const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
-              const gpsIsStale = isVehicleGpsStale(v);
-              const isStopped = isBusConsideredStopped(groundSpeed);
+              for (const v of vehicles) {
+                  const { vehicleID, newPosition, busName, routeID, heading, groundSpeed } = v;
+                  if (!isRouteSelected(routeID)) continue;
+                  currentBusData[vehicleID] = true;
+                  const state = ensureBusMarkerState(vehicleID);
+                  const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
+                  const glyphColor = computeBusMarkerGlyphColor(routeColor);
+                  const fallbackHeading = getVehicleHeadingFallback(vehicleID, heading);
+                  const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeed);
+                  const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
+                  const gpsIsStale = isVehicleGpsStale(v);
+                  const isStopped = isBusConsideredStopped(groundSpeed);
 
-              state.busName = busName;
-              state.routeID = routeID;
-              state.fillColor = routeColor;
-              state.glyphColor = glyphColor;
-              state.headingDeg = headingDeg;
-              state.accessibleLabel = accessibleLabel;
-              state.isStale = gpsIsStale;
-              state.isStopped = isStopped;
-              state.groundSpeed = groundSpeed;
-              state.lastUpdateTimestamp = Date.now();
-              rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
+                  state.busName = busName;
+                  state.routeID = routeID;
+                  state.fillColor = routeColor;
+                  state.glyphColor = glyphColor;
+                  state.headingDeg = headingDeg;
+                  state.accessibleLabel = accessibleLabel;
+                  state.isStale = gpsIsStale;
+                  state.isStopped = isStopped;
+                  state.groundSpeed = groundSpeed;
+                  state.lastUpdateTimestamp = Date.now();
+                  rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
 
-              if (!state.size) {
-                  setBusMarkerSize(state, markerMetricsForZoom);
-              }
-
-              if (markers[vehicleID]) {
-                  animateMarkerTo(markers[vehicleID], newPosition);
-                  markers[vehicleID].routeID = routeID;
-                  queueBusMarkerVisualUpdate(vehicleID, {
-                      fillColor: routeColor,
-                      glyphColor,
-                      headingDeg,
-                      stale: gpsIsStale,
-                      accessibleLabel,
-                      stopped: isStopped
-                  });
-              } else {
-                  try {
-                      const icon = await createBusMarkerDivIcon(vehicleID, state);
-                      if (!icon) {
-                          continue;
-                      }
-                      const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
-                      marker.routeID = routeID;
-                      marker.addTo(map);
-                      markers[vehicleID] = marker;
-                      state.marker = marker;
-                      registerBusMarkerElements(vehicleID);
-                      attachBusMarkerInteractions(vehicleID);
-                      updateBusMarkerRootClasses(state);
-                      updateBusMarkerZIndex(state);
-                      applyBusMarkerOutlineWidth(state);
-                  } catch (error) {
-                      console.error(`Failed to create bus marker icon for vehicle ${vehicleID}:`, error);
+                  if (!state.size) {
+                      setBusMarkerSize(state, markerMetricsForZoom);
                   }
-              }
 
-              if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
-                  const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
-                  if (speedIcon) {
-                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                      if (nameBubbles[vehicleID].speedMarker) {
-                          animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
-                          nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
-                      } else {
-                          nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                  if (markers[vehicleID]) {
+                      animateMarkerTo(markers[vehicleID], newPosition);
+                      markers[vehicleID].routeID = routeID;
+                      queueBusMarkerVisualUpdate(vehicleID, {
+                          fillColor: routeColor,
+                          glyphColor,
+                          headingDeg,
+                          stale: gpsIsStale,
+                          accessibleLabel,
+                          stopped: isStopped
+                      });
+                  } else {
+                      try {
+                          const icon = await createBusMarkerDivIcon(vehicleID, state);
+                          if (!icon) {
+                              continue;
+                          }
+                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
+                          marker.routeID = routeID;
+                          marker.addTo(map);
+                          markers[vehicleID] = marker;
+                          state.marker = marker;
+                          registerBusMarkerElements(vehicleID);
+                          attachBusMarkerInteractions(vehicleID);
+                          updateBusMarkerRootClasses(state);
+                          updateBusMarkerZIndex(state);
+                          applyBusMarkerOutlineWidth(state);
+                      } catch (error) {
+                          console.error(`Failed to create bus marker icon for vehicle ${vehicleID}:`, error);
+                      }
+                  }
+
+                  if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                      const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
+                      if (speedIcon) {
+                          nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                          if (nameBubbles[vehicleID].speedMarker) {
+                              animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
+                              nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
+                          } else {
+                              nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                          }
+                      } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
+                          map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                          delete nameBubbles[vehicleID].speedMarker;
                       }
                   } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
                       map.removeLayer(nameBubbles[vehicleID].speedMarker);
                       delete nameBubbles[vehicleID].speedMarker;
                   }
-              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
-                  map.removeLayer(nameBubbles[vehicleID].speedMarker);
-                  delete nameBubbles[vehicleID].speedMarker;
-              }
 
-              if (adminMode && !kioskMode) {
-                  const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
-                  if (nameIcon) {
-                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                      if (nameBubbles[vehicleID].nameMarker) {
-                          animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
-                          nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
-                      } else {
-                          nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                      }
-                  } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
-                      map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                      delete nameBubbles[vehicleID].nameMarker;
-                  }
-
-                  const blockName = busBlocks[vehicleID];
-                  if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
-                      const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale, headingDeg);
-                      if (blockIcon) {
+                  if (adminMode && !kioskMode) {
+                      const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
+                      if (nameIcon) {
                           nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                          if (nameBubbles[vehicleID].blockMarker) {
-                              animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
-                              nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
+                          if (nameBubbles[vehicleID].nameMarker) {
+                              animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
+                              nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
                           } else {
-                              nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                          }
+                      } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
+                          map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                          delete nameBubbles[vehicleID].nameMarker;
+                      }
+
+                      const blockName = busBlocks[vehicleID];
+                      if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
+                          const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale, headingDeg);
+                          if (blockIcon) {
+                              nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                              if (nameBubbles[vehicleID].blockMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
+                                  nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
+                              } else {
+                                  nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              }
+                          } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                              map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                              delete nameBubbles[vehicleID].blockMarker;
                           }
                       } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                           map.removeLayer(nameBubbles[vehicleID].blockMarker);
                           delete nameBubbles[vehicleID].blockMarker;
                       }
-                  } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
-                      map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                      delete nameBubbles[vehicleID].blockMarker;
+                  } else {
+                      if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
+                          map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                          delete nameBubbles[vehicleID].nameMarker;
+                      }
+                      if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
+                          map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                          delete nameBubbles[vehicleID].blockMarker;
+                      }
                   }
-              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
-                  map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                  delete nameBubbles[vehicleID].nameMarker;
-              } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
-                  map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                  delete nameBubbles[vehicleID].blockMarker;
+
+                  if (nameBubbles[vehicleID]) {
+                      const hasMarkers = Boolean(nameBubbles[vehicleID].speedMarker || nameBubbles[vehicleID].nameMarker || nameBubbles[vehicleID].blockMarker);
+                      if (hasMarkers) {
+                          nameBubbles[vehicleID].lastScale = markerMetricsForZoom.scale;
+                      } else {
+                          delete nameBubbles[vehicleID];
+                      }
+                  }
               }
 
-              if (nameBubbles[vehicleID]) {
-                  const hasMarkers = Boolean(nameBubbles[vehicleID].speedMarker || nameBubbles[vehicleID].nameMarker || nameBubbles[vehicleID].blockMarker);
-                  if (hasMarkers) {
-                      nameBubbles[vehicleID].lastScale = markerMetricsForZoom.scale;
-                  } else {
-                      delete nameBubbles[vehicleID];
+              Object.keys(markers).forEach(vehicleID => {
+                  if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
+                      map.removeLayer(markers[vehicleID]);
+                      delete markers[vehicleID];
+                      clearBusMarkerState(vehicleID);
+                      if (nameBubbles[vehicleID]) {
+                          if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                          if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                          if (nameBubbles[vehicleID].blockMarker) map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                          delete nameBubbles[vehicleID];
+                      }
                   }
+              });
+              previousBusData = currentBusData;
+          } catch (error) {
+              console.error("Error fetching bus locations:", error);
+          }
+      }
+
+      function clamp(value, min, max) {
+          return Math.min(Math.max(value, min), max);
+      }
+
+      function computeMarkerScale(zoom) {
+          return 1;
+      }
+
+      function computeBusMarkerMetrics(zoom) {
+          const scale = computeMarkerScale(zoom);
+          const width = BUS_MARKER_BASE_WIDTH_PX * scale;
+          const height = width * BUS_MARKER_ASPECT_RATIO;
+          return { scale, widthPx: width, heightPx: height };
+      }
+
+      function rememberCachedVehicleHeading(vehicleID, headingDeg, timestamp) {
+          if (!Number.isFinite(headingDeg)) {
+              return;
+          }
+          if (vehicleID === undefined || vehicleID === null) {
+              return;
+          }
+          const key = `${vehicleID}`;
+          if (!key || key === 'undefined' || key === 'null') {
+              return;
+          }
+          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
+          const updatedAt = Number.isFinite(timestamp) ? Number(timestamp) : Date.now();
+          vehicleHeadingCache.set(key, { heading: normalizedHeading, updatedAt });
+      }
+
+      function getCachedVehicleHeading(vehicleID) {
+          if (vehicleID === undefined || vehicleID === null) {
+              return null;
+          }
+          const key = `${vehicleID}`;
+          const entry = vehicleHeadingCache.get(key);
+          if (!entry) {
+              return null;
+          }
+          const heading = Number(entry.heading ?? entry.Heading);
+          if (!Number.isFinite(heading)) {
+              return null;
+          }
+          return normalizeHeadingDegrees(heading);
+      }
+
+      function getVehicleHeadingFallback(vehicleID, headingFromFeed) {
+          const cached = getCachedVehicleHeading(vehicleID);
+          if (cached !== null) {
+              return cached;
+          }
+          const fromFeed = Number(headingFromFeed);
+          if (Number.isFinite(fromFeed)) {
+              return normalizeHeadingDegrees(fromFeed);
+          }
+          return BUS_MARKER_DEFAULT_HEADING;
+      }
+
+      function loadVehicleHeadingCache() {
+          if (vehicleHeadingCachePromise) {
+              return vehicleHeadingCachePromise;
+          }
+          if (typeof fetch !== 'function') {
+              vehicleHeadingCachePromise = Promise.resolve(vehicleHeadingCache);
+              return vehicleHeadingCachePromise;
+          }
+          vehicleHeadingCachePromise = (async () => {
+              try {
+                  const response = await fetch(VEHICLE_HEADING_CACHE_ENDPOINT, { cache: 'no-store' });
+                  if (!response.ok) {
+                      throw new Error(`HTTP ${response.status}`);
+                  }
+                  const data = await response.json();
+                  if (data && typeof data === 'object' && data.headings && typeof data.headings === 'object') {
+                      Object.entries(data.headings).forEach(([vehicleID, entry]) => {
+                          if (!vehicleID) {
+                              return;
+                          }
+                          let headingValue = entry;
+                          let updatedAt = undefined;
+                          if (entry && typeof entry === 'object') {
+                              headingValue = entry.heading ?? entry.Heading;
+                              const tsCandidate = entry.updated_at ?? entry.updatedAt ?? entry.timestamp ?? entry.ts_ms ?? entry.ts;
+                              if (Number.isFinite(Number(tsCandidate))) {
+                                  updatedAt = Number(tsCandidate);
+                              }
+                          }
+                          const headingNumber = Number(headingValue);
+                          if (!Number.isFinite(headingNumber)) {
+                              return;
+                          }
+                          rememberCachedVehicleHeading(vehicleID, headingNumber, updatedAt);
+                      });
+                  }
+              } catch (error) {
+                  console.info('Vehicle heading cache unavailable; continuing without it.', error);
+              }
+              return vehicleHeadingCache;
+          })();
+          return vehicleHeadingCachePromise;
+      }
+
+      function ensureBusMarkerState(vehicleID) {
+          if (!busMarkerStates[vehicleID]) {
+              const defaultRouteColor = BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              const cachedHeading = getCachedVehicleHeading(vehicleID);
+              busMarkerStates[vehicleID] = {
+                  vehicleID,
+                  positionHistory: [],
+                  headingDeg: Number.isFinite(cachedHeading) ? cachedHeading : BUS_MARKER_DEFAULT_HEADING,
+                  fillColor: defaultRouteColor,
+                  glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
+                  accessibleLabel: '',
+                  isStale: false,
+                  isStopped: false,
+                  isSelected: false,
+                  isHovered: false,
+                  lastUpdateTimestamp: 0,
+                  size: null,
+                  elements: null,
+                  marker: null,
+                  markerEventsBound: false
+              };
+          }
+          return busMarkerStates[vehicleID];
+      }
+
+      function setBusMarkerSize(state, metrics) {
+          if (!state || !metrics) {
+              return;
+          }
+          state.size = {
+              widthPx: metrics.widthPx,
+              heightPx: metrics.heightPx,
+              scale: metrics.scale
+          };
+      }
+ 
+      function computeBusMarkerGlyphColor(routeColor) {
+          if (typeof busMarkerContrastOverrideColor === 'string' && busMarkerContrastOverrideColor.trim().length > 0) {
+              return busMarkerContrastOverrideColor;
+          }
+          const fallback = BUS_MARKER_DEFAULT_CONTRAST_COLOR;
+          const candidate = typeof routeColor === 'string' && routeColor.trim().length > 0 ? routeColor : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const contrast = contrastBW(candidate);
+          return contrast || fallback;
+      }
+
+      function normalizeRouteColor(color) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
               }
           }
-
-          Object.keys(markers).forEach(vehicleID => {
-              if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
-                  map.removeLayer(markers[vehicleID]);
-                  delete markers[vehicleID];
-                  clearBusMarkerState(vehicleID);
-                  if (nameBubbles[vehicleID]) {
-                      if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
-                      if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                      if (nameBubbles[vehicleID].blockMarker) map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                      delete nameBubbles[vehicleID];
-                  }
-              }
-          });
-
-          previousBusData = currentBusData;
+          return BUS_MARKER_DEFAULT_ROUTE_COLOR;
       }
+
+      function normalizeGlyphColor(color, routeColor) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
+              }
+          }
+          const fallbackRouteColor = normalizeRouteColor(routeColor);
+          return computeBusMarkerGlyphColor(fallbackRouteColor);
+      }
+
+      function applyColorsToBusMarkerSvg(svgEl, routeColor, glyphColor) {
+          if (!svgEl) {
+              return;
+          }
+          const fillColor = normalizeRouteColor(routeColor);
+          const contrastColor = normalizeGlyphColor(glyphColor, fillColor);
+          const routeShape = svgEl.querySelector('#route_color');
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          const centerSquare = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
+          const heading = svgEl.querySelector('#heading');
+          if (routeShape) {
+              routeShape.setAttribute('fill', fillColor);
+              routeShape.style.fill = fillColor;
+          }
+          if (centerRing) {
+              centerRing.setAttribute('fill', contrastColor);
+              centerRing.style.fill = contrastColor;
+          }
+          if (centerSquare) {
+              centerSquare.setAttribute('fill', contrastColor);
+              centerSquare.style.fill = contrastColor;
+          }
+          if (heading) {
+              heading.setAttribute('fill', contrastColor);
+              heading.style.fill = contrastColor;
+          }
+      }
+
       function updateBusMarkerColorElements(state) {
           if (!state) {
               return;
@@ -9097,6 +9357,18 @@
           return ((normalized % 360) + 360) % 360;
       }
 
+      function setMarkerSvgRotation(svgElement, rotationDeg) {
+          if (!svgElement) {
+              return;
+          }
+          const normalizedRotation = normalizeHeadingDegrees(
+              Number.isFinite(rotationDeg) ? rotationDeg : BUS_MARKER_DEFAULT_HEADING
+          );
+          svgElement.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+          svgElement.style.transformBox = 'fill-box';
+          svgElement.style.transform = `rotate(${normalizedRotation.toFixed(2)}deg)`;
+      }
+
       function buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed) {
           const name = busName && `${busName}`.trim().length > 0 ? `${busName}`.trim() : 'Vehicle';
           const direction = bearingToDirection(headingDeg);
@@ -9226,7 +9498,6 @@
           const anchorX = width * BUS_MARKER_ICON_ANCHOR_X_RATIO;
           const anchorY = height * BUS_MARKER_ICON_ANCHOR_Y_RATIO;
           const headingDeg = Number.isFinite(state?.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
-          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
           const label = state?.accessibleLabel && state.accessibleLabel.trim().length > 0
               ? state.accessibleLabel.trim()
               : `Vehicle ${vehicleID}`;
@@ -9245,8 +9516,7 @@
           svgEl.setAttribute('overflow', 'visible');
           svgEl.style.width = '100%';
           svgEl.style.height = '100%';
-          svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
-          svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
+          setMarkerSvgRotation(svgEl, headingDeg);
 
           const routeFillColor = normalizeRouteColor(state.fillColor);
           const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
@@ -9332,6 +9602,8 @@
           if (svg) {
               svg.style.pointerEvents = 'none';
               svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+              svg.style.transformBox = 'fill-box';
+              setMarkerSvgRotation(svg, state.headingDeg);
           }
           updateBusMarkerColorElements(state);
           applyBusMarkerStoppedVisualState(state);
@@ -9389,7 +9661,7 @@
           applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
-              elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`;
+              setMarkerSvgRotation(elements.svg, rotationDeg);
               if (state.accessibleLabel) {
                   elements.svg.setAttribute('aria-label', state.accessibleLabel);
               }
@@ -9691,6 +9963,493 @@
           return false;
       }
 
+      function getTrainIdentifier(train) {
+          if (!train) {
+              return null;
+          }
+          const candidateFields = ['trainID', 'trainId', 'trainNumRaw', 'trainNum'];
+          for (let i = 0; i < candidateFields.length; i += 1) {
+              const value = train?.[candidateFields[i]];
+              if (value !== undefined && value !== null) {
+                  const text = `${value}`.trim();
+                  if (text.length > 0) {
+                      return text;
+                  }
+              }
+          }
+          if (typeof train?.routeName === 'string' && train.routeName.trim().length > 0) {
+              return train.routeName.trim();
+          }
+          return null;
+      }
+
+      function trainIncludesStation(train, stationCode) {
+          if (!train || !Array.isArray(train?.stations)) {
+              return false;
+          }
+          if (typeof stationCode !== 'string' || stationCode.trim().length === 0) {
+              return false;
+          }
+          const target = stationCode.trim().toUpperCase();
+          return train.stations.some(stop => {
+              const code = typeof stop?.code === 'string' ? stop.code.trim().toUpperCase() : '';
+              return code === target;
+          });
+      }
+
+      function buildTrainAccessibleLabel(train) {
+          if (!train) {
+              return 'Amtrak train';
+          }
+          const parts = [];
+          const numberFields = ['trainNumRaw', 'trainNum'];
+          for (let i = 0; i < numberFields.length; i += 1) {
+              const value = train?.[numberFields[i]];
+              if (value !== undefined && value !== null) {
+                  const text = `${value}`.trim();
+                  if (text.length > 0) {
+                      parts.push(`Train ${text}`);
+                      break;
+                  }
+              }
+          }
+          const routeName = typeof train?.routeName === 'string' ? train.routeName.trim() : '';
+          if (routeName.length > 0) {
+              parts.push(routeName);
+          }
+          const status = typeof train?.trainTimely === 'string' ? train.trainTimely.trim() : '';
+          if (status.length > 0) {
+              parts.push(status);
+          }
+          return parts.length > 0 ? parts.join(' — ') : 'Amtrak train';
+      }
+
+      function getTrainHeadingValue(train) {
+          if (!train || typeof train !== 'object') {
+              return null;
+          }
+          const candidateFields = ['heading', 'Heading', 'direction', 'Direction', 'dir', 'Dir'];
+          for (let i = 0; i < candidateFields.length; i += 1) {
+              const field = candidateFields[i];
+              if (train[field] !== undefined && train[field] !== null) {
+                  return train[field];
+              }
+          }
+          return null;
+      }
+
+      function getTrainHeadingDegrees(headingValue, fallbackHeading) {
+          const fallback = Number.isFinite(fallbackHeading)
+              ? fallbackHeading
+              : BUS_MARKER_DEFAULT_HEADING;
+          if (Number.isFinite(headingValue)) {
+              return normalizeHeadingDegrees(headingValue);
+          }
+          if (typeof headingValue === 'string') {
+              const trimmed = headingValue.trim();
+              if (trimmed.length > 0) {
+                  const numericCandidate = Number(trimmed);
+                  if (Number.isFinite(numericCandidate)) {
+                      return normalizeHeadingDegrees(numericCandidate);
+                  }
+                  const normalized = trimmed.toUpperCase();
+                  const sanitized = normalized.replace(/[^A-Z]/g, '');
+                  const candidates = [];
+                  if (sanitized.length > 0) {
+                      candidates.push(sanitized);
+                      const withoutBound = sanitized.replace(/BOUND$/, '');
+                      if (withoutBound !== sanitized && withoutBound.length > 0) {
+                          candidates.push(withoutBound);
+                      }
+                      const withoutWard = sanitized.replace(/WARD$/, '');
+                      if (withoutWard !== sanitized && withoutWard.length > 0) {
+                          candidates.push(withoutWard);
+                      }
+                  }
+                  if (normalized !== sanitized && normalized.length > 0) {
+                      candidates.push(normalized);
+                  }
+                  for (let i = 0; i < candidates.length; i += 1) {
+                      const key = candidates[i];
+                      const degrees = TRAIN_CARDINAL_HEADING_DEGREES[key];
+                      if (Number.isFinite(degrees)) {
+                          return normalizeHeadingDegrees(degrees);
+                      }
+                  }
+              }
+          }
+          return normalizeHeadingDegrees(fallback);
+      }
+
+      function updateTrainMarkerHeading(state, newPosition, headingValue) {
+          if (!state) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const fallbackHeading = Number.isFinite(state.headingDeg)
+              ? state.headingDeg
+              : BUS_MARKER_DEFAULT_HEADING;
+          let lat = Number.NaN;
+          let lng = Number.NaN;
+          if (Array.isArray(newPosition)) {
+              if (newPosition.length >= 2) {
+                  lat = Number(newPosition[0]);
+                  lng = Number(newPosition[1]);
+              }
+          } else if (newPosition && typeof newPosition === 'object') {
+              lat = Number(newPosition.lat ?? newPosition.Latitude);
+              lng = Number(newPosition.lng ?? newPosition.Longitude);
+          }
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              const current = L.latLng(lat, lng);
+              const history = Array.isArray(state.positionHistory) ? state.positionHistory : [];
+              if (history.length === 0) {
+                  history.push(current);
+              } else {
+                  const previous = history[history.length - 1];
+                  if (previous && typeof previous.distanceTo === 'function') {
+                      const distance = previous.distanceTo(current);
+                      if (distance >= MIN_POSITION_UPDATE_METERS) {
+                          history.push(current);
+                          if (history.length > 2) {
+                              history.shift();
+                          }
+                      } else {
+                          history[history.length - 1] = current;
+                      }
+                  } else {
+                      history[history.length - 1] = current;
+                  }
+              }
+              state.positionHistory = history;
+          }
+          const headingDeg = getTrainHeadingDegrees(headingValue, fallbackHeading);
+          state.headingDeg = normalizeHeadingDegrees(headingDeg);
+          return state.headingDeg;
+      }
+
+      function ensureTrainMarkerState(trainID) {
+          if (trainID === null || trainID === undefined) {
+              return null;
+          }
+          const key = `${trainID}`;
+          const state = trainMarkerStates[key];
+          if (state) {
+              if (!state.markerId) {
+                  state.markerId = `train-${key.replace(/\s+/g, '-')}`;
+              }
+              return state;
+          }
+          const defaultFill = BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const newState = {
+              trainID: key,
+              markerId: `train-${key.replace(/\s+/g, '-')}`,
+              positionHistory: [],
+              headingDeg: BUS_MARKER_DEFAULT_HEADING,
+              fillColor: defaultFill,
+              glyphColor: computeBusMarkerGlyphColor(defaultFill),
+              accessibleLabel: 'Amtrak train',
+              isStale: false,
+              isStopped: false,
+              lastLatLng: null,
+              marker: null,
+              size: null,
+              lastUpdateTimestamp: 0
+          };
+          trainMarkerStates[key] = newState;
+          return newState;
+      }
+
+      function clearTrainMarker(trainID) {
+          if (trainID === null || trainID === undefined) {
+              return;
+          }
+          const key = `${trainID}`;
+          const marker = trainMarkers[key];
+          if (marker) {
+              if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                  map.removeLayer(marker);
+              } else if (typeof marker.remove === 'function') {
+                  marker.remove();
+              }
+          }
+          delete trainMarkers[key];
+          delete trainMarkerStates[key];
+      }
+
+      function clearAllTrainMarkers() {
+          Object.keys(trainMarkers).forEach(trainID => {
+              const marker = trainMarkers[trainID];
+              if (!marker) {
+                  return;
+              }
+              if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                  map.removeLayer(marker);
+              } else if (typeof marker.remove === 'function') {
+                  marker.remove();
+              }
+          });
+          trainMarkers = {};
+          trainMarkerStates = {};
+      }
+
+      function setPlanesVisibility(visible) {
+          const allowPlanes = adminFeaturesAllowed();
+          const desiredVisibility = allowPlanes && !!visible;
+          const planeLayer = window.PlaneLayer;
+          if (!desiredVisibility) {
+              if (planeLayer && planeLayer.isStarted) {
+                  try {
+                      if (typeof planeLayer.dispose === 'function') {
+                          planeLayer.dispose();
+                      } else if (typeof planeLayer.stop === 'function') {
+                          planeLayer.stop();
+                      }
+                  } catch (error) {
+                      console.error('Error stopping aircraft layer:', error);
+                  }
+              }
+              planesVisible = false;
+              updateAircraftToggleButton();
+              return;
+          }
+          if (!map) {
+              planesVisible = false;
+              updateAircraftToggleButton();
+              return;
+          }
+          if (!planeLayer) {
+              console.warn('Plane layer is unavailable; unable to show aircraft.');
+              planesVisible = false;
+              updateAircraftToggleButton();
+              return;
+          }
+          try {
+              if (!planeLayer.isStarted) {
+                  if (typeof planeLayer.init === 'function') {
+                      planeLayer.init(map);
+                  } else if (typeof planeLayer.start === 'function') {
+                      planeLayer.start();
+                  }
+              }
+          } catch (error) {
+              console.error('Error initializing aircraft layer:', error);
+          }
+          planesVisible = !!(planeLayer && planeLayer.isStarted);
+          updateAircraftToggleButton();
+      }
+
+      function toggleAircraftVisibility() {
+          setPlanesVisibility(!planesVisible);
+      }
+
+      function setTrainsVisibility(visible) {
+          const allowTrains = adminFeaturesAllowed();
+          const desiredVisibility = allowTrains && !!visible;
+          const previousVisibility = !!trainsVisible;
+          trainsVisible = desiredVisibility;
+          updateTrainToggleButton();
+          try {
+              const visibilityPromise = updateTrainMarkersVisibility();
+              if (visibilityPromise && typeof visibilityPromise.catch === 'function') {
+                  visibilityPromise.catch(error => console.error('Error updating train markers visibility:', error));
+              }
+          } catch (error) {
+              console.error('Error updating train markers visibility:', error);
+          }
+          if (trainsVisible && !previousVisibility) {
+              fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+          }
+      }
+
+      function toggleTrainsVisibility() {
+          setTrainsVisibility(!trainsVisible);
+      }
+
+      async function updateTrainMarkersVisibility() {
+          if (!adminFeaturesAllowed()) {
+              clearAllTrainMarkers();
+              return;
+          }
+          if (!trainsVisible) {
+              Object.keys(trainMarkers).forEach(trainID => {
+                  const marker = trainMarkers[trainID];
+                  if (!marker) {
+                      return;
+                  }
+                  if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                      map.removeLayer(marker);
+                  } else if (typeof marker.remove === 'function') {
+                      marker.remove();
+                  }
+                  const state = trainMarkerStates[trainID];
+                  if (state) {
+                      state.marker = marker || null;
+                  }
+              });
+              return;
+          }
+          if (!map || typeof map.getBounds !== 'function') {
+              return;
+          }
+          const bounds = map.getBounds();
+          if (!bounds || typeof bounds.contains !== 'function') {
+              return;
+          }
+          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+          const metrics = computeBusMarkerMetrics(zoom);
+          for (const trainID of Object.keys(trainMarkerStates)) {
+              const state = trainMarkerStates[trainID];
+              if (!state) {
+                  continue;
+              }
+              const latLng = state.lastLatLng;
+              const marker = trainMarkers[trainID];
+              if (!latLng || !Number.isFinite(latLng.lat) || !Number.isFinite(latLng.lng)) {
+                  if (marker && map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                      map.removeLayer(marker);
+                  }
+                  state.marker = marker || null;
+                  continue;
+              }
+              if (!bounds.contains(latLng)) {
+                  if (marker && map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+                      map.removeLayer(marker);
+                  }
+                  state.marker = marker || null;
+                  continue;
+              }
+              setBusMarkerSize(state, metrics);
+              let icon = null;
+              try {
+                  icon = await createBusMarkerDivIcon(state.markerId || `train-${trainID}`, state);
+              } catch (error) {
+                  console.error('Failed to create train marker icon:', error);
+                  continue;
+              }
+              if (!icon) {
+                  continue;
+              }
+              let trainMarker = marker;
+              if (!trainMarker) {
+                  trainMarker = L.marker(latLng, {
+                      icon,
+                      pane: 'busesPane',
+                      interactive: false,
+                      keyboard: false
+                  });
+                  trainMarkers[trainID] = trainMarker;
+              } else {
+                  trainMarker.setIcon(icon);
+              }
+              state.marker = trainMarker;
+              if (!map.hasLayer(trainMarker)) {
+                  trainMarker.addTo(map);
+              }
+              animateMarkerTo(trainMarker, latLng);
+          }
+      }
+
+      async function fetchTrains() {
+          if (trainFetchPromise) {
+              return trainFetchPromise;
+          }
+          if (!adminFeaturesAllowed()) {
+              return Promise.resolve();
+          }
+          if (!trainsVisible) {
+              return Promise.resolve();
+          }
+          const fetchTask = (async () => {
+              if (!trainsVisible) {
+                  return;
+              }
+              const stationCode = typeof TRAIN_TARGET_STATION_CODE === 'string'
+                  ? TRAIN_TARGET_STATION_CODE.trim().toUpperCase()
+                  : '';
+              let response;
+              try {
+                  response = await fetch(TRAIN_API_URL, { cache: 'no-store' });
+              } catch (error) {
+                  console.error('Failed to fetch trains:', error);
+                  return;
+              }
+              if (!response || !response.ok) {
+                  const statusText = response ? `${response.status} ${response.statusText}` : 'No response';
+                  console.error('Failed to fetch trains:', statusText);
+                  return;
+              }
+              let payload;
+              try {
+                  payload = await response.json();
+              } catch (error) {
+                  console.error('Failed to parse train response:', error);
+                  return;
+              }
+              if (!trainsVisible) {
+                  return;
+              }
+              const seenTrainIds = new Set();
+              const timestamp = Date.now();
+              if (payload && typeof payload === 'object') {
+                  Object.values(payload).forEach(group => {
+                      if (!Array.isArray(group)) {
+                          return;
+                      }
+                      group.forEach(train => {
+                          if (stationCode && !trainIncludesStation(train, stationCode)) {
+                              return;
+                          }
+                          const identifier = getTrainIdentifier(train);
+                          if (!identifier) {
+                              return;
+                          }
+                          seenTrainIds.add(identifier);
+                          const state = ensureTrainMarkerState(identifier);
+                          if (!state) {
+                              return;
+                          }
+                          const lat = Number(train?.lat);
+                          const lon = Number(train?.lon);
+                          const fillColor = normalizeRouteColor(train?.iconColor);
+                          const rawTextColor = typeof train?.textColor === 'string' ? train.textColor.trim() : '';
+                          const glyphColor = rawTextColor.length > 0
+                              ? normalizeGlyphColor(rawTextColor, fillColor)
+                              : computeBusMarkerGlyphColor(fillColor);
+                          state.fillColor = fillColor;
+                          state.glyphColor = glyphColor;
+                          state.accessibleLabel = buildTrainAccessibleLabel(train);
+                          state.isStale = false;
+                          state.isStopped = false;
+                          state.lastUpdateTimestamp = timestamp;
+                          const headingValue = getTrainHeadingValue(train);
+                          if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                              const latLng = L.latLng(lat, lon);
+                              state.lastLatLng = latLng;
+                              state.headingDeg = updateTrainMarkerHeading(state, latLng, headingValue);
+                          } else {
+                              state.lastLatLng = null;
+                              state.headingDeg = updateTrainMarkerHeading(state, null, headingValue);
+                          }
+                      });
+                  });
+              }
+              Object.keys(trainMarkerStates).forEach(trainID => {
+                  if (!seenTrainIds.has(trainID)) {
+                      clearTrainMarker(trainID);
+                  }
+              });
+              try {
+                  await updateTrainMarkersVisibility();
+              } catch (error) {
+                  console.error('Error updating train markers visibility:', error);
+              }
+          })();
+          trainFetchPromise = fetchTask.finally(() => {
+              trainFetchPromise = null;
+          });
+          return trainFetchPromise;
+      }
+
       function animateMarkerTo(marker, newPosition) {
         if (!marker || !newPosition) return;
         const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
@@ -9748,6 +10507,20 @@
           });
       });
     </script>
+    <script>
+      window.ADSB_PROXY_ENDPOINT = '/adsb';
+    </script>
+    <script src="plane_globals.js"></script>
+    <script>
+      if (typeof window.setPlaneStyleOptions === 'function') {
+        window.setPlaneStyleOptions({ atcStyle: false });
+      } else {
+        window.atcStyle = false;
+      }
+    </script>
+    <script src="markers.js"></script>
+    <script src="planeObject.js"></script>
+    <script src="planes_integration.js"></script>
   </head>
   <body>
     <div id="map"></div>
@@ -9756,12 +10529,11 @@
     <div id="routeSelector" class="selector-panel"></div>
     <div id="controlPanelTab" class="panel-toggle panel-toggle--left" onclick="toggleControlPanel()" title="Toggle system controls">
       <span class="panel-toggle__arrow" aria-hidden="true">&#9654;</span>
-      <span id="controlPanelAlertBadge" class="panel-toggle__badge" hidden></span>
     </div>
     <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">
       <span class="panel-toggle__arrow" aria-hidden="true">&#9664;</span>
     </div>
-    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS via Iowa Environmental Mesonet.</div>
     <div id="cookieBanner" class="cookie-banner" style="display:none;">
       This site stores your selected transit agency on your device to remember your preference.
       <button id="cookieAccept">OK</button>
