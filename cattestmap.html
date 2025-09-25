@@ -11055,7 +11055,13 @@
                   return;
               }
               const markerKey = `cat-${vehicle.id}`;
-              const newPosition = [vehicle.latitude, vehicle.longitude];
+              const lat = Number(vehicle.latitude);
+              const lng = Number(vehicle.longitude);
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                  removeNameBubbleForKey(markerKey);
+                  return;
+              }
+              const newPosition = [lat, lng];
               const effectiveRouteKey = vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
               const shouldDisplay = isCatRouteVisible(effectiveRouteKey);
               let marker = catVehicleMarkers.get(markerKey);
@@ -11079,7 +11085,7 @@
                   marker.addTo(layerGroup);
                   catVehicleMarkers.set(markerKey, marker);
               } else {
-                  marker.setLatLng(newPosition);
+                  animateMarkerTo(marker, newPosition);
                   marker.setIcon(icon);
                   if (!layerGroup.hasLayer(marker)) {
                       layerGroup.addLayer(marker);
