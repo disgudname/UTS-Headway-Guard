@@ -9378,6 +9378,7 @@
           fetchCatVehicles().catch(error => console.error('Failed to fetch CAT vehicles:', error));
           fetchCatServiceAlerts().catch(error => console.error('Failed to fetch CAT service alerts:', error));
           startCatRefreshIntervals();
+          evaluateIncidentRouteAlerts();
           updateControlPanel();
       }
 
@@ -9404,6 +9405,7 @@
           if (enableOverlapDashRendering && overlapRenderer) {
               updateOverlapRendererWithCatRoutes();
           }
+          evaluateIncidentRouteAlerts();
           updateControlPanel();
       }
 
