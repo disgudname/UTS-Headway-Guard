@@ -6288,6 +6288,14 @@
       }
 
       function buildLegendRouteKey(route) {
+        if (route !== null && route !== undefined) {
+          const rawLegendKey = route.legendKey !== undefined && route.legendKey !== null
+            ? `${route.legendKey}`.trim()
+            : '';
+          if (rawLegendKey !== '') {
+            return `custom:${rawLegendKey.toLowerCase()}`;
+          }
+        }
         const identifiers = extractLegendRouteIdentifiers(route);
         if (Number.isFinite(identifiers.numericId)) {
           return `num:${identifiers.numericId}`;
@@ -6339,6 +6347,111 @@
         const mergedRoutes = Array.from(mergedMap.values());
         mergedRoutes.sort(compareLegendRoutes);
         return mergedRoutes;
+      }
+
+      function buildCatLegendEntry(routeKey) {
+        if (!catOverlayEnabled) {
+          return null;
+        }
+
+        const normalizedKey = catRouteKey(routeKey);
+        if (!normalizedKey || isCatOutOfServiceRouteValue(normalizedKey)) {
+          return null;
+        }
+
+        const routeInfo = getCatRouteInfo(normalizedKey);
+        const nameCandidates = [
+          routeInfo?.displayName,
+          routeInfo?.shortName,
+          routeInfo?.longName,
+          normalizedKey
+        ];
+        const legendName = nameCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const name = legendName ? legendName.trim() : `CAT Route ${normalizedKey}`;
+
+        let description = '';
+        const longName = typeof routeInfo?.longName === 'string' ? routeInfo.longName.trim() : '';
+        if (longName && longName.toUpperCase() !== name.toUpperCase()) {
+          description = longName;
+        }
+
+        const colorCandidates = [
+          routeInfo?.color,
+          getCatRouteColor(normalizedKey),
+          CAT_VEHICLE_MARKER_DEFAULT_COLOR
+        ];
+        const colorCandidate = colorCandidates.find(value => typeof value === 'string' && value.trim() !== '');
+        const color = sanitizeCssColor(colorCandidate) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+
+        return {
+          routeId: Number.isFinite(routeInfo?.id) ? routeInfo.id : normalizedKey,
+          routeKey: normalizedKey,
+          legendKey: `cat:${normalizedKey}`,
+          name,
+          description,
+          color,
+          isCatRoute: true
+        };
+      }
+
+      function deriveCatLegendRoutes() {
+        if (!catOverlayEnabled) {
+          return [];
+        }
+
+        const visibleKeys = new Set();
+        const addKeyIfVisible = candidate => {
+          const normalized = catRouteKey(candidate);
+          if (!normalized || isCatOutOfServiceRouteValue(normalized)) {
+            return;
+          }
+          if (!isCatRouteVisible(normalized)) {
+            return;
+          }
+          visibleKeys.add(normalized);
+        };
+
+        if (catRouteSelections instanceof Map) {
+          catRouteSelections.forEach((selected, key) => {
+            if (selected) {
+              addKeyIfVisible(key);
+            }
+          });
+        }
+
+        if (catActiveRouteKeys instanceof Set) {
+          catActiveRouteKeys.forEach(addKeyIfVisible);
+        }
+
+        catRoutePatternGeometries.forEach(geometry => {
+          if (!geometry) {
+            return;
+          }
+          addKeyIfVisible(geometry.routeKey);
+        });
+
+        catVehiclesById.forEach(vehicle => {
+          if (!vehicle) {
+            return;
+          }
+          const candidateKey = vehicle.catEffectiveRouteKey ?? vehicle.routeKey ?? vehicle.routeId;
+          addKeyIfVisible(candidateKey);
+        });
+
+        if (visibleKeys.size === 0) {
+          return [];
+        }
+
+        const legendEntries = [];
+        visibleKeys.forEach(key => {
+          const entry = buildCatLegendEntry(key);
+          if (entry) {
+            legendEntries.push(entry);
+          }
+        });
+
+        legendEntries.sort(compareLegendRoutes);
+        return legendEntries;
       }
 
       function buildLegendEntryFromState(routeId) {
@@ -6459,14 +6572,17 @@
           };
         });
 
+        const catLegendRoutes = deriveCatLegendRoutes();
+        const combinedSanitizedRoutes = mergeLegendRoutes(sanitizedRoutes, catLegendRoutes);
+
         const shouldIncludeOutOfServiceLegend = isRouteSelected(0) && routeHasActiveVehicles(0);
         if (shouldIncludeOutOfServiceLegend) {
-          const hasOutOfServiceEntry = sanitizedRoutes.some(route => {
+          const hasOutOfServiceEntry = combinedSanitizedRoutes.some(route => {
             const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
             return Number(candidateId) === 0;
           });
           if (!hasOutOfServiceEntry) {
-            sanitizedRoutes.push(createOutOfServiceLegendEntry());
+            combinedSanitizedRoutes.push(createOutOfServiceLegendEntry());
           }
         }
 
@@ -6476,17 +6592,28 @@
           }
           if (!Array.isArray(routes)) return [];
           return routes.filter(route => {
+            if (route?.isCatRoute) {
+              const candidateKey = catRouteKey(route.routeKey ?? route.routeId ?? route.routeID ?? route.id);
+              if (!candidateKey) {
+                return false;
+              }
+              if (isCatOutOfServiceRouteValue(candidateKey)) {
+                return isOutOfServiceRouteVisible();
+              }
+              return isCatRouteVisible(candidateKey);
+            }
             const candidateId = route?.routeId ?? route?.routeID ?? route?.id;
             return routeHasActiveVehicles(candidateId);
           });
         };
 
-        let routesToRender = filterAdminLegendRoutes(sanitizedRoutes);
+        let routesToRender = filterAdminLegendRoutes(combinedSanitizedRoutes);
 
         if (routesToRender.length === 0) {
           let fallbackRoutes = deriveLegendRoutesFromState({
             includeAllAvailableRoutes: adminKioskMode
           });
+          fallbackRoutes = mergeLegendRoutes(fallbackRoutes, catLegendRoutes);
           fallbackRoutes = filterAdminLegendRoutes(fallbackRoutes);
           if (fallbackRoutes.length > 0) {
             routesToRender = fallbackRoutes;
