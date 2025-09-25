@@ -816,25 +816,41 @@ schedulePlaneStyleOverride();
         : null;
       let isFetchingIncidents = false;
 
-      let translocSnapshotCache = null;
-      let translocSnapshotPromise = null;
-      let translocSnapshotTimestamp = 0;
+      const TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY = '__default__';
+      const translocSnapshotCache = new Map();
+
+      function getTranslocSnapshotCacheKey(base) {
+        return base || TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY;
+      }
+
+      function getOrCreateTranslocSnapshotEntry(cacheKey) {
+        let entry = translocSnapshotCache.get(cacheKey);
+        if (!entry) {
+          entry = { data: null, promise: null, timestamp: 0 };
+          translocSnapshotCache.set(cacheKey, entry);
+        }
+        return entry;
+      }
 
       function resetTranslocSnapshotCache() {
-        translocSnapshotCache = null;
-        translocSnapshotPromise = null;
-        translocSnapshotTimestamp = 0;
+        translocSnapshotCache.clear();
       }
 
       function loadTranslocSnapshot(force = false) {
+        const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
+        const cacheKey = getTranslocSnapshotCacheKey(sanitizedBaseURL);
+        const entry = getOrCreateTranslocSnapshotEntry(cacheKey);
         const now = Date.now();
-        if (!force && translocSnapshotCache && (now - translocSnapshotTimestamp) < TRANSLOC_SNAPSHOT_TTL_MS) {
-          return Promise.resolve(translocSnapshotCache);
+        if (!force && entry.data && (now - entry.timestamp) < TRANSLOC_SNAPSHOT_TTL_MS) {
+          return Promise.resolve(entry.data);
         }
-        if (translocSnapshotPromise) {
-          return translocSnapshotPromise;
+        if (entry.promise) {
+          return entry.promise;
         }
-        translocSnapshotPromise = fetch(TRANSLOC_SNAPSHOT_ENDPOINT, { cache: 'no-store' })
+        const endpoint = sanitizedBaseURL
+          ? `${TRANSLOC_SNAPSHOT_ENDPOINT}?base_url=${encodeURIComponent(sanitizedBaseURL)}`
+          : TRANSLOC_SNAPSHOT_ENDPOINT;
+        entry.promise = fetch(endpoint, { cache: 'no-store' })
           .then(response => {
             if (!response || !response.ok) {
               throw new Error(response ? `HTTP ${response.status}` : 'No response');
@@ -842,18 +858,18 @@ schedulePlaneStyleOverride();
             return response.json();
           })
           .then(data => {
-            translocSnapshotCache = data || {};
-            translocSnapshotTimestamp = Date.now();
-            return translocSnapshotCache;
+            entry.data = data || {};
+            entry.timestamp = Date.now();
+            return entry.data;
           })
           .catch(error => {
             console.error('Failed to load TransLoc snapshot:', error);
             throw error;
           })
           .finally(() => {
-            translocSnapshotPromise = null;
+            entry.promise = null;
           });
-        return translocSnapshotPromise;
+        return entry.promise;
       }
 
       const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
