@@ -706,7 +706,7 @@ schedulePlaneStyleOverride();
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
       const TRAINS_ENDPOINT = '/v1/testmap/trains';
       const TRAIN_POLL_INTERVAL_MS = 30000;
-      const TRAIN_TARGET_STATION_CODE = 'CVS';
+      const TRAIN_TARGET_STATION_CODE = '';
       const TRAIN_CARDINAL_HEADING_DEGREES = Object.freeze({
         N: 0,
         NORTH: 0,

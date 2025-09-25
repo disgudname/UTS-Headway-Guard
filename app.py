@@ -64,7 +64,7 @@ RIDESYSTEMS_CLIENTS_URL = os.getenv(
     "RIDESYSTEMS_CLIENTS_URL",
     "https://admin.ridesystems.net/api/Clients/GetClients",
 )
-TRAIN_TARGET_STATION_CODE = os.getenv("TRAIN_TARGET_STATION_CODE", "CVS").strip().upper()
+TRAIN_TARGET_STATION_CODE = os.getenv("TRAIN_TARGET_STATION_CODE", "").strip().upper()
 
 VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "10"))
 ROUTE_REFRESH_S = int(os.getenv("ROUTE_REFRESH_S", "60"))
