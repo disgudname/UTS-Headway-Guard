@@ -9214,7 +9214,20 @@
           if (!root || typeof root !== 'object') {
               return [];
           }
-          for (const key of candidateKeys) {
+          const candidateList = Array.isArray(candidateKeys) ? candidateKeys : (candidateKeys ? [candidateKeys] : []);
+          const extendedCandidateKeys = candidateList.concat([
+                  'get_routes',
+                  'get_stops',
+                  'get_vehicles',
+                  'get_patterns',
+                  'get_service_announcements',
+                  'GetRoutes',
+                  'GetStops',
+                  'GetVehicles',
+                  'GetPatterns',
+                  'GetServiceAnnouncements'
+              ]);
+          for (const key of extendedCandidateKeys) {
               const value = root[key];
               if (Array.isArray(value)) {
                   return value;
@@ -9246,10 +9259,10 @@
               return null;
           }
           const numericId = toNumberOrNull(rawId);
-          const colorValue = getFirstDefined(entry, ['Color', 'RouteColor', 'RouteHexColor', 'HexColor', 'DisplayColor', 'MapColor', 'RGB']);
+          const colorValue = getFirstDefined(entry, ['Color', 'color', 'RouteColor', 'RouteHexColor', 'HexColor', 'DisplayColor', 'MapColor', 'RGB']);
           const color = sanitizeCssColor(colorValue) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
-          const shortName = toNonEmptyString(getFirstDefined(entry, ['RouteAbbreviation', 'routeAbbreviation', 'RouteShortName', 'routeShortName', 'ShortName', 'shortName']));
-          const longName = toNonEmptyString(getFirstDefined(entry, ['RouteName', 'routeName', 'Description', 'description', 'LongName', 'longName']));
+          const shortName = toNonEmptyString(getFirstDefined(entry, ['RouteAbbreviation', 'routeAbbreviation', 'RouteShortName', 'routeShortName', 'ShortName', 'shortName', 'Abbreviation', 'abbreviation', 'abbr']));
+          const longName = toNonEmptyString(getFirstDefined(entry, ['RouteName', 'routeName', 'Description', 'description', 'LongName', 'longName', 'Name', 'name']));
           const displayName = shortName || longName || `Route ${idKey}`;
           return {
               id: numericId,
@@ -9431,7 +9444,7 @@
           if (!entry || typeof entry !== 'object') {
               return null;
           }
-          const rawId = getFirstDefined(entry, ['VehicleID', 'vehicleID', 'VehicleId', 'vehicleId', 'ID', 'Id', 'id', 'Name', 'name']);
+          const rawId = getFirstDefined(entry, ['VehicleID', 'vehicleID', 'VehicleId', 'vehicleId', 'ID', 'Id', 'id', 'Name', 'name', 'EquipmentID', 'equipmentID', 'EquipmentId', 'equipmentId']);
           const vehicleId = toNonEmptyString(rawId);
           if (!vehicleId) {
               return null;
