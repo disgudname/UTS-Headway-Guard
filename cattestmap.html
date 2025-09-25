@@ -4408,6 +4408,8 @@
       let activeRoutes = new Set();
       // Tracks which routes the API designates as public-facing.
       let routeVisibility = {};
+      // Routes that should be forced visible in kiosk mode when they have vehicles.
+      const kioskModeAlwaysVisibleRoutes = new Set([7, 12]);
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
@@ -4473,7 +4475,12 @@
           return adminKioskMode || (!kioskMode && adminMode);
         }
         if (adminKioskMode) return true;
-        if (kioskMode) return isRoutePublicById(id);
+        if (kioskMode) {
+          if (kioskModeAlwaysVisibleRoutes.has(id) && routeHasActiveVehicles(id)) {
+            return true;
+          }
+          return isRoutePublicById(id);
+        }
         if (adminMode) return true;
         return isRoutePublicById(id);
       }
