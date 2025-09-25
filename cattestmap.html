@@ -2323,6 +2323,7 @@
       const CAT_VEHICLE_MARKER_MIN_LABEL = 'CAT';
       const CAT_MAX_TOOLTIP_ETAS = 3;
       const CAT_VEHICLE_ETA_CACHE_TTL_MS = 30000;
+      const CAT_STOP_ETA_CACHE_TTL_MS = 30000;
 
       let map;
       let markers = {};
@@ -2348,6 +2349,8 @@
       let catLayerGroup = null;
       const catVehicleMarkers = new Map();
       const catVehicleEtaCache = new Map();
+      const catStopEtaCache = new Map();
+      const catStopEtaRequests = new Map();
       let catActiveVehicleTooltip = null;
       const catRoutesById = new Map();
       const catStopsById = new Map();
@@ -6647,6 +6650,8 @@
         busBlocks = {};
         previousBusData = {};
         cachedEtas = {};
+        catStopEtaCache.clear();
+        catStopEtaRequests.clear();
         customPopups.forEach(p => p.remove());
         customPopups = [];
         allRoutes = {};
@@ -6952,6 +6957,7 @@
                       addressId: addressIdFromStop || addressIdFromMap || null,
                       routeStopIds: new Set(),
                       stopIds: new Set(),
+                      catStopIds: new Set(),
                       names: new Set(),
                       routeIds: new Set(),
                       catRouteKeys: new Set()
@@ -6964,8 +6970,39 @@
                   entry.routeStopIds.add(routeStopId);
               }
 
+              const catRouteStopIds = stop.catRouteStopIds ?? stop.CatRouteStopIds;
+              if (Array.isArray(catRouteStopIds)) {
+                  catRouteStopIds.forEach(value => {
+                      const normalized = normalizeIdentifier(value);
+                      if (normalized) {
+                          entry.routeStopIds.add(normalized);
+                      }
+                  });
+              }
+
               if (fallbackStopId) {
                   entry.stopIds.add(fallbackStopId);
+              }
+
+              const addCatStopId = value => {
+                  const keyValue = catStopKey(value);
+                  if (keyValue) {
+                      entry.catStopIds.add(keyValue);
+                  }
+              };
+
+              if (stop.isCatStop) {
+                  if (fallbackStopId) {
+                      addCatStopId(fallbackStopId);
+                  }
+                  const explicitCatStopId = stop.catStopId ?? stop.CatStopId;
+                  if (explicitCatStopId !== undefined && explicitCatStopId !== null) {
+                      addCatStopId(explicitCatStopId);
+                  }
+                  const explicitCatStopIds = stop.catStopIds ?? stop.CatStopIds;
+                  if (Array.isArray(explicitCatStopIds)) {
+                      explicitCatStopIds.forEach(addCatStopId);
+                  }
               }
 
               const descriptionCandidates = [
@@ -7008,14 +7045,20 @@
               catKeysFromStop.forEach(routeKey => entry.catRouteKeys.add(routeKey));
           });
 
-          return Array.from(entriesByKey.values()).map(entry => ({
-              addressId: entry.addressId,
-              routeStopIds: Array.from(entry.routeStopIds),
-              stopIdText: Array.from(entry.stopIds).join(', '),
-              displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
-              routeIds: Array.from(entry.routeIds),
-              catRouteKeys: Array.from(entry.catRouteKeys)
-          }));
+          return Array.from(entriesByKey.values()).map(entry => {
+              const stopIdsArray = Array.from(entry.stopIds);
+              const catStopIdsArray = Array.from(entry.catStopIds);
+              return {
+                  addressId: entry.addressId,
+                  routeStopIds: Array.from(entry.routeStopIds),
+                  stopIds: stopIdsArray,
+                  catStopIds: catStopIdsArray,
+                  stopIdText: stopIdsArray.join(', '),
+                  displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
+                  routeIds: Array.from(entry.routeIds),
+                  catRouteKeys: Array.from(entry.catRouteKeys)
+              };
+          });
       }
 
       function collectRouteIdsForEntry(entry) {
@@ -7302,24 +7345,129 @@
           return `rgba(0, 0, 0, ${safeAlpha})`;
       }
 
-      function buildEtaTableHtml(routeStopIds) {
+      function buildEtaTableHtml(routeStopIds, catStopIds = [], stopIds = []) {
           const normalizedRouteStopIds = Array.isArray(routeStopIds) ? routeStopIds : [];
-          const etas = [];
+          const etaEntries = [];
+
           normalizedRouteStopIds.forEach(routeStopId => {
-              if (cachedEtas[routeStopId]) {
-                  cachedEtas[routeStopId].forEach(eta => etas.push(eta));
+              const key = typeof routeStopId === 'string' ? routeStopId.trim() : `${routeStopId}`.trim();
+              if (!key) {
+                  return;
               }
+              const stopEtas = cachedEtas[key];
+              if (!Array.isArray(stopEtas)) {
+                  return;
+              }
+              stopEtas.forEach(eta => {
+                  if (!eta) {
+                      return;
+                  }
+                  const etaMinutes = Number(eta.etaMinutes);
+                  etaEntries.push({
+                      isCat: false,
+                      routeStopId: key,
+                      routeDescription: eta.routeDescription,
+                      RouteId: eta.RouteId,
+                      etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+                      text: typeof eta.text === 'string' ? eta.text : ''
+                  });
+              });
           });
-          const etaRows = etas.length > 0
-              ? etas.sort((a, b) => a.etaMinutes - b.etaMinutes || a.routeDescription.localeCompare(b.routeDescription))
-                    .map(eta => {
-                        const routeColor = getRouteColor(eta.RouteId);
-                        const textColor = contrastBW(routeColor);
-                        const shadowColor = getColorWithAlpha(routeColor, 0.35);
-                        return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${eta.routeDescription}</div></td><td style="padding: 5px; text-align: center;">${eta.etaMinutes < 1 ? 'Arriving' : eta.etaMinutes + ' min'}</td></tr>`;
-                    })
-                    .join('')
-              : '<tr><td colspan="2" style="padding: 5px; text-align: center;">No upcoming arrivals</td></tr>';
+
+          const catStopIdSet = new Set();
+          const addCatStopCandidate = value => {
+              const normalized = catStopKey(value);
+              if (normalized) {
+                  catStopIdSet.add(normalized);
+              }
+          };
+          if (Array.isArray(catStopIds)) {
+              catStopIds.forEach(addCatStopCandidate);
+          }
+          if (Array.isArray(stopIds)) {
+              stopIds.forEach(addCatStopCandidate);
+          }
+
+          const catStopIdList = Array.from(catStopIdSet);
+          let hasCatEtaData = false;
+          catStopIdList.forEach(stopId => {
+              const cacheEntry = catStopEtaCache.get(stopId);
+              if (!cacheEntry || !Array.isArray(cacheEntry.etas)) {
+                  return;
+              }
+              if (cacheEntry.etas.length > 0) {
+                  hasCatEtaData = true;
+              }
+              cacheEntry.etas.forEach(eta => {
+                  if (!eta) {
+                      return;
+                  }
+                  const etaMinutes = Number(eta.etaMinutes);
+                  etaEntries.push(Object.assign({}, eta, {
+                      isCat: true,
+                      stopId,
+                      etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+                      text: typeof eta.text === 'string' ? eta.text : ''
+                  }));
+              });
+          });
+
+          const hasPendingCatRequest = catStopIdList.some(stopId => catStopEtaRequests.has(stopId));
+
+          if (etaEntries.length === 0) {
+              if (catStopIdList.length > 0 && hasPendingCatRequest && !hasCatEtaData) {
+                  return '<div style="margin-top: 10px;">Loading arrival times…</div>';
+              }
+              return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
+          }
+
+          const sortedEtas = etaEntries.slice().sort((a, b) => {
+              const aMinutes = Number.isFinite(a.etaMinutes) ? a.etaMinutes : Number.POSITIVE_INFINITY;
+              const bMinutes = Number.isFinite(b.etaMinutes) ? b.etaMinutes : Number.POSITIVE_INFINITY;
+              if (aMinutes !== bMinutes) {
+                  return aMinutes - bMinutes;
+              }
+              const aLabel = toNonEmptyString(a.routeDescription) || '';
+              const bLabel = toNonEmptyString(b.routeDescription) || '';
+              return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: 'base' });
+          });
+
+          const etaRows = sortedEtas.map(eta => {
+              const isCatEta = !!eta.isCat;
+              let routeLabel = toNonEmptyString(eta.routeDescription) || '';
+              let routeColor;
+              if (isCatEta) {
+                  const routeKey = catRouteKey(eta.routeKey ?? eta.routeId);
+                  const routeInfo = getCatRouteInfo(routeKey);
+                  if (!routeLabel) {
+                      if (routeInfo) {
+                          routeLabel = routeInfo.displayName || routeInfo.shortName || routeInfo.longName || '';
+                      }
+                      if (!routeLabel) {
+                          if (routeKey) {
+                              routeLabel = `Route ${routeKey}`;
+                          } else if (Number.isFinite(Number(eta.routeId))) {
+                              routeLabel = `Route ${Number(eta.routeId)}`;
+                          }
+                      }
+                  }
+                  routeColor = sanitizeCssColor(getCatRouteColor(routeKey || eta.routeId)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+              } else {
+                  if (!routeLabel) {
+                      if (Number.isFinite(Number(eta.RouteId))) {
+                          routeLabel = `Route ${Number(eta.RouteId)}`;
+                      } else {
+                          routeLabel = 'Route';
+                      }
+                  }
+                  routeColor = sanitizeCssColor(getRouteColor(eta.RouteId)) || '#1f2937';
+              }
+              const textColor = contrastBW(routeColor);
+              const shadowColor = getColorWithAlpha(routeColor, 0.35);
+              const etaText = getEtaDisplayText(eta);
+              return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${escapeHtml(routeLabel)}</div></td><td style="padding: 5px; text-align: center;">${escapeHtml(etaText)}</td></tr>`;
+          }).join('');
+
           return `
             <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
               <thead>
@@ -7335,6 +7483,22 @@
           `;
       }
 
+      function getEtaDisplayText(eta) {
+          if (!eta) {
+              return '';
+          }
+          const textCandidate = toNonEmptyString(eta.text);
+          if (textCandidate) {
+              return textCandidate;
+          }
+          const minutes = Number(eta.etaMinutes);
+          if (Number.isFinite(minutes)) {
+              const rounded = Math.max(0, Math.round(minutes));
+              return rounded <= 0 ? 'Arriving' : `${rounded} min`;
+          }
+          return 'Scheduled';
+      }
+
       function buildStopEntriesSectionHtml(stopEntries, multipleStops) {
           if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
               return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
@@ -7342,7 +7506,7 @@
 
           if (!multipleStops) {
               const entry = stopEntries[0];
-              return buildEtaTableHtml(entry?.routeStopIds || []);
+              return buildEtaTableHtml(entry?.routeStopIds || [], entry?.catStopIds || [], entry?.stopIds || []);
           }
 
           return stopEntries.map(entry => {
@@ -7350,7 +7514,7 @@
               const entryIdLine = entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
               const entryAddressIdText = normalizeIdentifier(entry?.addressId);
               const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Stop ID: ${entryAddressIdText}</span>` : '';
-              const tableHtml = buildEtaTableHtml(entry.routeStopIds || []);
+              const tableHtml = buildEtaTableHtml(entry.routeStopIds || [], entry.catStopIds || [], entry.stopIds || []);
               return `<div class="stop-entry">${entryTitle}${entryIdLine}${entryAddressLine}${tableHtml}</div>`;
           }).join('');
       }
@@ -7412,6 +7576,28 @@
             ${entriesHtml}
             <div class="custom-popup-arrow"></div>
           `;
+
+          if (catOverlayEnabled) {
+              const catStopIdsToFetch = new Set();
+              stopEntries.forEach(entry => {
+                  if (!entry || !Array.isArray(entry.catStopIds)) {
+                      return;
+                  }
+                  entry.catStopIds.forEach(value => {
+                      const key = catStopKey(value);
+                      if (key) {
+                          catStopIdsToFetch.add(key);
+                      }
+                  });
+              });
+              const fallbackCatStopId = catStopKey(fallbackStopIdText);
+              if (fallbackCatStopId && (catStopIdsToFetch.size === 0 || catStopsById.has(fallbackCatStopId))) {
+                  catStopIdsToFetch.add(fallbackCatStopId);
+              }
+              if (catStopIdsToFetch.size > 0) {
+                  ensureCatStopEtas(Array.from(catStopIdsToFetch));
+              }
+          }
 
           attachPopupCloseHandler(popupElement);
       }
@@ -9404,6 +9590,8 @@
           catServiceAlertsLastFetchTime = 0;
           resetCatOverlapRenderingState();
           catStopDataCache = [];
+          catStopEtaCache.clear();
+          catStopEtaRequests.clear();
           renderBusStops(stopDataCache);
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
@@ -10209,6 +10397,125 @@
           }).filter(Boolean);
       }
 
+      function decorateCatEtaForStop(rawEta, fallbackStopId) {
+          if (!rawEta || typeof rawEta !== 'object') {
+              return null;
+          }
+          const stopId = catStopKey(rawEta.stopId || fallbackStopId);
+          if (!stopId) {
+              return null;
+          }
+          const stopInfo = catStopsById.get(stopId);
+          const stopName = toNonEmptyString(rawEta.stopName) || (stopInfo ? stopInfo.name : '');
+          const routeKey = catRouteKey(rawEta.routeKey || rawEta.routeId);
+          const routeInfo = getCatRouteInfo(routeKey);
+          const numericRouteId = Number.isFinite(rawEta.routeId) ? Number(rawEta.routeId) : (routeInfo && Number.isFinite(routeInfo.id) ? Number(routeInfo.id) : null);
+          let routeDescription = toNonEmptyString(rawEta.routeDescription);
+          if (!routeDescription && routeInfo) {
+              routeDescription = routeInfo.displayName || routeInfo.shortName || routeInfo.longName || '';
+          }
+          if (!routeDescription) {
+              if (routeKey) {
+                  routeDescription = `Route ${routeKey}`;
+              } else if (Number.isFinite(numericRouteId)) {
+                  routeDescription = `Route ${numericRouteId}`;
+              } else {
+                  routeDescription = 'Route';
+              }
+          }
+          let etaMinutes = Number.isFinite(rawEta.minutes) ? Number(rawEta.minutes) : null;
+          if (!Number.isFinite(etaMinutes) && Number.isFinite(rawEta.seconds)) {
+              etaMinutes = Number(rawEta.seconds) / 60;
+          }
+          let text = toNonEmptyString(rawEta.text);
+          if (!text && Number.isFinite(etaMinutes)) {
+              const rounded = Math.max(0, Math.round(etaMinutes));
+              text = rounded <= 0 ? 'Arriving' : `${rounded} min`;
+          }
+          return {
+              isCat: true,
+              stopId,
+              stopName,
+              routeId: Number.isFinite(numericRouteId) ? numericRouteId : null,
+              routeKey: routeKey || '',
+              routeDescription,
+              etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+              text: text || ''
+          };
+      }
+
+      function ensureCatStopEtas(stopIds) {
+          if (!catOverlayEnabled || typeof fetch !== 'function') {
+              return Promise.resolve([]);
+          }
+          if (!Array.isArray(stopIds) || stopIds.length === 0) {
+              return Promise.resolve([]);
+          }
+          const normalizedIds = Array.from(new Set(stopIds.map(catStopKey).filter(id => typeof id === 'string' && id !== '')));
+          if (normalizedIds.length === 0) {
+              return Promise.resolve([]);
+          }
+          const now = Date.now();
+          const pending = [];
+          normalizedIds.forEach(stopId => {
+              const cacheEntry = catStopEtaCache.get(stopId);
+              if (cacheEntry && (now - cacheEntry.timestamp) <= CAT_STOP_ETA_CACHE_TTL_MS) {
+                  return;
+              }
+              if (catStopEtaRequests.has(stopId)) {
+                  pending.push(catStopEtaRequests.get(stopId));
+                  return;
+              }
+              const params = new URLSearchParams({ service: 'get_stop_etas', token: CAT_API_TOKEN, stopID: stopId, statusData: '1' });
+              const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+              const request = fetch(url, { cache: 'no-store' })
+                  .then(response => {
+                      if (!response.ok) {
+                          throw new Error(`HTTP ${response.status}`);
+                      }
+                      return response.json();
+                  })
+                  .then(payload => {
+                      const entries = extractCatArray(payload, ['get_stop_etas']);
+                      const timestamp = Date.now();
+                      let updated = false;
+                      if (Array.isArray(entries) && entries.length > 0) {
+                          entries.forEach(entry => {
+                              const entryStopId = catStopKey(entry?.id ?? entry?.stopID ?? entry?.StopID ?? entry?.StopId ?? stopId);
+                              const targetStopId = entryStopId || stopId;
+                              const rawEtas = normalizeCatEtas(entry);
+                              const decorated = rawEtas.map(rawEta => decorateCatEtaForStop(rawEta, targetStopId)).filter(Boolean);
+                              catStopEtaCache.set(targetStopId, { timestamp, etas: decorated });
+                              updated = true;
+                          });
+                      } else {
+                          catStopEtaCache.set(stopId, { timestamp, etas: [] });
+                          updated = true;
+                      }
+                      return updated;
+                  })
+                  .catch(error => {
+                      console.error('Failed to fetch CAT stop ETAs:', error);
+                      return false;
+                  })
+                  .finally(() => {
+                      catStopEtaRequests.delete(stopId);
+                  });
+              catStopEtaRequests.set(stopId, request);
+              pending.push(request);
+          });
+          if (pending.length === 0) {
+              return Promise.resolve([]);
+          }
+          return Promise.allSettled(pending).then(results => {
+              const shouldRefresh = results.some(result => result.status === 'fulfilled' && result.value);
+              if (shouldRefresh) {
+                  updateCustomPopups();
+              }
+              return results;
+          });
+      }
+
       async function fetchCatStops(force = false) {
           if (!catOverlayEnabled && !force) {
               return [];
@@ -10314,6 +10621,14 @@
           const stopId = catStopKey(rawStopId);
           const stopInfo = stopId ? catStopsById.get(stopId) : null;
           const stopName = toNonEmptyString(getFirstDefined(entry, ['StopName', 'stopName', 'Name', 'name', 'Description', 'description'])) || (stopInfo ? stopInfo.name : '');
+          const rawRouteId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'Route', 'route', 'rid', 'Rid', 'RID']);
+          const routeId = toNumberOrNull(rawRouteId);
+          const routeKey = catRouteKey(rawRouteId);
+          const routeInfo = getCatRouteInfo(routeKey);
+          let routeDescription = toNonEmptyString(getFirstDefined(entry, ['RouteDescription', 'routeDescription', 'RouteName', 'routeName', 'RouteLabel', 'routeLabel', 'RouteAbbreviation', 'routeAbbreviation']));
+          if (!routeDescription && routeInfo) {
+              routeDescription = routeInfo.displayName || routeInfo.shortName || routeInfo.longName || '';
+          }
           let minutes = toNumberOrNull(getFirstDefined(entry, ['Minutes', 'minutes', 'Min', 'min', 'EtaMinutes', 'etaMinutes']));
           const seconds = toNumberOrNull(getFirstDefined(entry, ['Seconds', 'seconds', 'Sec', 'sec', 'EtaSeconds', 'etaSeconds']));
           if (!Number.isFinite(minutes) && Number.isFinite(seconds)) {
@@ -10340,12 +10655,16 @@
               stopName,
               minutes: Number.isFinite(minutes) ? minutes : null,
               seconds: Number.isFinite(seconds) ? seconds : null,
-              text: text || ''
+              text: text || '',
+              routeId: Number.isFinite(routeId) ? routeId : null,
+              routeKey: routeKey || '',
+              routeDescription: routeDescription || '',
+              isCat: true
           };
       }
 
       function normalizeCatEtas(root) {
-          const entries = extractCatArray(root, ['ETAs', 'etas', 'Eta', 'eta', 'Predictions', 'predictions']);
+          const entries = extractCatArray(root, ['ETAs', 'etas', 'Eta', 'eta', 'Predictions', 'predictions', 'MinutesToNextStops', 'minutesToNextStops', 'MinutesToStops', 'minutesToStops', 'EnRoute', 'enRoute', 'Enroute', 'enroute']);
           const etas = [];
           entries.forEach(entry => {
               const normalized = normalizeCatEta(entry);
