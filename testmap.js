@@ -2043,8 +2043,14 @@ schedulePlaneStyleOverride();
             lookup.set(candidateId, entry);
           }
         });
+        const previousSignature = incidentRouteAlertSignature;
         incidentsNearRoutesLookup = lookup;
         incidentRouteAlertSignature = typeof signature === 'string' ? signature : '';
+        const shouldRefreshIncidentMarkers = previousSignature !== incidentRouteAlertSignature
+          || (lookup && lookup.size > 0);
+        if (shouldRefreshIncidentMarkers) {
+          applyIncidentMarkers(latestActiveIncidents);
+        }
         applyIncidentHaloStates();
         refreshOpenIncidentPopups();
         maintainIncidentLayers();
