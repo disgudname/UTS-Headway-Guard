@@ -6877,12 +6877,16 @@ schedulePlaneStyleOverride();
           this.currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
           this.renderer = options.renderer || null;
           this.routePaneName = typeof options.pane === 'string' && options.pane ? options.pane : routePaneName;
+          this.routeGeometrySignatures = new Map();
+          this.lastRenderState = null;
         }
 
         reset() {
           this.clearLayers();
           this.routeGeometries.clear();
           this.selectedRoutes = [];
+          this.routeGeometrySignatures.clear();
+          this.lastRenderState = null;
         }
 
         clearLayers() {
@@ -6918,8 +6922,15 @@ schedulePlaneStyleOverride();
             }
           });
 
+          const geometrySignatures = new Map();
+
           this.routeGeometries = nextGeometries;
           this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
+
+          this.routeGeometries.forEach((latlngs, routeId) => {
+            geometrySignatures.set(routeId, this.computeRouteGeometrySignature(latlngs));
+          });
+          this.routeGeometrySignatures = geometrySignatures;
 
           const mapZoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
           if (Number.isFinite(mapZoom)) {
@@ -6974,18 +6985,107 @@ schedulePlaneStyleOverride();
           return Math.max(minWeight, Math.min(maxWeight, computed));
         }
 
+        computeRouteGeometrySignature(latlngs) {
+          if (!Array.isArray(latlngs) || latlngs.length === 0) {
+            return 'empty';
+          }
+
+          const totalPoints = latlngs.length;
+          const sampleCount = Math.min(totalPoints, 10);
+          const step = Math.max(1, Math.floor(totalPoints / sampleCount));
+          const parts = [totalPoints];
+
+          const extractCoordinate = (point, key) => {
+            if (!point) {
+              return Number.NaN;
+            }
+            if (typeof point[key] === 'number') {
+              return point[key];
+            }
+            if (point.latlng && typeof point.latlng[key] === 'number') {
+              return point.latlng[key];
+            }
+            if (Array.isArray(point) && point.length >= 2) {
+              const index = key === 'lat' ? 0 : 1;
+              const value = Number(point[index]);
+              return Number.isFinite(value) ? value : Number.NaN;
+            }
+            const altKey = key === 'lat' ? 'latitude' : 'longitude';
+            if (typeof point[altKey] === 'number') {
+              return point[altKey];
+            }
+            const upperKey = key === 'lat' ? 'Latitude' : 'Longitude';
+            if (typeof point[upperKey] === 'number') {
+              return point[upperKey];
+            }
+            return Number.NaN;
+          };
+
+          const appendPoint = (point) => {
+            const lat = extractCoordinate(point, 'lat');
+            const lng = extractCoordinate(point, 'lng');
+            const format = value => (Number.isFinite(value) ? value.toFixed(6) : 'nan');
+            parts.push(`${format(lat)},${format(lng)}`);
+          };
+
+          for (let i = 0; i < totalPoints; i += step) {
+            appendPoint(latlngs[i]);
+          }
+
+          const lastPoint = latlngs[totalPoints - 1];
+          if (lastPoint && (totalPoints - 1) % step !== 0) {
+            appendPoint(lastPoint);
+          }
+
+          return parts.join('|');
+        }
+
         render() {
           if (!this.map) return;
-          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
-            this.clearLayers();
-            return;
-          }
 
           const zoom = Number.isFinite(this.currentZoom)
             ? this.currentZoom
             : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+
+          const selectionKey = this.selectedRoutes.join(',');
+          const geometrySignature = this.selectedRoutes
+            .map(routeId => `${routeId}:${this.routeGeometrySignatures.get(routeId) || ''}`)
+            .join('|');
+          const colorSignature = this.selectedRoutes
+            .map(routeId => {
+              const color = getRouteColor(routeId);
+              return `${routeId}:${typeof color === 'string' ? color : ''}`;
+            })
+            .join('|');
+          const zoomKey = Number.isFinite(zoom) ? zoom.toFixed(6) : 'NaN';
+          const nextRenderState = {
+            selectionKey,
+            geometrySignature,
+            colorSignature,
+            zoomKey,
+            didRender: false
+          };
+
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            this.clearLayers();
+            nextRenderState.didRender = true;
+            this.lastRenderState = nextRenderState;
+            return;
+          }
+
           if (!Number.isFinite(zoom)) {
             this.clearLayers();
+            this.lastRenderState = nextRenderState;
+            return;
+          }
+
+          const lastState = this.lastRenderState;
+          if (lastState
+            && lastState.didRender
+            && lastState.selectionKey === selectionKey
+            && lastState.geometrySignature === geometrySignature
+            && lastState.colorSignature === colorSignature
+            && lastState.zoomKey === zoomKey) {
             return;
           }
 
@@ -7028,14 +7128,15 @@ schedulePlaneStyleOverride();
           });
 
           if (spatialItems.length === 0) {
-            this.clearLayers();
+            nextRenderState.didRender = true;
+            this.lastRenderState = nextRenderState;
             return;
           }
 
           const tree = createSpatialIndex({ maxEntries: this.options.maxEntries });
           if (!tree || typeof tree.load !== 'function' || typeof tree.search !== 'function') {
             console.error('RBush spatial index instance is invalid; skipping overlap rendering.');
-            this.clearLayers();
+            this.lastRenderState = nextRenderState;
             return;
           }
 
@@ -7045,6 +7146,8 @@ schedulePlaneStyleOverride();
 
           const groups = this.buildGroups(segmentsByRoute, zoom);
           this.drawGroups(groups);
+          nextRenderState.didRender = true;
+          this.lastRenderState = nextRenderState;
         }
 
         populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad) {
