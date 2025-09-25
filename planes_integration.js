@@ -617,7 +617,21 @@
     clearMoveDebounce();
   }
 
+  function reapplyLeafletMarkerRotations() {
+    if (!isLeafletMap(state.map)) {
+      return;
+    }
+    state.markers.forEach(entry => {
+      if (!entry || !entry.marker) {
+        return;
+      }
+      const rotationDeg = Number.isFinite(entry.rotationDeg) ? entry.rotationDeg : 0;
+      scheduleLeafletMarkerRotation(entry.marker, rotationDeg);
+    });
+  }
+
   function handleInteractionEnd() {
+    reapplyLeafletMarkerRotations();
     clearMoveDebounce();
     if (!state.started || state.disposed) {
       return;
