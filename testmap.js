@@ -10,11 +10,30 @@ function applyPlaneStyleOptions() {
   }
 }
 
-if (document.readyState === 'complete') {
-  applyPlaneStyleOptions();
-} else {
-  window.addEventListener('load', applyPlaneStyleOptions, { once: true });
+function schedulePlaneStyleOverride() {
+  if (typeof window.setPlaneStyleOptions === 'function') {
+    applyPlaneStyleOptions();
+    return;
+  }
+
+  const tryApply = () => {
+    applyPlaneStyleOptions();
+    window.removeEventListener('load', tryApply);
+  };
+
+  if (document.readyState === 'loading' || document.readyState === 'interactive') {
+    document.addEventListener('DOMContentLoaded', tryApply, { once: true });
+    window.addEventListener('load', tryApply, { once: true });
+  } else if (document.readyState === 'complete') {
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(applyPlaneStyleOptions);
+    } else {
+      setTimeout(applyPlaneStyleOptions, 0);
+    }
+  }
 }
+
+schedulePlaneStyleOverride();
 
 // Manually set these variables.
       // adminMode: true for admin view (with speed/block bubbles and unit numbers).
