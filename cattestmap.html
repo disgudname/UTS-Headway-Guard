@@ -4560,6 +4560,35 @@
         });
       }
 
+      function removeNameBubbleForKey(key) {
+        if (!key || !Object.prototype.hasOwnProperty.call(nameBubbles, key)) return;
+        const bubble = nameBubbles[key];
+        if (bubble) {
+          if (bubble.speedMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.speedMarker);
+            } else if (typeof bubble.speedMarker.remove === 'function') {
+              bubble.speedMarker.remove();
+            }
+          }
+          if (bubble.nameMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.nameMarker);
+            } else if (typeof bubble.nameMarker.remove === 'function') {
+              bubble.nameMarker.remove();
+            }
+          }
+          if (bubble.blockMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.blockMarker);
+            } else if (typeof bubble.blockMarker.remove === 'function') {
+              bubble.blockMarker.remove();
+            }
+          }
+        }
+        delete nameBubbles[key];
+      }
+
       function applyRouteOptionState(inputElement) {
         if (!inputElement || typeof inputElement.closest !== 'function') return;
         const parentLabel = inputElement.closest('label.route-option');
@@ -10151,6 +10180,7 @@
           if (!vehicleId) {
               return null;
           }
+          const equipmentId = toNonEmptyString(getFirstDefined(entry, ['EquipmentID', 'equipmentID', 'EquipmentId', 'equipmentId']));
           const latitude = toNumberOrNull(getFirstDefined(entry, ['Latitude', 'latitude', 'Lat', 'lat']));
           const longitude = toNumberOrNull(getFirstDefined(entry, ['Longitude', 'longitude', 'Lon', 'lon', 'Lng', 'lng']));
           if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
@@ -10162,10 +10192,13 @@
           const routeKey = catRouteKey(rawRouteId);
           const routeAbbrev = toNonEmptyString(getFirstDefined(entry, ['RouteAbbreviation', 'routeAbbreviation', 'RouteShortName', 'routeShortName', 'ShortName', 'shortName']));
           const routeName = toNonEmptyString(getFirstDefined(entry, ['RouteName', 'routeName', 'Description', 'description']));
-          const displayName = toNonEmptyString(getFirstDefined(entry, ['VehicleName', 'vehicleName', 'Name', 'name', 'Label', 'label'])) || `Vehicle ${vehicleId}`;
+          const displayName = toNonEmptyString(getFirstDefined(entry, ['VehicleName', 'vehicleName', 'Name', 'name', 'Label', 'label']))
+              || equipmentId
+              || `Vehicle ${vehicleId}`;
           const etas = normalizeCatEtas(getFirstDefined(entry, ['ETAs', 'etas', 'Eta', 'eta', 'Predictions', 'predictions']));
           return {
               id: vehicleId,
+              equipmentId,
               latitude,
               longitude,
               heading,
@@ -10240,7 +10273,9 @@
           const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
           const headingDeg = normalizeHeadingDegrees(Number(vehicle.heading));
           const groundSpeed = Number(vehicle.speed);
-          const accessibleName = vehicle.displayName || label;
+          const accessibleName = toNonEmptyString(vehicle.displayName)
+              || toNonEmptyString(vehicle.equipmentId)
+              || label;
           const accessibleLabel = buildBusMarkerAccessibleLabel(accessibleName, headingDeg, groundSpeed);
           const glyphColor = computeBusMarkerGlyphColor(routeColor);
           const markerMetrics = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
@@ -10338,12 +10373,14 @@
           if (!layerGroup) {
               return;
           }
+          const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
           const seen = new Set();
           catVehiclesById.forEach(vehicle => {
               if (!vehicle || !vehicle.id) {
                   return;
               }
               const markerKey = `cat-${vehicle.id}`;
+              const newPosition = [vehicle.latitude, vehicle.longitude];
               const effectiveRouteKey = vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
               const shouldDisplay = isCatRouteVisible(effectiveRouteKey);
               let marker = catVehicleMarkers.get(markerKey);
@@ -10357,16 +10394,17 @@
                       }
                       catVehicleMarkers.delete(markerKey);
                   }
+                  removeNameBubbleForKey(markerKey);
                   return;
               }
               seen.add(markerKey);
               const icon = buildCatVehicleIcon(vehicle, effectiveRouteKey);
               if (!marker) {
-                  marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, pane: catVehiclesPaneName, keyboard: false });
+                  marker = L.marker(newPosition, { icon, pane: catVehiclesPaneName, keyboard: false });
                   marker.addTo(layerGroup);
                   catVehicleMarkers.set(markerKey, marker);
               } else {
-                  marker.setLatLng([vehicle.latitude, vehicle.longitude]);
+                  marker.setLatLng(newPosition);
                   marker.setIcon(icon);
                   if (!layerGroup.hasLayer(marker)) {
                       layerGroup.addLayer(marker);
@@ -10383,6 +10421,71 @@
               } else if (existingTooltip) {
                   marker.unbindTooltip();
               }
+
+              const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+              const headingDeg = normalizeHeadingDegrees(Number(vehicle.heading));
+              const groundSpeed = Number(vehicle.speed);
+              const bubbleKey = markerKey;
+
+              if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                  const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
+                  if (speedIcon) {
+                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                      if (nameBubbles[bubbleKey].speedMarker) {
+                          animateMarkerTo(nameBubbles[bubbleKey].speedMarker, newPosition);
+                          nameBubbles[bubbleKey].speedMarker.setIcon(speedIcon);
+                      } else if (map) {
+                          nameBubbles[bubbleKey].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      }
+                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].speedMarker) {
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(nameBubbles[bubbleKey].speedMarker);
+                      }
+                      delete nameBubbles[bubbleKey].speedMarker;
+                  }
+              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].speedMarker) {
+                  if (map && typeof map.removeLayer === 'function') {
+                      map.removeLayer(nameBubbles[bubbleKey].speedMarker);
+                  }
+                  delete nameBubbles[bubbleKey].speedMarker;
+              }
+
+              if (adminMode && !kioskMode) {
+                  const labelText = toNonEmptyString(vehicle.equipmentId)
+                      || toNonEmptyString(vehicle.displayName)
+                      || toNonEmptyString(vehicle.id);
+                  const nameIcon = labelText
+                      ? createNameBubbleDivIcon(labelText, routeColor, markerMetricsForZoom.scale, headingDeg)
+                      : null;
+                  if (nameIcon) {
+                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                      if (nameBubbles[bubbleKey].nameMarker) {
+                          animateMarkerTo(nameBubbles[bubbleKey].nameMarker, newPosition);
+                          nameBubbles[bubbleKey].nameMarker.setIcon(nameIcon);
+                      } else if (map) {
+                          nameBubbles[bubbleKey].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      }
+                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(nameBubbles[bubbleKey].nameMarker);
+                      }
+                      delete nameBubbles[bubbleKey].nameMarker;
+                  }
+              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
+                  if (map && typeof map.removeLayer === 'function') {
+                      map.removeLayer(nameBubbles[bubbleKey].nameMarker);
+                  }
+                  delete nameBubbles[bubbleKey].nameMarker;
+              }
+
+              if (nameBubbles[bubbleKey]) {
+                  const hasMarkers = Boolean(nameBubbles[bubbleKey].speedMarker || nameBubbles[bubbleKey].nameMarker || nameBubbles[bubbleKey].blockMarker);
+                  if (hasMarkers) {
+                      nameBubbles[bubbleKey].lastScale = markerMetricsForZoom.scale;
+                  } else {
+                      delete nameBubbles[bubbleKey];
+                  }
+              }
           });
           catVehicleMarkers.forEach((marker, key) => {
               if (!seen.has(key)) {
@@ -10393,6 +10496,7 @@
                       marker.remove();
                   }
                   catVehicleMarkers.delete(key);
+                  removeNameBubbleForKey(key);
               }
           });
       }
@@ -10502,6 +10606,11 @@
           catVehicleMarkers.clear();
           catVehiclesById.clear();
           catActiveRouteKeys = new Set();
+          Object.keys(nameBubbles).forEach(key => {
+              if (typeof key === 'string' && key.startsWith('cat-')) {
+                  removeNameBubbleForKey(key);
+              }
+          });
           clearCatRouteLayers();
       }
 
