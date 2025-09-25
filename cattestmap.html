@@ -2215,6 +2215,7 @@
       if (adminParam !== null) {
         adminMode = adminParam.toLowerCase() === 'true';
       }
+      const autoEnableCatOverlay = kioskMode || adminKioskMode;
 
       const showRadarParam = params.get('showRadar');
       if (showRadarParam !== null) {
@@ -12588,6 +12589,9 @@
         loadAgencies()
           .then(() => {
             initMap();
+            if (autoEnableCatOverlay && !catOverlayEnabled) {
+              enableCatOverlay();
+            }
             showCookieBanner();
             enforceIncidentVisibilityForCurrentAgency();
             return loadAgencyData()
