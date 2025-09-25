@@ -1725,6 +1725,10 @@ def _serve_js_asset(name: str) -> FileResponse:
     return FileResponse(BASE_DIR / name, media_type="application/javascript")
 
 
+def _serve_css_asset(name: str) -> FileResponse:
+    return FileResponse(BASE_DIR / name, media_type="text/css")
+
+
 @app.get("/FGDC.ttf", include_in_schema=False)
 async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
@@ -1753,6 +1757,16 @@ async def plane_object_js():
 @app.get("/planes_integration.js", include_in_schema=False)
 async def planes_integration_js():
     return _serve_js_asset("planes_integration.js")
+
+
+@app.get("/testmap.js", include_in_schema=False)
+async def testmap_js():
+    return _serve_js_asset("testmap.js")
+
+
+@app.get("/testmap.css", include_in_schema=False)
+async def testmap_css():
+    return _serve_css_asset("testmap.css")
 
 
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
