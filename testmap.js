@@ -2753,6 +2753,8 @@ schedulePlaneStyleOverride();
       let allRouteBounds = null;
       let mapHasFitAllRoutes = false;
       let refreshIntervals = [];
+      let scheduledStopRenderFrame = null;
+      let scheduledStopRenderTimeout = null;
 
       let overlapRenderer = null;
 
@@ -2788,6 +2790,7 @@ schedulePlaneStyleOverride();
       }
 
       const STOP_GROUPING_PIXEL_DISTANCE = 20;
+      const STOP_RENDER_BOUNDS_PADDING = 0.2;
       const STOP_MARKER_ICON_SIZE = 24;
       const STOP_MARKER_BORDER_COLOR = 'rgba(15,23,42,0.55)';
       const STOP_MARKER_OUTLINE_COLOR = '#FFFFFF';
@@ -5376,14 +5379,11 @@ schedulePlaneStyleOverride();
               updatePopupPositions();
           });
           map.on('moveend', () => {
+              scheduleStopRendering();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
           map.on('zoomend', () => {
-              const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
-              const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
-              if (hasTranslocStops || hasCatStops) {
-                  renderBusStops(stopDataCache);
-              }
+              scheduleStopRendering();
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
               renderCatRoutes();
@@ -6522,6 +6522,15 @@ schedulePlaneStyleOverride();
               return;
           }
 
+          if (scheduledStopRenderFrame !== null && typeof cancelAnimationFrame === 'function') {
+              cancelAnimationFrame(scheduledStopRenderFrame);
+              scheduledStopRenderFrame = null;
+          }
+          if (scheduledStopRenderTimeout !== null) {
+              clearTimeout(scheduledStopRenderTimeout);
+              scheduledStopRenderTimeout = null;
+          }
+
           stopMarkers.forEach(marker => map.removeLayer(marker));
           stopMarkers = [];
 
@@ -6535,12 +6544,51 @@ schedulePlaneStyleOverride();
               return;
           }
 
+          const bounds = typeof map?.getBounds === 'function' ? map.getBounds() : null;
+          const paddedBounds = bounds && typeof bounds.pad === 'function'
+              ? bounds.pad(STOP_RENDER_BOUNDS_PADDING)
+              : bounds;
           const selectedRouteIdsSet = getSelectedRouteIdSet();
+          const requiredRouteStopIds = new Set();
+          const requiredFallbackStopIds = new Set();
+
+          if (Array.isArray(customPopups) && customPopups.length > 0) {
+              customPopups.forEach(popupElement => {
+                  if (!popupElement || popupElement.dataset.popupType === 'incident') {
+                      return;
+                  }
+                  let parsedRouteStopIds = [];
+                  try {
+                      parsedRouteStopIds = JSON.parse(popupElement.dataset.routeStopIds || '[]');
+                  } catch (error) {
+                      parsedRouteStopIds = [];
+                  }
+                  parsedRouteStopIds.forEach(id => {
+                      const normalized = normalizeIdentifier(id);
+                      if (normalized) {
+                          requiredRouteStopIds.add(normalized);
+                      }
+                  });
+                  const fallbackStopText = popupElement.dataset.fallbackStopId || '';
+                  if (typeof fallbackStopText === 'string' && fallbackStopText) {
+                      fallbackStopText.split(',').forEach(value => {
+                          const normalized = normalizeIdentifier(value);
+                          if (normalized) {
+                              requiredFallbackStopIds.add(normalized);
+                          }
+                      });
+                  }
+              });
+          }
 
           const stopsForVisibleRoutes = baseStops.filter(stop => {
               if (!stop) {
                   return false;
               }
+              const latitude = Number.parseFloat(stop.Latitude ?? stop.latitude ?? stop.lat);
+              const longitude = Number.parseFloat(stop.Longitude ?? stop.longitude ?? stop.lon);
+              const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
+              const fallbackStopIdRaw = normalizeIdentifier(stop.StopID ?? stop.StopId);
               const { routeIds, catRouteKeys } = collectRouteIdsForStop(stop);
               let matchesTransloc = false;
               if (selectedRouteIdsSet.size > 0 && routeIds.size > 0) {
@@ -6560,7 +6608,31 @@ schedulePlaneStyleOverride();
                       }
                   }
               }
-              return matchesTransloc || matchesCat;
+              if (!(matchesTransloc || matchesCat)) {
+                  return false;
+              }
+              if (!paddedBounds || typeof paddedBounds.contains !== 'function') {
+                  return true;
+              }
+              const inBounds = Number.isFinite(latitude) && Number.isFinite(longitude)
+                  ? paddedBounds.contains([latitude, longitude])
+                  : false;
+              if (inBounds) {
+                  return true;
+              }
+              if (routeStopId && requiredRouteStopIds.has(routeStopId)) {
+                  return true;
+              }
+              if (fallbackStopIdRaw) {
+                  const parts = fallbackStopIdRaw.split(',');
+                  for (let i = 0; i < parts.length; i += 1) {
+                      const normalized = normalizeIdentifier(parts[i]);
+                      if (normalized && requiredFallbackStopIds.has(normalized)) {
+                          return true;
+                      }
+                  }
+              }
+              return false;
           });
 
           if (stopsForVisibleRoutes.length === 0) {
@@ -6633,7 +6705,6 @@ schedulePlaneStyleOverride();
               const markerCatRouteKeys = Array.from(aggregatedCatRouteKeys)
                   .filter(routeKey => isCatRouteVisible(routeKey))
                   .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-              const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
 
               const groupInfo = {
                   position: stopPosition,
@@ -6642,19 +6713,34 @@ schedulePlaneStyleOverride();
                   stopEntries,
                   aggregatedRouteStopIds,
                   groupKey,
-                  catRouteKeys: Array.from(aggregatedCatRouteKeys).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+                  catRouteKeys: Array.from(aggregatedCatRouteKeys).sort((a, b) => a.localeCompare(b, undefined, { numeric: true
+}))
               };
 
-              const stopMarker = L.marker(stopPosition, {
-                  icon: markerIcon,
-                  pane: 'stopsPane'
-              }).addTo(map);
+              let shouldRenderMarker = true;
+              if (paddedBounds && typeof paddedBounds.contains === 'function') {
+                  if (Number.isFinite(stopPosition[0]) && Number.isFinite(stopPosition[1])) {
+                      shouldRenderMarker = paddedBounds.contains(stopPosition);
+                  } else {
+                      shouldRenderMarker = false;
+                  }
+              }
 
-              stopMarker.on('click', () => {
-                  createCustomPopup(Object.assign({ popupType: 'stop' }, groupInfo));
-              });
+              if (shouldRenderMarker) {
+                  const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
 
-              stopMarkers.push(stopMarker);
+                  const stopMarker = L.marker(stopPosition, {
+                      icon: markerIcon,
+                      pane: 'stopsPane'
+                  }).addTo(map);
+
+                  stopMarker.on('click', () => {
+                      createCustomPopup(Object.assign({ popupType: 'stop' }, groupInfo));
+                  });
+
+                  stopMarkers.push(stopMarker);
+              }
+
               groupedData.push(groupInfo);
           });
 
@@ -6701,6 +6787,29 @@ schedulePlaneStyleOverride();
                   return false;
               });
           }
+      }
+
+      function scheduleStopRendering() {
+          if (scheduledStopRenderFrame !== null || scheduledStopRenderTimeout !== null) {
+              return;
+          }
+
+          const run = () => {
+              scheduledStopRenderFrame = null;
+              scheduledStopRenderTimeout = null;
+              const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
+              const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+              if (hasTranslocStops || hasCatStops) {
+                  renderBusStops(stopDataCache);
+              }
+          };
+
+          if (typeof requestAnimationFrame === 'function') {
+              scheduledStopRenderFrame = requestAnimationFrame(run);
+              return;
+          }
+
+          scheduledStopRenderTimeout = setTimeout(run, 16);
       }
 
       function createCustomPopup(config) {
