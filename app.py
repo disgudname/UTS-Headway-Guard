@@ -36,7 +36,7 @@ import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
 from urllib.parse import quote
@@ -347,28 +347,61 @@ LOW_CLEARANCES_CACHE: Optional[List[Dict[str, float]]] = None
 # ---------------------------
 # HTTP clients
 # ---------------------------
-async def fetch_routes_with_shapes(client: httpx.AsyncClient):
-    url = f"{TRANSLOC_BASE}/GetRoutesForMapWithScheduleWithEncodedLine?APIKey={TRANSLOC_KEY}"
+def sanitize_transloc_base(url: Optional[str]) -> Optional[str]:
+    if not url or not isinstance(url, str):
+        return None
+    cleaned = url.strip()
+    if not cleaned:
+        return None
+    return cleaned.rstrip("/")
+
+
+DEFAULT_TRANSLOC_BASE = sanitize_transloc_base(TRANSLOC_BASE) or TRANSLOC_BASE.rstrip("/")
+
+
+def build_transloc_url(base_url: Optional[str], path: str) -> str:
+    base = sanitize_transloc_base(base_url) or DEFAULT_TRANSLOC_BASE
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{base}{path}"
+
+
+def is_default_transloc_base(base_url: Optional[str]) -> bool:
+    sanitized = sanitize_transloc_base(base_url)
+    return sanitized is None or sanitized == DEFAULT_TRANSLOC_BASE
+
+
+async def fetch_routes_with_shapes(client: httpx.AsyncClient, base_url: Optional[str] = None):
+    url = build_transloc_url(base_url, f"GetRoutesForMapWithScheduleWithEncodedLine?APIKey={TRANSLOC_KEY}")
     r = await client.get(url, timeout=20)
     record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
 
-async def fetch_vehicles(client: httpx.AsyncClient, include_unassigned: bool = True):
+async def fetch_vehicles(
+    client: httpx.AsyncClient,
+    include_unassigned: bool = True,
+    base_url: Optional[str] = None,
+):
     # returnVehiclesNotAssignedToRoute=true returns vehicles even if not assigned to a route
     flag = "true" if include_unassigned else "false"
-    url = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute={flag}"
+    url = build_transloc_url(
+        base_url,
+        f"GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute={flag}",
+    )
     r = await client.get(url, timeout=20)
     record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
 
-async def fetch_block_groups(client: httpx.AsyncClient) -> List[Dict]:
+async def fetch_block_groups(client: httpx.AsyncClient, base_url: Optional[str] = None) -> List[Dict]:
     d = datetime.now(ZoneInfo("America/New_York"))
     ds = f"{d.month}/{d.day}/{d.year}"
-    r1_url = f"{TRANSLOC_BASE}/GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
+    r1_url = build_transloc_url(
+        base_url, f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
+    )
     r1 = await client.get(r1_url, timeout=20)
     record_api_call("GET", r1_url, r1.status_code)
     r1.raise_for_status()
@@ -376,7 +409,9 @@ async def fetch_block_groups(client: httpx.AsyncClient) -> List[Dict]:
     sched = sched if isinstance(sched, list) else sched.get("d", [])
     ids = ",".join(str(s.get("ScheduleVehicleCalendarID")) for s in sched if s.get("ScheduleVehicleCalendarID"))
     if ids:
-        r2_url = f"{TRANSLOC_BASE}/GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
+        r2_url = build_transloc_url(
+            base_url, f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
+        )
         r2 = await client.get(r2_url, timeout=20)
         record_api_call("GET", r2_url, r2.status_code)
         r2.raise_for_status()
@@ -1725,93 +1760,127 @@ def _build_transloc_stops(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return stops
 
 
-async def _get_transloc_arrivals() -> List[Dict[str, Any]]:
-    async def fetch():
-        async with httpx.AsyncClient() as client:
-            url = f"{TRANSLOC_BASE}/GetStopArrivalTimes?APIKey={TRANSLOC_KEY}"
-            resp = await client.get(url, timeout=20)
-            record_api_call("GET", url, resp.status_code)
-            resp.raise_for_status()
-            data = resp.json()
-        items = data if isinstance(data, list) else data.get("d") or data.get("Arrivals") or []
-        trimmed: List[Dict[str, Any]] = []
-        for entry in items:
-            route_stop_id = entry.get("RouteStopId") or entry.get("RouteStopID")
-            route_id = entry.get("RouteId") or entry.get("RouteID")
-            times = []
-            for t in entry.get("Times") or []:
-                seconds = t.get("Seconds")
-                if seconds is None:
-                    continue
-                times.append({"Seconds": seconds})
-            trimmed.append(
-                {
-                    "RouteStopId": route_stop_id,
-                    "RouteId": route_id,
-                    "RouteDescription": entry.get("RouteDescription") or entry.get("RouteName"),
-                    "Times": times,
-                }
-            )
-        return trimmed
-
-    return await transloc_arrivals_cache.get(fetch)
-
-
-async def _get_transloc_blocks() -> Dict[str, str]:
-    async def fetch():
-        async with httpx.AsyncClient() as client:
-            block_groups = await fetch_block_groups(client)
-        alias = {
-            "[01]": "[01]/[04]",
-            "[03]": "[05]/[03]",
-            "[04]": "[01]/[04]",
-            "[05]": "[05]/[03]",
-            "[06]": "[22]/[06]",
-            "[10]": "[20]/[10]",
-            "[15]": "[26]/[15]",
-            "[16] AM": "[21]/[16] AM",
-            "[17]": "[23]/[17]",
-            "[18] AM": "[24]/[18] AM",
-            "[20] AM": "[20]/[10]",
-            "[21] AM": "[21]/[16] AM",
-            "[22] AM": "[22]/[06]",
-            "[23]": "[23]/[17]",
-            "[24] AM": "[24]/[18] AM",
-            "[26] AM": "[26]/[15]",
-        }
-        mapping: Dict[str, str] = {}
-        for group in block_groups or []:
-            raw_block = str(group.get("BlockGroupId") or "").strip()
-            if not raw_block:
+def _trim_arrivals_payload(data: Any) -> List[Dict[str, Any]]:
+    items = data if isinstance(data, list) else data.get("d") or data.get("Arrivals") or []
+    trimmed: List[Dict[str, Any]] = []
+    for entry in items:
+        route_stop_id = entry.get("RouteStopId") or entry.get("RouteStopID")
+        route_id = entry.get("RouteId") or entry.get("RouteID")
+        times = []
+        for t in entry.get("Times") or []:
+            seconds = t.get("Seconds")
+            if seconds is None:
                 continue
-            block_name = alias.get(raw_block, raw_block)
-            vehicle_ids: List[Any] = []
-            vehicle_ids.append(group.get("VehicleId") or group.get("VehicleID"))
-            for block in group.get("Blocks") or []:
-                for trip in block.get("Trips") or []:
-                    vehicle_ids.append(trip.get("VehicleID") or trip.get("VehicleId"))
-            for vid in vehicle_ids:
-                if vid is None:
-                    continue
-                mapping[str(vid)] = block_name
-        return mapping
-
-    return await transloc_blocks_cache.get(fetch)
+            times.append({"Seconds": seconds})
+        trimmed.append(
+            {
+                "RouteStopId": route_stop_id,
+                "RouteId": route_id,
+                "RouteDescription": entry.get("RouteDescription") or entry.get("RouteName"),
+                "Times": times,
+            }
+        )
+    return trimmed
 
 
-async def build_transloc_snapshot() -> Dict[str, Any]:
-    async with state.lock:
-        raw_routes = [_trim_transloc_route(r) for r in getattr(state, "routes_raw", [])]
-        assigned: Dict[Any, Tuple[int, Vehicle]] = {}
-        for rid, vehs in state.vehicles_by_route.items():
-            for veh in vehs.values():
-                if veh.id is None:
-                    continue
-                assigned[veh.id] = (rid, veh)
-        raw_vehicle_records = list(getattr(state, "vehicles_raw", []))
+async def _fetch_transloc_arrivals_for_base(base_url: Optional[str]) -> List[Dict[str, Any]]:
+    async with httpx.AsyncClient() as client:
+        url = build_transloc_url(base_url, f"GetStopArrivalTimes?APIKey={TRANSLOC_KEY}")
+        resp = await client.get(url, timeout=20)
+        record_api_call("GET", url, resp.status_code)
+        resp.raise_for_status()
+        data = resp.json()
+    return _trim_arrivals_payload(data)
+
+
+async def _get_transloc_arrivals(base_url: Optional[str] = None) -> List[Dict[str, Any]]:
+    if is_default_transloc_base(base_url):
+        async def fetch():
+            return await _fetch_transloc_arrivals_for_base(DEFAULT_TRANSLOC_BASE)
+
+        return await transloc_arrivals_cache.get(fetch)
+
+    return await _fetch_transloc_arrivals_for_base(base_url)
+
+
+def _build_block_mapping(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
+    alias = {
+        "[01]": "[01]/[04]",
+        "[03]": "[05]/[03]",
+        "[04]": "[01]/[04]",
+        "[05]": "[05]/[03]",
+        "[06]": "[22]/[06]",
+        "[10]": "[20]/[10]",
+        "[15]": "[26]/[15]",
+        "[16] AM": "[21]/[16] AM",
+        "[17]": "[23]/[17]",
+        "[18] AM": "[24]/[18] AM",
+        "[20] AM": "[20]/[10]",
+        "[21] AM": "[21]/[16] AM",
+        "[22] AM": "[22]/[06]",
+        "[23]": "[23]/[17]",
+        "[24] AM": "[24]/[18] AM",
+        "[26] AM": "[26]/[15]",
+    }
+    mapping: Dict[str, str] = {}
+    for group in block_groups or []:
+        raw_block = str(group.get("BlockGroupId") or "").strip()
+        if not raw_block:
+            continue
+        block_name = alias.get(raw_block, raw_block)
+        vehicle_ids: List[Any] = []
+        vehicle_ids.append(group.get("VehicleId") or group.get("VehicleID"))
+        for block in group.get("Blocks") or []:
+            for trip in block.get("Trips") or []:
+                vehicle_ids.append(trip.get("VehicleID") or trip.get("VehicleId"))
+        for vid in vehicle_ids:
+            if vid is None:
+                continue
+            mapping[str(vid)] = block_name
+    return mapping
+
+
+async def _fetch_transloc_blocks_for_base(base_url: Optional[str]) -> Dict[str, str]:
+    async with httpx.AsyncClient() as client:
+        block_groups = await fetch_block_groups(client, base_url=base_url)
+    return _build_block_mapping(block_groups)
+
+
+async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]:
+    if is_default_transloc_base(base_url):
+        async def fetch():
+            return await _fetch_transloc_blocks_for_base(DEFAULT_TRANSLOC_BASE)
+
+        return await transloc_blocks_cache.get(fetch)
+
+    return await _fetch_transloc_blocks_for_base(base_url)
+
+
+async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, Any]:
+    use_default = is_default_transloc_base(base_url)
+    if use_default:
+        async with state.lock:
+            raw_routes = [_trim_transloc_route(r) for r in getattr(state, "routes_raw", [])]
+            assigned: Dict[Any, Tuple[int, Vehicle]] = {}
+            for rid, vehs in state.vehicles_by_route.items():
+                for veh in vehs.values():
+                    if veh.id is None:
+                        continue
+                    assigned[veh.id] = (rid, veh)
+            raw_vehicle_records = list(getattr(state, "vehicles_raw", []))
+    else:
+        async with httpx.AsyncClient() as client:
+            routes_raw = await fetch_routes_with_shapes(client, base_url=base_url)
+            vehicles_raw = await fetch_vehicles(
+                client, include_unassigned=True, base_url=base_url
+            )
+        raw_routes = [_trim_transloc_route(r) for r in routes_raw]
+        assigned = {}
+        raw_vehicle_records = list(vehicles_raw)
+
     stops = _build_transloc_stops(raw_routes)
-    arrivals = await _get_transloc_arrivals()
-    blocks = await _get_transloc_blocks()
+    arrivals = await _get_transloc_arrivals(base_url)
+    blocks = await _get_transloc_blocks(base_url)
 
     vehicles: List[Dict[str, Any]] = []
     for rec in raw_vehicle_records:
@@ -1862,8 +1931,8 @@ async def build_transloc_snapshot() -> Dict[str, Any]:
 
 
 @app.get("/v1/testmap/transloc")
-async def testmap_transloc_snapshot():
-    return await build_transloc_snapshot()
+async def testmap_transloc_snapshot(base_url: Optional[str] = Query(None)):
+    return await build_transloc_snapshot(base_url=base_url)
 
 
 def _extract_cat_array(root: Any, keys: List[str]) -> List[Any]:
