@@ -4477,10 +4477,7 @@
         }
         if (adminKioskMode) return true;
         if (kioskMode) {
-          if (kioskModeAlwaysVisibleRoutes.has(id) && routeHasActiveVehicles(id)) {
-            return true;
-          }
-          return isRoutePublicById(id);
+          return kioskModeAlwaysVisibleRoutes.has(id) && routeHasActiveVehicles(id);
         }
         if (adminMode) return true;
         return isRoutePublicById(id);
