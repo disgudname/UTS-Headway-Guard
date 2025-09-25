@@ -9216,6 +9216,12 @@
                   return value;
               }
           }
+          for (const key of Object.keys(root)) {
+              const value = root[key];
+              if (Array.isArray(value)) {
+                  return value;
+              }
+          }
           return [];
       }
 
