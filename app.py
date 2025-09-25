@@ -2273,14 +2273,83 @@ def _trim_cat_stop_etas(payload: Any) -> List[Dict[str, Any]]:
     for entry in entries:
         if not isinstance(entry, dict):
             continue
+        stop_id = (
+            entry.get("id")
+            or entry.get("stopId")
+            or entry.get("StopID")
+            or entry.get("StopId")
+        )
+        stop_name = entry.get("stopName") or entry.get("StopName") or entry.get("Name")
+        en_route_entries = entry.get("enRoute") or entry.get("EnRoute") or entry.get("enroute")
+        normalized_en_route: List[Dict[str, Any]] = []
+        if isinstance(en_route_entries, list):
+            for eta in en_route_entries:
+                if not isinstance(eta, dict):
+                    continue
+                eta_stop_id = (
+                    eta.get("stopId")
+                    or eta.get("StopID")
+                    or eta.get("StopId")
+                    or stop_id
+                )
+                route_id = eta.get("routeID") or eta.get("RouteID") or eta.get("routeId")
+                route_key = eta.get("route") or eta.get("Route") or route_id
+                minutes = eta.get("minutes") or eta.get("Minutes")
+                seconds = eta.get("seconds") or eta.get("Seconds")
+                text = eta.get("text") or eta.get("Text")
+                if not text:
+                    status = eta.get("status") or eta.get("Status")
+                    if status and minutes is not None:
+                        text = f"{status}"
+                normalized_en_route.append(
+                    {
+                        "StopID": eta_stop_id,
+                        "stopID": eta_stop_id,
+                        "StopId": eta_stop_id,
+                        "StopName": eta.get("stopName")
+                        or eta.get("StopName")
+                        or eta.get("name")
+                        or eta.get("Name")
+                        or stop_name,
+                        "RouteID": route_id,
+                        "routeID": route_id,
+                        "RouteId": route_id,
+                        "route": route_key,
+                        "Route": route_key,
+                        "RouteName": eta.get("routeName")
+                        or eta.get("RouteName")
+                        or entry.get("routeName")
+                        or entry.get("RouteName"),
+                        "Minutes": minutes,
+                        "minutes": minutes,
+                        "Seconds": seconds,
+                        "seconds": seconds,
+                        "Text": text,
+                        "text": text,
+                        "Time": eta.get("time") or eta.get("Time"),
+                        "Schedule": eta.get("schedule") or eta.get("Schedule"),
+                        "Status": eta.get("status") or eta.get("Status"),
+                        "StatusColor": eta.get("statuscolor")
+                        or eta.get("StatusColor")
+                        or eta.get("statusColor"),
+                        "Direction": eta.get("direction") or eta.get("Direction"),
+                        "DirectionAbbr": eta.get("directionAbbr") or eta.get("DirectionAbbr"),
+                        "BlockID": eta.get("blockID") or eta.get("BlockID") or eta.get("blockId"),
+                        "EquipmentID": eta.get("equipmentID")
+                        or eta.get("EquipmentID")
+                        or eta.get("equipmentId"),
+                    }
+                )
         result.append(
             {
-                "stopId": entry.get("stopId") or entry.get("StopID") or entry.get("StopId"),
-                "routeId": entry.get("routeId") or entry.get("RouteID"),
-                "routeKey": entry.get("route"),
-                "routeDescription": entry.get("routeName") or entry.get("RouteName"),
-                "minutes": entry.get("minutes"),
-                "etaText": entry.get("text") or entry.get("Text"),
+                "id": stop_id,
+                "StopID": stop_id,
+                "stopID": stop_id,
+                "StopId": stop_id,
+                "stopName": stop_name,
+                "StopName": stop_name,
+                "enRoute": normalized_en_route,
+                "EnRoute": normalized_en_route,
             }
         )
     return result
