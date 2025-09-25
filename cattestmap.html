@@ -2348,6 +2348,10 @@
       const catVehicleMarkers = new Map();
       const catRoutesById = new Map();
       const catStopsById = new Map();
+      const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
+      const catRouteSelections = new Map();
+      let catActiveRouteKeys = new Set();
+      const catVehiclesById = new Map();
       let catRefreshIntervals = [];
       let catRoutesLastFetchTime = 0;
       let catStopsLastFetchTime = 0;
@@ -5610,6 +5614,44 @@
           return `${routeID}:${checked ? 1 : 0}:${color}:${desc}:${infoText}:${hasActiveVehicle ? 1 : 0}`;
         });
 
+        const catRoutesList = catOverlayEnabled ? getSortedCatRoutes() : [];
+        const activeCatRouteKeysSet = catOverlayEnabled
+          ? (catActiveRouteKeys instanceof Set ? new Set(catActiveRouteKeys) : new Set())
+          : new Set();
+        const catRouteRenderData = catRoutesList.map(route => {
+          const key = catRouteKey(route.idKey);
+          if (!key) {
+            return null;
+          }
+          const checked = getCatRouteSelectionState(key, activeCatRouteKeysSet);
+          const hasActiveVehicle = activeCatRouteKeysSet.has(key);
+          const displayNameRaw = (route.displayName || route.shortName || route.longName || key || '').trim();
+          const displayName = displayNameRaw || `Route ${key}`;
+          const longName = typeof route.longName === 'string' ? route.longName.trim() : '';
+          const detailLines = [];
+          if (longName && longName.toUpperCase() !== displayName.toUpperCase()) {
+            detailLines.push(longName);
+          }
+          if (!hasActiveVehicle) {
+            detailLines.push('No buses currently assigned');
+          }
+          const color = route.color || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          return {
+            route,
+            key,
+            checked,
+            hasActiveVehicle,
+            displayName,
+            detailLines,
+            color
+          };
+        }).filter(Boolean);
+        const catRouteSignatureParts = catRouteRenderData.map(entry => {
+          const detailSignature = entry.detailLines.join('||');
+          return `${entry.key}:${entry.checked ? 1 : 0}:${entry.color || ''}:${entry.displayName || ''}:${detailSignature}:${entry.hasActiveVehicle ? 1 : 0}`;
+        });
+        const catActiveSignature = Array.from(activeCatRouteKeysSet).sort().join('|');
+
         const outOfServiceChecked = adminMode && canDisplayRoute(0)
           ? (Object.prototype.hasOwnProperty.call(routeSelections, 0)
             ? routeSelections[0]
@@ -5624,7 +5666,9 @@
           displayMode || '',
           agenciesSignature,
           outOfServiceChecked === null ? 'na' : (outOfServiceChecked ? '1' : '0'),
-          routeSignatureParts.join('|')
+          routeSignatureParts.join('|'),
+          catOverlayEnabled ? '1' : '0',
+          `${catRouteRenderData.length}:${catRouteSignatureParts.join('|')}::${catActiveSignature}`
         ];
 
         const signature = signatureParts.join('||');
@@ -5705,6 +5749,29 @@
           `;
         });
 
+        if (catRouteRenderData.length > 0) {
+          html += `
+                <div class="selector-label">CAT Routes</div>
+          `;
+          catRouteRenderData.forEach(entry => {
+            const detailHtml = entry.detailLines.map(text => `<span class="route-option-detail">${escapeHtml(text)}</span>`).join('');
+            const checkboxId = getCatRouteCheckboxId(entry.key);
+            const safeValue = escapeAttribute(entry.key);
+            const safeColor = escapeAttribute(entry.color || CAT_VEHICLE_MARKER_DEFAULT_COLOR);
+            const safeName = escapeHtml(entry.displayName);
+            html += `
+                <label class="route-option route-option--cat">
+                  <input type="checkbox" id="${checkboxId}" value="${safeValue}" ${entry.checked ? "checked" : ""}>
+                  <span class="color-box route-option-swatch" style="background:${safeColor};"></span>
+                  <span class="route-option-text">
+                    <span class="route-option-name">${safeName}</span>
+                    ${detailHtml}
+                  </span>
+                </label>
+            `;
+          });
+        }
+
         html += `
               </div>
             </div>
@@ -5749,6 +5816,23 @@
           }
         });
 
+        if (catRouteRenderData.length > 0) {
+          catRouteRenderData.forEach(entry => {
+            const checkboxId = getCatRouteCheckboxId(entry.key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (!catCheckbox) {
+              return;
+            }
+            catCheckbox.checked = entry.checked;
+            applyRouteOptionState(catCheckbox);
+            catCheckbox.addEventListener('change', function() {
+              catRouteSelections.set(entry.key, catCheckbox.checked);
+              applyRouteOptionState(catCheckbox);
+              renderCatVehiclesUsingCache();
+            });
+          });
+        }
+
         positionAllPanelTabs();
       }
 
@@ -5769,6 +5853,23 @@
             applyRouteOptionState(chk);
           }
           routeSelections[routeID] = true;
+        }
+        if (catOverlayEnabled) {
+          const catRoutes = getUniqueCatRoutes();
+          catRoutes.forEach(route => {
+            const key = catRouteKey(route.idKey);
+            if (!key) {
+              return;
+            }
+            const checkboxId = getCatRouteCheckboxId(key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (catCheckbox) {
+              catCheckbox.checked = true;
+              applyRouteOptionState(catCheckbox);
+            }
+            catRouteSelections.set(key, true);
+          });
+          renderCatVehiclesUsingCache();
         }
         refreshMap();
       }
@@ -5800,6 +5901,26 @@
           routeSelections[numericRouteId] = shouldSelect;
         }
 
+        if (catOverlayEnabled) {
+          const activeCatKeys = catActiveRouteKeys instanceof Set ? new Set(catActiveRouteKeys) : new Set();
+          const catRoutes = getUniqueCatRoutes();
+          catRoutes.forEach(route => {
+            const key = catRouteKey(route.idKey);
+            if (!key) {
+              return;
+            }
+            const shouldSelectCat = activeCatKeys.has(key);
+            const checkboxId = getCatRouteCheckboxId(key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (catCheckbox) {
+              catCheckbox.checked = shouldSelectCat;
+              applyRouteOptionState(catCheckbox);
+            }
+            catRouteSelections.set(key, shouldSelectCat);
+          });
+          renderCatVehiclesUsingCache();
+        }
+
         refreshMap();
       }
 
@@ -5820,6 +5941,23 @@
             applyRouteOptionState(chk);
           }
           routeSelections[routeID] = false;
+        }
+        if (catOverlayEnabled) {
+          const catRoutes = getUniqueCatRoutes();
+          catRoutes.forEach(route => {
+            const key = catRouteKey(route.idKey);
+            if (!key) {
+              return;
+            }
+            const checkboxId = getCatRouteCheckboxId(key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (catCheckbox) {
+              catCheckbox.checked = false;
+              applyRouteOptionState(catCheckbox);
+            }
+            catRouteSelections.set(key, false);
+          });
+          renderCatVehiclesUsingCache();
         }
         refreshMap();
       }
@@ -6194,6 +6332,9 @@
           renderBusStops(stopDataCache);
         }
         fetchTrains().catch(error => console.error('Error refreshing trains:', error));
+        if (catOverlayEnabled) {
+          renderCatVehiclesUsingCache();
+        }
       }
 
       function clearRefreshIntervals() {
@@ -8870,6 +9011,7 @@
           ensureCatLayerGroup();
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
+          updateRouteSelector(activeRoutes, true);
           fetchCatRoutes().catch(error => console.error('Failed to fetch CAT routes:', error));
           fetchCatStops().catch(error => console.error('Failed to fetch CAT stops:', error));
           fetchCatVehicles().catch(error => console.error('Failed to fetch CAT vehicles:', error));
@@ -8884,6 +9026,8 @@
           if (catLayerGroup && map && map.hasLayer(catLayerGroup)) {
               map.removeLayer(catLayerGroup);
           }
+          catActiveRouteKeys = new Set();
+          catRouteSelections.clear();
           catServiceAlerts = [];
           catServiceAlertsLoading = false;
           catServiceAlertsError = null;
@@ -8891,6 +9035,7 @@
           catServiceAlertsLastFetchTime = 0;
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
+          updateRouteSelector(activeRoutes, true);
       }
 
       function ensureCatLayerGroup() {
@@ -8942,6 +9087,88 @@
               return '';
           }
           return `${stopId}`.trim();
+      }
+
+      function getUniqueCatRoutes() {
+          const unique = new Map();
+          catRoutesById.forEach(route => {
+              if (!route || typeof route !== 'object') {
+                  return;
+              }
+              const key = route.idKey ? `${route.idKey}`.trim() : '';
+              if (!key || unique.has(key)) {
+                  return;
+              }
+              unique.set(key, route);
+          });
+          return Array.from(unique.values());
+      }
+
+      function getSortedCatRoutes() {
+          const routes = getUniqueCatRoutes();
+          routes.sort((a, b) => {
+              const nameA = (a.displayName || a.shortName || a.longName || a.idKey || '').trim().toUpperCase();
+              const nameB = (b.displayName || b.shortName || b.longName || b.idKey || '').trim().toUpperCase();
+              if (nameA < nameB) return -1;
+              if (nameA > nameB) return 1;
+              return 0;
+          });
+          return routes;
+      }
+
+      function getCatRouteCheckboxId(routeKey) {
+          const normalized = catRouteKey(routeKey);
+          const safeId = normalized ? normalized.replace(/[^A-Za-z0-9_-]/g, '_') : 'unassigned';
+          return `cat_route_${safeId}`;
+      }
+
+      function getCatRouteSelectionState(routeKey, activeFallbackSet = catActiveRouteKeys) {
+          const normalized = catRouteKey(routeKey);
+          if (!normalized) {
+              return false;
+          }
+          if (catRouteSelections.has(normalized)) {
+              return !!catRouteSelections.get(normalized);
+          }
+          return activeFallbackSet instanceof Set ? activeFallbackSet.has(normalized) : false;
+      }
+
+      function isOutOfServiceRouteVisible() {
+          if (!canDisplayRoute(0)) {
+              return false;
+          }
+          if (Object.prototype.hasOwnProperty.call(routeSelections, 0)) {
+              return !!routeSelections[0];
+          }
+          return activeRoutes instanceof Set ? activeRoutes.has(0) : false;
+      }
+
+      function getEffectiveCatRouteKey(vehicle) {
+          if (!vehicle || typeof vehicle !== 'object') {
+              return CAT_OUT_OF_SERVICE_ROUTE_KEY;
+          }
+          const candidates = [vehicle.routeKey, vehicle.routeId];
+          for (let i = 0; i < candidates.length; i += 1) {
+              const normalized = catRouteKey(candidates[i]);
+              if (normalized) {
+                  return normalized;
+              }
+          }
+          return CAT_OUT_OF_SERVICE_ROUTE_KEY;
+      }
+
+      function isCatRouteVisible(routeKey, activeFallbackSet = catActiveRouteKeys) {
+          if (routeKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return isOutOfServiceRouteVisible();
+          }
+          const normalized = catRouteKey(routeKey);
+          if (!normalized) {
+              return false;
+          }
+          if (catRouteSelections.has(normalized)) {
+              return !!catRouteSelections.get(normalized);
+          }
+          return activeFallbackSet instanceof Set ? activeFallbackSet.has(normalized) : false;
       }
 
       function toNonEmptyString(value) {
@@ -9058,6 +9285,9 @@
                   }
               });
               catRoutesLastFetchTime = now;
+              if (catOverlayEnabled) {
+                  updateRouteSelector(activeRoutes);
+              }
               return routes;
           } catch (error) {
               console.error('Failed to fetch CAT routes:', error);
@@ -9290,19 +9520,32 @@
           return parts.join('');
       }
 
-      function clearCatVehicleMarkers() {
-          catVehicleMarkers.forEach(marker => {
-              if (catLayerGroup) {
-                  catLayerGroup.removeLayer(marker);
+      function updateCatVehicleCache(vehicles) {
+          catVehiclesById.clear();
+          const activeKeys = new Set();
+          if (!Array.isArray(vehicles)) {
+              catActiveRouteKeys = activeKeys;
+              return;
+          }
+          vehicles.forEach(vehicle => {
+              if (!vehicle || typeof vehicle !== 'object') {
+                  return;
               }
-              if (marker && typeof marker.remove === 'function') {
-                  marker.remove();
+              const vehicleId = vehicle.id;
+              if (!vehicleId) {
+                  return;
+              }
+              const effectiveRouteKey = getEffectiveCatRouteKey(vehicle);
+              const cachedVehicle = Object.assign({}, vehicle, { catEffectiveRouteKey: effectiveRouteKey });
+              catVehiclesById.set(vehicleId, cachedVehicle);
+              if (effectiveRouteKey !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  activeKeys.add(effectiveRouteKey);
               }
           });
-          catVehicleMarkers.clear();
+          catActiveRouteKeys = activeKeys;
       }
 
-      function updateCatVehicleMarkers(vehicles) {
+      function renderCatVehiclesUsingCache() {
           if (!catOverlayEnabled) {
               return;
           }
@@ -9311,18 +9554,32 @@
               return;
           }
           const seen = new Set();
-          vehicles.forEach(vehicle => {
-              const key = `cat-${vehicle.id}`;
-              if (!key) {
+          catVehiclesById.forEach(vehicle => {
+              if (!vehicle || !vehicle.id) {
                   return;
               }
-              seen.add(key);
+              const markerKey = `cat-${vehicle.id}`;
+              const effectiveRouteKey = vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+              const shouldDisplay = isCatRouteVisible(effectiveRouteKey);
+              let marker = catVehicleMarkers.get(markerKey);
+              if (!shouldDisplay) {
+                  if (marker) {
+                      if (layerGroup.hasLayer(marker)) {
+                          layerGroup.removeLayer(marker);
+                      }
+                      if (typeof marker.remove === 'function') {
+                          marker.remove();
+                      }
+                      catVehicleMarkers.delete(markerKey);
+                  }
+                  return;
+              }
+              seen.add(markerKey);
               const icon = buildCatVehicleIcon(vehicle);
-              let marker = catVehicleMarkers.get(key);
               if (!marker) {
                   marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, pane: catVehiclesPaneName, keyboard: false });
                   marker.addTo(layerGroup);
-                  catVehicleMarkers.set(key, marker);
+                  catVehicleMarkers.set(markerKey, marker);
               } else {
                   marker.setLatLng([vehicle.latitude, vehicle.longitude]);
                   marker.setIcon(icon);
@@ -9344,8 +9601,8 @@
           });
           catVehicleMarkers.forEach((marker, key) => {
               if (!seen.has(key)) {
-                  if (layerGroup && layerGroup.hasLayer(marker)) {
-                      layerGroup.removeLayer(marker);
+                  if (catLayerGroup && catLayerGroup.hasLayer(marker)) {
+                      catLayerGroup.removeLayer(marker);
                   }
                   if (marker && typeof marker.remove === 'function') {
                       marker.remove();
@@ -9353,6 +9610,29 @@
                   catVehicleMarkers.delete(key);
               }
           });
+      }
+
+      function clearCatVehicleMarkers() {
+          catVehicleMarkers.forEach(marker => {
+              if (catLayerGroup) {
+                  catLayerGroup.removeLayer(marker);
+              }
+              if (marker && typeof marker.remove === 'function') {
+                  marker.remove();
+              }
+          });
+          catVehicleMarkers.clear();
+          catVehiclesById.clear();
+          catActiveRouteKeys = new Set();
+      }
+
+      function updateCatVehicleMarkers(vehicles) {
+          if (!catOverlayEnabled) {
+              return;
+          }
+          updateCatVehicleCache(vehicles);
+          renderCatVehiclesUsingCache();
+          updateRouteSelector(activeRoutes);
       }
 
       async function fetchCatVehicles() {
