@@ -10012,7 +10012,7 @@ schedulePlaneStyleOverride();
           }
           const id = toNonEmptyString(getFirstDefined(entry, ['ID', 'Id', 'id', 'AlertID', 'alertID', 'alertId', 'Guid', 'guid']));
           const title = toNonEmptyString(getFirstDefined(entry, ['Title', 'title', 'Name', 'name', 'Headline', 'headline'])) || 'Service Alert';
-          const message = toNonEmptyString(getFirstDefined(entry, ['Message', 'message', 'Description', 'description', 'Details', 'details']));
+          const message = toNonEmptyString(getFirstDefined(entry, ['Message', 'message', 'Description', 'description', 'Details', 'details', 'Text', 'text']));
           const routesRaw = getFirstDefined(entry, ['Routes', 'routes', 'Route', 'route', 'RouteNames', 'routeNames']);
           let routes = [];
           if (Array.isArray(routesRaw)) {
@@ -10053,12 +10053,21 @@ schedulePlaneStyleOverride();
       function normalizeCatServiceAlerts(root) {
           const entries = extractCatArray(root, ['announcements', 'Announcements', 'alerts', 'Alerts']);
           const alerts = [];
-          entries.forEach(entry => {
+          const processEntry = (entry) => {
+              if (!entry || typeof entry !== 'object') {
+                  return;
+              }
+              const nested = extractCatArray(entry, ['announcements', 'Announcements', 'alerts', 'Alerts']);
+              if (Array.isArray(nested) && nested.length > 0) {
+                  nested.forEach(processEntry);
+                  return;
+              }
               const normalized = normalizeCatServiceAlert(entry);
               if (normalized) {
                   alerts.push(normalized);
               }
-          });
+          };
+          entries.forEach(processEntry);
           return alerts;
       }
 
