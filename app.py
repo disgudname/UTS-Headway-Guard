@@ -390,6 +390,19 @@ async def fetch_routes_with_shapes(client: httpx.AsyncClient, base_url: Optional
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
 
+
+async def fetch_routes_catalog(client: httpx.AsyncClient, base_url: Optional[str] = None):
+    url = build_transloc_url(base_url, f"GetRoutes?APIKey={TRANSLOC_KEY}")
+    r = await client.get(url, timeout=20)
+    record_api_call("GET", url, r.status_code)
+    r.raise_for_status()
+    data = r.json()
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return data.get("d", [])
+    return []
+
 async def fetch_vehicles(
     client: httpx.AsyncClient,
     include_unassigned: bool = True,
@@ -1170,7 +1183,13 @@ async def startup():
             while True:
                 start = time.time()
                 try:
+                    routes_catalog: List[Dict[str, Any]] = []
                     routes_raw = await fetch_routes_with_shapes(client)
+                    try:
+                        routes_catalog = await fetch_routes_catalog(client)
+                    except Exception as e:
+                        routes_catalog = []
+                        print(f"[updater] routes catalog fetch error: {e}")
                     vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
                     try:
                         block_groups = await fetch_block_groups(client)
@@ -1179,16 +1198,30 @@ async def startup():
                         print(f"[updater] block fetch error: {e}")
                     async with state.lock:
                         state.routes_raw = routes_raw
+                        state.routes_catalog_raw = routes_catalog
                         state.vehicles_raw = vehicles_raw
                         # Update complete routes & roster (all buses/all routes)
                         try:
                             state.routes_all = {}
-                            for r in routes_raw:
-                                rid = r.get("RouteID")
+                            combined_routes: List[Dict[str, Any]] = []
+                            if routes_catalog:
+                                combined_routes.extend(routes_catalog)
+                            if routes_raw:
+                                combined_routes.extend(routes_raw)
+                            for r in combined_routes:
+                                rid = r.get("RouteID") or r.get("RouteId")
                                 if not rid:
                                     continue
-                                desc = r.get("Description") or f"Route {rid}"
-                                info = (r.get("InfoText") or "").strip()
+                                desc = (
+                                    r.get("Description")
+                                    or r.get("RouteName")
+                                    or f"Route {rid}"
+                                )
+                                info = (
+                                    r.get("InfoText")
+                                    or r.get("Info")
+                                    or ""
+                                ).strip()
                                 disp = f"{desc} — {info}" if info else desc
                                 state.routes_all[rid] = disp
                             if not hasattr(state, "roster_names"):
@@ -1757,6 +1790,64 @@ def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
     return trimmed
 
 
+def _coerce_route_id(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            return text
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return value
+
+
+def _merge_transloc_route_metadata(
+    primary: List[Dict[str, Any]],
+    supplemental_raw: Iterable[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    route_by_id: Dict[Any, Dict[str, Any]] = {}
+    for entry in primary:
+        if not isinstance(entry, dict):
+            continue
+        rid = _coerce_route_id(entry.get("RouteID") or entry.get("RouteId"))
+        if rid is None:
+            continue
+        entry["RouteID"] = rid
+        route_by_id[rid] = entry
+
+    for raw in supplemental_raw or []:
+        if not isinstance(raw, dict):
+            continue
+        rid = _coerce_route_id(raw.get("RouteID") or raw.get("RouteId"))
+        if rid is None:
+            continue
+        trimmed = _trim_transloc_route(raw)
+        trimmed["RouteID"] = rid
+        existing = route_by_id.get(rid)
+        if existing:
+            for key in ["Description", "InfoText", "RouteName", "LongName", "ShortName"]:
+                if not existing.get(key) and trimmed.get(key):
+                    existing[key] = trimmed[key]
+            if trimmed.get("MapLineColor") and not existing.get("MapLineColor"):
+                existing["MapLineColor"] = trimmed["MapLineColor"]
+            if "IsVisibleOnMap" in trimmed and existing.get("IsVisibleOnMap") is None:
+                existing["IsVisibleOnMap"] = trimmed.get("IsVisibleOnMap")
+            if trimmed.get("Stops") and not existing.get("Stops"):
+                existing["Stops"] = trimmed["Stops"]
+        else:
+            route_by_id[rid] = trimmed
+
+    return list(route_by_id.values())
+
+
 def _build_transloc_stops(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     stops: List[Dict[str, Any]] = []
     for route in routes:
@@ -1920,10 +2011,13 @@ def _vehicle_age_seconds(seconds_since_report: Any = None, timestamp: Any = None
 
 async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, Any]:
     use_default = is_default_transloc_base(base_url)
+    routes_raw: List[Dict[str, Any]] = []
+    extra_routes_raw: List[Dict[str, Any]] = []
+    assigned: Dict[Any, Tuple[int, Vehicle]] = {}
     if use_default:
         async with state.lock:
-            raw_routes = [_trim_transloc_route(r) for r in getattr(state, "routes_raw", [])]
-            assigned: Dict[Any, Tuple[int, Vehicle]] = {}
+            routes_raw = list(getattr(state, "routes_raw", []))
+            extra_routes_raw = list(getattr(state, "routes_catalog_raw", []))
             for rid, vehs in state.vehicles_by_route.items():
                 for veh in vehs.values():
                     if veh.id is None:
@@ -1933,12 +2027,19 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
     else:
         async with httpx.AsyncClient() as client:
             routes_raw = await fetch_routes_with_shapes(client, base_url=base_url)
+            try:
+                extra_routes_raw = await fetch_routes_catalog(client, base_url=base_url)
+            except Exception as e:
+                extra_routes_raw = []
+                print(f"[snapshot] routes catalog fetch error: {e}")
             vehicles_raw = await fetch_vehicles(
                 client, include_unassigned=True, base_url=base_url
             )
-        raw_routes = [_trim_transloc_route(r) for r in routes_raw]
         assigned = {}
         raw_vehicle_records = list(vehicles_raw)
+    raw_routes = [_trim_transloc_route(r) for r in routes_raw]
+    if extra_routes_raw:
+        raw_routes = _merge_transloc_route_metadata(raw_routes, extra_routes_raw)
 
     stops = _build_transloc_stops(raw_routes)
     arrivals = await _get_transloc_arrivals(base_url)
