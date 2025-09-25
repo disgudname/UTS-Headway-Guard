@@ -2322,6 +2322,7 @@
       const CAT_VEHICLE_MARKER_DEFAULT_COLOR = '#0f172a';
       const CAT_VEHICLE_MARKER_MIN_LABEL = 'CAT';
       const CAT_MAX_TOOLTIP_ETAS = 3;
+      const CAT_VEHICLE_ETA_CACHE_TTL_MS = 30000;
 
       let map;
       let markers = {};
@@ -2346,6 +2347,8 @@
       let catOverlayEnabled = false;
       let catLayerGroup = null;
       const catVehicleMarkers = new Map();
+      const catVehicleEtaCache = new Map();
+      let catActiveVehicleTooltip = null;
       const catRoutesById = new Map();
       const catStopsById = new Map();
       const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
@@ -6695,6 +6698,9 @@
               zoomAnimation: true,
               markerZoomAnimation: true
           }).setView([38.03799212281404, -78.50981502838886], 15);
+          map.on('click', () => {
+              closeCatVehicleTooltip();
+          });
           map.createPane(RADAR_PANE_NAME);
           const radarPane = map.getPane(RADAR_PANE_NAME);
           if (radarPane) {
@@ -10374,7 +10380,19 @@
           const displayName = toNonEmptyString(getFirstDefined(entry, ['VehicleName', 'vehicleName', 'Name', 'name', 'Label', 'label']))
               || equipmentId
               || `Vehicle ${vehicleId}`;
-          const etas = normalizeCatEtas(getFirstDefined(entry, ['ETAs', 'etas', 'Eta', 'eta', 'Predictions', 'predictions']));
+          const etaSource = getFirstDefined(entry, [
+              'ETAs',
+              'etas',
+              'Eta',
+              'eta',
+              'Predictions',
+              'predictions',
+              'MinutesToNextStops',
+              'minutesToNextStops',
+              'MinutesToStops',
+              'minutesToStops'
+          ]);
+          const etas = normalizeCatEtas(etaSource);
           return {
               id: vehicleId,
               equipmentId,
@@ -10480,7 +10498,7 @@
           return buildLegacyCatVehicleIcon(label, routeColor);
       }
 
-      function buildCatVehicleTooltip(vehicle, routeKeyOverride) {
+      function buildCatVehicleTooltip(vehicle, routeKeyOverride, options = {}) {
           const parts = [];
           const headerPieces = [];
           const effectiveRouteKey = routeKeyOverride || vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
@@ -10495,8 +10513,15 @@
           if (headerPieces.length) {
               parts.push(`<strong>${escapeHtml(headerPieces.join(' • '))}</strong>`);
           }
+          const statusMessage = toNonEmptyString(options?.statusMessage);
+          if (statusMessage) {
+              parts.push(`<span>${escapeHtml(statusMessage)}</span>`);
+          }
           const etaLines = [];
-          const etas = Array.isArray(vehicle.etas) ? vehicle.etas.slice(0, CAT_MAX_TOOLTIP_ETAS) : [];
+          const rawEtas = Array.isArray(options?.etas)
+              ? options.etas
+              : (Array.isArray(vehicle.etas) ? vehicle.etas : []);
+          const etas = rawEtas.slice(0, CAT_MAX_TOOLTIP_ETAS);
           etas.forEach(eta => {
               const stopLabel = eta.stopName || (eta.stopId ? `Stop ${eta.stopId}` : 'Stop');
               const text = eta.text || (Number.isFinite(eta.minutes) ? `${Math.max(0, Math.round(eta.minutes))} min` : 'Scheduled');
@@ -10504,10 +10529,159 @@
           });
           if (etaLines.length) {
               parts.push(`<div class="cat-vehicle-tooltip__etas">${etaLines.join('')}</div>`);
-          } else {
+          } else if (!statusMessage) {
               parts.push(`<span>${escapeHtml('No upcoming ETAs')}</span>`);
           }
           return parts.join('');
+      }
+
+      function closeCatVehicleTooltip(preserveIntent = false) {
+          if (!catActiveVehicleTooltip) {
+              return;
+          }
+          const { marker, tooltip } = catActiveVehicleTooltip;
+          if (!preserveIntent && marker) {
+              marker._catTooltipShouldRemainOpen = false;
+          }
+          if (tooltip && map && typeof map.removeLayer === 'function') {
+              map.removeLayer(tooltip);
+          }
+          catActiveVehicleTooltip = null;
+      }
+
+      function ensureCatVehicleTooltipForMarker(marker) {
+          if (!marker) {
+              return null;
+          }
+          if (!marker._catVehicleTooltipInstance) {
+              marker._catVehicleTooltipInstance = L.tooltip({
+                  direction: 'top',
+                  offset: [0, -26],
+                  className: 'cat-vehicle-tooltip'
+              });
+          }
+          return marker._catVehicleTooltipInstance;
+      }
+
+      function openCatVehicleTooltip(marker, options = {}) {
+          if (!marker || !map) {
+              return;
+          }
+          const vehicle = marker.catVehicleData;
+          if (!vehicle) {
+              return;
+          }
+          const tooltip = ensureCatVehicleTooltipForMarker(marker);
+          if (!tooltip) {
+              return;
+          }
+          tooltip.setContent(buildCatVehicleTooltip(vehicle, marker.catEffectiveRouteKey, options));
+          tooltip.setLatLng(marker.getLatLng());
+          const preserveIntent = catActiveVehicleTooltip?.marker === marker;
+          closeCatVehicleTooltip(preserveIntent);
+          tooltip.addTo(map);
+          catActiveVehicleTooltip = { marker, tooltip };
+      }
+
+      async function fetchCatVehicleEtasForVehicle(vehicle) {
+          if (!vehicle) {
+              return [];
+          }
+          const equipmentId = toNonEmptyString(vehicle.equipmentId);
+          const vehicleId = toNonEmptyString(vehicle.id);
+          const cacheKey = (equipmentId || vehicleId || '').toLowerCase();
+          if (!cacheKey) {
+              return [];
+          }
+          const now = Date.now();
+          const cached = catVehicleEtaCache.get(cacheKey);
+          if (cached && now - cached.timestamp <= CAT_VEHICLE_ETA_CACHE_TTL_MS) {
+              return cached.etas;
+          }
+          const params = new URLSearchParams({
+              service: 'get_vehicles',
+              token: CAT_API_TOKEN,
+              includeETAData: '1',
+              orderedETAArray: '1'
+          });
+          if (equipmentId) {
+              params.set('equipmentID', equipmentId);
+          } else if (vehicleId) {
+              params.set('vehicleID', vehicleId);
+          }
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const vehicles = normalizeCatVehicles(payload);
+              let target = null;
+              if (Array.isArray(vehicles) && vehicles.length) {
+                  target = vehicles.find(entry => {
+                      const entryEquipmentId = toNonEmptyString(entry.equipmentId);
+                      const entryVehicleId = toNonEmptyString(entry.id);
+                      return (equipmentId && entryEquipmentId === equipmentId) || (vehicleId && entryVehicleId === vehicleId);
+                  }) || vehicles[0];
+              }
+              const etas = Array.isArray(target?.etas) ? target.etas : [];
+              catVehicleEtaCache.set(cacheKey, { etas, timestamp: now });
+              return etas;
+          } catch (error) {
+              catVehicleEtaCache.delete(cacheKey);
+              throw error;
+          }
+      }
+
+      async function handleCatVehicleMarkerClick(event) {
+          if (!event || !event.target) {
+              return;
+          }
+          const marker = event.target;
+          if (!marker.catVehicleData) {
+              return;
+          }
+          if (event.originalEvent) {
+              if (typeof event.originalEvent.stopPropagation === 'function') {
+                  event.originalEvent.stopPropagation();
+              }
+              if (typeof event.originalEvent.preventDefault === 'function') {
+                  event.originalEvent.preventDefault();
+              }
+          }
+          if (marker._catTooltipLoading) {
+              return;
+          }
+          if (catActiveVehicleTooltip && catActiveVehicleTooltip.marker === marker) {
+              closeCatVehicleTooltip();
+          }
+          marker._catTooltipShouldRemainOpen = true;
+          marker._catTooltipLoading = true;
+          marker._catTooltipRequestId = (marker._catTooltipRequestId || 0) + 1;
+          const requestId = marker._catTooltipRequestId;
+          openCatVehicleTooltip(marker, { statusMessage: 'Loading arrival times…' });
+          try {
+              const etas = await fetchCatVehicleEtasForVehicle(marker.catVehicleData);
+              if (marker._catTooltipRequestId !== requestId || marker._catTooltipShouldRemainOpen === false) {
+                  return;
+              }
+              if (Array.isArray(etas)) {
+                  marker.catVehicleData = Object.assign({}, marker.catVehicleData, { etas });
+              }
+              if (marker._catTooltipShouldRemainOpen !== false) {
+                  openCatVehicleTooltip(marker);
+              }
+          } catch (error) {
+              console.error('Failed to load CAT vehicle ETAs:', error);
+              if (marker._catTooltipRequestId === requestId && marker._catTooltipShouldRemainOpen !== false) {
+                  openCatVehicleTooltip(marker, { statusMessage: 'Unable to load ETAs' });
+              }
+          } finally {
+              if (marker._catTooltipRequestId === requestId) {
+                  marker._catTooltipLoading = false;
+              }
+          }
       }
 
       function updateCatVehicleCache(vehicles) {
@@ -10592,16 +10766,24 @@
                       layerGroup.addLayer(marker);
                   }
               }
-              const tooltipHtml = buildCatVehicleTooltip(vehicle, effectiveRouteKey);
-              const existingTooltip = marker.getTooltip && marker.getTooltip();
-              if (tooltipHtml) {
-                  if (existingTooltip) {
-                      existingTooltip.setContent(tooltipHtml);
-                  } else {
-                      marker.bindTooltip(tooltipHtml, { direction: 'top', offset: [0, -26], className: 'cat-vehicle-tooltip' });
-                  }
-              } else if (existingTooltip) {
+              if (typeof marker.unbindTooltip === 'function') {
                   marker.unbindTooltip();
+              }
+              const existingMarkerEtas = Array.isArray(marker.catVehicleData?.etas)
+                  ? marker.catVehicleData.etas.slice()
+                  : [];
+              const incomingEtas = Array.isArray(vehicle.etas) ? vehicle.etas.slice() : [];
+              const combinedEtas = incomingEtas.length ? incomingEtas : existingMarkerEtas;
+              marker.catEffectiveRouteKey = effectiveRouteKey;
+              marker.catVehicleData = Object.assign({}, vehicle, {
+                  etas: combinedEtas
+              });
+              if (!marker._catVehicleClickHandlerAttached) {
+                  marker.on('click', handleCatVehicleMarkerClick);
+                  marker._catVehicleClickHandlerAttached = true;
+              }
+              if (catActiveVehicleTooltip && catActiveVehicleTooltip.marker === marker && !marker._catTooltipLoading) {
+                  openCatVehicleTooltip(marker);
               }
 
               const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
@@ -10676,6 +10858,9 @@
                   }
                   if (marker && typeof marker.remove === 'function') {
                       marker.remove();
+                  }
+                  if (catActiveVehicleTooltip && catActiveVehicleTooltip.marker === marker) {
+                      closeCatVehicleTooltip();
                   }
                   catVehicleMarkers.delete(key);
                   removeNameBubbleForKey(key);
@@ -10777,6 +10962,7 @@
       }
 
       function clearCatVehicleMarkers() {
+          closeCatVehicleTooltip();
           catVehicleMarkers.forEach(marker => {
               if (catLayerGroup) {
                   catLayerGroup.removeLayer(marker);
@@ -10788,6 +10974,7 @@
           catVehicleMarkers.clear();
           catVehiclesById.clear();
           catActiveRouteKeys = new Set();
+          catVehicleEtaCache.clear();
           Object.keys(nameBubbles).forEach(key => {
               if (typeof key === 'string' && key.startsWith('cat-')) {
                   removeNameBubbleForKey(key);
