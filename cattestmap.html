@@ -194,6 +194,58 @@
         color: rgba(248, 250, 252, 0.92);
         letter-spacing: 0.35px;
       }
+      .cat-vehicle-icon {
+        width: 0;
+        height: 0;
+      }
+      .cat-vehicle-marker {
+        --cat-marker-size: 38px;
+        --cat-marker-color: #0f172a;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--cat-marker-size);
+        height: var(--cat-marker-size);
+        border-radius: 50%;
+        background: var(--cat-marker-color);
+        color: #fff7ed;
+        border: 3px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
+        font-family: 'FGDC', sans-serif;
+        font-weight: 800;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        font-size: 14px;
+      }
+      .cat-vehicle-marker__label {
+        display: block;
+        padding: 0 4px;
+        text-align: center;
+      }
+      .cat-vehicle-tooltip {
+        background: rgba(15, 23, 42, 0.92);
+        color: #f8fafc;
+        border-radius: 10px;
+        padding: 8px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-family: 'FGDC', sans-serif;
+        font-size: 13px;
+        letter-spacing: 0.35px;
+        text-transform: none;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.4);
+      }
+      .cat-vehicle-tooltip strong {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 4px;
+        letter-spacing: 0.45px;
+      }
+      .cat-vehicle-tooltip__etas {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
       .route-pill {
         display: inline-block;
         padding: 5px 12px;
@@ -2261,6 +2313,15 @@
         NORTHWEST: 315,
         NORTHWESTBOUND: 315
       });
+      const CAT_API_BASE_URL = 'https://catpublic.etaspot.net/service.php';
+      const CAT_API_TOKEN = 'TESTING';
+      const CAT_VEHICLE_FETCH_INTERVAL_MS = 5000;
+      const CAT_METADATA_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+      const CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
+      const CAT_SERVICE_ALERT_UNAVAILABLE_MESSAGE = 'CAT service alerts are unavailable.';
+      const CAT_VEHICLE_MARKER_DEFAULT_COLOR = '#0f172a';
+      const CAT_VEHICLE_MARKER_MIN_LABEL = 'CAT';
+      const CAT_MAX_TOOLTIP_ETAS = 3;
 
       let map;
       let markers = {};
@@ -2282,6 +2343,20 @@
 
       let agencies = [];
       let baseURL = '';
+      let catOverlayEnabled = false;
+      let catLayerGroup = null;
+      const catVehicleMarkers = new Map();
+      const catRoutesById = new Map();
+      const catStopsById = new Map();
+      let catRefreshIntervals = [];
+      let catRoutesLastFetchTime = 0;
+      let catStopsLastFetchTime = 0;
+      let catVehiclesPaneName = 'catVehiclesPane';
+      let catServiceAlerts = [];
+      let catServiceAlertsLoading = false;
+      let catServiceAlertsError = null;
+      let catServiceAlertsFetchPromise = null;
+      let catServiceAlertsLastFetchTime = 0;
 
       let incidentsVisible = false;
       let incidentsVisibilityPreference = false;
@@ -4975,24 +5050,51 @@
         return [];
       }
 
+      function getVisibleServiceAlerts() {
+        const baseAlerts = Array.isArray(serviceAlerts) ? serviceAlerts : [];
+        if (!catOverlayEnabled) {
+          return baseAlerts;
+        }
+        const catAlerts = Array.isArray(catServiceAlerts) ? catServiceAlerts : [];
+        return baseAlerts.concat(catAlerts);
+      }
+
       function getActiveServiceAlertCount() {
-        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
+        const alerts = getVisibleServiceAlerts();
+        if (!Array.isArray(alerts) || alerts.length === 0) {
           return 0;
         }
-        return serviceAlerts.reduce((total, alert) => {
+        return alerts.reduce((total, alert) => {
           if (!alert) return total;
           return total + (alert.isActive === false ? 0 : 1);
         }, 0);
       }
 
+      function isAnyServiceAlertsLoading() {
+        return !!serviceAlertsLoading || (catOverlayEnabled && !!catServiceAlertsLoading);
+      }
+
+      function getCombinedServiceAlertsError() {
+        const alerts = getVisibleServiceAlerts();
+        const hasVisibleAlerts = Array.isArray(alerts) && alerts.length > 0;
+        if (serviceAlertsError && !hasVisibleAlerts) {
+          return serviceAlertsError;
+        }
+        if (catOverlayEnabled && catServiceAlertsError && !hasVisibleAlerts && !isAnyServiceAlertsLoading()) {
+          return catServiceAlertsError;
+        }
+        return null;
+      }
+
       function buildServiceAlertsStatusText() {
-        if (serviceAlertsLoading) {
+        if (isAnyServiceAlertsLoading()) {
           return SERVICE_ALERT_STATUS_LOADING;
         }
-        if (serviceAlertsError) {
+        const errorMessage = getCombinedServiceAlertsError();
+        if (errorMessage) {
           return SERVICE_ALERT_STATUS_ERROR;
         }
-        if (!serviceAlertsHasLoaded) {
+        if (!serviceAlertsHasLoaded && !(catOverlayEnabled && Array.isArray(catServiceAlerts) && catServiceAlerts.length > 0)) {
           return SERVICE_ALERT_STATUS_LOADING;
         }
         const count = getActiveServiceAlertCount();
@@ -5033,16 +5135,19 @@
       }
 
       function renderServiceAlertsPanelContentHtml() {
-        if (serviceAlertsLoading) {
+        const alerts = getVisibleServiceAlerts();
+        const loading = isAnyServiceAlertsLoading();
+        const errorMessage = getCombinedServiceAlertsError();
+        if (loading && (!Array.isArray(alerts) || alerts.length === 0)) {
           return `<div class="service-alerts-state service-alerts-state--loading">Loading service alerts…</div>`;
         }
-        if (serviceAlertsError) {
-          return `<div class="service-alerts-state service-alerts-state--error">${escapeHtml(serviceAlertsError)}</div>`;
+        if (errorMessage && (!Array.isArray(alerts) || alerts.length === 0)) {
+          return `<div class="service-alerts-state service-alerts-state--error">${escapeHtml(errorMessage)}</div>`;
         }
-        if (!Array.isArray(serviceAlerts) || serviceAlerts.length === 0) {
+        if (!Array.isArray(alerts) || alerts.length === 0) {
           return '';
         }
-        const itemsHtml = serviceAlerts.map(renderServiceAlertItem).filter(Boolean).join('');
+        const itemsHtml = alerts.map(renderServiceAlertItem).filter(Boolean).join('');
         if (!itemsHtml) {
           return '';
         }
@@ -5052,13 +5157,13 @@
       function renderServiceAlertsSectionHtml() {
         const buttonClasses = ['pill-button', 'service-alerts-toggle'];
         if (serviceAlertsExpanded) buttonClasses.push('is-expanded');
-        if (serviceAlertsLoading) buttonClasses.push('is-loading');
-        if (serviceAlertsError) buttonClasses.push('has-error');
+        if (isAnyServiceAlertsLoading()) buttonClasses.push('is-loading');
+        if (getCombinedServiceAlertsError()) buttonClasses.push('has-error');
         if (getActiveServiceAlertCount() > 0) buttonClasses.push('has-active-alerts');
         const panelClasses = ['service-alerts-panel'];
         if (serviceAlertsExpanded) panelClasses.push('is-expanded');
-        if (serviceAlertsLoading) panelClasses.push('is-loading');
-        if (serviceAlertsError) panelClasses.push('has-error');
+        if (isAnyServiceAlertsLoading()) panelClasses.push('is-loading');
+        if (getCombinedServiceAlertsError()) panelClasses.push('has-error');
         const panelContentHtml = renderServiceAlertsPanelContentHtml();
         const panelHasContent = typeof panelContentHtml === 'string' && panelContentHtml.trim().length > 0;
         if (!panelHasContent) panelClasses.push('is-empty');
@@ -5084,8 +5189,8 @@
         if (!button) return;
         button.setAttribute('aria-expanded', serviceAlertsExpanded ? 'true' : 'false');
         button.classList.toggle('is-expanded', !!serviceAlertsExpanded);
-        button.classList.toggle('is-loading', !!serviceAlertsLoading);
-        button.classList.toggle('has-error', !!serviceAlertsError);
+        button.classList.toggle('is-loading', isAnyServiceAlertsLoading());
+        button.classList.toggle('has-error', !!getCombinedServiceAlertsError());
         button.classList.toggle('has-active-alerts', getActiveServiceAlertCount() > 0);
         const statusEl = button.querySelector('.service-alerts-toggle__status');
         if (statusEl) {
@@ -5110,10 +5215,10 @@
           }
         }
         panel.classList.toggle('is-expanded', !!serviceAlertsExpanded);
-        panel.classList.toggle('is-loading', !!serviceAlertsLoading);
-        panel.classList.toggle('has-error', !!serviceAlertsError);
+        panel.classList.toggle('is-loading', isAnyServiceAlertsLoading());
+        panel.classList.toggle('has-error', !!getCombinedServiceAlertsError());
         const panelHasContent = typeof panel.innerHTML === 'string' && panel.innerHTML.trim().length > 0;
-        panel.classList.toggle('is-empty', !panelHasContent && !serviceAlertsLoading && !serviceAlertsError);
+        panel.classList.toggle('is-empty', !panelHasContent && !isAnyServiceAlertsLoading() && !getCombinedServiceAlertsError());
       }
 
       function updateServiceAlertsPanelContent() {
@@ -5126,7 +5231,8 @@
       }
 
       function refreshServiceAlertsUI() {
-        if (serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && getActiveServiceAlertCount() === 0) {
+        const hasVisibleAlerts = getVisibleServiceAlerts().length > 0;
+        if (serviceAlertsExpanded && !hasVisibleAlerts && !isAnyServiceAlertsLoading() && !getCombinedServiceAlertsError() && (serviceAlertsHasLoaded || (catOverlayEnabled && !catServiceAlertsLoading))) {
           serviceAlertsExpanded = false;
         }
         updateServiceAlertsButtonState();
@@ -5240,8 +5346,10 @@
         if (event && typeof event.preventDefault === 'function') {
           event.preventDefault();
         }
-        const hasActiveAlerts = getActiveServiceAlertCount() > 0;
-        if (!serviceAlertsExpanded && serviceAlertsHasLoaded && !serviceAlertsLoading && !serviceAlertsError && !hasActiveAlerts) {
+        const hasVisibleAlerts = getVisibleServiceAlerts().length > 0;
+        const loading = isAnyServiceAlertsLoading();
+        const errorMessage = getCombinedServiceAlertsError();
+        if (!serviceAlertsExpanded && !hasVisibleAlerts && !loading && !errorMessage && (serviceAlertsHasLoaded || (catOverlayEnabled && !catServiceAlertsLoading))) {
           return;
         }
         serviceAlertsExpanded = !serviceAlertsExpanded;
@@ -5399,6 +5507,11 @@
                 </select>
               </div>
             </div>
+            <div class="selector-group">
+              <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
+                Show CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
+              </button>
+            </div>
         `;
         html += serviceAlertsSectionHtml;
         html += incidentAlertsHtml;
@@ -5432,6 +5545,7 @@
         `;
 
         panel.innerHTML = html;
+        updateCatToggleButtonState();
         initializeRadarControls();
         updateDisplayModeButtons();
         updateTrainToggleButton();
@@ -6250,6 +6364,12 @@
           if (busesPane) {
               busesPane.style.zIndex = 500;
               busesPane.style.pointerEvents = 'auto';
+          }
+          map.createPane(catVehiclesPaneName);
+          const catPane = map.getPane(catVehiclesPaneName);
+          if (catPane) {
+              catPane.style.zIndex = 505;
+              catPane.style.pointerEvents = 'auto';
           }
           map.createPane('incidentHalosPane');
           const incidentHalosPane = map.getPane('incidentHalosPane');
@@ -8735,6 +8855,653 @@
               return vehicleHeadingCache;
           })();
           return vehicleHeadingCachePromise;
+      }
+
+      function toggleCatOverlay() {
+          if (catOverlayEnabled) {
+              disableCatOverlay();
+          } else {
+              enableCatOverlay();
+          }
+      }
+
+      function enableCatOverlay() {
+          catOverlayEnabled = true;
+          ensureCatLayerGroup();
+          updateCatToggleButtonState();
+          refreshServiceAlertsUI();
+          fetchCatRoutes().catch(error => console.error('Failed to fetch CAT routes:', error));
+          fetchCatStops().catch(error => console.error('Failed to fetch CAT stops:', error));
+          fetchCatVehicles().catch(error => console.error('Failed to fetch CAT vehicles:', error));
+          fetchCatServiceAlerts().catch(error => console.error('Failed to fetch CAT service alerts:', error));
+          startCatRefreshIntervals();
+      }
+
+      function disableCatOverlay() {
+          catOverlayEnabled = false;
+          stopCatRefreshIntervals();
+          clearCatVehicleMarkers();
+          if (catLayerGroup && map && map.hasLayer(catLayerGroup)) {
+              map.removeLayer(catLayerGroup);
+          }
+          catServiceAlerts = [];
+          catServiceAlertsLoading = false;
+          catServiceAlertsError = null;
+          catServiceAlertsFetchPromise = null;
+          catServiceAlertsLastFetchTime = 0;
+          updateCatToggleButtonState();
+          refreshServiceAlertsUI();
+      }
+
+      function ensureCatLayerGroup() {
+          if (!map) {
+              return null;
+          }
+          if (!catLayerGroup) {
+              catLayerGroup = L.layerGroup();
+          }
+          if (!map.hasLayer(catLayerGroup)) {
+              catLayerGroup.addTo(map);
+          }
+          return catLayerGroup;
+      }
+
+      function startCatRefreshIntervals() {
+          stopCatRefreshIntervals();
+          if (!catOverlayEnabled) {
+              return;
+          }
+          catRefreshIntervals.push(setInterval(() => {
+              fetchCatVehicles().catch(error => console.error('Failed to refresh CAT vehicles:', error));
+          }, CAT_VEHICLE_FETCH_INTERVAL_MS));
+          catRefreshIntervals.push(setInterval(() => {
+              fetchCatRoutes().catch(error => console.error('Failed to refresh CAT routes:', error));
+              fetchCatStops().catch(error => console.error('Failed to refresh CAT stops:', error));
+          }, CAT_METADATA_REFRESH_INTERVAL_MS));
+          catRefreshIntervals.push(setInterval(() => {
+              fetchCatServiceAlerts().catch(error => console.error('Failed to refresh CAT service alerts:', error));
+          }, CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS));
+      }
+
+      function stopCatRefreshIntervals() {
+          if (Array.isArray(catRefreshIntervals)) {
+              catRefreshIntervals.forEach(intervalId => clearInterval(intervalId));
+          }
+          catRefreshIntervals = [];
+      }
+
+      function catRouteKey(routeId) {
+          if (routeId === undefined || routeId === null) {
+              return '';
+          }
+          return `${routeId}`.trim();
+      }
+
+      function catStopKey(stopId) {
+          if (stopId === undefined || stopId === null) {
+              return '';
+          }
+          return `${stopId}`.trim();
+      }
+
+      function toNonEmptyString(value) {
+          if (value === undefined || value === null) {
+              return '';
+          }
+          const text = `${value}`.trim();
+          return text;
+      }
+
+      function toNumberOrNull(value) {
+          const num = Number(value);
+          return Number.isFinite(num) ? num : null;
+      }
+
+      function getFirstDefined(source, keys) {
+          if (!source || typeof source !== 'object' || !Array.isArray(keys)) {
+              return undefined;
+          }
+          for (const key of keys) {
+              if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined && source[key] !== null) {
+                  return source[key];
+              }
+          }
+          return undefined;
+      }
+
+      function extractCatArray(root, candidateKeys = []) {
+          if (Array.isArray(root)) {
+              return root;
+          }
+          if (!root || typeof root !== 'object') {
+              return [];
+          }
+          for (const key of candidateKeys) {
+              const value = root[key];
+              if (Array.isArray(value)) {
+                  return value;
+              }
+          }
+          const fallbackKeys = ['data', 'Data', 'result', 'Result', 'results', 'Results', 'items', 'Items', 'values', 'Values'];
+          for (const key of fallbackKeys) {
+              const value = root[key];
+              if (Array.isArray(value)) {
+                  return value;
+              }
+          }
+          return [];
+      }
+
+      function normalizeCatRoute(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'ID', 'Id', 'id']);
+          const idKey = catRouteKey(rawId);
+          if (!idKey) {
+              return null;
+          }
+          const numericId = toNumberOrNull(rawId);
+          const colorValue = getFirstDefined(entry, ['Color', 'RouteColor', 'RouteHexColor', 'HexColor', 'DisplayColor', 'MapColor', 'RGB']);
+          const color = sanitizeCssColor(colorValue) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          const shortName = toNonEmptyString(getFirstDefined(entry, ['RouteAbbreviation', 'routeAbbreviation', 'RouteShortName', 'routeShortName', 'ShortName', 'shortName']));
+          const longName = toNonEmptyString(getFirstDefined(entry, ['RouteName', 'routeName', 'Description', 'description', 'LongName', 'longName']));
+          const displayName = shortName || longName || `Route ${idKey}`;
+          return {
+              id: numericId,
+              idKey,
+              color,
+              shortName,
+              longName,
+              displayName
+          };
+      }
+
+      function normalizeCatRoutes(root) {
+          const entries = extractCatArray(root, ['routes', 'Routes']);
+          const routes = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatRoute(entry);
+              if (normalized) {
+                  routes.push(normalized);
+              }
+          });
+          return routes;
+      }
+
+      async function fetchCatRoutes(force = false) {
+          if (!catOverlayEnabled && !force) {
+              return [];
+          }
+          const now = Date.now();
+          if (!force && catRoutesById.size > 0 && (now - catRoutesLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
+              return Array.from(catRoutesById.values());
+          }
+          const params = new URLSearchParams({ service: 'get_routes', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const routes = normalizeCatRoutes(payload);
+              if (!catOverlayEnabled && !force) {
+                  return routes;
+              }
+              catRoutesById.clear();
+              routes.forEach(route => {
+                  catRoutesById.set(route.idKey, route);
+                  catRoutesById.set(`${route.idKey}`, route);
+                  if (Number.isFinite(route.id)) {
+                      catRoutesById.set(`${route.id}`, route);
+                  }
+              });
+              catRoutesLastFetchTime = now;
+              return routes;
+          } catch (error) {
+              console.error('Failed to fetch CAT routes:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatStop(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawId = getFirstDefined(entry, ['StopID', 'stopID', 'StopId', 'stopId', 'ID', 'Id', 'id']);
+          const idKey = catStopKey(rawId);
+          if (!idKey) {
+              return null;
+          }
+          const name = toNonEmptyString(getFirstDefined(entry, ['StopName', 'stopName', 'Name', 'name', 'Description', 'description'])) || `Stop ${idKey}`;
+          const lat = toNumberOrNull(getFirstDefined(entry, ['Latitude', 'latitude', 'Lat', 'lat']));
+          const lon = toNumberOrNull(getFirstDefined(entry, ['Longitude', 'longitude', 'Lon', 'lon', 'Lng', 'lng']));
+          return {
+              id: idKey,
+              rawId,
+              name,
+              latitude: lat,
+              longitude: lon
+          };
+      }
+
+      function normalizeCatStops(root) {
+          const entries = extractCatArray(root, ['stops', 'Stops']);
+          const stops = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatStop(entry);
+              if (normalized) {
+                  stops.push(normalized);
+              }
+          });
+          return stops;
+      }
+
+      async function fetchCatStops(force = false) {
+          if (!catOverlayEnabled && !force) {
+              return [];
+          }
+          const now = Date.now();
+          if (!force && catStopsById.size > 0 && (now - catStopsLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
+              return Array.from(catStopsById.values());
+          }
+          const params = new URLSearchParams({ service: 'get_stops', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const stops = normalizeCatStops(payload);
+              if (!catOverlayEnabled && !force) {
+                  return stops;
+              }
+              catStopsById.clear();
+              stops.forEach(stop => {
+                  catStopsById.set(stop.id, stop);
+              });
+              catStopsLastFetchTime = now;
+              return stops;
+          } catch (error) {
+              console.error('Failed to fetch CAT stops:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatEta(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawStopId = getFirstDefined(entry, ['StopID', 'stopID', 'StopId', 'stopId', 'Stop', 'stop']);
+          const stopId = catStopKey(rawStopId);
+          const stopInfo = stopId ? catStopsById.get(stopId) : null;
+          const stopName = toNonEmptyString(getFirstDefined(entry, ['StopName', 'stopName', 'Name', 'name', 'Description', 'description'])) || (stopInfo ? stopInfo.name : '');
+          let minutes = toNumberOrNull(getFirstDefined(entry, ['Minutes', 'minutes', 'Min', 'min', 'EtaMinutes', 'etaMinutes']));
+          const seconds = toNumberOrNull(getFirstDefined(entry, ['Seconds', 'seconds', 'Sec', 'sec', 'EtaSeconds', 'etaSeconds']));
+          if (!Number.isFinite(minutes) && Number.isFinite(seconds)) {
+              minutes = seconds / 60;
+          }
+          let text = toNonEmptyString(getFirstDefined(entry, ['DisplayTime', 'displayTime', 'Display', 'display', 'Text', 'text', 'Formatted', 'formatted']));
+          if (!text) {
+              if (Number.isFinite(minutes)) {
+                  const rounded = Math.max(0, Math.round(minutes));
+                  text = rounded <= 0 ? 'Due' : `${rounded} min`;
+              } else if (Number.isFinite(seconds)) {
+                  const roundedSeconds = Math.max(0, Math.round(seconds));
+                  text = roundedSeconds <= 30 ? 'Due' : `${Math.round(roundedSeconds / 60)} min`;
+              }
+          }
+          if (!text) {
+              const fallbackTime = toNonEmptyString(getFirstDefined(entry, ['Time', 'time', 'ArrivalTime', 'arrivalTime', 'Scheduled', 'scheduled']));
+              if (fallbackTime) {
+                  text = fallbackTime;
+              }
+          }
+          return {
+              stopId,
+              stopName,
+              minutes: Number.isFinite(minutes) ? minutes : null,
+              seconds: Number.isFinite(seconds) ? seconds : null,
+              text: text || ''
+          };
+      }
+
+      function normalizeCatEtas(root) {
+          const entries = extractCatArray(root, ['ETAs', 'etas', 'Eta', 'eta', 'Predictions', 'predictions']);
+          const etas = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatEta(entry);
+              if (normalized) {
+                  etas.push(normalized);
+              }
+          });
+          return etas;
+      }
+
+      function normalizeCatVehicle(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const rawId = getFirstDefined(entry, ['VehicleID', 'vehicleID', 'VehicleId', 'vehicleId', 'ID', 'Id', 'id', 'Name', 'name']);
+          const vehicleId = toNonEmptyString(rawId);
+          if (!vehicleId) {
+              return null;
+          }
+          const latitude = toNumberOrNull(getFirstDefined(entry, ['Latitude', 'latitude', 'Lat', 'lat']));
+          const longitude = toNumberOrNull(getFirstDefined(entry, ['Longitude', 'longitude', 'Lon', 'lon', 'Lng', 'lng']));
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+              return null;
+          }
+          const heading = toNumberOrNull(getFirstDefined(entry, ['Heading', 'heading', 'Direction', 'direction']));
+          const speed = toNumberOrNull(getFirstDefined(entry, ['Speed', 'speed', 'Velocity', 'velocity', 'GpsSpeed', 'GPSSpeed', 'GroundSpeed', 'groundSpeed']));
+          const rawRouteId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'Route', 'route']);
+          const routeKey = catRouteKey(rawRouteId);
+          const routeAbbrev = toNonEmptyString(getFirstDefined(entry, ['RouteAbbreviation', 'routeAbbreviation', 'RouteShortName', 'routeShortName', 'ShortName', 'shortName']));
+          const routeName = toNonEmptyString(getFirstDefined(entry, ['RouteName', 'routeName', 'Description', 'description']));
+          const displayName = toNonEmptyString(getFirstDefined(entry, ['VehicleName', 'vehicleName', 'Name', 'name', 'Label', 'label'])) || `Vehicle ${vehicleId}`;
+          const etas = normalizeCatEtas(getFirstDefined(entry, ['ETAs', 'etas', 'Eta', 'eta', 'Predictions', 'predictions']));
+          return {
+              id: vehicleId,
+              latitude,
+              longitude,
+              heading,
+              speed,
+              routeKey,
+              routeId: rawRouteId,
+              routeAbbrev,
+              routeName,
+              displayName,
+              etas
+          };
+      }
+
+      function normalizeCatVehicles(root) {
+          const entries = extractCatArray(root, ['vehicles', 'Vehicles']);
+          const vehicles = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatVehicle(entry);
+              if (normalized) {
+                  vehicles.push(normalized);
+              }
+          });
+          return vehicles;
+      }
+
+      function getCatRouteInfo(routeKey) {
+          if (!routeKey) {
+              return null;
+          }
+          const key = `${routeKey}`.trim();
+          if (catRoutesById.has(key)) {
+              return catRoutesById.get(key);
+          }
+          if (Number.isFinite(Number(routeKey))) {
+              const numericKey = `${Number(routeKey)}`;
+              return catRoutesById.get(numericKey) || null;
+          }
+          return null;
+      }
+
+      function getCatRouteColor(routeKey) {
+          const routeInfo = getCatRouteInfo(routeKey);
+          if (routeInfo && routeInfo.color) {
+              return routeInfo.color;
+          }
+          return CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+      }
+
+      function buildCatVehicleIcon(vehicle) {
+          const color = sanitizeCssColor(getCatRouteColor(vehicle.routeKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          const label = vehicle.routeAbbrev || getCatRouteInfo(vehicle.routeKey)?.shortName || getCatRouteInfo(vehicle.routeKey)?.displayName || vehicle.routeName || vehicle.id || CAT_VEHICLE_MARKER_MIN_LABEL;
+          const safeColor = escapeAttribute(color);
+          const safeLabel = escapeHtml(label || CAT_VEHICLE_MARKER_MIN_LABEL);
+          const html = `<div class="cat-vehicle-marker" style="--cat-marker-color:${safeColor};"><span class="cat-vehicle-marker__label">${safeLabel}</span></div>`;
+          return L.divIcon({ className: 'cat-vehicle-icon', html, iconSize: [38, 38], iconAnchor: [19, 19] });
+      }
+
+      function buildCatVehicleTooltip(vehicle) {
+          const parts = [];
+          const headerPieces = [];
+          const routeInfo = getCatRouteInfo(vehicle.routeKey);
+          const routeLabel = vehicle.routeAbbrev || routeInfo?.shortName || routeInfo?.displayName || vehicle.routeName;
+          if (routeLabel) {
+              headerPieces.push(routeLabel);
+          }
+          if (vehicle.displayName && vehicle.displayName !== routeLabel) {
+              headerPieces.push(vehicle.displayName);
+          }
+          if (headerPieces.length) {
+              parts.push(`<strong>${escapeHtml(headerPieces.join(' • '))}</strong>`);
+          }
+          const etaLines = [];
+          const etas = Array.isArray(vehicle.etas) ? vehicle.etas.slice(0, CAT_MAX_TOOLTIP_ETAS) : [];
+          etas.forEach(eta => {
+              const stopLabel = eta.stopName || (eta.stopId ? `Stop ${eta.stopId}` : 'Stop');
+              const text = eta.text || (Number.isFinite(eta.minutes) ? `${Math.max(0, Math.round(eta.minutes))} min` : 'Scheduled');
+              etaLines.push(`<span>${escapeHtml(stopLabel)}: ${escapeHtml(text)}</span>`);
+          });
+          if (etaLines.length) {
+              parts.push(`<div class="cat-vehicle-tooltip__etas">${etaLines.join('')}</div>`);
+          } else {
+              parts.push(`<span>${escapeHtml('No upcoming ETAs')}</span>`);
+          }
+          return parts.join('');
+      }
+
+      function clearCatVehicleMarkers() {
+          catVehicleMarkers.forEach(marker => {
+              if (catLayerGroup) {
+                  catLayerGroup.removeLayer(marker);
+              }
+              if (marker && typeof marker.remove === 'function') {
+                  marker.remove();
+              }
+          });
+          catVehicleMarkers.clear();
+      }
+
+      function updateCatVehicleMarkers(vehicles) {
+          if (!catOverlayEnabled) {
+              return;
+          }
+          const layerGroup = ensureCatLayerGroup();
+          if (!layerGroup) {
+              return;
+          }
+          const seen = new Set();
+          vehicles.forEach(vehicle => {
+              const key = `cat-${vehicle.id}`;
+              if (!key) {
+                  return;
+              }
+              seen.add(key);
+              const icon = buildCatVehicleIcon(vehicle);
+              let marker = catVehicleMarkers.get(key);
+              if (!marker) {
+                  marker = L.marker([vehicle.latitude, vehicle.longitude], { icon, pane: catVehiclesPaneName, keyboard: false });
+                  marker.addTo(layerGroup);
+                  catVehicleMarkers.set(key, marker);
+              } else {
+                  marker.setLatLng([vehicle.latitude, vehicle.longitude]);
+                  marker.setIcon(icon);
+                  if (!layerGroup.hasLayer(marker)) {
+                      layerGroup.addLayer(marker);
+                  }
+              }
+              const tooltipHtml = buildCatVehicleTooltip(vehicle);
+              const existingTooltip = marker.getTooltip && marker.getTooltip();
+              if (tooltipHtml) {
+                  if (existingTooltip) {
+                      existingTooltip.setContent(tooltipHtml);
+                  } else {
+                      marker.bindTooltip(tooltipHtml, { direction: 'top', offset: [0, -26], className: 'cat-vehicle-tooltip' });
+                  }
+              } else if (existingTooltip) {
+                  marker.unbindTooltip();
+              }
+          });
+          catVehicleMarkers.forEach((marker, key) => {
+              if (!seen.has(key)) {
+                  if (layerGroup && layerGroup.hasLayer(marker)) {
+                      layerGroup.removeLayer(marker);
+                  }
+                  if (marker && typeof marker.remove === 'function') {
+                      marker.remove();
+                  }
+                  catVehicleMarkers.delete(key);
+              }
+          });
+      }
+
+      async function fetchCatVehicles() {
+          if (!catOverlayEnabled) {
+              return [];
+          }
+          const params = new URLSearchParams({
+              service: 'get_vehicles',
+              token: CAT_API_TOKEN,
+              includeETAData: '1',
+              inService: '1',
+              orderedETAArray: '1'
+          });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const vehicles = normalizeCatVehicles(payload);
+              updateCatVehicleMarkers(vehicles);
+              return vehicles;
+          } catch (error) {
+              console.error('Failed to fetch CAT vehicles:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatServiceAlert(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+          const id = toNonEmptyString(getFirstDefined(entry, ['ID', 'Id', 'id', 'AlertID', 'alertID', 'alertId', 'Guid', 'guid']));
+          const title = toNonEmptyString(getFirstDefined(entry, ['Title', 'title', 'Name', 'name', 'Headline', 'headline'])) || 'Service Alert';
+          const message = toNonEmptyString(getFirstDefined(entry, ['Message', 'message', 'Description', 'description', 'Details', 'details']));
+          const routesRaw = getFirstDefined(entry, ['Routes', 'routes', 'Route', 'route', 'RouteNames', 'routeNames']);
+          let routes = [];
+          if (Array.isArray(routesRaw)) {
+              routes = routesRaw.map(value => toNonEmptyString(value)).filter(Boolean);
+          } else if (typeof routesRaw === 'string') {
+              routes = routesRaw.split(/[,;]+/).map(part => part.trim()).filter(Boolean);
+          }
+          const startRaw = toNonEmptyString(getFirstDefined(entry, ['StartDate', 'startDate', 'Start', 'start', 'Effective', 'effective', 'EffectiveDate', 'effectiveDate']));
+          const endRaw = toNonEmptyString(getFirstDefined(entry, ['EndDate', 'endDate', 'End', 'end', 'Expiration', 'expiration', 'Expires', 'expires']));
+          const isActiveField = getFirstDefined(entry, ['IsActive', 'isActive', 'Active', 'active', 'Status', 'status']);
+          let isActive = undefined;
+          if (typeof isActiveField === 'string') {
+              isActive = !/^false$/i.test(isActiveField) && !/^inactive$/i.test(isActiveField);
+          } else if (typeof isActiveField === 'boolean') {
+              isActive = isActiveField;
+          } else if (typeof isActiveField === 'number') {
+              isActive = isActiveField !== 0;
+          }
+          if (isActive === undefined && endRaw) {
+              const endTime = Date.parse(endRaw);
+              if (Number.isFinite(endTime)) {
+                  isActive = endTime > Date.now();
+              }
+          }
+          return {
+              id,
+              title,
+              message,
+              routes,
+              startDisplay: startRaw || '',
+              startRaw,
+              endDisplay: endRaw || '',
+              endRaw,
+              isActive: isActive !== undefined ? !!isActive : true
+          };
+      }
+
+      function normalizeCatServiceAlerts(root) {
+          const entries = extractCatArray(root, ['announcements', 'Announcements', 'alerts', 'Alerts']);
+          const alerts = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatServiceAlert(entry);
+              if (normalized) {
+                  alerts.push(normalized);
+              }
+          });
+          return alerts;
+      }
+
+      async function fetchCatServiceAlerts() {
+          if (!catOverlayEnabled) {
+              return [];
+          }
+          if (catServiceAlertsFetchPromise) {
+              return catServiceAlertsFetchPromise;
+          }
+          const now = Date.now();
+          if (catServiceAlerts.length > 0 && (now - catServiceAlertsLastFetchTime) < CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS) {
+              return catServiceAlerts;
+          }
+          catServiceAlertsLoading = true;
+          catServiceAlertsError = null;
+          refreshServiceAlertsUI();
+          const params = new URLSearchParams({ service: 'get_service_announcements', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          const requestPromise = (async () => {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              return normalizeCatServiceAlerts(payload);
+          })();
+          catServiceAlertsFetchPromise = requestPromise;
+          try {
+              const alerts = await requestPromise;
+              if (!catOverlayEnabled) {
+                  return alerts;
+              }
+              catServiceAlerts = alerts;
+              catServiceAlertsError = null;
+              catServiceAlertsLoading = false;
+              catServiceAlertsLastFetchTime = Date.now();
+              refreshServiceAlertsUI();
+              return alerts;
+          } catch (error) {
+              console.error('Failed to fetch CAT service alerts:', error);
+              if (catOverlayEnabled) {
+                  catServiceAlerts = [];
+                  catServiceAlertsError = CAT_SERVICE_ALERT_UNAVAILABLE_MESSAGE;
+                  catServiceAlertsLoading = false;
+                  catServiceAlertsLastFetchTime = Date.now();
+                  refreshServiceAlertsUI();
+              }
+              return [];
+          } finally {
+              if (catServiceAlertsFetchPromise === requestPromise) {
+                  catServiceAlertsFetchPromise = null;
+              }
+          }
+      }
+
+      function updateCatToggleButtonState() {
+          const button = document.getElementById('catToggleButton');
+          if (!button) {
+              return;
+          }
+          button.classList.toggle('is-active', !!catOverlayEnabled);
+          button.setAttribute('aria-pressed', catOverlayEnabled ? 'true' : 'false');
+          const indicator = button.querySelector('.toggle-indicator');
+          if (indicator) {
+              indicator.textContent = catOverlayEnabled ? 'On' : 'Off';
+          }
       }
 
       function ensureBusMarkerState(vehicleID) {
