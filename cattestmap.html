@@ -10355,6 +10355,9 @@
           });
           catActiveRouteKeys = activeKeys;
           renderCatRoutes();
+          if (catOverlayEnabled) {
+              renderBusStops(stopDataCache);
+          }
       }
 
       function renderCatVehiclesUsingCache() {
