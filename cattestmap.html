@@ -8615,7 +8615,18 @@
                       }
                       evaluateIncidentRouteAlerts();
                       updateRouteSelector(activeRoutes);
-                      stopMarkers.forEach(stopMarker => stopMarker.bringToFront());
+                      stopMarkers.forEach(stopMarker => {
+                          if (!stopMarker) {
+                              return;
+                          }
+                          if (typeof stopMarker.bringToFront === 'function') {
+                              stopMarker.bringToFront();
+                              return;
+                          }
+                          if (typeof stopMarker.setZIndexOffset === 'function') {
+                              stopMarker.setZIndexOffset(1000);
+                          }
+                      });
                   }
                   updateRouteLegend(Array.from(displayedRoutes.values()), { preserveOnEmpty: true });
               })
