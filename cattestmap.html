@@ -2358,6 +2358,9 @@
       let catStopsLastFetchTime = 0;
       const catRoutePatternGeometries = new Map();
       const catRoutePatternLayers = new Map();
+      const catOverlapPatternIdMap = new Map();
+      const catOverlapInfoByNumericId = new Map();
+      let nextCatOverlapNumericId = 1000000;
       let catRoutePatternsLastFetchTime = 0;
       let catRoutePatternsCache = [];
       let catVehiclesPaneName = 'catVehiclesPane';
@@ -4159,6 +4162,9 @@
       let refreshIntervals = [];
 
       let overlapRenderer = null;
+
+      let currentTranslocRendererGeometries = new Map();
+      let currentTranslocSelectedRouteIds = [];
 
       let activeAgencyLoadCount = 0;
 
@@ -6453,6 +6459,9 @@
         if (overlapRenderer) {
           overlapRenderer.reset();
         }
+        currentTranslocRendererGeometries = new Map();
+        currentTranslocSelectedRouteIds = [];
+        resetCatOverlapRenderingState();
         busBlocks = {};
         previousBusData = {};
         cachedEtas = {};
@@ -6483,6 +6492,20 @@
 
       function getRouteColor(routeID) {
         if (routeID === 0) return outOfServiceRouteColor;
+        const numeric = Number(routeID);
+        if (!Number.isNaN(numeric) && isCatOverlapRouteId(numeric)) {
+          const info = catOverlapInfoByNumericId.get(numeric);
+          if (info && info.color) {
+            return info.color;
+          }
+          if (info && info.routeKey) {
+            const fallbackColor = sanitizeCssColor(getCatRouteColor(info.routeKey));
+            if (fallbackColor) {
+              return fallbackColor;
+            }
+          }
+          return CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+        }
         return routeColors[routeID] || '#000000';
       }
 
@@ -8563,10 +8586,12 @@
                       });
 
                       const selectedRouteIdsSorted = selectedRouteIds.slice().sort((a, b) => a - b);
+                      currentTranslocSelectedRouteIds = selectedRouteIdsSorted.slice();
+                      currentTranslocRendererGeometries = new Map(rendererGeometries);
                       const selectionKey = selectedRouteIdsSorted.join('|');
                       const colorSignature = selectedRouteIdsSorted.map(id => `${id}:${getRouteColor(id)}`).join('|');
                       const geometrySignature = selectedRouteIdsSorted
-                          .map(id => `${id}:${routePolylineCache.get(id)?.encoded || ''}`)
+                          .map(id => `${id}:${getRouteGeometrySignature(id, rendererGeometries)}`)
                           .join('|');
                       const rendererFlag = !!useOverlapRenderer;
 
@@ -8577,15 +8602,13 @@
                         geometrySignature !== lastRouteRenderState.geometrySignature ||
                         geometryChanged;
 
-                      if (shouldRender) {
+                      if (useOverlapRenderer) {
+                          updateOverlapRendererWithCatRoutes();
+                      } else if (shouldRender) {
                           routeLayers.forEach(layer => map.removeLayer(layer));
                           routeLayers = [];
-                          if (useOverlapRenderer) {
-                              const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted);
-                              routeLayers = layers;
-                          } else {
-                              const currentStrokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
-                              simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
+                          const currentStrokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
+                          simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
                               const routeLayer = L.polyline(latLngPath, mergeRouteLayerOptions({
                                       color: routeColor,
                                       weight: currentStrokeWeight,
@@ -8594,16 +8617,17 @@
                                       lineJoin: 'round'
                                   })).addTo(map);
                                   routeLayers.push(routeLayer);
-                              });
-                          }
+                          });
                       }
 
-                      lastRouteRenderState = {
-                          selectionKey,
-                          colorSignature,
-                          geometrySignature,
-                          useOverlapRenderer: rendererFlag
-                      };
+                      if (!rendererFlag) {
+                          lastRouteRenderState = {
+                              selectionKey,
+                              colorSignature,
+                              geometrySignature,
+                              useOverlapRenderer: rendererFlag
+                          };
+                      }
 
                       routeStopAddressMap = updatedRouteStopAddressMap;
                       routeStopRouteMap = updatedRouteStopRouteMap;
@@ -9056,9 +9080,13 @@
           catServiceAlertsError = null;
           catServiceAlertsFetchPromise = null;
           catServiceAlertsLastFetchTime = 0;
+          resetCatOverlapRenderingState();
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
           updateRouteSelector(activeRoutes, true);
+          if (enableOverlapDashRendering && overlapRenderer) {
+              updateOverlapRendererWithCatRoutes();
+          }
       }
 
       function ensureCatLayerGroup() {
@@ -9136,6 +9164,130 @@
               return '';
           }
           return `${stopId}`.trim();
+      }
+
+      function isCatOverlapRouteId(routeId) {
+          const numeric = Number(routeId);
+          if (Number.isNaN(numeric)) {
+              return false;
+          }
+          return catOverlapInfoByNumericId.has(numeric);
+      }
+
+      function resetCatOverlapRenderingState() {
+          catOverlapPatternIdMap.clear();
+          catOverlapInfoByNumericId.clear();
+          nextCatOverlapNumericId = 1000000;
+      }
+
+      function mergeNumericRouteIds(...lists) {
+          const merged = new Set();
+          lists.forEach(list => {
+              if (!Array.isArray(list)) {
+                  return;
+              }
+              list.forEach(id => {
+                  const numeric = Number(id);
+                  if (!Number.isNaN(numeric)) {
+                      merged.add(numeric);
+                  }
+              });
+          });
+          return Array.from(merged).sort((a, b) => a - b);
+      }
+
+      function buildLatLngSignature(latLngs) {
+          if (!Array.isArray(latLngs) || latLngs.length === 0) {
+              return '';
+          }
+          const parts = [];
+          const limit = Math.min(latLngs.length, 256);
+          for (let i = 0; i < limit; i += 1) {
+              const point = latLngs[i];
+              if (!point) {
+                  continue;
+              }
+              const lat = Number(point.lat ?? point.latitude ?? (Array.isArray(point) ? point[0] : null));
+              const lng = Number(point.lng ?? point.lon ?? point.longitude ?? (Array.isArray(point) ? point[1] : null));
+              if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                  continue;
+              }
+              parts.push(`${lat.toFixed(6)},${lng.toFixed(6)}`);
+          }
+          return parts.join(';');
+      }
+
+      function ensureCatOverlapPatternEntry(patternKey, geometry) {
+          if (!patternKey || !geometry) {
+              return null;
+          }
+          let numericId = catOverlapPatternIdMap.get(patternKey);
+          if (!Number.isFinite(numericId)) {
+              numericId = nextCatOverlapNumericId;
+              nextCatOverlapNumericId += 1;
+              catOverlapPatternIdMap.set(patternKey, numericId);
+          }
+          const normalizedRouteKey = catRouteKey(geometry.routeKey);
+          const color = sanitizeCssColor(geometry.color)
+              || sanitizeCssColor(getCatRouteColor(normalizedRouteKey))
+              || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+          const encoded = typeof geometry.encoded === 'string' ? geometry.encoded : '';
+          const latLngs = Array.isArray(geometry.latLngs) ? geometry.latLngs : [];
+          const geometrySignature = encoded || buildLatLngSignature(latLngs);
+          catOverlapInfoByNumericId.set(numericId, {
+              patternKey,
+              routeKey: normalizedRouteKey,
+              color,
+              geometrySignature,
+              encoded
+          });
+          return numericId;
+      }
+
+      function buildCatOverlapRendererData() {
+          const geometries = new Map();
+          const routeIds = [];
+          if (!catOverlayEnabled) {
+              return { geometries, routeIds };
+          }
+          catRoutePatternGeometries.forEach((geometry, patternKey) => {
+              if (!geometry || !Array.isArray(geometry.latLngs) || geometry.latLngs.length < 2) {
+                  return;
+              }
+              if (!isCatRouteVisible(geometry.routeKey)) {
+                  return;
+              }
+              const numericId = ensureCatOverlapPatternEntry(patternKey, geometry);
+              if (!Number.isFinite(numericId)) {
+                  return;
+              }
+              geometries.set(numericId, geometry.latLngs);
+              routeIds.push(numericId);
+          });
+          return {
+              geometries,
+              routeIds: mergeNumericRouteIds(routeIds)
+          };
+      }
+
+      function getRouteGeometrySignature(routeId, geometryMap = currentTranslocRendererGeometries) {
+          const numeric = Number(routeId);
+          if (!Number.isNaN(numeric) && routePolylineCache.has(numeric)) {
+              const cacheEntry = routePolylineCache.get(numeric);
+              if (cacheEntry && typeof cacheEntry.encoded === 'string') {
+                  return cacheEntry.encoded;
+              }
+          }
+          if (!Number.isNaN(numeric) && catOverlapInfoByNumericId.has(numeric)) {
+              const info = catOverlapInfoByNumericId.get(numeric);
+              if (info && info.geometrySignature) {
+                  return info.geometrySignature;
+              }
+          }
+          if (geometryMap instanceof Map && geometryMap.has(numeric)) {
+              return buildLatLngSignature(geometryMap.get(numeric));
+          }
+          return '';
       }
 
       function getUniqueCatRoutes() {
@@ -9675,6 +9827,11 @@
               });
               keysToRemove.forEach(key => {
                   catRoutePatternGeometries.delete(key);
+                  const numericId = catOverlapPatternIdMap.get(key);
+                  if (Number.isFinite(numericId)) {
+                      catOverlapPatternIdMap.delete(key);
+                      catOverlapInfoByNumericId.delete(numericId);
+                  }
               });
 
               catRoutePatternsLastFetchTime = now;
@@ -9965,6 +10122,14 @@
       function renderCatRoutes() {
           if (!catOverlayEnabled) {
               clearCatRouteLayers();
+              if (enableOverlapDashRendering && overlapRenderer) {
+                  updateOverlapRendererWithCatRoutes();
+              }
+              return;
+          }
+          if (enableOverlapDashRendering && overlapRenderer) {
+              clearCatRouteLayers();
+              updateOverlapRendererWithCatRoutes();
               return;
           }
           const layerGroup = ensureCatLayerGroup();
@@ -10050,6 +10215,50 @@
           updateCatVehicleCache(vehicles);
           renderCatVehiclesUsingCache();
           updateRouteSelector(activeRoutes);
+      }
+
+      function updateOverlapRendererWithCatRoutes() {
+          if (!enableOverlapDashRendering || !overlapRenderer) {
+              return;
+          }
+          const baseGeometries = currentTranslocRendererGeometries instanceof Map
+              ? new Map(currentTranslocRendererGeometries)
+              : new Map();
+          const baseRouteIds = Array.isArray(currentTranslocSelectedRouteIds)
+              ? currentTranslocSelectedRouteIds.slice()
+              : [];
+          const catData = buildCatOverlapRendererData();
+          catData.geometries.forEach((latLngs, routeId) => {
+              baseGeometries.set(routeId, latLngs);
+          });
+          const combinedRouteIds = mergeNumericRouteIds(baseRouteIds, catData.routeIds);
+          const selectionKey = combinedRouteIds.join('|');
+          const colorSignature = combinedRouteIds.map(id => `${id}:${getRouteColor(id)}`).join('|');
+          const geometrySignature = combinedRouteIds
+              .map(id => `${id}:${getRouteGeometrySignature(id, baseGeometries)}`)
+              .join('|');
+          const rendererFlag = true;
+          const shouldUpdate = routeLayers.length === 0
+              || !lastRouteRenderState.useOverlapRenderer
+              || lastRouteRenderState.selectionKey !== selectionKey
+              || lastRouteRenderState.colorSignature !== colorSignature
+              || lastRouteRenderState.geometrySignature !== geometrySignature;
+          if (!shouldUpdate) {
+              return;
+          }
+          routeLayers.forEach(layer => {
+              if (layer && map && typeof map.hasLayer === 'function' && map.hasLayer(layer)) {
+                  map.removeLayer(layer);
+              }
+          });
+          const layers = overlapRenderer.updateRoutes(baseGeometries, combinedRouteIds);
+          routeLayers = layers;
+          lastRouteRenderState = {
+              selectionKey,
+              colorSignature,
+              geometrySignature,
+              useOverlapRenderer: rendererFlag
+          };
       }
 
       async function fetchCatVehicles() {
