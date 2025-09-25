@@ -10156,7 +10156,7 @@
           if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
               return null;
           }
-          const heading = toNumberOrNull(getFirstDefined(entry, ['Heading', 'heading', 'Direction', 'direction']));
+          const heading = toNumberOrNull(getFirstDefined(entry, ['h', 'H', 'Heading', 'heading', 'Direction', 'direction']));
           const speed = toNumberOrNull(getFirstDefined(entry, ['Speed', 'speed', 'Velocity', 'velocity', 'GpsSpeed', 'GPSSpeed', 'GroundSpeed', 'groundSpeed']));
           const rawRouteId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'Route', 'route']);
           const routeKey = catRouteKey(rawRouteId);
