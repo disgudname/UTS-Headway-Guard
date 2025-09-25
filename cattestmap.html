@@ -2349,6 +2349,7 @@
       const catRoutesById = new Map();
       const catStopsById = new Map();
       const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
+      const CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID = 777;
       const catRouteSelections = new Map();
       let catActiveRouteKeys = new Set();
       const catVehiclesById = new Map();
@@ -5620,7 +5621,7 @@
           : new Set();
         const catRouteRenderData = catRoutesList.map(route => {
           const key = catRouteKey(route.idKey);
-          if (!key) {
+          if (!key || key === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
             return null;
           }
           const checked = getCatRouteSelectionState(key, activeCatRouteKeysSet);
@@ -9086,11 +9087,36 @@
           catRefreshIntervals = [];
       }
 
+      function isCatOutOfServiceRouteValue(value) {
+          if (value === undefined || value === null) {
+              return false;
+          }
+          const text = `${value}`.trim();
+          if (text === '') {
+              return false;
+          }
+          if (text === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return true;
+          }
+          const numeric = Number(text);
+          if (Number.isFinite(numeric) && numeric === CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID) {
+              return true;
+          }
+          return false;
+      }
+
       function catRouteKey(routeId) {
           if (routeId === undefined || routeId === null) {
               return '';
           }
-          return `${routeId}`.trim();
+          const text = `${routeId}`.trim();
+          if (text === '') {
+              return '';
+          }
+          if (isCatOutOfServiceRouteValue(text)) {
+              return CAT_OUT_OF_SERVICE_ROUTE_KEY;
+          }
+          return text;
       }
 
       function catStopKey(stopId) {
@@ -9107,7 +9133,7 @@
                   return;
               }
               const key = route.idKey ? `${route.idKey}`.trim() : '';
-              if (!key || unique.has(key)) {
+              if (!key || key === CAT_OUT_OF_SERVICE_ROUTE_KEY || unique.has(key)) {
                   return;
               }
               unique.set(key, route);
@@ -9137,6 +9163,9 @@
           const normalized = catRouteKey(routeKey);
           if (!normalized) {
               return false;
+          }
+          if (normalized === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return isOutOfServiceRouteVisible();
           }
           if (catRouteSelections.has(normalized)) {
               return !!catRouteSelections.get(normalized);
@@ -9169,7 +9198,7 @@
       }
 
       function isCatRouteVisible(routeKey, activeFallbackSet = catActiveRouteKeys) {
-          if (routeKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+          if (isCatOutOfServiceRouteValue(routeKey)) {
               return isOutOfServiceRouteVisible();
           }
           const normalized = catRouteKey(routeKey);
@@ -9255,7 +9284,7 @@
           }
           const rawId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'ID', 'Id', 'id']);
           const idKey = catRouteKey(rawId);
-          if (!idKey) {
+          if (!idKey || idKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
               return null;
           }
           const numericId = toNumberOrNull(rawId);
@@ -9308,6 +9337,9 @@
               }
               catRoutesById.clear();
               routes.forEach(route => {
+                  if (!route || route.idKey === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                      return;
+                  }
                   catRoutesById.set(route.idKey, route);
                   catRoutesById.set(`${route.idKey}`, route);
                   if (Number.isFinite(route.id)) {
@@ -9494,6 +9526,9 @@
               return null;
           }
           const key = `${routeKey}`.trim();
+          if (key === '' || key === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+              return null;
+          }
           if (catRoutesById.has(key)) {
               return catRoutesById.get(key);
           }
