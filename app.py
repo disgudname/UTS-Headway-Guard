@@ -70,6 +70,9 @@ VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "10"))
 ROUTE_REFRESH_S = int(os.getenv("ROUTE_REFRESH_S", "60"))
 BLOCK_REFRESH_S = int(os.getenv("BLOCK_REFRESH_S", "30"))
 STALE_FIX_S     = int(os.getenv("STALE_FIX_S", "90"))
+VEHICLE_STALE_THRESHOLD_S = int(
+    os.getenv("VEHICLE_STALE_THRESHOLD_S", str(60 * 60))
+)
 
 # Grace window to keep routes "active" despite brief data hiccups (prevents dispatcher flicker)
 ROUTE_GRACE_S   = int(os.getenv("ROUTE_GRACE_S", "60"))
@@ -1864,6 +1867,57 @@ async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]
     return await _fetch_transloc_blocks_for_base(base_url)
 
 
+def _coerce_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_epoch_seconds(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        candidate = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            candidate = float(text)
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00").replace("z", "+00:00"))
+            except ValueError:
+                return None
+            candidate = parsed.timestamp()
+    else:
+        return None
+    for _ in range(3):
+        if candidate > 1e11:
+            candidate /= 1000.0
+        else:
+            break
+    if candidate <= 0:
+        return None
+    return candidate
+
+
+def _vehicle_age_seconds(seconds_since_report: Any = None, timestamp: Any = None) -> Optional[float]:
+    seconds_val = _coerce_float(seconds_since_report)
+    if seconds_val is not None and seconds_val >= 0:
+        return seconds_val
+    epoch = _coerce_epoch_seconds(timestamp)
+    if epoch is None:
+        return None
+    age = time.time() - epoch
+    if age < 0:
+        return 0.0
+    return age
+
+
 async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, Any]:
     use_default = is_default_transloc_base(base_url)
     if use_default:
@@ -1902,7 +1956,8 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
             continue
         heading = rec.get("Heading")
         ground_speed = rec.get("GroundSpeed") or rec.get("Speed") or 0.0
-        seconds = rec.get("Seconds") or rec.get("SecondsSinceReport")
+        seconds_raw = rec.get("Seconds") or rec.get("SecondsSinceReport")
+        seconds = _coerce_float(seconds_raw)
         is_stale = False
         assigned_rec = assigned.get(vid)
         if assigned_rec:
@@ -1910,10 +1965,22 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
             veh = assigned_rec[1]
             heading = getattr(veh, "heading", heading)
             ground_speed = veh.ground_mps / MPH_TO_MPS
-            seconds = getattr(veh, "age_s", seconds)
-            is_stale = bool(seconds is not None and float(seconds) > STALE_FIX_S)
-        else:
-            is_stale = bool(seconds is not None and float(seconds) > STALE_FIX_S)
+            seconds = _coerce_float(getattr(veh, "age_s", seconds))
+        is_stale = bool(seconds is not None and seconds > STALE_FIX_S)
+        age_for_filter = _vehicle_age_seconds(
+            seconds_since_report=seconds if seconds is not None else seconds_raw,
+            timestamp=(
+                rec.get("LastUpdated")
+                or rec.get("LastUpdate")
+                or rec.get("Timestamp")
+                or rec.get("TimeStamp")
+                or rec.get("DateTime")
+                or rec.get("DateTimeUTC")
+            ),
+        )
+        if age_for_filter is not None and age_for_filter >= VEHICLE_STALE_THRESHOLD_S:
+            continue
+        seconds_output = seconds if seconds is not None else seconds_raw
         vehicles.append(
             {
                 "VehicleID": vid,
@@ -1923,7 +1990,7 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
                 "Heading": heading,
                 "GroundSpeed": ground_speed,
                 "Name": rec.get("Name") or rec.get("VehicleName"),
-                "SecondsSinceReport": seconds,
+                "SecondsSinceReport": seconds_output,
                 "IsStale": is_stale,
             }
         )
@@ -2202,6 +2269,14 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
     for entry in entries:
         if not isinstance(entry, dict):
             continue
+        receive_time_raw = entry.get("receiveTime") or entry.get("ReceiveTime")
+        age_for_filter = _vehicle_age_seconds(
+            seconds_since_report=entry.get("SecondsSinceReport")
+            or entry.get("secondsSinceReport"),
+            timestamp=receive_time_raw,
+        )
+        if age_for_filter is not None and age_for_filter >= VEHICLE_STALE_THRESHOLD_S:
+            continue
         result.append(
             {
                 "VehicleID": entry.get("VehicleID")
@@ -2242,6 +2317,8 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
                 or entry.get("routeName")
                 or entry.get("name"),
                 "ETAs": entry.get("ETAs") or entry.get("etas") or entry.get("MinutesToStops"),
+                "ReceiveTime": receive_time_raw,
+                "receiveTime": receive_time_raw,
             }
         )
     return result
