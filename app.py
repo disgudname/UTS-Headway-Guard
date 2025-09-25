@@ -39,7 +39,7 @@ from Crypto.Util.Padding import unpad
 from fastapi import FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
@@ -361,6 +361,14 @@ DEFAULT_TRANSLOC_BASE = sanitize_transloc_base(TRANSLOC_BASE) or TRANSLOC_BASE.r
 
 def build_transloc_url(base_url: Optional[str], path: str) -> str:
     base = sanitize_transloc_base(base_url) or DEFAULT_TRANSLOC_BASE
+    if base != DEFAULT_TRANSLOC_BASE:
+        parsed = urlparse(base)
+        if parsed.scheme and parsed.netloc and (parsed.path in ("", "/")):
+            default_path = urlparse(DEFAULT_TRANSLOC_BASE).path
+            if default_path:
+                parsed = parsed._replace(path=default_path)
+                base = urlunparse(parsed)
+                base = base.rstrip("/") or base
     if not path.startswith("/"):
         path = "/" + path
     return f"{base}{path}"
