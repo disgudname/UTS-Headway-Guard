@@ -4151,6 +4151,7 @@
       let routeLayers = [];
       let stopMarkers = [];
       let stopDataCache = [];
+      let catStopDataCache = [];
       let routeStopAddressMap = {};
       let routeStopRouteMap = {};
       let nameBubbles = {};
@@ -5829,22 +5830,23 @@
         });
 
         if (catRouteRenderData.length > 0) {
-            catRouteRenderData.forEach(entry => {
-              const checkboxId = getCatRouteCheckboxId(entry.key);
-              const catCheckbox = document.getElementById(checkboxId);
-              if (!catCheckbox) {
-                return;
-              }
-              catCheckbox.checked = entry.checked;
+          catRouteRenderData.forEach(entry => {
+            const checkboxId = getCatRouteCheckboxId(entry.key);
+            const catCheckbox = document.getElementById(checkboxId);
+            if (!catCheckbox) {
+              return;
+            }
+            catCheckbox.checked = entry.checked;
+            applyRouteOptionState(catCheckbox);
+            catCheckbox.addEventListener('change', function() {
+              catRouteSelections.set(entry.key, catCheckbox.checked);
               applyRouteOptionState(catCheckbox);
-              catCheckbox.addEventListener('change', function() {
-                catRouteSelections.set(entry.key, catCheckbox.checked);
-                applyRouteOptionState(catCheckbox);
-                renderCatVehiclesUsingCache();
-                renderCatRoutes();
-              });
+              renderCatVehiclesUsingCache();
+              renderCatRoutes();
+              renderBusStops(stopDataCache);
             });
-          }
+          });
+        }
 
         positionAllPanelTabs();
       }
@@ -6344,7 +6346,9 @@
       // refreshMap updates route paths and bus locations.
       function refreshMap() {
         fetchBusLocations().then(fetchRoutePaths);
-        if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
+        const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
+        const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+        if (hasTranslocStops || hasCatStops) {
           renderBusStops(stopDataCache);
         }
         fetchTrains().catch(error => console.error('Error refreshing trains:', error));
@@ -6625,7 +6629,9 @@
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
           map.on('zoomend', () => {
-              if (stopDataCache.length > 0) {
+              const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
+              const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+              if (hasTranslocStops || hasCatStops) {
                   renderBusStops(stopDataCache);
               }
               scheduleMarkerScaleUpdate();
@@ -6767,7 +6773,8 @@
                       routeStopIds: new Set(),
                       stopIds: new Set(),
                       names: new Set(),
-                      routeIds: new Set()
+                      routeIds: new Set(),
+                      catRouteKeys: new Set()
                   });
               }
 
@@ -6816,6 +6823,9 @@
                       entry.routeIds.add(numericRouteId);
                   }
               });
+
+              const catKeysFromStop = extractCatRouteKeys(stop);
+              catKeysFromStop.forEach(routeKey => entry.catRouteKeys.add(routeKey));
           });
 
           return Array.from(entriesByKey.values()).map(entry => ({
@@ -6823,14 +6833,16 @@
               routeStopIds: Array.from(entry.routeStopIds),
               stopIdText: Array.from(entry.stopIds).join(', '),
               displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
-              routeIds: Array.from(entry.routeIds)
+              routeIds: Array.from(entry.routeIds),
+              catRouteKeys: Array.from(entry.catRouteKeys)
           }));
       }
 
       function collectRouteIdsForEntry(entry) {
           const routeIds = new Set();
+          const catRouteKeys = new Set();
           if (!entry) {
-              return routeIds;
+              return { routeIds, catRouteKeys };
           }
           if (Array.isArray(entry.routeIds)) {
               entry.routeIds.forEach(routeId => {
@@ -6849,17 +6861,85 @@
                   }
               });
           }
-          return routeIds;
+
+          const addCatRouteKey = value => {
+              if (value === undefined || value === null) {
+                  return;
+              }
+              if (value instanceof Set) {
+                  value.forEach(addCatRouteKey);
+                  return;
+              }
+              if (Array.isArray(value)) {
+                  value.forEach(addCatRouteKey);
+                  return;
+              }
+              const normalized = catRouteKey(value);
+              if (normalized && normalized !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  catRouteKeys.add(normalized);
+              }
+          };
+
+          addCatRouteKey(entry.catRouteKeys);
+
+          return { routeIds, catRouteKeys };
+      }
+
+      function extractCatRouteKeys(stop) {
+          const keys = new Set();
+          if (!stop) {
+              return keys;
+          }
+
+          const addKey = value => {
+              if (value === undefined || value === null) {
+                  return;
+              }
+              if (value instanceof Set) {
+                  value.forEach(addKey);
+                  return;
+              }
+              if (Array.isArray(value)) {
+                  value.forEach(addKey);
+                  return;
+              }
+              const normalized = catRouteKey(value);
+              if (normalized && normalized !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  keys.add(normalized);
+              }
+          };
+
+          addKey(stop.catRouteKeys);
+          addKey(stop.CatRouteKeys);
+          addKey(stop.catRouteKey);
+          addKey(stop.CatRouteKey);
+          addKey(stop.routeKeys);
+          addKey(stop.RouteKeys);
+
+          if (stop.isCatStop) {
+              addKey(stop.rid ?? stop.Rid ?? stop.RID);
+              addKey(stop.routeKey ?? stop.RouteKey);
+              addKey(stop.RouteID ?? stop.RouteId ?? stop.routeID ?? stop.routeId);
+          }
+
+          return keys;
       }
 
       function collectRouteIdsForStop(stop) {
           const routeIds = new Set();
+          const catRouteKeys = extractCatRouteKeys(stop);
           if (!stop) {
-              return routeIds;
+              return { routeIds, catRouteKeys };
           }
+
+          const isCatStop = !!stop.isCatStop;
 
           const addRouteId = value => {
               if (value === undefined || value === null) {
+                  return;
+              }
+              if (value instanceof Set || Array.isArray(value)) {
+                  value.forEach(addRouteId);
                   return;
               }
               let candidate = value;
@@ -6875,35 +6955,59 @@
               }
           };
 
-          addRouteId(stop.RouteID ?? stop.RouteId);
+          if (!isCatStop) {
+              addRouteId(stop.RouteID ?? stop.RouteId);
 
-          const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
-          if (routeStopId) {
-              addRouteId(routeStopRouteMap[routeStopId]);
+              const routeStopId = normalizeIdentifier(stop.RouteStopID ?? stop.RouteStopId);
+              if (routeStopId) {
+                  addRouteId(routeStopRouteMap[routeStopId]);
+              }
+
+              const routeIdsList = Array.isArray(stop.RouteIDs ?? stop.RouteIds)
+                  ? (stop.RouteIDs ?? stop.RouteIds)
+                  : [];
+              routeIdsList.forEach(routeIdValue => addRouteId(routeIdValue));
+
+              const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
+              routesArray.forEach(routeInfo => {
+                  addRouteId(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id ?? routeInfo);
+              });
+
+              const singleRoute = stop.Route ?? stop.route;
+              if (singleRoute && typeof singleRoute === 'object') {
+                  addRouteId(singleRoute.RouteID ?? singleRoute.RouteId ?? singleRoute.Id);
+              }
           }
 
-          const routeIdsList = Array.isArray(stop.RouteIDs ?? stop.RouteIds)
-              ? (stop.RouteIDs ?? stop.RouteIds)
-              : [];
-          routeIdsList.forEach(routeIdValue => addRouteId(routeIdValue));
-
-          const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
-          routesArray.forEach(routeInfo => {
-              addRouteId(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id ?? routeInfo);
-          });
-
-          const singleRoute = stop.Route ?? stop.route;
-          if (singleRoute && typeof singleRoute === 'object') {
-              addRouteId(singleRoute.RouteID ?? singleRoute.RouteId ?? singleRoute.Id);
-          }
-
-          return routeIds;
+          return { routeIds, catRouteKeys };
       }
 
-      function buildStopMarkerGradient(routeIds) {
-          const colors = Array.from(new Set((Array.isArray(routeIds) ? routeIds : [])
-              .map(routeId => getRouteColor(routeId))
-              .filter(color => typeof color === 'string' && color.trim() !== '')));
+      function buildStopMarkerGradient(routeIds, catRouteKeys = []) {
+          const colorSet = new Set();
+
+          const numericRouteIds = Array.isArray(routeIds) ? routeIds : [];
+          numericRouteIds.forEach(routeId => {
+              const color = sanitizeCssColor(getRouteColor(routeId));
+              if (color) {
+                  colorSet.add(color);
+              }
+          });
+
+          const catKeysArray = catRouteKeys instanceof Set
+              ? Array.from(catRouteKeys)
+              : (Array.isArray(catRouteKeys) ? catRouteKeys : [catRouteKeys]);
+          catKeysArray.forEach(routeKey => {
+              const normalized = catRouteKey(routeKey);
+              if (!normalized || normalized === CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  return;
+              }
+              const color = sanitizeCssColor(getCatRouteColor(normalized));
+              if (color) {
+                  colorSet.add(color);
+              }
+          });
+
+          const colors = Array.from(colorSet);
 
           if (colors.length === 0) {
               return '#FFFFFF';
@@ -6921,8 +7025,8 @@
           return `conic-gradient(${segments.join(', ')})`;
       }
 
-      function createStopMarkerIcon(routeIds) {
-          const gradient = buildStopMarkerGradient(routeIds);
+      function createStopMarkerIcon(routeIds, catRouteKeys = []) {
+          const gradient = buildStopMarkerGradient(routeIds, catRouteKeys);
           const size = STOP_MARKER_ICON_SIZE;
           const outline = Math.max(0, Number(STOP_MARKER_OUTLINE_WIDTH) || 0);
           const html = `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`;
@@ -7412,31 +7516,56 @@
       }
 
       function renderBusStops(stopsArray) {
-          if (!Array.isArray(stopsArray) || !map) {
+          if (!map) {
               return;
           }
 
           stopMarkers.forEach(marker => map.removeLayer(marker));
           stopMarkers = [];
 
+          const baseStops = Array.isArray(stopsArray) ? stopsArray.slice() : [];
+          const includeCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+          if (includeCatStops) {
+              baseStops.push(...catStopDataCache);
+          }
+
+          if (baseStops.length === 0) {
+              return;
+          }
+
           const selectedRouteIdsSet = getSelectedRouteIdSet();
 
-          const stopsForSelectedRoutes = selectedRouteIdsSet.size > 0
-              ? stopsArray.filter(stop => {
-                  const routeIds = collectRouteIdsForStop(stop);
-                  if (routeIds.size === 0) {
-                      return false;
-                  }
+          const stopsForVisibleRoutes = baseStops.filter(stop => {
+              if (!stop) {
+                  return false;
+              }
+              const { routeIds, catRouteKeys } = collectRouteIdsForStop(stop);
+              let matchesTransloc = false;
+              if (selectedRouteIdsSet.size > 0 && routeIds.size > 0) {
                   for (const routeId of routeIds) {
                       if (selectedRouteIdsSet.has(routeId)) {
-                          return true;
+                          matchesTransloc = true;
+                          break;
                       }
                   }
-                  return false;
-              })
-              : [];
+              }
+              let matchesCat = false;
+              if (catOverlayEnabled && catRouteKeys.size > 0) {
+                  for (const routeKey of catRouteKeys) {
+                      if (isCatRouteVisible(routeKey)) {
+                          matchesCat = true;
+                          break;
+                      }
+                  }
+              }
+              return matchesTransloc || matchesCat;
+          });
 
-          const groupedStops = groupStopsByPixelDistance(stopsForSelectedRoutes, STOP_GROUPING_PIXEL_DISTANCE);
+          if (stopsForVisibleRoutes.length === 0) {
+              return;
+          }
+
+          const groupedStops = groupStopsByPixelDistance(stopsForVisibleRoutes, STOP_GROUPING_PIXEL_DISTANCE);
           const groupedData = [];
 
           groupedStops.forEach(group => {
@@ -7445,28 +7574,31 @@
                   return;
               }
 
-              const allRouteIdsForMarker = new Set();
+              const aggregatedRouteIds = new Set();
+              const aggregatedCatRouteKeys = new Set();
+
               stopEntries.forEach(entry => {
-                  collectRouteIdsForEntry(entry).forEach(routeId => {
-                      if (!Number.isNaN(routeId)) {
-                          allRouteIdsForMarker.add(routeId);
-                      }
-                  });
+                  const entryRoutes = collectRouteIdsForEntry(entry);
+                  entryRoutes.routeIds.forEach(routeId => aggregatedRouteIds.add(routeId));
+                  entryRoutes.catRouteKeys.forEach(routeKey => aggregatedCatRouteKeys.add(routeKey));
               });
 
-              if (allRouteIdsForMarker.size === 0) {
+              if (aggregatedRouteIds.size === 0 && aggregatedCatRouteKeys.size === 0) {
                   group.stops.forEach(stop => {
-                      collectRouteIdsForStop(stop).forEach(routeId => {
-                          allRouteIdsForMarker.add(routeId);
-                      });
+                      const stopRoutes = collectRouteIdsForStop(stop);
+                      stopRoutes.routeIds.forEach(routeId => aggregatedRouteIds.add(routeId));
+                      stopRoutes.catRouteKeys.forEach(routeKey => aggregatedCatRouteKeys.add(routeKey));
                   });
               }
 
-              const servesSelectedRoute = selectedRouteIdsSet.size > 0
-                  ? Array.from(allRouteIdsForMarker).some(routeId => selectedRouteIdsSet.has(routeId))
+              const servesTranslocSelection = selectedRouteIdsSet.size > 0
+                  ? Array.from(aggregatedRouteIds).some(routeId => selectedRouteIdsSet.has(routeId))
+                  : false;
+              const servesCatSelection = catOverlayEnabled
+                  ? Array.from(aggregatedCatRouteKeys).some(routeKey => isCatRouteVisible(routeKey))
                   : false;
 
-              if (!servesSelectedRoute) {
+              if (!servesTranslocSelection && !servesCatSelection) {
                   return;
               }
 
@@ -7493,10 +7625,13 @@
                   .filter(Boolean)))
                   .join(' / ') || 'Stop';
               const groupKey = createStopGroupKey(aggregatedRouteStopIds, fallbackStopIdText);
-              const markerRouteIds = Array.from(allRouteIdsForMarker)
+              const markerRouteIds = Array.from(aggregatedRouteIds)
                   .filter(routeId => selectedRouteIdsSet.has(routeId))
                   .sort((a, b) => a - b);
-              const markerIcon = createStopMarkerIcon(markerRouteIds);
+              const markerCatRouteKeys = Array.from(aggregatedCatRouteKeys)
+                  .filter(routeKey => isCatRouteVisible(routeKey))
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+              const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
 
               const groupInfo = {
                   position: stopPosition,
@@ -7504,7 +7639,8 @@
                   fallbackStopId: fallbackStopIdText,
                   stopEntries,
                   aggregatedRouteStopIds,
-                  groupKey
+                  groupKey,
+                  catRouteKeys: Array.from(aggregatedCatRouteKeys).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
               };
 
               const stopMarker = L.marker(stopPosition, {
@@ -8633,7 +8769,9 @@
                       routeStopAddressMap = updatedRouteStopAddressMap;
                       routeStopRouteMap = updatedRouteStopRouteMap;
                       updateCustomPopups();
-                      if (Array.isArray(stopDataCache) && stopDataCache.length > 0) {
+                      const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
+                      const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
+                      if (hasTranslocStops || hasCatStops) {
                           renderBusStops(stopDataCache);
                       }
                       if (!bounds && fallbackBounds) {
@@ -9083,6 +9221,8 @@
           catServiceAlertsFetchPromise = null;
           catServiceAlertsLastFetchTime = 0;
           resetCatOverlapRenderingState();
+          catStopDataCache = [];
+          renderBusStops(stopDataCache);
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
           updateRouteSelector(activeRoutes, true);
@@ -9751,25 +9891,108 @@
           const name = toNonEmptyString(getFirstDefined(entry, ['StopName', 'stopName', 'Name', 'name', 'Description', 'description'])) || `Stop ${idKey}`;
           const lat = toNumberOrNull(getFirstDefined(entry, ['Latitude', 'latitude', 'Lat', 'lat']));
           const lon = toNumberOrNull(getFirstDefined(entry, ['Longitude', 'longitude', 'Lon', 'lon', 'Lng', 'lng']));
+          const rawRouteId = getFirstDefined(entry, ['RouteID', 'routeID', 'RouteId', 'routeId', 'rid', 'Rid', 'RID', 'Route', 'route']);
+          const routeKey = catRouteKey(rawRouteId);
+          const rawRouteStopId = getFirstDefined(entry, ['RouteStopID', 'RouteStopId', 'rsid', 'Rsid', 'RSID']);
+          const routeStopId = normalizeIdentifier(rawRouteStopId);
           return {
               id: idKey,
               rawId,
               name,
               latitude: lat,
-              longitude: lon
+              longitude: lon,
+              routeKey: routeKey && routeKey !== CAT_OUT_OF_SERVICE_ROUTE_KEY ? routeKey : null,
+              routeStopId: routeStopId || null
           };
       }
 
       function normalizeCatStops(root) {
           const entries = extractCatArray(root, ['stops', 'Stops']);
-          const stops = [];
+          const stopsById = new Map();
           entries.forEach(entry => {
               const normalized = normalizeCatStop(entry);
-              if (normalized) {
-                  stops.push(normalized);
+              if (!normalized) {
+                  return;
+              }
+              const stopId = normalized.id;
+              if (!stopsById.has(stopId)) {
+                  stopsById.set(stopId, {
+                      id: stopId,
+                      rawId: normalized.rawId,
+                      name: normalized.name,
+                      latitude: Number.isFinite(normalized.latitude) ? normalized.latitude : null,
+                      longitude: Number.isFinite(normalized.longitude) ? normalized.longitude : null,
+                      routeKeys: new Set(),
+                      routeStopIds: new Set()
+                  });
+              }
+              const stop = stopsById.get(stopId);
+              if (toNonEmptyString(normalized.name)) {
+                  stop.name = normalized.name;
+              }
+              if (Number.isFinite(normalized.latitude) && Number.isFinite(normalized.longitude)) {
+                  stop.latitude = normalized.latitude;
+                  stop.longitude = normalized.longitude;
+              }
+              if (normalized.routeKey) {
+                  stop.routeKeys.add(normalized.routeKey);
+              }
+              if (normalized.routeStopId) {
+                  stop.routeStopIds.add(normalized.routeStopId);
               }
           });
-          return stops;
+          return Array.from(stopsById.values()).map(stop => ({
+              id: stop.id,
+              rawId: stop.rawId,
+              name: toNonEmptyString(stop.name) || `Stop ${stop.id}`,
+              latitude: Number.isFinite(stop.latitude) ? stop.latitude : null,
+              longitude: Number.isFinite(stop.longitude) ? stop.longitude : null,
+              routeKeys: Array.from(stop.routeKeys),
+              routeStopIds: Array.from(stop.routeStopIds),
+              isCatStop: true
+          })).filter(stop => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude));
+      }
+
+      function buildCatStopDataForRendering(catStops) {
+          if (!Array.isArray(catStops)) {
+              return [];
+          }
+          return catStops.map(stop => {
+              const stopId = catStopKey(stop?.id ?? stop?.rawId);
+              const lat = Number(stop?.latitude);
+              const lon = Number(stop?.longitude);
+              if (!stopId || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+                  return null;
+              }
+              const name = toNonEmptyString(stop?.name) || `Stop ${stopId}`;
+              const routeKeysSource = stop?.routeKeys;
+              const routeKeysIterable = Array.isArray(routeKeysSource)
+                  ? routeKeysSource
+                  : (routeKeysSource instanceof Set ? Array.from(routeKeysSource) : []);
+              const normalizedRouteKeys = Array.from(new Set(routeKeysIterable
+                  .map(routeKey => catRouteKey(routeKey))
+                  .filter(key => key && key !== CAT_OUT_OF_SERVICE_ROUTE_KEY)))
+                  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+              const routeStopIdsSource = stop?.routeStopIds ?? stop?.catRouteStopIds;
+              const routeStopIdsIterable = Array.isArray(routeStopIdsSource)
+                  ? routeStopIdsSource
+                  : (routeStopIdsSource instanceof Set ? Array.from(routeStopIdsSource) : []);
+              const normalizedRouteStopIds = routeStopIdsIterable
+                  .map(value => `${value}`.trim())
+                  .filter(value => value !== '' && value.toLowerCase() !== 'null' && value.toLowerCase() !== 'undefined');
+              return {
+                  isCatStop: true,
+                  StopID: stopId,
+                  StopId: stopId,
+                  StopName: name,
+                  Name: name,
+                  Latitude: lat,
+                  Longitude: lon,
+                  catRouteKeys: normalizedRouteKeys,
+                  CatRouteKeys: normalizedRouteKeys.slice(),
+                  catRouteStopIds: normalizedRouteStopIds
+              };
+          }).filter(Boolean);
       }
 
       async function fetchCatStops(force = false) {
@@ -9796,7 +10019,11 @@
               stops.forEach(stop => {
                   catStopsById.set(stop.id, stop);
               });
+              catStopDataCache = buildCatStopDataForRendering(stops);
               catStopsLastFetchTime = now;
+              if (catOverlayEnabled) {
+                  renderBusStops(stopDataCache);
+              }
               return stops;
           } catch (error) {
               console.error('Failed to fetch CAT stops:', error);
