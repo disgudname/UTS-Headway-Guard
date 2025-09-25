@@ -5420,32 +5420,104 @@ schedulePlaneStyleOverride();
               }));
           }
 
+          const bucketSize = Math.max(1, Number.isFinite(thresholdPx) ? thresholdPx : 1);
+          const bucketMap = new Map();
           const groups = [];
+
+          const getBucketKey = (x, y) => `${x}:${y}`;
+
+          const registerGroupInBucket = (bucketKey, index) => {
+              if (!bucketMap.has(bucketKey)) {
+                  bucketMap.set(bucketKey, new Set());
+              }
+              bucketMap.get(bucketKey).add(index);
+          };
+
+          const unregisterGroupFromBucket = (bucketKey, index) => {
+              const bucket = bucketMap.get(bucketKey);
+              if (!bucket) {
+                  return;
+              }
+              bucket.delete(index);
+              if (bucket.size === 0) {
+                  bucketMap.delete(bucketKey);
+              }
+          };
+
           validStops.forEach(({ latitude, longitude, stop }) => {
               const stopPoint = map.latLngToLayerPoint([latitude, longitude]);
-              let targetGroup = null;
-              for (const group of groups) {
-                  const groupPoint = map.latLngToLayerPoint([group.latitude, group.longitude]);
-                  if (stopPoint.distanceTo(groupPoint) <= thresholdPx) {
-                      targetGroup = group;
-                      break;
+              if (!stopPoint) {
+                  return;
+              }
+
+              const cellX = Math.round(stopPoint.x / bucketSize);
+              const cellY = Math.round(stopPoint.y / bucketSize);
+
+              let targetGroupIndex = null;
+              for (let dx = -1; dx <= 1 && targetGroupIndex === null; dx++) {
+                  for (let dy = -1; dy <= 1 && targetGroupIndex === null; dy++) {
+                      const neighborKey = getBucketKey(cellX + dx, cellY + dy);
+                      const neighborBucket = bucketMap.get(neighborKey);
+                      if (!neighborBucket) {
+                          continue;
+                      }
+                      for (const groupIndex of neighborBucket) {
+                          const group = groups[groupIndex];
+                          if (!group || !group.point) {
+                              continue;
+                          }
+                          if (stopPoint.distanceTo(group.point) <= thresholdPx) {
+                              targetGroupIndex = groupIndex;
+                              break;
+                          }
+                      }
                   }
               }
-              if (targetGroup) {
-                  targetGroup.stops.push(stop);
-                  const totalStops = targetGroup.stops.length;
-                  targetGroup.latitude = (targetGroup.latitude * (totalStops - 1) + latitude) / totalStops;
-                  targetGroup.longitude = (targetGroup.longitude * (totalStops - 1) + longitude) / totalStops;
+
+              if (targetGroupIndex !== null) {
+                  const group = groups[targetGroupIndex];
+                  group.stops.push(stop);
+                  const totalStops = group.stops.length;
+                  group.latitude = (group.latitude * (totalStops - 1) + latitude) / totalStops;
+                  group.longitude = (group.longitude * (totalStops - 1) + longitude) / totalStops;
+                  const newPoint = map.latLngToLayerPoint([group.latitude, group.longitude]);
+                  if (newPoint) {
+                      const oldBucketKey = group.bucketKey;
+                      const newCellX = Math.round(newPoint.x / bucketSize);
+                      const newCellY = Math.round(newPoint.y / bucketSize);
+                      const newBucketKey = getBucketKey(newCellX, newCellY);
+                      group.point = newPoint;
+                      if (newBucketKey !== oldBucketKey) {
+                          if (oldBucketKey) {
+                              unregisterGroupFromBucket(oldBucketKey, targetGroupIndex);
+                          }
+                          registerGroupInBucket(newBucketKey, targetGroupIndex);
+                          group.bucketKey = newBucketKey;
+                      }
+                  }
               } else {
+                  const groupPoint = map.latLngToLayerPoint([latitude, longitude]);
+                  if (!groupPoint) {
+                      return;
+                  }
+                  const bucketKey = getBucketKey(cellX, cellY);
+                  const groupIndex = groups.length;
                   groups.push({
                       latitude,
                       longitude,
-                      stops: [stop]
+                      stops: [stop],
+                      point: groupPoint,
+                      bucketKey
                   });
+                  registerGroupInBucket(bucketKey, groupIndex);
               }
           });
 
-          return groups;
+          return groups.map(group => ({
+              latitude: group.latitude,
+              longitude: group.longitude,
+              stops: group.stops
+          }));
       }
 
       function sanitizeStopName(name) {
