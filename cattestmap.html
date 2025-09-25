@@ -2356,6 +2356,10 @@
       let catRefreshIntervals = [];
       let catRoutesLastFetchTime = 0;
       let catStopsLastFetchTime = 0;
+      const catRoutePatternGeometries = new Map();
+      const catRoutePatternLayers = new Map();
+      let catRoutePatternsLastFetchTime = 0;
+      let catRoutePatternsCache = [];
       let catVehiclesPaneName = 'catVehiclesPane';
       let catServiceAlerts = [];
       let catServiceAlertsLoading = false;
@@ -5818,21 +5822,22 @@
         });
 
         if (catRouteRenderData.length > 0) {
-          catRouteRenderData.forEach(entry => {
-            const checkboxId = getCatRouteCheckboxId(entry.key);
-            const catCheckbox = document.getElementById(checkboxId);
-            if (!catCheckbox) {
-              return;
-            }
-            catCheckbox.checked = entry.checked;
-            applyRouteOptionState(catCheckbox);
-            catCheckbox.addEventListener('change', function() {
-              catRouteSelections.set(entry.key, catCheckbox.checked);
+            catRouteRenderData.forEach(entry => {
+              const checkboxId = getCatRouteCheckboxId(entry.key);
+              const catCheckbox = document.getElementById(checkboxId);
+              if (!catCheckbox) {
+                return;
+              }
+              catCheckbox.checked = entry.checked;
               applyRouteOptionState(catCheckbox);
-              renderCatVehiclesUsingCache();
+              catCheckbox.addEventListener('change', function() {
+                catRouteSelections.set(entry.key, catCheckbox.checked);
+                applyRouteOptionState(catCheckbox);
+                renderCatVehiclesUsingCache();
+                renderCatRoutes();
+              });
             });
-          });
-        }
+          }
 
         positionAllPanelTabs();
       }
@@ -5871,6 +5876,7 @@
             catRouteSelections.set(key, true);
           });
           renderCatVehiclesUsingCache();
+          renderCatRoutes();
         }
         refreshMap();
       }
@@ -5920,6 +5926,7 @@
             catRouteSelections.set(key, shouldSelectCat);
           });
           renderCatVehiclesUsingCache();
+          renderCatRoutes();
         }
 
         refreshMap();
@@ -5959,6 +5966,7 @@
             catRouteSelections.set(key, false);
           });
           renderCatVehiclesUsingCache();
+          renderCatRoutes();
         }
         refreshMap();
       }
@@ -6598,6 +6606,7 @@
               }
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
+              renderCatRoutes();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
           if (planesVisible && window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
@@ -9024,8 +9033,10 @@
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
           updateRouteSelector(activeRoutes, true);
+          renderCatRoutes();
           fetchCatRoutes().catch(error => console.error('Failed to fetch CAT routes:', error));
           fetchCatStops().catch(error => console.error('Failed to fetch CAT stops:', error));
+          fetchCatRoutePatterns().catch(error => console.error('Failed to fetch CAT route patterns:', error));
           fetchCatVehicles().catch(error => console.error('Failed to fetch CAT vehicles:', error));
           fetchCatServiceAlerts().catch(error => console.error('Failed to fetch CAT service alerts:', error));
           startCatRefreshIntervals();
@@ -9074,6 +9085,7 @@
           catRefreshIntervals.push(setInterval(() => {
               fetchCatRoutes().catch(error => console.error('Failed to refresh CAT routes:', error));
               fetchCatStops().catch(error => console.error('Failed to refresh CAT stops:', error));
+              fetchCatRoutePatterns().catch(error => console.error('Failed to refresh CAT route patterns:', error));
           }, CAT_METADATA_REFRESH_INTERVAL_MS));
           catRefreshIntervals.push(setInterval(() => {
               fetchCatServiceAlerts().catch(error => console.error('Failed to refresh CAT service alerts:', error));
@@ -9236,6 +9248,109 @@
           return undefined;
       }
 
+      function toCatLatLng(latCandidate, lonCandidate) {
+          let lat = Number(latCandidate);
+          let lon = Number(lonCandidate);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+              return null;
+          }
+          if (Math.abs(lat) > 90 && Math.abs(lon) <= 90) {
+              const swappedLat = Number(lonCandidate);
+              const swappedLon = Number(latCandidate);
+              if (Number.isFinite(swappedLat) && Number.isFinite(swappedLon)) {
+                  lat = swappedLat;
+                  lon = swappedLon;
+              }
+          }
+          if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+              return null;
+          }
+          try {
+              return L.latLng(lat, lon);
+          } catch (error) {
+              return null;
+          }
+      }
+
+      function decodeCatPolyline(encoded) {
+          if (typeof encoded !== 'string') {
+              return [];
+          }
+          const trimmed = encoded.trim();
+          if (trimmed.length === 0) {
+              return [];
+          }
+          try {
+              const coords = polyline.decode(trimmed);
+              if (!Array.isArray(coords)) {
+                  return [];
+              }
+              return coords
+                  .map(pair => {
+                      if (!Array.isArray(pair) || pair.length < 2) {
+                          return null;
+                      }
+                      const lat = Number(pair[0]);
+                      const lon = Number(pair[1]);
+                      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                          return null;
+                      }
+                      try {
+                          return L.latLng(lat, lon);
+                      } catch (error) {
+                          return null;
+                      }
+                  })
+                  .filter(Boolean);
+          } catch (error) {
+              console.warn('Failed to decode CAT pattern polyline:', error);
+              return [];
+          }
+      }
+
+      function normalizeCatPatternCoordinates(entry) {
+          const encoded = toNonEmptyString(getFirstDefined(entry, [
+              'encLine',
+              'EncLine',
+              'encodedPolyline',
+              'EncodedPolyline',
+              'polyline',
+              'Polyline'
+          ]));
+          if (encoded) {
+              const encodedCoords = decodeCatPolyline(encoded);
+              if (encodedCoords.length >= 2) {
+                  return { latLngs: encodedCoords, encoded };
+              }
+          }
+
+          const decodedLine = entry && typeof entry === 'object'
+              ? (entry.decLine || entry.DecLine || entry.decodedLine || entry.DecodedLine)
+              : null;
+          const latLngs = [];
+          if (Array.isArray(decodedLine)) {
+              decodedLine.forEach(point => {
+                  let candidate = null;
+                  if (Array.isArray(point) && point.length >= 2) {
+                      candidate = toCatLatLng(point[0], point[1]) || toCatLatLng(point[1], point[0]);
+                  } else if (point && typeof point === 'object') {
+                      const latValue = getFirstDefined(point, ['lat', 'Lat', 'latitude', 'Latitude', 'y', 'Y']);
+                      const lonValue = getFirstDefined(point, ['lon', 'Lon', 'lng', 'Lng', 'long', 'Long', 'longitude', 'Longitude', 'x', 'X']);
+                      candidate = toCatLatLng(latValue, lonValue);
+                  }
+                  if (candidate) {
+                      latLngs.push(candidate);
+                  }
+              });
+          }
+
+          if (latLngs.length >= 2) {
+              return { latLngs, encoded: encoded || '' };
+          }
+
+          return { latLngs: [], encoded: encoded || '' };
+      }
+
       function extractCatArray(root, candidateKeys = []) {
           if (Array.isArray(root)) {
               return root;
@@ -9315,6 +9430,99 @@
           return routes;
       }
 
+      function normalizeCatPattern(entry) {
+          if (!entry || typeof entry !== 'object') {
+              return null;
+          }
+
+          const coordinates = normalizeCatPatternCoordinates(entry);
+          if (!Array.isArray(coordinates.latLngs) || coordinates.latLngs.length < 2) {
+              return null;
+          }
+
+          const routeCandidates = [];
+          [entry.routes, entry.Routes, entry.routeIDs, entry.RouteIDs, entry.routeIds, entry.RouteIds]
+              .filter(Array.isArray)
+              .forEach(list => {
+                  list.forEach(value => routeCandidates.push(value));
+              });
+          [
+              entry.routeID,
+              entry.RouteID,
+              entry.routeId,
+              entry.RouteId,
+              entry.route,
+              entry.Route
+          ].forEach(value => {
+              if (value !== undefined && value !== null) {
+                  routeCandidates.push(value);
+              }
+          });
+
+          const extIdText = toNonEmptyString(getFirstDefined(entry, ['extID', 'ExtID', 'externalId', 'ExternalId']));
+          if (extIdText) {
+              const extMatch = extIdText.match(/^(\s*\d+)/);
+              if (extMatch && extMatch[1]) {
+                  routeCandidates.push(extMatch[1]);
+              }
+          }
+
+          const nameText = toNonEmptyString(getFirstDefined(entry, ['name', 'Name']));
+          if (nameText) {
+              const nameMatch = nameText.match(/^(\s*\d+)/);
+              if (nameMatch && nameMatch[1]) {
+                  routeCandidates.push(nameMatch[1]);
+              }
+          }
+
+          const uniqueRouteKeys = new Set();
+          routeCandidates.forEach(value => {
+              const key = catRouteKey(value);
+              if (key && key !== CAT_OUT_OF_SERVICE_ROUTE_KEY) {
+                  uniqueRouteKeys.add(key);
+              }
+          });
+
+          if (uniqueRouteKeys.size === 0) {
+              return null;
+          }
+
+          const colorValue = sanitizeCssColor(getFirstDefined(entry, [
+              'color',
+              'Color',
+              'routeColor',
+              'RouteColor',
+              'lineColor',
+              'LineColor',
+              'displayColor',
+              'DisplayColor'
+          ]));
+
+          const idText = toNonEmptyString(getFirstDefined(entry, ['id', 'Id', 'patternId', 'PatternId', 'PatternID', 'patternID']));
+
+          return {
+              id: idText,
+              extId: extIdText,
+              name: nameText,
+              routeKeys: Array.from(uniqueRouteKeys.values()),
+              latLngs: coordinates.latLngs,
+              color: colorValue || '',
+              encoded: coordinates.encoded || ''
+          };
+      }
+
+      function normalizeCatPatterns(root) {
+          const entries = extractCatArray(root, ['patterns', 'Patterns']);
+          const patterns = [];
+          entries.forEach(entry => {
+              const normalized = normalizeCatPattern(entry);
+              if (normalized) {
+                  patterns.push(normalized);
+              }
+          });
+          return patterns;
+      }
+
       async function fetchCatRoutes(force = false) {
           if (!catOverlayEnabled && !force) {
               return [];
@@ -9349,6 +9557,7 @@
               catRoutesLastFetchTime = now;
               if (catOverlayEnabled) {
                   updateRouteSelector(activeRoutes);
+                  renderCatRoutes();
               }
               return routes;
           } catch (error) {
@@ -9418,6 +9627,62 @@
               return stops;
           } catch (error) {
               console.error('Failed to fetch CAT stops:', error);
+              return [];
+          }
+      }
+
+      async function fetchCatRoutePatterns(force = false) {
+          if (!catOverlayEnabled && !force) {
+              return catRoutePatternsCache.slice();
+          }
+          const now = Date.now();
+          if (!force && catRoutePatternGeometries.size > 0 && (now - catRoutePatternsLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
+              return catRoutePatternsCache.slice();
+          }
+          const params = new URLSearchParams({ service: 'get_patterns', token: CAT_API_TOKEN });
+          const url = `${CAT_API_BASE_URL}?${params.toString()}`;
+          try {
+              const response = await fetch(url, { cache: 'no-store' });
+              if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const patterns = normalizeCatPatterns(payload);
+              if (!catOverlayEnabled && !force) {
+                  return patterns;
+              }
+              const newGeometries = new Map();
+              patterns.forEach((pattern, index) => {
+                  if (!pattern || !Array.isArray(pattern.routeKeys) || pattern.routeKeys.length === 0) {
+                      return;
+                  }
+                  const baseKey = pattern.id || pattern.extId || pattern.name || (pattern.encoded ? `enc:${pattern.encoded}` : `idx:${index}`);
+                  pattern.routeKeys.forEach(routeKey => {
+                      const key = `${routeKey}::${baseKey}`;
+                      newGeometries.set(key, {
+                          routeKey,
+                          color: sanitizeCssColor(pattern.color) || '',
+                          latLngs: Array.isArray(pattern.latLngs) ? pattern.latLngs.slice() : [],
+                          encoded: pattern.encoded || ''
+                      });
+                  });
+              });
+
+              const keysToRemove = new Set(catRoutePatternGeometries.keys());
+              newGeometries.forEach((geometry, key) => {
+                  catRoutePatternGeometries.set(key, geometry);
+                  keysToRemove.delete(key);
+              });
+              keysToRemove.forEach(key => {
+                  catRoutePatternGeometries.delete(key);
+              });
+
+              catRoutePatternsLastFetchTime = now;
+              catRoutePatternsCache = patterns;
+              renderCatRoutes();
+              return patterns;
+          } catch (error) {
+              console.error('Failed to fetch CAT route patterns:', error);
               return [];
           }
       }
@@ -9608,6 +9873,7 @@
               }
           });
           catActiveRouteKeys = activeKeys;
+          renderCatRoutes();
       }
 
       function renderCatVehiclesUsingCache() {
@@ -9677,6 +9943,91 @@
           });
       }
 
+      function removeCatRouteLayer(layer) {
+          if (!layer) {
+              return;
+          }
+          if (catLayerGroup && catLayerGroup.hasLayer(layer)) {
+              catLayerGroup.removeLayer(layer);
+          }
+          if (typeof layer.remove === 'function') {
+              layer.remove();
+          }
+      }
+
+      function clearCatRouteLayers() {
+          catRoutePatternLayers.forEach(layer => {
+              removeCatRouteLayer(layer);
+          });
+          catRoutePatternLayers.clear();
+      }
+
+      function renderCatRoutes() {
+          if (!catOverlayEnabled) {
+              clearCatRouteLayers();
+              return;
+          }
+          const layerGroup = ensureCatLayerGroup();
+          if (!layerGroup || !map) {
+              return;
+          }
+          const zoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+          const strokeWeight = computeRouteStrokeWeight(zoom);
+          const seenKeys = new Set();
+
+          catRoutePatternGeometries.forEach((geometry, key) => {
+              if (!geometry || !Array.isArray(geometry.latLngs) || geometry.latLngs.length < 2) {
+                  const existingLayer = catRoutePatternLayers.get(key);
+                  if (existingLayer) {
+                      removeCatRouteLayer(existingLayer);
+                      catRoutePatternLayers.delete(key);
+                  }
+                  return;
+              }
+              const routeKey = geometry.routeKey;
+              if (!isCatRouteVisible(routeKey)) {
+                  const existingLayer = catRoutePatternLayers.get(key);
+                  if (existingLayer) {
+                      removeCatRouteLayer(existingLayer);
+                      catRoutePatternLayers.delete(key);
+                  }
+                  return;
+              }
+              const color = sanitizeCssColor(geometry.color) || sanitizeCssColor(getCatRouteColor(routeKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+              const options = {
+                  color,
+                  weight: strokeWeight,
+                  opacity: 1,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+              };
+              let layer = catRoutePatternLayers.get(key);
+              if (!layer) {
+                  layer = L.polyline(geometry.latLngs, mergeRouteLayerOptions(options));
+                  layer.addTo(layerGroup);
+                  catRoutePatternLayers.set(key, layer);
+              } else {
+                  if (typeof layer.setLatLngs === 'function') {
+                      layer.setLatLngs(geometry.latLngs);
+                  }
+                  if (typeof layer.setStyle === 'function') {
+                      layer.setStyle(options);
+                  }
+                  if (!layerGroup.hasLayer(layer)) {
+                      layerGroup.addLayer(layer);
+                  }
+              }
+              seenKeys.add(key);
+          });
+
+          catRoutePatternLayers.forEach((layer, key) => {
+              if (!seenKeys.has(key)) {
+                  removeCatRouteLayer(layer);
+                  catRoutePatternLayers.delete(key);
+              }
+          });
+      }
+
       function clearCatVehicleMarkers() {
           catVehicleMarkers.forEach(marker => {
               if (catLayerGroup) {
@@ -9689,6 +10040,7 @@
           catVehicleMarkers.clear();
           catVehiclesById.clear();
           catActiveRouteKeys = new Set();
+          clearCatRouteLayers();
       }
 
       function updateCatVehicleMarkers(vehicles) {
