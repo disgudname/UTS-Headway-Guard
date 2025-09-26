@@ -3148,6 +3148,10 @@ schedulePlaneStyleOverride();
             map.removeLayer(bubble.blockMarker);
             delete bubble.blockMarker;
           }
+          if (bubble.routeMarker && displayMode !== DISPLAY_MODES.BLOCK) {
+            map.removeLayer(bubble.routeMarker);
+            delete bubble.routeMarker;
+          }
         });
       }
 
@@ -9977,6 +9981,8 @@ schedulePlaneStyleOverride();
                   delete nameBubbles[bubbleKey].speedMarker;
               }
 
+              const shouldShowRouteLabel = adminMode && !kioskMode && displayMode === DISPLAY_MODES.BLOCK;
+
               if (adminMode && !kioskMode) {
                   const labelText = toNonEmptyString(vehicle.equipmentId)
                       || toNonEmptyString(vehicle.displayName)
@@ -9998,7 +10004,9 @@ schedulePlaneStyleOverride();
                       }
                       delete nameBubbles[bubbleKey].nameMarker;
                   }
-                  const routeLabel = formatCatRouteBubbleLabel(vehicle.routeId ?? effectiveRouteKey);
+                  const routeLabel = shouldShowRouteLabel
+                      ? formatCatRouteBubbleLabel(vehicle.routeId ?? effectiveRouteKey)
+                      : null;
                   const routeIcon = routeLabel
                       ? createBlockBubbleDivIcon(routeLabel, routeColor, markerMetricsForZoom.scale, headingDeg)
                       : null;
