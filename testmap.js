@@ -5705,12 +5705,55 @@ schedulePlaneStyleOverride();
           return Array.from(entriesByKey.values()).map(entry => {
               const stopIdsArray = Array.from(entry.stopIds);
               const catStopIdsArray = Array.from(entry.catStopIds);
+
+              const normalizeTextId = id => {
+                  if (id === undefined || id === null) {
+                      return '';
+                  }
+                  const text = `${id}`;
+                  return typeof text === 'string' ? text.trim() : '';
+              };
+
+              const normalizedCatStopIds = catStopIdsArray
+                  .map(catStopKey)
+                  .filter(id => typeof id === 'string' && id !== '');
+              const remainingCatStopIds = new Set(normalizedCatStopIds);
+              const formattedStopIds = [];
+
+              stopIdsArray.forEach(rawId => {
+                  const trimmedId = normalizeTextId(rawId);
+                  if (!trimmedId) {
+                      return;
+                  }
+                  const key = catStopKey(rawId);
+                  if (key && remainingCatStopIds.has(key)) {
+                      formattedStopIds.push(`${trimmedId}-CAT`);
+                      remainingCatStopIds.delete(key);
+                  } else {
+                      formattedStopIds.push(trimmedId);
+                  }
+              });
+
+              catStopIdsArray.forEach(rawId => {
+                  const key = catStopKey(rawId);
+                  if (!key || !remainingCatStopIds.has(key)) {
+                      return;
+                  }
+                  const trimmedId = normalizeTextId(rawId);
+                  if (!trimmedId) {
+                      remainingCatStopIds.delete(key);
+                      return;
+                  }
+                  formattedStopIds.push(`${trimmedId}-CAT`);
+                  remainingCatStopIds.delete(key);
+              });
+
               return {
                   addressId: entry.addressId,
                   routeStopIds: Array.from(entry.routeStopIds),
                   stopIds: stopIdsArray,
                   catStopIds: catStopIdsArray,
-                  stopIdText: stopIdsArray.join(', '),
+                  stopIdText: formattedStopIds.join(', '),
                   displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
                   routeIds: Array.from(entry.routeIds),
                   catRouteKeys: Array.from(entry.catRouteKeys)
