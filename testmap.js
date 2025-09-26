@@ -3187,6 +3187,13 @@ schedulePlaneStyleOverride();
               bubble.routeMarker.remove();
             }
           }
+          if (bubble.catRouteMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.catRouteMarker);
+            } else if (typeof bubble.catRouteMarker.remove === 'function') {
+              bubble.catRouteMarker.remove();
+            }
+          }
         }
         delete nameBubbles[key];
       }
@@ -5208,6 +5215,7 @@ schedulePlaneStyleOverride();
           if (b.nameMarker) map.removeLayer(b.nameMarker);
           if (b.blockMarker) map.removeLayer(b.blockMarker);
           if (b.routeMarker) map.removeLayer(b.routeMarker);
+          if (b.catRouteMarker) map.removeLayer(b.catRouteMarker);
         });
         nameBubbles = {};
         stopMarkers.forEach(m => map.removeLayer(m));
@@ -9874,6 +9882,30 @@ schedulePlaneStyleOverride();
           }
       }
 
+      function removeCatRouteMarkerForBubble(bubbleKey, bubbleEntry = undefined) {
+          const key = typeof bubbleKey === 'string' ? bubbleKey : null;
+          const bubble = bubbleEntry || (key && Object.prototype.hasOwnProperty.call(nameBubbles, key) ? nameBubbles[key] : null);
+          if (!bubble) {
+              if (key && Object.prototype.hasOwnProperty.call(nameBubbles, key)) {
+                  delete nameBubbles[key];
+              }
+              return;
+          }
+          if (bubble.catRouteMarker) {
+              if (map && typeof map.removeLayer === 'function') {
+                  map.removeLayer(bubble.catRouteMarker);
+              } else if (typeof bubble.catRouteMarker.remove === 'function') {
+                  bubble.catRouteMarker.remove();
+              }
+              delete bubble.catRouteMarker;
+          }
+          if (!bubble.speedMarker && !bubble.nameMarker && !bubble.blockMarker && !bubble.routeMarker && !bubble.catRouteMarker) {
+              if (key) {
+                  delete nameBubbles[key];
+              }
+          }
+      }
+
       function renderCatVehiclesUsingCache() {
           if (!catOverlayEnabled) {
               return;
@@ -10019,23 +10051,24 @@ schedulePlaneStyleOverride();
                   : null;
               if (routeIcon) {
                   nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
-                  if (nameBubbles[bubbleKey].routeMarker) {
-                      animateMarkerTo(nameBubbles[bubbleKey].routeMarker, newPosition);
-                      nameBubbles[bubbleKey].routeMarker.setIcon(routeIcon);
+                  const bubbleEntry = nameBubbles[bubbleKey];
+                  if (bubbleEntry.catRouteMarker) {
+                      animateMarkerTo(bubbleEntry.catRouteMarker, newPosition);
+                      bubbleEntry.catRouteMarker.setIcon(routeIcon);
                   } else if (map) {
-                      nameBubbles[bubbleKey].routeMarker = L.marker(newPosition, { icon: routeIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      const marker = L.marker(newPosition, { icon: routeIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      marker._isCatRouteLabel = true;
+                      bubbleEntry.catRouteMarker = marker;
                   }
-              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].routeMarker) {
-                  if (map && typeof map.removeLayer === 'function') {
-                      map.removeLayer(nameBubbles[bubbleKey].routeMarker);
-                  }
-                  delete nameBubbles[bubbleKey].routeMarker;
+              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].catRouteMarker) {
+                  removeCatRouteMarkerForBubble(bubbleKey, nameBubbles[bubbleKey]);
               }
 
               if (nameBubbles[bubbleKey]) {
-                  const hasMarkers = Boolean(nameBubbles[bubbleKey].speedMarker || nameBubbles[bubbleKey].nameMarker || nameBubbles[bubbleKey].blockMarker || nameBubbles[bubbleKey].routeMarker);
+                  const bubbleEntry = nameBubbles[bubbleKey];
+                  const hasMarkers = Boolean(bubbleEntry.speedMarker || bubbleEntry.nameMarker || bubbleEntry.blockMarker || bubbleEntry.routeMarker || bubbleEntry.catRouteMarker);
                   if (hasMarkers) {
-                      nameBubbles[bubbleKey].lastScale = markerMetricsForZoom.scale;
+                      bubbleEntry.lastScale = markerMetricsForZoom.scale;
                   } else {
                       delete nameBubbles[bubbleKey];
                   }
@@ -11549,13 +11582,54 @@ schedulePlaneStyleOverride();
                   }
               }
 
-              const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker || bubble.routeMarker);
+              const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker || bubble.routeMarker || bubble.catRouteMarker);
               if (hasMarkers) {
                   bubble.lastScale = scale;
               } else {
                   delete nameBubbles[vehicleID];
               }
           });
+
+          if (catOverlayEnabled) {
+              catVehiclesById.forEach((vehicle, vehicleId) => {
+                  if (!vehicleId) {
+                      return;
+                  }
+                  const markerKey = `cat-${vehicleId}`;
+                  const bubble = nameBubbles[markerKey];
+                  if (!bubble || !bubble.catRouteMarker) {
+                      return;
+                  }
+                  const catMarker = catVehicleMarkers.get(markerKey);
+                  const latLng = catMarker && typeof catMarker.getLatLng === 'function' ? catMarker.getLatLng() : null;
+                  if (!catMarker || !latLng) {
+                      removeCatRouteMarkerForBubble(markerKey, bubble);
+                      return;
+                  }
+                  const effectiveRouteKey = vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+                  if (!isCatRouteVisible(effectiveRouteKey)) {
+                      removeCatRouteMarkerForBubble(markerKey, bubble);
+                      return;
+                  }
+                  const rawRouteIdForLabel = toNonEmptyString(vehicle.routeId);
+                  const fallbackRouteId = rawRouteIdForLabel !== '' ? rawRouteIdForLabel : effectiveRouteKey;
+                  const routeLabel = formatCatRouteBubbleLabel(fallbackRouteId);
+                  if (!routeLabel) {
+                      removeCatRouteMarkerForBubble(markerKey, bubble);
+                      return;
+                  }
+                  const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+                  const headingDeg = normalizeHeadingDegrees(Number(vehicle.heading));
+                  const routeIcon = createBlockBubbleDivIcon(routeLabel, routeColor, scale, headingDeg);
+                  if (!routeIcon) {
+                      removeCatRouteMarkerForBubble(markerKey, bubble);
+                      return;
+                  }
+                  animateMarkerTo(bubble.catRouteMarker, latLng);
+                  bubble.catRouteMarker.setIcon(routeIcon);
+                  bubble.lastScale = scale;
+              });
+          }
 
           Object.keys(trainNameBubbles).forEach(key => {
               const bubble = trainNameBubbles[key];
