@@ -3176,6 +3176,13 @@ schedulePlaneStyleOverride();
               bubble.blockMarker.remove();
             }
           }
+          if (bubble.routeMarker) {
+            if (map && typeof map.removeLayer === 'function') {
+              map.removeLayer(bubble.routeMarker);
+            } else if (typeof bubble.routeMarker.remove === 'function') {
+              bubble.routeMarker.remove();
+            }
+          }
         }
         delete nameBubbles[key];
       }
@@ -8225,10 +8232,14 @@ schedulePlaneStyleOverride();
                           map.removeLayer(nameBubbles[vehicleID].blockMarker);
                           delete nameBubbles[vehicleID].blockMarker;
                       }
+                      if (nameBubbles[vehicleID] && nameBubbles[vehicleID].routeMarker) {
+                          map.removeLayer(nameBubbles[vehicleID].routeMarker);
+                          delete nameBubbles[vehicleID].routeMarker;
+                      }
                   }
 
                   if (nameBubbles[vehicleID]) {
-                      const hasMarkers = Boolean(nameBubbles[vehicleID].speedMarker || nameBubbles[vehicleID].nameMarker || nameBubbles[vehicleID].blockMarker);
+                      const hasMarkers = Boolean(nameBubbles[vehicleID].speedMarker || nameBubbles[vehicleID].nameMarker || nameBubbles[vehicleID].blockMarker || nameBubbles[vehicleID].routeMarker);
                       if (hasMarkers) {
                           nameBubbles[vehicleID].lastScale = markerMetricsForZoom.scale;
                       } else {
@@ -8246,6 +8257,7 @@ schedulePlaneStyleOverride();
                           if (nameBubbles[vehicleID].speedMarker) map.removeLayer(nameBubbles[vehicleID].speedMarker);
                           if (nameBubbles[vehicleID].nameMarker) map.removeLayer(nameBubbles[vehicleID].nameMarker);
                           if (nameBubbles[vehicleID].blockMarker) map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                          if (nameBubbles[vehicleID].routeMarker) map.removeLayer(nameBubbles[vehicleID].routeMarker);
                           delete nameBubbles[vehicleID];
                       }
                   }
@@ -9546,6 +9558,37 @@ schedulePlaneStyleOverride();
           return vehicles;
       }
 
+      function formatCatRouteBubbleLabel(routeId) {
+          if (routeId === undefined || routeId === null) {
+              return null;
+          }
+          if (isCatOutOfServiceRouteValue(routeId)) {
+              return null;
+          }
+          const text = `${routeId}`.trim();
+          if (text === '') {
+              return null;
+          }
+          const numeric = Number(text);
+          if (Number.isFinite(numeric)) {
+              const rounded = Math.trunc(numeric) === numeric ? Math.trunc(numeric) : numeric;
+              if (rounded === 777 || numeric === 777) {
+                  return null;
+              }
+              if (rounded === 12 || numeric === 12) {
+                  return 'T';
+              }
+              return `Rte. ${rounded}`;
+          }
+          if (text === '777') {
+              return null;
+          }
+          if (text === '12') {
+              return 'T';
+          }
+          return `Rte. ${text}`;
+      }
+
       function getCatRouteInfo(routeKey) {
           if (!routeKey) {
               return null;
@@ -9954,15 +9997,41 @@ schedulePlaneStyleOverride();
                       }
                       delete nameBubbles[bubbleKey].nameMarker;
                   }
-              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
-                  if (map && typeof map.removeLayer === 'function') {
-                      map.removeLayer(nameBubbles[bubbleKey].nameMarker);
+                  const routeLabel = formatCatRouteBubbleLabel(vehicle.routeId ?? effectiveRouteKey);
+                  const routeIcon = routeLabel
+                      ? createBlockBubbleDivIcon(routeLabel, routeColor, markerMetricsForZoom.scale, headingDeg)
+                      : null;
+                  if (routeIcon) {
+                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                      if (nameBubbles[bubbleKey].routeMarker) {
+                          animateMarkerTo(nameBubbles[bubbleKey].routeMarker, newPosition);
+                          nameBubbles[bubbleKey].routeMarker.setIcon(routeIcon);
+                      } else if (map) {
+                          nameBubbles[bubbleKey].routeMarker = L.marker(newPosition, { icon: routeIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      }
+                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].routeMarker) {
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(nameBubbles[bubbleKey].routeMarker);
+                      }
+                      delete nameBubbles[bubbleKey].routeMarker;
                   }
-                  delete nameBubbles[bubbleKey].nameMarker;
+              } else {
+                  if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(nameBubbles[bubbleKey].nameMarker);
+                      }
+                      delete nameBubbles[bubbleKey].nameMarker;
+                  }
+                  if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].routeMarker) {
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(nameBubbles[bubbleKey].routeMarker);
+                      }
+                      delete nameBubbles[bubbleKey].routeMarker;
+                  }
               }
 
               if (nameBubbles[bubbleKey]) {
-                  const hasMarkers = Boolean(nameBubbles[bubbleKey].speedMarker || nameBubbles[bubbleKey].nameMarker || nameBubbles[bubbleKey].blockMarker);
+                  const hasMarkers = Boolean(nameBubbles[bubbleKey].speedMarker || nameBubbles[bubbleKey].nameMarker || nameBubbles[bubbleKey].blockMarker || nameBubbles[bubbleKey].routeMarker);
                   if (hasMarkers) {
                       nameBubbles[bubbleKey].lastScale = markerMetricsForZoom.scale;
                   } else {
@@ -11414,6 +11483,7 @@ schedulePlaneStyleOverride();
               const speedMarker = bubble.speedMarker;
               const nameMarker = bubble.nameMarker;
               const blockMarker = bubble.blockMarker;
+              const routeMarker = bubble.routeMarker;
 
               if (speedMarker) {
                   if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode && Number.isFinite(state.groundSpeed)) {
@@ -11461,7 +11531,23 @@ schedulePlaneStyleOverride();
                   }
               }
 
-              const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker);
+              if (routeMarker) {
+                  const routeLabel = formatCatRouteBubbleLabel(state.routeID);
+                  if (adminMode && !kioskMode && routeLabel) {
+                      const routeIcon = createBlockBubbleDivIcon(routeLabel, routeColor, scale, state.headingDeg);
+                      if (routeIcon) {
+                          routeMarker.setIcon(routeIcon);
+                      } else {
+                          map.removeLayer(routeMarker);
+                          delete bubble.routeMarker;
+                      }
+                  } else {
+                      map.removeLayer(routeMarker);
+                      delete bubble.routeMarker;
+                  }
+              }
+
+              const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker || bubble.routeMarker);
               if (hasMarkers) {
                   bubble.lastScale = scale;
               } else {
