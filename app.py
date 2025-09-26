@@ -2086,6 +2086,7 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
             {
                 "VehicleID": vid,
                 "RouteID": rid if rid is not None else 0,
+                "routeID": rid if rid is not None else 0,
                 "Latitude": lat,
                 "Longitude": lon,
                 "Heading": heading,
@@ -2378,6 +2379,13 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
         )
         if age_for_filter is not None and age_for_filter >= VEHICLE_STALE_THRESHOLD_S:
             continue
+        route_id = (
+            entry.get("RouteID")
+            or entry.get("routeID")
+            or entry.get("RouteId")
+            or entry.get("routeId")
+            or entry.get("route")
+        )
         result.append(
             {
                 "VehicleID": entry.get("VehicleID")
@@ -2405,11 +2413,8 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
                 or entry.get("speed")
                 or entry.get("GpsSpeed")
                 or entry.get("gpsSpeed"),
-                "RouteID": entry.get("RouteID")
-                or entry.get("routeID")
-                or entry.get("RouteId")
-                or entry.get("routeId")
-                or entry.get("route"),
+                "RouteID": route_id,
+                "routeID": route_id,
                 "RouteAbbreviation": entry.get("RouteAbbreviation")
                 or entry.get("ShortName")
                 or entry.get("shortName"),
