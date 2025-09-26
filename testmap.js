@@ -6746,14 +6746,13 @@ schedulePlaneStyleOverride();
                   .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
               const fallbackStopIdSet = new Set();
               stopEntries.forEach(entry => {
-                  if (typeof entry.stopIdText === 'string' && entry.stopIdText.trim() !== '') {
-                      entry.stopIdText.split(',').forEach(value => {
-                          const trimmed = value.trim();
-                          if (trimmed) {
-                              fallbackStopIdSet.add(trimmed);
-                          }
-                      });
-                  }
+                  const entryStopIds = Array.isArray(entry?.stopIds) ? entry.stopIds : [];
+                  entryStopIds.forEach(value => {
+                      const normalized = normalizeIdentifier(value);
+                      if (normalized) {
+                          fallbackStopIdSet.add(normalized);
+                      }
+                  });
               });
               const fallbackStopIdText = Array.from(fallbackStopIdSet)
                   .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
