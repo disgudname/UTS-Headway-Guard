@@ -5203,6 +5203,7 @@ schedulePlaneStyleOverride();
           if (b.speedMarker) map.removeLayer(b.speedMarker);
           if (b.nameMarker) map.removeLayer(b.nameMarker);
           if (b.blockMarker) map.removeLayer(b.blockMarker);
+          if (b.routeMarker) map.removeLayer(b.routeMarker);
         });
         nameBubbles = {};
         stopMarkers.forEach(m => map.removeLayer(m));
