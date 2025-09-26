@@ -9981,8 +9981,6 @@ schedulePlaneStyleOverride();
                   delete nameBubbles[bubbleKey].speedMarker;
               }
 
-              const shouldShowRouteLabel = adminMode && !kioskMode && displayMode === DISPLAY_MODES.BLOCK;
-
               if (adminMode && !kioskMode) {
                   const labelText = toNonEmptyString(vehicle.equipmentId)
                       || toNonEmptyString(vehicle.displayName)
@@ -10004,28 +10002,6 @@ schedulePlaneStyleOverride();
                       }
                       delete nameBubbles[bubbleKey].nameMarker;
                   }
-                  const rawRouteIdForLabel = toNonEmptyString(vehicle.routeId);
-                  const fallbackRouteId = rawRouteIdForLabel !== '' ? rawRouteIdForLabel : effectiveRouteKey;
-                  const routeLabel = shouldShowRouteLabel
-                      ? formatCatRouteBubbleLabel(fallbackRouteId)
-                      : null;
-                  const routeIcon = routeLabel
-                      ? createBlockBubbleDivIcon(routeLabel, routeColor, markerMetricsForZoom.scale, headingDeg)
-                      : null;
-                  if (routeIcon) {
-                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
-                      if (nameBubbles[bubbleKey].routeMarker) {
-                          animateMarkerTo(nameBubbles[bubbleKey].routeMarker, newPosition);
-                          nameBubbles[bubbleKey].routeMarker.setIcon(routeIcon);
-                      } else if (map) {
-                          nameBubbles[bubbleKey].routeMarker = L.marker(newPosition, { icon: routeIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                      }
-                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].routeMarker) {
-                      if (map && typeof map.removeLayer === 'function') {
-                          map.removeLayer(nameBubbles[bubbleKey].routeMarker);
-                      }
-                      delete nameBubbles[bubbleKey].routeMarker;
-                  }
               } else {
                   if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
                       if (map && typeof map.removeLayer === 'function') {
@@ -10033,12 +10009,27 @@ schedulePlaneStyleOverride();
                       }
                       delete nameBubbles[bubbleKey].nameMarker;
                   }
-                  if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].routeMarker) {
-                      if (map && typeof map.removeLayer === 'function') {
-                          map.removeLayer(nameBubbles[bubbleKey].routeMarker);
-                      }
-                      delete nameBubbles[bubbleKey].routeMarker;
+              }
+
+              const rawRouteIdForLabel = toNonEmptyString(vehicle.routeId);
+              const fallbackRouteId = rawRouteIdForLabel !== '' ? rawRouteIdForLabel : effectiveRouteKey;
+              const routeLabel = formatCatRouteBubbleLabel(fallbackRouteId);
+              const routeIcon = routeLabel
+                  ? createBlockBubbleDivIcon(routeLabel, routeColor, markerMetricsForZoom.scale, headingDeg)
+                  : null;
+              if (routeIcon) {
+                  nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                  if (nameBubbles[bubbleKey].routeMarker) {
+                      animateMarkerTo(nameBubbles[bubbleKey].routeMarker, newPosition);
+                      nameBubbles[bubbleKey].routeMarker.setIcon(routeIcon);
+                  } else if (map) {
+                      nameBubbles[bubbleKey].routeMarker = L.marker(newPosition, { icon: routeIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                   }
+              } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].routeMarker) {
+                  if (map && typeof map.removeLayer === 'function') {
+                      map.removeLayer(nameBubbles[bubbleKey].routeMarker);
+                  }
+                  delete nameBubbles[bubbleKey].routeMarker;
               }
 
               if (nameBubbles[bubbleKey]) {
