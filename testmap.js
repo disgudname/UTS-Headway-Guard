@@ -10004,8 +10004,10 @@ schedulePlaneStyleOverride();
                       }
                       delete nameBubbles[bubbleKey].nameMarker;
                   }
+                  const rawRouteIdForLabel = toNonEmptyString(vehicle.routeId);
+                  const fallbackRouteId = rawRouteIdForLabel !== '' ? rawRouteIdForLabel : effectiveRouteKey;
                   const routeLabel = shouldShowRouteLabel
-                      ? formatCatRouteBubbleLabel(vehicle.routeId ?? effectiveRouteKey)
+                      ? formatCatRouteBubbleLabel(fallbackRouteId)
                       : null;
                   const routeIcon = routeLabel
                       ? createBlockBubbleDivIcon(routeLabel, routeColor, markerMetricsForZoom.scale, headingDeg)
