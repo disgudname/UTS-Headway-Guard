@@ -9399,7 +9399,14 @@ schedulePlaneStyleOverride();
           }
           const now = Date.now();
           if (!force && catStopsById.size > 0 && (now - catStopsLastFetchTime) < CAT_METADATA_REFRESH_INTERVAL_MS) {
-              return Array.from(catStopsById.values());
+              const cachedStops = Array.from(catStopsById.values());
+              if (!Array.isArray(catStopDataCache) || catStopDataCache.length === 0) {
+                  catStopDataCache = buildCatStopDataForRendering(cachedStops);
+                  if (catOverlayEnabled) {
+                      renderBusStops(stopDataCache);
+                  }
+              }
+              return cachedStops;
           }
           try {
               const response = await fetch(CAT_STOPS_ENDPOINT, { cache: 'no-store' });
