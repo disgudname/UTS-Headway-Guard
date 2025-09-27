@@ -8438,10 +8438,14 @@ schedulePlaneStyleOverride();
           catOverlayEnabled = true;
           ensureCatLayerGroup();
           ensureCatBusMarkerSvgLoaded();
+          const restoredCatStops = restoreCatStopDataCacheFromStoredStops();
           updateCatToggleButtonState();
           refreshServiceAlertsUI();
           updateRouteSelector(activeRoutes, true);
           renderCatRoutes();
+          if (restoredCatStops) {
+              renderBusStops(stopDataCache);
+          }
           fetchCatRoutes().catch(error => console.error('Failed to fetch CAT routes:', error));
           fetchCatStops().catch(error => console.error('Failed to fetch CAT stops:', error));
           fetchCatRoutePatterns().catch(error => console.error('Failed to fetch CAT route patterns:', error));
@@ -9399,6 +9403,21 @@ schedulePlaneStyleOverride();
               }
               return results;
           });
+      }
+
+      function restoreCatStopDataCacheFromStoredStops() {
+          if (Array.isArray(catStopDataCache) && catStopDataCache.length > 0) {
+              return true;
+          }
+          if (!(catStopsById instanceof Map) || catStopsById.size === 0) {
+              return false;
+          }
+          const cachedStops = Array.from(catStopsById.values());
+          if (!Array.isArray(cachedStops) || cachedStops.length === 0) {
+              return false;
+          }
+          catStopDataCache = buildCatStopDataForRendering(cachedStops);
+          return Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
       }
 
       async function fetchCatStops(force = false) {
