@@ -8768,7 +8768,11 @@ schedulePlaneStyleOverride();
           if (catRouteSelections.has(normalized)) {
               return !!catRouteSelections.get(normalized);
           }
-          return activeFallbackSet instanceof Set ? activeFallbackSet.has(normalized) : false;
+          const fallbackSet = activeFallbackSet instanceof Set ? activeFallbackSet : null;
+          if (catOverlayEnabled && catRouteSelections.size === 0 && (!fallbackSet || fallbackSet.size === 0)) {
+              return true;
+          }
+          return fallbackSet ? fallbackSet.has(normalized) : false;
       }
 
       function isOutOfServiceRouteVisible() {
@@ -8809,7 +8813,11 @@ schedulePlaneStyleOverride();
           if (catRouteSelections.has(normalized)) {
               return !!catRouteSelections.get(normalized);
           }
-          return activeFallbackSet instanceof Set ? activeFallbackSet.has(normalized) : false;
+          const fallbackSet = activeFallbackSet instanceof Set ? activeFallbackSet : null;
+          if (catOverlayEnabled && catRouteSelections.size === 0 && (!fallbackSet || fallbackSet.size === 0)) {
+              return true;
+          }
+          return fallbackSet ? fallbackSet.has(normalized) : false;
       }
 
       function toNonEmptyString(value) {
