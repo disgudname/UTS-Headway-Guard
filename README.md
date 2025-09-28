@@ -87,12 +87,22 @@ Dispatchers receive a split-screen headway dashboard and live map:
 - Block roster panels (current and future), alias expansion, automatic highlighting of extra buses, and mileage-aware sorting.
 - Route selector that prioritizes active lines, status banners tied to health checks, and an embedded `/map` iframe.【F:dispatcher.html†L1-L430】
 
-### Live system maps
-`/map` (and its variants `/madmap`, `/metromap`, `/testmap`) provide rich situational awareness:
-- Dynamic route selector with agency dropdown, select-all/deselect-all helpers, and options to show block numbers or speed readouts on vehicle bubbles.
-- Admin, kiosk, and admin-kiosk modes controlled via query parameters to tailor overlays for public displays or control-room walls.
-- Support for out-of-service vehicles, route legends, pop-up callouts, animated name labels, and persistent selections stored in localStorage.
-- Optional cookie/consent banner for cross-agency monitoring.【F:map.html†L1-L400】
+### Live map suite
+`/map`, `/madmap`, and `/metromap` power day-to-day UVA operations while `/testmap` and `/testmap-minimal` expose an experimental control panel for advanced monitoring:
+
+#### Shared map experience (`/map`, `/madmap`, `/metromap`)
+- Route overlays use SVG renderers with adaptive stroke weights so intertwined lines stay legible at every zoom level, and a loading overlay keeps kiosk deployments from flashing half-rendered states while feeds initialize.【F:map.html†L4300-L4382】
+- The interface discovers every RideSystems agency on demand, prioritizes UVA, and persists the operator’s choice (with a consent banner) so dispatch can jump between partner systems without reconfiguring the map each time.【F:map.html†L4384-L4426】【F:map.html†L6707-L6741】
+- Sliding control and route-selector panels reposition themselves based on viewport size and kiosk/admin modes, letting wall displays stay clutter-free while tablets retain quick access to filters and overlays.【F:map.html†L4431-L4545】【F:map.html†L4552-L4559】
+
+#### Testbed features (`/testmap`)
+- URL parameters toggle admin, kiosk, and radar behaviors so the same page can run as an analyst console, lobby display, or storm ops view without code changes.【F:testmap.js†L624-L655】
+- The control panel orchestrates a multi-source data pipeline: TransLoc snapshots, PulsePoint incidents, Amtrak/VRE train feeds, FAA ADS-B traffic, and Charlottesville Area Transit (CAT) overlays refresh on independent cadences and cache aggressively to avoid vendor rate limits.【F:testmap.js†L658-L760】【F:testmap.js†L807-L845】
+- Incident markers fan out with animated halos, while service-alert toggles summarize active notices and surface combined UVA + CAT alerts with accessibility-friendly status text and expandable panels.【F:testmap.js†L658-L706】【F:testmap.js†L3680-L3838】
+- CAT integration downloads routes, stops, patterns, vehicles, and stop ETAs, then tracks selections so kiosk-safe routes stay visible even when the operator switches agencies.【F:testmap.js†L736-L760】【F:testmap.js†L820-L851】
+
+#### Minimal embed (`/testmap-minimal`)
+- A stripped-down Leaflet view accepts `baseURL` and `routeId` query parameters, renders a single route using the same adaptive stroke-weight logic, and audits pane transforms so third-party CMS embeds can’t accidentally warp the geometry.【F:testmap-minimal.html†L24-L148】
 
 ### Service crew dashboard
 A widescreen table summarises miles driven per bus, current block assignments (with aliasing), high-mileage alerts, and links to an embedded kiosk-mode map. Data refreshes continuously and highlights overheight buses with distinctive colors.【F:servicecrew.html†L1-L176】
