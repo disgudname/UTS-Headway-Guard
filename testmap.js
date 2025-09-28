@@ -756,7 +756,7 @@ schedulePlaneStyleOverride();
       let trainMarkers = {};
       let trainMarkerStates = {};
       let trainNameBubbles = {};
-      let trainsVisible = false;
+      let trainsVisible = adminKioskMode;
       let planesVisible = false;
       let trainFetchPromise = null;
       const vehicleHeadingCache = new Map();
