@@ -63,6 +63,17 @@ schedulePlaneStyleOverride();
             if (raw === null) return defaultValue;
             const parsed = Number.parseInt(raw, 10);
             return Number.isFinite(parsed) ? parsed : defaultValue;
+          },
+          getBoolean(name, defaultValue = false) {
+            if (!searchParams) return defaultValue;
+            if (!searchParams.has(name)) return defaultValue;
+            const raw = searchParams.get(name);
+            if (raw === null) return defaultValue;
+            const normalized = raw.trim().toLowerCase();
+            if (normalized === '') return true;
+            if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+            if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+            return defaultValue;
           }
         };
       }
@@ -129,6 +140,370 @@ schedulePlaneStyleOverride();
       let radarLastFailedUrl = "";
       let radarSuppressedForErrors = false;
       let radarSuppressionTimeoutId = null;
+
+      const CONFIG_ENDPOINT = '/v1/config';
+      const DISPATCHER_DEFAULT_BRIDGE = Object.freeze({
+        lat: 38.03404931117353,
+        lng: -78.4995922309842
+      });
+      const DISPATCHER_DEFAULT_RADIUS_METERS = 117;
+      const DISPATCHER_DEFAULT_OVERHEIGHT_IDS = Object.freeze([
+        '25131', '25231', '25331', '25431',
+        '17132', '14132', '12432', '18532'
+      ]);
+      const DISPATCHER_MIN_FOCUS_ZOOM = 18;
+
+      const dispatcherMode = window.usp.getBoolean('dispatcher', false);
+      let dispatcherConfig = null;
+      let dispatcherConfigPromise = null;
+      const dispatcherLockState = {
+        active: false,
+        vehicleKey: null,
+        circle: null,
+        popup: null,
+        pendingPopupVehicleKey: null,
+        mapInteractionBackup: null,
+        targetZoom: null
+      };
+
+      function buildDispatcherDefaultConfig() {
+        return {
+          bridgeLat: DISPATCHER_DEFAULT_BRIDGE.lat,
+          bridgeLng: DISPATCHER_DEFAULT_BRIDGE.lng,
+          radiusMeters: DISPATCHER_DEFAULT_RADIUS_METERS,
+          overheightBusIds: new Set(DISPATCHER_DEFAULT_OVERHEIGHT_IDS)
+        };
+      }
+
+      function normalizeDispatcherConfigPayload(payload) {
+        const defaults = buildDispatcherDefaultConfig();
+        if (!payload || typeof payload !== 'object') {
+          return defaults;
+        }
+        const normalized = {
+          bridgeLat: Number(payload.BRIDGE_LAT),
+          bridgeLng: Number(payload.BRIDGE_LON),
+          radiusMeters: Number(payload.BRIDGE_RADIUS),
+          overheightBusIds: new Set()
+        };
+        if (!Number.isFinite(normalized.bridgeLat)) {
+          normalized.bridgeLat = defaults.bridgeLat;
+        }
+        if (!Number.isFinite(normalized.bridgeLng)) {
+          normalized.bridgeLng = defaults.bridgeLng;
+        }
+        if (!Number.isFinite(normalized.radiusMeters) || normalized.radiusMeters <= 0) {
+          normalized.radiusMeters = defaults.radiusMeters;
+        }
+        const sourceList = Array.isArray(payload.OVERHEIGHT_BUSES)
+          ? payload.OVERHEIGHT_BUSES
+          : DISPATCHER_DEFAULT_OVERHEIGHT_IDS;
+        sourceList.forEach(value => {
+          const text = value === undefined || value === null ? '' : `${value}`.trim();
+          if (text) {
+            normalized.overheightBusIds.add(text);
+          }
+        });
+        if (normalized.overheightBusIds.size === 0) {
+          defaults.overheightBusIds.forEach(id => normalized.overheightBusIds.add(id));
+        }
+        return normalized;
+      }
+
+      function ensureDispatcherConfigLoaded() {
+        if (!dispatcherMode) {
+          return Promise.resolve(null);
+        }
+        if (dispatcherConfig) {
+          return Promise.resolve(dispatcherConfig);
+        }
+        if (dispatcherConfigPromise) {
+          return dispatcherConfigPromise;
+        }
+        dispatcherConfigPromise = fetch(CONFIG_ENDPOINT, { cache: 'no-store' })
+          .then(response => {
+            if (!response || !response.ok) {
+              throw new Error(response ? `HTTP ${response.status}` : 'No response');
+            }
+            return response.json();
+          })
+          .then(data => {
+            dispatcherConfig = normalizeDispatcherConfigPayload(data);
+            return dispatcherConfig;
+          })
+          .catch(error => {
+            console.error('Failed to load dispatcher configuration:', error);
+            dispatcherConfig = buildDispatcherDefaultConfig();
+            return dispatcherConfig;
+          })
+          .finally(() => {
+            dispatcherConfigPromise = null;
+          });
+        return dispatcherConfigPromise;
+      }
+
+      function computeGreatCircleDistanceMeters(lat1, lon1, lat2, lon2) {
+        const toRadians = value => (Number.isFinite(value) ? value * (Math.PI / 180) : NaN);
+        const phi1 = toRadians(lat1);
+        const phi2 = toRadians(lat2);
+        const deltaPhi = toRadians(lat2 - lat1);
+        const deltaLambda = toRadians(lon2 - lon1);
+        if ([phi1, phi2, deltaPhi, deltaLambda].some(value => Number.isNaN(value))) {
+          return NaN;
+        }
+        const a = Math.sin(deltaPhi / 2) ** 2
+          + Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const earthRadiusMeters = 6371000;
+        return earthRadiusMeters * c;
+      }
+
+      function isDispatcherLockActive() {
+        return dispatcherMode && !!dispatcherLockState.active;
+      }
+
+      function disableMapInteractionsForDispatcher() {
+        if (!map) {
+          return;
+        }
+        const backup = dispatcherLockState.mapInteractionBackup || {};
+        const controls = ['dragging', 'scrollWheelZoom', 'doubleClickZoom', 'boxZoom', 'touchZoom', 'keyboard'];
+        controls.forEach(name => {
+          const control = map[name];
+          if (!control || typeof control.disable !== 'function') {
+            return;
+          }
+          if (!Object.prototype.hasOwnProperty.call(backup, name) && typeof control.enabled === 'function') {
+            try {
+              backup[name] = control.enabled();
+            } catch (error) {
+              backup[name] = undefined;
+            }
+          } else if (!Object.prototype.hasOwnProperty.call(backup, name)) {
+            backup[name] = undefined;
+          }
+          try {
+            control.disable();
+          } catch (error) {
+            console.warn(`Unable to disable map control ${name}:`, error);
+          }
+        });
+        dispatcherLockState.mapInteractionBackup = backup;
+      }
+
+      function restoreMapInteractionsForDispatcher() {
+        if (!map) {
+          return;
+        }
+        const backup = dispatcherLockState.mapInteractionBackup || {};
+        const controls = ['dragging', 'scrollWheelZoom', 'doubleClickZoom', 'boxZoom', 'touchZoom', 'keyboard'];
+        controls.forEach(name => {
+          const control = map[name];
+          if (!control) {
+            return;
+          }
+          const wasEnabled = backup[name];
+          try {
+            if (typeof control.enable === 'function' && typeof control.disable === 'function') {
+              if (wasEnabled === false) {
+                control.disable();
+              } else {
+                control.enable();
+              }
+            } else if (typeof control.enable === 'function' && wasEnabled !== false) {
+              control.enable();
+            }
+          } catch (error) {
+            console.warn(`Unable to restore map control ${name}:`, error);
+          }
+        });
+        dispatcherLockState.mapInteractionBackup = null;
+      }
+
+      function ensureDispatcherCircle(config) {
+        if (!dispatcherMode || !map || typeof L === 'undefined' || typeof L.circle !== 'function') {
+          return null;
+        }
+        if (dispatcherLockState.circle) {
+          return dispatcherLockState.circle;
+        }
+        const circle = L.circle([config.bridgeLat, config.bridgeLng], {
+          radius: config.radiusMeters,
+          color: '#dc2626',
+          weight: 2,
+          fillColor: '#dc2626',
+          fillOpacity: 0.15,
+          interactive: false,
+          pane: 'busesPane'
+        });
+        dispatcherLockState.circle = circle;
+        if (map && typeof circle.addTo === 'function') {
+          circle.addTo(map);
+        }
+        return circle;
+      }
+
+      function openDispatcherPopupForVehicle(vehicleKey) {
+        if (!dispatcherMode) {
+          return;
+        }
+        if (!vehicleKey && dispatcherLockState.vehicleKey) {
+          vehicleKey = dispatcherLockState.vehicleKey;
+        }
+        if (!vehicleKey) {
+          return;
+        }
+        const marker = markers && markers[vehicleKey];
+        if (!marker) {
+          dispatcherLockState.pendingPopupVehicleKey = vehicleKey;
+          return;
+        }
+        dispatcherLockState.pendingPopupVehicleKey = null;
+        try {
+          if (typeof marker.bindPopup === 'function') {
+            marker.bindPopup('<div class="dispatcher-overheight-popup__content">OVERHEIGHT VEHICLE</div>', {
+              closeButton: false,
+              closeOnClick: false,
+              autoClose: false,
+              className: 'dispatcher-overheight-popup'
+            });
+          }
+          if (typeof marker.openPopup === 'function') {
+            marker.openPopup();
+          }
+          if (typeof marker.getPopup === 'function') {
+            dispatcherLockState.popup = marker.getPopup();
+          } else {
+            dispatcherLockState.popup = null;
+          }
+        } catch (error) {
+          console.error('Failed to open dispatcher popup for vehicle', vehicleKey, error);
+        }
+      }
+
+      function handleDispatcherPopupClosed(event) {
+        if (!isDispatcherLockActive()) {
+          return;
+        }
+        if (!event || !event.popup) {
+          return;
+        }
+        if (dispatcherLockState.popup && event.popup !== dispatcherLockState.popup) {
+          return;
+        }
+        openDispatcherPopupForVehicle(dispatcherLockState.vehicleKey);
+      }
+
+      function selectNearestOverheightCandidate(currentCandidate, vehicleKey, lat, lon, config) {
+        if (!config || !config.overheightBusIds || config.overheightBusIds.size === 0) {
+          return currentCandidate;
+        }
+        if (!vehicleKey || !config.overheightBusIds.has(vehicleKey)) {
+          return currentCandidate;
+        }
+        const distance = computeGreatCircleDistanceMeters(lat, lon, config.bridgeLat, config.bridgeLng);
+        if (!Number.isFinite(distance) || distance > config.radiusMeters) {
+          return currentCandidate;
+        }
+        if (!currentCandidate || distance < currentCandidate.distance) {
+          return {
+            vehicleKey,
+            distance
+          };
+        }
+        return currentCandidate;
+      }
+
+      function updateDispatcherPendingPopup() {
+        if (!dispatcherLockState.pendingPopupVehicleKey) {
+          return;
+        }
+        openDispatcherPopupForVehicle(dispatcherLockState.pendingPopupVehicleKey);
+      }
+
+      function handleDispatcherLock(candidate, config) {
+        if (!dispatcherMode || !map) {
+          return;
+        }
+        if (!candidate || !config) {
+          if (!dispatcherLockState.active) {
+            return;
+          }
+          restoreMapInteractionsForDispatcher();
+          if (dispatcherLockState.circle && typeof map.removeLayer === 'function') {
+            map.removeLayer(dispatcherLockState.circle);
+          }
+          const activeMarker = dispatcherLockState.vehicleKey ? markers && markers[dispatcherLockState.vehicleKey] : null;
+          if (activeMarker && typeof activeMarker.closePopup === 'function') {
+            activeMarker.closePopup();
+          }
+          if (activeMarker && typeof activeMarker.unbindPopup === 'function') {
+            activeMarker.unbindPopup();
+          }
+          dispatcherLockState.circle = null;
+          dispatcherLockState.popup = null;
+          dispatcherLockState.vehicleKey = null;
+          dispatcherLockState.pendingPopupVehicleKey = null;
+          dispatcherLockState.active = false;
+          dispatcherLockState.targetZoom = null;
+          return;
+        }
+
+        const { bridgeLat, bridgeLng, radiusMeters } = config;
+        if (!Number.isFinite(bridgeLat) || !Number.isFinite(bridgeLng) || !Number.isFinite(radiusMeters) || radiusMeters <= 0) {
+          return;
+        }
+
+        const circle = ensureDispatcherCircle(config);
+        if (circle) {
+          try {
+            circle.setLatLng([bridgeLat, bridgeLng]);
+            circle.setRadius(radiusMeters);
+            if (map && typeof map.hasLayer === 'function' && !map.hasLayer(circle) && typeof circle.addTo === 'function') {
+              circle.addTo(map);
+            }
+          } catch (error) {
+            console.warn('Unable to update dispatcher circle:', error);
+          }
+        }
+
+        const mapZoom = typeof map.getZoom === 'function' ? map.getZoom() : null;
+        const targetZoom = Number.isFinite(mapZoom)
+          ? Math.max(mapZoom, DISPATCHER_MIN_FOCUS_ZOOM)
+          : DISPATCHER_MIN_FOCUS_ZOOM;
+        dispatcherLockState.targetZoom = targetZoom;
+
+        if (!dispatcherLockState.active) {
+          disableMapInteractionsForDispatcher();
+        }
+
+        dispatcherLockState.active = true;
+        dispatcherLockState.vehicleKey = candidate.vehicleKey;
+
+        const currentCenter = typeof map.getCenter === 'function' ? map.getCenter() : null;
+        const needsRecentering = !currentCenter
+          || !Number.isFinite(currentCenter.lat)
+          || !Number.isFinite(currentCenter.lng)
+          || Math.abs(currentCenter.lat - bridgeLat) > 1e-6
+          || Math.abs(currentCenter.lng - bridgeLng) > 1e-6
+          || !Number.isFinite(mapZoom)
+          || mapZoom < targetZoom;
+        if (needsRecentering && typeof map.setView === 'function') {
+          try {
+            map.setView([bridgeLat, bridgeLng], targetZoom, { animate: true });
+          } catch (error) {
+            console.warn('Failed to center map on bridge for dispatcher mode:', error);
+          }
+        } else if (Number.isFinite(targetZoom) && Number.isFinite(mapZoom) && mapZoom < targetZoom && typeof map.setZoom === 'function') {
+          try {
+            map.setZoom(targetZoom);
+          } catch (error) {
+            console.warn('Failed to adjust map zoom for dispatcher mode:', error);
+          }
+        }
+
+        openDispatcherPopupForVehicle(candidate.vehicleKey);
+      }
 
       function isRadarInteractiveMode() {
         return !kioskMode && !adminKioskMode;
@@ -2614,7 +2989,7 @@ schedulePlaneStyleOverride();
         if (entry.incident) {
           applyIncidentMarkers([entry.incident]);
         }
-        if (entry.incident && Number.isFinite(entry.incident.Latitude) && Number.isFinite(entry.incident.Longitude) && map && typeof map.setView === 'function') {
+        if (!isDispatcherLockActive() && entry.incident && Number.isFinite(entry.incident.Latitude) && Number.isFinite(entry.incident.Longitude) && map && typeof map.setView === 'function') {
           try {
             const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : 0;
             const targetZoom = Number.isFinite(currentZoom) ? Math.max(currentZoom, 15) : 15;
@@ -3450,6 +3825,9 @@ schedulePlaneStyleOverride();
         const targetLat = Number(latLng.lat);
         const targetLng = Number(latLng.lng);
         if (!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) {
+          return;
+        }
+        if (isDispatcherLockActive()) {
           return;
         }
         const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : null;
@@ -5292,6 +5670,7 @@ schedulePlaneStyleOverride();
               zoomAnimation: true,
               markerZoomAnimation: true
           }).setView([38.03799212281404, -78.50981502838886], 15);
+          map.on('popupclose', handleDispatcherPopupClosed);
           map.on('click', () => {
               closeCatVehicleTooltip();
           });
@@ -8056,7 +8435,7 @@ schedulePlaneStyleOverride();
                       if (bounds) {
                           allRouteBounds = bounds;
                           if (!mapHasFitAllRoutes) {
-                              if (!kioskMode && !adminKioskMode) {
+                              if (!kioskMode && !adminKioskMode && !isDispatcherLockActive()) {
                                   map.fitBounds(allRouteBounds, { padding: [20, 20] });
                               }
                               mapHasFitAllRoutes = true;
@@ -8122,10 +8501,19 @@ schedulePlaneStyleOverride();
               if (currentBaseURL !== baseURL) {
                   return;
               }
+              let dispatcherConfigLocal = null;
+              if (dispatcherMode) {
+                  try {
+                      dispatcherConfigLocal = await ensureDispatcherConfigLoaded();
+                  } catch (configError) {
+                      console.error('Failed to resolve dispatcher configuration:', configError);
+                  }
+              }
               const data = Array.isArray(snapshot?.vehicles) ? snapshot.vehicles : [];
               const currentBusData = {};
               const activeRoutesSet = new Set();
               const vehicles = [];
+              let dispatcherCandidate = null;
 
               data.forEach(vehicle => {
                   if (!vehicle) return;
@@ -8148,6 +8536,16 @@ schedulePlaneStyleOverride();
                   if (!canDisplayRoute(effectiveRouteId)) return;
                   if (!adminMode && !routeColors.hasOwnProperty(effectiveRouteId)) return;
                   activeRoutesSet.add(effectiveRouteId);
+                  if (dispatcherMode && dispatcherConfigLocal) {
+                      const vehicleKey = vehicleID === undefined || vehicleID === null ? '' : `${vehicleID}`.trim();
+                      dispatcherCandidate = selectNearestOverheightCandidate(
+                          dispatcherCandidate,
+                          vehicleKey,
+                          lat,
+                          lon,
+                          dispatcherConfigLocal
+                      );
+                  }
                   vehicles.push({
                       vehicleID,
                       newPosition,
@@ -8300,6 +8698,15 @@ schedulePlaneStyleOverride();
                       } else {
                           delete nameBubbles[vehicleID];
                       }
+                  }
+              }
+
+              if (dispatcherMode) {
+                  if (dispatcherConfigLocal) {
+                      handleDispatcherLock(dispatcherCandidate, dispatcherConfigLocal);
+                      updateDispatcherPendingPopup();
+                  } else {
+                      handleDispatcherLock(null, null);
                   }
               }
 
