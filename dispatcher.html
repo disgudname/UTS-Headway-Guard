@@ -95,6 +95,7 @@ const fmt = s => { if (s==null || !isFinite(s)) return "—"; s = Math.round(s);
 const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],red:["HOLD","bad"]}; const [t,c] = m[st] || ["OK","ok"]; return '<span class="pill '+c+'"><span class="dot"></span><span>'+t+'</span></span>'; };
 const DOWNED_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
 const DOWNED_REFRESH_MS = 60000;
+const DOWNED_SUFFIXES = new Set(['12','31','32']);
 const OPS_STATUS_VALUES = new Set(['DOWNED','LIMITED','COSMETIC','COMFORT']);
 const SHOP_STATUS_VALUES = new Set(['DOWN','UP','USABLE']);
 const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COMFORT:'Comfort',DOWN:'Down',UP:'Up',USABLE:'Usable'};
@@ -319,11 +320,51 @@ function statusLabel(status){
 }
 
 let lastDownedRows=[];
+let downedBusFullIds=new Set();
+let downedBusBaseIds=new Set();
+
+function extractDigits(str){
+  return (str||'').replace(/\D+/g,'');
+}
+
+function refreshDownedBusSets(rows){
+  downedBusFullIds=new Set();
+  downedBusBaseIds=new Set();
+  for(const row of rows){
+    const rawId=String(row?.vehicleId||'').trim();
+    if(!rawId) continue;
+    const digits=extractDigits(rawId);
+    if(digits.length>=5){
+      downedBusFullIds.add(digits.slice(-5));
+    }else if(digits.length>=3){
+      downedBusBaseIds.add(digits);
+      if(digits.length>3){
+        downedBusBaseIds.add(digits.slice(-3));
+      }
+    }
+  }
+}
+
+function isBusDowned(busId){
+  const digits=extractDigits(busId);
+  if(!digits) return false;
+  if(downedBusFullIds.has(digits.slice(-5))) return true;
+  if(digits.length>=5){
+    const base=digits.slice(0,-2);
+    const suffix=digits.slice(-2);
+    if(DOWNED_SUFFIXES.has(suffix)){
+      if(downedBusBaseIds.has(base) || downedBusBaseIds.has(base.slice(-3))) return true;
+    }
+  }
+  return false;
+}
 
 function renderDownedVehicles(rows){
   const tbody=$('#downed-rows');
   if(!tbody) return;
   lastDownedRows=rows.slice();
+  refreshDownedBusSets(rows);
+  updateExtraBuses();
   if(!rows.length){
     tbody.innerHTML='<tr><td class="hint" colspan="4">All buses available.</td></tr>';
     return;
@@ -416,7 +457,7 @@ function updateLastUpdated(){
 
 function updateExtraBuses(){
   const extra=$('#extra-buses');
-  const unassigned=allBuses.filter(b=>!allBlockByBus.has(b));
+  const unassigned=allBuses.filter(b=>!allBlockByBus.has(b) && !isBusDowned(b));
   extra.innerHTML=unassigned.length
     ? unassigned.map(b=>{
         let bg='#EEE8AA';
