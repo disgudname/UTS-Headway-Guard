@@ -187,6 +187,14 @@ schedulePlaneStyleOverride();
         return (adminMode && !kioskMode) || adminKioskMode;
       }
 
+      function radarFeaturesAllowed() {
+        return adminFeaturesAllowed() && !adminKioskMode;
+      }
+
+      function trainsFeatureAllowed() {
+        return adminFeaturesAllowed() && !adminKioskMode;
+      }
+
       const RADAR_PRODUCTS = Object.freeze({
         BASE: 'base',
         COMPOSITE: 'composite'
@@ -879,12 +887,12 @@ schedulePlaneStyleOverride();
           clearTimeout(radarSuppressionTimeoutId);
           radarSuppressionTimeoutId = null;
         }
-        if (!adminFeaturesAllowed()) {
+        if (!radarFeaturesAllowed()) {
           radarEnabled = false;
           return;
         }
         if (adminKioskMode) {
-          radarEnabled = true;
+          radarEnabled = false;
         } else if (kioskMode) {
           radarEnabled = !!showRadar;
         } else {
@@ -918,7 +926,7 @@ schedulePlaneStyleOverride();
       }
 
       function applyRadarState() {
-        if (!adminFeaturesAllowed()) {
+        if (!radarFeaturesAllowed()) {
           removeRadarLayer();
           return;
         }
@@ -1049,7 +1057,7 @@ schedulePlaneStyleOverride();
       }
 
       function setRadarEnabled(nextEnabled) {
-        const allowRadar = adminFeaturesAllowed();
+        const allowRadar = radarFeaturesAllowed();
         const shouldEnable = allowRadar && !!nextEnabled;
         if (shouldEnable && radarTemporarilyUnavailable) {
           refreshRadarControlsUI();
@@ -1078,7 +1086,7 @@ schedulePlaneStyleOverride();
       }
 
       function setRadarProduct(nextProduct) {
-        if (!adminFeaturesAllowed()) {
+        if (!radarFeaturesAllowed()) {
           refreshRadarControlsUI();
           return;
         }
@@ -1118,7 +1126,7 @@ schedulePlaneStyleOverride();
       }
 
       function setRadarOpacity(nextOpacity) {
-        if (!adminFeaturesAllowed()) {
+        if (!radarFeaturesAllowed()) {
           refreshRadarControlsUI();
           return;
         }
@@ -1169,7 +1177,7 @@ schedulePlaneStyleOverride();
       }
 
       function refreshRadarControlsUI() {
-        const allowRadar = adminFeaturesAllowed();
+        const allowRadar = radarFeaturesAllowed();
         const toggleButton = document.getElementById("radarToggleButton");
         const isActive = allowRadar && radarEnabled && !radarTemporarilyUnavailable;
         if (toggleButton) {
@@ -1384,7 +1392,7 @@ schedulePlaneStyleOverride();
           markers: {},
           markerStates: {},
           nameBubbles: {},
-          visible: adminKioskMode,
+          visible: false,
           fetchPromise: null,
           module: null,
           loadPromise: null
@@ -1444,7 +1452,7 @@ schedulePlaneStyleOverride();
                   const module = window.initializeTrainsFeature({
                       getMap: () => map,
                       state: trainsFeature,
-                      adminFeaturesAllowed,
+                      adminFeaturesAllowed: trainsFeatureAllowed,
                       updateToggleButton: updateTrainToggleButton,
                       onVisibilityChange(visible) {
                           trainsFeature.visible = !!visible;
@@ -1499,7 +1507,7 @@ schedulePlaneStyleOverride();
 
       function setTrainsVisibility(visible) {
           const desiredVisibility = !!visible;
-          const allowTrains = adminFeaturesAllowed();
+          const allowTrains = trainsFeatureAllowed();
           const effectiveVisibility = allowTrains && desiredVisibility;
           if (!effectiveVisibility && !trainsFeature.module) {
               trainsFeature.visible = false;
@@ -3909,7 +3917,7 @@ schedulePlaneStyleOverride();
       function updateTrainToggleButton() {
         const button = document.getElementById('trainToggleButton');
         if (!button) return;
-        const allowTrains = adminFeaturesAllowed();
+        const allowTrains = trainsFeatureAllowed();
         const isActive = allowTrains && !!trainsFeature.visible;
         button.classList.toggle('is-active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
@@ -4878,25 +4886,51 @@ schedulePlaneStyleOverride();
         const incidentAlertsHtml = renderIncidentAlertsHtml();
         const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
         const allowAdminFeatures = adminFeaturesAllowed();
+        const allowTrainControls = trainsFeatureAllowed();
+        const allowRadarControls = radarFeaturesAllowed();
         if (!allowAdminFeatures && planesFeature.visible) {
           setPlanesVisibility(false);
         }
+        if (!allowTrainControls && trainsFeature.visible) {
+          setTrainsVisibility(false);
+        }
+        if (!allowRadarControls && radarEnabled) {
+          setRadarEnabled(false);
+        }
         let trainToggleHtml = '';
+        const trainPlaneButtons = [];
+        if (allowTrainControls) {
+          trainPlaneButtons.push(
+            `<button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsFeature.visible ? ' is-active' : ''}" aria-pressed="${trainsFeature.visible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
+                Show Amtrak<span class="toggle-indicator">${trainsFeature.visible ? 'On' : 'Off'}</span>
+              </button>`
+          );
+        }
         if (allowAdminFeatures) {
+          trainPlaneButtons.push(
+            `<button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesFeature.visible ? ' is-active' : ''}" aria-pressed="${planesFeature.visible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
+                Show Aircraft<span class="toggle-indicator">${planesFeature.visible ? 'On' : 'Off'}</span>
+              </button>`
+          );
+        }
+        if (trainPlaneButtons.length > 0) {
+          const trainPlaneLabel = allowTrainControls && allowAdminFeatures
+            ? 'Trains and Planes'
+            : allowTrainControls
+              ? 'Trains'
+              : 'Planes';
+          const trainPlaneMarkup = trainPlaneButtons
+            .map(button => `              ${button}`)
+            .join('\n');
           trainToggleHtml = `
             <div class="selector-group">
-              <div class="selector-label">Trains and Planes</div>
-              <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsFeature.visible ? ' is-active' : ''}" aria-pressed="${trainsFeature.visible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
-                Show Amtrak<span class="toggle-indicator">${trainsFeature.visible ? 'On' : 'Off'}</span>
-              </button>
-              <button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesFeature.visible ? ' is-active' : ''}" aria-pressed="${planesFeature.visible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
-                Show Aircraft<span class="toggle-indicator">${planesFeature.visible ? 'On' : 'Off'}</span>
-              </button>
+              <div class="selector-label">${trainPlaneLabel}</div>
+${trainPlaneMarkup}
             </div>
           `;
         }
         let radarControlsHtml = '';
-        if (allowAdminFeatures) {
+        if (allowRadarControls) {
           const toggleActive = radarEnabled && !radarTemporarilyUnavailable;
           const toggleDisabledAttr = radarTemporarilyUnavailable ? ' disabled' : '';
           const productOptions = RADAR_PRODUCT_ORDER.map(productKey => {
