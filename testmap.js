@@ -199,6 +199,10 @@ schedulePlaneStyleOverride();
         popupCloseSuppressionDepth: 0
       };
 
+      function dispatcherFeaturesAllowed() {
+        return dispatcherMode || adminKioskMode;
+      }
+
       function buildDispatcherDefaultConfig() {
         return {
           bridgeLat: DISPATCHER_DEFAULT_BRIDGE.lat,
@@ -244,7 +248,7 @@ schedulePlaneStyleOverride();
       }
 
       function ensureDispatcherConfigLoaded() {
-        if (!dispatcherMode) {
+        if (!dispatcherFeaturesAllowed()) {
           return Promise.resolve(null);
         }
         if (dispatcherConfig) {
@@ -292,7 +296,7 @@ schedulePlaneStyleOverride();
       }
 
       function isDispatcherLockActive() {
-        return dispatcherMode && !!dispatcherLockState.active;
+        return dispatcherFeaturesAllowed() && !!dispatcherLockState.active;
       }
 
       function disableMapInteractionsForDispatcher() {
@@ -354,7 +358,7 @@ schedulePlaneStyleOverride();
       }
 
       function ensureDispatcherCircle(config) {
-        if (!dispatcherMode || !map || typeof L === 'undefined' || typeof L.circle !== 'function') {
+        if (!dispatcherFeaturesAllowed() || !map || typeof L === 'undefined' || typeof L.circle !== 'function') {
           return null;
         }
         if (dispatcherLockState.circle) {
@@ -470,7 +474,7 @@ schedulePlaneStyleOverride();
       }
 
       function openDispatcherPopupForVehicle(vehicleKey) {
-        if (!dispatcherMode) {
+        if (!dispatcherFeaturesAllowed()) {
           return;
         }
         if (!vehicleKey && dispatcherLockState.vehicleKey) {
@@ -555,7 +559,7 @@ schedulePlaneStyleOverride();
       }
 
       function handleDispatcherLock(candidate, config) {
-        if (!dispatcherMode || !map) {
+        if (!dispatcherFeaturesAllowed() || !map) {
           return;
         }
         if (!candidate || !config) {
@@ -8875,7 +8879,7 @@ schedulePlaneStyleOverride();
                   return;
               }
               let dispatcherConfigLocal = null;
-              if (dispatcherMode) {
+              if (dispatcherFeaturesAllowed()) {
                   try {
                       dispatcherConfigLocal = await ensureDispatcherConfigLoaded();
                   } catch (configError) {
@@ -8909,7 +8913,7 @@ schedulePlaneStyleOverride();
                   if (!canDisplayRoute(effectiveRouteId)) return;
                   if (!adminMode && !routeColors.hasOwnProperty(effectiveRouteId)) return;
                   activeRoutesSet.add(effectiveRouteId);
-                  if (dispatcherMode && dispatcherConfigLocal) {
+                  if (dispatcherFeaturesAllowed() && dispatcherConfigLocal) {
                       const vehicleKey = vehicleID === undefined || vehicleID === null ? '' : `${vehicleID}`.trim();
                       dispatcherCandidate = selectNearestOverheightCandidate(
                           dispatcherCandidate,
@@ -9075,13 +9079,15 @@ schedulePlaneStyleOverride();
                   }
               }
 
-              if (dispatcherMode) {
+              if (dispatcherFeaturesAllowed()) {
                   if (dispatcherConfigLocal) {
                       handleDispatcherLock(dispatcherCandidate, dispatcherConfigLocal);
                       updateDispatcherPendingPopup();
                   } else {
                       handleDispatcherLock(null, null);
                   }
+              } else {
+                  handleDispatcherLock(null, null);
               }
 
               Object.keys(markers).forEach(vehicleID => {
