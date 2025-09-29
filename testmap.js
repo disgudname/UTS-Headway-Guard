@@ -163,7 +163,8 @@ schedulePlaneStyleOverride();
         popup: null,
         pendingPopupVehicleKey: null,
         mapInteractionBackup: null,
-        targetZoom: null
+        targetZoom: null,
+        lockedCenter: null
       };
 
       function buildDispatcherDefaultConfig() {
@@ -527,6 +528,7 @@ schedulePlaneStyleOverride();
           dispatcherLockState.pendingPopupVehicleKey = null;
           dispatcherLockState.active = false;
           dispatcherLockState.targetZoom = null;
+          dispatcherLockState.lockedCenter = null;
           return;
         }
 
@@ -567,25 +569,36 @@ schedulePlaneStyleOverride();
         dispatcherLockState.vehicleKey = candidate.vehicleKey;
 
         const currentCenter = typeof map.getCenter === 'function' ? map.getCenter() : null;
-        const needsRecentering = !currentCenter
+        const lockedCenter = dispatcherLockState.lockedCenter;
+        const needsRecentering = !dispatcherLockState.active
+          || !lockedCenter
+          || !Number.isFinite(lockedCenter.lat)
+          || !Number.isFinite(lockedCenter.lng)
+          || Math.abs(lockedCenter.lat - bridgeLat) > 1e-6
+          || Math.abs(lockedCenter.lng - bridgeLng) > 1e-6
+          || !currentCenter
           || !Number.isFinite(currentCenter.lat)
-          || !Number.isFinite(currentCenter.lng)
-          || Math.abs(currentCenter.lat - bridgeLat) > 1e-6
-          || Math.abs(currentCenter.lng - bridgeLng) > 1e-6
-          || !Number.isFinite(mapZoom)
-          || mapZoom < targetZoom;
+          || !Number.isFinite(currentCenter.lng);
+        const needsZoomIncrease = Number.isFinite(targetZoom)
+          && (!Number.isFinite(mapZoom) || mapZoom < targetZoom);
+
         if (needsRecentering && typeof map.setView === 'function') {
           try {
             map.setView([bridgeLat, bridgeLng], targetZoom, { animate: true });
+            dispatcherLockState.lockedCenter = { lat: bridgeLat, lng: bridgeLng };
           } catch (error) {
             console.warn('Failed to center map on bridge for dispatcher mode:', error);
           }
-        } else if (Number.isFinite(targetZoom) && Number.isFinite(mapZoom) && mapZoom < targetZoom && typeof map.setZoom === 'function') {
+        } else if (needsZoomIncrease && typeof map.setZoom === 'function') {
           try {
             map.setZoom(targetZoom);
           } catch (error) {
             console.warn('Failed to adjust map zoom for dispatcher mode:', error);
           }
+        }
+
+        if (!needsRecentering && !dispatcherLockState.lockedCenter) {
+          dispatcherLockState.lockedCenter = { lat: bridgeLat, lng: bridgeLng };
         }
 
         openDispatcherPopupForVehicle(candidate.vehicleKey);
