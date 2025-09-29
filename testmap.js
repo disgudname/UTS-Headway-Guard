@@ -394,11 +394,15 @@ schedulePlaneStyleOverride();
         openDispatcherPopupForVehicle(dispatcherLockState.vehicleKey);
       }
 
-      function selectNearestOverheightCandidate(currentCandidate, vehicleKey, lat, lon, config) {
+      function selectNearestOverheightCandidate(currentCandidate, vehicleKey, vehicleName, lat, lon, config) {
         if (!config || !config.overheightBusIds || config.overheightBusIds.size === 0) {
           return currentCandidate;
         }
-        if (!vehicleKey || !config.overheightBusIds.has(vehicleKey)) {
+        const normalizedVehicleId = vehicleKey ? `${vehicleKey}`.trim() : '';
+        const normalizedVehicleName = vehicleName ? `${vehicleName}`.trim() : '';
+        const isOverheight = (normalizedVehicleId && config.overheightBusIds.has(normalizedVehicleId))
+          || (normalizedVehicleName && config.overheightBusIds.has(normalizedVehicleName));
+        if (!isOverheight) {
           return currentCandidate;
         }
         const distance = computeGreatCircleDistanceMeters(lat, lon, config.bridgeLat, config.bridgeLng);
@@ -8541,6 +8545,7 @@ schedulePlaneStyleOverride();
                       dispatcherCandidate = selectNearestOverheightCandidate(
                           dispatcherCandidate,
                           vehicleKey,
+                          busName,
                           lat,
                           lon,
                           dispatcherConfigLocal
