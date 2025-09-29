@@ -426,8 +426,25 @@
       }
       body {
         font-family: 'FGDC', sans-serif;
-        font-size: 14px;
+        font-size: 15px;
+        font-weight: 500;
         color: var(--panel-text-color);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      .leaflet-container,
+      .leaflet-control,
+      .leaflet-popup,
+      .leaflet-tooltip,
+      .leaflet-marker-icon {
+        font-weight: 500;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      .leaflet-marker-icon,
+      .leaflet-tooltip {
+        transform: translate(0, 0);
+        font-size: 15px;
       }
       #map {
         height: 100%;
