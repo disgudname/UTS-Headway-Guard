@@ -531,16 +531,13 @@ schedulePlaneStyleOverride();
           if (!dispatcherLockState.active) {
             return;
           }
+          const previousVehicleKey = dispatcherLockState.vehicleKey;
           restoreMapInteractionsForDispatcher();
           if (dispatcherLockState.circle && typeof map.removeLayer === 'function') {
             map.removeLayer(dispatcherLockState.circle);
           }
-          const activeMarker = dispatcherLockState.vehicleKey ? markers && markers[dispatcherLockState.vehicleKey] : null;
-          if (activeMarker && typeof activeMarker.closePopup === 'function') {
-            activeMarker.closePopup();
-          }
-          if (activeMarker && typeof activeMarker.unbindPopup === 'function') {
-            activeMarker.unbindPopup();
+          if (previousVehicleKey) {
+            clearDispatcherPopupForVehicle(previousVehicleKey);
           }
           dispatcherLockState.circle = null;
           dispatcherLockState.popup = null;
