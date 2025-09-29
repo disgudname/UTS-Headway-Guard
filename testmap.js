@@ -165,6 +165,7 @@ schedulePlaneStyleOverride();
         mapInteractionBackup: null,
         targetZoom: null,
         lockedCenter: null,
+        originalView: null,
         popupCloseSuppressionDepth: 0
       };
 
@@ -532,12 +533,39 @@ schedulePlaneStyleOverride();
             return;
           }
           const previousVehicleKey = dispatcherLockState.vehicleKey;
+          const originalView = dispatcherLockState.originalView;
           restoreMapInteractionsForDispatcher();
           if (dispatcherLockState.circle && typeof map.removeLayer === 'function') {
             map.removeLayer(dispatcherLockState.circle);
           }
           if (previousVehicleKey) {
             clearDispatcherPopupForVehicle(previousVehicleKey);
+          }
+          if (originalView && originalView.center) {
+            const { center, zoom } = originalView;
+            const hasValidCenter = center
+              && Number.isFinite(center.lat)
+              && Number.isFinite(center.lng);
+            const hasValidZoom = Number.isFinite(zoom);
+            if (hasValidCenter) {
+              try {
+                if (typeof map.setView === 'function') {
+                  const fallbackZoom = typeof map.getZoom === 'function' ? map.getZoom() : undefined;
+                  const viewZoom = hasValidZoom ? zoom : fallbackZoom;
+                  if (typeof viewZoom === 'number' && Number.isFinite(viewZoom)) {
+                    map.setView([center.lat, center.lng], viewZoom, { animate: true });
+                  } else if (typeof map.panTo === 'function') {
+                    map.panTo([center.lat, center.lng]);
+                  } else {
+                    map.setView([center.lat, center.lng]);
+                  }
+                } else if (typeof map.panTo === 'function') {
+                  map.panTo([center.lat, center.lng]);
+                }
+              } catch (error) {
+                console.warn('Failed to restore original dispatcher map view:', error);
+              }
+            }
           }
           dispatcherLockState.circle = null;
           dispatcherLockState.popup = null;
@@ -546,6 +574,7 @@ schedulePlaneStyleOverride();
           dispatcherLockState.active = false;
           dispatcherLockState.targetZoom = null;
           dispatcherLockState.lockedCenter = null;
+          dispatcherLockState.originalView = null;
           return;
         }
 
@@ -575,6 +604,18 @@ schedulePlaneStyleOverride();
 
         if (!dispatcherLockState.active) {
           disableMapInteractionsForDispatcher();
+          if (!dispatcherLockState.originalView) {
+            const currentCenter = typeof map.getCenter === 'function' ? map.getCenter() : null;
+            const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : null;
+            if (currentCenter && Number.isFinite(currentCenter.lat) && Number.isFinite(currentCenter.lng)) {
+              dispatcherLockState.originalView = {
+                center: { lat: currentCenter.lat, lng: currentCenter.lng },
+                zoom: Number.isFinite(currentZoom) ? currentZoom : null
+              };
+            } else {
+              dispatcherLockState.originalView = null;
+            }
+          }
         }
 
         const previousVehicleKey = dispatcherLockState.vehicleKey;
