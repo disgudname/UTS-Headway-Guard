@@ -35,6 +35,36 @@ function schedulePlaneStyleOverride() {
 
 schedulePlaneStyleOverride();
 
+      const loadedScriptPromises = new Map();
+
+      function loadScriptOnce(url) {
+        if (typeof document === 'undefined') {
+          return Promise.reject(new Error('Document is not available'));
+        }
+        if (typeof url !== 'string' || url.trim() === '') {
+          return Promise.reject(new Error('Invalid script URL'));
+        }
+        const normalizedUrl = url.trim();
+        if (loadedScriptPromises.has(normalizedUrl)) {
+          return loadedScriptPromises.get(normalizedUrl);
+        }
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = normalizedUrl;
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = event => {
+            loadedScriptPromises.delete(normalizedUrl);
+            const error = new Error(`Failed to load script: ${normalizedUrl}`);
+            error.event = event;
+            reject(error);
+          };
+          document.head.appendChild(script);
+        });
+        loadedScriptPromises.set(normalizedUrl, promise);
+        return promise;
+      }
+
 // Manually set these variables.
       // adminMode: true for admin view (with speed/block bubbles and unit numbers).
       //            Can be disabled via URL param `adminMode=false`.
@@ -1285,12 +1315,198 @@ schedulePlaneStyleOverride();
       let map;
       let markers = {};
       let busMarkerStates = {};
-      let trainMarkers = {};
-      let trainMarkerStates = {};
-      let trainNameBubbles = {};
-      let trainsVisible = adminKioskMode;
-      let planesVisible = false;
-      let trainFetchPromise = null;
+      const trainsFeature = {
+          markers: {},
+          markerStates: {},
+          nameBubbles: {},
+          visible: adminKioskMode,
+          fetchPromise: null,
+          module: null,
+          loadPromise: null
+      };
+      const planesFeature = {
+          visible: false,
+          module: null,
+          loadPromise: null
+      };
+
+      function ensurePlanesFeatureLoaded() {
+          if (planesFeature.module) {
+              return Promise.resolve(planesFeature.module);
+          }
+          if (planesFeature.loadPromise) {
+              return planesFeature.loadPromise;
+          }
+          const promise = loadScriptOnce('/testmap-planes.js')
+              .then(() => {
+                  if (typeof window.initializePlanesFeature !== 'function') {
+                      throw new Error('Planes feature module is unavailable');
+                  }
+                  const module = window.initializePlanesFeature({
+                      getMap: () => map,
+                      getPlaneLayer: () => window.PlaneLayer,
+                      updateToggleButton: updateAircraftToggleButton,
+                      onVisibilityChange(visible) {
+                          planesFeature.visible = !!visible;
+                          updateAircraftToggleButton();
+                      },
+                      initialVisibility: planesFeature.visible
+                  });
+                  planesFeature.module = module;
+                  return module;
+              })
+              .catch(error => {
+                  console.error('Failed to initialize aircraft feature:', error);
+                  planesFeature.loadPromise = null;
+                  throw error;
+              });
+          planesFeature.loadPromise = promise;
+          return promise;
+      }
+
+      function ensureTrainsFeatureLoaded() {
+          if (trainsFeature.module) {
+              return Promise.resolve(trainsFeature.module);
+          }
+          if (trainsFeature.loadPromise) {
+              return trainsFeature.loadPromise;
+          }
+          const promise = loadScriptOnce('/testmap-trains.js')
+              .then(() => {
+                  if (typeof window.initializeTrainsFeature !== 'function') {
+                      throw new Error('Trains feature module is unavailable');
+                  }
+                  const module = window.initializeTrainsFeature({
+                      getMap: () => map,
+                      state: trainsFeature,
+                      adminFeaturesAllowed,
+                      updateToggleButton: updateTrainToggleButton,
+                      onVisibilityChange(visible) {
+                          trainsFeature.visible = !!visible;
+                          updateTrainToggleButton();
+                      },
+                      onFetchPromiseChange(promise) {
+                          trainsFeature.fetchPromise = promise || null;
+                      },
+                      TRAINS_ENDPOINT,
+                      TRAIN_TARGET_STATION_CODE
+                  });
+                  trainsFeature.module = module;
+                  return module;
+              })
+              .catch(error => {
+                  console.error('Failed to initialize trains feature:', error);
+                  trainsFeature.loadPromise = null;
+                  throw error;
+              });
+          trainsFeature.loadPromise = promise;
+          return promise;
+      }
+
+      function setPlanesVisibility(visible) {
+          const desiredVisibility = !!visible;
+          const allowPlanes = adminFeaturesAllowed();
+          const effectiveVisibility = allowPlanes && desiredVisibility;
+          if (!effectiveVisibility && !planesFeature.module) {
+              planesFeature.visible = false;
+              updateAircraftToggleButton();
+              return Promise.resolve();
+          }
+          planesFeature.visible = effectiveVisibility;
+          updateAircraftToggleButton();
+          return ensurePlanesFeatureLoaded()
+              .then(module => {
+                  if (module && typeof module.setVisibility === 'function') {
+                      return module.setVisibility(effectiveVisibility);
+                  }
+                  return undefined;
+              })
+              .catch(error => {
+                  console.error('Error setting aircraft visibility:', error);
+                  planesFeature.visible = false;
+                  updateAircraftToggleButton();
+              });
+      }
+
+      function toggleAircraftVisibility() {
+          setPlanesVisibility(!planesFeature.visible);
+      }
+
+      function setTrainsVisibility(visible) {
+          const desiredVisibility = !!visible;
+          const allowTrains = adminFeaturesAllowed();
+          const effectiveVisibility = allowTrains && desiredVisibility;
+          if (!effectiveVisibility && !trainsFeature.module) {
+              trainsFeature.visible = false;
+              trainsFeature.markers = {};
+              trainsFeature.markerStates = {};
+              trainsFeature.nameBubbles = {};
+              updateTrainToggleButton();
+              return Promise.resolve();
+          }
+          trainsFeature.visible = effectiveVisibility;
+          updateTrainToggleButton();
+          return ensureTrainsFeatureLoaded()
+              .then(module => {
+                  if (module && typeof module.setVisibility === 'function') {
+                      return module.setVisibility(effectiveVisibility);
+                  }
+                  return undefined;
+              })
+              .catch(error => {
+                  console.error('Error setting train visibility:', error);
+                  trainsFeature.visible = false;
+                  updateTrainToggleButton();
+              });
+      }
+
+      function toggleTrainsVisibility() {
+          setTrainsVisibility(!trainsFeature.visible);
+      }
+
+      function updateTrainMarkersVisibility() {
+          if (!trainsFeature.module || typeof trainsFeature.module.updateTrainMarkersVisibility !== 'function') {
+              return Promise.resolve();
+          }
+          try {
+              const result = trainsFeature.module.updateTrainMarkersVisibility();
+              return result || Promise.resolve();
+          } catch (error) {
+              return Promise.reject(error);
+          }
+      }
+
+      function fetchTrains() {
+          if (!trainsFeature.visible) {
+              return Promise.resolve();
+          }
+          if (!trainsFeature.module) {
+              return ensureTrainsFeatureLoaded()
+                  .then(module => {
+                      if (module && typeof module.fetchTrains === 'function') {
+                          return module.fetchTrains();
+                      }
+                      return undefined;
+                  });
+          }
+          if (typeof trainsFeature.module.fetchTrains === 'function') {
+              return trainsFeature.module.fetchTrains();
+          }
+          return Promise.resolve();
+      }
+
+      function clearAllTrainMarkers() {
+          if (trainsFeature.module && typeof trainsFeature.module.clearAllMarkers === 'function') {
+              try {
+                  trainsFeature.module.clearAllMarkers();
+              } catch (error) {
+                  console.error('Error clearing train markers:', error);
+              }
+          }
+          trainsFeature.markers = {};
+          trainsFeature.markerStates = {};
+          trainsFeature.nameBubbles = {};
+      }
       const vehicleHeadingCache = new Map();
       let vehicleHeadingCachePromise = null;
       const VEHICLE_HEADING_CACHE_ENDPOINT = '/v1/vehicle_headings';
@@ -3629,7 +3845,7 @@ schedulePlaneStyleOverride();
         const button = document.getElementById('trainToggleButton');
         if (!button) return;
         const allowTrains = adminFeaturesAllowed();
-        const isActive = allowTrains && !!trainsVisible;
+        const isActive = allowTrains && !!trainsFeature.visible;
         button.classList.toggle('is-active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         button.disabled = !allowTrains;
@@ -3645,7 +3861,7 @@ schedulePlaneStyleOverride();
         const allowPlanes = adminFeaturesAllowed();
         const planeLayer = window.PlaneLayer;
         const planeLayerStarted = !!(planeLayer && planeLayer.isStarted);
-        const isActive = allowPlanes && !!planesVisible && planeLayerStarted;
+        const isActive = allowPlanes && !!planesFeature.visible && planeLayerStarted;
         button.classList.toggle('is-active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         button.disabled = !allowPlanes;
@@ -4597,7 +4813,7 @@ schedulePlaneStyleOverride();
         const incidentAlertsHtml = renderIncidentAlertsHtml();
         const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
         const allowAdminFeatures = adminFeaturesAllowed();
-        if (!allowAdminFeatures && planesVisible) {
+        if (!allowAdminFeatures && planesFeature.visible) {
           setPlanesVisibility(false);
         }
         let trainToggleHtml = '';
@@ -4605,11 +4821,11 @@ schedulePlaneStyleOverride();
           trainToggleHtml = `
             <div class="selector-group">
               <div class="selector-label">Trains and Planes</div>
-              <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsVisible ? ' is-active' : ''}" aria-pressed="${trainsVisible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
-                Show Amtrak<span class="toggle-indicator">${trainsVisible ? 'On' : 'Off'}</span>
+              <button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsFeature.visible ? ' is-active' : ''}" aria-pressed="${trainsFeature.visible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
+                Show Amtrak<span class="toggle-indicator">${trainsFeature.visible ? 'On' : 'Off'}</span>
               </button>
-              <button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesVisible ? ' is-active' : ''}" aria-pressed="${planesVisible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
-                Show Aircraft<span class="toggle-indicator">${planesVisible ? 'On' : 'Off'}</span>
+              <button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesFeature.visible ? ' is-active' : ''}" aria-pressed="${planesFeature.visible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
+                Show Aircraft<span class="toggle-indicator">${planesFeature.visible ? 'On' : 'Off'}</span>
               </button>
             </div>
           `;
@@ -5946,12 +6162,12 @@ schedulePlaneStyleOverride();
               renderCatRoutes();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
-          if (planesVisible && window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
+          if (planesFeature.visible && window.PlaneLayer && typeof window.PlaneLayer.init === 'function') {
               try {
                   window.PlaneLayer.init(map);
               } catch (error) {
                   console.error('PlaneLayer init failed:', error);
-                  planesVisible = false;
+                  planesFeature.visible = false;
                   updateAircraftToggleButton();
               }
           }
@@ -12272,27 +12488,33 @@ schedulePlaneStyleOverride();
               });
           }
 
-          Object.keys(trainNameBubbles).forEach(key => {
-              const bubble = trainNameBubbles[key];
+          Object.keys(trainsFeature.nameBubbles).forEach(key => {
+              const bubble = trainsFeature.nameBubbles[key];
               if (!bubble) {
                   return;
               }
               const trainID = bubble.trainID || (key.startsWith('train:') ? key.slice(6) : key);
-              const state = trainMarkerStates[trainID];
+              const state = trainsFeature.markerStates[trainID];
               const latLng = state?.lastLatLng;
               if (!state || !latLng || !Number.isFinite(latLng.lat) || !Number.isFinite(latLng.lng)) {
-                  removeTrainNameBubble(trainID ?? key);
+                  if (trainsFeature.module && typeof trainsFeature.module.removeTrainNameBubble === 'function') {
+                      trainsFeature.module.removeTrainNameBubble(trainID ?? key);
+                  }
                   return;
               }
               const labelText = typeof state.routeName === 'string' ? state.routeName.trim() : '';
               if (!(adminMode && !kioskMode && labelText)) {
-                  removeTrainNameBubble(trainID ?? key);
+                  if (trainsFeature.module && typeof trainsFeature.module.removeTrainNameBubble === 'function') {
+                      trainsFeature.module.removeTrainNameBubble(trainID ?? key);
+                  }
                   return;
               }
               const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
               const nameIcon = createNameBubbleDivIcon(labelText, routeColor, scale, state.headingDeg);
               if (!nameIcon) {
-                  removeTrainNameBubble(trainID ?? key);
+                  if (trainsFeature.module && typeof trainsFeature.module.removeTrainNameBubble === 'function') {
+                      trainsFeature.module.removeTrainNameBubble(trainID ?? key);
+                  }
                   return;
               }
               if (bubble.nameMarker) {
@@ -12303,7 +12525,7 @@ schedulePlaneStyleOverride();
               }
               bubble.lastScale = scale;
               bubble.trainID = trainID;
-              trainNameBubbles[key] = bubble;
+              trainsFeature.nameBubbles[key] = bubble;
           });
       }
 
@@ -12535,390 +12757,6 @@ schedulePlaneStyleOverride();
           const headingDeg = getTrainHeadingDegrees(headingValue, fallbackHeading);
           state.headingDeg = normalizeHeadingDegrees(headingDeg);
           return state.headingDeg;
-      }
-
-      function ensureTrainMarkerState(trainID) {
-          if (trainID === null || trainID === undefined) {
-              return null;
-          }
-          const key = `${trainID}`;
-          const state = trainMarkerStates[key];
-          if (state) {
-              if (!state.markerId) {
-                  state.markerId = `train-${key.replace(/\s+/g, '-')}`;
-              }
-              return state;
-          }
-          const defaultFill = BUS_MARKER_DEFAULT_ROUTE_COLOR;
-          const newState = {
-              trainID: key,
-              markerId: `train-${key.replace(/\s+/g, '-')}`,
-              positionHistory: [],
-              headingDeg: BUS_MARKER_DEFAULT_HEADING,
-              fillColor: defaultFill,
-              glyphColor: computeBusMarkerGlyphColor(defaultFill),
-              accessibleLabel: 'Amtrak train',
-              isStale: false,
-              isStopped: false,
-              lastLatLng: null,
-              marker: null,
-              size: null,
-              lastUpdateTimestamp: 0,
-              routeName: ''
-          };
-          trainMarkerStates[key] = newState;
-          return newState;
-      }
-
-      function getTrainNameBubbleKey(trainID) {
-          if (trainID === null || trainID === undefined) {
-              return 'train:';
-          }
-          const text = `${trainID}`;
-          return text.startsWith('train:') ? text : `train:${text}`;
-      }
-
-      function removeTrainNameBubble(trainID) {
-          if (trainID === null || trainID === undefined) {
-              return;
-          }
-          const key = getTrainNameBubbleKey(trainID);
-          const bubble = trainNameBubbles[key];
-          if (bubble?.nameMarker && map) {
-              if (typeof map.hasLayer === 'function' && map.hasLayer(bubble.nameMarker)) {
-                  map.removeLayer(bubble.nameMarker);
-              } else if (typeof bubble.nameMarker.remove === 'function') {
-                  bubble.nameMarker.remove();
-              }
-          }
-          delete trainNameBubbles[key];
-      }
-
-      function clearAllTrainNameBubbles() {
-          Object.keys(trainNameBubbles).forEach(key => {
-              const bubble = trainNameBubbles[key];
-              if (bubble?.nameMarker && map) {
-                  if (typeof map.hasLayer === 'function' && map.hasLayer(bubble.nameMarker)) {
-                      map.removeLayer(bubble.nameMarker);
-                  } else if (typeof bubble.nameMarker.remove === 'function') {
-                      bubble.nameMarker.remove();
-                  }
-              }
-          });
-          trainNameBubbles = {};
-      }
-
-      function clearTrainMarker(trainID) {
-          if (trainID === null || trainID === undefined) {
-              return;
-          }
-          const key = `${trainID}`;
-          const marker = trainMarkers[key];
-          if (marker) {
-              if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
-                  map.removeLayer(marker);
-              } else if (typeof marker.remove === 'function') {
-                  marker.remove();
-              }
-          }
-          delete trainMarkers[key];
-          delete trainMarkerStates[key];
-          removeTrainNameBubble(key);
-      }
-
-      function clearAllTrainMarkers() {
-          Object.keys(trainMarkers).forEach(trainID => {
-              const marker = trainMarkers[trainID];
-              if (!marker) {
-                  return;
-              }
-              if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
-                  map.removeLayer(marker);
-              } else if (typeof marker.remove === 'function') {
-                  marker.remove();
-              }
-          });
-          trainMarkers = {};
-          trainMarkerStates = {};
-          clearAllTrainNameBubbles();
-      }
-
-      function setPlanesVisibility(visible) {
-          const allowPlanes = adminFeaturesAllowed();
-          const desiredVisibility = allowPlanes && !!visible;
-          const planeLayer = window.PlaneLayer;
-          if (!desiredVisibility) {
-              if (planeLayer && planeLayer.isStarted) {
-                  try {
-                      if (typeof planeLayer.dispose === 'function') {
-                          planeLayer.dispose();
-                      } else if (typeof planeLayer.stop === 'function') {
-                          planeLayer.stop();
-                      }
-                  } catch (error) {
-                      console.error('Error stopping aircraft layer:', error);
-                  }
-              }
-              planesVisible = false;
-              updateAircraftToggleButton();
-              return;
-          }
-          if (!map) {
-              planesVisible = false;
-              updateAircraftToggleButton();
-              return;
-          }
-          if (!planeLayer) {
-              console.warn('Plane layer is unavailable; unable to show aircraft.');
-              planesVisible = false;
-              updateAircraftToggleButton();
-              return;
-          }
-          try {
-              if (!planeLayer.isStarted) {
-                  if (typeof planeLayer.init === 'function') {
-                      planeLayer.init(map);
-                  } else if (typeof planeLayer.start === 'function') {
-                      planeLayer.start();
-                  }
-              }
-          } catch (error) {
-              console.error('Error initializing aircraft layer:', error);
-          }
-          planesVisible = !!(planeLayer && planeLayer.isStarted);
-          updateAircraftToggleButton();
-      }
-
-      function toggleAircraftVisibility() {
-          setPlanesVisibility(!planesVisible);
-      }
-
-      function setTrainsVisibility(visible) {
-          const allowTrains = adminFeaturesAllowed();
-          const desiredVisibility = allowTrains && !!visible;
-          const previousVisibility = !!trainsVisible;
-          trainsVisible = desiredVisibility;
-          updateTrainToggleButton();
-          try {
-              const visibilityPromise = updateTrainMarkersVisibility();
-              if (visibilityPromise && typeof visibilityPromise.catch === 'function') {
-                  visibilityPromise.catch(error => console.error('Error updating train markers visibility:', error));
-              }
-          } catch (error) {
-              console.error('Error updating train markers visibility:', error);
-          }
-          if (trainsVisible && !previousVisibility) {
-              fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
-          }
-      }
-
-      function toggleTrainsVisibility() {
-          setTrainsVisibility(!trainsVisible);
-      }
-
-      async function updateTrainMarkersVisibility() {
-          if (!adminFeaturesAllowed()) {
-              clearAllTrainMarkers();
-              return;
-          }
-          if (!trainsVisible) {
-              Object.keys(trainMarkers).forEach(trainID => {
-                  const marker = trainMarkers[trainID];
-                  if (!marker) {
-                      return;
-                  }
-                  if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
-                      map.removeLayer(marker);
-                  } else if (typeof marker.remove === 'function') {
-                      marker.remove();
-                  }
-                  const state = trainMarkerStates[trainID];
-                  if (state) {
-                      state.marker = marker || null;
-                  }
-              });
-              clearAllTrainNameBubbles();
-              return;
-          }
-          if (!map || typeof map.getBounds !== 'function') {
-              return;
-          }
-          const bounds = map.getBounds();
-          if (!bounds || typeof bounds.contains !== 'function') {
-              return;
-          }
-          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
-          const metrics = computeBusMarkerMetrics(zoom);
-          for (const trainID of Object.keys(trainMarkerStates)) {
-              const state = trainMarkerStates[trainID];
-              if (!state) {
-                  continue;
-              }
-              const latLng = state.lastLatLng;
-              const marker = trainMarkers[trainID];
-              if (!latLng || !Number.isFinite(latLng.lat) || !Number.isFinite(latLng.lng)) {
-                  if (marker && map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
-                      map.removeLayer(marker);
-                  }
-                  state.marker = marker || null;
-                  removeTrainNameBubble(trainID);
-                  continue;
-              }
-              if (!bounds.contains(latLng)) {
-                  if (marker && map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
-                      map.removeLayer(marker);
-                  }
-                  state.marker = marker || null;
-                  removeTrainNameBubble(trainID);
-                  continue;
-              }
-              setBusMarkerSize(state, metrics);
-              let icon = null;
-              try {
-                  icon = await createBusMarkerDivIcon(state.markerId || `train-${trainID}`, state);
-              } catch (error) {
-                  console.error('Failed to create train marker icon:', error);
-                  continue;
-              }
-              if (!icon) {
-                  continue;
-              }
-              let trainMarker = marker;
-              if (!trainMarker) {
-                  trainMarker = L.marker(latLng, {
-                      icon,
-                      pane: 'busesPane',
-                      interactive: false,
-                      keyboard: false
-                  });
-                  trainMarkers[trainID] = trainMarker;
-              } else {
-                  trainMarker.setIcon(icon);
-              }
-              state.marker = trainMarker;
-              if (!map.hasLayer(trainMarker)) {
-                  trainMarker.addTo(map);
-              }
-              animateMarkerTo(trainMarker, latLng);
-
-              const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
-              const labelText = typeof state.routeName === 'string' ? state.routeName.trim() : '';
-              const bubbleKey = getTrainNameBubbleKey(trainID);
-              if (adminMode && !kioskMode && labelText) {
-                  const nameIcon = createNameBubbleDivIcon(labelText, routeColor, metrics.scale, state.headingDeg);
-                  if (nameIcon) {
-                      const bubble = trainNameBubbles[bubbleKey] || { trainID };
-                      if (bubble.nameMarker) {
-                          animateMarkerTo(bubble.nameMarker, latLng);
-                          bubble.nameMarker.setIcon(nameIcon);
-                      } else {
-                          bubble.nameMarker = L.marker(latLng, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                      }
-                      bubble.trainID = trainID;
-                      bubble.lastScale = metrics.scale;
-                      trainNameBubbles[bubbleKey] = bubble;
-                  } else {
-                      removeTrainNameBubble(trainID);
-                  }
-              } else {
-                  removeTrainNameBubble(trainID);
-              }
-          }
-      }
-
-      async function fetchTrains() {
-          if (trainFetchPromise) {
-              return trainFetchPromise;
-          }
-          if (!adminFeaturesAllowed()) {
-              return Promise.resolve();
-          }
-          if (!trainsVisible) {
-              return Promise.resolve();
-          }
-          const fetchTask = (async () => {
-              if (!trainsVisible) {
-                  return;
-              }
-              const stationCode = typeof TRAIN_TARGET_STATION_CODE === 'string'
-                  ? TRAIN_TARGET_STATION_CODE.trim().toUpperCase()
-                  : '';
-              let payload;
-              try {
-                  const response = await fetch(TRAINS_ENDPOINT, { cache: 'no-store' });
-                  if (!response || !response.ok) {
-                      const statusText = response ? `${response.status} ${response.statusText}` : 'No response';
-                      throw new Error(statusText);
-                  }
-                  payload = await response.json();
-              } catch (error) {
-                  console.error('Failed to fetch trains:', error);
-                  return;
-              }
-              if (!trainsVisible) {
-                  return;
-              }
-              const seenTrainIds = new Set();
-              const timestamp = Date.now();
-              if (payload && typeof payload === 'object') {
-                  Object.values(payload).forEach(group => {
-                      if (!Array.isArray(group)) {
-                          return;
-                      }
-                      group.forEach(train => {
-                          if (stationCode && !trainIncludesStation(train, stationCode)) {
-                              return;
-                          }
-                          const identifier = getTrainIdentifier(train);
-                          if (!identifier) {
-                              return;
-                          }
-                          seenTrainIds.add(identifier);
-                          const state = ensureTrainMarkerState(identifier);
-                          if (!state) {
-                              return;
-                          }
-                          const lat = Number(train?.lat);
-                          const lon = Number(train?.lon);
-                          const fillColor = normalizeRouteColor(train?.iconColor);
-                          const rawTextColor = typeof train?.textColor === 'string' ? train.textColor.trim() : '';
-                          const glyphColor = rawTextColor.length > 0
-                              ? normalizeGlyphColor(rawTextColor, fillColor)
-                              : computeBusMarkerGlyphColor(fillColor);
-                          state.fillColor = fillColor;
-                          state.glyphColor = glyphColor;
-                          state.accessibleLabel = buildTrainAccessibleLabel(train);
-                          state.isStale = false;
-                          state.isStopped = false;
-                          state.lastUpdateTimestamp = timestamp;
-                          state.routeName = typeof train?.routeName === 'string' ? train.routeName.trim() : '';
-                          const headingValue = getTrainHeadingValue(train);
-                          if (Number.isFinite(lat) && Number.isFinite(lon)) {
-                              const latLng = L.latLng(lat, lon);
-                              state.lastLatLng = latLng;
-                              state.headingDeg = updateTrainMarkerHeading(state, latLng, headingValue);
-                          } else {
-                              state.lastLatLng = null;
-                              state.headingDeg = updateTrainMarkerHeading(state, null, headingValue);
-                          }
-                      });
-                  });
-              }
-              Object.keys(trainMarkerStates).forEach(trainID => {
-                  if (!seenTrainIds.has(trainID)) {
-                      clearTrainMarker(trainID);
-                  }
-              });
-              try {
-                  await updateTrainMarkersVisibility();
-              } catch (error) {
-                  console.error('Error updating train markers visibility:', error);
-              }
-          })();
-          trainFetchPromise = fetchTask.finally(() => {
-              trainFetchPromise = null;
-          });
-          return trainFetchPromise;
       }
 
       function animateMarkerTo(marker, newPosition) {
