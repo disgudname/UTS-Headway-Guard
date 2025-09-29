@@ -2994,6 +2994,16 @@ async def planes_integration_js():
     return _serve_js_asset("planes_integration.js")
 
 
+@app.get("/testmap-planes.js", include_in_schema=False)
+async def testmap_planes_js():
+    return _serve_js_asset("testmap-planes.js")
+
+
+@app.get("/testmap-trains.js", include_in_schema=False)
+async def testmap_trains_js():
+    return _serve_js_asset("testmap-trains.js")
+
+
 @app.get("/testmap.js", include_in_schema=False)
 async def testmap_js():
     return _serve_js_asset("testmap.js")
