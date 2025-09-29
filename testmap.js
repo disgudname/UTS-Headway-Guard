@@ -1,5 +1,66 @@
 'use strict';
 
+const DEFAULT_MAP_FONT_STACK = `FGDC, sans-serif`;
+const IOS_MAP_FONT_STACK = `system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+const IOS_BODY_CLASS = 'ios-font';
+
+function detectIOSPlatform() {
+  if (typeof navigator !== 'object' || navigator === null) {
+    return false;
+  }
+
+  const userAgent = typeof navigator.userAgent === 'string' ? navigator.userAgent : '';
+  const platform = typeof navigator.platform === 'string' ? navigator.platform : '';
+  const maxTouchPoints = typeof navigator.maxTouchPoints === 'number' ? navigator.maxTouchPoints : 0;
+
+  if (/iPad|iPhone|iPod/i.test(userAgent) || /iPad|iPhone|iPod/i.test(platform)) {
+    return true;
+  }
+
+  if (platform === 'MacIntel' && maxTouchPoints > 1) {
+    return true;
+  }
+
+  if (typeof navigator.userAgentData === 'object' && navigator.userAgentData !== null) {
+    try {
+      const brands = Array.isArray(navigator.userAgentData.brands) ? navigator.userAgentData.brands : [];
+      const hasIOSBrand = brands.some(brand => typeof brand.brand === 'string' && /iOS/i.test(brand.brand));
+      if (hasIOSBrand) {
+        return true;
+      }
+    } catch (error) {
+      // Ignore structured UA parsing failures.
+    }
+  }
+
+  return false;
+}
+
+const IS_IOS_PLATFORM = detectIOSPlatform();
+const ACTIVE_MAP_FONT_STACK = IS_IOS_PLATFORM ? IOS_MAP_FONT_STACK : DEFAULT_MAP_FONT_STACK;
+
+if (typeof document !== 'undefined' && IS_IOS_PLATFORM) {
+  const applyIOSClass = () => {
+    if (document.body) {
+      document.body.classList.add(IOS_BODY_CLASS);
+      return true;
+    }
+    return false;
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      applyIOSClass();
+    }, { once: true });
+  } else {
+    if (!applyIOSClass()) {
+      document.addEventListener('DOMContentLoaded', () => {
+        applyIOSClass();
+      }, { once: true });
+    }
+  }
+}
+
 window.ADSB_PROXY_ENDPOINT = window.ADSB_PROXY_ENDPOINT || '/adsb';
 
 function applyPlaneStyleOptions() {
@@ -3456,7 +3517,7 @@ schedulePlaneStyleOverride();
       let BUS_MARKER_SVG_TEXT = null;
       let BUS_MARKER_SVG_LOAD_PROMISE = null;
       let busMarkerVisibleExtents = null;
-      const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
+      const BUS_MARKER_LABEL_FONT_FAMILY = ACTIVE_MAP_FONT_STACK;
       const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
       const SPEED_BUBBLE_BASE_FONT_PX = 12;
       const SPEED_BUBBLE_HORIZONTAL_PADDING = 12;
@@ -11720,7 +11781,7 @@ schedulePlaneStyleOverride();
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
                       <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(label)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
@@ -11767,7 +11828,7 @@ schedulePlaneStyleOverride();
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
                       <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
@@ -11814,7 +11875,7 @@ schedulePlaneStyleOverride();
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
                       <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({

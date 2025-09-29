@@ -1,4 +1,20 @@
-.custom-popup {
+      :root {
+        --navy: #232D4B;
+        --navy-dark: #1b274a;
+        --navy-darker: #1a2441;
+        --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+        --panel-border-color: rgba(35, 45, 75, 0.12);
+        --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+        --panel-highlight: rgba(35, 45, 75, 0.06);
+        --panel-text-color: #1f2937;
+        --panel-heading-color: #232D4B;
+        --panel-muted-text: #4b5563;
+        --accent: #E57200;
+        --accent-bright: #ff9c3e;
+        --accent-soft: rgba(229, 114, 0, 0.28);
+        --app-font-family: 'FGDC', sans-serif;
+      }
+      .custom-popup {
         position: absolute;
         background: linear-gradient(135deg, var(--navy), var(--navy-dark));
         border: 3px solid rgba(255, 255, 255, 0.92);
@@ -10,7 +26,7 @@
         z-index: 1000;
         color: #f8fafc;
         text-transform: uppercase;
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-size: 14px;
         letter-spacing: 0.35px;
         box-shadow: 0 18px 36px rgba(15, 23, 42, 0.38);
@@ -55,7 +71,7 @@
         gap: 12px;
         color: #f8fafc;
         text-transform: none;
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         letter-spacing: 0.3px;
         white-space: normal;
       }
@@ -201,7 +217,7 @@
         color: #fff7ed;
         border: 3px solid rgba(255, 255, 255, 0.9);
         box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-weight: 800;
         letter-spacing: 0.6px;
         text-transform: uppercase;
@@ -218,7 +234,7 @@
         border-radius: 10px;
         padding: 8px 10px;
         border: 1px solid rgba(255, 255, 255, 0.2);
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-size: 13px;
         letter-spacing: 0.35px;
         text-transform: none;
@@ -409,28 +425,16 @@
         font-family: 'FGDC';
         src: url('FGDC.ttf') format('truetype');
       }
-      :root {
-        --navy: #232D4B;
-        --navy-dark: #1b274a;
-        --navy-darker: #1a2441;
-        --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
-        --panel-border-color: rgba(35, 45, 75, 0.12);
-        --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
-        --panel-highlight: rgba(35, 45, 75, 0.06);
-        --panel-text-color: #1f2937;
-        --panel-heading-color: #232D4B;
-        --panel-muted-text: #4b5563;
-        --accent: #E57200;
-        --accent-bright: #ff9c3e;
-        --accent-soft: rgba(229, 114, 0, 0.28);
-      }
       body {
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-size: 15px;
         font-weight: 500;
         color: var(--panel-text-color);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+      }
+      body.ios-font {
+        --app-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       }
       .leaflet-container,
       .leaflet-control,
@@ -464,7 +468,7 @@
         justify-content: center;
         background: rgba(71, 85, 105, 0.55);
         color: #f1f5f9;
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-size: 18px;
         letter-spacing: 0.3rem;
         text-transform: uppercase;
@@ -1157,7 +1161,7 @@
         background: rgba(255, 255, 255, 0.92);
         box-shadow: 0 6px 18px rgba(17, 24, 39, 0.1);
         font-size: 16px;
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         color: var(--panel-text-color);
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
         appearance: none;
@@ -1275,7 +1279,7 @@
         border-radius: 999px;
         padding: 10px 16px;
         font-size: 15px;
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-weight: 600;
         cursor: pointer;
         transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
@@ -1603,7 +1607,7 @@
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));
         color: #1f1300;
         padding: 10px 20px;
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-weight: 600;
         cursor: pointer;
         box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
@@ -1633,21 +1637,21 @@
         margin: 8px 12px;
       }
       .dispatcher-overheight-popup__vehicle {
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-size: 14px;
         font-weight: 700;
         color: #1f2937;
         margin-bottom: 4px;
       }
       .dispatcher-overheight-popup__block {
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-size: 13px;
         font-weight: 600;
         color: #374151;
         margin-bottom: 6px;
       }
       .dispatcher-overheight-popup__content {
-        font-family: 'FGDC', sans-serif;
+        font-family: var(--app-font-family);
         font-size: 16px;
         font-weight: 800;
         letter-spacing: 0.8px;
