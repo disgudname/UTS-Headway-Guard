@@ -164,7 +164,8 @@ schedulePlaneStyleOverride();
         pendingPopupVehicleKey: null,
         mapInteractionBackup: null,
         targetZoom: null,
-        lockedCenter: null
+        lockedCenter: null,
+        popupCloseSuppressionDepth: 0
       };
 
       function buildDispatcherDefaultConfig() {
@@ -344,6 +345,18 @@ schedulePlaneStyleOverride();
         return circle;
       }
 
+      function suppressDispatcherPopupCloseHandling(callback) {
+        dispatcherLockState.popupCloseSuppressionDepth = (dispatcherLockState.popupCloseSuppressionDepth || 0) + 1;
+        try {
+          return callback();
+        } finally {
+          dispatcherLockState.popupCloseSuppressionDepth = Math.max(
+            0,
+            (dispatcherLockState.popupCloseSuppressionDepth || 0) - 1
+          );
+        }
+      }
+
       function clearDispatcherPopupForVehicle(vehicleKey) {
         if (!vehicleKey) {
           return;
@@ -352,28 +365,30 @@ schedulePlaneStyleOverride();
         if (!marker) {
           return;
         }
-        try {
-          const popup = typeof marker.getPopup === 'function' ? marker.getPopup() : null;
-          if (popup) {
-            if (map && typeof map.closePopup === 'function') {
-              map.closePopup(popup);
+        suppressDispatcherPopupCloseHandling(() => {
+          try {
+            const popup = typeof marker.getPopup === 'function' ? marker.getPopup() : null;
+            if (popup) {
+              if (map && typeof map.closePopup === 'function') {
+                map.closePopup(popup);
+              }
+              if (typeof popup.remove === 'function') {
+                popup.remove();
+              }
             }
-            if (typeof popup.remove === 'function') {
-              popup.remove();
+            if (typeof marker.closePopup === 'function') {
+              marker.closePopup();
             }
+            if (typeof marker.unbindPopup === 'function') {
+              marker.unbindPopup();
+            }
+            if (dispatcherLockState.popup && popup && dispatcherLockState.popup === popup) {
+              dispatcherLockState.popup = null;
+            }
+          } catch (error) {
+            console.warn('Failed to clear dispatcher popup for vehicle', vehicleKey, error);
           }
-          if (typeof marker.closePopup === 'function') {
-            marker.closePopup();
-          }
-          if (typeof marker.unbindPopup === 'function') {
-            marker.unbindPopup();
-          }
-          if (dispatcherLockState.popup && popup && dispatcherLockState.popup === popup) {
-            dispatcherLockState.popup = null;
-          }
-        } catch (error) {
-          console.warn('Failed to clear dispatcher popup for vehicle', vehicleKey, error);
-        }
+        });
       }
 
       function getDispatcherPopupVehicleLabel(vehicleKey) {
@@ -439,24 +454,26 @@ schedulePlaneStyleOverride();
           return;
         }
         dispatcherLockState.pendingPopupVehicleKey = null;
-        try {
-          clearDispatcherPopupForVehicle(vehicleKey);
-          const popupContent = buildDispatcherPopupContent(vehicleKey);
-          if (typeof marker.bindPopup === 'function') {
-            marker.bindPopup(popupContent, {
-              closeButton: false,
-              closeOnClick: false,
-              autoClose: false,
-              className: 'dispatcher-overheight-popup'
-            });
+        suppressDispatcherPopupCloseHandling(() => {
+          try {
+            clearDispatcherPopupForVehicle(vehicleKey);
+            const popupContent = buildDispatcherPopupContent(vehicleKey);
+            if (typeof marker.bindPopup === 'function') {
+              marker.bindPopup(popupContent, {
+                closeButton: false,
+                closeOnClick: false,
+                autoClose: false,
+                className: 'dispatcher-overheight-popup'
+              });
+            }
+            if (typeof marker.openPopup === 'function') {
+              marker.openPopup();
+            }
+            dispatcherLockState.popup = typeof marker.getPopup === 'function' ? marker.getPopup() : null;
+          } catch (error) {
+            console.error('Failed to open dispatcher popup for vehicle', vehicleKey, error);
           }
-          if (typeof marker.openPopup === 'function') {
-            marker.openPopup();
-          }
-          dispatcherLockState.popup = typeof marker.getPopup === 'function' ? marker.getPopup() : null;
-        } catch (error) {
-          console.error('Failed to open dispatcher popup for vehicle', vehicleKey, error);
-        }
+        });
       }
 
       function handleDispatcherPopupClosed(event) {
@@ -464,6 +481,9 @@ schedulePlaneStyleOverride();
           return;
         }
         if (!event || !event.popup) {
+          return;
+        }
+        if ((dispatcherLockState.popupCloseSuppressionDepth || 0) > 0) {
           return;
         }
         if (dispatcherLockState.popup && event.popup !== dispatcherLockState.popup) {
