@@ -160,11 +160,17 @@
   vehicleLabelPane.style.zIndex = '450';
   vehicleLabelPane.style.pointerEvents = 'none';
 
-  const routeLayerGroup = L.layerGroup().addTo(map);
-  const overlapRenderer = createOverlapRenderer(map, routeLayerGroup);
+  const overlapRenderer = createOverlapRenderer(map);
   if (overlapRenderer) {
     map.on('zoomend', () => {
       overlapRenderer.handleZoomEnd();
+      if (!lastRouteRenderState.useOverlapRenderer) {
+        updateFallbackRouteWeights();
+      }
+    });
+  } else {
+    map.on('zoomend', () => {
+      updateFallbackRouteWeights();
     });
   }
   const stopLayerGroup = L.layerGroup().addTo(map);
@@ -177,6 +183,14 @@
   const vehicleMarkers = new Map();
   const vehicleLabels = new Map();
   const routeColors = new Map();
+  let routeLayers = [];
+  let routePolylineCache = new Map();
+  let lastRouteRenderState = {
+    selectionKey: '',
+    colorSignature: '',
+    geometrySignature: '',
+    useOverlapRenderer: !!(ENABLE_OVERLAP_DASH_RENDERING && overlapRenderer)
+  };
   const stopIconCache = new Map();
   let busMarkerSvgText = null;
   let busMarkerSvgPromise = null;
@@ -1630,7 +1644,7 @@
         }
       }
 
-  function createOverlapRenderer(mapInstance, layerGroup) {
+  function createOverlapRenderer(mapInstance) {
     if (!ENABLE_OVERLAP_DASH_RENDERING) {
       return null;
     }
@@ -1647,8 +1661,7 @@
         minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
         maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
         renderer: sharedRouteRenderer,
-        pane: ROUTE_PANE,
-        layerGroup
+        pane: ROUTE_PANE
       });
     } catch (error) {
       console.error('Failed to initialize overlap route renderer:', error);
@@ -1656,21 +1669,103 @@
     }
   }
 
+  function clearRouteLayers() {
+    if (!Array.isArray(routeLayers) || routeLayers.length === 0) {
+      routeLayers = [];
+      return;
+    }
+    routeLayers.forEach(layer => {
+      if (!layer) {
+        return;
+      }
+      if (map && typeof map.removeLayer === 'function' && map.hasLayer(layer)) {
+        map.removeLayer(layer);
+        return;
+      }
+      if (typeof layer.remove === 'function') {
+        try {
+          layer.remove();
+        } catch (error) {
+          console.warn('Failed to remove route layer cleanly', error);
+        }
+      }
+    });
+    routeLayers = [];
+  }
+
+  function updateFallbackRouteWeights() {
+    if (!Array.isArray(routeLayers) || routeLayers.length === 0) {
+      return;
+    }
+    const weight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
+    routeLayers.forEach(layer => {
+      if (layer && typeof layer.setStyle === 'function') {
+        layer.setStyle({ weight });
+      }
+    });
+  }
+
+  function buildLatLngSignature(latLngs) {
+    if (!Array.isArray(latLngs) || latLngs.length === 0) {
+      return '';
+    }
+    const parts = [];
+    const limit = Math.min(latLngs.length, 256);
+    for (let i = 0; i < limit; i += 1) {
+      const point = latLngs[i];
+      if (!point) {
+        continue;
+      }
+      const lat = Number(point.lat ?? point.latitude ?? (Array.isArray(point) ? point[0] : null));
+      const lng = Number(point.lng ?? point.lon ?? point.longitude ?? (Array.isArray(point) ? point[1] : null));
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        continue;
+      }
+      parts.push(`${lat.toFixed(6)},${lng.toFixed(6)}`);
+    }
+    return parts.join(';');
+  }
+
+  function getRouteGeometrySignature(routeId, geometryMap = null) {
+    const numeric = Number(routeId);
+    if (!Number.isFinite(numeric)) {
+      return '';
+    }
+    if (routePolylineCache.has(numeric)) {
+      const cacheEntry = routePolylineCache.get(numeric);
+      if (cacheEntry && typeof cacheEntry.encoded === 'string') {
+        return cacheEntry.encoded;
+      }
+    }
+    if (geometryMap instanceof Map && geometryMap.has(numeric)) {
+      return buildLatLngSignature(geometryMap.get(numeric));
+    }
+    return '';
+  }
+
   function renderRoutes(routes) {
     routeColors.clear();
 
     if (!Array.isArray(routes) || routes.length === 0) {
-      routeLayerGroup.clearLayers();
+      clearRouteLayers();
       if (overlapRenderer) {
         overlapRenderer.reset();
       }
+      lastRouteRenderState = {
+        selectionKey: '',
+        colorSignature: '',
+        geometrySignature: '',
+        useOverlapRenderer: false
+      };
       return [];
     }
 
     const boundsPoints = [];
-    const routeGeometries = new Map();
     const selectedRouteIds = [];
+    const rendererGeometries = new Map();
+    const simpleGeometries = [];
     const seenRouteIds = new Set();
+    let geometryChanged = false;
     const canDecode = typeof polyline === 'object' && typeof polyline.decode === 'function';
 
     routes.forEach(route => {
@@ -1678,139 +1773,151 @@
         return;
       }
       const idRaw = route.RouteID ?? route.RouteId ?? route.routeID ?? route.id;
-      if (idRaw === undefined || idRaw === null) {
+      const numericId = toNumber(idRaw);
+      if (numericId === null) {
         return;
       }
-      const id = Number(idRaw);
-      if (!Number.isFinite(id)) {
+      if (seenRouteIds.has(numericId)) {
         return;
       }
       const color = normalizeColor(route.MapLineColor || route.Color);
-      routeColors.set(String(id), color);
+      routeColors.set(String(numericId), color);
 
       const encoded = route.EncodedPolyline || route.Polyline || route.encodedPolyline;
       if (!encoded || !canDecode) {
         return;
       }
 
-      let decoded = [];
-      try {
-        decoded = polyline.decode(encoded);
-      } catch (error) {
-        console.warn('Failed to decode route polyline', id, error);
-        decoded = [];
+      let cacheEntry = routePolylineCache.get(numericId);
+      let latLngPath = Array.isArray(cacheEntry?.latLngPath) ? cacheEntry.latLngPath : null;
+      let decodedSuccessfully = true;
+      if (!cacheEntry || cacheEntry.encoded !== encoded || !latLngPath || latLngPath.length < 2) {
+        decodedSuccessfully = false;
+        let decoded = [];
+        try {
+          decoded = polyline.decode(encoded);
+        } catch (error) {
+          console.warn('Failed to decode route polyline', numericId, error);
+          decoded = [];
+        }
+        latLngPath = decoded
+          .map(pair => {
+            if (!Array.isArray(pair) || pair.length < 2) {
+              return null;
+            }
+            const lat = Number(pair[0]);
+            const lng = Number(pair[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              return null;
+            }
+            return L.latLng(lat, lng);
+          })
+          .filter(value => value instanceof L.LatLng);
+        if (latLngPath.length < 2) {
+          return;
+        }
+        cacheEntry = { encoded, latLngPath };
+        routePolylineCache.set(numericId, cacheEntry);
+        geometryChanged = true;
+        decodedSuccessfully = true;
       }
-      if (!decoded || decoded.length < 2) {
+
+      if (!decodedSuccessfully || !Array.isArray(latLngPath) || latLngPath.length < 2) {
         return;
       }
 
-      const latlngs = decoded
-        .map(pair => {
-          if (!Array.isArray(pair) || pair.length < 2) {
-            return null;
-          }
-          const lat = Number(pair[0]);
-          const lng = Number(pair[1]);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            return null;
-          }
-          return L.latLng(lat, lng);
-        })
-        .filter(value => value instanceof L.LatLng);
-      if (latlngs.length < 2) {
-        return;
+      seenRouteIds.add(numericId);
+      boundsPoints.push(...latLngPath);
+      selectedRouteIds.push(numericId);
+
+      if (ENABLE_OVERLAP_DASH_RENDERING && overlapRenderer) {
+        rendererGeometries.set(numericId, latLngPath);
       }
-      routeGeometries.set(id, latlngs);
-      if (!seenRouteIds.has(id)) {
-        seenRouteIds.add(id);
-        selectedRouteIds.push(id);
-      }
-      boundsPoints.push(...latlngs);
+
+      simpleGeometries.push({
+        routeId: numericId,
+        latLngPath,
+        routeColor: getRouteColorById(numericId)
+      });
     });
 
-    if (routeGeometries.size === 0) {
-      routeLayerGroup.clearLayers();
-      if (overlapRenderer) {
-        overlapRenderer.reset();
-      }
-      return boundsPoints;
-    }
+    const previousSelectedIds = new Set(lastRouteRenderState.selectionKey
+      ? lastRouteRenderState.selectionKey.split('|').filter(Boolean).map(id => Number(id))
+      : []);
 
-    let overlapUsed = false;
-    if (ENABLE_OVERLAP_DASH_RENDERING && overlapRenderer && selectedRouteIds.length > 0) {
-      const layers = overlapRenderer.updateRoutes(routeGeometries, selectedRouteIds);
-      if (Array.isArray(layers) && layers.length > 0) {
-        overlapUsed = true;
-      } else {
+    routePolylineCache.forEach((_, routeId) => {
+      if (!seenRouteIds.has(routeId)) {
+        if (previousSelectedIds.has(routeId)) {
+          geometryChanged = true;
+        }
+        routePolylineCache.delete(routeId);
+      }
+    });
+
+    const selectedRouteIdsSorted = selectedRouteIds.slice().sort((a, b) => a - b);
+    const selectionKey = selectedRouteIdsSorted.join('|');
+    const colorSignature = selectedRouteIdsSorted
+      .map(id => `${id}:${getRouteColorById(id)}`)
+      .join('|');
+    const geometrySignature = selectedRouteIdsSorted
+      .map(id => `${id}:${getRouteGeometrySignature(id, rendererGeometries)}`)
+      .join('|');
+
+    let overlapRendered = false;
+    const shouldAttemptOverlap = ENABLE_OVERLAP_DASH_RENDERING
+      && overlapRenderer
+      && rendererGeometries.size > 0
+      && selectedRouteIdsSorted.length > 0;
+
+    if (shouldAttemptOverlap) {
+      const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted);
+      overlapRendered = Array.isArray(layers) && layers.length > 0;
+      if (!overlapRendered) {
         overlapRenderer.clearLayers();
       }
     } else if (overlapRenderer) {
       overlapRenderer.reset();
     }
 
-    if (overlapUsed) {
-      routeLayerGroup.clearLayers();
-      return boundsPoints;
+    const rendererFlag = overlapRendered;
+    let shouldRender = routeLayers.length === 0
+      || rendererFlag !== lastRouteRenderState.useOverlapRenderer
+      || selectionKey !== lastRouteRenderState.selectionKey
+      || colorSignature !== lastRouteRenderState.colorSignature
+      || geometrySignature !== lastRouteRenderState.geometrySignature
+      || geometryChanged;
+
+    if (rendererFlag) {
+      if (routeLayers.length > 0) {
+        clearRouteLayers();
+      }
+      shouldRender = false;
     }
 
-    routeLayerGroup.clearLayers();
-
-    const groups = buildSegmentGroups(routeGeometries);
-    if (groups.length === 0) {
-      return boundsPoints;
-    }
-
-    const strokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
-
-    groups.forEach(group => {
-      const segments = group.segments
-        .map(segment => {
-          const start = segment.start;
-          const end = segment.end;
-          if (!start || !end) {
-            return null;
-          }
-          return [
-            [start[0], start[1]],
-            [end[0], end[1]]
-          ];
-        })
-        .filter(Boolean);
-      if (segments.length === 0) {
-        return;
-      }
-
-      if (group.routes.length === 1) {
-        const routeId = group.routes[0];
-        const layer = L.polyline(segments, {
-          color: getRouteColorById(routeId),
-          weight: strokeWeight,
-          opacity: 0.95,
-          lineCap: 'round',
-          lineJoin: 'round',
-          pane: ROUTE_PANE
-        });
-        layer.addTo(routeLayerGroup);
-        return;
-      }
-
-      const stripeCount = group.routes.length;
-      const dashLength = ROUTE_STRIPE_DASH_LENGTH;
-      const gapLength = dashLength * (stripeCount - 1);
-      group.routes.forEach((routeId, index) => {
-        const layer = L.polyline(segments, {
-          color: getRouteColorById(routeId),
+    if (!rendererFlag && shouldRender) {
+      clearRouteLayers();
+      const strokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
+      simpleGeometries.forEach(entry => {
+        if (!entry || !Array.isArray(entry.latLngPath) || entry.latLngPath.length < 2) {
+          return;
+        }
+        const layer = L.polyline(entry.latLngPath, mergeRouteLayerOptions({
+          color: entry.routeColor,
           weight: strokeWeight,
           opacity: 1,
-          dashArray: `${dashLength} ${gapLength}`,
-          dashOffset: `${dashLength * index}`,
-          lineCap: 'butt',
-          lineJoin: 'round',
-          pane: ROUTE_PANE
-        });
-        layer.addTo(routeLayerGroup);
+          lineCap: 'round',
+          lineJoin: 'round'
+        })).addTo(map);
+        routeLayers.push(layer);
       });
-    });
+    }
+
+    lastRouteRenderState = {
+      selectionKey,
+      colorSignature,
+      geometrySignature,
+      useOverlapRenderer: rendererFlag
+    };
 
     return boundsPoints;
   }
@@ -2058,164 +2165,6 @@
       return routeColors.get(key);
     }
     return DEFAULT_ROUTE_COLOR;
-  }
-
-  function extractLatLngPair(value) {
-    if (!value) {
-      return null;
-    }
-    if (value instanceof L.LatLng) {
-      const lat = Number(value.lat);
-      const lng = Number(value.lng);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        return [lat, lng];
-      }
-      return null;
-    }
-    if (Array.isArray(value) && value.length >= 2) {
-      const lat = Number(value[0]);
-      const lng = Number(value[1]);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        return [lat, lng];
-      }
-      return null;
-    }
-    const latCandidate = value.lat ?? value.latitude ?? value.Latitude ?? value?.latlng?.lat;
-    const lngCandidate = value.lng ?? value.lon ?? value.longitude ?? value.Lng ?? value.Lon ?? value.Longitude ?? value?.latlng?.lng;
-    const lat = Number(latCandidate);
-    const lng = Number(lngCandidate);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return [lat, lng];
-    }
-    return null;
-  }
-
-  function buildSegmentGroups(routeGeometries) {
-    const segmentMap = new Map();
-
-    routeGeometries.forEach((latlngs, routeId) => {
-      if (!Array.isArray(latlngs) || latlngs.length < 2) {
-        return;
-      }
-      for (let index = 0; index < latlngs.length - 1; index += 1) {
-        const start = latlngs[index];
-        const end = latlngs[index + 1];
-        const normalized = normalizeSegmentKey(start, end);
-        if (!normalized) {
-          continue;
-        }
-        let entry = segmentMap.get(normalized.baseKey);
-        if (!entry) {
-          entry = {
-            routes: new Set(),
-            segments: []
-          };
-          segmentMap.set(normalized.baseKey, entry);
-        }
-        entry.routes.add(routeId);
-        entry.segments.push({
-          routeId,
-          start: normalized.forward ? normalized.startPair : normalized.endPair,
-          end: normalized.forward ? normalized.endPair : normalized.startPair
-        });
-      }
-    });
-
-    const groups = new Map();
-
-    segmentMap.forEach(entry => {
-      if (!entry || entry.segments.length === 0) {
-        return;
-      }
-      const sortedRoutes = Array.from(entry.routes).sort((a, b) => a - b);
-      if (sortedRoutes.length === 0) {
-        return;
-      }
-      const signature = sortedRoutes.join('|');
-      let group = groups.get(signature);
-      if (!group) {
-        group = {
-          routes: sortedRoutes,
-          segments: [],
-          seen: new Set()
-        };
-        groups.set(signature, group);
-      }
-
-      const referenceRouteId = sortedRoutes[0];
-      let chosen = entry.segments.find(segment => segment.routeId === referenceRouteId);
-      if (!chosen) {
-        chosen = entry.segments[0];
-      }
-      if (!chosen || !chosen.start || !chosen.end) {
-        return;
-      }
-      const segmentKey = directionalSegmentKey(chosen.start, chosen.end);
-      if (!segmentKey) {
-        return;
-      }
-      if (group.seen.has(segmentKey)) {
-        return;
-      }
-      group.seen.add(segmentKey);
-      group.segments.push({
-        start: chosen.start,
-        end: chosen.end
-      });
-    });
-
-    return Array.from(groups.values());
-  }
-
-  function normalizeSegmentKey(start, end) {
-    const startPair = extractLatLngPair(start);
-    const endPair = extractLatLngPair(end);
-    if (!startPair || !endPair) {
-      return null;
-    }
-    const [startLatRaw, startLngRaw] = startPair;
-    const [endLatRaw, endLngRaw] = endPair;
-    const aLat = roundCoord(startLatRaw);
-    const aLng = roundCoord(startLngRaw);
-    const bLat = roundCoord(endLatRaw);
-    const bLng = roundCoord(endLngRaw);
-    if (!Number.isFinite(aLat) || !Number.isFinite(aLng) || !Number.isFinite(bLat) || !Number.isFinite(bLng)) {
-      return null;
-    }
-    if (aLat === bLat && aLng === bLng) {
-      return null;
-    }
-    const forward = aLat < bLat || (aLat === bLat && aLng <= bLng);
-    const baseKey = forward
-      ? `${aLat},${aLng}|${bLat},${bLng}`
-      : `${bLat},${bLng}|${aLat},${aLng}`;
-    return {
-      baseKey,
-      forward,
-      startPair,
-      endPair
-    };
-  }
-
-  function directionalSegmentKey(start, end) {
-    const startPair = extractLatLngPair(start);
-    const endPair = extractLatLngPair(end);
-    if (!startPair || !endPair) {
-      return '';
-    }
-    const aLat = roundCoord(startPair[0]);
-    const aLng = roundCoord(startPair[1]);
-    const bLat = roundCoord(endPair[0]);
-    const bLng = roundCoord(endPair[1]);
-    return `${aLat},${aLng}|${bLat},${bLng}`;
-  }
-
-  function roundCoord(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-      return NaN;
-    }
-    return Math.round(numeric * 1e6) / 1e6;
   }
 
   function deriveActiveRouteIds(vehicles) {
