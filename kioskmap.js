@@ -1444,12 +1444,94 @@
           this.layers = newLayers;
         }
 
+        toLatLng(candidate) {
+          if (!candidate) {
+            return null;
+          }
+
+          if (candidate instanceof L.LatLng) {
+            return candidate;
+          }
+
+          if (Array.isArray(candidate)) {
+            if (candidate.length < 2) {
+              return null;
+            }
+            const latValue = candidate[0];
+            const lngValue = candidate[1];
+            if (latValue === null || latValue === undefined || lngValue === null || lngValue === undefined) {
+              return null;
+            }
+            const lat = toNumber(latValue);
+            const lng = toNumber(lngValue);
+            if (lat === null || lng === null) {
+              return null;
+            }
+            return L.latLng(lat, lng);
+          }
+
+          if (typeof candidate === 'object') {
+            const wrappers = ['latlng', 'latLng', 'LatLng'];
+            for (let index = 0; index < wrappers.length; index += 1) {
+              const key = wrappers[index];
+              if (candidate[key]) {
+                return this.toLatLng(candidate[key]);
+              }
+            }
+
+            const latKeys = ['lat', 'latitude', 'Latitude', 'Lat'];
+            const lngKeys = ['lng', 'lon', 'longitude', 'Longitude', 'Lng', 'Long', 'Lon'];
+
+            let lat = null;
+            for (let index = 0; index < latKeys.length; index += 1) {
+              const value = candidate[latKeys[index]];
+              if (value === null || value === undefined) {
+                continue;
+              }
+              lat = toNumber(value);
+              if (lat !== null) {
+                break;
+              }
+            }
+
+            let lng = null;
+            for (let index = 0; index < lngKeys.length; index += 1) {
+              const value = candidate[lngKeys[index]];
+              if (value === null || value === undefined) {
+                continue;
+              }
+              lng = toNumber(value);
+              if (lng !== null) {
+                break;
+              }
+            }
+
+            if (lat !== null && lng !== null) {
+              return L.latLng(lat, lng);
+            }
+          }
+
+          return null;
+        }
+
         simplifyLatLngs(latlngs, zoom) {
           if (!Array.isArray(latlngs) || latlngs.length === 0) {
             return [];
           }
 
-          const projected = latlngs.map(latlng => this.map.project(latlng, zoom));
+          const normalized = [];
+          for (let index = 0; index < latlngs.length; index += 1) {
+            const latlng = this.toLatLng(latlngs[index]);
+            if (latlng) {
+              normalized.push(latlng);
+            }
+          }
+
+          if (normalized.length === 0) {
+            return [];
+          }
+
+          const projected = normalized.map(latlng => this.map.project(latlng, zoom));
           let simplified = projected;
           if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil && L.LineUtil.simplify) {
             simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
