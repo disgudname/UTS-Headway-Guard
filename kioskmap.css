@@ -1,0 +1,22 @@
+body.kioskmap {
+  overflow: hidden;
+}
+
+body.kioskmap #map {
+  pointer-events: none;
+}
+
+body.kioskmap #routeLegend {
+  pointer-events: none;
+}
+
+body.kioskmap .selector-panel,
+body.kioskmap .panel-toggle,
+body.kioskmap .credit,
+body.kioskmap #cookieBanner {
+  display: none !important;
+}
+
+body.kioskmap .loading-overlay {
+  pointer-events: none;
+}

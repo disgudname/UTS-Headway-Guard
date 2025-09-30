@@ -729,6 +729,7 @@ DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
 DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
 MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
 TESTMAP_HTML = (BASE_DIR / "testmap.html").read_text(encoding="utf-8")
+KIOSKMAP_HTML = (BASE_DIR / "kioskmap.html").read_text(encoding="utf-8")
 CATTESTMAP_HTML = (BASE_DIR / "cattestmap.html").read_text(encoding="utf-8")
 MADMAP_HTML = (BASE_DIR / "madmap.html").read_text(encoding="utf-8")
 METROMAP_HTML = (BASE_DIR / "metromap.html").read_text(encoding="utf-8")
@@ -3014,6 +3015,11 @@ async def testmap_css():
     return _serve_css_asset("testmap.css")
 
 
+@app.get("/kioskmap.css", include_in_schema=False)
+async def kioskmap_css():
+    return _serve_css_asset("kioskmap.css")
+
+
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
@@ -3048,6 +3054,10 @@ async def map_page():
 @app.get("/testmap")
 async def testmap_page():
     return HTMLResponse(TESTMAP_HTML)
+
+@app.get("/kioskmap")
+async def kioskmap_page():
+    return HTMLResponse(KIOSKMAP_HTML)
 
 # ---------------------------
 # CAT TEST MAP PAGE

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Headway Guard – Kiosk Map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="testmap.css" />
+    <link rel="stylesheet" href="kioskmap.css" />
+    <script>
+      (function applyKioskDefaults() {
+        try {
+          const params = new URLSearchParams(window.location.search);
+          let modified = false;
+          if (!params.has('adminMode')) {
+            params.set('adminMode', 'true');
+            modified = true;
+          }
+          if (!params.has('adminKioskMode') && !params.has('kioskMode')) {
+            params.set('adminKioskMode', 'true');
+            modified = true;
+          }
+          if (modified) {
+            const query = params.toString();
+            const newUrl = window.location.pathname + (query ? `?${query}` : '') + (window.location.hash || '');
+            window.history.replaceState(null, '', newUrl);
+          }
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('agencyConsent', 'true');
+            if (!localStorage.getItem('selectedAgency')) {
+              localStorage.setItem('selectedAgency', 'https://uva.transloc.com');
+            }
+          }
+        } catch (error) {
+          console.warn('Unable to apply kiosk defaults', error);
+        }
+      })();
+    </script>
+    <script defer src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script defer src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+    <script defer src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
+    <script defer src="testmap.js"></script>
+    <script defer src="plane_globals.js"></script>
+    <script defer src="markers.js"></script>
+    <script defer src="planeObject.js"></script>
+    <script defer src="planes_integration.js"></script>
+  </head>
+  <body class="kioskmap">
+    <div id="map"></div>
+    <div id="routeLegend" aria-live="polite"></div>
+    <div id="controlPanel" class="selector-panel" aria-hidden="true"></div>
+    <div id="routeSelector" class="selector-panel" aria-hidden="true"></div>
+    <div id="controlPanelTab" class="panel-toggle panel-toggle--left" title="System controls"></div>
+    <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" title="Route selector"></div>
+    <div class="credit" aria-hidden="true">proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS via Iowa Environmental Mesonet.</div>
+    <div id="cookieBanner" class="cookie-banner" style="display:none;" aria-hidden="true">
+      This site stores your selected transit agency on your device to remember your preference.
+      <button id="cookieAccept" type="button">OK</button>
+    </div>
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="false">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading agency data…</div>
+      </div>
+    </div>
+  </body>
+</html>
