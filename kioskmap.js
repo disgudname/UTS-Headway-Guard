@@ -80,6 +80,9 @@
   const stopIconCache = new Map();
   let busMarkerSvgText = null;
   let busMarkerSvgPromise = null;
+  const markerAnimationHandles = new WeakMap();
+
+  const MARKER_ANIMATION_DURATION_MS = 1000;
 
   function createFallbackBusIcon(color, isStale) {
     const circleClasses = ['bus-icon__circle'];
@@ -188,10 +191,19 @@
     const routeShape = svg.querySelector('#route_color');
     if (routeShape) {
       routeShape.setAttribute('fill', normalizedColor);
+      if (routeShape.style && typeof routeShape.style.setProperty === 'function') {
+        routeShape.style.setProperty('fill', normalizedColor);
+      }
+      if (typeof routeShape.classList === 'object' && typeof routeShape.classList.remove === 'function') {
+        routeShape.classList.remove('st1');
+      }
     }
     const container = document.createElement('div');
     container.className = 'bus-marker-icon';
     container.dataset.routeColor = normalizedColor;
+    if (container.style && typeof container.style.setProperty === 'function') {
+      container.style.setProperty('--bus-color', normalizedColor);
+    }
     if (isStale) {
       container.classList.add('bus-marker-icon--stale');
     }
@@ -274,6 +286,127 @@
   function toNumber(value) {
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
+  }
+
+  function normalizeLabelSegment(value) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    const raw = typeof value === 'string' ? value : String(value);
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return '';
+    }
+    return trimmed.replace(/\s+/g, ' ');
+  }
+
+  function selectFirstString(values) {
+    if (!Array.isArray(values)) {
+      return '';
+    }
+    for (let index = 0; index < values.length; index += 1) {
+      const candidate = normalizeLabelSegment(values[index]);
+      if (candidate) {
+        return candidate;
+      }
+    }
+    return '';
+  }
+
+  function extractVehicleName(vehicle) {
+    if (!vehicle || typeof vehicle !== 'object') {
+      return '';
+    }
+    return selectFirstString([
+      vehicle.Name,
+      vehicle.VehicleName,
+      vehicle.Vehicle,
+      vehicle.VehicleNumber,
+      vehicle.VehicleNum,
+      vehicle.VehicleIdentifier
+    ]);
+  }
+
+  function extractBlockLabel(vehicle, blocks) {
+    if (!vehicle || typeof vehicle !== 'object' || !blocks || typeof blocks !== 'object') {
+      return '';
+    }
+    const rawId = vehicle.VehicleID ?? vehicle.VehicleId ?? vehicle.id;
+    if (rawId === undefined || rawId === null) {
+      return '';
+    }
+    const key = String(rawId);
+    const value = blocks[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      if (Array.isArray(value)) {
+        return selectFirstString(value);
+      }
+      return selectFirstString([
+        value.Name,
+        value.BlockName,
+        value.BlockId,
+        value.BlockID,
+        value.label,
+        value.title
+      ]);
+    }
+    return '';
+  }
+
+  function parseBlockSegments(raw) {
+    const normalized = normalizeLabelSegment(raw);
+    if (!normalized) {
+      return [];
+    }
+    const bracketMatch = normalized.match(/\[[^\]]+\]/g);
+    if (bracketMatch && bracketMatch.length > 0) {
+      const segments = [];
+      bracketMatch.forEach(segment => {
+        const sanitized = normalizeLabelSegment(segment);
+        if (sanitized) {
+          segments.push(sanitized);
+        }
+      });
+      const remainder = normalizeLabelSegment(normalized
+        .replace(/\[[^\]]+\]/g, '')
+        .replace(/^[-–—\s]+/, ''));
+      if (remainder) {
+        segments.push(remainder);
+      }
+      return segments.length > 0 ? segments : [normalized];
+    }
+    const parts = normalized.split(/\s*[–—-]\s*/);
+    if (parts.length > 1) {
+      return parts.map(part => normalizeLabelSegment(part)).filter(Boolean);
+    }
+    return [normalized];
+  }
+
+  function extractRouteLabel(vehicle) {
+    if (!vehicle || typeof vehicle !== 'object') {
+      return '';
+    }
+    return selectFirstString([
+      vehicle.RouteShortName,
+      vehicle.ShortName,
+      vehicle.RouteAbbreviation,
+      vehicle.RouteName,
+      vehicle.RouteDescription,
+      vehicle.Description,
+      vehicle.Destination,
+      vehicle.Headsign
+    ]);
+  }
+
+  function buildFallbackRouteLabel(vehicle) {
+    const routeId = toNumber(vehicle?.RouteID ?? vehicle?.RouteId ?? vehicle?.routeID ?? vehicle?.routeId);
+    if (routeId !== null) {
+      return `Route ${routeId}`;
+    }
+    return '';
   }
 
   function renderRoutes(routes) {
@@ -602,26 +735,48 @@
   }
 
   function buildVehicleLabelLines(vehicle, blocks) {
-    const lines = [];
-    if (vehicle && typeof vehicle.Name === 'string' && vehicle.Name.trim()) {
-      lines.push(vehicle.Name.trim());
-    }
-    if (vehicle && typeof vehicle.VehicleName === 'string' && vehicle.VehicleName.trim() && lines.length === 0) {
-      lines.push(vehicle.VehicleName.trim());
-    }
-    if (blocks && typeof blocks === 'object') {
-      const block = blocks[String(vehicle?.VehicleID ?? vehicle?.VehicleId ?? vehicle?.id ?? '')];
-      if (typeof block === 'string' && block.trim()) {
-        lines.push(block.trim());
+    const unique = new Set();
+    const primary = [];
+    const secondary = [];
+
+    function addSegment(value, target) {
+      const normalized = normalizeLabelSegment(value);
+      if (!normalized) {
+        return;
       }
-    }
-    if (lines.length === 0) {
-      const routeId = vehicle?.RouteID ?? vehicle?.RouteId ?? vehicle?.routeID;
-      if (routeId !== undefined && routeId !== null) {
-        lines.push(`Route ${routeId}`);
+      const key = normalized.toLowerCase();
+      if (unique.has(key)) {
+        return;
       }
+      unique.add(key);
+      target.push(normalized);
     }
-    return lines;
+
+    addSegment(extractVehicleName(vehicle), primary);
+
+    const blockLabel = extractBlockLabel(vehicle, blocks);
+    if (blockLabel) {
+      const segments = parseBlockSegments(blockLabel);
+      segments.forEach(segment => {
+        addSegment(segment, secondary);
+      });
+    }
+
+    addSegment(extractRouteLabel(vehicle), secondary);
+
+    if (primary.length === 0 && secondary.length > 0) {
+      primary.push(secondary.shift());
+    }
+
+    if (primary.length === 0) {
+      addSegment(buildFallbackRouteLabel(vehicle), primary);
+    }
+
+    if (primary.length === 0 && secondary.length === 0) {
+      primary.push('Bus');
+    }
+
+    return primary.concat(secondary);
   }
 
   function deriveActiveRouteIds(vehicles) {
@@ -683,8 +838,9 @@
       if (!icon) {
         icon = createFallbackBusIcon(color, Boolean(vehicle.IsStale));
       }
+      const targetPosition = [lat, lon];
       if (marker) {
-        marker.setLatLng([lat, lon]);
+        setMarkerPosition(marker, targetPosition);
         marker.setIcon(icon);
       } else {
         const newMarker = L.marker([lat, lon], {
@@ -702,7 +858,7 @@
         const existingLabel = vehicleLabels.get(id);
         if (labelIcon) {
           if (existingLabel) {
-            existingLabel.setLatLng([lat, lon]);
+            setMarkerPosition(existingLabel, targetPosition);
             existingLabel.setIcon(labelIcon);
           } else {
             const labelMarker = L.marker([lat, lon], {
@@ -715,6 +871,7 @@
             vehicleLabels.set(id, labelMarker);
           }
         } else if (existingLabel) {
+          cancelMarkerAnimation(existingLabel);
           map.removeLayer(existingLabel);
           vehicleLabels.delete(id);
         }
@@ -723,6 +880,7 @@
 
     vehicleMarkers.forEach((marker, id) => {
       if (!activeVehicles.has(id)) {
+        cancelMarkerAnimation(marker);
         map.removeLayer(marker);
         vehicleMarkers.delete(id);
       }
@@ -731,12 +889,14 @@
     if (adminMode) {
       vehicleLabels.forEach((marker, id) => {
         if (!activeVehicles.has(id)) {
+          cancelMarkerAnimation(marker);
           map.removeLayer(marker);
           vehicleLabels.delete(id);
         }
       });
     } else if (vehicleLabels.size > 0) {
       vehicleLabels.forEach(marker => {
+        cancelMarkerAnimation(marker);
         map.removeLayer(marker);
       });
       vehicleLabels.clear();
@@ -878,6 +1038,128 @@
       window.clearTimeout(refreshTimerId);
     }
     refreshTimerId = window.setTimeout(fetchSnapshot, REFRESH_INTERVAL_MS);
+  }
+
+  function setMarkerPosition(marker, position) {
+    if (!marker) {
+      return;
+    }
+    const target = resolveLatLng(position);
+    if (!target) {
+      return;
+    }
+    const current = typeof marker.getLatLng === 'function' ? marker.getLatLng() : null;
+    if (current && latLngsAreClose(current, target)) {
+      cancelMarkerAnimation(marker);
+      marker.setLatLng(target);
+      return;
+    }
+    if (!canAnimateMarkers()) {
+      cancelMarkerAnimation(marker);
+      marker.setLatLng(target);
+      return;
+    }
+    animateMarkerTo(marker, target);
+  }
+
+  function resolveLatLng(position) {
+    if (!position) {
+      return null;
+    }
+    if (Array.isArray(position) && position.length >= 2) {
+      const lat = Number(position[0]);
+      const lng = Number(position[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return L.latLng(lat, lng);
+      }
+      return null;
+    }
+    if (position instanceof L.LatLng) {
+      return position;
+    }
+    if (typeof position === 'object') {
+      const lat = Number(position.lat ?? position.Latitude ?? position.Lat);
+      const lng = Number(position.lng ?? position.Longitude ?? position.Lon ?? position.Lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return L.latLng(lat, lng);
+      }
+    }
+    return null;
+  }
+
+  function canAnimateMarkers() {
+    return typeof window !== 'undefined'
+      && typeof window.requestAnimationFrame === 'function'
+      && typeof window.cancelAnimationFrame === 'function';
+  }
+
+  function animateMarkerTo(marker, destination) {
+    const end = resolveLatLng(destination);
+    if (!marker || !end) {
+      return;
+    }
+    const start = marker.getLatLng();
+    if (!start) {
+      cancelMarkerAnimation(marker);
+      marker.setLatLng(end);
+      return;
+    }
+    if (latLngsAreClose(start, end)) {
+      cancelMarkerAnimation(marker);
+      marker.setLatLng(end);
+      return;
+    }
+
+    const previousHandle = markerAnimationHandles.get(marker);
+    if (typeof previousHandle === 'number') {
+      window.cancelAnimationFrame(previousHandle);
+    }
+
+    let startTimestamp = null;
+
+    function step(currentTimestamp) {
+      if (startTimestamp === null) {
+        startTimestamp = currentTimestamp;
+      }
+      const elapsed = currentTimestamp - startTimestamp;
+      const progress = Math.min(Math.max(elapsed / MARKER_ANIMATION_DURATION_MS, 0), 1);
+      const interpolatedLat = start.lat + (end.lat - start.lat) * progress;
+      const interpolatedLng = start.lng + (end.lng - start.lng) * progress;
+      marker.setLatLng([interpolatedLat, interpolatedLng]);
+      if (progress < 1) {
+        const handle = window.requestAnimationFrame(step);
+        markerAnimationHandles.set(marker, handle);
+      } else {
+        marker.setLatLng(end);
+        markerAnimationHandles.delete(marker);
+      }
+    }
+
+    const handle = window.requestAnimationFrame(step);
+    markerAnimationHandles.set(marker, handle);
+  }
+
+  function latLngsAreClose(a, b) {
+    if (!a || !b) {
+      return false;
+    }
+    if (typeof a.equals === 'function') {
+      return a.equals(b, 1e-7);
+    }
+    const latDiff = Math.abs(Number(a.lat) - Number(b.lat));
+    const lngDiff = Math.abs(Number(a.lng) - Number(b.lng));
+    return latDiff < 1e-7 && lngDiff < 1e-7;
+  }
+
+  function cancelMarkerAnimation(marker) {
+    if (!markerAnimationHandles.has(marker)) {
+      return;
+    }
+    const handle = markerAnimationHandles.get(marker);
+    if (typeof handle === 'number' && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(handle);
+    }
+    markerAnimationHandles.delete(marker);
   }
 
   setLoadingVisible(true, 'Loading UVA buses…');
