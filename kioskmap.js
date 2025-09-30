@@ -127,18 +127,6 @@
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(map);
 
-  if (typeof L === 'object' && typeof L.svg === 'function') {
-    try {
-      sharedRouteRenderer = L.svg({ padding: 0 });
-      if (sharedRouteRenderer) {
-        map.addLayer(sharedRouteRenderer);
-      }
-    } catch (error) {
-      console.warn('Failed to initialize shared SVG renderer for routes.', error);
-      sharedRouteRenderer = null;
-    }
-  }
-
   const ROUTE_PANE = 'routes';
   const STOP_PANE = 'stops';
   const VEHICLE_PANE = 'vehicles';
@@ -147,6 +135,18 @@
   const routePane = map.createPane(ROUTE_PANE);
   routePane.style.zIndex = '200';
   routePane.style.pointerEvents = 'none';
+
+  if (typeof L === 'object' && typeof L.svg === 'function') {
+    try {
+      sharedRouteRenderer = L.svg({ padding: 0, pane: ROUTE_PANE });
+      if (sharedRouteRenderer) {
+        map.addLayer(sharedRouteRenderer);
+      }
+    } catch (error) {
+      console.warn('Failed to initialize shared SVG renderer for routes.', error);
+      sharedRouteRenderer = null;
+    }
+  }
 
   const stopPane = map.createPane(STOP_PANE);
   stopPane.style.zIndex = '300';
