@@ -2057,6 +2057,11 @@ schedulePlaneStyleOverride();
         'AK',
         'AR'
       ]);
+      const INCIDENT_UNIT_ACTIVE_STATUS_KEYS = Object.freeze([
+        'OS',
+        'AE',
+        'ER'
+      ]);
       const INCIDENT_UNIT_STATUS_FALLBACK_LABEL = 'Status Unknown';
 
       let latestActiveIncidents = [];
@@ -2563,6 +2568,35 @@ schedulePlaneStyleOverride();
           }
         }
         return units;
+      }
+
+      function unitHasOnSceneOrEnRouteStatus(unit) {
+        if (!unit) return false;
+        const statusKey = typeof unit.statusKey === 'string' ? unit.statusKey.trim().toUpperCase() : '';
+        if (statusKey && INCIDENT_UNIT_ACTIVE_STATUS_KEYS.includes(statusKey)) {
+          return true;
+        }
+        const labelCandidates = [unit.statusLabel, unit.rawStatus, unit.tooltip, unit.displayText];
+        for (const candidate of labelCandidates) {
+          if (typeof candidate !== 'string') continue;
+          const normalized = candidate.trim().toLowerCase();
+          if (!normalized) continue;
+          if (normalized.includes('en route') || normalized.includes('enroute')) {
+            return true;
+          }
+          if (normalized.includes('on scene') || normalized.includes('onscene')) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function incidentHasOnSceneOrEnRouteUnits(incident) {
+        const units = extractIncidentUnits(incident);
+        if (!Array.isArray(units) || units.length === 0) {
+          return false;
+        }
+        return units.some(unit => unitHasOnSceneOrEnRouteStatus(unit));
       }
 
       function getIncidentTypeCode(incident) {
@@ -3260,6 +3294,7 @@ schedulePlaneStyleOverride();
           const lat = parseIncidentCoordinate(incident?.Latitude ?? incident?.latitude ?? incident?.lat);
           const lon = parseIncidentCoordinate(incident?.Longitude ?? incident?.longitude ?? incident?.lon);
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          if (!incidentHasOnSceneOrEnRouteUnits(incident)) return;
           const incidentLatLng = L.latLng(lat, lon);
           const projectedPoint = projection.project(incidentLatLng);
           if (!projectedPoint) return;
