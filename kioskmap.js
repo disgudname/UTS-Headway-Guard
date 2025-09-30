@@ -16,6 +16,7 @@
   const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
   const ENABLE_OVERLAP_DASH_RENDERING = true;
   const STOP_ICON_SIZE_PX = 24;
+  const STOP_GROUPING_PIXEL_DISTANCE = 20;
 
   const BUS_MARKER_SVG_URL = 'busmarker.svg';
   const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
@@ -1817,9 +1818,22 @@
         entry = {
           lat,
           lon,
-          routes: new Set()
+          routes: new Set(),
+          count: 0
         };
         aggregated.set(key, entry);
+      }
+
+      entry.count = (entry.count ?? 0) + 1;
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        if (entry.count === 1) {
+          entry.lat = lat;
+          entry.lon = lon;
+        } else {
+          const previousWeight = entry.count - 1;
+          entry.lat = ((entry.lat ?? lat) * previousWeight + lat) / entry.count;
+          entry.lon = ((entry.lon ?? lon) * previousWeight + lon) / entry.count;
+        }
       }
 
       const routeIds = extractStopRouteIds(stop);
@@ -1828,25 +1842,138 @@
       });
     });
 
+    const aggregatedEntries = [];
     aggregated.forEach(entry => {
-      if (!entry || entry.lat === null || entry.lon === null) {
+      if (!entry) {
         return;
       }
-      const routeList = Array.from(entry.routes);
+      const lat = Number(entry.lat);
+      const lon = Number(entry.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return;
+      }
+      const routes = entry.routes instanceof Set ? entry.routes : new Set(entry.routes);
+      const routeList = Array.from(routes);
       const relevantRoutes = requireActiveRoutes
         ? routeList.filter(routeId => activeSet.has(routeId))
         : routeList;
       if (relevantRoutes.length === 0) {
         return;
       }
-      const icon = ensureStopIcon(new Set(relevantRoutes));
-      L.marker([entry.lat, entry.lon], {
+      aggregatedEntries.push({
+        lat,
+        lon,
+        routes: new Set(relevantRoutes)
+      });
+    });
+
+    const groupedStops = groupStopsByPixelDistance(aggregatedEntries, STOP_GROUPING_PIXEL_DISTANCE);
+    groupedStops.forEach(group => {
+      if (!group) {
+        return;
+      }
+      const lat = Number(group.lat);
+      const lon = Number(group.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return;
+      }
+      const routes = group.routes instanceof Set ? group.routes : new Set(group.routes);
+      if (routes.size === 0) {
+        return;
+      }
+      const icon = ensureStopIcon(routes);
+      L.marker([lat, lon], {
         icon,
         interactive: false,
         keyboard: false,
         pane: STOP_PANE
       }).addTo(stopLayerGroup);
     });
+  }
+
+  function groupStopsByPixelDistance(entries, thresholdPx) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return [];
+    }
+
+    const groups = [];
+    const threshold = Number(thresholdPx);
+    const allowGrouping = Number.isFinite(threshold) && threshold >= 0;
+    const thresholdSq = allowGrouping ? threshold * threshold : 0;
+
+    entries.forEach(entry => {
+      if (!entry) {
+        return;
+      }
+
+      const lat = Number(entry.lat);
+      const lon = Number(entry.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return;
+      }
+
+      const routes = entry.routes instanceof Set ? entry.routes : new Set(entry.routes);
+      if (!(routes instanceof Set) || routes.size === 0) {
+        return;
+      }
+
+      let point = null;
+      try {
+        point = map.latLngToLayerPoint([lat, lon]);
+      } catch (error) {
+        point = null;
+      }
+
+      let targetGroup = null;
+      let smallestDistanceSq = Infinity;
+      if (allowGrouping && point) {
+        for (const group of groups) {
+          if (!group || !group.point) {
+            continue;
+          }
+          const dx = group.point.x - point.x;
+          const dy = group.point.y - point.y;
+          const distanceSq = dx * dx + dy * dy;
+          if (distanceSq <= thresholdSq && distanceSq < smallestDistanceSq) {
+            smallestDistanceSq = distanceSq;
+            targetGroup = group;
+          }
+        }
+      }
+
+      if (targetGroup) {
+        const previousCount = targetGroup.count ?? 1;
+        const newCount = previousCount + 1;
+        targetGroup.lat = ((targetGroup.lat ?? lat) * previousCount + lat) / newCount;
+        targetGroup.lon = ((targetGroup.lon ?? lon) * previousCount + lon) / newCount;
+        targetGroup.count = newCount;
+        routes.forEach(routeId => {
+          targetGroup.routes.add(routeId);
+        });
+        try {
+          const updatedPoint = map.latLngToLayerPoint([targetGroup.lat, targetGroup.lon]);
+          if (updatedPoint) {
+            targetGroup.point = updatedPoint;
+          }
+        } catch (error) {
+          targetGroup.point = null;
+        }
+      } else {
+        groups.push({
+          lat,
+          lon,
+          routes: new Set(routes),
+          point,
+          count: 1
+        });
+      }
+    });
+
+    return groups.map(group => ({
+      lat: group.lat,
+      lon: group.lon,
+      routes: group.routes
+    }));
   }
 
   function extractStopRouteIds(stop) {
