@@ -68,9 +68,35 @@
     }
   }
 
+  function parseDebugMode() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has('debugMode')) {
+        return false;
+      }
+      const raw = params.get('debugMode');
+      if (raw === null) {
+        return false;
+      }
+      const normalized = raw.trim().toLowerCase();
+      if (['0', 'false', 'no', 'off'].includes(normalized)) {
+        return false;
+      }
+      if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+        return true;
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to parse debugMode parameter, defaulting to disabled.', error);
+      return false;
+    }
+  }
+
   const adminMode = parseAdminMode();
+  const debugMode = parseDebugMode();
   if (document && document.body) {
     document.body.dataset.adminMode = adminMode ? 'true' : 'false';
+    document.body.dataset.debugMode = debugMode ? 'true' : 'false';
   }
 
   const map = L.map('map', {
@@ -1048,6 +1074,24 @@
     return active;
   }
 
+  function deriveRouteIdsFromRoutes(routes) {
+    const ids = new Set();
+    if (!Array.isArray(routes)) {
+      return ids;
+    }
+    routes.forEach(route => {
+      if (!route || typeof route !== 'object') {
+        return;
+      }
+      const idRaw = route.RouteID ?? route.RouteId ?? route.routeID ?? route.id;
+      const id = toNumber(idRaw);
+      if (id !== null) {
+        ids.add(id);
+      }
+    });
+    return ids;
+  }
+
   function ensureVehicleLabelState(id) {
     let state = vehicleLabels.get(id);
     if (!state) {
@@ -1286,7 +1330,9 @@
     const vehicles = Array.isArray(snapshot?.vehicles) ? snapshot.vehicles : [];
     const blocks = snapshot && typeof snapshot.blocks === 'object' ? snapshot.blocks : {};
 
-    const activeRouteIds = deriveActiveRouteIds(vehicles);
+    const activeRouteIds = debugMode
+      ? deriveRouteIdsFromRoutes(routes)
+      : deriveActiveRouteIds(vehicles);
     const filteredRoutes = routes.filter(route => {
       if (!route || typeof route !== 'object') {
         return false;
@@ -1298,6 +1344,9 @@
       const routeId = toNumber(idRaw);
       if (routeId === null) {
         return false;
+      }
+      if (debugMode) {
+        return true;
       }
       if (activeRouteIds.size === 0) {
         return false;
