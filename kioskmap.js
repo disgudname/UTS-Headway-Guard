@@ -1311,12 +1311,7 @@
     updateRouteLegend(filteredRoutes);
 
     if (!hasInitialView) {
-      if (boundsPoints.length > 0) {
-        const bounds = L.latLngBounds(boundsPoints);
-        map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
-      } else {
-        map.setView(UVA_DEFAULT_CENTER, UVA_DEFAULT_ZOOM);
-      }
+      map.setView(UVA_DEFAULT_CENTER, UVA_DEFAULT_ZOOM);
       hasInitialView = true;
     }
   }
