@@ -8,6 +8,13 @@
   const DEFAULT_ROUTE_COLOR = '#000000';
   const ROUTE_STROKE_WEIGHT = 6;
   const ROUTE_STRIPE_DASH_LENGTH = 16;
+  const DEFAULT_ROUTE_STROKE_WEIGHT = ROUTE_STROKE_WEIGHT;
+  const MIN_ROUTE_STROKE_WEIGHT = 3;
+  const MAX_ROUTE_STROKE_WEIGHT = 12;
+  const ROUTE_WEIGHT_BASE_ZOOM = 15;
+  const ROUTE_WEIGHT_STEP_PER_ZOOM = 1;
+  const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
+  const ENABLE_OVERLAP_DASH_RENDERING = true;
   const STOP_ICON_SIZE_PX = 24;
 
   const BUS_MARKER_SVG_URL = 'busmarker.svg';
@@ -139,6 +146,12 @@
   vehicleLabelPane.style.pointerEvents = 'none';
 
   const routeLayerGroup = L.layerGroup().addTo(map);
+  const overlapRenderer = createOverlapRenderer(map, routeLayerGroup);
+  if (overlapRenderer) {
+    map.on('zoomend', () => {
+      overlapRenderer.handleZoomEnd();
+    });
+  }
   const stopLayerGroup = L.layerGroup().addTo(map);
   const vehicleLayerGroup = L.layerGroup().addTo(map);
   const labelLayerGroup = L.layerGroup();
@@ -728,15 +741,921 @@
     return normalized;
   }
 
+  const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
+    updateWhenZooming: true,
+    updateWhenIdle: true,
+    interactive: false
+  });
+  let sharedRouteRenderer = null;
+  const routePaneName = ROUTE_PANE;
+
+  function createSpatialIndex(options = {}) {
+    if (typeof rbush === 'function') {
+      try {
+        return rbush(options.maxEntries);
+      } catch (error) {
+        console.error('Failed to create rbush index via rbush()', error);
+      }
+    }
+    if (typeof RBush === 'function') {
+      try {
+        return new RBush(options.maxEntries);
+      } catch (error) {
+        console.error('Failed to create rbush index via new RBush()', error);
+      }
+    }
+    console.error('RBush spatial index library is not available. Route overlap rendering will be disabled.');
+    return null;
+  }
+
+  function mergeRouteLayerOptions(overrides = {}, rendererOverride = null, paneOverride = null) {
+    const base = Object.assign({}, ROUTE_LAYER_BASE_OPTIONS);
+    const renderer = rendererOverride || sharedRouteRenderer;
+    if (renderer) {
+      base.renderer = renderer;
+    }
+    const pane = paneOverride || routePaneName;
+    if (typeof pane === 'string' && pane) {
+      base.pane = pane;
+    }
+    return Object.assign(base, overrides || {});
+  }
+
+  function computeRouteStrokeWeight(zoom) {
+    const minWeight = MIN_ROUTE_STROKE_WEIGHT;
+    const maxWeight = MAX_ROUTE_STROKE_WEIGHT;
+    const baseWeight = DEFAULT_ROUTE_STROKE_WEIGHT;
+    const targetZoom = Number.isFinite(zoom)
+      ? zoom
+      : (typeof map?.getZoom === 'function' ? map.getZoom() : null);
+    if (!Number.isFinite(targetZoom)) {
+      return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+    }
+    const zoomDeltaRaw = targetZoom - ROUTE_WEIGHT_BASE_ZOOM;
+    const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
+    const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
+    if (!Number.isFinite(computed)) {
+      return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+    }
+    return Math.max(minWeight, Math.min(maxWeight, computed));
+  }
+
+      class OverlapRouteRenderer {
+        constructor(map, options = {}) {
+          this.map = map;
+          this.options = Object.assign({
+            sampleStepPx: 8,
+            dashLengthPx: 16,
+            minDashLengthPx: 0.5,
+            matchTolerancePx: 6,
+            headingToleranceDeg: 20,
+            simplifyTolerancePx: 0.75,
+            latLngEqualityMargin: 1e-9,
+            strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+            minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+            maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT
+          }, options);
+          this.layers = [];
+          this.routeGeometries = new Map();
+          this.selectedRoutes = [];
+          this.currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+          this.renderer = options.renderer || null;
+          this.routePaneName = typeof options.pane === 'string' && options.pane ? options.pane : routePaneName;
+          this.routeGeometrySignatures = new Map();
+          this.lastRenderState = null;
+        }
+
+        reset() {
+          this.clearLayers();
+          this.routeGeometries.clear();
+          this.selectedRoutes = [];
+          this.routeGeometrySignatures.clear();
+          this.lastRenderState = null;
+        }
+
+        clearLayers() {
+          this.layers.forEach(layer => {
+            if (layer && this.map.hasLayer(layer)) {
+              this.map.removeLayer(layer);
+            }
+          });
+          this.layers = [];
+        }
+
+        updateRoutes(routeGeometryMap, selectedRouteIds) {
+          if (!Array.isArray(selectedRouteIds) || selectedRouteIds.length === 0) {
+            this.reset();
+            return this.getLayers();
+          }
+
+          const geometryEntries = routeGeometryMap instanceof Map
+            ? Array.from(routeGeometryMap.entries())
+            : Object.entries(routeGeometryMap || {});
+
+          const desiredIds = new Set(
+            selectedRouteIds
+              .map(id => Number(id))
+              .filter(id => !Number.isNaN(id))
+          );
+
+          const nextGeometries = new Map();
+          geometryEntries.forEach(([key, value]) => {
+            const numericKey = Number(key);
+            if (!Number.isNaN(numericKey) && desiredIds.has(numericKey) && Array.isArray(value)) {
+              nextGeometries.set(numericKey, value);
+            }
+          });
+
+          const geometrySignatures = new Map();
+
+          this.routeGeometries = nextGeometries;
+          this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
+
+          this.routeGeometries.forEach((latlngs, routeId) => {
+            geometrySignatures.set(routeId, this.computeRouteGeometrySignature(latlngs));
+          });
+          this.routeGeometrySignatures = geometrySignatures;
+
+          const mapZoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          if (Number.isFinite(mapZoom)) {
+            this.currentZoom = mapZoom;
+          }
+
+          this.render();
+          return this.getLayers();
+        }
+
+        handleZoomFrame(targetZoom) {
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            return this.getLayers();
+          }
+
+          const zoom = Number.isFinite(targetZoom)
+            ? targetZoom
+            : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+          if (!Number.isFinite(zoom)) {
+            return this.getLayers();
+          }
+
+          this.currentZoom = zoom;
+          this.render();
+          return this.getLayers();
+        }
+
+        handleZoomEnd() {
+          const zoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          return this.handleZoomFrame(zoom);
+        }
+
+        getLayers() {
+          return this.layers.slice();
+        }
+
+        hasPersistentPixelCache() {
+          return false;
+        }
+
+        computeStrokeWeight(zoom = this.currentZoom) {
+          const minWeight = Number.isFinite(this.options.minStrokeWeight)
+            ? this.options.minStrokeWeight
+            : MIN_ROUTE_STROKE_WEIGHT;
+          const maxWeight = Number.isFinite(this.options.maxStrokeWeight)
+            ? this.options.maxStrokeWeight
+            : MAX_ROUTE_STROKE_WEIGHT;
+          const computed = computeRouteStrokeWeight(zoom);
+          if (!Number.isFinite(computed)) {
+            return Math.max(minWeight, Math.min(maxWeight, DEFAULT_ROUTE_STROKE_WEIGHT));
+          }
+          return Math.max(minWeight, Math.min(maxWeight, computed));
+        }
+
+        computeRouteGeometrySignature(latlngs) {
+          if (!Array.isArray(latlngs) || latlngs.length === 0) {
+            return 'empty';
+          }
+
+          const totalPoints = latlngs.length;
+          const sampleCount = Math.min(totalPoints, 10);
+          const step = Math.max(1, Math.floor(totalPoints / sampleCount));
+          const parts = [totalPoints];
+
+          const extractCoordinate = (point, key) => {
+            if (!point) {
+              return Number.NaN;
+            }
+            if (typeof point[key] === 'number') {
+              return point[key];
+            }
+            if (point.latlng && typeof point.latlng[key] === 'number') {
+              return point.latlng[key];
+            }
+            if (Array.isArray(point) && point.length >= 2) {
+              const index = key === 'lat' ? 0 : 1;
+              const value = Number(point[index]);
+              return Number.isFinite(value) ? value : Number.NaN;
+            }
+            const altKey = key === 'lat' ? 'latitude' : 'longitude';
+            if (typeof point[altKey] === 'number') {
+              return point[altKey];
+            }
+            const upperKey = key === 'lat' ? 'Latitude' : 'Longitude';
+            if (typeof point[upperKey] === 'number') {
+              return point[upperKey];
+            }
+            return Number.NaN;
+          };
+
+          const appendPoint = (point) => {
+            const lat = extractCoordinate(point, 'lat');
+            const lng = extractCoordinate(point, 'lng');
+            const format = value => (Number.isFinite(value) ? value.toFixed(6) : 'nan');
+            parts.push(`${format(lat)},${format(lng)}`);
+          };
+
+          for (let i = 0; i < totalPoints; i += step) {
+            appendPoint(latlngs[i]);
+          }
+
+          const lastPoint = latlngs[totalPoints - 1];
+          if (lastPoint && (totalPoints - 1) % step !== 0) {
+            appendPoint(lastPoint);
+          }
+
+          return parts.join('|');
+        }
+
+        render() {
+          if (!this.map) return;
+
+          const zoom = Number.isFinite(this.currentZoom)
+            ? this.currentZoom
+            : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+
+          const selectionKey = this.selectedRoutes.join(',');
+          const geometrySignature = this.selectedRoutes
+            .map(routeId => `${routeId}:${this.routeGeometrySignatures.get(routeId) || ''}`)
+            .join('|');
+          const colorSignature = this.selectedRoutes
+            .map(routeId => {
+              const color = getRouteColorById(routeId);
+              return `${routeId}:${typeof color === 'string' ? color : ''}`;
+            })
+            .join('|');
+          const zoomKey = Number.isFinite(zoom) ? zoom.toFixed(6) : 'NaN';
+          const nextRenderState = {
+            selectionKey,
+            geometrySignature,
+            colorSignature,
+            zoomKey,
+            didRender: false
+          };
+
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            this.clearLayers();
+            nextRenderState.didRender = true;
+            this.lastRenderState = nextRenderState;
+            return;
+          }
+
+          if (!Number.isFinite(zoom)) {
+            this.clearLayers();
+            this.lastRenderState = nextRenderState;
+            return;
+          }
+
+          const lastState = this.lastRenderState;
+          if (lastState
+            && lastState.didRender
+            && lastState.selectionKey === selectionKey
+            && lastState.geometrySignature === geometrySignature
+            && lastState.colorSignature === colorSignature
+            && lastState.zoomKey === zoomKey) {
+            return;
+          }
+
+          this.clearLayers();
+
+          const step = Number.isFinite(this.options.sampleStepPx) && this.options.sampleStepPx > 0
+            ? this.options.sampleStepPx
+            : 8;
+          const tolerance = Number.isFinite(this.options.matchTolerancePx)
+            ? this.options.matchTolerancePx
+            : 6;
+          const headingToleranceRad = (Number.isFinite(this.options.headingToleranceDeg)
+            ? this.options.headingToleranceDeg
+            : 20) * Math.PI / 180;
+
+          const segmentsByRoute = new Map();
+          const spatialItems = [];
+
+          this.routeGeometries.forEach((latlngs, routeId) => {
+            if (!Array.isArray(latlngs) || latlngs.length < 2) {
+              return;
+            }
+
+            const segments = this.resampleRoute(routeId, latlngs, zoom, step);
+            if (!Array.isArray(segments) || segments.length === 0) {
+              return;
+            }
+
+            segmentsByRoute.set(routeId, segments);
+
+            segments.forEach(segment => {
+              spatialItems.push({
+                minX: segment.bounds.minX - tolerance,
+                minY: segment.bounds.minY - tolerance,
+                maxX: segment.bounds.maxX + tolerance,
+                maxY: segment.bounds.maxY + tolerance,
+                segment
+              });
+            });
+          });
+
+          if (spatialItems.length === 0) {
+            nextRenderState.didRender = true;
+            this.lastRenderState = nextRenderState;
+            return;
+          }
+
+          const tree = createSpatialIndex({ maxEntries: this.options.maxEntries });
+          if (!tree || typeof tree.load !== 'function' || typeof tree.search !== 'function') {
+            console.error('RBush spatial index instance is invalid; skipping overlap rendering.');
+            this.lastRenderState = nextRenderState;
+            return;
+          }
+
+          tree.clear?.();
+          tree.load(spatialItems);
+          this.populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad);
+
+          const groups = this.buildGroups(segmentsByRoute, zoom);
+          this.drawGroups(groups);
+          nextRenderState.didRender = true;
+          this.lastRenderState = nextRenderState;
+        }
+
+        populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad) {
+          const processedPairs = new Set();
+
+          spatialItems.forEach(item => {
+            const segment = item.segment;
+            if (!segment) return;
+
+            const candidates = tree.search(item);
+            candidates.forEach(candidate => {
+              const other = candidate.segment;
+              if (!other || other === segment) return;
+              if (other.routeId === segment.routeId) return;
+
+              const pairKey = segment.routeId < other.routeId
+                ? `${segment.routeId}:${segment.index}|${other.routeId}:${other.index}`
+                : `${other.routeId}:${other.index}|${segment.routeId}:${segment.index}`;
+              if (processedPairs.has(pairKey)) return;
+
+              processedPairs.add(pairKey);
+              if (!this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) return;
+
+              segment.sharedRoutes.add(other.routeId);
+              other.sharedRoutes.add(segment.routeId);
+
+              this.applyRouteOffset(segment, other);
+              this.applyRouteOffset(other, segment);
+            });
+          });
+        }
+
+        applyRouteOffset(target, source) {
+          if (!target || !source) return;
+          if (!target.routeOffsets) {
+            target.routeOffsets = {};
+          }
+
+          const sourceOffset = this.extractRouteOffset(source, source.routeId);
+          if (!Number.isFinite(sourceOffset)) {
+            return;
+          }
+
+          const existing = target.routeOffsets[source.routeId];
+          const candidate = Number.isFinite(existing?.min) ? Math.min(existing.min, sourceOffset) : sourceOffset;
+          target.routeOffsets[source.routeId] = { min: candidate };
+        }
+
+        extractRouteOffset(segment, routeId) {
+          if (!segment) return null;
+          const offsets = segment.routeOffsets || {};
+          const direct = offsets[routeId];
+          if (direct && Number.isFinite(direct.min)) {
+            return direct.min;
+          }
+
+          const values = [];
+          const startVal = Number(segment.start?.cumulativeLength);
+          if (Number.isFinite(startVal)) values.push(startVal);
+          const endVal = Number(segment.end?.cumulativeLength);
+          if (Number.isFinite(endVal)) values.push(endVal);
+          return values.length > 0 ? Math.min(...values) : null;
+        }
+
+        buildGroups(segmentsByRoute, zoom) {
+          const groups = [];
+
+          segmentsByRoute.forEach((segments, routeId) => {
+            const ordered = segments.slice().sort((a, b) => {
+              const aOffset = Number(a.start?.cumulativeLength) || 0;
+              const bOffset = Number(b.start?.cumulativeLength) || 0;
+              return aOffset - bOffset;
+            });
+
+            let current = null;
+
+            ordered.forEach(segment => {
+              const sharedRoutes = Array.from(segment.sharedRoutes || []).sort((a, b) => a - b);
+              if (sharedRoutes.length === 0) return;
+
+              const primary = sharedRoutes[0];
+              if (primary !== routeId) {
+                return;
+              }
+
+              const needsNewGroup = !current
+                || !this.sameRouteSet(current.routes, sharedRoutes)
+                || !this.latLngsClose(current.lastLatLng, segment.start.latlng);
+
+              if (needsNewGroup) {
+                if (current) {
+                  const finalized = this.finalizeGroup(current, zoom);
+                  if (finalized) {
+                    groups.push(finalized);
+                  }
+                }
+
+                current = {
+                  routes: sharedRoutes,
+                  segments: [],
+                  points: [],
+                  offsets: new Map(),
+                  lastLatLng: null
+                };
+              }
+
+              current.segments.push(segment);
+
+              if (current.points.length === 0) {
+                current.points.push(segment.start.latlng);
+              } else if (!this.latLngsClose(current.points[current.points.length - 1], segment.start.latlng)) {
+                current.points.push(segment.start.latlng);
+              }
+              current.points.push(segment.end.latlng);
+              current.lastLatLng = segment.end.latlng;
+
+              const routeOffsets = segment.routeOffsets || {};
+              current.routes.forEach(routeKey => {
+                const candidate = Number(routeOffsets?.[routeKey]?.min ?? routeOffsets?.[routeKey]);
+                if (Number.isFinite(candidate)) {
+                  const existing = current.offsets.get(routeKey);
+                  if (!Number.isFinite(existing) || candidate < existing) {
+                    current.offsets.set(routeKey, candidate);
+                  }
+                }
+              });
+            });
+
+            if (current) {
+              const finalized = this.finalizeGroup(current, zoom);
+              if (finalized) {
+                groups.push(finalized);
+              }
+              current = null;
+            }
+          });
+
+          return groups;
+        }
+
+        finalizeGroup(group, zoom) {
+          const points = this.collapsePoints(group.points || []);
+          if (points.length < 2) {
+            return null;
+          }
+
+          const lengthPx = group.segments.reduce((sum, segment) => {
+            const value = Number(segment.lengthPx);
+            return sum + (Number.isFinite(value) ? value : 0);
+          }, 0);
+
+          const primaryRoute = group.routes[0];
+          const offsetCandidates = group.segments
+            .map(segment => Number(segment.routeOffsets?.[primaryRoute]?.min ?? segment.routeOffsets?.[primaryRoute]))
+            .filter(value => Number.isFinite(value));
+          const offsetPx = offsetCandidates.length > 0 ? Math.min(...offsetCandidates) : 0;
+
+          const offsetMap = new Map();
+          group.offsets.forEach((value, key) => {
+            if (Number.isFinite(value)) {
+              offsetMap.set(key, value);
+            }
+          });
+
+          return {
+            routes: group.routes.slice(),
+            points,
+            lengthPx,
+            offsetPx,
+            routeOffsets: offsetMap
+          };
+        }
+
+        collapsePoints(points) {
+          const collapsed = [];
+          points.forEach(point => {
+            if (collapsed.length === 0 || !this.latLngsClose(collapsed[collapsed.length - 1], point)) {
+              collapsed.push(point);
+            }
+          });
+          return collapsed;
+        }
+
+        sameRouteSet(a, b) {
+          if (!Array.isArray(a) || !Array.isArray(b)) return false;
+          if (a.length !== b.length) return false;
+          for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return false;
+          }
+          return true;
+        }
+
+        latLngsClose(a, b) {
+          if (!a || !b) return false;
+          const tolerance = this.options.latLngEqualityMargin || 1e-9;
+          const latA = a.lat ?? a?.latlng?.lat ?? 0;
+          const lngA = a.lng ?? a?.latlng?.lng ?? 0;
+          const latB = b.lat ?? b?.latlng?.lat ?? 0;
+          const lngB = b.lng ?? b?.latlng?.lng ?? 0;
+          return Math.abs(latA - latB) <= tolerance && Math.abs(lngA - lngB) <= tolerance;
+        }
+
+        drawGroups(groups) {
+          const newLayers = [];
+          const dashBase = this.options.dashLengthPx;
+          const minDash = this.options.minDashLengthPx;
+          const weight = this.computeStrokeWeight();
+
+          groups.forEach(group => {
+            if (!group || !Array.isArray(group.routes) || group.routes.length === 0) return;
+            if (!Array.isArray(group.points) || group.points.length < 2) return;
+
+            const coords = group.points.map(latlng => [latlng.lat, latlng.lng]);
+            const sortedRoutes = group.routes.slice().sort((a, b) => a - b);
+            const offsetsByRoute = new Map();
+
+            if (group.routeOffsets instanceof Map) {
+              group.routeOffsets.forEach((value, routeId) => {
+                const numericRoute = Number(routeId);
+                const numericValue = Number(value);
+                if (Number.isFinite(numericRoute) && Number.isFinite(numericValue)) {
+                  const existing = offsetsByRoute.get(numericRoute);
+                  if (!Number.isFinite(existing) || numericValue < existing) {
+                    offsetsByRoute.set(numericRoute, numericValue);
+                  }
+                }
+              });
+            } else if (group.routeOffsets && typeof group.routeOffsets === 'object') {
+              Object.entries(group.routeOffsets).forEach(([routeKey, info]) => {
+                const numericRoute = Number(routeKey);
+                const numericValue = Number(info?.min ?? info);
+                if (Number.isFinite(numericRoute) && Number.isFinite(numericValue)) {
+                  const existing = offsetsByRoute.get(numericRoute);
+                  if (!Number.isFinite(existing) || numericValue < existing) {
+                    offsetsByRoute.set(numericRoute, numericValue);
+                  }
+                }
+              });
+            }
+
+            if (sortedRoutes.length === 1) {
+              const routeId = sortedRoutes[0];
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
+                color: getRouteColorById(routeId),
+                weight,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+              }, this.renderer, this.routePaneName)).addTo(this.map);
+              newLayers.push(layer);
+              return;
+            }
+
+            const groupLength = group.lengthPx || 0;
+            if (!(groupLength > 0)) return;
+            const stripeCount = sortedRoutes.length;
+            let dashLength = dashBase;
+            if (dashLength * stripeCount > groupLength) {
+              dashLength = groupLength / stripeCount;
+            }
+            if (!(dashLength > 0)) {
+              dashLength = minDash;
+            }
+
+            const gapLength = dashLength * (stripeCount - 1);
+            const patternLength = dashLength + gapLength;
+
+            let baseOffsetValue;
+            const tolerance = 1e-9;
+            let anchorRouteId = null;
+            let anchorOffset = -Infinity;
+
+            sortedRoutes.forEach(routeId => {
+              const offsetValue = offsetsByRoute.get(routeId);
+              if (Number.isFinite(offsetValue)) {
+                if (
+                  anchorRouteId === null ||
+                  offsetValue > anchorOffset + tolerance ||
+                  (Math.abs(offsetValue - anchorOffset) <= tolerance && routeId < anchorRouteId)
+                ) {
+                  anchorRouteId = routeId;
+                  anchorOffset = offsetValue;
+                }
+              }
+            });
+
+            if (anchorRouteId !== null && Number.isFinite(anchorOffset)) {
+              const anchorIndex = sortedRoutes.indexOf(anchorRouteId);
+              baseOffsetValue = anchorOffset - dashLength * anchorIndex;
+            } else {
+              const rawOffset = Number(group.offsetPx);
+              baseOffsetValue = Number.isFinite(rawOffset) ? rawOffset : 0;
+            }
+
+            sortedRoutes.forEach((routeId, index) => {
+              let dashOffsetValue = baseOffsetValue + dashLength * index;
+              if (patternLength > 0) {
+                const targetOffset = offsetsByRoute.get(routeId);
+                if (Number.isFinite(targetOffset)) {
+                  const diff = targetOffset - dashOffsetValue;
+                  const adjustment = Math.round(diff / patternLength);
+                  if (Number.isFinite(adjustment) && adjustment !== 0) {
+                    dashOffsetValue += adjustment * patternLength;
+                  }
+                }
+                dashOffsetValue = ((dashOffsetValue % patternLength) + patternLength) % patternLength;
+              }
+
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
+                color: getRouteColorById(routeId),
+                weight,
+                opacity: 1,
+                dashArray: `${dashLength} ${gapLength}`,
+                dashOffset: `${dashOffsetValue}`,
+                lineCap: 'butt',
+                lineJoin: 'round'
+              }, this.renderer, this.routePaneName)).addTo(this.map);
+              newLayers.push(layer);
+            });
+          });
+
+          this.layers = newLayers;
+        }
+
+        simplifyLatLngs(latlngs, zoom) {
+          if (!Array.isArray(latlngs) || latlngs.length === 0) {
+            return [];
+          }
+
+          const normalized = latlngs
+            .map(latlng => this.toLatLng(latlng))
+            .filter(value => value);
+          if (normalized.length === 0) {
+            return [];
+          }
+
+          const projected = normalized.map(latlng => this.map.project(latlng, zoom));
+          let simplified = projected;
+          if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil && L.LineUtil.simplify) {
+            simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
+          }
+
+          return simplified.map(pt => ({
+            point: L.point(pt.x, pt.y),
+            latlng: this.map.unproject(pt, zoom)
+          }));
+        }
+
+        resampleRoute(routeId, latlngs, zoom, step) {
+          const simplified = this.simplifyLatLngs(latlngs, zoom);
+          if (simplified.length < 2) {
+            return [];
+          }
+
+          const samples = [];
+          const first = simplified[0];
+          samples.push({
+            latlng: first.latlng,
+            point: first.point,
+            cumulativeLength: 0
+          });
+
+          let traversed = 0;
+          let distanceSinceLast = 0;
+
+          for (let i = 1; i < simplified.length; i++) {
+            const prev = simplified[i - 1];
+            const curr = simplified[i];
+            const segmentLength = this.distance(prev.point, curr.point);
+            if (segmentLength === 0) {
+              continue;
+            }
+
+            let consumed = 0;
+            while (distanceSinceLast + (segmentLength - consumed) >= step) {
+              const remaining = step - distanceSinceLast;
+              consumed += remaining;
+              const ratio = consumed / segmentLength;
+              const samplePoint = this.interpolatePoint(prev.point, curr.point, ratio);
+              const sampleLatLng = this.map.unproject(samplePoint, zoom);
+              traversed += remaining;
+              samples.push({
+                latlng: sampleLatLng,
+                point: samplePoint,
+                cumulativeLength: traversed
+              });
+              distanceSinceLast = 0;
+            }
+
+            const leftover = segmentLength - consumed;
+            traversed += leftover;
+            distanceSinceLast += leftover;
+          }
+
+          const last = simplified[simplified.length - 1];
+          const lastSample = samples[samples.length - 1];
+          if (!this.latLngsClose(lastSample.latlng, last.latlng)) {
+            samples.push({
+              latlng: last.latlng,
+              point: last.point,
+              cumulativeLength: traversed
+            });
+          } else {
+            lastSample.cumulativeLength = traversed;
+          }
+
+          const segments = [];
+          for (let i = 0; i < samples.length - 1; i++) {
+            const start = samples[i];
+            const end = samples[i + 1];
+            const lengthPx = this.distance(start.point, end.point);
+            if (!(lengthPx > 0)) {
+              continue;
+            }
+
+            const bounds = {
+              minX: Math.min(start.point.x, end.point.x),
+              minY: Math.min(start.point.y, end.point.y),
+              maxX: Math.max(start.point.x, end.point.x),
+              maxY: Math.max(start.point.y, end.point.y)
+            };
+            const midpoint = L.point(
+              (start.point.x + end.point.x) / 2,
+              (start.point.y + end.point.y) / 2
+            );
+            const heading = Math.atan2(end.point.y - start.point.y, end.point.x - start.point.x);
+            const offsetValues = [];
+            const startOffset = Number(start.cumulativeLength);
+            if (Number.isFinite(startOffset)) offsetValues.push(startOffset);
+            const endOffset = Number(end.cumulativeLength);
+            if (Number.isFinite(endOffset)) offsetValues.push(endOffset);
+
+            const routeOffsets = {};
+            if (offsetValues.length > 0) {
+              routeOffsets[routeId] = { min: Math.min(...offsetValues) };
+            }
+
+            segments.push({
+              routeId,
+              index: segments.length,
+              start,
+              end,
+              lengthPx,
+              bounds,
+              midpoint,
+              heading,
+              routeOffsets,
+              sharedRoutes: new Set([routeId])
+            });
+          }
+
+          return segments;
+        }
+
+        interpolatePoint(a, b, t) {
+          return L.point(
+            a.x + (b.x - a.x) * t,
+            a.y + (b.y - a.y) * t
+          );
+        }
+
+        distance(a, b) {
+          const ax = a?.x ?? 0;
+          const ay = a?.y ?? 0;
+          const bx = b?.x ?? 0;
+          const by = b?.y ?? 0;
+          const dx = bx - ax;
+          const dy = by - ay;
+          return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        toLatLng(value) {
+          if (!value) {
+            return null;
+          }
+          if (value instanceof L.LatLng) {
+            return value;
+          }
+          if (Array.isArray(value) && value.length >= 2) {
+            const lat = Number(value[0]);
+            const lng = Number(value[1]);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              return L.latLng(lat, lng);
+            }
+            return null;
+          }
+          const latCandidate = value.lat ?? value.latitude ?? value.Latitude;
+          const lngCandidate = value.lng ?? value.lon ?? value.longitude ?? value.Lng ?? value.Lon ?? value.Longitude;
+          const lat = Number(latCandidate);
+          const lng = Number(lngCandidate);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            return L.latLng(lat, lng);
+          }
+          return null;
+        }
+
+        segmentsOverlap(a, b, tolerance, headingToleranceRad) {
+          const midpointDistance = this.distance(a.midpoint, b.midpoint);
+          if (midpointDistance > tolerance) {
+            return false;
+          }
+
+          const headingDiff = this.smallestHeadingDifference(a.heading, b.heading);
+          if (headingDiff > headingToleranceRad && Math.abs(Math.PI - headingDiff) > headingToleranceRad) {
+            return false;
+          }
+
+          const startDistance = this.distance(a.start.point, b.start.point);
+          const endDistance = this.distance(a.end.point, b.end.point);
+          const crossStart = this.distance(a.start.point, b.end.point);
+          const crossEnd = this.distance(a.end.point, b.start.point);
+          const closeEnough = Math.min(startDistance, endDistance, crossStart, crossEnd) <= tolerance * 2;
+
+          return closeEnough;
+        }
+
+        smallestHeadingDifference(a, b) {
+          let diff = Math.abs(a - b);
+          diff = diff % (Math.PI * 2);
+          if (diff > Math.PI) diff = (Math.PI * 2) - diff;
+          return diff;
+        }
+      }
+
+  function createOverlapRenderer(mapInstance, layerGroup) {
+    if (!ENABLE_OVERLAP_DASH_RENDERING) {
+      return null;
+    }
+    if (!mapInstance || typeof mapInstance !== 'object') {
+      return null;
+    }
+    try {
+      return new OverlapRouteRenderer(mapInstance, {
+        sampleStepPx: 8,
+        dashLengthPx: ROUTE_STRIPE_DASH_LENGTH,
+        minDashLengthPx: 0.5,
+        matchTolerancePx: 6,
+        strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+        minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+        maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+        pane: ROUTE_PANE,
+        layerGroup
+      });
+    } catch (error) {
+      console.error('Failed to initialize overlap route renderer:', error);
+      return null;
+    }
+  }
+
   function renderRoutes(routes) {
-    routeLayerGroup.clearLayers();
     routeColors.clear();
+
     if (!Array.isArray(routes) || routes.length === 0) {
+      routeLayerGroup.clearLayers();
+      if (overlapRenderer) {
+        overlapRenderer.reset();
+      }
       return [];
     }
 
     const boundsPoints = [];
     const routeGeometries = new Map();
+    const selectedRouteIds = [];
+    const seenRouteIds = new Set();
     const canDecode = typeof polyline === 'object' && typeof polyline.decode === 'function';
 
     routes.forEach(route => {
@@ -748,6 +1667,9 @@
         return;
       }
       const id = Number(idRaw);
+      if (!Number.isFinite(id)) {
+        return;
+      }
       const color = normalizeColor(route.MapLineColor || route.Color);
       routeColors.set(String(id), color);
 
@@ -769,10 +1691,46 @@
 
       const latlngs = decoded.map(pair => [pair[0], pair[1]]);
       routeGeometries.set(id, latlngs);
+      if (!seenRouteIds.has(id)) {
+        seenRouteIds.add(id);
+        selectedRouteIds.push(id);
+      }
       boundsPoints.push(...latlngs);
     });
 
+    if (routeGeometries.size === 0) {
+      routeLayerGroup.clearLayers();
+      if (overlapRenderer) {
+        overlapRenderer.reset();
+      }
+      return boundsPoints;
+    }
+
+    let overlapUsed = false;
+    if (ENABLE_OVERLAP_DASH_RENDERING && overlapRenderer && selectedRouteIds.length > 0) {
+      const layers = overlapRenderer.updateRoutes(routeGeometries, selectedRouteIds);
+      if (Array.isArray(layers) && layers.length > 0) {
+        overlapUsed = true;
+      } else {
+        overlapRenderer.clearLayers();
+      }
+    } else if (overlapRenderer) {
+      overlapRenderer.reset();
+    }
+
+    if (overlapUsed) {
+      return boundsPoints;
+    }
+
+    routeLayerGroup.clearLayers();
+
     const groups = buildSegmentGroups(routeGeometries);
+    if (groups.length === 0) {
+      return boundsPoints;
+    }
+
+    const strokeWeight = computeRouteStrokeWeight(typeof map?.getZoom === 'function' ? map.getZoom() : null);
+
     groups.forEach(group => {
       const segments = group.segments
         .map(segment => {
@@ -795,7 +1753,7 @@
         const routeId = group.routes[0];
         const layer = L.polyline(segments, {
           color: getRouteColorById(routeId),
-          weight: ROUTE_STROKE_WEIGHT,
+          weight: strokeWeight,
           opacity: 0.95,
           lineCap: 'round',
           lineJoin: 'round',
@@ -811,7 +1769,7 @@
       group.routes.forEach((routeId, index) => {
         const layer = L.polyline(segments, {
           color: getRouteColorById(routeId),
-          weight: ROUTE_STROKE_WEIGHT,
+          weight: strokeWeight,
           opacity: 1,
           dashArray: `${dashLength} ${gapLength}`,
           dashOffset: `${dashLength * index}`,
