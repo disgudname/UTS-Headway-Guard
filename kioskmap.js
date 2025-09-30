@@ -1704,7 +1704,22 @@
         return;
       }
 
-      const latlngs = decoded.map(pair => [pair[0], pair[1]]);
+      const latlngs = decoded
+        .map(pair => {
+          if (!Array.isArray(pair) || pair.length < 2) {
+            return null;
+          }
+          const lat = Number(pair[0]);
+          const lng = Number(pair[1]);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            return null;
+          }
+          return L.latLng(lat, lng);
+        })
+        .filter(value => value instanceof L.LatLng);
+      if (latlngs.length < 2) {
+        return;
+      }
       routeGeometries.set(id, latlngs);
       if (!seenRouteIds.has(id)) {
         seenRouteIds.add(id);
@@ -2045,6 +2060,36 @@
     return DEFAULT_ROUTE_COLOR;
   }
 
+  function extractLatLngPair(value) {
+    if (!value) {
+      return null;
+    }
+    if (value instanceof L.LatLng) {
+      const lat = Number(value.lat);
+      const lng = Number(value.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return [lat, lng];
+      }
+      return null;
+    }
+    if (Array.isArray(value) && value.length >= 2) {
+      const lat = Number(value[0]);
+      const lng = Number(value[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return [lat, lng];
+      }
+      return null;
+    }
+    const latCandidate = value.lat ?? value.latitude ?? value.Latitude ?? value?.latlng?.lat;
+    const lngCandidate = value.lng ?? value.lon ?? value.longitude ?? value.Lng ?? value.Lon ?? value.Longitude ?? value?.latlng?.lng;
+    const lat = Number(latCandidate);
+    const lng = Number(lngCandidate);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return [lat, lng];
+    }
+    return null;
+  }
+
   function buildSegmentGroups(routeGeometries) {
     const segmentMap = new Map();
 
@@ -2070,8 +2115,8 @@
         entry.routes.add(routeId);
         entry.segments.push({
           routeId,
-          start: normalized.forward ? start : end,
-          end: normalized.forward ? end : start
+          start: normalized.forward ? normalized.startPair : normalized.endPair,
+          end: normalized.forward ? normalized.endPair : normalized.startPair
         });
       }
     });
@@ -2106,6 +2151,9 @@
         return;
       }
       const segmentKey = directionalSegmentKey(chosen.start, chosen.end);
+      if (!segmentKey) {
+        return;
+      }
       if (group.seen.has(segmentKey)) {
         return;
       }
@@ -2120,13 +2168,17 @@
   }
 
   function normalizeSegmentKey(start, end) {
-    if (!Array.isArray(start) || !Array.isArray(end)) {
+    const startPair = extractLatLngPair(start);
+    const endPair = extractLatLngPair(end);
+    if (!startPair || !endPair) {
       return null;
     }
-    const aLat = roundCoord(start[0]);
-    const aLng = roundCoord(start[1]);
-    const bLat = roundCoord(end[0]);
-    const bLng = roundCoord(end[1]);
+    const [startLatRaw, startLngRaw] = startPair;
+    const [endLatRaw, endLngRaw] = endPair;
+    const aLat = roundCoord(startLatRaw);
+    const aLng = roundCoord(startLngRaw);
+    const bLat = roundCoord(endLatRaw);
+    const bLng = roundCoord(endLngRaw);
     if (!Number.isFinite(aLat) || !Number.isFinite(aLng) || !Number.isFinite(bLat) || !Number.isFinite(bLng)) {
       return null;
     }
@@ -2137,14 +2189,24 @@
     const baseKey = forward
       ? `${aLat},${aLng}|${bLat},${bLng}`
       : `${bLat},${bLng}|${aLat},${aLng}`;
-    return { baseKey, forward };
+    return {
+      baseKey,
+      forward,
+      startPair,
+      endPair
+    };
   }
 
   function directionalSegmentKey(start, end) {
-    const aLat = roundCoord(start[0]);
-    const aLng = roundCoord(start[1]);
-    const bLat = roundCoord(end[0]);
-    const bLng = roundCoord(end[1]);
+    const startPair = extractLatLngPair(start);
+    const endPair = extractLatLngPair(end);
+    if (!startPair || !endPair) {
+      return '';
+    }
+    const aLat = roundCoord(startPair[0]);
+    const aLng = roundCoord(startPair[1]);
+    const bLat = roundCoord(endPair[0]);
+    const bLng = roundCoord(endPair[1]);
     return `${aLat},${aLng}|${bLat},${bLng}`;
   }
 
