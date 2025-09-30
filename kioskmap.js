@@ -1025,7 +1025,7 @@
             .join('|');
           const colorSignature = this.selectedRoutes
             .map(routeId => {
-              const color = getRouteColorById(routeId);
+              const color = getRouteColor(routeId);
               return `${routeId}:${typeof color === 'string' ? color : ''}`;
             })
             .join('|');
@@ -1363,7 +1363,7 @@
             if (sortedRoutes.length === 1) {
               const routeId = sortedRoutes[0];
               const layer = L.polyline(coords, mergeRouteLayerOptions({
-                color: getRouteColorById(routeId),
+                color: getRouteColor(routeId),
                 weight,
                 opacity: 1,
                 lineCap: 'round',
@@ -1429,7 +1429,7 @@
               }
 
               const layer = L.polyline(coords, mergeRouteLayerOptions({
-                color: getRouteColorById(routeId),
+                color: getRouteColor(routeId),
                 weight,
                 opacity: 1,
                 dashArray: `${dashLength} ${gapLength}`,
@@ -1449,14 +1449,7 @@
             return [];
           }
 
-          const normalized = latlngs
-            .map(latlng => this.toLatLng(latlng))
-            .filter(value => value);
-          if (normalized.length === 0) {
-            return [];
-          }
-
-          const projected = normalized.map(latlng => this.map.project(latlng, zoom));
+          const projected = latlngs.map(latlng => this.map.project(latlng, zoom));
           let simplified = projected;
           if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil && L.LineUtil.simplify) {
             simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
@@ -1589,31 +1582,6 @@
           const dx = bx - ax;
           const dy = by - ay;
           return Math.sqrt(dx * dx + dy * dy);
-        }
-
-        toLatLng(value) {
-          if (!value) {
-            return null;
-          }
-          if (value instanceof L.LatLng) {
-            return value;
-          }
-          if (Array.isArray(value) && value.length >= 2) {
-            const lat = Number(value[0]);
-            const lng = Number(value[1]);
-            if (Number.isFinite(lat) && Number.isFinite(lng)) {
-              return L.latLng(lat, lng);
-            }
-            return null;
-          }
-          const latCandidate = value.lat ?? value.latitude ?? value.Latitude;
-          const lngCandidate = value.lng ?? value.lon ?? value.longitude ?? value.Lng ?? value.Lon ?? value.Longitude;
-          const lat = Number(latCandidate);
-          const lng = Number(lngCandidate);
-          if (Number.isFinite(lat) && Number.isFinite(lng)) {
-            return L.latLng(lat, lng);
-          }
-          return null;
         }
 
         segmentsOverlap(a, b, tolerance, headingToleranceRad) {
@@ -2165,6 +2133,10 @@
       return routeColors.get(key);
     }
     return DEFAULT_ROUTE_COLOR;
+  }
+
+  function getRouteColor(routeId) {
+    return getRouteColorById(routeId);
   }
 
   function deriveActiveRouteIds(vehicles) {
