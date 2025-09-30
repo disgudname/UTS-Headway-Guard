@@ -177,6 +177,7 @@ schedulePlaneStyleOverride();
       let adminMode = true; // shows unit numbers and speed/block bubbles
       let kioskMode = false;
       let adminKioskMode = false;
+      let adminKioskUiSuppressed = false;
       let displayMode = DISPLAY_MODES.BLOCK;
 
       const PANEL_COLLAPSE_BREAKPOINT = 600;
@@ -193,6 +194,57 @@ schedulePlaneStyleOverride();
 
       function trainsFeatureAllowed() {
         return adminFeaturesAllowed() && !adminKioskMode;
+      }
+
+      function suppressAdminKioskPanels() {
+        if (!adminKioskMode || adminKioskUiSuppressed) {
+          return;
+        }
+        if (typeof document === 'undefined') {
+          return;
+        }
+
+        const controlPanel = document.getElementById('controlPanel');
+        const routeSelector = document.getElementById('routeSelector');
+        const controlTab = document.getElementById('controlPanelTab');
+        const routeTab = document.getElementById('routeSelectorTab');
+        const elementsReady = controlPanel || routeSelector || controlTab || routeTab;
+        if (!elementsReady) {
+          return;
+        }
+
+        const hidePanel = panel => {
+          if (!panel) return;
+          if (panel.classList && typeof panel.classList.add === 'function') {
+            panel.classList.add('hidden');
+          }
+          if (panel.style) {
+            panel.style.display = 'none';
+          }
+          if (typeof panel.setAttribute === 'function') {
+            panel.setAttribute('aria-hidden', 'true');
+          }
+          try {
+            panel.innerHTML = '';
+          } catch (error) {
+            // Ignore failures to clear panel content in environments without innerHTML.
+          }
+        };
+
+        hidePanel(controlPanel);
+        hidePanel(routeSelector);
+
+        const hideTab = tab => {
+          if (!tab) return;
+          if (tab.style) {
+            tab.style.display = 'none';
+          }
+        };
+
+        hideTab(controlTab);
+        hideTab(routeTab);
+
+        adminKioskUiSuppressed = true;
       }
 
       const RADAR_PRODUCTS = Object.freeze({
@@ -1265,6 +1317,7 @@ schedulePlaneStyleOverride();
       if (adminKioskParam !== null) {
         adminKioskMode = adminKioskParam.toLowerCase() === 'true';
       }
+      suppressAdminKioskPanels();
       const adminParam = params.get('adminMode');
       if (adminParam !== null) {
         adminMode = adminParam.toLowerCase() === 'true';
@@ -3797,6 +3850,10 @@ schedulePlaneStyleOverride();
       }
 
       function positionAllPanelTabs() {
+        if (adminKioskMode) {
+          suppressAdminKioskPanels();
+          return;
+        }
         positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
         positionPanelTab('controlPanel', 'controlPanelTab', 'left');
         updatePanelTabVisibility();
@@ -4720,6 +4777,9 @@ schedulePlaneStyleOverride();
       }
 
       function shouldFetchServiceAlerts() {
+        if (adminKioskMode) {
+          return false;
+        }
         if (serviceAlertsLoading || serviceAlertsFetchPromise) {
           return false;
         }
@@ -4865,6 +4925,10 @@ schedulePlaneStyleOverride();
       }
 
       function updateControlPanel() {
+        if (adminKioskMode) {
+          suppressAdminKioskPanels();
+          return;
+        }
         const panel = document.getElementById('controlPanel');
         if (!panel) return;
 
@@ -5064,6 +5128,10 @@ ${trainPlaneMarkup}
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
       function updateRouteSelector(activeRoutesParam, forceUpdate = false) {
+        if (adminKioskMode) {
+          suppressAdminKioskPanels();
+          return;
+        }
         const container = document.getElementById("routeSelector");
         if (!container) return;
 
@@ -5501,6 +5569,10 @@ ${trainPlaneMarkup}
       }
 
       function initializePanelStateForViewport() {
+        if (adminKioskMode) {
+          suppressAdminKioskPanels();
+          return;
+        }
         if (!shouldCollapsePanelsOnLoad()) return;
 
         const controlPanel = document.getElementById('controlPanel');
@@ -5966,7 +6038,9 @@ ${trainPlaneMarkup}
         if (hasTranslocStops || hasCatStops) {
           renderBusStops(stopDataCache);
         }
-        fetchTrains().catch(error => console.error('Error refreshing trains:', error));
+        if (trainsFeatureAllowed()) {
+          fetchTrains().catch(error => console.error('Error refreshing trains:', error));
+        }
         if (catOverlayEnabled) {
           renderCatVehiclesUsingCache();
         }
@@ -5999,10 +6073,12 @@ ${trainPlaneMarkup}
         } else {
           setIncidentsVisibility(false);
         }
-        refreshIntervals.push(setInterval(() => {
+        if (trainsFeatureAllowed()) {
+          refreshIntervals.push(setInterval(() => {
+            fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+          }, TRAIN_POLL_INTERVAL_MS));
           fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
-        }, TRAIN_POLL_INTERVAL_MS));
-        fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+        }
         if (shouldFetchServiceAlerts()) {
           fetchServiceAlertsForCurrentAgency();
         }
@@ -12897,6 +12973,7 @@ ${trainPlaneMarkup}
       }
 
       document.addEventListener("DOMContentLoaded", () => {
+        suppressAdminKioskPanels();
         initializePanelStateForViewport();
         beginAgencyLoad();
         loadAgencies()
