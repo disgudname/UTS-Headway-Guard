@@ -26,18 +26,6 @@
   .footer-left { font-size:3em; text-align:left; }
   .footer-right { text-align:right; font-size:1.2em; }
 
-  #device-id-qr {
-    margin-top:0.5rem;
-    width:160px;
-    height:160px;
-    margin-left:auto;
-    margin-right:auto;
-  }
-  #device-id-qr-caption {
-    margin-top:0.5rem;
-    font-size:0.8em;
-  }
-
   /* Optional: primer button; harmless if autoplay policy is fixed */
   #audio-primer {
     position: fixed; top: 10px; right: 10px; z-index: 9999;
@@ -64,10 +52,9 @@
   #announce-text { color:#fff; font-size:3em; text-transform:uppercase; padding: 0 5%; display:inline-block; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===================== Utilities ===================== */
-let arrivalInterval, alertInterval, registrationInterval, retryCountdownInterval, currentStopID;
+let arrivalInterval, alertInterval, currentStopID;
 function getParameterByName(name){ const p=new URLSearchParams(window.location.search); return p.get(name); }
 
 /* ===================== Alerts (Ticker) ===================== */
@@ -487,124 +474,41 @@ function updateArrivalTable(data, vc){
 }
 
 /* ===================== Helpers ===================== */
-async function generateDeviceID(){
-  const parts=[];
-  const nav=navigator; const scr=screen;
-  // Basic browser/OS details
-  parts.push(nav.userAgent, nav.platform, nav.language, (nav.languages||[]).join(','));
-  parts.push(scr.width+'x'+scr.height+'x'+scr.colorDepth, window.devicePixelRatio);
-  parts.push(nav.hardwareConcurrency, nav.deviceMemory||'', nav.maxTouchPoints||'');
-  parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone||'');
-
-  // WebGL vendor/renderer + canvas fingerprint
-  try{
-    const canvas=document.createElement('canvas');
-    const gl=canvas.getContext('webgl')||canvas.getContext('experimental-webgl');
-    if(gl){
-      const dbg=gl.getExtension('WEBGL_debug_renderer_info');
-      if(dbg){
-        parts.push(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL));
-        parts.push(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL));
-      }else{
-        parts.push(gl.getParameter(gl.VENDOR));
-        parts.push(gl.getParameter(gl.RENDERER));
-      }
-    }
-    const ctx=canvas.getContext('2d');
-    ctx.textBaseline='top';
-    ctx.font='16px Arial';
-    ctx.fillStyle='#f60';
-    ctx.fillRect(0,0,100,20);
-    ctx.fillStyle='#069';
-    ctx.fillText('fingerprint',2,15);
-    parts.push(canvas.toDataURL());
-  }catch(e){}
-
-  const data=parts.join('|||');
-  const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,32);
-}
-async function resolveStopID(){
-  const id = await generateDeviceID();
-  try{
-    const r = await axios.get('/device-stop',{params:{id}});
-    return {device:id, stop:r.data.stopID};
-  }catch(e){
-    let div=document.getElementById('device-id-display');
-    if(!div){
-      div=document.createElement('div');
-      div.id='device-id-display';
-      div.style.color='#fff';
-      div.style.textAlign='center';
-      div.style.padding='1rem';
-      document.body.prepend(div);
-    }
-    div.textContent=`Device ID: ${id}`;
-    let qr=document.getElementById('device-id-qr');
-    if(!qr){
-      qr=document.createElement('div');
-      qr.id='device-id-qr';
-      div.appendChild(qr);
-    }
-    qr.innerHTML='';
-    new QRCode(qr,{text:id,width:160,height:160});
-    if(!document.getElementById('device-id-qr-caption')){
-      const cap=document.createElement('div');
-      cap.id='device-id-qr-caption';
-      cap.textContent='Scan QR for device ID';
-      div.appendChild(cap);
-    }
-    div.title='QR code for device ID';
-    throw e;
-  }
-}
-
-function showRetryCountdown(){
-  const el=document.getElementById('stop-name');
-  let seconds=60;
-  el.textContent=`DEVICE NOT REGISTERED - retrying in ${seconds} seconds`;
-  retryCountdownInterval=setInterval(()=>{
-    seconds--;
-    if(seconds<=0){
-      el.textContent='DEVICE NOT REGISTERED - retrying...';
-      clearInterval(retryCountdownInterval);
-      retryCountdownInterval=null;
-    }else{
-      el.textContent=`DEVICE NOT REGISTERED - retrying in ${seconds} seconds`;
-    }
-  },1000);
-}
-
-async function checkRegistration(){
-  if(retryCountdownInterval){ clearInterval(retryCountdownInterval); retryCountdownInterval=null; }
-  try{
-    const {stop}=await resolveStopID();
-    const idDiv=document.getElementById('device-id-display');
-    if(idDiv) idDiv.remove();
-    if(stop!==currentStopID){
-      currentStopID=stop;
-      fetchArrivalTimes(currentStopID);
-    }
-    if(!arrivalInterval){
-      arrivalInterval=setInterval(()=>{ if(currentStopID) fetchArrivalTimes(currentStopID); },30000);
-    }
-  }catch(e){
-    console.warn('[registration] device not registered',e);
-    currentStopID=null;
-    const body=document.getElementById('arrival-body');
-    if(body) body.innerHTML='<tr><td colspan="3" style="height:50px; line-height:50px; text-align:center; padding:15px 0;">Arrival estimates currently unavailable</td></tr>';
-    showRetryCountdown();
-  }
-}
 function getContrastColor(hex){ hex=hex.replace('#',''); const r=parseInt(hex.substring(0,2),16),g=parseInt(hex.substring(2,4),16),b=parseInt(hex.substring(4,6),16); const lum=(0.299*r+0.587*g+0.114*b)/255; return lum>0.565?'black':'white'; }
+
+function getStopIDFromQuery(){
+  const stopParam=(getParameterByName('stopid')||getParameterByName('stopID')||'').trim();
+  return stopParam||null;
+}
+
+function showMissingStopMessage(){
+  const body=document.getElementById('arrival-body');
+  if(body){
+    body.innerHTML='<tr><td colspan="3" style="color:#fff;text-align:center;padding:15px 0;">Add ?stopid=YOUR_STOP_ID to the URL to load arrivals.</td></tr>';
+  }
+  const header=document.getElementById('stop-name');
+  if(header){
+    header.textContent='STOP ID REQUIRED';
+  }
+}
+
+function initStop(){
+  const stop=getStopIDFromQuery();
+  if(!stop){
+    showMissingStopMessage();
+    return;
+  }
+  currentStopID=stop;
+  fetchArrivalTimes(currentStopID);
+  arrivalInterval=setInterval(()=>{ if(currentStopID) fetchArrivalTimes(currentStopID); },30000);
+}
 
 /* ===================== Boot ===================== */
 document.addEventListener('DOMContentLoaded',()=>{
   VoicePicker.init();
   AudioPrimer.init(); // harmless if autoplay already allowed
 
-  checkRegistration();
-  registrationInterval=setInterval(checkRegistration,60000);
+  initStop();
 
   fetchAlerts();
   alertInterval=setInterval(fetchAlerts,15000);

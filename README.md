@@ -20,9 +20,9 @@ UTS Headway Guard is a full real-time operations platform for the University Tra
 - Mileage is accumulated per vehicle per service day (based on America/New_York), carrying the previous day’s odometer forward, recording block history, and exposing reset controls to service crew tools.【F:app.py†L733-L872】【F:app.py†L1564-L1608】
 
 ### Persistence and synchronization
-- Data required across restarts is stored under `DATA_DIRS` (defaults to `/data`). The service persists `config.json`, `device_stops.json`, and `mileage.json`, mirroring them to every configured data directory.【F:app.py†L685-L772】【F:app.py†L808-L872】
+- Data required across restarts is stored under `DATA_DIRS` (defaults to `/data`). The service persists `config.json`, `mileage.json`, and `vehicle_headings.json`, mirroring them to every configured data directory.【F:app.py†L685-L772】【F:app.py†L808-L934】
 - Vehicle log volumes can span multiple mounts via `VEH_LOG_DIRS`; each entry is flushed and fsynced so replay data survives crashes. Hourly files are automatically pruned after the retention window.【F:app.py†L1133-L1178】
-- Multi-machine deployments can list peer instances in `SYNC_PEERS`. When an admin updates configuration, mileage, or device-stop mappings, the service POSTs the change to every peer’s `/sync` endpoint using an optional shared secret so volumes stay in sync.【F:app.py†L689-L723】【F:app.py†L846-L872】【F:app.py†L873-L914】
+- Multi-machine deployments can list peer instances in `SYNC_PEERS`. When an admin updates configuration, mileage snapshots, or vehicle heading caches, the service POSTs the change to every peer’s `/sync` endpoint using an optional shared secret so volumes stay in sync.【F:app.py†L689-L723】【F:app.py†L846-L934】
 
 ## API reference
 
@@ -52,7 +52,6 @@ UTS Headway Guard is a full real-time operations platform for the University Tra
 
 ### Safety and signage
 - `GET /v1/low_clearances` — low-clearance points filtered by maximum height and bridge radius, cached after the first Overpass fetch.【F:app.py†L1402-L1410】
-- `GET /device-stop`, `GET /device-stop/list`, `POST /device-stop`, `DELETE /device-stop/{id}` — CRUD endpoints that map display devices to stop IDs and friendly names for the arrivals signage workflow.【F:app.py†L1612-L1652】
 
 ### Service crew mileage
 - `GET /v1/servicecrew` — returns per-bus mileage totals, block assignments, and reset baselines for the requested date (default today).【F:app.py†L1508-L1532】
@@ -61,12 +60,12 @@ UTS Headway Guard is a full real-time operations platform for the University Tra
 
 ### Configuration and synchronization
 - `GET /v1/config` & `POST /v1/config` — expose and mutate runtime tunables (poll intervals, safety thresholds, vehicle lists, API hosts). Saved values persist under every data directory and replicate to peers.【F:app.py†L1488-L1506】
-- `POST /sync` — internal endpoint accepting config, mileage, or device-stop payloads from trusted peers using an optional shared secret.【F:app.py†L914-L934】
+- `POST /sync` — internal endpoint accepting config, mileage, or vehicle-heading payloads from trusted peers using an optional shared secret.【F:app.py†L914-L934】
 
 ### Logs and static assets
 - `GET /vehicle_log/{YYYYMMDD_HH}.jsonl` — download an hourly vehicle snapshot file for offline replay or investigations.【F:app.py†L1488-L1510】
 - `GET /FGDC.ttf` — serves the custom FGDC typeface used across the UI suite.【F:app.py†L1475-L1483】
-- Root-level routes (`/`, `/driver`, `/dispatcher`, `/map`, `/testmap`, `/madmap`, `/metromap`, `/debug`, `/admin`, `/servicecrew`, `/buses`, `/apicalls`, `/ridership`, `/replay`, `/arrivalsdisplay`, `/registerdisplay`, `/transloc_ticker`) render the corresponding HTML dashboards bundled in the repository.【F:app.py†L1488-L1611】
+- Root-level routes (`/`, `/driver`, `/dispatcher`, `/map`, `/testmap`, `/madmap`, `/metromap`, `/debug`, `/admin`, `/servicecrew`, `/buses`, `/apicalls`, `/ridership`, `/replay`, `/arrivalsdisplay`, `/transloc_ticker`) render the corresponding HTML dashboards bundled in the repository.【F:app.py†L1488-L1611】
 
 ## Web clients
 
@@ -125,24 +124,22 @@ The Red/Blue line dashboard downloads APC entries for a selected day, aggregates
 - `/transloc_ticker` renders a configurable alert ticker suitable for broadcast overlays, honoring URL parameters for duration, colors, and visibility.【F:transloc_ticker.html†L1-L200】
 
 ### Digital signage workflow
-- `/arrivalsdisplay` drives stop displays with arrival predictions, vehicle capacity bars, scrolling alert ticker, spoken announcements (with optional audio primer for autoplay policies), stop name banner, and QR codes for remote registration.【F:arrivalsdisplay.html†L1-L240】
-- `/registerdisplay` lets staff map device IDs to stop IDs and friendly names, backed by the `/device-stop` API.【F:registerdisplay.html†L1-L74】
+- `/arrivalsdisplay` drives stop displays with arrival predictions, vehicle capacity bars, scrolling alert ticker, spoken announcements (with optional audio primer for autoplay policies), and a stop name banner. Configure a display by appending `?stopid=STOP_ID` to the URL.【F:arrivalsdisplay.html†L1-L552】
 
 ### Page URL parameters
 
 | Page(s) | Query parameters |
 | --- | --- |
-| `/`, `/index`, `/driver`, `/dispatcher`, `/servicecrew`, `/admin`, `/buses`, `/apicalls`, `/ridership`, `/replay`, `/debug`, `/madmap`, `/metromap`, `/registerdisplay`, `/404` | None – these dashboards ignore query strings and rely on in-app controls.【203a89†L1-L7】 |
+| `/`, `/index`, `/driver`, `/dispatcher`, `/servicecrew`, `/admin`, `/buses`, `/apicalls`, `/ridership`, `/replay`, `/debug`, `/madmap`, `/metromap`, `/404` | None – these dashboards ignore query strings and rely on in-app controls.【203a89†L1-L7】 |
 | `/map` | `kioskMode` (`true`/`false`) hides the route selector and suppresses admin overlays for kiosk displays; `adminMode` (`true`/`false`) toggles block/speed bubbles and exposes non-public routes; `adminKioskMode` (`true`/`false`) hides the selector while retaining admin overlays.【F:map.html†L202-L230】 |
 | `/testmap` | Same as `/map`: `kioskMode`, `adminMode`, and `adminKioskMode` drive whether the selector is visible and whether admin overlays render.【F:testmap.html†L763-L831】 |
 | `/testmap-minimal` | `baseURL` forces a specific RideSystems host instead of auto-discovering UVA; `routeId` chooses a specific route (numeric) when multiple shapes are available.【F:testmap-minimal.html†L24-L303】 |
-| `/arrivalsdisplay` | `showInactiveAlerts=true` keeps expired alerts in the ticker; `voice` selects a Web Speech voice name for announcements when available.【F:arrivalsdisplay.html†L71-L133】 |
+| `/arrivalsdisplay` | `stopid=12345` selects the TransLoc stop to monitor; `showInactiveAlerts=true` keeps expired alerts in the ticker; `voice` selects a Web Speech voice name for announcements when available.【F:arrivalsdisplay.html†L67-L552】 |
 | `/transloc_ticker` | Styling knobs: `height`, `bg`, `fg`, `sepfg`, `size`, `sepsize`, `duration`, `pad`. Content switches: `showInactive`/`showInactiveAlerts` (truthy to include inactive alerts), `source=alerts|arrivals`, `stops` (TransLoc stop list when `source=arrivals`), `sep` (separator text), `refresh` (poll interval in ms).【F:transloc_ticker.html†L170-L515】 |
 
 ## Data and logging
 - Hourly JSONL vehicle logs live under the first `VEH_LOG_DIR` (default `/data/vehicle_logs`). Files are named `YYYYMMDD_HH.jsonl`, flushed synchronously, and pruned based on `VEH_LOG_RETENTION_MS`. Each record embeds raw TransLoc vehicles plus block assignments and capture timestamp.【F:app.py†L1133-L1214】
 - Daily mileage snapshots are stored in `mileage.json` and include cumulative miles, day totals, reset baselines, last known location, and block history.【F:app.py†L804-L852】
-- Device-to-stop mappings persist to `device_stops.json` so signage stays registered across redeployments.【F:app.py†L685-L723】
 - Sample TransLoc payloads (`GetRoutes*.txt`, `GetVehicles*.txt`, etc.) are included at the repo root to facilitate offline UI development and testing.【F:GetRoutes.txt†L1-L5】
 
 ## Configuration and environment variables
@@ -152,7 +149,7 @@ Key tunables may be provided via environment variables or edited live through `/
 - **Safety**: `DEFAULT_CAP_MPS`, `BRIDGE_LAT`, `BRIDGE_LON`, `LOW_CLEARANCE_SEARCH_M`, `LOW_CLEARANCE_LIMIT_FT`, `BRIDGE_IGNORE_RADIUS_M`, `OVERHEIGHT_BUSES`, `LOW_CLEARANCE_RADIUS`, `BRIDGE_RADIUS`, `ALL_BUSES`.
 - **Data directories**: `DATA_DIRS`, `VEH_LOG_DIRS`, `VEH_LOG_DIR`, `VEH_LOG_INTERVAL_S`, `VEH_LOG_RETENTION_MS`, `VEH_LOG_MIN_MOVE_M`.
 - **Sync & secrets**: `SYNC_PEERS`, `SYNC_SECRET`.
-- **Miscellaneous**: `DEVICE_STOP_FILE`, timezone defaults (`TZ`), and standard FastAPI/Uvicorn settings via `PORT` when running in containers.【F:app.py†L35-L130】【F:app.py†L685-L872】【F:start.sh†L1-L18】
+- **Miscellaneous**: timezone defaults (`TZ`) and standard FastAPI/Uvicorn settings via `PORT` when running in containers.【F:app.py†L35-L130】【F:app.py†L685-L872】【F:start.sh†L1-L18】
 
 ## Running locally
 1. Install dependencies:
