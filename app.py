@@ -742,7 +742,6 @@ REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
 RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
 TRANSLOC_TICKER_HTML = (BASE_DIR / "transloc_ticker.html").read_text(encoding="utf-8")
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
-REGISTERDISPLAY_HTML = (BASE_DIR / "registerdisplay.html").read_text(encoding="utf-8")
 BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
 NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
 
@@ -759,46 +758,6 @@ async def not_found_handler(request: Request, exc: HTTPException):
         return HTMLResponse(NOT_FOUND_HTML, status_code=404)
     detail = getattr(exc, "detail", "Not Found")
     return JSONResponse({"detail": detail}, status_code=404)
-
-DEVICE_STOP_NAME = Path(os.environ.get("DEVICE_STOP_FILE", "device_stops.json")).name
-DEVICE_STOP_FILE = PRIMARY_DATA_DIR / DEVICE_STOP_NAME
-
-def load_device_stops() -> None:
-    global DEVICE_STOPS
-    for base in DATA_DIRS:
-        path = base / DEVICE_STOP_NAME
-        try:
-            raw = json.loads(path.read_text())
-            DEVICE_STOPS = {}
-            for k, v in raw.items():
-                if isinstance(v, dict):
-                    DEVICE_STOPS[k] = {
-                        "stopID": v.get("stopID", ""),
-                        "friendlyName": v.get("friendlyName", ""),
-                    }
-                else:
-                    DEVICE_STOPS[k] = {"stopID": v, "friendlyName": ""}
-            return
-        except Exception:
-            continue
-    DEVICE_STOPS = {}
-
-def save_device_stops() -> None:
-    try:
-        payload = json.dumps(DEVICE_STOPS)
-    except Exception as e:
-        print(f"[device_stops] encode error: {e}")
-        return
-    for base in DATA_DIRS:
-        path = base / DEVICE_STOP_NAME
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(payload)
-        except Exception as e:
-            print(f"[device_stops] save error for {path}: {e}")
-    propagate_file(DEVICE_STOP_NAME, payload)
-
-load_device_stops()
 
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
@@ -1136,7 +1095,7 @@ async def receive_sync(payload: dict):
     data = payload.get("data")
     if (
         not isinstance(name, str)
-        or name not in {DEVICE_STOP_NAME, CONFIG_NAME, MILEAGE_NAME, VEHICLE_HEADINGS_NAME}
+        or name not in {CONFIG_NAME, MILEAGE_NAME, VEHICLE_HEADINGS_NAME}
         or not isinstance(data, str)
     ):
         raise HTTPException(status_code=400, detail="invalid payload")
@@ -3232,47 +3191,6 @@ async def transloc_ticker_page():
 @app.get("/arrivalsdisplay")
 async def arrivalsdisplay_page():
     return HTMLResponse(ARRIVALSDISPLAY_HTML)
-
-# ---------------------------
-# ARRIVALS DISPLAY REGISTRATION PAGE
-# ---------------------------
-@app.get("/registerdisplay")
-async def registerdisplay_page():
-    return HTMLResponse(REGISTERDISPLAY_HTML)
-
-
-# ---------------------------
-# DEVICE ↔ STOP MAPPING ENDPOINTS
-# ---------------------------
-@app.get("/device-stop")
-async def get_device_stop(id: str):
-    reg = DEVICE_STOPS.get(id)
-    if not reg:
-        raise HTTPException(status_code=404, detail="device not registered")
-    return reg
-
-@app.get("/device-stop/list")
-async def list_device_stops():
-    return {"devices": [{"id": k, **v} for k, v in DEVICE_STOPS.items()]}
-
-@app.post("/device-stop")
-async def set_device_stop(payload: Dict[str, str]):
-    dev = payload.get("id")
-    stop = payload.get("stopID")
-    fname = payload.get("friendlyName", "")
-    if not dev or not stop:
-        raise HTTPException(status_code=400, detail="id and stopID required")
-    DEVICE_STOPS[dev] = {"stopID": stop, "friendlyName": fname}
-    save_device_stops()
-    return {"ok": True}
-
-@app.delete("/device-stop/{dev_id}")
-async def delete_device_stop(dev_id: str):
-    if dev_id not in DEVICE_STOPS:
-        raise HTTPException(status_code=404, detail="device not registered")
-    del DEVICE_STOPS[dev_id]
-    save_device_stops()
-    return {"ok": True}
 
 # ---------------------------
 # REPLAY PAGE
