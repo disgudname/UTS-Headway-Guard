@@ -3020,6 +3020,11 @@ async def kioskmap_css():
     return _serve_css_asset("kioskmap.css")
 
 
+@app.get("/kioskmap.js", include_in_schema=False)
+async def kioskmap_js():
+    return _serve_js_asset("kioskmap.js")
+
+
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
