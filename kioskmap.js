@@ -21,6 +21,31 @@
   const BUS_MARKER_ANCHOR_X = BUS_MARKER_WIDTH_PX * (BUS_MARKER_PIVOT_X / BUS_MARKER_VIEWBOX_WIDTH);
   const BUS_MARKER_ANCHOR_Y = BUS_MARKER_HEIGHT_PX * (BUS_MARKER_PIVOT_Y / BUS_MARKER_VIEWBOX_HEIGHT);
   const BUS_MARKER_DEFAULT_HEADING = 0;
+  const BUS_MARKER_BASE_WIDTH_PX = BUS_MARKER_WIDTH_PX;
+  const BUS_MARKER_DEFAULT_ROUTE_COLOR = DEFAULT_ROUTE_COLOR;
+  const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#ffffff';
+  const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
+  const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
+  const LABEL_VERTICAL_CLEARANCE_PX = -7;
+  const LABEL_VERTICAL_ALIGNMENT_BONUS_PX = 6;
+  const LABEL_VERTICAL_ALIGNMENT_EXPONENT = 4;
+  const LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX = 1;
+  const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
+  const NAME_BUBBLE_BASE_FONT_PX = 14;
+  const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
+  const NAME_BUBBLE_VERTICAL_PADDING = 3;
+  const NAME_BUBBLE_MIN_WIDTH = 40;
+  const NAME_BUBBLE_MIN_HEIGHT = 20;
+  const NAME_BUBBLE_CORNER_RADIUS = 10;
+  const NAME_BUBBLE_FRAME_INSET = 5;
+  const BLOCK_BUBBLE_BASE_FONT_PX = 14;
+  const BLOCK_BUBBLE_HORIZONTAL_PADDING = 14;
+  const BLOCK_BUBBLE_VERTICAL_PADDING = 3;
+  const BLOCK_BUBBLE_MIN_WIDTH = 40;
+  const BLOCK_BUBBLE_MIN_HEIGHT = 20;
+  const BLOCK_BUBBLE_CORNER_RADIUS = 10;
+  const BLOCK_BUBBLE_FRAME_INSET = 5;
+  const LABEL_BASE_STROKE_WIDTH = 3;
 
   function parseAdminMode() {
     try {
@@ -81,6 +106,8 @@
   let busMarkerSvgText = null;
   let busMarkerSvgPromise = null;
   const markerAnimationHandles = new WeakMap();
+  let textMeasurementCanvas = null;
+  let busMarkerVisibleExtents = null;
 
   const MARKER_ANIMATION_DURATION_MS = 1000;
 
@@ -162,6 +189,7 @@
       })
       .then(text => {
         busMarkerSvgText = text;
+        busMarkerVisibleExtents = null;
         return text;
       })
       .catch(error => {
@@ -221,19 +249,299 @@
     });
   }
 
-  function createLabelIcon(lines, color) {
-    if (!Array.isArray(lines) || lines.length === 0) {
+  function getTextMeasurementContext() {
+    if (!textMeasurementCanvas && typeof document !== 'undefined') {
+      textMeasurementCanvas = document.createElement('canvas');
+    }
+    return textMeasurementCanvas ? textMeasurementCanvas.getContext('2d') : null;
+  }
+
+  function measureLabelTextWidth(text, fontSizePx, fontWeight = 'bold') {
+    const ctx = getTextMeasurementContext();
+    const normalizedFontSize = Math.max(1, Number(fontSizePx) || 0);
+    if (!ctx) {
+      return (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
+    }
+    ctx.font = `${fontWeight} ${normalizedFontSize}px ${BUS_MARKER_LABEL_FONT_FAMILY}`;
+    const metrics = ctx.measureText(text || '');
+    return metrics && Number.isFinite(metrics.width)
+      ? metrics.width
+      : (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
+  }
+
+  function roundToTwoDecimals(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+  }
+
+  function getBusMarkerVisibleExtents() {
+    if (busMarkerVisibleExtents) {
+      return busMarkerVisibleExtents;
+    }
+
+    const fallbackExtents = {
+      top: BUS_MARKER_PIVOT_Y,
+      bottom: BUS_MARKER_VIEWBOX_HEIGHT - BUS_MARKER_PIVOT_Y,
+      left: BUS_MARKER_PIVOT_X,
+      right: BUS_MARKER_VIEWBOX_WIDTH - BUS_MARKER_PIVOT_X
+    };
+
+    if (typeof document === 'undefined' || typeof busMarkerSvgText !== 'string' || !busMarkerSvgText.trim()) {
+      busMarkerVisibleExtents = fallbackExtents;
+      return busMarkerVisibleExtents;
+    }
+
+    try {
+      const template = document.createElement('template');
+      template.innerHTML = busMarkerSvgText.trim();
+      const svg = template.content.firstElementChild;
+      if (!svg || svg.tagName.toLowerCase() !== 'svg') {
+        busMarkerVisibleExtents = fallbackExtents;
+        return busMarkerVisibleExtents;
+      }
+
+      const clone = svg.cloneNode(true);
+      clone.style.position = 'absolute';
+      clone.style.visibility = 'hidden';
+      clone.style.pointerEvents = 'none';
+      clone.style.left = '-9999px';
+      clone.style.top = '-9999px';
+      const host = document.body || document.documentElement;
+      if (!host) {
+        busMarkerVisibleExtents = fallbackExtents;
+        return busMarkerVisibleExtents;
+      }
+
+      host.appendChild(clone);
+      let bbox = null;
+      try {
+        bbox = clone.getBBox();
+      } finally {
+        clone.remove();
+      }
+
+      if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height)) {
+        busMarkerVisibleExtents = {
+          top: BUS_MARKER_PIVOT_Y - bbox.y,
+          bottom: bbox.y + bbox.height - BUS_MARKER_PIVOT_Y,
+          left: BUS_MARKER_PIVOT_X - bbox.x,
+          right: (bbox.x + bbox.width) - BUS_MARKER_PIVOT_X
+        };
+        return busMarkerVisibleExtents;
+      }
+    } catch (error) {
+      console.error('Failed to compute bus marker visible extents:', error);
+    }
+
+    busMarkerVisibleExtents = fallbackExtents;
+    return busMarkerVisibleExtents;
+  }
+
+  function computeBusMarkerVerticalExtentsForHeading(headingDeg) {
+    const extents = getBusMarkerVisibleExtents();
+    if (!extents) {
       return null;
     }
-    const primary = escapeHtml(lines[0]);
-    const secondary = lines.slice(1).map(segment => `<span class="bus-label__segment">${escapeHtml(segment)}</span>`).join('');
-    const textHtml = [`<span class="bus-label__primary">${primary}</span>`, secondary].join('');
-    const html = `<div class="bus-label__container" style="--bus-color:${color}"><span class="bus-label__dot"></span><span class="bus-label__text">${textHtml}</span></div>`;
+
+    const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
+    const radians = normalizedHeading * Math.PI / 180;
+    const sin = Math.sin(radians);
+    const cos = Math.cos(radians);
+
+    const corners = [
+      { x: -extents.left, y: -extents.top },
+      { x: extents.right, y: -extents.top },
+      { x: extents.right, y: extents.bottom },
+      { x: -extents.left, y: extents.bottom }
+    ];
+
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const corner of corners) {
+      const rotatedY = corner.x * sin + corner.y * cos;
+      if (rotatedY < minY) {
+        minY = rotatedY;
+      }
+      if (rotatedY > maxY) {
+        maxY = rotatedY;
+      }
+    }
+
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+      return null;
+    }
+
+    return {
+      top: Math.abs(minY),
+      bottom: Math.abs(maxY)
+    };
+  }
+
+  function computeLabelLeaderOffset(scale, headingDeg, position = 'above') {
+    const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    const normalizedHeading = normalizeHeadingDegrees(
+      Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING
+    );
+    const conversionFactor = (BUS_MARKER_BASE_WIDTH_PX * safeScale) / BUS_MARKER_VIEWBOX_WIDTH;
+    const fallbackWidth = BUS_MARKER_BASE_WIDTH_PX * safeScale;
+    const fallbackHeight = fallbackWidth * BUS_MARKER_ASPECT_RATIO;
+    const fallbackHalfDiagonal = Math.sqrt(fallbackWidth * fallbackWidth + fallbackHeight * fallbackHeight) / 2;
+    const clearance = LABEL_VERTICAL_CLEARANCE_PX * safeScale;
+
+    const headingRelativeToVertical = normalizedHeading % 180;
+    const deviationFromVertical = Math.min(headingRelativeToVertical, 180 - headingRelativeToVertical);
+    const verticality = Math.pow(
+      Math.max(0, Math.cos(deviationFromVertical * Math.PI / 180)),
+      LABEL_VERTICAL_ALIGNMENT_EXPONENT
+    );
+    const verticalAlignmentBonus = LABEL_VERTICAL_ALIGNMENT_BONUS_PX * safeScale * verticality;
+    const horizontalAlignmentBonus = LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX * safeScale * (1 - verticality);
+
+    const verticalExtents = computeBusMarkerVerticalExtentsForHeading(normalizedHeading);
+    if (!verticalExtents) {
+      return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus + horizontalAlignmentBonus);
+    }
+
+    let extentSvgUnits;
+    if (position === 'below') {
+      extentSvgUnits = verticalExtents.bottom;
+    } else if (position === 'above') {
+      extentSvgUnits = verticalExtents.top;
+    } else {
+      extentSvgUnits = Math.max(verticalExtents.top, verticalExtents.bottom);
+    }
+
+    if (!Number.isFinite(extentSvgUnits)) {
+      return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus + horizontalAlignmentBonus);
+    }
+
+    const extentPx = extentSvgUnits * conversionFactor;
+    const totalOffset = extentPx + clearance + verticalAlignmentBonus + horizontalAlignmentBonus;
+    return totalOffset > 0 ? totalOffset : 0;
+  }
+
+  function normalizeHeadingDegrees(degrees) {
+    const normalized = Number.isFinite(degrees) ? degrees : BUS_MARKER_DEFAULT_HEADING;
+    return ((normalized % 360) + 360) % 360;
+  }
+
+  function computeBusMarkerGlyphColor(routeColor) {
+    const fallback = BUS_MARKER_DEFAULT_CONTRAST_COLOR;
+    const candidate = typeof routeColor === 'string' && routeColor.trim().length > 0
+      ? routeColor.trim()
+      : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+    const contrast = contrastBW(candidate);
+    return contrast || fallback;
+  }
+
+  function contrastBW(hex) {
+    if (typeof hex !== 'string' || hex.trim().length === 0) {
+      return '#ffffff';
+    }
+    let normalized = hex.trim().replace(/^#/, '');
+    if (normalized.length === 3) {
+      normalized = normalized.split('').map(ch => ch + ch).join('');
+    }
+    if (normalized.length !== 6 || /[^0-9a-f]/i.test(normalized)) {
+      return '#ffffff';
+    }
+    const r = parseInt(normalized.substring(0, 2), 16) / 255;
+    const g = parseInt(normalized.substring(2, 4), 16) / 255;
+    const b = parseInt(normalized.substring(4, 6), 16) / 255;
+    const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return L > 0.55 ? '#000000' : '#ffffff';
+  }
+
+  function createNameBubbleDivIcon(busName, routeColor, scale, headingDeg) {
+    if (typeof busName !== 'string' || busName.trim().length === 0) {
+      return null;
+    }
+    const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    const name = busName.trim();
+    const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+      ? routeColor
+      : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+    const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, NAME_BUBBLE_BASE_FONT_PX * safeScale);
+    const horizontalPadding = NAME_BUBBLE_HORIZONTAL_PADDING * safeScale;
+    const verticalPadding = NAME_BUBBLE_VERTICAL_PADDING * safeScale;
+    const frameInset = NAME_BUBBLE_FRAME_INSET * safeScale;
+    const textWidth = measureLabelTextWidth(name, fontSize);
+    const rectWidth = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+    const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+    const svgWidth = roundToTwoDecimals(rectWidth);
+    const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+    const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
+    const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+    const radiusRounded = roundToTwoDecimals(radius);
+    const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+    const rectY = roundToTwoDecimals(frameInset);
+    const rectHeightRounded = roundToTwoDecimals(rectHeight);
+    const textX = roundToTwoDecimals(svgWidth / 2);
+    const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+    const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
+    const anchorX = textX;
+    const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'above'));
+    const anchorY = svgHeight + leaderOffset;
+    const textColor = computeBusMarkerGlyphColor(fillColor);
+    const fontSizeRounded = roundToTwoDecimals(fontSize);
+    const svg = `
+      <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
+        <g>
+          <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+          <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
+        </g>
+      </svg>`;
     return L.divIcon({
-      className: 'bus-label',
-      html,
-      iconSize: [0, 0],
-      iconAnchor: [0, 0]
+      html: svg,
+      className: 'leaflet-div-icon bus-label-icon',
+      iconSize: [svgWidth, svgHeight],
+      iconAnchor: [anchorX, anchorY]
+    });
+  }
+
+  function createBlockBubbleDivIcon(blockName, routeColor, scale, headingDeg) {
+    if (typeof blockName !== 'string' || blockName.trim() === '') {
+      return null;
+    }
+    const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    const name = blockName.trim();
+    const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+      ? routeColor
+      : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+    const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, BLOCK_BUBBLE_BASE_FONT_PX * safeScale);
+    const horizontalPadding = BLOCK_BUBBLE_HORIZONTAL_PADDING * safeScale;
+    const verticalPadding = BLOCK_BUBBLE_VERTICAL_PADDING * safeScale;
+    const frameInset = BLOCK_BUBBLE_FRAME_INSET * safeScale;
+    const textWidth = measureLabelTextWidth(name, fontSize);
+    const rectWidth = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+    const rectHeight = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+    const svgWidth = roundToTwoDecimals(rectWidth);
+    const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+    const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
+    const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+    const radiusRounded = roundToTwoDecimals(radius);
+    const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+    const rectY = roundToTwoDecimals(frameInset);
+    const rectHeightRounded = roundToTwoDecimals(rectHeight);
+    const textX = roundToTwoDecimals(svgWidth / 2);
+    const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+    const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
+    const anchorX = textX;
+    const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
+    const anchorY = -leaderOffset;
+    const textColor = computeBusMarkerGlyphColor(fillColor);
+    const fontSizeRounded = roundToTwoDecimals(fontSize);
+    const svg = `
+      <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
+        <g>
+          <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+          <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
+        </g>
+      </svg>`;
+    return L.divIcon({
+      html: svg,
+      className: 'leaflet-div-icon bus-label-icon',
+      iconSize: [svgWidth, svgHeight],
+      iconAnchor: [anchorX, anchorY]
     });
   }
 
@@ -356,57 +664,16 @@
     return '';
   }
 
-  function parseBlockSegments(raw) {
-    const normalized = normalizeLabelSegment(raw);
+  function formatBlockBubbleText(blockLabel) {
+    const normalized = normalizeLabelSegment(blockLabel);
     if (!normalized) {
-      return [];
-    }
-    const bracketMatch = normalized.match(/\[[^\]]+\]/g);
-    if (bracketMatch && bracketMatch.length > 0) {
-      const segments = [];
-      bracketMatch.forEach(segment => {
-        const sanitized = normalizeLabelSegment(segment);
-        if (sanitized) {
-          segments.push(sanitized);
-        }
-      });
-      const remainder = normalizeLabelSegment(normalized
-        .replace(/\[[^\]]+\]/g, '')
-        .replace(/^[-–—\s]+/, ''));
-      if (remainder) {
-        segments.push(remainder);
-      }
-      return segments.length > 0 ? segments : [normalized];
-    }
-    const parts = normalized.split(/\s*[–—-]\s*/);
-    if (parts.length > 1) {
-      return parts.map(part => normalizeLabelSegment(part)).filter(Boolean);
-    }
-    return [normalized];
-  }
-
-  function extractRouteLabel(vehicle) {
-    if (!vehicle || typeof vehicle !== 'object') {
       return '';
     }
-    return selectFirstString([
-      vehicle.RouteShortName,
-      vehicle.ShortName,
-      vehicle.RouteAbbreviation,
-      vehicle.RouteName,
-      vehicle.RouteDescription,
-      vehicle.Description,
-      vehicle.Destination,
-      vehicle.Headsign
-    ]);
-  }
-
-  function buildFallbackRouteLabel(vehicle) {
-    const routeId = toNumber(vehicle?.RouteID ?? vehicle?.RouteId ?? vehicle?.routeID ?? vehicle?.routeId);
-    if (routeId !== null) {
-      return `Route ${routeId}`;
+    const lower = normalized.toLowerCase();
+    if (lower.startsWith('block ')) {
+      return normalized;
     }
-    return '';
+    return `Block ${normalized}`;
   }
 
   function renderRoutes(routes) {
@@ -734,51 +1001,6 @@
     return Math.round(numeric * 1e6) / 1e6;
   }
 
-  function buildVehicleLabelLines(vehicle, blocks) {
-    const unique = new Set();
-    const primary = [];
-    const secondary = [];
-
-    function addSegment(value, target) {
-      const normalized = normalizeLabelSegment(value);
-      if (!normalized) {
-        return;
-      }
-      const key = normalized.toLowerCase();
-      if (unique.has(key)) {
-        return;
-      }
-      unique.add(key);
-      target.push(normalized);
-    }
-
-    addSegment(extractVehicleName(vehicle), primary);
-
-    const blockLabel = extractBlockLabel(vehicle, blocks);
-    if (blockLabel) {
-      const segments = parseBlockSegments(blockLabel);
-      segments.forEach(segment => {
-        addSegment(segment, secondary);
-      });
-    }
-
-    addSegment(extractRouteLabel(vehicle), secondary);
-
-    if (primary.length === 0 && secondary.length > 0) {
-      primary.push(secondary.shift());
-    }
-
-    if (primary.length === 0) {
-      addSegment(buildFallbackRouteLabel(vehicle), primary);
-    }
-
-    if (primary.length === 0 && secondary.length === 0) {
-      primary.push('Bus');
-    }
-
-    return primary.concat(secondary);
-  }
-
   function deriveActiveRouteIds(vehicles) {
     const active = new Set();
     if (!Array.isArray(vehicles)) {
@@ -795,6 +1017,43 @@
       }
     });
     return active;
+  }
+
+  function ensureVehicleLabelState(id) {
+    let state = vehicleLabels.get(id);
+    if (!state) {
+      state = { nameMarker: null, blockMarker: null };
+      vehicleLabels.set(id, state);
+    }
+    return state;
+  }
+
+  function removeLabelMarker(marker) {
+    if (!marker) {
+      return;
+    }
+    cancelMarkerAnimation(marker);
+    if (map && typeof map.removeLayer === 'function') {
+      map.removeLayer(marker);
+    } else if (typeof marker.remove === 'function') {
+      marker.remove();
+    }
+  }
+
+  function disposeVehicleLabelState(id) {
+    const state = vehicleLabels.get(id);
+    if (!state) {
+      return;
+    }
+    if (state.nameMarker) {
+      removeLabelMarker(state.nameMarker);
+      state.nameMarker = null;
+    }
+    if (state.blockMarker) {
+      removeLabelMarker(state.blockMarker);
+      state.blockMarker = null;
+    }
+    vehicleLabels.delete(id);
   }
 
   async function updateVehicleMarkers(vehicles, blocks) {
@@ -831,6 +1090,7 @@
       const color = getRouteColorById(routeId);
       const marker = vehicleMarkers.get(id);
       const heading = toNumber(vehicle.Heading ?? vehicle.heading ?? vehicle.h);
+      const headingDeg = Number.isFinite(heading) ? heading : BUS_MARKER_DEFAULT_HEADING;
       let icon = null;
       if (hasSvgMarker) {
         icon = createBusMarkerIcon(color, heading ?? BUS_MARKER_DEFAULT_HEADING, Boolean(vehicle.IsStale));
@@ -853,26 +1113,57 @@
       }
 
       if (adminMode) {
-        const lines = buildVehicleLabelLines(vehicle, blocks);
-        const labelIcon = createLabelIcon(lines, color);
-        const existingLabel = vehicleLabels.get(id);
-        if (labelIcon) {
-          if (existingLabel) {
-            setMarkerPosition(existingLabel, targetPosition);
-            existingLabel.setIcon(labelIcon);
+        const labelScale = 1;
+        const vehicleName = extractVehicleName(vehicle);
+        const blockRaw = extractBlockLabel(vehicle, blocks);
+        const blockText = formatBlockBubbleText(blockRaw);
+        const nameIcon = createNameBubbleDivIcon(vehicleName, color, labelScale, headingDeg);
+        const blockIcon = blockText ? createBlockBubbleDivIcon(blockText, color, labelScale, headingDeg) : null;
+        let labelState = vehicleLabels.get(id) || null;
+
+        if (nameIcon || blockIcon) {
+          if (!labelState) {
+            labelState = ensureVehicleLabelState(id);
+          }
+        }
+
+        if (labelState && nameIcon) {
+          if (labelState.nameMarker) {
+            setMarkerPosition(labelState.nameMarker, targetPosition);
+            labelState.nameMarker.setIcon(nameIcon);
           } else {
-            const labelMarker = L.marker([lat, lon], {
-              icon: labelIcon,
+            labelState.nameMarker = L.marker([lat, lon], {
+              icon: nameIcon,
               interactive: false,
               keyboard: false,
               zIndexOffset: 500
             });
-            labelMarker.addTo(labelLayerGroup);
-            vehicleLabels.set(id, labelMarker);
+            labelState.nameMarker.addTo(labelLayerGroup);
           }
-        } else if (existingLabel) {
-          cancelMarkerAnimation(existingLabel);
-          map.removeLayer(existingLabel);
+        } else if (labelState && labelState.nameMarker) {
+          removeLabelMarker(labelState.nameMarker);
+          labelState.nameMarker = null;
+        }
+
+        if (labelState && blockIcon) {
+          if (labelState.blockMarker) {
+            setMarkerPosition(labelState.blockMarker, targetPosition);
+            labelState.blockMarker.setIcon(blockIcon);
+          } else {
+            labelState.blockMarker = L.marker([lat, lon], {
+              icon: blockIcon,
+              interactive: false,
+              keyboard: false,
+              zIndexOffset: 500
+            });
+            labelState.blockMarker.addTo(labelLayerGroup);
+          }
+        } else if (labelState && labelState.blockMarker) {
+          removeLabelMarker(labelState.blockMarker);
+          labelState.blockMarker = null;
+        }
+
+        if (labelState && !labelState.nameMarker && !labelState.blockMarker) {
           vehicleLabels.delete(id);
         }
       }
@@ -887,19 +1178,14 @@
     });
 
     if (adminMode) {
-      vehicleLabels.forEach((marker, id) => {
+      vehicleLabels.forEach((state, id) => {
         if (!activeVehicles.has(id)) {
-          cancelMarkerAnimation(marker);
-          map.removeLayer(marker);
-          vehicleLabels.delete(id);
+          disposeVehicleLabelState(id);
         }
       });
     } else if (vehicleLabels.size > 0) {
-      vehicleLabels.forEach(marker => {
-        cancelMarkerAnimation(marker);
-        map.removeLayer(marker);
-      });
-      vehicleLabels.clear();
+      const ids = Array.from(vehicleLabels.keys());
+      ids.forEach(disposeVehicleLabelState);
     }
   }
 
