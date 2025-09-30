@@ -91,6 +91,27 @@
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(map);
 
+  const ROUTE_PANE = 'routes';
+  const STOP_PANE = 'stops';
+  const VEHICLE_PANE = 'vehicles';
+  const VEHICLE_LABEL_PANE = 'vehicle-labels';
+
+  const routePane = map.createPane(ROUTE_PANE);
+  routePane.style.zIndex = '200';
+  routePane.style.pointerEvents = 'none';
+
+  const stopPane = map.createPane(STOP_PANE);
+  stopPane.style.zIndex = '300';
+  stopPane.style.pointerEvents = 'none';
+
+  const vehiclePane = map.createPane(VEHICLE_PANE);
+  vehiclePane.style.zIndex = '400';
+  vehiclePane.style.pointerEvents = 'none';
+
+  const vehicleLabelPane = map.createPane(VEHICLE_LABEL_PANE);
+  vehicleLabelPane.style.zIndex = '450';
+  vehicleLabelPane.style.pointerEvents = 'none';
+
   const routeLayerGroup = L.layerGroup().addTo(map);
   const stopLayerGroup = L.layerGroup().addTo(map);
   const vehicleLayerGroup = L.layerGroup().addTo(map);
@@ -670,10 +691,15 @@
       return '';
     }
     const lower = normalized.toLowerCase();
-    if (lower.startsWith('block ')) {
-      return normalized;
+    if (lower === 'block') {
+      return '';
     }
-    return `Block ${normalized}`;
+    const blockPrefix = 'block ';
+    if (lower.startsWith(blockPrefix)) {
+      const withoutPrefix = normalizeLabelSegment(normalized.slice(blockPrefix.length));
+      return withoutPrefix;
+    }
+    return normalized;
   }
 
   function renderRoutes(routes) {
@@ -746,7 +772,8 @@
           weight: ROUTE_STROKE_WEIGHT,
           opacity: 0.95,
           lineCap: 'round',
-          lineJoin: 'round'
+          lineJoin: 'round',
+          pane: ROUTE_PANE
         });
         layer.addTo(routeLayerGroup);
         return;
@@ -763,7 +790,8 @@
           dashArray: `${dashLength} ${gapLength}`,
           dashOffset: `${dashLength * index}`,
           lineCap: 'butt',
-          lineJoin: 'round'
+          lineJoin: 'round',
+          pane: ROUTE_PANE
         });
         layer.addTo(routeLayerGroup);
       });
@@ -831,7 +859,8 @@
       L.marker([entry.lat, entry.lon], {
         icon,
         interactive: false,
-        keyboard: false
+        keyboard: false,
+        pane: STOP_PANE
       }).addTo(stopLayerGroup);
     });
   }
@@ -1106,7 +1135,8 @@
         const newMarker = L.marker([lat, lon], {
           icon,
           interactive: false,
-          keyboard: false
+          keyboard: false,
+          pane: VEHICLE_PANE
         });
         newMarker.addTo(vehicleLayerGroup);
         vehicleMarkers.set(id, newMarker);
@@ -1136,7 +1166,8 @@
               icon: nameIcon,
               interactive: false,
               keyboard: false,
-              zIndexOffset: 500
+              zIndexOffset: 500,
+              pane: VEHICLE_LABEL_PANE
             });
             labelState.nameMarker.addTo(labelLayerGroup);
           }
@@ -1154,7 +1185,8 @@
               icon: blockIcon,
               interactive: false,
               keyboard: false,
-              zIndexOffset: 500
+              zIndexOffset: 500,
+              pane: VEHICLE_LABEL_PANE
             });
             labelState.blockMarker.addTo(labelLayerGroup);
           }
