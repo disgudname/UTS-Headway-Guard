@@ -107,6 +107,8 @@
     document.body.dataset.debugMode = debugMode ? 'true' : 'false';
   }
 
+  let sharedRouteRenderer = null;
+
   const map = L.map('map', {
     zoomControl: false,
     scrollWheelZoom: false,
@@ -124,6 +126,18 @@
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(map);
+
+  if (typeof L === 'object' && typeof L.svg === 'function') {
+    try {
+      sharedRouteRenderer = L.svg({ padding: 0 });
+      if (sharedRouteRenderer) {
+        map.addLayer(sharedRouteRenderer);
+      }
+    } catch (error) {
+      console.warn('Failed to initialize shared SVG renderer for routes.', error);
+      sharedRouteRenderer = null;
+    }
+  }
 
   const ROUTE_PANE = 'routes';
   const STOP_PANE = 'stops';
@@ -747,7 +761,6 @@
     updateWhenIdle: true,
     interactive: false
   });
-  let sharedRouteRenderer = null;
   const routePaneName = ROUTE_PANE;
 
   function createSpatialIndex(options = {}) {
@@ -1633,6 +1646,7 @@
         strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
         minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
         maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+        renderer: sharedRouteRenderer,
         pane: ROUTE_PANE,
         layerGroup
       });
@@ -1720,6 +1734,7 @@
     }
 
     if (overlapUsed) {
+      routeLayerGroup.clearLayers();
       return boundsPoints;
     }
 
