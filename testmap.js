@@ -895,10 +895,24 @@ schedulePlaneStyleOverride();
           if (!parsed || typeof parsed !== "object") {
             return null;
           }
-          return {
-            enabled: parsed.enabled === true,
+          const sanitizedState = {
             product: normalizeRadarProduct(parsed.product),
             opacity: clampRadarOpacity(parsed.opacity)
+          };
+          if (Object.prototype.hasOwnProperty.call(parsed, "enabled")) {
+            try {
+              window.sessionStorage.setItem(
+                RADAR_SESSION_STORAGE_KEY,
+                JSON.stringify(sanitizedState)
+              );
+            } catch (error) {
+              console.warn("Failed to sanitize radar session state:", error);
+            }
+          }
+          return {
+            enabled: false,
+            product: sanitizedState.product,
+            opacity: sanitizedState.opacity
           };
         } catch (error) {
           console.warn("Failed to load radar session state:", error);
@@ -915,7 +929,6 @@ schedulePlaneStyleOverride();
             return;
           }
           const payload = {
-            enabled: !!radarEnabled,
             product: radarProduct,
             opacity: radarOpacity
           };
