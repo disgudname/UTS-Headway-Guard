@@ -392,7 +392,7 @@
       <span class="radar-core__ring"></span>
     </div>
     <div class="radar-hud" aria-live="polite">
-      <div class="radar-hud__module">
+      <div class="radar-hud__module" data-radar-module="sweep">
         <div class="radar-hud__title">Sweep Metrics</div>
         <div class="radar-hud__stats">
           <div class="radar-hud__stat">
@@ -409,7 +409,7 @@
           </div>
         </div>
       </div>
-      <div class="radar-hud__module">
+      <div class="radar-hud__module" data-radar-module="center">
         <div class="radar-hud__title">Map Center</div>
         <div class="radar-hud__stats">
           <div class="radar-hud__stat">
@@ -479,6 +479,9 @@
         const STATUS_ERROR_TEXT = 'Signal Interrupted';
         const STATUS_WAITING_TEXT = 'Initializing Sweep';
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDispatcherView = urlParams.get('dispatcher') === 'true';
+
         const statusElement = document.querySelector('.radar-status');
         const statusTextElement = document.querySelector('[data-radar-status]');
         const hudElements = {
@@ -489,6 +492,21 @@
           lon: document.querySelector('[data-radar-lon]'),
           zoom: document.querySelector('[data-radar-zoom]'),
         };
+
+        if (isDispatcherView) {
+          const modulesToHide = document.querySelectorAll('[data-radar-module="sweep"], [data-radar-module="center"]');
+          modulesToHide.forEach((module) => {
+            module.hidden = true;
+          });
+
+          const hudContainer = document.querySelector('.radar-hud');
+          if (hudContainer) {
+            const hasVisibleModules = Array.from(hudContainer.children).some((child) => !child.hidden);
+            if (!hasVisibleModules) {
+              hudContainer.hidden = true;
+            }
+          }
+        }
 
         if (hudElements.sweep) {
           hudElements.sweep.textContent = `${Math.round(SWEEP_SPEED_DEG_PER_SEC)}°/s`;
