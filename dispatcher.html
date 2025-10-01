@@ -62,9 +62,43 @@ body.cyberpunk h2{color:#ff80ff;text-transform:uppercase;letter-spacing:.14em;fo
 body.cyberpunk #extra-buses li{background:rgba(3,15,27,.9);border-color:rgba(117,247,255,.24);color:#a9f6ff}
 body.cyberpunk #map-frame{filter:contrast(1.2) saturate(1.45) hue-rotate(140deg) drop-shadow(-10px 0 25px rgba(0,255,255,.3));border-left:1px solid rgba(0,255,255,.35)}
 body.cyberpunk .credit{color:#57caff;text-shadow:0 0 10px rgba(0,255,255,.4)}
+body.cyberpunk .cyberpunk-grid{position:fixed;inset:-80px;background:linear-gradient(0deg,rgba(0,255,255,.09)1px,transparent 1px),linear-gradient(90deg,rgba(255,0,183,.09)1px,transparent 1px);background-size:120px 120px;mix-blend-mode:screen;opacity:.4;animation:gridDrift 28s linear infinite;pointer-events:none;z-index:-3}
+body.cyberpunk .cyberpunk-vignette{position:fixed;inset:-160px;background:radial-gradient(circle at center,transparent 40%,rgba(0,0,0,.85)92%);pointer-events:none;z-index:-1}
+body.cyberpunk .cyberpunk-corners{position:fixed;inset:0;pointer-events:none;z-index:3}
+body.cyberpunk .corner{position:absolute;width:70px;height:70px;border:2px solid rgba(0,255,255,.45);box-shadow:0 0 20px rgba(0,255,255,.45);animation:pulseGlow 5s ease-in-out infinite}
+body.cyberpunk .corner::after{content:"";position:absolute;background:rgba(255,0,183,.45);box-shadow:0 0 18px rgba(255,0,183,.7)}
+body.cyberpunk .corner-tl{top:18px;left:18px;border-right:none;border-bottom:none;border-radius:12px 0 0 0}
+body.cyberpunk .corner-tl::after{width:12px;height:2px;right:-6px;top:10px}
+body.cyberpunk .corner-tr{top:18px;right:18px;border-left:none;border-bottom:none;border-radius:0 12px 0 0}
+body.cyberpunk .corner-tr::after{width:2px;height:12px;bottom:-6px;left:10px}
+body.cyberpunk .corner-bl{bottom:18px;left:18px;border-right:none;border-top:none;border-radius:0 0 0 12px}
+body.cyberpunk .corner-bl::after{width:2px;height:12px;top:-6px;right:10px}
+body.cyberpunk .corner-br{bottom:18px;right:18px;border-left:none;border-top:none;border-radius:0 0 12px 0}
+body.cyberpunk .corner-br::after{width:12px;height:2px;left:-6px;bottom:10px}
+body.cyberpunk .cyberpunk-ticker{position:absolute;left:18px;right:18px;bottom:12px;padding:10px 16px;border:1px solid rgba(0,255,255,.25);background:rgba(2,16,28,.92);box-shadow:0 0 26px rgba(0,255,255,.2);display:flex;align-items:center;gap:16px;font-size:13px;letter-spacing:.18em;text-transform:uppercase;overflow:hidden}
+body.cyberpunk .ticker-label{color:#ff7afc;font-weight:bold}
+body.cyberpunk .ticker-marquee{flex:1;display:flex;gap:48px;animation:tickerScroll 36s linear infinite}
+body.cyberpunk .ticker-marquee span{white-space:nowrap;color:#9dfcff;text-shadow:0 0 12px rgba(0,255,255,.4)}
+body.cyberpunk #left{background:rgba(2,10,22,.82);backdrop-filter:blur(12px);box-shadow:0 0 45px rgba(0,255,255,.18);border-right:1px solid rgba(255,0,183,.25);padding-bottom:70px}
+body.cyberpunk header{position:sticky;top:0;z-index:5}
+body.cyberpunk header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,rgba(0,255,255,.6),rgba(255,0,183,.6),rgba(0,255,170,.6));box-shadow:0 0 12px rgba(0,255,255,.7);opacity:.85}
+body.cyberpunk main,body.cyberpunk aside{position:relative}
+body.cyberpunk main::before,body.cyberpunk aside::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,rgba(0,255,255,.15),rgba(255,0,183,.1),transparent);opacity:.8}
+body.cyberpunk #layout{position:relative}
+body.cyberpunk #layout::after{content:"";position:absolute;inset:12px;border:1px solid rgba(0,255,255,.1);border-radius:12px;pointer-events:none;box-shadow:0 0 22px rgba(0,255,255,.14)}
+body.cyberpunk table tbody tr{position:relative;transition:background .3s ease,transform .3s ease}
+body.cyberpunk table tbody tr::after{content:"";position:absolute;inset:0;border:1px solid rgba(0,255,255,.05);border-radius:6px;pointer-events:none;opacity:0;transition:opacity .3s ease}
+body.cyberpunk table tbody tr:hover{background:rgba(0,255,255,.1);transform:translateY(-1px)}
+body.cyberpunk table tbody tr:hover::after{opacity:1}
+body.cyberpunk select:focus{outline:none;box-shadow:0 0 0 2px rgba(0,255,255,.25)}
+body.cyberpunk .banner{color:#9dfcff;background:rgba(3,18,28,.92);border-color:rgba(255,0,183,.35);box-shadow:0 0 16px rgba(255,0,183,.2)}
+body.cyberpunk iframe#map-frame{box-shadow:inset 0 0 35px rgba(0,0,0,.6),0 0 45px rgba(0,255,255,.18);position:relative;z-index:1}
 
+@keyframes gridDrift{0%{transform:translate3d(0,0,0)}100%{transform:translate3d(-60px,-60px,0)}}
 @keyframes scanlines{0%{transform:translateY(0)}100%{transform:translateY(-4px)}}
 @keyframes bootGlitch{0%,100%{transform:translate(0)}20%{transform:translate(-2px,1px)}40%{transform:translate(3px,-2px)}60%{transform:translate(-1px,2px)}80%{transform:translate(2px,-1px)}}
+@keyframes pulseGlow{0%,100%{opacity:.65;filter:drop-shadow(0 0 10px rgba(0,255,255,.4))}50%{opacity:1;filter:drop-shadow(0 0 22px rgba(0,255,255,.75))}}
+@keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 
 #boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,rgba(0,8,16,.95)0%,rgba(0,0,0,.98)60%,rgba(0,0,0,.98)100%);color:#9dfcff;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace;letter-spacing:.06em;text-transform:uppercase;transition:opacity .9s ease,visibility .9s ease;box-shadow:inset 0 0 80px rgba(0,255,255,.2);overflow:hidden}
 #boot-overlay::before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(0,255,255,.08),rgba(255,0,183,.05));mix-blend-mode:screen;animation:scanlines 6s linear infinite;opacity:.6}
@@ -170,6 +204,52 @@ function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='n
 function activateCyberpunkMode(){
   document.body.classList.add('cyberpunk');
   document.documentElement.style.setProperty('color-scheme','dark');
+
+  const grid=document.createElement('div');
+  grid.className='cyberpunk-grid';
+  document.body.prepend(grid);
+
+  const vignette=document.createElement('div');
+  vignette.className='cyberpunk-vignette';
+  document.body.prepend(vignette);
+
+  const corners=document.createElement('div');
+  corners.className='cyberpunk-corners';
+  corners.innerHTML='<span class="corner corner-tl"></span><span class="corner corner-tr"></span><span class="corner corner-bl"></span><span class="corner corner-br"></span>';
+  document.body.appendChild(corners);
+
+  const leftPane=document.getElementById('left');
+  if(leftPane){
+    const ticker=document.createElement('div');
+    ticker.className='cyberpunk-ticker';
+    const label=document.createElement('span');
+    label.className='ticker-label';
+    label.textContent='UPLINK';
+    const marquee=document.createElement('div');
+    marquee.className='ticker-marquee';
+    const spanA=document.createElement('span');
+    const spanB=document.createElement('span');
+    marquee.append(spanA,spanB);
+    ticker.append(label,marquee);
+    leftPane.appendChild(ticker);
+
+    const buildTickerText=()=>[
+      'NODE '+(window.location.hostname||'DISPATCH'),
+      'SYNC '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+      'ROUTE MATRIX STABLE',
+      'SIGNAL BOOSTER ONLINE',
+      'FIELD OPS READY'
+    ].join(' // ');
+
+    const refreshTicker=()=>{
+      const text=buildTickerText();
+      spanA.textContent=text;
+      spanB.textContent=text;
+    };
+
+    refreshTicker();
+    setInterval(refreshTicker,60000);
+  }
 
   const overlay=document.createElement('div');
   overlay.id='boot-overlay';
