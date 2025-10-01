@@ -2935,6 +2935,11 @@ async def busmarker_svg():
     return FileResponse(BASE_DIR / "busmarker.svg", media_type="image/svg+xml")
 
 
+@app.get("/radar.wav", include_in_schema=False)
+async def radar_wav():
+    return FileResponse(BASE_DIR / "radar.wav", media_type="audio/wav")
+
+
 @app.get("/map_defaults.js", include_in_schema=False)
 async def map_defaults_js():
     return _serve_js_asset("map_defaults.js")
