@@ -37,6 +37,50 @@ h2{font-size:18px;margin:16px 0 0}
   #layout aside{border-left:none !important;border-top:1px solid #1f2630}
 }
 .credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
+
+body.cyberpunk{background:#02010a;color:#d9fbff;text-shadow:0 0 12px rgba(0,255,255,.35);position:relative;overflow:hidden}
+body.cyberpunk::before{content:"";position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,255,255,.04)0,rgba(0,255,255,.04)2px,transparent 2px,transparent 4px);mix-blend-mode:screen;pointer-events:none;animation:scanlines 8s linear infinite}
+body.cyberpunk::after{content:"";position:fixed;inset:-40px;background:radial-gradient(circle at 15% 20%,rgba(0,255,255,.24),transparent 55%),radial-gradient(circle at 80% 15%,rgba(255,0,183,.28),transparent 50%),radial-gradient(circle at 70% 80%,rgba(0,255,170,.22),transparent 60%);filter:blur(18px);opacity:.7;pointer-events:none;z-index:-1}
+body.cyberpunk header{background:rgba(3,11,20,.92);border-bottom-color:rgba(0,255,255,.35);box-shadow:0 0 25px rgba(0,255,255,.2)}
+body.cyberpunk header h1{letter-spacing:.08em;text-transform:uppercase;color:#75f7ff}
+body.cyberpunk #controls{padding-right:230px}
+body.cyberpunk select{background:rgba(4,16,26,.9);border:1px solid rgba(117,247,255,.6);color:#9dfcff;box-shadow:0 0 12px rgba(0,255,255,.3);text-shadow:none}
+body.cyberpunk .chip{background:rgba(2,16,24,.75);border-color:rgba(255,0,183,.4);color:#9ad7ff;box-shadow:0 0 14px rgba(0,255,255,.2)}
+body.cyberpunk table{background:rgba(2,12,22,.65);border:1px solid rgba(0,255,255,.18);box-shadow:0 15px 40px rgba(0,0,0,.35);backdrop-filter:blur(6px)}
+body.cyberpunk th,body.cyberpunk td{border-color:rgba(0,255,255,.12)}
+body.cyberpunk th{color:#76f7ff;text-transform:uppercase;letter-spacing:.12em;font-size:12px;background:linear-gradient(90deg,rgba(0,255,255,.15),rgba(255,0,183,.08))}
+body.cyberpunk tbody tr:hover{background:rgba(0,255,255,.08)}
+body.cyberpunk .pill{background:rgba(3,18,28,.95);border-color:rgba(117,247,255,.35);box-shadow:0 0 14px rgba(0,255,255,.25)}
+body.cyberpunk .pill .dot{box-shadow:0 0 12px currentColor}
+body.cyberpunk .ok{color:#4bffca}
+body.cyberpunk .warn{color:#ffe680}
+body.cyberpunk .bad{color:#ff8bb7}
+body.cyberpunk .hint{color:#6aa9ff}
+body.cyberpunk aside{border-left:1px solid rgba(255,0,183,.3)}
+body.cyberpunk h2{color:#ff80ff;text-transform:uppercase;letter-spacing:.14em;font-size:15px;text-shadow:0 0 10px rgba(255,0,183,.4)}
+body.cyberpunk #extra-buses li{background:rgba(3,15,27,.9);border-color:rgba(117,247,255,.24);color:#a9f6ff}
+body.cyberpunk #map-frame{filter:contrast(1.2) saturate(1.45) hue-rotate(140deg) drop-shadow(-10px 0 25px rgba(0,255,255,.3));border-left:1px solid rgba(0,255,255,.35)}
+body.cyberpunk .credit{color:#57caff;text-shadow:0 0 10px rgba(0,255,255,.4)}
+
+@keyframes scanlines{0%{transform:translateY(0)}100%{transform:translateY(-4px)}}
+@keyframes bootGlitch{0%,100%{transform:translate(0)}20%{transform:translate(-2px,1px)}40%{transform:translate(3px,-2px)}60%{transform:translate(-1px,2px)}80%{transform:translate(2px,-1px)}}
+
+#boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,rgba(0,8,16,.95)0%,rgba(0,0,0,.98)60%,rgba(0,0,0,.98)100%);color:#9dfcff;font-family:FGDC,ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;transition:opacity .9s ease,visibility .9s ease;box-shadow:inset 0 0 80px rgba(0,255,255,.2);overflow:hidden}
+#boot-overlay::before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(0,255,255,.08),rgba(255,0,183,.05));mix-blend-mode:screen;animation:scanlines 6s linear infinite;opacity:.6}
+#boot-overlay::after{content:"";position:absolute;inset:-50%;background:conic-gradient(from 90deg,rgba(0,255,255,.12),rgba(255,0,183,.08),rgba(0,255,170,.12),rgba(0,255,255,.12));animation:bootGlitch 3s linear infinite;opacity:.15;filter:blur(40px)}
+#boot-overlay.boot-complete{opacity:0;visibility:hidden;pointer-events:none}
+#boot-overlay .boot-inner{position:relative;z-index:1;width:min(640px,90vw);padding:40px 38px 34px;border:1px solid rgba(0,255,255,.25);box-shadow:0 0 40px rgba(0,255,255,.35);background:rgba(0,6,12,.85);backdrop-filter:blur(12px)}
+#boot-overlay .boot-title{font-size:24px;color:#75f7ff;margin-bottom:24px;display:flex;align-items:center;gap:12px;text-shadow:0 0 20px rgba(0,255,255,.45);position:relative}
+#boot-overlay .boot-title::after{content:"// CYBER DISPATCH";font-size:12px;color:#ff7afc;letter-spacing:.3em}
+#boot-overlay .boot-title.glitch{animation:bootGlitch .4s steps(2,end)}
+#boot-overlay .boot-progress{position:relative;height:12px;border:1px solid rgba(0,255,255,.4);background:rgba(0,0,0,.6);margin-bottom:12px;overflow:hidden}
+#boot-overlay .boot-progress-fill{position:absolute;inset:0;width:0;background:linear-gradient(90deg,rgba(0,255,255,.8),rgba(255,0,183,.9));box-shadow:0 0 18px rgba(0,255,255,.6)}
+#boot-overlay .boot-progress-label{display:flex;justify-content:space-between;font-size:12px;color:#57caff;margin-bottom:14px}
+#boot-overlay .boot-log{height:180px;overflow:hidden;background:rgba(0,10,18,.9);border:1px solid rgba(0,255,255,.2);padding:16px;box-shadow:inset 0 0 14px rgba(0,255,255,.2);font-size:13px;line-height:1.6;display:flex;flex-direction:column;gap:6px}
+#boot-overlay .boot-line{opacity:0;transform:translateY(8px);animation:fadeInUp .4s ease forwards}
+#boot-overlay .boot-footer{margin-top:18px;font-size:11px;color:rgba(117,247,255,.7);letter-spacing:.3em;text-align:right}
+
+@keyframes fadeInUp{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
  </style>
 <body>
 <div id="left" style="flex:2;overflow:auto;position:relative">
@@ -100,6 +144,11 @@ const OPS_STATUS_VALUES = new Set(['DOWNED','LIMITED','COSMETIC','COMFORT']);
 const SHOP_STATUS_VALUES = new Set(['DOWN','UP','USABLE']);
 const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COMFORT:'Comfort',DOWN:'Down',UP:'Up',USABLE:'Usable'};
 
+const CYBERPUNK_ENABLED = new URLSearchParams(window.location.search).get('cyberpunk') === 'true';
+if (CYBERPUNK_ENABLED) {
+  activateCyberpunkMode();
+}
+
 function normalizeHeaderText(value){
   return (value||'').replace(/\s+/g,' ').trim().toLowerCase();
 }
@@ -110,6 +159,96 @@ const DOWNED_HEADER_VARIANTS = [
 ].map(h=>h.map(normalizeHeaderText));
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
+
+function activateCyberpunkMode(){
+  document.body.classList.add('cyberpunk');
+  document.documentElement.style.setProperty('color-scheme','dark');
+
+  const overlay=document.createElement('div');
+  overlay.id='boot-overlay';
+  overlay.innerHTML=`
+    <div class="boot-inner">
+      <div class="boot-title">Dispatcher Neural Link</div>
+      <div class="boot-progress"><div class="boot-progress-fill"></div></div>
+      <div class="boot-progress-label"><span>STATUS</span><span class="boot-progress-value">0%</span></div>
+      <div class="boot-log"></div>
+      <div class="boot-footer">Click or press any key to skip boot sequence</div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const title=overlay.querySelector('.boot-title');
+  const log=overlay.querySelector('.boot-log');
+  const progressFill=overlay.querySelector('.boot-progress-fill');
+  const progressValue=overlay.querySelector('.boot-progress-value');
+  const steps=[
+    {delay:400,text:'<span class="hint">[SYS]</span> Awakening campus fiber uplink…'},
+    {delay:520,text:'<span class="hint">[CORE]</span> Injecting neon coolant into logic relays.'},
+    {delay:540,text:'<span class="hint">[SENSORS]</span> Harmonizing AVL beacons <span class="ok">LOCKED</span>.',glitch:true},
+    {delay:460,text:'<span class="hint">[OPS]</span> Parsing operator check-ins &mdash; cortisol within tolerance.'},
+    {delay:580,text:'<span class="hint">[AI]</span> Predictive load balancer compiling headway futures…',glitch:true},
+    {delay:500,text:'<span class="hint">[MAP]</span> Extruding 3D route lattice and holo-grid.'},
+    {delay:480,text:'<span class="hint">[DOWNLINK]</span> Syncing downed bus dossier &amp; shop intel.'},
+    {delay:540,text:'<span class="hint">[COMM]</span> Establishing encrypted driver whispers channel.'},
+    {delay:520,text:'<span class="hint">[AUDIO]</span> Deploying synthwave ambience for tactical focus.'},
+    {delay:640,text:'<span class="hint">[READY]</span> Dispatch authority granted. Maintain headway. <span class="ok">ONLINE</span>',glitch:true}
+  ];
+  const totalSteps=steps.length;
+
+  const bootSound=new Audio('https://assets.mixkit.co/sfx/preview/mixkit-futuristic-tech-ui-interface-click-1125.mp3');
+  bootSound.volume=0.6;
+  const ambientSound=new Audio('https://assets.mixkit.co/music/preview/mixkit-ambient-futuristic-straight-pattern-715.mp3');
+  ambientSound.loop=true;
+  ambientSound.volume=0.18;
+
+  const ensurePlayback=audio=>{
+    if(!audio) return;
+    audio.play().catch(()=>{
+      const resume=()=>{
+        audio.play().catch(()=>{});
+      };
+      document.addEventListener('pointerdown',resume,{once:true});
+      document.addEventListener('keydown',resume,{once:true});
+    });
+  };
+  ensurePlayback(bootSound);
+  setTimeout(()=>ensurePlayback(ambientSound),900);
+
+  let finished=false;
+  const finishBoot=()=>{
+    if(finished) return;
+    finished=true;
+    progressFill.style.width='100%';
+    progressValue.textContent='ONLINE';
+    overlay.classList.add('boot-complete');
+    setTimeout(()=>{
+      overlay.remove();
+    },900);
+  };
+
+  overlay.addEventListener('click',finishBoot);
+  window.addEventListener('keydown',finishBoot,{once:true});
+
+  let elapsed=0;
+  steps.forEach((step,index)=>{
+    elapsed+=step.delay;
+    setTimeout(()=>{
+      const el=document.createElement('div');
+      el.className='boot-line';
+      el.innerHTML=step.text;
+      log.appendChild(el);
+      log.scrollTop=log.scrollHeight;
+      const pct=Math.min(100,Math.round(((index+1)/totalSteps)*100));
+      progressFill.style.width=pct+'%';
+      progressValue.textContent=pct+'%';
+      if(step.glitch){
+        title.classList.add('glitch');
+        setTimeout(()=>title.classList.remove('glitch'),220);
+      }
+    },elapsed);
+  });
+
+  setTimeout(finishBoot,elapsed+900);
+}
 
 function htmlEscape(str){
   if(str==null) return '';
