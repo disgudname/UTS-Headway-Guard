@@ -446,6 +446,31 @@
         const BUS_MARKER_HEIGHT = 59;
         const BUS_MARKER_ANCHOR = [18.0034, 29.4966];
         const DEFAULT_ROUTE_COLOR = '#4bf5ce';
+        const RADAR_MARKER_SVG = `
+          <svg width="36" height="59" viewBox="0 0 36 59" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="radar-body-gradient" x1="18" y1="1" x2="18" y2="58" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#0B2B38" />
+                <stop offset="1" stop-color="#04131D" />
+              </linearGradient>
+              <radialGradient id="radar-core-gradient" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(18 18) scale(12)">
+                <stop stop-color="#0FFFD8" stop-opacity="0.8" />
+                <stop offset="1" stop-color="#0FFFD8" stop-opacity="0" />
+              </radialGradient>
+            </defs>
+            <path d="M18 1C9.16344 1 2 8.16344 2 17C2 25.5486 8.1288 32.7746 13.4227 38.5959C15.3978 40.7998 17.1742 42.8071 18 44.0403C18.8258 42.8071 20.6022 40.7998 22.5773 38.5959C27.8712 32.7746 34 25.5486 34 17C34 8.16344 26.8366 1 18 1Z" fill="url(#radar-body-gradient)" stroke="rgba(74, 244, 220, 0.38)" stroke-width="1.2" />
+            <path d="M18 44.0403L27.2 58H8.8L18 44.0403Z" fill="url(#radar-body-gradient)" stroke="rgba(74, 244, 220, 0.34)" stroke-width="1.2" />
+            <circle cx="18" cy="18" r="12" fill="url(#radar-core-gradient)" />
+            <path id="route_color" fill="#4bf5ce" fill-opacity="0.7" fill-rule="evenodd" d="M18 6C24.6274 6 30 11.3726 30 18C30 24.6274 24.6274 30 18 30C11.3726 30 6 24.6274 6 18C6 11.3726 11.3726 6 18 6ZM18 26C22.4183 26 26 22.4183 26 18C26 13.5817 22.4183 10 18 10C13.5817 10 10 13.5817 10 18C10 22.4183 13.5817 26 18 26Z" />
+            <path d="M18 8C23.5228 8 28 12.4772 28 18" stroke="rgba(79, 245, 206, 0.45)" stroke-width="1.1" stroke-linecap="round" />
+            <path d="M18 12C21.3137 12 24 14.6863 24 18" stroke="rgba(79, 245, 206, 0.3)" stroke-width="1.1" stroke-linecap="round" />
+            <circle cx="18" cy="18" r="3.2" fill="#0FFFD8" />
+            <circle cx="18" cy="18" r="1.2" fill="#021017" />
+            <path d="M17.2 3.4L18 1L18.8 3.4" stroke="rgba(79, 245, 206, 0.42)" stroke-width="1" stroke-linecap="round" />
+            <path d="M24.6 46.3L27.2 58" stroke="rgba(79, 245, 206, 0.35)" stroke-width="1" stroke-linecap="round" />
+            <path d="M11.4 46.3L8.8 58" stroke="rgba(79, 245, 206, 0.35)" stroke-width="1" stroke-linecap="round" />
+          </svg>
+        `;
         const CROSSHAIR_DASH_PATTERN = [6, 16];
         const DIAGONAL_DASH_PATTERN = [4, 20];
         const CROSSHAIR_ALPHA = 0.22;
@@ -577,8 +602,8 @@
         const pendingUpdates = new Map();
         const latestFetchSeen = new Set();
         const routeColors = new Map();
-        let busMarkerSvgText = null;
-        let busMarkerSvgPromise = null;
+        let busMarkerSvgText = RADAR_MARKER_SVG.trim();
+        let busMarkerSvgPromise = Promise.resolve(busMarkerSvgText);
         let fetchTimeout = null;
         let mapCenter = map.getCenter();
         let centerPoint = map.latLngToContainerPoint(mapCenter);
@@ -592,26 +617,6 @@
         });
 
         function requestBusMarkerSvg() {
-          if (busMarkerSvgPromise) {
-            return busMarkerSvgPromise;
-          }
-          busMarkerSvgPromise = fetch('busmarker.svg', { cache: 'no-store' })
-            .then(response => {
-              if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-              }
-              return response.text();
-            })
-            .then(text => {
-              busMarkerSvgText = text;
-              return text;
-            })
-            .catch(error => {
-              console.error('Radar page failed to load bus marker SVG:', error);
-              busMarkerSvgText = null;
-              busMarkerSvgPromise = null;
-              throw error;
-            });
           return busMarkerSvgPromise;
         }
 
