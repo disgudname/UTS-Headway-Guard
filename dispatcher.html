@@ -147,6 +147,12 @@ const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COM
 
 const CYBERPUNK_ENABLED = new URLSearchParams(window.location.search).get('cyberpunk') === 'true';
 if (CYBERPUNK_ENABLED) {
+  const mapFrame = document.getElementById('map-frame');
+  if (mapFrame) {
+    const url = new URL(mapFrame.getAttribute('src'), window.location.origin);
+    url.pathname = '/radar';
+    mapFrame.src = url.pathname + url.search;
+  }
   activateCyberpunkMode();
 }
 
