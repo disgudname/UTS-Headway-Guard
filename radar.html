@@ -799,15 +799,6 @@
                 latestFetchSeen.add(vehicleId);
                 const pending = pendingUpdates.get(vehicleId);
                 const existingState = markerStates.get(vehicleId);
-                const prevLat = pending?.lat ?? existingState?.lat;
-                const prevLon = pending?.lon ?? existingState?.lon;
-                if (Number.isFinite(prevLat) && Number.isFinite(prevLon)) {
-                  const latDiff = Math.abs(prevLat - lat);
-                  const lonDiff = Math.abs(prevLon - lon);
-                  if (latDiff < 1e-5 && lonDiff < 1e-5) {
-                    return;
-                  }
-                }
                 const bearing = computeBearing(lat, lon);
                 pendingUpdates.set(vehicleId, {
                   id: vehicleId,
