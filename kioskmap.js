@@ -3,8 +3,18 @@
   'use strict';
 
   const REFRESH_INTERVAL_MS = 5000;
-  const UVA_DEFAULT_CENTER = [38.03799212281404, -78.50981502838886];
-  const UVA_DEFAULT_ZOOM = 15;
+  const mapDefaults = (typeof window !== 'undefined' && window.HeadwayMapDefaults)
+    ? window.HeadwayMapDefaults
+    : null;
+  const FALLBACK_CENTER = [38.03799212281404, -78.50981502838886];
+  const rawCenter = Array.isArray(mapDefaults?.center) && mapDefaults.center.length === 2
+    ? [Number(mapDefaults.center[0]), Number(mapDefaults.center[1])]
+    : [NaN, NaN];
+  const UVA_DEFAULT_CENTER = rawCenter.every(value => Number.isFinite(value))
+    ? rawCenter
+    : FALLBACK_CENTER;
+  const rawZoom = mapDefaults?.zoom;
+  const UVA_DEFAULT_ZOOM = Number.isFinite(Number(rawZoom)) ? Number(rawZoom) : 15;
   const DEFAULT_ROUTE_COLOR = '#000000';
   const ROUTE_STROKE_WEIGHT = 6;
   const ROUTE_STRIPE_DASH_LENGTH = 16;
