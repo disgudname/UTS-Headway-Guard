@@ -5,7 +5,7 @@
 <style>
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 :root{--route-color:#2a3442}
-body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh}
+body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630;flex-wrap:wrap}
 header h1{flex-basis:100%}
  #controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
@@ -39,9 +39,10 @@ h2{font-size:18px;margin:16px 0 0}
 }
 .credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 
-body.cyberpunk{background:#02010a;color:#d9fbff;text-shadow:0 0 12px rgba(0,255,255,.35);position:relative;overflow:hidden;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace}
+body.cyberpunk{background:radial-gradient(circle at 20% 20%,rgba(0,255,255,.18),transparent 55%),radial-gradient(circle at 80% 35%,rgba(255,0,183,.18),transparent 60%),#02010a;color:#d9fbff;text-shadow:0 0 12px rgba(0,255,255,.35);position:relative;overflow:hidden;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace}
 body.cyberpunk::before{content:"";position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,255,255,.04)0,rgba(0,255,255,.04)2px,transparent 2px,transparent 4px);mix-blend-mode:screen;pointer-events:none;animation:scanlines 8s linear infinite}
 body.cyberpunk::after{content:"";position:fixed;inset:-40px;background:radial-gradient(circle at 15% 20%,rgba(0,255,255,.24),transparent 55%),radial-gradient(circle at 80% 15%,rgba(255,0,183,.28),transparent 50%),radial-gradient(circle at 70% 80%,rgba(0,255,170,.22),transparent 60%);filter:blur(18px);opacity:.7;pointer-events:none;z-index:-1}
+body.cyberpunk .cyberpunk-hud-lines{position:fixed;inset:0;background:linear-gradient(120deg,rgba(117,247,255,.08)0,rgba(0,0,0,0)40%),linear-gradient(-120deg,rgba(255,0,183,.12)0,rgba(0,0,0,0)45%);mix-blend-mode:screen;pointer-events:none;animation:hudSweep 18s ease-in-out infinite alternate;opacity:.45;z-index:-2}
 body.cyberpunk header{background:rgba(3,11,20,.92);border-bottom-color:rgba(0,255,255,.35);box-shadow:0 0 25px rgba(0,255,255,.2)}
 body.cyberpunk header h1{letter-spacing:.08em;text-transform:uppercase;color:#75f7ff}
 body.cyberpunk #controls{padding-right:230px}
@@ -79,6 +80,25 @@ body.cyberpunk .cyberpunk-ticker{position:absolute;left:18px;right:18px;bottom:1
 body.cyberpunk .ticker-label{color:#ff7afc;font-weight:bold}
 body.cyberpunk .ticker-marquee{flex:1;display:flex;gap:48px;animation:tickerScroll 36s linear infinite}
 body.cyberpunk .ticker-marquee span{white-space:nowrap;color:#9dfcff;text-shadow:0 0 12px rgba(0,255,255,.4)}
+body.cyberpunk .cyberpunk-hud{margin:0 18px 18px;padding:18px;border:1px solid rgba(0,255,255,.18);background:rgba(4,20,32,.78);backdrop-filter:blur(12px);box-shadow:0 0 38px rgba(0,255,255,.2);display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;border-radius:14px;position:relative;overflow:hidden}
+body.cyberpunk .cyberpunk-hud::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,255,255,.08),rgba(255,0,183,.05));opacity:.65;pointer-events:none}
+body.cyberpunk .cyberpunk-hud::after{content:"";position:absolute;inset:12px;border:1px solid rgba(0,255,255,.12);border-radius:10px;pointer-events:none;opacity:.6;box-shadow:0 0 18px rgba(0,255,255,.25)}
+body.cyberpunk .hud-card{position:relative;padding:14px;border:1px solid rgba(117,247,255,.28);border-radius:10px;background:rgba(2,14,28,.88);box-shadow:inset 0 0 22px rgba(0,255,255,.15);display:flex;flex-direction:column;gap:6px;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+body.cyberpunk .hud-card::before{content:"";position:absolute;inset:-1px;border-radius:10px;border:1px solid rgba(255,0,183,.18);opacity:.5;filter:blur(0);mix-blend-mode:screen}
+body.cyberpunk .hud-card strong{font-size:22px;line-height:1;color:#7cfbff;text-shadow:0 0 18px rgba(0,255,255,.45)}
+body.cyberpunk .hud-card span{color:#ff90ff;font-size:11px;letter-spacing:.16em}
+body.cyberpunk .hud-card .hud-trend{font-size:12px;color:#a0ffba;letter-spacing:.12em}
+body.cyberpunk .hud-card .hud-trend.warn{color:#ffe680}
+body.cyberpunk .hud-card .hud-trend.bad{color:#ff7f9d}
+body.cyberpunk .hud-card .hud-graph{height:42px;display:flex;align-items:flex-end;gap:4px}
+body.cyberpunk .hud-card .hud-bar{flex:1;background:linear-gradient(180deg,rgba(0,255,255,.7),rgba(0,255,170,.2));border-radius:3px;box-shadow:0 0 12px rgba(0,255,255,.35);animation:holoPulse 4.2s ease-in-out infinite}
+body.cyberpunk .hud-card .hud-bar:nth-child(odd){background:linear-gradient(180deg,rgba(255,0,183,.7),rgba(0,0,0,.2))}
+body.cyberpunk .cyberpunk-orb{position:fixed;width:360px;height:360px;border:1px solid rgba(0,255,255,.2);border-radius:50%;top:12%;right:-120px;background:radial-gradient(circle at 40% 35%,rgba(0,255,255,.45),rgba(0,0,0,0)70%);box-shadow:0 0 120px rgba(0,255,255,.35);filter:blur(0);opacity:.6;pointer-events:none;animation:orbDrift 26s ease-in-out infinite;mix-blend-mode:screen;z-index:-2}
+body.cyberpunk .cyberpunk-orb::after{content:"";position:absolute;inset:18%;border:1px solid rgba(255,0,183,.28);border-radius:50%;box-shadow:0 0 40px rgba(255,0,183,.45);animation:orbPulse 7s ease-in-out infinite}
+body.cyberpunk .cyberpunk-datafall{position:fixed;inset:0;pointer-events:none;mix-blend-mode:screen;opacity:.55;z-index:-2}
+body.cyberpunk .cyberpunk-holo-badge{position:absolute;top:60px;right:40px;padding:12px 20px;border:1px solid rgba(0,255,255,.45);background:rgba(2,18,32,.85);box-shadow:0 0 18px rgba(0,255,255,.35);text-transform:uppercase;letter-spacing:.24em;font-size:11px;color:#92f8ff;display:flex;align-items:center;gap:12px;border-radius:999px;backdrop-filter:blur(6px);animation:hudPulse 5s ease-in-out infinite}
+body.cyberpunk .cyberpunk-holo-badge::before{content:"◎";color:#ff80ff;text-shadow:0 0 12px rgba(255,0,183,.6)}
+body.cyberpunk .cyberpunk-holo-badge span{color:#0ff;text-shadow:0 0 10px rgba(0,255,255,.45)}
 body.cyberpunk #left{background:rgba(2,10,22,.82);backdrop-filter:blur(12px);box-shadow:0 0 45px rgba(0,255,255,.18);border-right:1px solid rgba(255,0,183,.25);padding-bottom:70px}
 body.cyberpunk header{position:sticky;top:0;z-index:5}
 body.cyberpunk header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,rgba(0,255,255,.6),rgba(255,0,183,.6),rgba(0,255,170,.6));box-shadow:0 0 12px rgba(0,255,255,.7);opacity:.85}
@@ -93,11 +113,23 @@ body.cyberpunk table tbody tr:hover::after{opacity:1}
 body.cyberpunk select:focus{outline:none;box-shadow:0 0 0 2px rgba(0,255,255,.25)}
 body.cyberpunk .banner{color:#9dfcff;background:rgba(3,18,28,.92);border-color:rgba(255,0,183,.35);box-shadow:0 0 16px rgba(255,0,183,.2)}
 body.cyberpunk iframe#map-frame{box-shadow:inset 0 0 35px rgba(0,0,0,.6),0 0 45px rgba(0,255,255,.18);position:relative;z-index:1}
+body.cyberpunk iframe#map-frame::backdrop{background:rgba(0,0,0,.6)}
+
+body.cyberpunk .cyberpunk-runes{position:fixed;bottom:30px;right:32px;display:flex;gap:12px;pointer-events:none;z-index:4}
+body.cyberpunk .cyberpunk-rune{padding:10px 14px;border:1px solid rgba(0,255,255,.3);border-radius:10px;background:rgba(2,16,28,.88);color:#9dfcff;font-size:12px;letter-spacing:.32em;text-transform:uppercase;box-shadow:0 0 16px rgba(0,255,255,.25);animation:runeBlink 6s linear infinite}
+body.cyberpunk .cyberpunk-rune:nth-child(2){animation-delay:1.4s}
+body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 
 @keyframes gridDrift{0%{transform:translate3d(0,0,0)}100%{transform:translate3d(-60px,-60px,0)}}
 @keyframes scanlines{0%{transform:translateY(0)}100%{transform:translateY(-4px)}}
 @keyframes bootGlitch{0%,100%{transform:translate(0)}20%{transform:translate(-2px,1px)}40%{transform:translate(3px,-2px)}60%{transform:translate(-1px,2px)}80%{transform:translate(2px,-1px)}}
 @keyframes pulseGlow{0%,100%{opacity:.65;filter:drop-shadow(0 0 10px rgba(0,255,255,.4))}50%{opacity:1;filter:drop-shadow(0 0 22px rgba(0,255,255,.75))}}
+@keyframes hudSweep{0%{opacity:.2;transform:translateY(-6%)}100%{opacity:.6;transform:translateY(6%)} }
+@keyframes holoPulse{0%,100%{transform:scaleY(.75);opacity:.7}50%{transform:scaleY(1);opacity:1}}
+@keyframes orbDrift{0%{transform:translate3d(0,0,0) rotate(0deg)}50%{transform:translate3d(-30px,10px,0) rotate(8deg)}100%{transform:translate3d(10px,-20px,0) rotate(-6deg)}}
+@keyframes orbPulse{0%,100%{transform:scale(.85);opacity:.4}50%{transform:scale(1);opacity:1}}
+@keyframes hudPulse{0%,100%{box-shadow:0 0 16px rgba(0,255,255,.35)}50%{box-shadow:0 0 32px rgba(255,0,183,.45)}}
+@keyframes runeBlink{0%,40%,100%{opacity:.85}50%{opacity:.35}}
 @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 
 #boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,rgba(0,8,16,.95)0%,rgba(0,0,0,.98)60%,rgba(0,0,0,.98)100%);color:#9dfcff;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace;letter-spacing:.06em;text-transform:uppercase;transition:opacity .9s ease,visibility .9s ease;box-shadow:inset 0 0 80px rgba(0,255,255,.2);overflow:hidden}
@@ -205,6 +237,10 @@ function activateCyberpunkMode(){
   document.body.classList.add('cyberpunk');
   document.documentElement.style.setProperty('color-scheme','dark');
 
+  const datafallCanvas=document.createElement('canvas');
+  datafallCanvas.className='cyberpunk-datafall';
+  document.body.prepend(datafallCanvas);
+
   const grid=document.createElement('div');
   grid.className='cyberpunk-grid';
   document.body.prepend(grid);
@@ -213,13 +249,178 @@ function activateCyberpunkMode(){
   vignette.className='cyberpunk-vignette';
   document.body.prepend(vignette);
 
+  const hudLines=document.createElement('div');
+  hudLines.className='cyberpunk-hud-lines';
+  document.body.appendChild(hudLines);
+
+  const orb=document.createElement('div');
+  orb.className='cyberpunk-orb';
+  document.body.appendChild(orb);
+
   const corners=document.createElement('div');
   corners.className='cyberpunk-corners';
   corners.innerHTML='<span class="corner corner-tl"></span><span class="corner corner-tr"></span><span class="corner corner-bl"></span><span class="corner corner-br"></span>';
   document.body.appendChild(corners);
 
+  const holoBadge=document.createElement('div');
+  holoBadge.className='cyberpunk-holo-badge';
+  holoBadge.innerHTML='Neural Dispatch Core <span>STANDING BY</span>';
+  document.body.appendChild(holoBadge);
+
+  const runeContainer=document.createElement('div');
+  runeContainer.className='cyberpunk-runes';
+  const runePhrases=['ALIGN','VECTOR','SPECTRUM'];
+  runePhrases.forEach(text=>{
+    const rune=document.createElement('div');
+    rune.className='cyberpunk-rune';
+    rune.textContent=text;
+    runeContainer.appendChild(rune);
+  });
+  document.body.appendChild(runeContainer);
+
+  const runeVariants=['ALIGN','VECTOR','SPECTRUM','NEURAL','STASIS','PRIME','AURORA'];
+  const holoMessages=['STANDING BY','OVERRIDE READY','LINKED','FIELD SYNC','OMNI CONTROL'];
+  setInterval(()=>{
+    const badgeSpan=holoBadge.querySelector('span');
+    if(badgeSpan){
+      badgeSpan.textContent=holoMessages[Math.floor(Math.random()*holoMessages.length)];
+    }
+    runeContainer.querySelectorAll('.cyberpunk-rune').forEach(rune=>{
+      rune.textContent=runeVariants[Math.floor(Math.random()*runeVariants.length)];
+    });
+  },6200);
+
+  const ctx=datafallCanvas.getContext('2d');
+  const glyphs='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ△▽◇✶☰☷⟁';
+  let rainWidth=0;
+  let rainHeight=0;
+  let columns=0;
+  let drops=[];
+  const resizeRain=()=>{
+    const dpr=window.devicePixelRatio||1;
+    rainWidth=window.innerWidth;
+    rainHeight=window.innerHeight;
+    datafallCanvas.width=rainWidth*dpr;
+    datafallCanvas.height=rainHeight*dpr;
+    datafallCanvas.style.width=rainWidth+'px';
+    datafallCanvas.style.height=rainHeight+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const charSize=18;
+    columns=Math.floor(rainWidth/charSize);
+    drops=new Array(columns).fill(0);
+  };
+  resizeRain();
+  window.addEventListener('resize',resizeRain);
+
+  const drawRain=()=>{
+    ctx.fillStyle='rgba(0,10,20,0.16)';
+    ctx.fillRect(0,0,rainWidth,rainHeight);
+    ctx.fillStyle='rgba(0,255,255,0.9)';
+    ctx.shadowBlur=12;
+    ctx.shadowColor='rgba(0,255,255,0.55)';
+    ctx.font='16px "Courier Prime", monospace';
+    for(let i=0;i<columns;i++){
+      const text=glyphs[Math.floor(Math.random()*glyphs.length)];
+      const x=i*18;
+      const y=drops[i]*18;
+      ctx.fillText(text,x,y);
+      if(y>rainHeight && Math.random()>0.95){
+        drops[i]=0;
+      }else{
+        drops[i]+=1;
+      }
+    }
+    requestAnimationFrame(drawRain);
+  };
+  requestAnimationFrame(drawRain);
+
   const leftPane=document.getElementById('left');
   if(leftPane){
+    const hud=document.createElement('div');
+    hud.className='cyberpunk-hud';
+    hud.innerHTML=`
+      <div class="hud-card" data-card="variance">
+        <span>Headway Variance</span>
+        <strong data-value="variance">00.0s</strong>
+        <div class="hud-trend" data-trend="variance">Δ +0.0 HOLD</div>
+        <div class="hud-graph" data-graph="variance">${'<div class="hud-bar"></div>'.repeat(8)}</div>
+      </div>
+      <div class="hud-card" data-card="latency">
+        <span>Neural Latency</span>
+        <strong data-value="latency">000ms</strong>
+        <div class="hud-trend warn" data-trend="latency">Δ +0.0 ALERT</div>
+        <div class="hud-graph" data-graph="latency">${'<div class="hud-bar"></div>'.repeat(6)}</div>
+      </div>
+      <div class="hud-card" data-card="integrity">
+        <span>Route Integrity</span>
+        <strong data-value="integrity">000%</strong>
+        <div class="hud-trend" data-trend="integrity">Δ +0.0 STABLE</div>
+        <div class="hud-graph" data-graph="integrity">${'<div class="hud-bar"></div>'.repeat(5)}</div>
+      </div>`;
+    const layout=document.getElementById('layout');
+    if(layout){
+      leftPane.insertBefore(hud,layout);
+    }else{
+      leftPane.appendChild(hud);
+    }
+
+    const randomBetween=(min,max)=>Math.random()*(max-min)+min;
+    const hudState={variance:'00.0s',latency:'000ms',integrity:'000%'};
+    const setTrend=(name,delta,unit,labels)=>{
+      const el=hud.querySelector(`[data-trend="${name}"]`);
+      if(!el) return;
+      el.classList.remove('warn','bad');
+      const textDelta=`${delta>0?'+':''}${delta.toFixed(unit==='%'?1:1)}${unit||''}`;
+      let suffix=' HOLD';
+      if(delta>1.2 || (unit==='%' && delta>0.6)){
+        el.classList.add('bad');
+        suffix=' ALERT';
+      }else if(delta>0.4 || (unit==='%' && delta>0.3)){
+        el.classList.add('warn');
+        suffix=' WATCH';
+      }else if(delta<0){
+        suffix=' CALM';
+      }
+      if(Array.isArray(labels) && labels.length){
+        suffix=' '+labels[Math.floor(Math.random()*labels.length)];
+      }
+      el.textContent=`Δ ${textDelta}${suffix}`;
+    };
+    const updateGraph=name=>{
+      const graph=hud.querySelector(`[data-graph="${name}"]`);
+      if(!graph) return;
+      const bars=graph.querySelectorAll('.hud-bar');
+      bars.forEach((bar,index)=>{
+        bar.style.height=Math.round(randomBetween(25,100))+'%';
+        bar.style.opacity=(0.6+Math.random()*0.4).toFixed(2);
+        bar.style.animationDelay=(index*0.18)+'s';
+      });
+    };
+    const updateHud=()=>{
+      const variance=randomBetween(4.8,18.6);
+      hudState.variance=variance.toFixed(1)+'s';
+      const varianceValue=hud.querySelector('[data-value="variance"]');
+      if(varianceValue) varianceValue.textContent=hudState.variance;
+      setTrend('variance',randomBetween(-1.2,2.4),'s',['HOLD','STABLE','SYNC']);
+      updateGraph('variance');
+
+      const latency=randomBetween(36,220);
+      hudState.latency=Math.round(latency)+'ms';
+      const latencyValue=hud.querySelector('[data-value="latency"]');
+      if(latencyValue) latencyValue.textContent=hudState.latency;
+      setTrend('latency',randomBetween(-8,12),'ms',['ALERT','TRACK','LINK']);
+      updateGraph('latency');
+
+      const integrity=randomBetween(88,99.4);
+      hudState.integrity=integrity.toFixed(1)+'%';
+      const integrityValue=hud.querySelector('[data-value="integrity"]');
+      if(integrityValue) integrityValue.textContent=hudState.integrity;
+      setTrend('integrity',randomBetween(-0.6,0.9),'%',['STABLE','LOCK','FIELD']);
+      updateGraph('integrity');
+    };
+    updateHud();
+    setInterval(updateHud,4600);
+
     const ticker=document.createElement('div');
     ticker.className='cyberpunk-ticker';
     const label=document.createElement('span');
@@ -233,22 +434,27 @@ function activateCyberpunkMode(){
     ticker.append(label,marquee);
     leftPane.appendChild(ticker);
 
-    const buildTickerText=()=>[
-      'NODE '+(window.location.hostname||'DISPATCH'),
-      'SYNC '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
-      'ROUTE MATRIX STABLE',
-      'SIGNAL BOOSTER ONLINE',
-      'FIELD OPS READY'
-    ].join(' // ');
+    const tickerPhrases=['FIELD OPS READY','SYNTH GRID ONLINE','OVERRIDE CHANNEL ARMED','DRONE RELAY CLEAN','SPECTRUM HOLD'];
+    const randomFrom=arr=>arr[Math.floor(Math.random()*arr.length)];
 
     const refreshTicker=()=>{
-      const text=buildTickerText();
+      const now=new Date();
+      const segments=[
+        'NODE '+(window.location.hostname||'DISPATCH'),
+        'SYNC '+now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+        'VAR '+hudState.variance.toUpperCase(),
+        'LAT '+hudState.latency.toUpperCase(),
+        'INT '+hudState.integrity.toUpperCase(),
+        randomFrom(tickerPhrases),
+        'CODE '+Math.floor(Math.random()*4096).toString(16).toUpperCase().padStart(3,'0')
+      ];
+      const text=segments.join(' // ');
       spanA.textContent=text;
       spanB.textContent=text;
     };
 
     refreshTicker();
-    setInterval(refreshTicker,60000);
+    setInterval(refreshTicker,15000);
   }
 
   const overlay=document.createElement('div');
