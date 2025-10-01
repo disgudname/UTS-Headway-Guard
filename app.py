@@ -744,6 +744,7 @@ TRANSLOC_TICKER_HTML = (BASE_DIR / "transloc_ticker.html").read_text(encoding="u
 ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
 BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
 NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
+RADAR_HTML = (BASE_DIR / "radar.html").read_text(encoding="utf-8")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -2934,6 +2935,11 @@ async def busmarker_svg():
     return FileResponse(BASE_DIR / "busmarker.svg", media_type="image/svg+xml")
 
 
+@app.get("/map_defaults.js", include_in_schema=False)
+async def map_defaults_js():
+    return _serve_js_asset("map_defaults.js")
+
+
 @app.get("/plane_globals.js", include_in_schema=False)
 async def plane_globals_js():
     return _serve_js_asset("plane_globals.js")
@@ -3011,6 +3017,11 @@ async def landing_page():
 @app.get("/map")
 async def map_page():
     return HTMLResponse(MAP_HTML)
+
+
+@app.get("/radar")
+async def radar_page():
+    return HTMLResponse(RADAR_HTML)
 
 # ---------------------------
 # TEST MAP PAGE
