@@ -5,7 +5,7 @@
 <style>
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 :root{--route-color:#2a3442}
-body{font:17px 'FGDC',system-ui;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh}
+body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630;flex-wrap:wrap}
 header h1{flex-basis:100%}
  #controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
@@ -21,6 +21,7 @@ th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
 #extra-buses li{background:#10151c;border:1px solid #2a3442;border-radius:4px;padding:4px;text-align:center}
 #extra-buses .hint{background:none;border:none;padding:0;grid-column:1/-1;text-align:left}
 .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
+body.cyberpunk .mono{font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace}
 .pill{display:inline-flex;gap:8px;align-items:center;border:1px solid #2a3442;border-radius:999px;padding:4px 8px;background:#10151c}
 .dot{width:10px;height:10px;border-radius:50%}
 .ok{color:#b6f0cb}.ok .dot{background:#24c28a}
@@ -38,7 +39,7 @@ h2{font-size:18px;margin:16px 0 0}
 }
 .credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 
-body.cyberpunk{background:#02010a;color:#d9fbff;text-shadow:0 0 12px rgba(0,255,255,.35);position:relative;overflow:hidden}
+body.cyberpunk{background:#02010a;color:#d9fbff;text-shadow:0 0 12px rgba(0,255,255,.35);position:relative;overflow:hidden;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace}
 body.cyberpunk::before{content:"";position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,255,255,.04)0,rgba(0,255,255,.04)2px,transparent 2px,transparent 4px);mix-blend-mode:screen;pointer-events:none;animation:scanlines 8s linear infinite}
 body.cyberpunk::after{content:"";position:fixed;inset:-40px;background:radial-gradient(circle at 15% 20%,rgba(0,255,255,.24),transparent 55%),radial-gradient(circle at 80% 15%,rgba(255,0,183,.28),transparent 50%),radial-gradient(circle at 70% 80%,rgba(0,255,170,.22),transparent 60%);filter:blur(18px);opacity:.7;pointer-events:none;z-index:-1}
 body.cyberpunk header{background:rgba(3,11,20,.92);border-bottom-color:rgba(0,255,255,.35);box-shadow:0 0 25px rgba(0,255,255,.2)}
@@ -65,7 +66,7 @@ body.cyberpunk .credit{color:#57caff;text-shadow:0 0 10px rgba(0,255,255,.4)}
 @keyframes scanlines{0%{transform:translateY(0)}100%{transform:translateY(-4px)}}
 @keyframes bootGlitch{0%,100%{transform:translate(0)}20%{transform:translate(-2px,1px)}40%{transform:translate(3px,-2px)}60%{transform:translate(-1px,2px)}80%{transform:translate(2px,-1px)}}
 
-#boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,rgba(0,8,16,.95)0%,rgba(0,0,0,.98)60%,rgba(0,0,0,.98)100%);color:#9dfcff;font-family:FGDC,ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;transition:opacity .9s ease,visibility .9s ease;box-shadow:inset 0 0 80px rgba(0,255,255,.2);overflow:hidden}
+#boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,rgba(0,8,16,.95)0%,rgba(0,0,0,.98)60%,rgba(0,0,0,.98)100%);color:#9dfcff;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace;letter-spacing:.06em;text-transform:uppercase;transition:opacity .9s ease,visibility .9s ease;box-shadow:inset 0 0 80px rgba(0,255,255,.2);overflow:hidden}
 #boot-overlay::before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(0,255,255,.08),rgba(255,0,183,.05));mix-blend-mode:screen;animation:scanlines 6s linear infinite;opacity:.6}
 #boot-overlay::after{content:"";position:absolute;inset:-50%;background:conic-gradient(from 90deg,rgba(0,255,255,.12),rgba(255,0,183,.08),rgba(0,255,170,.12),rgba(0,255,255,.12));animation:bootGlitch 3s linear infinite;opacity:.15;filter:blur(40px)}
 #boot-overlay.boot-complete{opacity:0;visibility:hidden;pointer-events:none}
