@@ -20,6 +20,7 @@
       body {
         position: relative;
         overflow: hidden;
+        filter: saturate(1.05) contrast(1.06);
       }
       body::before,
       body::after {
@@ -57,6 +58,47 @@
         z-index: 120;
         overflow: hidden;
         filter: saturate(0.65) brightness(0.82) contrast(1.05);
+      }
+      .crt-overlay {
+        position: fixed;
+        inset: -2.5%;
+        pointer-events: none;
+        z-index: 980;
+        border-radius: 36px;
+        box-shadow:
+          0 40px 120px rgba(0, 12, 20, 0.66),
+          inset 0 40px 120px rgba(0, 0, 0, 0.55),
+          inset 0 -20px 80px rgba(0, 0, 0, 0.38);
+        overflow: hidden;
+        transform: translateZ(0);
+        mix-blend-mode: screen;
+        opacity: 0.92;
+        animation: crtFlicker 7s ease-in-out infinite;
+      }
+      .crt-overlay::before {
+        content: "";
+        position: absolute;
+        inset: -3%;
+        border-radius: 42px;
+        background:
+          radial-gradient(circle at center, rgba(186, 255, 236, 0.18) 0%, rgba(42, 255, 220, 0.04) 38%, rgba(0, 0, 0, 0.55) 100%),
+          radial-gradient(ellipse at top, rgba(120, 255, 230, 0.22) 0%, rgba(0, 0, 0, 0) 60%),
+          linear-gradient(120deg, rgba(18, 200, 210, 0.2), transparent 60%);
+        mix-blend-mode: screen;
+        opacity: 0.75;
+        filter: blur(0.4px);
+      }
+      .crt-overlay::after {
+        content: "";
+        position: absolute;
+        inset: -3%;
+        border-radius: 42px;
+        background:
+          repeating-linear-gradient(0deg, rgba(28, 255, 220, 0.08) 0px, rgba(28, 255, 220, 0.08) 1px, transparent 1px, transparent 3px),
+          repeating-linear-gradient(90deg, rgba(0, 16, 26, 0.16) 0px, rgba(0, 16, 26, 0.16) 1px, transparent 1px, transparent 5px);
+        mix-blend-mode: soft-light;
+        opacity: 0.24;
+        animation: crtRoll 12s linear infinite;
       }
       #map::after {
         content: "";
@@ -343,6 +385,29 @@
           transform: translateY(8px);
         }
       }
+      @keyframes crtFlicker {
+        0%,
+        100% {
+          opacity: 0.92;
+          filter: hue-rotate(0deg) saturate(1.08);
+        }
+        38% {
+          opacity: 0.96;
+          filter: hue-rotate(-2deg) saturate(1.12);
+        }
+        62% {
+          opacity: 0.9;
+          filter: hue-rotate(2deg) saturate(1.06);
+        }
+      }
+      @keyframes crtRoll {
+        0% {
+          background-position: 0 0, 0 0;
+        }
+        100% {
+          background-position: 0 100px, 120px 0;
+        }
+      }
       @keyframes corePulse {
         0%,
         100% {
@@ -427,6 +492,7 @@
         </div>
       </div>
     </div>
+    <div class="crt-overlay" aria-hidden="true"></div>
     <script>
       document.addEventListener('DOMContentLoaded', () => {
         'use strict';
