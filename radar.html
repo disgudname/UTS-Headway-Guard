@@ -497,11 +497,11 @@
       document.addEventListener('DOMContentLoaded', () => {
         'use strict';
 
-        const MAP_DEFAULTS = (typeof window !== 'undefined' && window.HeadwayMapDefaults) || { center: [38.03799212281404, -78.50981502838886], zoom: 15 };
+        const MAP_DEFAULTS = (typeof window !== 'undefined' && window.HeadwayMapDefaults) || { center: [38.0520183812322, -78.50408223428101], zoom: 14 };
         const CENTER = Array.isArray(MAP_DEFAULTS.center) && MAP_DEFAULTS.center.length === 2
           ? [Number(MAP_DEFAULTS.center[0]), Number(MAP_DEFAULTS.center[1])]
-          : [38.03799212281404, -78.50981502838886];
-        const ZOOM = Number.isFinite(Number(MAP_DEFAULTS.zoom)) ? Number(MAP_DEFAULTS.zoom) : 15;
+          : [38.0520183812322, -78.50408223428101];
+        const ZOOM = Number.isFinite(Number(MAP_DEFAULTS.zoom)) ? Number(MAP_DEFAULTS.zoom) : 14;
         const REFRESH_INTERVAL_MS = 5000;
         const SWEEP_SPEED_DEG_PER_SEC = 60;
         const RING_COUNT = 4;
@@ -608,6 +608,7 @@
                 hour: '2-digit',
                 minute: '2-digit',
                 second: '2-digit',
+                hour12: false,
               });
             } else {
               hudElements.updated.textContent = STATUS_WAITING_TEXT;
