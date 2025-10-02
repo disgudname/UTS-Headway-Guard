@@ -2931,6 +2931,11 @@ async def fgdc_font():
     return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
 
 
+@app.get("/centurygothic.ttf", include_in_schema=False)
+async def centurygothic_font():
+    return FileResponse(BASE_DIR / "centurygothic.ttf", media_type="font/ttf")
+
+
 @app.get("/busmarker.svg", include_in_schema=False)
 async def busmarker_svg():
     return FileResponse(BASE_DIR / "busmarker.svg", media_type="image/svg+xml")
