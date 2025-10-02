@@ -541,6 +541,7 @@
         const DIAGONAL_DASH_PATTERN = [4, 20];
         const CROSSHAIR_ALPHA = 0.22;
         const CORE_DOT_RADIUS = 3.4;
+        const SOUND_THROTTLE_MS = 250;
         const STATUS_ACTIVE_TEXT = 'Radar Sweep Active';
         const STATUS_ERROR_TEXT = 'Signal Interrupted';
         const STATUS_WAITING_TEXT = 'Initializing Sweep';
@@ -658,9 +659,12 @@
 
         const canvas = document.getElementById('radarCanvas');
         const ctx = canvas.getContext('2d');
+        const backgroundCanvas = document.createElement('canvas');
+        const backgroundCtx = backgroundCanvas.getContext('2d');
         const radarAudio = new Audio('radar.wav');
         radarAudio.preload = 'auto';
         let audioUnlocked = false;
+        let backgroundNeedsRender = true;
 
         const ensureAudioUnlocked = () => {
           if (audioUnlocked) {
@@ -693,6 +697,7 @@
         let mapCenter = map.getCenter();
         let centerPoint = map.latLngToContainerPoint(mapCenter);
         let devicePixelRatioCache = window.devicePixelRatio || 1;
+        let lastSoundPlayedAt = 0;
 
         const fallbackIcon = L.divIcon({
           className: 'radar-bus-fallback',
@@ -769,25 +774,102 @@
           return icon;
         }
 
+        function syncCanvasSize(targetCanvas, targetCtx, size, dpr) {
+          const width = size.x * dpr;
+          const height = size.y * dpr;
+          if (targetCanvas.width !== width || targetCanvas.height !== height) {
+            targetCanvas.width = width;
+            targetCanvas.height = height;
+            if (targetCtx) {
+              targetCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+            return true;
+          }
+          return false;
+        }
+
         function resizeCanvas() {
           const size = map.getSize();
           const dpr = window.devicePixelRatio || 1;
-          if (canvas.width !== size.x * dpr || canvas.height !== size.y * dpr) {
-            canvas.width = size.x * dpr;
-            canvas.height = size.y * dpr;
-            canvas.style.width = `${size.x}px`;
-            canvas.style.height = `${size.y}px`;
-            if (ctx) {
-              ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            }
-          }
+          canvas.style.width = `${size.x}px`;
+          canvas.style.height = `${size.y}px`;
+          const canvasResized = syncCanvasSize(canvas, ctx, size, dpr);
+          const backgroundResized = syncCanvasSize(backgroundCanvas, backgroundCtx, size, dpr);
           devicePixelRatioCache = dpr;
           centerPoint = map.latLngToContainerPoint(mapCenter);
+          if (canvasResized || backgroundResized) {
+            backgroundNeedsRender = true;
+          }
+        }
+
+        function clearCanvas(context, targetCanvas) {
+          if (!context || !targetCanvas) {
+            return;
+          }
+          context.save();
+          context.setTransform(1, 0, 0, 1, 0, 0);
+          context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+          context.restore();
         }
 
         function updateCenterPoint() {
           mapCenter = map.getCenter();
           centerPoint = map.latLngToContainerPoint(mapCenter);
+          backgroundNeedsRender = true;
+        }
+
+        function renderStaticBackground() {
+          if (!backgroundCtx) {
+            return;
+          }
+          const width = backgroundCanvas.width / devicePixelRatioCache;
+          const height = backgroundCanvas.height / devicePixelRatioCache;
+          clearCanvas(backgroundCtx, backgroundCanvas);
+          backgroundCtx.save();
+          backgroundCtx.setTransform(devicePixelRatioCache, 0, 0, devicePixelRatioCache, 0, 0);
+          backgroundCtx.translate(centerPoint.x, centerPoint.y);
+          const maxRadius = Math.min(width, height) * 0.48;
+          backgroundCtx.lineWidth = 1.2;
+          backgroundCtx.shadowColor = 'rgba(72, 255, 233, 0.35)';
+          backgroundCtx.shadowBlur = 18;
+          for (let i = 1; i <= RING_COUNT; i += 1) {
+            backgroundCtx.beginPath();
+            const ringRadius = maxRadius * (i / RING_COUNT);
+            backgroundCtx.strokeStyle = `rgba(80, 255, 220, ${(RING_ALPHA_BASE * i).toFixed(3)})`;
+            backgroundCtx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+            backgroundCtx.stroke();
+          }
+          backgroundCtx.shadowBlur = 0;
+          backgroundCtx.setLineDash(CROSSHAIR_DASH_PATTERN);
+          backgroundCtx.strokeStyle = `rgba(80, 255, 220, ${CROSSHAIR_ALPHA})`;
+          backgroundCtx.beginPath();
+          backgroundCtx.moveTo(-maxRadius, 0);
+          backgroundCtx.lineTo(maxRadius, 0);
+          backgroundCtx.moveTo(0, -maxRadius);
+          backgroundCtx.lineTo(0, maxRadius);
+          backgroundCtx.stroke();
+          backgroundCtx.save();
+          backgroundCtx.rotate(Math.PI / 4);
+          backgroundCtx.setLineDash(DIAGONAL_DASH_PATTERN);
+          backgroundCtx.beginPath();
+          backgroundCtx.moveTo(-maxRadius, 0);
+          backgroundCtx.lineTo(maxRadius, 0);
+          backgroundCtx.moveTo(0, -maxRadius);
+          backgroundCtx.lineTo(0, maxRadius);
+          backgroundCtx.stroke();
+          backgroundCtx.restore();
+          backgroundCtx.setLineDash([]);
+          backgroundCtx.beginPath();
+          backgroundCtx.lineWidth = 1;
+          backgroundCtx.strokeStyle = 'rgba(60, 180, 200, 0.18)';
+          backgroundCtx.arc(0, 0, maxRadius, 0, Math.PI * 2);
+          backgroundCtx.stroke();
+          backgroundCtx.beginPath();
+          backgroundCtx.setLineDash([2, 8]);
+          backgroundCtx.strokeStyle = 'rgba(94, 255, 233, 0.18)';
+          backgroundCtx.arc(0, 0, maxRadius * 0.6, 0, Math.PI * 2);
+          backgroundCtx.stroke();
+          backgroundCtx.restore();
         }
 
         resizeCanvas();
@@ -921,6 +1003,11 @@
           if (!audioUnlocked) {
             return;
           }
+          const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          if (now - lastSoundPlayedAt < SOUND_THROTTLE_MS) {
+            return;
+          }
+          lastSoundPlayedAt = now;
           try {
             const clone = radarAudio.cloneNode();
             clone.volume = 0.9;
@@ -998,51 +1085,20 @@
           }
           const width = canvas.width / devicePixelRatioCache;
           const height = canvas.height / devicePixelRatioCache;
-          ctx.clearRect(0, 0, width, height);
+          clearCanvas(ctx, canvas);
+          if (backgroundNeedsRender) {
+            renderStaticBackground();
+            backgroundNeedsRender = false;
+          }
+          if (backgroundCtx) {
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(backgroundCanvas, 0, 0);
+            ctx.restore();
+          }
           const maxRadius = Math.min(width, height) * 0.48;
           ctx.save();
           ctx.translate(centerPoint.x, centerPoint.y);
-          ctx.lineWidth = 1.2;
-          ctx.shadowColor = 'rgba(72, 255, 233, 0.35)';
-          ctx.shadowBlur = 18;
-          for (let i = 1; i <= RING_COUNT; i += 1) {
-            ctx.beginPath();
-            const ringRadius = maxRadius * (i / RING_COUNT);
-            ctx.strokeStyle = `rgba(80, 255, 220, ${(RING_ALPHA_BASE * i).toFixed(3)})`;
-            ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
-            ctx.stroke();
-          }
-          ctx.shadowBlur = 0;
-          ctx.setLineDash(CROSSHAIR_DASH_PATTERN);
-          ctx.strokeStyle = `rgba(80, 255, 220, ${CROSSHAIR_ALPHA})`;
-          ctx.beginPath();
-          ctx.moveTo(-maxRadius, 0);
-          ctx.lineTo(maxRadius, 0);
-          ctx.moveTo(0, -maxRadius);
-          ctx.lineTo(0, maxRadius);
-          ctx.stroke();
-          ctx.save();
-          ctx.rotate(Math.PI / 4);
-          ctx.setLineDash(DIAGONAL_DASH_PATTERN);
-          ctx.beginPath();
-          ctx.moveTo(-maxRadius, 0);
-          ctx.lineTo(maxRadius, 0);
-          ctx.moveTo(0, -maxRadius);
-          ctx.lineTo(0, maxRadius);
-          ctx.stroke();
-          ctx.restore();
-          ctx.setLineDash([]);
-          ctx.beginPath();
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = 'rgba(60, 180, 200, 0.18)';
-          ctx.arc(0, 0, maxRadius, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.setLineDash([2, 8]);
-          ctx.strokeStyle = 'rgba(94, 255, 233, 0.18)';
-          ctx.arc(0, 0, maxRadius * 0.6, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
           const sweepAngleRad = (angle - 90) * Math.PI / 180;
           const tailRad = SWEEP_TAIL_DEG * Math.PI / 180;
           const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, maxRadius);
