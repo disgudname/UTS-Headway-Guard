@@ -132,6 +132,27 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 @keyframes runeBlink{0%,40%,100%{opacity:.85}50%{opacity:.35}}
 @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 
+#cli-preroll{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,rgba(0,8,6,.96)0%,rgba(0,4,2,.98)55%,rgba(0,0,0,.99)100%);color:#9dfcb1;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace;letter-spacing:.04em;opacity:0;visibility:hidden;transition:opacity var(--cli-fade-duration,.42s) ease,visibility var(--cli-fade-duration,.42s) ease}
+#cli-preroll.visible{opacity:1;visibility:visible}
+#cli-preroll.fade-out{opacity:0;visibility:hidden}
+#cli-preroll .cli-terminal{position:relative;width:min(640px,90vw);padding:32px 36px;border:1px solid rgba(138,247,155,.35);background:rgba(0,10,4,.9);box-shadow:0 0 40px rgba(0,255,120,.25);line-height:1.5;overflow:hidden}
+#cli-preroll .cli-terminal::before{content:"";position:absolute;inset:-40%;background:radial-gradient(circle at center,rgba(0,255,120,.18),transparent 62%);opacity:.45;filter:blur(18px);animation:cliScan 7s ease-in-out infinite alternate;pointer-events:none}
+#cli-preroll .cli-terminal::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,255,120,.08)0,rgba(0,255,120,.08)1px,transparent 1px,transparent 3px);opacity:.22;pointer-events:none}
+#cli-preroll .cli-content{position:relative;z-index:1;display:flex;flex-direction:column;gap:6px;font-size:15px}
+#cli-preroll .cli-line{white-space:pre;letter-spacing:.03em;color:#9dfcb1}
+#cli-preroll .cli-line.cli-banner{color:#78f59d}
+#cli-preroll .cli-line.cli-op{color:#b9ffcc}
+#cli-preroll .cli-line.cli-command{color:#d3ffe1}
+#cli-preroll .cli-line.cli-command .cli-prompt{margin-right:6px;color:#78f59d}
+#cli-preroll .cli-line.typing::after,#cli-preroll .cli-line.cursor-hold::after{content:'█';margin-left:4px;animation:cliCursor 1s steps(1,end) infinite}
+#cli-preroll .cli-footer{position:relative;z-index:1;margin-top:18px;color:rgba(157,252,177,.75);font-size:12px;letter-spacing:.18em;text-transform:uppercase}
+#cli-preroll .cli-footer .cli-key{display:inline-block;margin:0 4px;padding:2px 6px;border:1px solid rgba(138,247,155,.35);border-radius:4px;background:rgba(6,26,12,.65);font-size:11px;letter-spacing:.16em}
+@keyframes cliCursor{0%,45%{opacity:1}55%,100%{opacity:0}}
+@keyframes cliScan{0%{transform:translateY(-6%)}100%{transform:translateY(6%)} }
+@media (prefers-reduced-motion:reduce){
+  #cli-preroll{transition:none}
+  #cli-preroll .cli-terminal::before{animation:none}
+}
 #boot-overlay{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at center,rgba(0,8,16,.95)0%,rgba(0,0,0,.98)60%,rgba(0,0,0,.98)100%);color:#9dfcff;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace;letter-spacing:.06em;text-transform:uppercase;transition:opacity .9s ease,visibility .9s ease;box-shadow:inset 0 0 80px rgba(0,255,255,.2);overflow:hidden}
 #boot-overlay::before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(0,255,255,.08),rgba(255,0,183,.05));mix-blend-mode:screen;animation:scanlines 6s linear infinite;opacity:.6}
 #boot-overlay::after{content:"";position:absolute;inset:-50%;background:conic-gradient(from 90deg,rgba(0,255,255,.12),rgba(255,0,183,.08),rgba(0,255,170,.12),rgba(0,255,255,.12));animation:bootGlitch 3s linear infinite;opacity:.15;filter:blur(40px)}
@@ -232,6 +253,164 @@ const DOWNED_HEADER_VARIANTS = [
 ].map(h=>h.map(normalizeHeaderText));
 async function j(u){ const r = await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
 function setBanner(txt,kind){ const b=$('#banner'); if(!txt){ b.style.display='none'; b.textContent=''; return; } b.className='banner '+(kind||'info'); b.textContent=txt; b.style.display='block'; }
+
+function runCyberpunkBootSequence(){
+  if(!CYBERPUNK_ENABLED) return Promise.resolve();
+  const overrideKey='Escape';
+  const overrideLabel=overrideKey==='Escape'?'ESC':overrideKey.toUpperCase();
+  return new Promise(resolve=>{
+    const overlay=document.createElement('div');
+    overlay.id='cli-preroll';
+    overlay.setAttribute('role','dialog');
+    overlay.setAttribute('aria-modal','true');
+    overlay.setAttribute('aria-label','Dispatcher interface boot sequence');
+    overlay.setAttribute('aria-live','polite');
+    overlay.tabIndex=-1;
+    overlay.innerHTML=`
+      <div class="cli-terminal">
+        <div class="cli-content" aria-live="polite" aria-atomic="false"></div>
+        <div class="cli-footer">Press <span class="cli-key">${overrideLabel}</span> to skip</div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const content=overlay.querySelector('.cli-content');
+    if(!content){
+      overlay.remove();
+      resolve();
+      return;
+    }
+    const prefersReduced=window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const charDelay=prefersReduced?0:18;
+    const linePause=prefersReduced?80:70;
+    const bannerPause=prefersReduced?180:320;
+    const commandPause=prefersReduced?140:220;
+    const finalPause=prefersReduced?200:380;
+    const fadeDuration=prefersReduced?180:420;
+    overlay.style.setProperty('--cli-fade-duration', fadeDuration+'ms');
+
+    const bannerLines=[
+      'Phoenix BIOS v4.06 (C) 1985-2001',
+      'Memory Test: 640K OK',
+      'Initializing devices...'
+    ];
+    const typedLines=[
+      'POST diagnostics.............. OK',
+      'Loading system drivers........ OK',
+      'Mounting volume A:\\ .......... OK',
+      'Calibrating dispatch relays... OK'
+    ];
+    const commandText='RUN DISPATCHER.EXE';
+
+    const wait=ms=>new Promise(r=>setTimeout(r,ms));
+    const appendLine=(text,className)=>{
+      const line=document.createElement('div');
+      line.className='cli-line'+(className?' '+className:'');
+      if(text!=null) line.textContent=text;
+      content.appendChild(line);
+      content.scrollTop=content.scrollHeight;
+      return line;
+    };
+
+    const typeText=(text,target,holdCursor)=>new Promise(done=>{
+      const lineEl=target.closest?target.closest('.cli-line'):target;
+      if(!lineEl){ done(); return; }
+      const applyFinal=()=>{
+        target.textContent=text;
+        lineEl.classList.remove('typing');
+        if(holdCursor) lineEl.classList.add('cursor-hold');
+        done();
+      };
+      if(charDelay<=0){
+        applyFinal();
+        return;
+      }
+      lineEl.classList.add('typing');
+      target.textContent='';
+      let idx=0;
+      const step=()=>{
+        if(finished){
+          applyFinal();
+          return;
+        }
+        target.textContent=text.slice(0,idx+1);
+        idx++;
+        if(idx<text.length){
+          setTimeout(step,charDelay);
+        }else{
+          applyFinal();
+        }
+      };
+      step();
+    });
+
+    const typeLine=(text,className)=>{
+      const line=appendLine('',className);
+      return typeText(text,line,false).then(()=>line);
+    };
+
+    const appendCommandLine=()=>{
+      const line=document.createElement('div');
+      line.className='cli-line cli-command';
+      line.innerHTML='<span class="cli-prompt">A:\\></span><span class="cli-type"></span>';
+      content.appendChild(line);
+      content.scrollTop=content.scrollHeight;
+      return line;
+    };
+
+    let finished=false;
+    const cleanup=()=>{
+      document.removeEventListener('keydown',handleKey);
+      if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    };
+    const startFade=()=>{
+      if(finished) return;
+      finished=true;
+      overlay.classList.add('fade-out');
+      setTimeout(()=>{
+        cleanup();
+        resolve();
+      },fadeDuration);
+    };
+    const handleKey=ev=>{
+      if(ev.key===overrideKey){
+        ev.preventDefault();
+        startFade();
+      }
+    };
+
+    document.addEventListener('keydown',handleKey);
+    requestAnimationFrame(()=>{
+      overlay.classList.add('visible');
+      try{ overlay.focus({preventScroll:true}); }catch(_){ overlay.focus(); }
+    });
+
+    (async()=>{
+      bannerLines.forEach(text=>appendLine(text,'cli-banner'));
+      await wait(bannerPause);
+      if(finished) return;
+      for(const text of typedLines){
+        await typeLine(text,'cli-op');
+        if(finished) return;
+        await wait(linePause);
+        if(finished) return;
+      }
+      const commandLine=appendCommandLine();
+      const target=commandLine.querySelector('.cli-type');
+      if(target){
+        await typeText(commandText,target,true);
+        if(finished) return;
+      }
+      await wait(commandPause);
+      if(finished) return;
+      appendLine('Executing DISPATCHER.EXE...','cli-op');
+      await wait(finalPause);
+      if(finished) return;
+      startFade();
+    })().catch(()=>{
+      if(!finished) startFade();
+    });
+  });
+}
 
 function activateCyberpunkMode(){
   document.body.classList.add('cyberpunk');
@@ -457,6 +636,10 @@ function activateCyberpunkMode(){
     setInterval(refreshTicker,15000);
   }
 
+  runCyberpunkBootSequence().then(()=>startCyberpunkSplash());
+}
+
+function startCyberpunkSplash(){
   const overlay=document.createElement('div');
   overlay.id='boot-overlay';
   overlay.innerHTML=`
