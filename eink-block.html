@@ -449,7 +449,12 @@
       }else{
         const unspecified=matches.filter(entry=>{
           const assigned=entry.blockPeriods&&entry.blockPeriods[blockNumber];
-          return !assigned;
+          if(assigned) return false;
+          const explicitPeriod=(entry.period||'').toLowerCase();
+          if(explicitPeriod && explicitPeriod!==normalizedPeriod) return false;
+          const inferred=(entry.inferredPeriod||'').toLowerCase();
+          if(inferred && inferred!==normalizedPeriod) return false;
+          return true;
         });
         if(unspecified.length){
           filtered=unspecified;
