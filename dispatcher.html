@@ -44,19 +44,20 @@ body.kiosk-mode #banner{position:static;transform:none;margin-left:auto}
 body.kiosk-mode #left{overflow:hidden;display:flex;flex-direction:column}
 body.kiosk-mode #layout{flex:1;overflow:hidden}
 body.kiosk-mode main{display:none}
-body.kiosk-mode #layout aside{border-left:none;padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));grid-auto-rows:minmax(0,1fr);gap:12px}
+body.kiosk-mode #layout aside{border-left:none;padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));grid-auto-rows:240px;gap:12px}
 body.kiosk-mode #layout aside .panel{margin:0;display:flex;flex-direction:column;min-height:0;background:#0f141c;border:1px solid #1f2630;border-radius:10px;padding:12px}
 body.kiosk-mode #layout aside .panel h2{margin:0 0 8px;font-size:16px}
-body.kiosk-mode #layout aside .panel .panel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+body.kiosk-mode #layout aside .panel .panel-body{flex:1;min-height:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
 body.kiosk-mode #layout aside .panel .panel-body table{flex:1;overflow:auto;width:100%}
 body.kiosk-mode #layout aside .panel .panel-body ul{flex:1;overflow:auto;margin:0;width:100%}
 body.kiosk-mode #blocks-table,body.kiosk-mode #future-blocks-table,body.kiosk-mode #downed-table{width:100%;table-layout:fixed}
-body.kiosk-mode #blocks td,body.kiosk-mode #future-blocks td{width:25%}
-body.kiosk-mode #blocks td .cell,body.kiosk-mode #future-blocks td .cell{min-height:3.2rem}
-body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fill,minmax(8ch,1fr));grid-auto-rows:minmax(2.8rem,auto);gap:6px}
-body.kiosk-mode #extra-buses li{display:flex;align-items:center;justify-content:center;min-height:2.8rem}
+body.kiosk-mode #blocks td,body.kiosk-mode #future-blocks td{width:25%;height:3rem}
+body.kiosk-mode #blocks td .cell,body.kiosk-mode #future-blocks td .cell{height:100%}
+body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));grid-auto-rows:3rem;gap:6px}
+body.kiosk-mode #extra-buses li{display:flex;align-items:center;justify-content:center;height:100%}
 body.kiosk-mode #downed-table th,body.kiosk-mode #downed-table td{width:50%}
-body.kiosk-mode #downed-table tbody td{padding:10px;min-height:2.8rem}
+body.kiosk-mode #downed-table tbody tr{height:3rem}
+body.kiosk-mode #downed-table tbody td{padding:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.kiosk-mode iframe#map-frame{flex:1.1;border-left:1px solid #1f2630}
 body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 body.cyberpunk.kiosk-mode #layout aside .panel{background:rgba(3,18,28,.92);border-color:rgba(117,247,255,.35);box-shadow:0 0 18px rgba(0,255,255,.18)}
