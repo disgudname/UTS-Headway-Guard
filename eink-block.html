@@ -74,32 +74,48 @@
     text-transform:uppercase;
   }
   #grid-view{
-    width:100%;
-    height:100%;
-    display:grid;
-    grid-template-columns:repeat(4,minmax(0,1fr));
-    grid-template-rows:repeat(9,minmax(0,1fr));
-    gap:6px;
-    align-content:stretch;
-    justify-items:stretch;
+    width:520px;
+    max-width:100%;
+    border:3px solid #000;
+    display:flex;
+    flex-direction:column;
     font-weight:600;
     font-size:18px;
+    background:#fff;
+    margin:0 auto;
   }
   body.grid-mode #grid-view{
-    max-width:420px;
     height:auto;
   }
-  #grid-view .cell{
+  #grid-view .grid-header{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:22px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    text-align:center;
+    padding:12px 8px;
+    border-bottom:3px solid #000;
+  }
+  #grid-view .grid-table{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    grid-template-rows:repeat(9,minmax(48px,1fr));
     width:100%;
-    padding:6px 4px;
+  }
+  #grid-view .cell{
+    padding:10px 6px;
     display:flex;
     flex-direction:column;
     align-items:center;
     justify-content:center;
-    border:1px solid #000;
-    border-radius:4px;
-    min-height:32px;
-    gap:4px;
+    min-height:40px;
+    gap:6px;
+  }
+  #grid-view .cell:nth-child(n+5){
+    border-top:2px solid #000;
+  }
+  #grid-view .cell:not(:nth-child(4n+1)){
+    border-left:2px solid #000;
   }
   #grid-view .cell .block-label{
     font-family:'CenturyGothic',sans-serif;
@@ -116,7 +132,10 @@
     <div id="bus">--</div>
     <div id="status"></div>
   </div>
-  <div id="grid-view" hidden></div>
+  <div id="grid-view" hidden>
+    <div class="grid-header">BLOCK ASSIGNMENTS</div>
+    <div class="grid-table"></div>
+  </div>
 </main>
 <script>
 (function(){
@@ -139,7 +158,9 @@
   ];
 
   function buildGrid(){
-    gridView.innerHTML='';
+    const gridTable=gridView.querySelector('.grid-table');
+    if(!gridTable) return;
+    gridTable.innerHTML='';
     const rows=9;
     for(let row=0;row<rows;row++){
       for(let col=0;col<columns.length;col++){
@@ -157,7 +178,7 @@
           const displayLabel=periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`;
           cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
         }
-        gridView.appendChild(cell);
+        gridTable.appendChild(cell);
       }
     }
   }
