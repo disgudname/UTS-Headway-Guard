@@ -50,8 +50,13 @@ body.kiosk-mode #layout aside .panel h2{margin:0 0 8px;font-size:16px}
 body.kiosk-mode #layout aside .panel .panel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 body.kiosk-mode #layout aside .panel .panel-body table{flex:1;overflow:auto;width:100%}
 body.kiosk-mode #layout aside .panel .panel-body ul{flex:1;overflow:auto;margin:0;width:100%}
-body.kiosk-mode #blocks-table,body.kiosk-mode #future-blocks-table,body.kiosk-mode #downed-table{width:100%}
-body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fill,minmax(8ch,1fr));gap:6px}
+body.kiosk-mode #blocks-table,body.kiosk-mode #future-blocks-table,body.kiosk-mode #downed-table{width:100%;table-layout:fixed}
+body.kiosk-mode #blocks td,body.kiosk-mode #future-blocks td{width:25%}
+body.kiosk-mode #blocks td .cell,body.kiosk-mode #future-blocks td .cell{min-height:3.2rem}
+body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fill,minmax(8ch,1fr));grid-auto-rows:minmax(2.8rem,auto);gap:6px}
+body.kiosk-mode #extra-buses li{display:flex;align-items:center;justify-content:center;min-height:2.8rem}
+body.kiosk-mode #downed-table th,body.kiosk-mode #downed-table td{width:50%}
+body.kiosk-mode #downed-table tbody td{padding:10px;min-height:2.8rem}
 body.kiosk-mode iframe#map-frame{flex:1.1;border-left:1px solid #1f2630}
 body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 body.cyberpunk.kiosk-mode #layout aside .panel{background:rgba(3,18,28,.92);border-color:rgba(117,247,255,.35);box-shadow:0 0 18px rgba(0,255,255,.18)}
@@ -274,7 +279,7 @@ const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COM
 const urlParams = new URLSearchParams(window.location.search);
 const CYBERPUNK_ENABLED = urlParams.get('cyberpunk') === 'true';
 const KIOSK_MODE = urlParams.has('kioskMode');
-const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 3 : 4;
+const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
 if (KIOSK_MODE) {
   document.body.classList.add('kiosk-mode');
 }
@@ -291,10 +296,12 @@ if (CYBERPUNK_ENABLED) {
 if (KIOSK_MODE) {
   const downedTable = document.getElementById('downed-table');
   if (downedTable) {
-    const notesHeader = downedTable.querySelector('thead th:nth-child(3)');
-    if (notesHeader) {
-      notesHeader.remove();
-    }
+    const headers = downedTable.querySelectorAll('thead th');
+    headers.forEach((th, index) => {
+      if (index > 1) {
+        th.remove();
+      }
+    });
     downedTable.querySelectorAll('tbody td[colspan]').forEach(cell => {
       cell.colSpan = DOWNED_TABLE_COLSPAN;
     });
@@ -1068,8 +1075,8 @@ function renderDownedVehicles(rows){
     ];
     if(!KIOSK_MODE){
       cells.push(`<td>${notes}</td>`);
+      cells.push(`<td>${shopParts.join('')}</td>`);
     }
-    cells.push(`<td>${shopParts.join('')}</td>`);
     return `<tr>${cells.join('')}</tr>`;
   }).join('');
 }
