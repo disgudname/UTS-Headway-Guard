@@ -87,6 +87,32 @@
   body.grid-mode #grid-view{
     height:auto;
   }
+  #grid-view .grid-controls{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:8px 12px;
+    border-bottom:3px solid #000;
+    font-family:'CenturyGothic',sans-serif;
+    font-size:14px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+  }
+  #grid-view .grid-controls button{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:12px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:6px 10px;
+    border:2px solid #000;
+    background:#fff;
+    cursor:pointer;
+  }
+  #grid-view .grid-controls button:active{
+    background:#000;
+    color:#fff;
+  }
   #grid-view .grid-header{
     font-family:'CenturyGothic',sans-serif;
     font-size:22px;
@@ -110,6 +136,19 @@
     justify-content:center;
     min-height:40px;
     gap:6px;
+  }
+  #grid-view .cell.editable{
+    cursor:pointer;
+    position:relative;
+  }
+  #grid-view .cell.editable::after{
+    content:'Edit';
+    position:absolute;
+    bottom:6px;
+    right:6px;
+    font-size:10px;
+    letter-spacing:0.08em;
+    color:#555;
   }
   #grid-view .cell:nth-child(n+5){
     border-top:2px solid #000;
@@ -141,6 +180,7 @@
 (function(){
   const params=new URLSearchParams(location.search);
   const enableColors=params.get('colors')==='true';
+  const editMode=params.get('edit')==='true';
   let block=params.get('block');
   const periodParam=(params.get('period')||'').trim().toLowerCase();
   const statusEl=document.getElementById('status');
@@ -151,12 +191,60 @@
   const isGridMode=!block;
   let blockPeriod='';
 
-  const columns=[
+  const defaultColumns=[
     ['01','02','03','04','05','06','07','08','09'],
     ['10','11','12','13','14','15','16AM','17','18AM'],
     ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
     ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
   ];
+
+  function loadLayout(){
+    try{
+      const stored=localStorage.getItem('einkBlockLayout');
+      if(stored){
+        const parsed=JSON.parse(stored);
+        if(Array.isArray(parsed) && parsed.length){
+          const columnsCount=defaultColumns.length;
+          const rowsCount=9;
+          const result=[];
+          for(let colIndex=0;colIndex<columnsCount;colIndex++){
+            const defaultCol=defaultColumns[colIndex]||[];
+            const storedCol=Array.isArray(parsed[colIndex])?parsed[colIndex]:[];
+            const column=[];
+            for(let rowIndex=0;rowIndex<rowsCount;rowIndex++){
+              const storedValue=storedCol[rowIndex];
+              if(typeof storedValue==='string'){
+                column[rowIndex]=storedValue;
+              }else{
+                column[rowIndex]=defaultCol[rowIndex]||'';
+              }
+            }
+            result.push(column);
+          }
+          return result;
+        }
+      }
+    }catch(err){
+      console.warn('Failed to load custom layout',err);
+    }
+    return defaultColumns.map(col=>col.slice());
+  }
+
+  let layout=loadLayout();
+
+  function saveLayout(){
+    try{
+      localStorage.setItem('einkBlockLayout',JSON.stringify(layout));
+    }catch(err){
+      console.warn('Failed to save layout',err);
+    }
+  }
+
+  function resetLayout(){
+    layout=defaultColumns.map(col=>col.slice());
+    saveLayout();
+    buildGrid();
+  }
 
   function getCellColors(block,period){
     const blockId=(block||'').padStart(2,'0');
@@ -198,10 +286,16 @@
     gridTable.innerHTML='';
     const rows=9;
     for(let row=0;row<rows;row++){
-      for(let col=0;col<columns.length;col++){
-        const label=columns[col][row]||'';
+      for(let col=0;col<layout.length;col++){
+        const column=layout[col]||[];
+        const label=column[row]||'';
         const cell=document.createElement('div');
         cell.className='cell';
+        cell.dataset.col=String(col);
+        cell.dataset.row=String(row);
+        if(editMode){
+          cell.classList.add('editable');
+        }
         if(label){
           const match=label.match(/^(\d{2})(AM|PM)?$/i);
           if(match){
@@ -213,6 +307,8 @@
           const displayLabel=periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`;
           cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
           applyCellColors(cell);
+        }else if(editMode){
+          cell.innerHTML='<div class="block-label">Empty</div><div class="bus">—</div>';
         }
         gridTable.appendChild(cell);
       }
@@ -225,6 +321,17 @@
     blockView.hidden=true;
     gridView.hidden=false;
     if(blockNumberEl) blockNumberEl.hidden=true;
+    const controls=gridView.querySelector('.grid-controls');
+    if(editMode){
+      if(!controls){
+        const controlsEl=document.createElement('div');
+        controlsEl.className='grid-controls';
+        controlsEl.innerHTML='<span>Edit Mode — click a block to change it</span><button type="button" id="reset-layout">Reset Layout</button>';
+        gridView.insertBefore(controlsEl,gridView.firstChild);
+      }
+    }else if(controls){
+      controls.remove();
+    }
     buildGrid();
   }
   if(!isGridMode){
@@ -557,6 +664,38 @@
         busEl.textContent='--';
       }
     }
+  }
+
+  if(editMode && isGridMode){
+    gridView.addEventListener('click',event=>{
+      const resetButton=event.target.closest('#reset-layout');
+      if(resetButton){
+        event.preventDefault();
+        event.stopPropagation();
+        if(confirm('Reset layout to defaults?')){
+          resetLayout();
+          refresh();
+        }
+        return;
+      }
+      const cell=event.target.closest('.cell');
+      if(!cell) return;
+      const col=parseInt(cell.dataset.col||'-1',10);
+      const row=parseInt(cell.dataset.row||'-1',10);
+      if(!Number.isInteger(col) || !Number.isInteger(row) || col<0 || row<0) return;
+      if(!layout[col]) layout[col]=[];
+      const current=layout[col][row]||'';
+      const input=prompt('Enter block label (e.g. "01", "20AM", leave blank to clear):',current);
+      if(input===null) return;
+      const value=String(input).toUpperCase().replace(/\s+/g,'');
+      layout[col][row]=value?value:'';
+      saveLayout();
+      buildGrid();
+      refresh();
+    });
+  }else if(isGridMode){
+    const controls=gridView.querySelector('.grid-controls');
+    if(controls) controls.remove();
   }
 
   refresh();
