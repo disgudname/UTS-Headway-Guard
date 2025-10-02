@@ -46,7 +46,7 @@ UTS Headway Guard is a full real-time operations platform for the University Tra
 - `GET /v1/stream/routes/{route_id}` — Server-Sent Events stream that pushes fresh guidance lists on every polling cycle.【F:app.py†L1458-L1473】
 
 ### Dispatch utilities
-- `GET /v1/dispatch/blocks` — aggregates block group schedules, route colors, and route assignment by bus, cached between polls so tables render instantly.【F:app.py†L1356-L1386】
+- `GET /v1/dispatch/blocks` — aggregates block group schedules, plain-language block assignments, route colors, and route assignment by bus, cached between polls so tables render instantly.【F:app.py†L1743-L1773】
 - `GET /v1/transloc/anti_bunching` — lightweight proxy to TransLoc’s native anti-bunching recommendations for side-by-side comparisons in the dispatcher view.【F:app.py†L1390-L1400】
 - `GET /v1/stream/api_calls` — SSE feed of every outbound API request (method, status code, URL) for live observability dashboards.【F:app.py†L1475-L1486】
 
