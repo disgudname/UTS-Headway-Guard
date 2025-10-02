@@ -442,6 +442,78 @@ async def fetch_block_groups(client: httpx.AsyncClient, base_url: Optional[str] 
         return r2.json().get("BlockGroups", [])
     return []
 
+
+def _extract_plain_language_blocks(block_groups: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _safe_int(value: Any) -> Optional[int]:
+        try:
+            iv = int(value)
+        except (TypeError, ValueError):
+            return None
+        return iv if iv else None
+
+    plain_blocks: List[Dict[str, Any]] = []
+    for group in block_groups:
+        group_id_raw = group.get("BlockGroupId")
+        group_id = str(group_id_raw).strip() if group_id_raw is not None else ""
+        if not group_id:
+            continue
+        if re.search(r"\[(\d+)\]", group_id):
+            continue
+        blocks = group.get("Blocks") or []
+        for block in blocks:
+            block_id_raw = block.get("BlockId")
+            block_id = str(block_id_raw).strip() if block_id_raw is not None else ""
+            if not block_id:
+                continue
+
+            route_info = block.get("Route") or {}
+            route_id = route_info.get("RouteId") or route_info.get("RouteID")
+            try:
+                route_id = int(route_id)
+            except (TypeError, ValueError):
+                route_id = None
+            route_name = (
+                route_info.get("Description")
+                or route_info.get("RouteName")
+                or ""
+            )
+            route_color = _normalize_hex_color(
+                route_info.get("Color")
+                or route_info.get("RouteColor")
+            )
+
+            vehicle_id = _safe_int(block.get("VehicleId"))
+            vehicle_name = ""
+            trips = block.get("Trips") or []
+            for trip in trips:
+                if not vehicle_id:
+                    vehicle_id = _safe_int(trip.get("VehicleID"))
+                if not vehicle_name:
+                    name_val = trip.get("VehicleName")
+                    if name_val:
+                        vehicle_name = str(name_val).strip()
+                if vehicle_id and vehicle_name:
+                    break
+
+            if not vehicle_name:
+                name_val = block.get("VehicleName")
+                if name_val:
+                    vehicle_name = str(name_val).strip()
+
+            plain_blocks.append(
+                {
+                    "block_id": block_id,
+                    "block_group_id": group_id,
+                    "vehicle_id": vehicle_id,
+                    "vehicle_name": vehicle_name or None,
+                    "route_id": route_id,
+                    "route_name": route_name or None,
+                    "route_color": route_color,
+                }
+            )
+
+    return plain_blocks
+
 async def fetch_overpass_speed_profile(route: Route, client: httpx.AsyncClient) -> Tuple[List[float], List[str]]:
     """Build per-segment speed caps (m/s) and road names using OSM maxspeed data."""
     pts = route.poly
@@ -1679,12 +1751,22 @@ async def dispatch_blocks():
         color_by_route = {rid: r.color for rid, r in state.routes.items() if r.color}
         route_by_bus: Dict[str, int] = {}
         for rid, vehs in state.vehicles_by_route.items():
+            route = state.routes.get(rid)
+            if rid in {0, None}:
+                continue
+            if route and route.name and "out of service" in route.name.lower():
+                continue
             for v in vehs.values():
-                route_by_bus[str(v.name)] = rid
+                name = str(v.name).strip()
+                if not name:
+                    continue
+                route_by_bus[name] = rid
+        plain_language_blocks = _extract_plain_language_blocks(block_groups)
         res = {
             "block_groups": block_groups,
             "color_by_route": color_by_route,
             "route_by_bus": route_by_bus,
+            "plain_language_blocks": plain_language_blocks,
         }
         state.blocks_cache = res
         state.blocks_cache_ts = time.time()
