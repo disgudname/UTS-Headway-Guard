@@ -65,54 +65,149 @@
   }
 
   const periodSuffix=period==='am'||period==='pm'?period:'';
-  const key = periodSuffix ? `${block}_${periodSuffix}` : block;
   const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
   document.title = `Block ${blockLabel}`;
 
-  const BLOCK_KEYS={
-    '01':['[01]','[01]/[04]'],
-    '02':['[02]'],
-    '03':['[03]','[05]/[03]'],
-    '04':['[04]','[01]/[04]'],
-    '05':['[05]','[05]/[03]'],
-    '06':['[06]','[22]/[06]'],
-    '07':['[07]'],
-    '08':['[08]'],
-    '09':['[09]'],
-    '10':['[10]','[20]/[10]'],
-    '11':['[11]'],
-    '12':['[12]'],
-    '13':['[13]'],
-    '14':['[14]'],
-    '15':['[15]','[26]/[15]'],
-    '16_am':['[16] AM','[21]/[16] AM'],
-    '16_pm':['[16] PM'],
-    '17':['[17]','[23]/[17]'],
-    '18_am':['[18] AM','[24]/[18] AM'],
-    '18_pm':['[18] PM'],
-    '19':['[19]'],
-    '20_am':['[20] AM','[20]/[10]'],
-    '20_pm':['[20] PM','[20]/[10]'],
-    '21_am':['[21] AM','[21]/[16] AM'],
-    '21_pm':['[21] PM'],
-    '22_am':['[22] AM','[22]/[06]'],
-    '22_pm':['[22] PM'],
-    '23_am':['[23] AM','[23]/[17]'],
-    '23':['[23]','[23]/[17]'],
-    '24_am':['[24] AM','[24]/[18] AM'],
-    '24_pm':['[24] PM'],
-    '25_am':['[25] AM'],
-    '25':['[25]'],
-    '26_am':['[26] AM','[26]/[15]'],
-    '26_pm':['[26] PM','[26]/[15]'],
-    '27':['[27]']
-  };
+  function parseTimeToMinutes(str){
+    if(!str) return null;
+    const value=String(str).trim();
+    if(!value) return null;
 
-  function lookupKeys(){
-    const list=BLOCK_KEYS[key];
-    if(list) return list;
-    const defaultKey=periodSuffix?`[${block}] ${periodSuffix.toUpperCase()}`:`[${block}]`;
-    return [defaultKey];
+    let match=value.match(/^PT(?:(\d+)H)?(?:(\d+)M)?$/i);
+    if(match){
+      const hours=parseInt(match[1]||'0',10);
+      const minutes=parseInt(match[2]||'0',10);
+      return hours*60+minutes;
+    }
+
+    match=value.match(/^\/Date\((\d+)\)\/$/);
+    if(match){
+      const date=new Date(Number(match[1]));
+      if(!isNaN(date.getTime())){
+        return date.getHours()*60+date.getMinutes();
+      }
+    }
+
+    match=value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if(match){
+      let hours=parseInt(match[1],10)%12;
+      const minutes=parseInt(match[2],10);
+      if(match[3].toUpperCase()==='PM') hours+=12;
+      return hours*60+minutes;
+    }
+
+    match=value.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if(match){
+      const hours=parseInt(match[1],10);
+      const minutes=parseInt(match[2],10);
+      return hours*60+minutes;
+    }
+
+    return null;
+  }
+
+  function collectRanges(block){
+    const ranges=[];
+    const consider=(startStr,endStr)=>{
+      const start=parseTimeToMinutes(startStr);
+      const end=parseTimeToMinutes(endStr);
+      if(start==null && end==null) return;
+      ranges.push({start,end});
+    };
+
+    consider(block.BlockStartTime,block.BlockEndTime);
+    consider(block.TripStartTime,block.TripEndTime);
+
+    const trips=Array.isArray(block.Trips)?block.Trips:[];
+    for(const trip of trips){
+      consider(trip.BlockStartTime,trip.BlockEndTime);
+      consider(trip.TripStartTime,trip.TripEndTime);
+      consider(trip.StartTime,trip.EndTime);
+      consider(trip.StartTimeDate,trip.EndTimeDate);
+    }
+
+    return ranges;
+  }
+
+  function buildEntry(group){
+    const id=String(group.BlockGroupId||'').trim();
+    const blocks=Array.isArray(group.Blocks)?group.Blocks:[];
+    const blockNumbers=[];
+    const seenNumbers=new Set();
+    const matches=id.match(/\[(\d+)\]/g)||[];
+    for(const raw of matches){
+      const num=raw.replace(/[^0-9]/g,'');
+      if(num && !seenNumbers.has(num)){
+        seenNumbers.add(num);
+        blockNumbers.push(num);
+      }
+    }
+
+    const periodMatch=id.match(/\b(AM|PM)\b/i);
+    const periodLabel=periodMatch?periodMatch[1].toLowerCase():'';
+
+    let bus='—';
+    for(const block of blocks){
+      const trips=Array.isArray(block.Trips)?block.Trips:[];
+      for(const trip of trips){
+        if(trip && trip.VehicleName){
+          bus=String(trip.VehicleName).trim();
+          break;
+        }
+      }
+      if(bus!=='—') break;
+    }
+
+    let minStart=null;
+    let maxEnd=null;
+    for(const block of blocks){
+      const ranges=collectRanges(block);
+      for(const range of ranges){
+        let {start,end}=range;
+        if(start==null && end==null) continue;
+        if(start!=null){
+          if(minStart==null || start<minStart) minStart=start;
+        }
+        if(start!=null && end!=null && end<start){
+          end+=1440;
+        }
+        if(end!=null){
+          if(minStart!=null && end<minStart){
+            while(end<minStart){
+              end+=1440;
+            }
+          }
+          if(maxEnd==null || end>maxEnd) maxEnd=end;
+        }
+      }
+    }
+
+    return {id,blockNumbers,period:periodLabel,bus,minStart,maxEnd};
+  }
+
+  function isActive(entry,nowMinutes){
+    if(entry.minStart==null || entry.maxEnd==null) return false;
+    let start=entry.minStart;
+    let end=entry.maxEnd;
+    let now=nowMinutes;
+    if(end<start){
+      end+=1440;
+      if(now<start) now+=1440;
+    }
+    return now>=start && now<=end;
+  }
+
+  function pickBest(entries,nowMinutes){
+    if(!entries.length) return null;
+    const active=entries.filter(e=>isActive(e,nowMinutes));
+    const activeWithBus=active.find(e=>e.bus && e.bus!=='—');
+    if(activeWithBus) return activeWithBus;
+    if(active.length) return active[0];
+
+    const withBus=entries.find(e=>e.bus && e.bus!=='—');
+    if(withBus) return withBus;
+
+    return entries[0];
   }
 
   async function refresh(){
@@ -121,39 +216,28 @@
       const res=await fetch('/v1/dispatch/blocks');
       if(!res.ok) throw new Error(res.status+'');
       const data=await res.json();
-      const groups=data.block_groups||[];
-      const busByBlock=new Map();
-      for(const g of groups){
-        const raw=String(g.BlockGroupId||'').trim();
-        let bus='—';
-        const blocks=Array.isArray(g.Blocks)?g.Blocks:[];
-        for(const b of blocks){
-          const trips=Array.isArray(b.Trips)?b.Trips:[];
-          for(const t of trips){
-            if(t && t.VehicleName){
-              bus=String(t.VehicleName).trim();
-              break;
-            }
-          }
-          if(bus!=='—') break;
-        }
-        if(!busByBlock.has(raw) || busByBlock.get(raw)==='—'){
-          busByBlock.set(raw,bus);
+      const groups=Array.isArray(data.block_groups)?data.block_groups:[];
+      const entries=[];
+      for(const group of groups){
+        const entry=buildEntry(group);
+        if(entry.blockNumbers.length){
+          entries.push(entry);
         }
       }
-      const wantedKeys=lookupKeys();
-      let found='—';
-      for(const raw of wantedKeys){
-        if(busByBlock.has(raw)){
-          const candidate=busByBlock.get(raw);
-          if(candidate && candidate!=='—'){
-            found=candidate;
-            break;
-          }
-          if(found==='—') found=candidate||'—';
-        }
+
+      const now=new Date();
+      const nowMinutes=now.getHours()*60+now.getMinutes();
+
+      const matches=entries.filter(e=>e.blockNumbers.includes(block));
+      let filtered=matches;
+      if(periodSuffix){
+        const exact=matches.filter(e=>e.period===periodSuffix);
+        if(exact.length) filtered=exact;
       }
-      busEl.textContent=found||'—';
+
+      const best=pickBest(filtered,nowMinutes) || pickBest(matches,nowMinutes);
+      const bus=(best && best.bus)?best.bus:'—';
+      busEl.textContent=bus||'—';
       statusEl.textContent='';
     }catch(err){
       console.error(err);
