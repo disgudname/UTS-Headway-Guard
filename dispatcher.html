@@ -6,6 +6,7 @@
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 :root{--route-color:#2a3442}
 body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative}
+#left{overflow:auto}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630;flex-wrap:wrap}
 header h1{flex-basis:100%}
  #controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
@@ -18,6 +19,7 @@ th,td{border-bottom:1px solid #1f2630;padding:10px;text-align:left}
 #blocks td,#future-blocks td{border:none;padding:2px 4px;text-align:center;width:14ch;height:2.6em}
 #blocks td .cell,#future-blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;height:100%}
 #extra-buses{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(6ch,1fr));gap:4px}
+.panel-body{position:relative}
 #extra-buses li{background:#10151c;border:1px solid #2a3442;border-radius:4px;padding:4px;text-align:center}
 #extra-buses .hint{background:none;border:none;padding:0;grid-column:1/-1;text-align:left}
 .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
@@ -33,6 +35,26 @@ body.cyberpunk .mono{font-family:'Courier Prime','Fira Code','Source Code Pro','
 .banner.info{background:#121922;color:#cfe1ff;border:1px solid #2a3442}
 h2{font-size:18px;margin:16px 0 0}
 #layout{display:flex}
+aside .panel+.panel{margin-top:16px}
+body.kiosk-mode{font-size:16px}
+body.kiosk-mode header{padding:10px 12px}
+body.kiosk-mode #controls{flex-wrap:wrap;padding-right:0}
+body.kiosk-mode #controls label{flex:1 1 140px}
+body.kiosk-mode #banner{position:static;transform:none;margin-left:auto}
+body.kiosk-mode #left{overflow:hidden;display:flex;flex-direction:column}
+body.kiosk-mode #layout{flex:1;overflow:hidden}
+body.kiosk-mode main{display:none}
+body.kiosk-mode #layout aside{border-left:none;padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));grid-auto-rows:minmax(0,1fr);gap:12px}
+body.kiosk-mode #layout aside .panel{margin:0;display:flex;flex-direction:column;min-height:0;background:#0f141c;border:1px solid #1f2630;border-radius:10px;padding:12px}
+body.kiosk-mode #layout aside .panel h2{margin:0 0 8px;font-size:16px}
+body.kiosk-mode #layout aside .panel .panel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+body.kiosk-mode #layout aside .panel .panel-body table{flex:1;overflow:auto}
+body.kiosk-mode #layout aside .panel .panel-body ul{flex:1;overflow:auto;margin:0}
+body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fill,minmax(8ch,1fr));gap:6px}
+body.kiosk-mode iframe#map-frame{flex:1.1;border-left:1px solid #1f2630}
+body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
+body.cyberpunk.kiosk-mode #layout aside .panel{background:rgba(3,18,28,.92);border-color:rgba(117,247,255,.35);box-shadow:0 0 18px rgba(0,255,255,.18)}
+body.cyberpunk.kiosk-mode #layout aside .panel h2{color:#ff80ff}
 @media(max-width:600px){
   #layout{flex-direction:column}
   #layout aside{border-left:none !important;border-top:1px solid #1f2630}
@@ -171,7 +193,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 @keyframes fadeInUp{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
  </style>
 <body>
-<div id="left" style="flex:2;overflow:auto;position:relative">
+<div id="left" style="flex:2;position:relative">
 <header>
   <h1 style="font-size:18px;margin:0">Dispatch - Headway Guard</h1>
   <div id="controls">
@@ -199,23 +221,39 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
     </table>
   </main>
   <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
-    <h2>Current Block Assignments</h2>
-    <table id="blocks-table">
-      <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
-    </table>
-    <h2>Future Block Assignments</h2>
-    <table id="future-blocks-table">
-      <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
-    </table>
-    <h2>Extra Buses</h2>
-    <ul id="extra-buses"><li class="hint">Loading…</li></ul>
-    <h2>Downed Buses</h2>
-    <table id="downed-table">
-      <thead>
-        <tr><th>Vehicle</th><th>Ops</th><th>Notes</th><th>Shop</th></tr>
-      </thead>
-      <tbody id="downed-rows"><tr><td class="hint" colspan="4">Loading…</td></tr></tbody>
-    </table>
+    <section class="panel">
+      <h2>Current Block Assignments</h2>
+      <div class="panel-body">
+        <table id="blocks-table">
+          <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Future Block Assignments</h2>
+      <div class="panel-body">
+        <table id="future-blocks-table">
+          <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Extra Buses</h2>
+      <div class="panel-body">
+        <ul id="extra-buses"><li class="hint">Loading…</li></ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Downed Buses</h2>
+      <div class="panel-body">
+        <table id="downed-table">
+          <thead>
+            <tr><th>Vehicle</th><th>Ops</th><th>Notes</th><th>Shop</th></tr>
+          </thead>
+          <tbody id="downed-rows"><tr><td class="hint" colspan="4">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
   </aside>
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
@@ -232,7 +270,12 @@ const OPS_STATUS_VALUES = new Set(['DOWNED','LIMITED','COSMETIC','COMFORT']);
 const SHOP_STATUS_VALUES = new Set(['DOWN','UP','USABLE']);
 const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COMFORT:'Comfort',DOWN:'Down',UP:'Up',USABLE:'Usable'};
 
-const CYBERPUNK_ENABLED = new URLSearchParams(window.location.search).get('cyberpunk') === 'true';
+const urlParams = new URLSearchParams(window.location.search);
+const CYBERPUNK_ENABLED = urlParams.get('cyberpunk') === 'true';
+const KIOSK_MODE = urlParams.has('kioskMode');
+if (KIOSK_MODE) {
+  document.body.classList.add('kiosk-mode');
+}
 if (CYBERPUNK_ENABLED) {
   const mapFrame = document.getElementById('map-frame');
   if (mapFrame) {
