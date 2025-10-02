@@ -140,6 +140,7 @@
 <script>
 (function(){
   const params=new URLSearchParams(location.search);
+  const enableColors=params.get('colors')==='true';
   let block=params.get('block');
   const periodParam=(params.get('period')||'').trim().toLowerCase();
   const statusEl=document.getElementById('status');
@@ -156,6 +157,40 @@
     ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
     ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
   ];
+
+  function getCellColors(block,period){
+    const blockId=(block||'').padStart(2,'0');
+    const periodId=(period||'').toLowerCase();
+    if(!blockId) return null;
+
+    const numeric=parseInt(blockId,10);
+
+    if(['01','02'].includes(blockId)) return {bg:'#0C8103',text:'#fff'};
+    if(['03','04'].includes(blockId)) return {bg:'#232D48',text:'#fff'};
+    if(numeric>=5 && numeric<=8) return {bg:'#FF7300',text:'#111'};
+    if(numeric>=9 && numeric<=12) return {bg:'#FFDD00',text:'#000'};
+    if(numeric>=13 && numeric<=14) return {bg:'#C3C1C1',text:'#000'};
+    if(numeric>=15 && numeric<=18) return {bg:'#0072BC',text:'#fff'};
+
+    if(periodId==='am' && numeric>=20 && numeric<=26){
+      return {bg:'#F60303',text:'#fff'};
+    }
+
+    if(periodId==='pm' && ['20','21','22','24','26'].includes(blockId)){
+      return {bg:'#F60303',text:'#fff'};
+    }
+
+    return null;
+  }
+
+  function applyCellColors(cell){
+    if(!enableColors || !cell || !cell.dataset) return;
+    const colors=getCellColors(cell.dataset.block,cell.dataset.period||'');
+    if(colors){
+      cell.style.backgroundColor=colors.bg;
+      cell.style.color=colors.text;
+    }
+  }
 
   function buildGrid(){
     const gridTable=gridView.querySelector('.grid-table');
@@ -177,6 +212,7 @@
           const periodSuffix=match && match[2]?match[2].toUpperCase():'';
           const displayLabel=periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`;
           cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
+          applyCellColors(cell);
         }
         gridTable.appendChild(cell);
       }
