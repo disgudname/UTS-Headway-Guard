@@ -12,6 +12,11 @@
     src:url('FGDC.ttf') format('truetype');
     font-display:swap;
   }
+  @font-face{
+    font-family:'CenturyGothic';
+    src:url('centurygothic.ttf') format('truetype');
+    font-display:swap;
+  }
   body{
     margin:0;
     width:250px;
@@ -50,6 +55,12 @@
     flex-direction:column;
     align-items:center;
     gap:4px;
+  }
+  #block-number{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:22px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
   }
   #bus{
     font-size:62px;
@@ -91,6 +102,7 @@
     gap:4px;
   }
   #grid-view .cell .block-label{
+    font-family:'CenturyGothic',sans-serif;
     font-size:14px;
     letter-spacing:0.06em;
   }
@@ -100,6 +112,7 @@
 </style>
 <main>
   <div id="block-view">
+    <div id="block-number" hidden>Block --</div>
     <div id="bus">--</div>
     <div id="status"></div>
   </div>
@@ -114,6 +127,7 @@
   const busEl=document.getElementById('bus');
   const blockView=document.getElementById('block-view');
   const gridView=document.getElementById('grid-view');
+  const blockNumberEl=document.getElementById('block-number');
   const isGridMode=!block;
   let blockPeriod='';
 
@@ -153,12 +167,14 @@
     document.title='Block Grid';
     blockView.hidden=true;
     gridView.hidden=false;
+    if(blockNumberEl) blockNumberEl.hidden=true;
     buildGrid();
   }
   if(!isGridMode){
     document.body.classList.remove('grid-mode');
     blockView.hidden=false;
     gridView.hidden=true;
+    if(blockNumberEl) blockNumberEl.hidden=false;
     block=String(block).trim();
     const blockMatch=block.match(/^(\d{2})(?:\s*(AM|PM))?$/i);
     if(blockMatch){
@@ -168,12 +184,18 @@
     if(!/^\d{2}$/.test(block)){
       statusEl.textContent='Invalid block';
       busEl.textContent='--';
+      if(blockNumberEl){
+        blockNumberEl.textContent='Block --';
+      }
       return;
     }
 
     const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
     const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
     document.title = `Block ${blockLabel}`;
+    if(blockNumberEl){
+      blockNumberEl.textContent = `Block ${blockLabel}`;
+    }
   }
 
   function parseTimeToMinutes(str){
