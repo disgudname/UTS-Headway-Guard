@@ -745,6 +745,7 @@ ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="u
 BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
 NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
 RADAR_HTML = (BASE_DIR / "radar.html").read_text(encoding="utf-8")
+EINK_BLOCK_HTML = (BASE_DIR / "eink-block.html").read_text(encoding="utf-8")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -3027,6 +3028,10 @@ async def map_page():
 @app.get("/radar")
 async def radar_page():
     return HTMLResponse(RADAR_HTML)
+
+@app.get("/eink-block")
+async def eink_block_page():
+    return HTMLResponse(EINK_BLOCK_HTML)
 
 # ---------------------------
 # TEST MAP PAGE
