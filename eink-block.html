@@ -270,14 +270,11 @@
     return {am,pm};
   }
 
-  function getEntryPeriod(entry){
-    return (entry.period||entry.inferredPeriod||'').toLowerCase();
-  }
-
   function buildEntry(group){
     const id=String(group.BlockGroupId||'').trim();
     const blocks=Array.isArray(group.Blocks)?group.Blocks:[];
     const blockNumbers=[];
+    const blockPeriods=Object.create(null);
     const seenNumbers=new Set();
     const matches=id.match(/\[(\d+)\]/g)||[];
     for(const raw of matches){
@@ -290,6 +287,15 @@
 
     const periodMatch=id.match(/\b(AM|PM)\b/i);
     const periodLabel=periodMatch?periodMatch[1].toLowerCase():'';
+
+    if(periodLabel){
+      for(const num of blockNumbers){
+        blockPeriods[num]=periodLabel;
+      }
+    }else if(blockNumbers.length===2){
+      blockPeriods[blockNumbers[0]]='am';
+      blockPeriods[blockNumbers[1]]='pm';
+    }
 
     let bus='—';
     for(const block of blocks){
@@ -355,7 +361,7 @@
       }
     }
 
-    return {id,blockNumbers,period:periodLabel,inferredPeriod,bus,minStart,maxEnd};
+    return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,minStart,maxEnd};
   }
 
   function isActive(entry,nowMinutes){
@@ -391,11 +397,22 @@
     let filtered=matches;
 
     if(normalizedPeriod){
-      const periodMatches=matches.filter(e=>getEntryPeriod(e)===normalizedPeriod);
-      if(periodMatches.length){
-        filtered=periodMatches;
+      const exactMatches=matches.filter(entry=>{
+        const assigned=entry.blockPeriods&&entry.blockPeriods[blockNumber];
+        return assigned===normalizedPeriod;
+      });
+      if(exactMatches.length){
+        filtered=exactMatches;
       }else{
-        return '—';
+        const unspecified=matches.filter(entry=>{
+          const assigned=entry.blockPeriods&&entry.blockPeriods[blockNumber];
+          return !assigned;
+        });
+        if(unspecified.length){
+          filtered=unspecified;
+        }else{
+          return '—';
+        }
       }
     }
 
