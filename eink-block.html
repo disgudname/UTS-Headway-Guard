@@ -48,7 +48,7 @@
 (function(){
   const params=new URLSearchParams(location.search);
   let block=params.get('block');
-  const period=(params.get('period')||'').trim().toLowerCase();
+  const periodParam=(params.get('period')||'').trim().toLowerCase();
   const statusEl=document.getElementById('status');
   const busEl=document.getElementById('bus');
 
@@ -58,13 +58,19 @@
     return;
   }
   block=String(block).trim();
+  let blockPeriod='';
+  const blockMatch=block.match(/^(\d{2})(?:\s*(AM|PM))?$/i);
+  if(blockMatch){
+    block=blockMatch[1];
+    if(blockMatch[2]) blockPeriod=blockMatch[2].toLowerCase();
+  }
   if(!/^\d{2}$/.test(block)){
     statusEl.textContent='Invalid block';
     busEl.textContent='--';
     return;
   }
 
-  const periodSuffix=period==='am'||period==='pm'?period:'';
+  const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
   const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
   document.title = `Block ${blockLabel}`;
 
