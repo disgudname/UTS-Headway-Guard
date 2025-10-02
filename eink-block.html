@@ -395,7 +395,10 @@
       if(periodMatches.length){
         filtered=periodMatches;
       }else{
-        return '—';
+        const unspecified=matches.filter(e=>!getEntryPeriod(e));
+        if(unspecified.length){
+          filtered=unspecified;
+        }
       }
     }
 
