@@ -7,6 +7,11 @@
     color-scheme: only light;
   }
   *{box-sizing:border-box;}
+  @font-face{
+    font-family:'FGDC';
+    src:url('FGDC.ttf') format('truetype');
+    font-display:swap;
+  }
   body{
     margin:0;
     width:250px;
@@ -16,7 +21,7 @@
     justify-content:center;
     background:#fff;
     color:#000;
-    font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-family:'FGDC',sans-serif;
   }
   body.grid-mode{
     width:auto;
@@ -133,7 +138,10 @@
             cell.dataset.block=match[1];
             cell.dataset.period=(match[2]||'').toLowerCase();
           }
-          cell.innerHTML=`<div class="block-label">${label}</div><div class="bus">—</div>`;
+          const blockNumber=match?match[1]:label;
+          const periodSuffix=match && match[2]?match[2].toUpperCase():'';
+          const displayLabel=periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`;
+          cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
         }
         gridView.appendChild(cell);
       }
