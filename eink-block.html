@@ -55,17 +55,26 @@
     align-content:center;
     justify-items:center;
     font-weight:600;
-    font-size:20px;
+    font-size:18px;
   }
   #grid-view .cell{
     width:100%;
-    padding:6px 0;
+    padding:4px 0;
     display:flex;
+    flex-direction:column;
     align-items:center;
     justify-content:center;
     border:1px solid #000;
     border-radius:4px;
     min-height:20px;
+    gap:2px;
+  }
+  #grid-view .cell .block-label{
+    font-size:14px;
+    letter-spacing:0.06em;
+  }
+  #grid-view .cell .bus{
+    font-size:18px;
   }
 </style>
 <main>
@@ -84,47 +93,62 @@
   const busEl=document.getElementById('bus');
   const blockView=document.getElementById('block-view');
   const gridView=document.getElementById('grid-view');
+  const isGridMode=!block;
+  let blockPeriod='';
 
-  if(!block){
-    document.title='Block Grid';
-    blockView.hidden=true;
-    gridView.hidden=false;
-    const columns=[
-      ['01','02','03','04','05','06','07','08','09'],
-      ['10','11','12','13','14','15','16AM','17','18AM'],
-      ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
-      ['', '20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
-    ];
+  const columns=[
+    ['01','02','03','04','05','06','07','08','09'],
+    ['10','11','12','13','14','15','16AM','17','18AM'],
+    ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
+    ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
+  ];
+
+  function buildGrid(){
     gridView.innerHTML='';
     const rows=9;
     for(let row=0;row<rows;row++){
       for(let col=0;col<columns.length;col++){
+        const label=columns[col][row]||'';
         const cell=document.createElement('div');
         cell.className='cell';
-        cell.textContent=columns[col][row]||'';
+        if(label){
+          const match=label.match(/^(\d{2})(AM|PM)?$/i);
+          if(match){
+            cell.dataset.block=match[1];
+            cell.dataset.period=(match[2]||'').toLowerCase();
+          }
+          cell.innerHTML=`<div class="block-label">${label}</div><div class="bus">—</div>`;
+        }
         gridView.appendChild(cell);
       }
     }
-    return;
-  }
-  blockView.hidden=false;
-  gridView.hidden=true;
-  block=String(block).trim();
-  let blockPeriod='';
-  const blockMatch=block.match(/^(\d{2})(?:\s*(AM|PM))?$/i);
-  if(blockMatch){
-    block=blockMatch[1];
-    if(blockMatch[2]) blockPeriod=blockMatch[2].toLowerCase();
-  }
-  if(!/^\d{2}$/.test(block)){
-    statusEl.textContent='Invalid block';
-    busEl.textContent='--';
-    return;
   }
 
-  const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
-  const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
-  document.title = `Block ${blockLabel}`;
+  if(isGridMode){
+    document.title='Block Grid';
+    blockView.hidden=true;
+    gridView.hidden=false;
+    buildGrid();
+  }
+  if(!isGridMode){
+    blockView.hidden=false;
+    gridView.hidden=true;
+    block=String(block).trim();
+    const blockMatch=block.match(/^(\d{2})(?:\s*(AM|PM))?$/i);
+    if(blockMatch){
+      block=blockMatch[1];
+      if(blockMatch[2]) blockPeriod=blockMatch[2].toLowerCase();
+    }
+    if(!/^\d{2}$/.test(block)){
+      statusEl.textContent='Invalid block';
+      busEl.textContent='--';
+      return;
+    }
+
+    const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
+    const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
+    document.title = `Block ${blockLabel}`;
+  }
 
   function parseTimeToMinutes(str){
     if(!str) return null;
@@ -268,6 +292,36 @@
     return entries[0];
   }
 
+  function findBestBus(blockNumber,periodSuffix,entries,nowMinutes){
+    const matches=entries.filter(e=>e.blockNumbers.includes(blockNumber));
+    if(!matches.length) return '—';
+
+    let filtered=matches;
+    if(periodSuffix){
+      const exact=matches.filter(e=>e.period===periodSuffix);
+      if(exact.length) filtered=exact;
+    }else{
+      const noPeriod=matches.filter(e=>!e.period);
+      if(noPeriod.length) filtered=noPeriod;
+    }
+
+    const best=pickBest(filtered,nowMinutes) || pickBest(matches,nowMinutes);
+    return (best && best.bus)?best.bus:'—';
+  }
+
+  function updateGrid(entries,nowMinutes){
+    const cells=gridView.querySelectorAll('.cell[data-block]');
+    for(const cell of cells){
+      const blockNumber=cell.dataset.block;
+      const periodSuffix=cell.dataset.period||'';
+      const bus=findBestBus(blockNumber,periodSuffix,entries,nowMinutes);
+      const busEl=cell.querySelector('.bus');
+      if(busEl){
+        busEl.textContent=bus||'—';
+      }
+    }
+  }
+
   async function refresh(){
     try{
       statusEl.textContent='';
@@ -286,21 +340,20 @@
       const now=new Date();
       const nowMinutes=now.getHours()*60+now.getMinutes();
 
-      const matches=entries.filter(e=>e.blockNumbers.includes(block));
-      let filtered=matches;
-      if(periodSuffix){
-        const exact=matches.filter(e=>e.period===periodSuffix);
-        if(exact.length) filtered=exact;
+      if(isGridMode){
+        updateGrid(entries,nowMinutes);
+      }else{
+        const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
+        const bus=findBestBus(block,periodSuffix,entries,nowMinutes);
+        busEl.textContent=bus||'—';
+        statusEl.textContent='';
       }
-
-      const best=pickBest(filtered,nowMinutes) || pickBest(matches,nowMinutes);
-      const bus=(best && best.bus)?best.bus:'—';
-      busEl.textContent=bus||'—';
-      statusEl.textContent='';
     }catch(err){
       console.error(err);
       statusEl.textContent='Offline';
-      busEl.textContent='--';
+      if(!isGridMode){
+        busEl.textContent='--';
+      }
     }
   }
 
