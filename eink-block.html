@@ -214,6 +214,9 @@
     return null;
   }
 
+  const MINUTES_PER_DAY=1440;
+  const NOON_MINUTES=12*60;
+
   function collectRanges(block){
     const ranges=[];
     const consider=(startStr,endStr)=>{
@@ -235,6 +238,40 @@
     }
 
     return ranges;
+  }
+
+  function calculatePeriodMinutes(start,end){
+    let am=0;
+    let pm=0;
+    if(start==null || end==null) return {am,pm};
+
+    let rangeStart=start;
+    let rangeEnd=end;
+    if(rangeEnd<rangeStart) rangeEnd+=MINUTES_PER_DAY;
+
+    while(rangeStart<rangeEnd){
+      const dayStart=Math.floor(rangeStart/MINUTES_PER_DAY)*MINUTES_PER_DAY;
+      const dayEnd=dayStart+MINUTES_PER_DAY;
+      const segmentEnd=Math.min(rangeEnd,dayEnd);
+      const segStartOfDay=rangeStart-dayStart;
+      const segEndOfDay=segmentEnd-dayStart;
+
+      const amStart=Math.max(segStartOfDay,0);
+      const amEnd=Math.min(segEndOfDay,NOON_MINUTES);
+      if(amEnd>amStart) am+=amEnd-amStart;
+
+      const pmStart=Math.max(segStartOfDay,NOON_MINUTES);
+      const pmEnd=Math.min(segEndOfDay,MINUTES_PER_DAY);
+      if(pmEnd>pmStart) pm+=pmEnd-pmStart;
+
+      rangeStart=segmentEnd;
+    }
+
+    return {am,pm};
+  }
+
+  function getEntryPeriod(entry){
+    return (entry.period||entry.inferredPeriod||'').toLowerCase();
   }
 
   function buildEntry(group){
@@ -268,11 +305,18 @@
 
     let minStart=null;
     let maxEnd=null;
+    let amMinutes=0;
+    let pmMinutes=0;
     for(const block of blocks){
       const ranges=collectRanges(block);
       for(const range of ranges){
         let {start,end}=range;
         if(start==null && end==null) continue;
+        if(start!=null && end!=null){
+          const contribution=calculatePeriodMinutes(start,end);
+          amMinutes+=contribution.am;
+          pmMinutes+=contribution.pm;
+        }
         if(start!=null){
           if(minStart==null || start<minStart) minStart=start;
         }
@@ -290,7 +334,28 @@
       }
     }
 
-    return {id,blockNumbers,period:periodLabel,bus,minStart,maxEnd};
+    let inferredPeriod='';
+    if(periodLabel){
+      inferredPeriod=periodLabel;
+    }else if(amMinutes && !pmMinutes){
+      inferredPeriod='am';
+    }else if(pmMinutes && !amMinutes){
+      inferredPeriod='pm';
+    }else if(amMinutes || pmMinutes){
+      if(pmMinutes>amMinutes) inferredPeriod='pm';
+      else if(amMinutes>pmMinutes) inferredPeriod='am';
+    }else if(minStart!=null && maxEnd!=null){
+      let start=minStart;
+      let end=maxEnd;
+      if(end<start) end+=MINUTES_PER_DAY;
+      const duration=end-start;
+      if(duration>0){
+        const midpoint=(start+duration/2)%MINUTES_PER_DAY;
+        inferredPeriod=midpoint>=NOON_MINUTES?'pm':'am';
+      }
+    }
+
+    return {id,blockNumbers,period:periodLabel,inferredPeriod,bus,minStart,maxEnd};
   }
 
   function isActive(entry,nowMinutes){
@@ -322,17 +387,27 @@
     const matches=entries.filter(e=>e.blockNumbers.includes(blockNumber));
     if(!matches.length) return '—';
 
+    const normalizedPeriod=(periodSuffix||'').toLowerCase();
     let filtered=matches;
-    if(periodSuffix){
-      const exact=matches.filter(e=>e.period===periodSuffix);
-      if(exact.length) filtered=exact;
-    }else{
-      const noPeriod=matches.filter(e=>!e.period);
-      if(noPeriod.length) filtered=noPeriod;
+
+    if(normalizedPeriod){
+      const periodMatches=matches.filter(e=>getEntryPeriod(e)===normalizedPeriod);
+      if(periodMatches.length){
+        filtered=periodMatches;
+      }else{
+        return '—';
+      }
     }
 
-    const best=pickBest(filtered,nowMinutes) || pickBest(matches,nowMinutes);
-    return (best && best.bus)?best.bus:'—';
+    const best=pickBest(filtered,nowMinutes);
+    if(best && best.bus) return best.bus;
+
+    if(filtered!==matches){
+      const fallback=pickBest(matches,nowMinutes);
+      if(fallback && fallback.bus) return fallback.bus;
+    }
+
+    return '—';
   }
 
   function updateGrid(entries,nowMinutes){
