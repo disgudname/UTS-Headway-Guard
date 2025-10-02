@@ -289,6 +289,8 @@
       for(let col=0;col<layout.length;col++){
         const column=layout[col]||[];
         const label=column[row]||'';
+        const trimmedLabel=label.trim();
+        const normalizedLabel=trimmedLabel.replace(/\s+/g,'').toUpperCase();
         const cell=document.createElement('div');
         cell.className='cell';
         cell.dataset.col=String(col);
@@ -296,15 +298,15 @@
         if(editMode){
           cell.classList.add('editable');
         }
-        if(label){
-          const match=label.match(/^(\d{2})(AM|PM)?$/i);
+        if(trimmedLabel){
+          const match=normalizedLabel.match(/^(\d{2})(AM|PM)?$/);
           if(match){
             cell.dataset.block=match[1];
             cell.dataset.period=(match[2]||'').toLowerCase();
           }
-          const blockNumber=match?match[1]:label;
+          const blockNumber=match?match[1]:trimmedLabel;
           const periodSuffix=match && match[2]?match[2].toUpperCase():'';
-          const displayLabel=periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`;
+          const displayLabel=match? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
           cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
           applyCellColors(cell);
         }else if(editMode){
@@ -340,25 +342,30 @@
     gridView.hidden=true;
     if(blockNumberEl) blockNumberEl.hidden=false;
     block=String(block).trim();
-    const blockMatch=block.match(/^(\d{2})(?:\s*(AM|PM))?$/i);
+    const normalizedBlock=block.replace(/\s+/g,'').toUpperCase();
+    const blockMatch=normalizedBlock.match(/^(\d{2})(AM|PM)?$/);
     if(blockMatch){
       block=blockMatch[1];
       if(blockMatch[2]) blockPeriod=blockMatch[2].toLowerCase();
-    }
-    if(!/^\d{2}$/.test(block)){
-      statusEl.textContent='Invalid block';
-      busEl.textContent='--';
+      const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
+      const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
+      document.title = `Block ${blockLabel}`;
       if(blockNumberEl){
-        blockNumberEl.textContent='Block --';
+        blockNumberEl.textContent = `Block ${blockLabel}`;
       }
-      return;
-    }
-
-    const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
-    const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
-    document.title = `Block ${blockLabel}`;
-    if(blockNumberEl){
-      blockNumberEl.textContent = `Block ${blockLabel}`;
+    }else{
+      if(normalizedBlock && /^\d+$/.test(normalizedBlock)){
+        statusEl.textContent='Invalid block';
+        busEl.textContent='--';
+        if(blockNumberEl){
+          blockNumberEl.textContent='Block --';
+        }
+        return;
+      }
+      document.title=block||'Block';
+      if(blockNumberEl){
+        blockNumberEl.textContent=block||'';
+      }
     }
   }
 
@@ -685,10 +692,20 @@
       if(!Number.isInteger(col) || !Number.isInteger(row) || col<0 || row<0) return;
       if(!layout[col]) layout[col]=[];
       const current=layout[col][row]||'';
-      const input=prompt('Enter block label (e.g. "01", "20AM", leave blank to clear):',current);
+      const input=prompt('Enter block label (e.g. "01", "20AM", or plain text; leave blank to clear):',current);
       if(input===null) return;
-      const value=String(input).toUpperCase().replace(/\s+/g,'');
-      layout[col][row]=value?value:'';
+      const rawValue=String(input);
+      const trimmed=rawValue.trim();
+      if(!trimmed){
+        layout[col][row]='';
+      }else{
+        const normalized=trimmed.replace(/\s+/g,'').toUpperCase();
+        if(/^(\d{2})(AM|PM)?$/.test(normalized)){
+          layout[col][row]=normalized;
+        }else{
+          layout[col][row]=trimmed;
+        }
+      }
       saveLayout();
       buildGrid();
       refresh();
