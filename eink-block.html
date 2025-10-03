@@ -226,7 +226,37 @@
     ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
   ];
 
-  const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>'' );
+  const createEmptyCell=()=>({value:'',display:''});
+
+  const toCellString=value=>{
+    if(typeof value==='string') return value;
+    if(value==null) return '';
+    return String(value);
+  };
+
+  const normalizeCellValue=value=>{
+    if(value && typeof value==='object'){
+      const cell=createEmptyCell();
+      if('value' in value){
+        cell.value=toCellString(value.value);
+      }else if('label' in value){
+        cell.value=toCellString(value.label);
+      }else if('block' in value){
+        cell.value=toCellString(value.block);
+      }
+      if('display' in value){
+        cell.display=toCellString(value.display);
+      }else if('text' in value){
+        cell.display=toCellString(value.text);
+      }
+      return cell;
+    }
+    const cell=createEmptyCell();
+    cell.value=toCellString(value);
+    return cell;
+  };
+
+  const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>createEmptyCell());
 
   const normalizeColumn=(column,fallback)=>{
     const result=createBlankColumn();
@@ -234,16 +264,12 @@
     const fallbackSource=Array.isArray(fallback)?fallback:[];
     for(let i=0;i<ROW_COUNT;i++){
       const value=source[i];
-      if(typeof value==='string'){
-        result[i]=value;
-      }else if(value!=null){
-        result[i]=String(value);
+      if(value!=null){
+        result[i]=normalizeCellValue(value);
       }else{
         const fallbackValue=fallbackSource[i];
-        if(typeof fallbackValue==='string'){
-          result[i]=fallbackValue;
-        }else if(fallbackValue!=null){
-          result[i]=String(fallbackValue);
+        if(fallbackValue!=null){
+          result[i]=normalizeCellValue(fallbackValue);
         }
       }
     }
@@ -336,7 +362,9 @@
     for(let row=0;row<rows;row++){
       for(let col=0;col<layout.length;col++){
         const column=layout[col]||[];
-        const label=column[row]||'';
+        const cellData=normalizeCellValue(column[row]);
+        const label=cellData.value||'';
+        const displayOverride=(cellData.display||'').trim();
         const trimmedLabel=label.trim();
         const normalizedLabel=normalizeIdentifier(trimmedLabel);
         const cell=document.createElement('div');
@@ -359,7 +387,8 @@
           cell.dataset.customBlockId=normalizedLabel;
           const blockNumber=match?match[1]:trimmedLabel;
           const periodSuffix=match && match[2]?match[2].toUpperCase():'';
-          const displayLabel=match? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
+          const defaultLabel=match? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
+          const displayLabel=displayOverride||defaultLabel;
           cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
           applyCellColors(cell);
         }else if(editMode){
@@ -930,21 +959,21 @@
       const col=parseInt(cell.dataset.col||'-1',10);
       const row=parseInt(cell.dataset.row||'-1',10);
       if(!Number.isInteger(col) || !Number.isInteger(row) || col<0 || row<0) return;
-      if(!layout[col]) layout[col]=[];
-      const current=layout[col][row]||'';
-      const input=prompt('Enter block label (e.g. "01", "20AM", or plain text; leave blank to clear):',current);
+      if(!layout[col]) layout[col]=createBlankColumn();
+      const currentCell=normalizeCellValue(layout[col][row]);
+      const input=prompt('Enter block label (e.g. "01", "20AM", or plain text; leave blank to clear):',currentCell.value);
       if(input===null) return;
       const rawValue=String(input);
       const trimmed=rawValue.trim();
       if(!trimmed){
-        layout[col][row]='';
+        layout[col][row]=createEmptyCell();
       }else{
         const normalized=normalizeIdentifier(trimmed);
-        if(/^(\d{2})(AM|PM)?$/.test(normalized)){
-          layout[col][row]=normalized;
-        }else{
-          layout[col][row]=trimmed;
-        }
+        const nextValue=/^(\d{2})(AM|PM)?$/.test(normalized)?normalized:trimmed;
+        const displayInput=prompt('Enter display text (leave blank to use the block label):',currentCell.display);
+        if(displayInput===null) return;
+        const displayValue=String(displayInput).trim();
+        layout[col][row]={value:nextValue,display:displayValue};
       }
       saveLayout();
       buildGrid();
