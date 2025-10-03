@@ -823,6 +823,7 @@ BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
 NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
 RADAR_HTML = (BASE_DIR / "radar.html").read_text(encoding="utf-8")
 EINK_BLOCK_HTML = (BASE_DIR / "eink-block.html").read_text(encoding="utf-8")
+DOWNED_HTML = (BASE_DIR / "downed.html").read_text(encoding="utf-8")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -3473,6 +3474,11 @@ async def driver_page():
 @app.get("/dispatcher")
 async def dispatcher_page():
     return HTMLResponse(DISPATCHER_HTML)
+
+
+@app.get("/downed")
+async def downed_page():
+    return HTMLResponse(DOWNED_HTML)
 
 # ---------------------------
 # API CALLS PAGE
