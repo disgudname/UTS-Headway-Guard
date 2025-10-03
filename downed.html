@@ -45,22 +45,10 @@
   }
   #sections{
     flex:1;
-    display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:24px;
-    align-items:start;
-    position:relative;
-  }
-  #sections::before{
-    content:'';
-    position:absolute;
-    top:12px;
-    bottom:12px;
-    left:50%;
-    width:1px;
-    background:var(--line);
-    pointer-events:none;
-    transform:translateX(-0.5px);
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    align-items:stretch;
   }
   section{
     background:var(--panel);
@@ -142,8 +130,7 @@
     section h2{font-size:22px;}
   }
   @media (max-width:960px){
-    #sections{grid-template-columns:1fr;}
-    #sections::before{display:none;}
+    #sections{gap:10px;}
   }
 </style>
 </head>
