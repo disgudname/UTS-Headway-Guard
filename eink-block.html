@@ -684,6 +684,7 @@
   function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
     if(!matches.length) return '—';
     let filtered=matches;
+    let allowFallback=!normalizedPeriod;
     if(blockNumber){
       const exactMatches=matches.filter(entry=>{
         const periods=entry.blockPeriods||null;
@@ -693,6 +694,7 @@
       });
       if(normalizedPeriod && exactMatches.length){
         filtered=exactMatches;
+        allowFallback=false;
       }else if(normalizedPeriod){
         const unspecified=matches.filter(entry=>{
           const periods=entry.blockPeriods||null;
@@ -706,8 +708,10 @@
         });
         if(unspecified.length){
           filtered=unspecified;
+          allowFallback=true;
         }else if(!exactMatches.length){
-          filtered=matches;
+          filtered=[];
+          allowFallback=false;
         }
       }
     }else if(normalizedPeriod){
@@ -720,12 +724,21 @@
       });
       if(periodFiltered.length){
         filtered=periodFiltered;
+        const hasPeriodInfo=periodFiltered.some(entry=>{
+          const explicit=(entry.period||'').toLowerCase();
+          const inferred=(entry.inferredPeriod||'').toLowerCase();
+          return explicit || inferred;
+        });
+        allowFallback=!hasPeriodInfo;
+      }else{
+        filtered=[];
+        allowFallback=false;
       }
     }
 
     const best=pickBest(filtered,nowMinutes);
     if(best && best.bus) return best.bus;
-    if(filtered!==matches){
+    if(filtered!==matches && allowFallback){
       const fallback=pickBest(matches,nowMinutes);
       if(fallback && fallback.bus) return fallback.bus;
     }
