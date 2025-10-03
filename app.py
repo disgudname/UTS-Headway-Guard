@@ -1860,7 +1860,7 @@ async def route_vehicles_raw(route_id: int):
 # ---------------------------
 
 async def _fetch_downed_sheet_csv() -> str:
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
         resp = await client.get(
             DISPATCHER_DOWNED_SHEET_URL,
             headers={"Cache-Control": "no-cache"},
