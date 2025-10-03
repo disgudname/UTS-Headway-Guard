@@ -270,7 +270,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 const $ = s => document.querySelector(s);
 const fmt = s => { if (s==null || !isFinite(s)) return "—"; s = Math.round(s); return String(Math.floor(s/60)).padStart(2,'0')+":"+String(s%60).padStart(2,'0'); };
 const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],red:["HOLD","bad"]}; const [t,c] = m[st] || ["OK","ok"]; return '<span class="pill '+c+'"><span class="dot"></span><span>'+t+'</span></span>'; };
-const DOWNED_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const DOWNED_ENDPOINT = '/v1/dispatcher/downed_buses';
 const DOWNED_REFRESH_MS = 60000;
 const DOWNED_SUFFIXES = new Set(['12','31','32']);
 const OPS_STATUS_VALUES = new Set(['DOWNED','LIMITED','COSMETIC','COMFORT']);
@@ -1086,9 +1086,13 @@ async function loadDownedBuses(){
   const tbody=$('#downed-rows');
   if(!tbody) return;
   try{
-    const res=await fetch(DOWNED_CSV_URL,{cache:'no-store'});
+    const res=await fetch(DOWNED_ENDPOINT,{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
-    const text=await res.text();
+    const payload=await res.json();
+    if(payload && payload.error){
+      console.warn('Downed buses sheet returned with warning:', payload.error);
+    }
+    const text=payload && typeof payload.csv==='string'?payload.csv:'';
     const records=parseVehicleSheet(text);
     const downed=records.filter(r=>r.isDown);
     renderDownedVehicles(downed);

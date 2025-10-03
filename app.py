@@ -151,6 +151,11 @@ PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
 AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
 RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
 ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
+DISPATCHER_DOWNED_SHEET_URL = os.getenv(
+    "DISPATCHER_DOWNED_SHEET_URL",
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv",
+)
+DISPATCHER_DOWNED_REFRESH_S = int(os.getenv("DISPATCHER_DOWNED_REFRESH_S", "60"))
 
 def prune_old_entries() -> None:
     cutoff = int(time.time() * 1000) - VEH_LOG_RETENTION_MS
@@ -825,6 +830,12 @@ ADSB_CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "*",
 }
+
+_downed_sheet_lock = asyncio.Lock()
+_downed_sheet_csv: Optional[str] = None
+_downed_sheet_fetched_at: float = 0.0
+_downed_sheet_last_attempt: float = 0.0
+_downed_sheet_error: Optional[str] = None
 
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc: HTTPException):
@@ -1848,6 +1859,51 @@ async def route_vehicles_raw(route_id: int):
 # REST: Dispatch helpers
 # ---------------------------
 
+async def _fetch_downed_sheet_csv() -> str:
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            DISPATCHER_DOWNED_SHEET_URL,
+            headers={"Cache-Control": "no-cache"},
+        )
+    record_api_call("GET", DISPATCHER_DOWNED_SHEET_URL, resp.status_code)
+    resp.raise_for_status()
+    return resp.text
+
+
+async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
+    global _downed_sheet_csv, _downed_sheet_fetched_at, _downed_sheet_last_attempt, _downed_sheet_error
+
+    now = time.time()
+    async with _downed_sheet_lock:
+        if _downed_sheet_csv is not None and now - _downed_sheet_fetched_at < DISPATCHER_DOWNED_REFRESH_S:
+            return _downed_sheet_csv, _downed_sheet_fetched_at, _downed_sheet_error
+        if now - _downed_sheet_last_attempt < DISPATCHER_DOWNED_REFRESH_S:
+            if _downed_sheet_csv is not None:
+                return _downed_sheet_csv, _downed_sheet_fetched_at, _downed_sheet_error
+            raise HTTPException(status_code=503, detail="downed bus sheet unavailable")
+        _downed_sheet_last_attempt = now
+
+    try:
+        csv_text = await _fetch_downed_sheet_csv()
+    except Exception as exc:
+        err_msg = str(exc)
+        print(f"[downed_sheet] fetch failed: {exc}")
+        async with _downed_sheet_lock:
+            _downed_sheet_error = err_msg
+            cached_csv = _downed_sheet_csv
+            cached_ts = _downed_sheet_fetched_at
+        if cached_csv is None:
+            raise HTTPException(status_code=503, detail="downed bus sheet unavailable") from exc
+        return cached_csv, cached_ts, err_msg
+
+    fetch_ts = time.time()
+    async with _downed_sheet_lock:
+        _downed_sheet_csv = csv_text
+        _downed_sheet_fetched_at = fetch_ts
+        _downed_sheet_error = None
+        return csv_text, fetch_ts, None
+
+
 @app.get("/v1/dispatch/blocks")
 async def dispatch_blocks():
     async with state.lock:
@@ -1879,6 +1935,18 @@ async def dispatch_blocks():
         state.blocks_cache = res
         state.blocks_cache_ts = time.time()
         return res
+
+
+@app.get("/v1/dispatcher/downed_buses")
+async def dispatcher_downed_buses():
+    csv_text, fetched_at, error = await _get_cached_downed_sheet()
+    payload = {
+        "csv": csv_text,
+        "fetched_at": int(fetched_at * 1000) if fetched_at else None,
+    }
+    if error:
+        payload["error"] = error
+    return payload
 
 
 # ---------------------------
