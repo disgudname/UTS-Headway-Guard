@@ -225,6 +225,12 @@
     ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
     ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
   ];
+  const LAYOUT_STORAGE_KEY='einkBlockLayout';
+  const LAYOUT_ENDPOINT='/api/eink-block/layout';
+  const DEFAULT_STATUS_MESSAGE='Edit Mode — click a block to change it';
+  let gridStatusEl=null;
+  let gridStatusTimer=null;
+  let saveSequence=0;
 
   const createEmptyCell=()=>({value:'',display:''});
 
@@ -276,9 +282,46 @@
     return result;
   };
 
-  function loadLayout(){
+  function getGridStatusEl(){
+    if(!isGridMode || !editMode) return null;
+    if(gridStatusEl && gridStatusEl.isConnected) return gridStatusEl;
+    gridStatusEl=gridView?gridView.querySelector('.grid-controls-status'):null;
+    return gridStatusEl;
+  }
+
+  function setGridStatus(message,{temporary=false}={}){
+    if(!editMode || !isGridMode) return;
+    const el=getGridStatusEl();
+    if(!el) return;
+    if(gridStatusTimer){
+      clearTimeout(gridStatusTimer);
+      gridStatusTimer=null;
+    }
+    el.textContent=message;
+    if(temporary){
+      gridStatusTimer=setTimeout(()=>{
+        const statusEl=getGridStatusEl();
+        if(statusEl && statusEl.textContent===message){
+          statusEl.textContent=DEFAULT_STATUS_MESSAGE;
+        }
+      },2000);
+    }
+  }
+
+  function resetGridStatus(){
+    if(gridStatusTimer){
+      clearTimeout(gridStatusTimer);
+      gridStatusTimer=null;
+    }
+    const el=getGridStatusEl();
+    if(el){
+      el.textContent=DEFAULT_STATUS_MESSAGE;
+    }
+  }
+
+  function readLocalLayout(){
     try{
-      const stored=localStorage.getItem('einkBlockLayout');
+      const stored=localStorage.getItem(LAYOUT_STORAGE_KEY);
       if(stored){
         const parsed=JSON.parse(stored);
         if(Array.isArray(parsed) && parsed.length){
@@ -292,19 +335,103 @@
         }
       }
     }catch(err){
-      console.warn('Failed to load custom layout',err);
+      console.warn('Failed to load saved layout',err);
     }
-    return defaultColumns.map(col=>normalizeColumn(col));
+    return null;
   }
 
-  let layout=loadLayout();
+  function persistLocalLayout(data){
+    try{
+      localStorage.setItem(LAYOUT_STORAGE_KEY,JSON.stringify(data));
+    }catch(err){
+      console.warn('Failed to store layout locally',err);
+    }
+  }
+
+  let layout=defaultColumns.map(col=>normalizeColumn(col));
+  const localLayout=readLocalLayout();
+  if(localLayout){
+    layout=localLayout;
+  }
+
+  function serializeLayout(){
+    return layout.map(column=>{
+      return column.map(cell=>{
+        const normalized=normalizeCellValue(cell);
+        const value=(normalized.value||'').trim();
+        const display=(normalized.display||'').trim();
+        if(!value && !display) return null;
+        if(display){
+          return {value,display};
+        }
+        return value;
+      });
+    });
+  }
+
+  function setLayoutFromData(data,{persist=true,rebuild=true}={}){
+    if(!Array.isArray(data) || !data.length) return false;
+    const normalized=data.map(col=>normalizeColumn(col));
+    if(!normalized.length) return false;
+    layout=normalized;
+    if(persist){
+      persistLocalLayout(serializeLayout());
+    }
+    if(rebuild && isGridMode){
+      buildGrid();
+    }
+    return true;
+  }
 
   function saveLayout(){
-    try{
-      localStorage.setItem('einkBlockLayout',JSON.stringify(layout));
-    }catch(err){
-      console.warn('Failed to save layout',err);
-    }
+    const serialized=serializeLayout();
+    persistLocalLayout(serialized);
+    const current=++saveSequence;
+    setGridStatus('Saving…');
+    fetch(LAYOUT_ENDPOINT,{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({layout:serialized})
+    }).then(res=>{
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return res.json();
+    }).then(data=>{
+      if(current!==saveSequence) return;
+      if(data && Array.isArray(data.layout)){
+        setLayoutFromData(data.layout,{persist:true,rebuild:false});
+      }
+      setGridStatus('Saved',{temporary:true});
+    }).catch(err=>{
+      console.warn('Failed to save layout to server',err);
+      if(current!==saveSequence) return;
+      setGridStatus('Saved locally — server unavailable',{temporary:true});
+    });
+  }
+
+  function fetchLayoutFromServer({announce=false}={}){
+    return fetch(LAYOUT_ENDPOINT,{cache:'no-store'}).then(res=>{
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return res.json();
+    }).then(data=>{
+      if(data && Array.isArray(data.layout) && data.layout.length){
+        const applied=setLayoutFromData(data.layout,{persist:true,rebuild:isGridMode});
+        if(applied && isGridMode){
+          refresh();
+        }
+        if(announce && applied){
+          setGridStatus('Loaded saved layout',{temporary:true});
+        }
+      }else if(announce){
+        setGridStatus('Using default layout',{temporary:true});
+      }
+      return data;
+    }).catch(err=>{
+      console.warn('Failed to fetch layout from server',err);
+      if(announce){
+        setGridStatus('Using local layout',{temporary:true});
+      }
+      throw err;
+    });
   }
 
   function resetLayout(){
@@ -410,11 +537,20 @@
       if(!controls){
         const controlsEl=document.createElement('div');
         controlsEl.className='grid-controls';
-        controlsEl.innerHTML='<span class="grid-controls-status">Edit Mode — click a block to change it</span><div class="grid-controls-buttons"><button type="button" id="add-column">Add Column</button><button type="button" id="remove-column">Remove Column</button><button type="button" id="reset-layout">Reset Layout</button></div>';
+        controlsEl.innerHTML=`<span class="grid-controls-status">${DEFAULT_STATUS_MESSAGE}</span><div class="grid-controls-buttons"><button type="button" id="add-column">Add Column</button><button type="button" id="remove-column">Remove Column</button><button type="button" id="reset-layout">Reset Layout</button></div>`;
         gridView.insertBefore(controlsEl,gridView.firstChild);
+        gridStatusEl=controlsEl.querySelector('.grid-controls-status');
+      }else{
+        gridStatusEl=controls.querySelector('.grid-controls-status');
       }
+      resetGridStatus();
     }else if(controls){
       controls.remove();
+      if(gridStatusTimer){
+        clearTimeout(gridStatusTimer);
+        gridStatusTimer=null;
+      }
+      gridStatusEl=null;
     }
     buildGrid();
   }
@@ -423,6 +559,7 @@
     blockView.hidden=false;
     gridView.hidden=true;
     if(blockNumberEl) blockNumberEl.hidden=false;
+    gridStatusEl=null;
     block=String(block).trim();
     const normalizedBlock=normalizeIdentifier(block);
     const blockMatch=normalizedBlock.match(/^(\d{2})(AM|PM)?$/);
@@ -984,6 +1121,7 @@
     if(controls) controls.remove();
   }
 
+  fetchLayoutFromServer({announce:editMode&&isGridMode}).catch(()=>{});
   refresh();
   setInterval(refresh, 30000);
 })();
