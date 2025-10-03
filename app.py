@@ -36,7 +36,7 @@ import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
-from fastapi import FastAPI, HTTPException, Request, Response, Query
+from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
@@ -1893,7 +1893,7 @@ async def get_eink_block_layout():
 
 
 @app.post("/api/eink-block/layout")
-async def update_eink_block_layout(payload: Any):
+async def update_eink_block_layout(payload: Any = Body(...)):
     layout_payload = payload.get("layout") if isinstance(payload, dict) else payload
     if layout_payload is None:
         raise HTTPException(status_code=400, detail="layout is required")
