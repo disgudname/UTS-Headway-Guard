@@ -23,6 +23,7 @@
     --pill-down:#980000;
     --pill-hold:#ffb347;
     --pill-up:#66d977;
+    --pill-usable:#0000ff;
   }
   *{box-sizing:border-box;}
   body{
@@ -120,6 +121,7 @@
   .pill.downed{color:var(--pill-down);}
   .pill.hold{color:var(--pill-hold);}
   .pill.up{color:var(--pill-up);}
+  .pill.usable{color:var(--pill-usable);}
   .pill.cosmetic{color:#00ffff;}
   .pill.comfort{color:#ff00ff;}
   .pill.limited{color:#ffff00;}
@@ -241,6 +243,7 @@ function getStatusClass(text){
   if(hasTerm('VSI')) return 'vsi';
   if(hasTerm('PM')) return 'pm';
   if(hasTerm('HOLD')) return 'hold';
+  if(hasTerm('USABLE')) return 'usable';
   if(hasTerm('UP')) return 'up';
   return '';
 }
