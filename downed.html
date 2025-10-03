@@ -20,7 +20,7 @@
     --muted:#9fb0c9;
     --line:rgba(159,176,201,0.25);
     --accent:#ffb347;
-    --pill-down:#f45d5d;
+    --pill-down:#980000;
     --pill-hold:#ffb347;
     --pill-up:#66d977;
   }
@@ -114,9 +114,15 @@
     border-radius:50%;
     background:currentColor;
   }
-  .pill.down{color:var(--pill-down);}
+  .pill.down,
+  .pill.downed{color:var(--pill-down);}
   .pill.hold{color:var(--pill-hold);}
   .pill.up{color:var(--pill-up);}
+  .pill.cosmetic{color:#00ffff;}
+  .pill.comfort{color:#ff00ff;}
+  .pill.limited{color:#ffff00;}
+  .pill.vsi{color:#ff6d01;}
+  .pill.pm{color:#34a853;}
   .empty-indicator{
     padding:36px 24px;
     text-align:center;
@@ -216,20 +222,28 @@ function parseSheet(csvText){
 function getStatusClass(text){
   if(!text) return '';
   const upper=text.toUpperCase();
-  if(upper.includes('DOWN')) return 'down';
-  if(upper.includes('HOLD')) return 'hold';
-  if(upper.includes('UP')) return 'up';
-  if(upper.includes('LIMITED')) return 'hold';
+  const hasTerm=term=>new RegExp('\\b'+term+'\\b').test(upper);
+  if(hasTerm('COSMETIC')) return 'cosmetic';
+  if(hasTerm('COMFORT')) return 'comfort';
+  if(hasTerm('DOWNED') || hasTerm('DOWN')) return 'downed';
+  if(hasTerm('LIMITED')) return 'limited';
+  if(hasTerm('VSI')) return 'vsi';
+  if(hasTerm('PM')) return 'pm';
+  if(hasTerm('HOLD')) return 'hold';
+  if(hasTerm('UP')) return 'up';
   return '';
 }
 
 function renderSection(section){
   const wrapper=document.createElement('section');
-  const header=document.createElement('header');
-  const title=document.createElement('h2');
-  title.textContent=section.title;
-  header.appendChild(title);
-  wrapper.appendChild(header);
+  const title=section.title ? String(section.title).trim() : '';
+  if(title && title!=='Bus' && title!=='P&T Support Vehicle'){
+    const header=document.createElement('header');
+    const heading=document.createElement('h2');
+    heading.textContent=title;
+    header.appendChild(heading);
+    wrapper.appendChild(header);
+  }
 
   if(!section.rows.length){
     const empty=document.createElement('div');
@@ -249,7 +263,8 @@ function renderSection(section){
   visibleColumns.forEach(col => {
     const text=col.text;
     const th=document.createElement('th');
-    if(text){
+    const normalized=normalizeHeader(text);
+    if(text && normalized!=='bus' && normalized!=='p&t support vehicle'){
       const parts=String(text).split('\n');
       parts.forEach((part,idx)=>{
         if(idx>0) th.appendChild(document.createElement('br'));
