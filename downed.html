@@ -156,7 +156,9 @@ function abbreviateHeaderLabel(text){
   if(!text) return text;
   return String(text)
     .replace(/SUPERVISOR/gi,'SUP')
-    .replace(/MECHANIC/gi,'MECH');
+    .replace(/MECHANIC/gi,'MECH')
+    .replace(/DIAGNOSTIC DATE/gi,'DIAG DATE')
+    .replace(/ACTUAL DELIVERY DATE/gi,'DELIVERY DATE');
 }
 
 function normalizeHeader(text){
