@@ -194,6 +194,14 @@
   let selectedBlockId='';
 
   const normalizeIdentifier=value=>String(value||'').replace(/[^0-9a-z]/gi,'').toUpperCase();
+  const cleanBusIdentifier=value=>{
+    if(value==null) return '';
+    const text=String(value).trim();
+    if(!text) return '';
+    if(text==='—') return '';
+    if(/^0+$/.test(text)) return '';
+    return text;
+  };
 
   const defaultColumns=[
     ['01','02','03','04','05','06','07','08','09'],
@@ -511,8 +519,9 @@
     for(const block of blocks){
       const trips=Array.isArray(block.Trips)?block.Trips:[];
       for(const trip of trips){
-        if(trip && trip.VehicleName){
-          bus=String(trip.VehicleName).trim();
+        const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
+        if(tripBus){
+          bus=tripBus;
           break;
         }
       }
@@ -601,19 +610,21 @@
       }
 
       let blockBus='—';
-      if(block.VehicleName){
-        blockBus=String(block.VehicleName).trim();
+      const blockVehicleName=cleanBusIdentifier(block.VehicleName);
+      if(blockVehicleName){
+        blockBus=blockVehicleName;
       }
       if(blockBus==='—' && block.VehicleId!=null){
-        const idString=String(block.VehicleId).trim();
+        const idString=cleanBusIdentifier(block.VehicleId);
         if(idString){
           blockBus=idString;
         }
       }
       const trips=Array.isArray(block.Trips)?block.Trips:[];
       for(const trip of trips){
-        if(trip && trip.VehicleName){
-          blockBus=String(trip.VehicleName).trim();
+        const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
+        if(tripBus){
+          blockBus=tripBus;
           break;
         }
       }
@@ -731,8 +742,10 @@
         const lookup=entry.blockIdLookup;
         if(lookup && lookup.has(blockIdNormalized)){
           const info=lookup.get(blockIdNormalized);
+          const infoBusClean=cleanBusIdentifier(info.bus);
+          const entryBusClean=cleanBusIdentifier(entry.bus);
           const candidate={
-            bus:(info.bus && info.bus!=='—')?info.bus:entry.bus,
+            bus:infoBusClean||entryBusClean||'—',
             blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
             blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
             period:entry.period,
