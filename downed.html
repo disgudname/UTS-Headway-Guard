@@ -37,44 +37,26 @@
   main{
     width:100%;
     max-width:1600px;
-    padding:32px 24px 48px;
+    padding:24px 24px 32px;
     display:flex;
     flex-direction:column;
-    gap:24px;
-  }
-  header{
-    display:flex;
-    flex-direction:column;
-    gap:16px;
-  }
-  h1{
-    margin:0;
-    font-size:38px;
-    font-weight:600;
-    letter-spacing:0.04em;
-    text-transform:uppercase;
-  }
-  #groups{
-    display:flex;
-    flex-wrap:wrap;
-    gap:12px;
-  }
-  #groups span{
-    background:var(--panel);
-    border:1px solid var(--line);
-    padding:10px 18px;
-    border-radius:999px;
-    font-size:18px;
-    letter-spacing:0.05em;
-    text-transform:uppercase;
+    gap:20px;
+    min-height:100vh;
   }
   #meta{
     display:flex;
     align-items:center;
-    flex-wrap:wrap;
-    gap:12px 24px;
-    font-size:15px;
+    justify-content:space-between;
+    gap:16px;
+    font-size:18px;
     color:var(--muted);
+    flex-wrap:wrap;
+  }
+  #sections{
+    flex:1;
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(420px,1fr));
+    gap:20px;
   }
   section{
     background:var(--panel);
@@ -82,6 +64,8 @@
     border-radius:18px;
     overflow:hidden;
     box-shadow:0 18px 32px rgba(6,11,28,0.35);
+    display:flex;
+    flex-direction:column;
   }
   section header{
     padding:18px 24px 0;
@@ -150,29 +134,24 @@
   @media (max-width:1100px){
     table{font-size:14px;}
     tbody td{font-size:16px;}
-    main{padding:24px 16px;}
-    h1{font-size:30px;}
+    main{padding:20px 16px;}
+    #sections{grid-template-columns:repeat(auto-fit,minmax(360px,1fr));}
     section h2{font-size:22px;}
   }
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <h1>Downed Vehicles</h1>
-    <div id="groups"></div>
-    <div id="meta">
-      <span id="updated">Last updated: —</span>
-      <span id="status"></span>
-    </div>
-  </header>
+  <div id="meta">
+    <span id="updated">Last updated: —</span>
+    <span id="status"></span>
+  </div>
   <div id="sections"></div>
 </main>
 <script>
 const ENDPOINT = '/v1/dispatcher/downed_buses';
 const REFRESH_MS = 60000;
 const sectionsContainer = document.getElementById('sections');
-const groupsContainer = document.getElementById('groups');
 const updatedEl = document.getElementById('updated');
 const statusEl = document.getElementById('status');
 let refreshTimer = null;
@@ -240,15 +219,6 @@ function parseSheet(csvText){
     current.rows.push(row.slice());
   }
   return { headerLine, sections };
-}
-
-function renderGroups(headerLine){
-  groupsContainer.innerHTML='';
-  headerLine.map(cleanCell).filter(Boolean).forEach(label => {
-    const span=document.createElement('span');
-    span.textContent=label;
-    groupsContainer.appendChild(span);
-  });
 }
 
 function getStatusClass(text){
@@ -336,7 +306,6 @@ function renderSection(section){
 }
 
 function renderSheet(data){
-  renderGroups(data.headerLine || []);
   sectionsContainer.innerHTML='';
   if(!data.sections.length){
     const empty=document.createElement('div');
