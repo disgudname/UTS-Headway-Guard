@@ -407,7 +407,6 @@ function renderSection(section){
     tbody.appendChild(tr);
   });
   if(!tbody.children.length){
-    wrapper.removeChild(table);
     const empty=document.createElement('div');
     empty.className='empty-indicator';
     empty.textContent='No records to display.';
