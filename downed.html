@@ -71,7 +71,7 @@
   table{
     width:100%;
     border-collapse:collapse;
-    table-layout:fixed;
+    table-layout:auto;
     background:var(--panel);
   }
   thead th{
@@ -143,6 +143,23 @@ const ENDPOINT = '/v1/dispatcher/downed_buses';
 const REFRESH_MS = 60000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
+
+const HIDDEN_HEADER_LABELS = new Set(['current eta']);
+
+function normalizeHeader(text){
+  return String(text || '')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+
+function isHiddenHeader(text){
+  return HIDDEN_HEADER_LABELS.has(normalizeHeader(text));
+}
+
+function isStatusHeader(text){
+  return normalizeHeader(text) === 'status';
+}
 
 function parseCsv(text){
   const rows=[];
@@ -225,7 +242,12 @@ function renderSection(section){
   const table=document.createElement('table');
   const thead=document.createElement('thead');
   const headRow=document.createElement('tr');
-  section.headers.forEach(text => {
+  const visibleColumns=section.headers
+    .map((text,index)=>({ text, index }))
+    .filter(col=>!isHiddenHeader(col.text));
+
+  visibleColumns.forEach(col => {
+    const text=col.text;
     const th=document.createElement('th');
     if(text){
       const parts=String(text).split('\n');
@@ -246,10 +268,12 @@ function renderSection(section){
     const tr=document.createElement('tr');
     const padded=row.slice();
     while(padded.length<section.headers.length){ padded.push(''); }
-    padded.forEach((cell,index) => {
+    visibleColumns.forEach(col => {
+      const { index, text: headerText } = col;
+      const cell=padded[index];
       const td=document.createElement('td');
       const text=cell;
-      if(index===1){
+      if(isStatusHeader(headerText)){
         const cls=getStatusClass(text);
         td.className='status';
         if(text && cls){
