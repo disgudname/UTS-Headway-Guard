@@ -306,11 +306,21 @@ function renderSection(section){
       const text=cell;
       if(index===1){
         const cls=getStatusClass(text);
+        td.className='status';
         if(text && cls){
-          td.className='status';
-          td.innerHTML=`<span class="pill ${cls}"><span class="dot"></span><span>${text}</span></span>`;
+          const pill=document.createElement('span');
+          pill.classList.add('pill', cls);
+
+          const dot=document.createElement('span');
+          dot.className='dot';
+          pill.appendChild(dot);
+
+          const label=document.createElement('span');
+          label.textContent=text;
+          pill.appendChild(label);
+
+          td.appendChild(pill);
         }else{
-          td.className='status';
           td.textContent=text;
         }
       }else{
