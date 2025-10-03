@@ -855,6 +855,8 @@ CONFIG_KEYS = [
 CONFIG_NAME = "config.json"
 CONFIG_FILE = PRIMARY_DATA_DIR / CONFIG_NAME
 
+EINK_BLOCK_LAYOUT_NAME = "eink_block_layout.json"
+
 class TTLCache:
     def __init__(self, ttl: float):
         self.ttl = ttl
@@ -928,6 +930,103 @@ def save_config() -> None:
 
 
 load_config()
+
+
+def _normalize_layout_cell(cell: Any) -> Any:
+    if cell is None:
+        return None
+    if isinstance(cell, (int, float)):
+        cell = str(cell)
+    if isinstance(cell, str):
+        text = cell.strip()
+        return text
+    if isinstance(cell, dict):
+        result: Dict[str, str] = {}
+        if "value" in cell:
+            value = cell.get("value")
+        elif "label" in cell:
+            value = cell.get("label")
+        elif "block" in cell:
+            value = cell.get("block")
+        else:
+            value = ""
+        display = cell.get("display") if "display" in cell else cell.get("text")
+        value_str = str(value).strip() if value is not None else ""
+        display_str = str(display).strip() if display is not None else ""
+        if value_str:
+            result["value"] = value_str
+        if display_str:
+            result["display"] = display_str
+        return result if result else None
+    return None
+
+
+def _normalize_layout_column(column: Any) -> List[Any]:
+    if not isinstance(column, list):
+        return []
+    normalized: List[Any] = []
+    for cell in column:
+        normalized.append(_normalize_layout_cell(cell))
+    return normalized
+
+
+def _normalize_layout(layout: Any) -> List[List[Any]]:
+    if not isinstance(layout, list):
+        return []
+    normalized: List[List[Any]] = []
+    for column in layout:
+        normalized.append(_normalize_layout_column(column))
+    return normalized
+
+
+def _decode_layout_payload(payload: Any) -> Tuple[List[List[Any]], Optional[int]]:
+    layout_data: Any
+    updated_at: Optional[int] = None
+    if isinstance(payload, dict):
+        layout_data = payload.get("layout")
+        ts = payload.get("updated_at")
+        if isinstance(ts, (int, float)):
+            updated_at = int(ts)
+    else:
+        layout_data = payload
+    layout = _normalize_layout(layout_data)
+    return layout, updated_at
+
+
+def load_eink_block_layout() -> Tuple[List[List[Any]], Optional[int]]:
+    for base in DATA_DIRS:
+        path = base / EINK_BLOCK_LAYOUT_NAME
+        if not path.exists():
+            continue
+        try:
+            raw = json.loads(path.read_text())
+        except Exception as exc:
+            print(f"[eink_layout] error reading {path}: {exc}")
+            continue
+        layout, updated_at = _decode_layout_payload(raw)
+        if layout:
+            return layout, updated_at
+    return [], None
+
+
+def save_eink_block_layout(layout_payload: Any) -> Tuple[List[List[Any]], int]:
+    layout = _normalize_layout(layout_payload)
+    if not layout:
+        raise ValueError("layout must contain at least one column")
+    payload = {
+        "layout": layout,
+        "updated_at": int(time.time()),
+    }
+    encoded = json.dumps(payload)
+    for base in DATA_DIRS:
+        path = base / EINK_BLOCK_LAYOUT_NAME
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(encoded)
+        except Exception as exc:
+            print(f"[eink_layout] error writing {path}: {exc}")
+    propagate_file(EINK_BLOCK_LAYOUT_NAME, encoded)
+    return layout, payload["updated_at"]
 
 class State:
     def __init__(self):
@@ -1169,7 +1268,7 @@ async def receive_sync(payload: dict):
     data = payload.get("data")
     if (
         not isinstance(name, str)
-        or name not in {CONFIG_NAME, MILEAGE_NAME, VEHICLE_HEADINGS_NAME}
+        or name not in {CONFIG_NAME, MILEAGE_NAME, VEHICLE_HEADINGS_NAME, EINK_BLOCK_LAYOUT_NAME}
         or not isinstance(data, str)
     ):
         raise HTTPException(status_code=400, detail="invalid payload")
@@ -1180,6 +1279,15 @@ async def receive_sync(payload: dict):
         except Exception as e:
             print(f"[sync] error decoding vehicle headings payload: {e}")
             parsed_headings = None
+    elif name == EINK_BLOCK_LAYOUT_NAME:
+        try:
+            decoded = json.loads(data)
+            layout, _ = _decode_layout_payload(decoded)
+            if not layout:
+                raise ValueError("empty layout")
+        except Exception as exc:
+            print(f"[sync] invalid layout payload: {exc}")
+            raise HTTPException(status_code=400, detail="invalid payload") from exc
     for base in DATA_DIRS:
         path = base / name
         try:
@@ -1771,6 +1879,32 @@ async def dispatch_blocks():
         state.blocks_cache = res
         state.blocks_cache_ts = time.time()
         return res
+
+
+# ---------------------------
+# REST: E-ink block layout
+# ---------------------------
+
+
+@app.get("/api/eink-block/layout")
+async def get_eink_block_layout():
+    layout, updated_at = load_eink_block_layout()
+    return {"layout": layout, "updated_at": updated_at}
+
+
+@app.post("/api/eink-block/layout")
+async def update_eink_block_layout(payload: Any):
+    layout_payload = payload.get("layout") if isinstance(payload, dict) else payload
+    if layout_payload is None:
+        raise HTTPException(status_code=400, detail="layout is required")
+    try:
+        layout, updated_at = save_eink_block_layout(layout_payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"[eink_layout] error saving layout: {exc}")
+        raise HTTPException(status_code=500, detail="failed to save layout") from exc
+    return {"ok": True, "layout": layout, "updated_at": updated_at}
 
 
 def _normalize_hex_color(value: Optional[str]) -> Optional[str]:
