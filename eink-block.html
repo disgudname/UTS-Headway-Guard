@@ -582,12 +582,16 @@
 
     const blockIdLookup=new Map();
     const blockNumberSet=new Set(blockNumbers);
+    const hasAuthoritativeNumbers=blockNumbers.length>0;
 
-    const addNumber=num=>{
-      if(!num) return;
+    const addNumber=(num,{allowFromBlockId=false}={})=>{
+      if(!num) return null;
       const parsed=parseInt(num,10);
-      if(Number.isNaN(parsed)) return;
+      if(Number.isNaN(parsed)) return null;
       const normalized=String(parsed).padStart(2,'0');
+      if(allowFromBlockId && hasAuthoritativeNumbers && !blockNumberSet.has(normalized)){
+        return null;
+      }
       if(!blockNumberSet.has(normalized)){
         blockNumberSet.add(normalized);
         blockNumbers.push(normalized);
@@ -602,7 +606,7 @@
       if(normalizedId){
         const matchesNumbers=blockIdRaw.match(/\d+/g)||[];
         for(const rawNum of matchesNumbers){
-          const normalizedNum=addNumber(rawNum);
+          const normalizedNum=addNumber(rawNum,{allowFromBlockId:true});
           if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
             blockInfoNumbers.push(normalizedNum);
           }
