@@ -157,7 +157,7 @@ function abbreviateHeaderLabel(text){
   return String(text)
     .replace(/SUPERVISOR/gi,'SUP')
     .replace(/MECHANIC/gi,'MECH')
-    .replace(/DIAGNOSTIC DATE/gi,'DIAG DATE')
+    .replace(/DIAGNOSTIC[\s\u00a0]*DATE/gi,'DIAG DATE')
     .replace(/ACTUAL DELIVERY DATE/gi,'DELIVERY DATE');
 }
 
