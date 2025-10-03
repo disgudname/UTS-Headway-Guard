@@ -190,6 +190,10 @@
   const blockNumberEl=document.getElementById('block-number');
   const isGridMode=!block;
   let blockPeriod='';
+  let selectedBlockNumber='';
+  let selectedBlockId='';
+
+  const normalizeIdentifier=value=>String(value||'').replace(/[^0-9a-z]/gi,'').toUpperCase();
 
   const defaultColumns=[
     ['01','02','03','04','05','06','07','08','09'],
@@ -290,7 +294,7 @@
         const column=layout[col]||[];
         const label=column[row]||'';
         const trimmedLabel=label.trim();
-        const normalizedLabel=trimmedLabel.replace(/\s+/g,'').toUpperCase();
+        const normalizedLabel=normalizeIdentifier(trimmedLabel);
         const cell=document.createElement('div');
         cell.className='cell';
         cell.dataset.col=String(col);
@@ -300,10 +304,15 @@
         }
         if(trimmedLabel){
           const match=normalizedLabel.match(/^(\d{2})(AM|PM)?$/);
+          const embeddedMatch=match||normalizedLabel.match(/(\d{2})(AM|PM)?$/);
           if(match){
             cell.dataset.block=match[1];
             cell.dataset.period=(match[2]||'').toLowerCase();
+          }else if(embeddedMatch){
+            cell.dataset.block=embeddedMatch[1];
+            cell.dataset.period=(embeddedMatch[2]||'').toLowerCase();
           }
+          cell.dataset.customBlockId=normalizedLabel;
           const blockNumber=match?match[1]:trimmedLabel;
           const periodSuffix=match && match[2]?match[2].toUpperCase():'';
           const displayLabel=match? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
@@ -342,12 +351,14 @@
     gridView.hidden=true;
     if(blockNumberEl) blockNumberEl.hidden=false;
     block=String(block).trim();
-    const normalizedBlock=block.replace(/\s+/g,'').toUpperCase();
+    const normalizedBlock=normalizeIdentifier(block);
     const blockMatch=normalizedBlock.match(/^(\d{2})(AM|PM)?$/);
     if(blockMatch){
       block=blockMatch[1];
       if(blockMatch[2]) blockPeriod=blockMatch[2].toLowerCase();
       const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
+      selectedBlockNumber=blockMatch[1];
+      selectedBlockId=normalizedBlock;
       const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
       document.title = `Block ${blockLabel}`;
       if(blockNumberEl){
@@ -362,6 +373,8 @@
         }
         return;
       }
+      selectedBlockNumber='';
+      selectedBlockId=normalizedBlock||'';
       document.title=block||'Block';
       if(blockNumberEl){
         blockNumberEl.textContent=block||'';
@@ -472,9 +485,13 @@
     const matches=id.match(/\[(\d+)\]/g)||[];
     for(const raw of matches){
       const num=raw.replace(/[^0-9]/g,'');
-      if(num && !seenNumbers.has(num)){
-        seenNumbers.add(num);
-        blockNumbers.push(num);
+      if(!num) continue;
+      const parsed=parseInt(num,10);
+      if(Number.isNaN(parsed)) continue;
+      const normalized=String(parsed).padStart(2,'0');
+      if(!seenNumbers.has(normalized)){
+        seenNumbers.add(normalized);
+        blockNumbers.push(normalized);
       }
     }
 
@@ -554,7 +571,78 @@
       }
     }
 
-    return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,minStart,maxEnd};
+    const blockIdLookup=new Map();
+    const blockNumberSet=new Set(blockNumbers);
+
+    const addNumber=num=>{
+      if(!num) return;
+      const parsed=parseInt(num,10);
+      if(Number.isNaN(parsed)) return;
+      const normalized=String(parsed).padStart(2,'0');
+      if(!blockNumberSet.has(normalized)){
+        blockNumberSet.add(normalized);
+        blockNumbers.push(normalized);
+      }
+      return normalized;
+    };
+
+    for(const block of blocks){
+      const blockInfoNumbers=[];
+      const blockIdRaw=String(block.BlockId||'').trim();
+      const normalizedId=normalizeIdentifier(blockIdRaw);
+      if(normalizedId){
+        const matchesNumbers=blockIdRaw.match(/\d+/g)||[];
+        for(const rawNum of matchesNumbers){
+          const normalizedNum=addNumber(rawNum);
+          if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
+            blockInfoNumbers.push(normalizedNum);
+          }
+        }
+      }
+
+      let blockBus='—';
+      if(block.VehicleName){
+        blockBus=String(block.VehicleName).trim();
+      }
+      if(blockBus==='—' && block.VehicleId!=null){
+        const idString=String(block.VehicleId).trim();
+        if(idString){
+          blockBus=idString;
+        }
+      }
+      const trips=Array.isArray(block.Trips)?block.Trips:[];
+      for(const trip of trips){
+        if(trip && trip.VehicleName){
+          blockBus=String(trip.VehicleName).trim();
+          break;
+        }
+      }
+
+      if(normalizedId){
+        const periodsForBlock=Object.create(null);
+        const periodInId=normalizedId.match(/(AM|PM)$/);
+        if(periodInId){
+          const label=periodInId[1].toLowerCase();
+          for(const num of blockInfoNumbers){
+            periodsForBlock[num]=label;
+            if(!blockPeriods[num]){
+              blockPeriods[num]=label;
+            }
+          }
+        }
+        blockIdLookup.set(normalizedId,{
+          bus:blockBus,
+          numbers:blockInfoNumbers.slice(),
+          periods:periodsForBlock
+        });
+      }
+
+      if(bus==='—' && blockBus && blockBus!=='—'){
+        bus=blockBus;
+      }
+    }
+
+    return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,minStart,maxEnd,blockIdLookup};
   }
 
   function isActive(entry,nowMinutes){
@@ -582,55 +670,108 @@
     return entries[0];
   }
 
-  function findBestBus(blockNumber,periodSuffix,entries,nowMinutes){
-    const matches=entries.filter(e=>e.blockNumbers.includes(blockNumber));
+  function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
     if(!matches.length) return '—';
-
-    const normalizedPeriod=(periodSuffix||'').toLowerCase();
     let filtered=matches;
-
-    if(normalizedPeriod){
+    if(blockNumber){
       const exactMatches=matches.filter(entry=>{
-        const assigned=entry.blockPeriods&&entry.blockPeriods[blockNumber];
+        const periods=entry.blockPeriods||null;
+        if(!periods) return false;
+        const assigned=periods[blockNumber];
         return assigned===normalizedPeriod;
       });
-      if(exactMatches.length){
+      if(normalizedPeriod && exactMatches.length){
         filtered=exactMatches;
-      }else{
+      }else if(normalizedPeriod){
         const unspecified=matches.filter(entry=>{
-          const assigned=entry.blockPeriods&&entry.blockPeriods[blockNumber];
+          const periods=entry.blockPeriods||null;
+          const assigned=periods?periods[blockNumber]:'';
           if(assigned) return false;
-          const explicitPeriod=(entry.period||'').toLowerCase();
-          if(explicitPeriod && explicitPeriod!==normalizedPeriod) return false;
+          const explicit=(entry.period||'').toLowerCase();
+          if(explicit && explicit!==normalizedPeriod) return false;
           const inferred=(entry.inferredPeriod||'').toLowerCase();
           if(inferred && inferred!==normalizedPeriod) return false;
           return true;
         });
         if(unspecified.length){
           filtered=unspecified;
-        }else{
-          return '—';
+        }else if(!exactMatches.length){
+          filtered=matches;
         }
+      }
+    }else if(normalizedPeriod){
+      const periodFiltered=matches.filter(entry=>{
+        const explicit=(entry.period||'').toLowerCase();
+        const inferred=(entry.inferredPeriod||'').toLowerCase();
+        if(explicit) return explicit===normalizedPeriod;
+        if(inferred) return inferred===normalizedPeriod;
+        return true;
+      });
+      if(periodFiltered.length){
+        filtered=periodFiltered;
       }
     }
 
     const best=pickBest(filtered,nowMinutes);
     if(best && best.bus) return best.bus;
-
     if(filtered!==matches){
       const fallback=pickBest(matches,nowMinutes);
       if(fallback && fallback.bus) return fallback.bus;
     }
-
     return '—';
   }
 
+  function findBestBus(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinutes){
+    const matches=blockNumber?entries.filter(e=>Array.isArray(e.blockNumbers)&&e.blockNumbers.includes(blockNumber)):[];
+    const normalizedPeriod=(periodSuffix||'').toLowerCase();
+
+    if(blockIdNormalized){
+      const idCandidates=[];
+      for(const entry of entries){
+        const lookup=entry.blockIdLookup;
+        if(lookup && lookup.has(blockIdNormalized)){
+          const info=lookup.get(blockIdNormalized);
+          const candidate={
+            bus:(info.bus && info.bus!=='—')?info.bus:entry.bus,
+            blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
+            blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
+            period:entry.period,
+            inferredPeriod:entry.inferredPeriod,
+            minStart:entry.minStart,
+            maxEnd:entry.maxEnd
+          };
+          idCandidates.push(candidate);
+        }
+      }
+      if(idCandidates.length){
+        let targetNumber=blockNumber;
+        if(!targetNumber){
+          for(const candidate of idCandidates){
+            if(Array.isArray(candidate.blockNumbers) && candidate.blockNumbers.length){
+              targetNumber=candidate.blockNumbers[0];
+              break;
+            }
+          }
+        }
+        const busFromId=selectBestBus(idCandidates,targetNumber||'',normalizedPeriod,nowMinutes);
+        if(busFromId && busFromId!=='—') return busFromId;
+        if(busFromId) return busFromId;
+      }
+    }
+    if(!blockNumber){
+      return '—';
+    }
+    if(!matches.length) return '—';
+    return selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes);
+  }
+
   function updateGrid(entries,nowMinutes){
-    const cells=gridView.querySelectorAll('.cell[data-block]');
+    const cells=gridView.querySelectorAll('.cell[data-block], .cell[data-custom-block-id]');
     for(const cell of cells){
-      const blockNumber=cell.dataset.block;
+      const blockNumber=cell.dataset.block||'';
       const periodSuffix=cell.dataset.period||'';
-      const bus=findBestBus(blockNumber,periodSuffix,entries,nowMinutes);
+      const customId=cell.dataset.customBlockId||'';
+      const bus=findBestBus(blockNumber,periodSuffix,customId,entries,nowMinutes);
       const busEl=cell.querySelector('.bus');
       if(busEl){
         busEl.textContent=bus||'—';
@@ -648,7 +789,8 @@
       const entries=[];
       for(const group of groups){
         const entry=buildEntry(group);
-        if(entry.blockNumbers.length){
+        const hasCustomIds=entry.blockIdLookup && entry.blockIdLookup.size;
+        if(entry.blockNumbers.length || hasCustomIds){
           entries.push(entry);
         }
       }
@@ -660,7 +802,7 @@
         updateGrid(entries,nowMinutes);
       }else{
         const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
-        const bus=findBestBus(block,periodSuffix,entries,nowMinutes);
+        const bus=findBestBus(selectedBlockNumber||'',periodSuffix,selectedBlockId,entries,nowMinutes);
         busEl.textContent=bus||'—';
         statusEl.textContent='';
       }
@@ -699,7 +841,7 @@
       if(!trimmed){
         layout[col][row]='';
       }else{
-        const normalized=trimmed.replace(/\s+/g,'').toUpperCase();
+        const normalized=normalizeIdentifier(trimmed);
         if(/^(\d{2})(AM|PM)?$/.test(normalized)){
           layout[col][row]=normalized;
         }else{
