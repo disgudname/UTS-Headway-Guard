@@ -440,10 +440,19 @@
     buildGrid();
   }
 
-  function getCellColors(block,period){
+  function getCellColors(block,period,customId){
     const blockId=(block||'').padStart(2,'0');
     const periodId=(period||'').toLowerCase();
+    const normalizedCustom=(customId||'').toLowerCase();
     if(!blockId) return null;
+
+    if(normalizedCustom.includes('charter')){
+      return {bg:'#FF69B4',text:'#000'};
+    }
+
+    if(normalizedCustom.includes('training')){
+      return {bg:'#92FB02',text:'#000'};
+    }
 
     const numeric=parseInt(blockId,10);
 
@@ -467,7 +476,7 @@
 
   function applyCellColors(cell){
     if(!enableColors || !cell || !cell.dataset) return;
-    const colors=getCellColors(cell.dataset.block,cell.dataset.period||'');
+    const colors=getCellColors(cell.dataset.block,cell.dataset.period||'',cell.dataset.customBlockId||'');
     if(colors){
       cell.style.backgroundColor=colors.bg;
       cell.style.color=colors.text;
