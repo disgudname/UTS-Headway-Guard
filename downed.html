@@ -152,6 +152,13 @@ let refreshTimer = null;
 
 const HIDDEN_HEADER_LABELS = new Set(['current eta']);
 
+function abbreviateHeaderLabel(text){
+  if(!text) return text;
+  return String(text)
+    .replace(/SUPERVISOR/gi,'SUP')
+    .replace(/MECHANIC/gi,'MECH');
+}
+
 function normalizeHeader(text){
   return String(text || '')
     .replace(/\s+/g,' ')
@@ -261,7 +268,7 @@ function renderSection(section){
     .filter(col=>!isHiddenHeader(col.text));
 
   visibleColumns.forEach(col => {
-    const text=col.text;
+    const text=abbreviateHeaderLabel(col.text);
     const th=document.createElement('th');
     const normalized=normalizeHeader(text);
     if(text && normalized!=='bus' && normalized!=='p&t support vehicle'){
