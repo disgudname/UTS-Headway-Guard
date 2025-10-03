@@ -213,6 +213,18 @@ function findDiagnosticDateIndex(headers){
   return -1;
 }
 
+function findDeliveryDateIndex(headers){
+  if(!Array.isArray(headers)) return -1;
+  for(let i=0;i<headers.length;i++){
+    const normalized=normalizeHeader(headers[i]);
+    if(!normalized) continue;
+    if(normalized==='actual delivery date' || normalized==='delivery date' || normalized.includes('delivery date')){
+      return i;
+    }
+  }
+  return -1;
+}
+
 function parseCsv(text){
   const rows=[];
   let row=[];
@@ -242,6 +254,30 @@ function parseCsv(text){
 function cleanCell(value){
   if(value==null) return '';
   return String(value).replace(/\r\n?/g,'\n').trim();
+}
+
+function parseDeliveryDate(value){
+  if(value==null) return null;
+  const text=String(value).trim();
+  if(!text) return null;
+  const parsed=Date.parse(text);
+  if(Number.isNaN(parsed)) return null;
+  return new Date(parsed);
+}
+
+function getDeliveryCutoff(){
+  const now=new Date();
+  const startOfToday=new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cutoff=new Date(startOfToday);
+  cutoff.setDate(cutoff.getDate()-1);
+  return cutoff;
+}
+
+function shouldHideByDeliveryDate(values, deliveryIndex, cutoff){
+  if(deliveryIndex<0 || !Array.isArray(values) || deliveryIndex>=values.length) return false;
+  const date=parseDeliveryDate(values[deliveryIndex]);
+  if(!date) return false;
+  return date<=cutoff;
 }
 
 function parseSheet(csvText){
@@ -327,10 +363,13 @@ function renderSection(section){
 
   const tbody=document.createElement('tbody');
   const diagnosticIndex=findDiagnosticDateIndex(section.headers);
+  const deliveryIndex=findDeliveryDateIndex(section.headers);
+  const deliveryCutoff=getDeliveryCutoff();
   section.rows.forEach(row => {
     const tr=document.createElement('tr');
     const padded=row.slice();
     while(padded.length<section.headers.length){ padded.push(''); }
+    if(shouldHideByDeliveryDate(padded, deliveryIndex, deliveryCutoff)) return;
     const diagnosticValue=(diagnosticIndex>=0 && diagnosticIndex<padded.length) ? padded[diagnosticIndex] : '';
     const hasDiagnosticDate=!!(diagnosticValue && String(diagnosticValue).trim());
     visibleColumns.forEach(col => {
@@ -367,6 +406,14 @@ function renderSection(section){
     });
     tbody.appendChild(tr);
   });
+  if(!tbody.children.length){
+    wrapper.removeChild(table);
+    const empty=document.createElement('div');
+    empty.className='empty-indicator';
+    empty.textContent='No records to display.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
   table.appendChild(tbody);
   wrapper.appendChild(table);
   return wrapper;
