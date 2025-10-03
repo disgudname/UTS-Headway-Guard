@@ -1,0 +1,373 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Downed Vehicles - Headway Guard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{
+    font-family:'FGDC';
+    src:url('FGDC.ttf') format('truetype');
+    font-weight:normal;
+    font-style:normal;
+  }
+  :root{
+    --bg:#060b1c;
+    --panel:#101935;
+    --panel-soft:#142040;
+    --ink:#f0f4ff;
+    --muted:#9fb0c9;
+    --line:rgba(159,176,201,0.25);
+    --accent:#ffb347;
+    --pill-down:#f45d5d;
+    --pill-hold:#ffb347;
+    --pill-up:#66d977;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font:16px/1.4 'FGDC',sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+  }
+  main{
+    width:100%;
+    max-width:1600px;
+    padding:32px 24px 48px;
+    display:flex;
+    flex-direction:column;
+    gap:24px;
+  }
+  header{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  h1{
+    margin:0;
+    font-size:38px;
+    font-weight:600;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+  }
+  #groups{
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  #groups span{
+    background:var(--panel);
+    border:1px solid var(--line);
+    padding:10px 18px;
+    border-radius:999px;
+    font-size:18px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+  }
+  #meta{
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:12px 24px;
+    font-size:15px;
+    color:var(--muted);
+  }
+  section{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:18px;
+    overflow:hidden;
+    box-shadow:0 18px 32px rgba(6,11,28,0.35);
+  }
+  section header{
+    padding:18px 24px 0;
+  }
+  section h2{
+    margin:0;
+    font-size:28px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+    background:var(--panel);
+  }
+  thead th{
+    font-size:16px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    padding:12px 12px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  tbody td{
+    padding:14px 12px;
+    border-top:1px solid rgba(159,176,201,0.08);
+    vertical-align:top;
+    font-size:18px;
+    line-height:1.3;
+  }
+  tbody tr:hover{
+    background:var(--panel-soft);
+  }
+  tbody td.status{
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+  }
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:4px 12px;
+    border-radius:999px;
+    font-size:14px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    background:rgba(255,255,255,0.08);
+  }
+  .pill .dot{
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    background:currentColor;
+  }
+  .pill.down{color:var(--pill-down);}
+  .pill.hold{color:var(--pill-hold);}
+  .pill.up{color:var(--pill-up);}
+  .empty-indicator{
+    padding:36px 24px;
+    text-align:center;
+    font-size:18px;
+    color:var(--muted);
+  }
+  @media (max-width:1100px){
+    table{font-size:14px;}
+    tbody td{font-size:16px;}
+    main{padding:24px 16px;}
+    h1{font-size:30px;}
+    section h2{font-size:22px;}
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Downed Vehicles</h1>
+    <div id="groups"></div>
+    <div id="meta">
+      <span id="updated">Last updated: —</span>
+      <span id="status"></span>
+    </div>
+  </header>
+  <div id="sections"></div>
+</main>
+<script>
+const ENDPOINT = '/v1/dispatcher/downed_buses';
+const REFRESH_MS = 60000;
+const sectionsContainer = document.getElementById('sections');
+const groupsContainer = document.getElementById('groups');
+const updatedEl = document.getElementById('updated');
+const statusEl = document.getElementById('status');
+let refreshTimer = null;
+
+function parseCsv(text){
+  const rows=[];
+  let row=[];
+  let cur='';
+  let inQuotes=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(inQuotes){
+      if(ch==='"'){
+        if(text[i+1]==='"'){ cur+='"'; i++; }
+        else{ inQuotes=false; }
+      }else{
+        cur+=ch;
+      }
+    }else{
+      if(ch==='"') inQuotes=true;
+      else if(ch===','){ row.push(cur); cur=''; }
+      else if(ch==='\r'){ }
+      else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+      else{ cur+=ch; }
+    }
+  }
+  if(cur!=='' || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+
+function formatTimestamp(ts){
+  if(!ts) return '—';
+  const date = new Date(ts);
+  if(Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('en-US', {
+    hour12:false,
+    month:'short',
+    day:'numeric',
+    hour:'2-digit',
+    minute:'2-digit'
+  });
+}
+
+function cleanCell(value){
+  if(value==null) return '';
+  return String(value).replace(/\r\n?/g,'\n').trim();
+}
+
+function parseSheet(csvText){
+  const rawRows = parseCsv(csvText||'');
+  if(!rawRows.length) return { headerLine:[], sections:[] };
+  const rows = rawRows.map(r => r.map(cleanCell));
+  const headerLine = rows.shift() || [];
+  const sections=[];
+  let current=null;
+  for(const row of rows){
+    if(row.every(cell => !cell)) continue;
+    const first=row[0];
+    if(first==='Bus' || first==='P&T Support Vehicle'){
+      current={ title:first, headers:row.slice(), rows:[] };
+      sections.push(current);
+      continue;
+    }
+    if(!current) continue;
+    current.rows.push(row.slice());
+  }
+  return { headerLine, sections };
+}
+
+function renderGroups(headerLine){
+  groupsContainer.innerHTML='';
+  headerLine.map(cleanCell).filter(Boolean).forEach(label => {
+    const span=document.createElement('span');
+    span.textContent=label;
+    groupsContainer.appendChild(span);
+  });
+}
+
+function getStatusClass(text){
+  if(!text) return '';
+  const upper=text.toUpperCase();
+  if(upper.includes('DOWN')) return 'down';
+  if(upper.includes('HOLD')) return 'hold';
+  if(upper.includes('UP')) return 'up';
+  if(upper.includes('LIMITED')) return 'hold';
+  return '';
+}
+
+function renderSection(section){
+  const wrapper=document.createElement('section');
+  const header=document.createElement('header');
+  const title=document.createElement('h2');
+  title.textContent=section.title;
+  header.appendChild(title);
+  wrapper.appendChild(header);
+
+  if(!section.rows.length){
+    const empty=document.createElement('div');
+    empty.className='empty-indicator';
+    empty.textContent='No records to display.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
+
+  const table=document.createElement('table');
+  const thead=document.createElement('thead');
+  const headRow=document.createElement('tr');
+  section.headers.forEach(text => {
+    const th=document.createElement('th');
+    if(text){
+      const parts=String(text).split('\n');
+      parts.forEach((part,idx)=>{
+        if(idx>0) th.appendChild(document.createElement('br'));
+        th.appendChild(document.createTextNode(part));
+      });
+    }else{
+      th.textContent='';
+    }
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody=document.createElement('tbody');
+  section.rows.forEach(row => {
+    const tr=document.createElement('tr');
+    const padded=row.slice();
+    while(padded.length<section.headers.length){ padded.push(''); }
+    padded.forEach((cell,index) => {
+      const td=document.createElement('td');
+      const text=cell;
+      if(index===1){
+        const cls=getStatusClass(text);
+        if(text && cls){
+          td.className='status';
+          td.innerHTML=`<span class="pill ${cls}"><span class="dot"></span><span>${text}</span></span>`;
+        }else{
+          td.className='status';
+          td.textContent=text;
+        }
+      }else{
+        td.textContent=text;
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrapper.appendChild(table);
+  return wrapper;
+}
+
+function renderSheet(data){
+  renderGroups(data.headerLine || []);
+  sectionsContainer.innerHTML='';
+  if(!data.sections.length){
+    const empty=document.createElement('div');
+    empty.className='empty-indicator';
+    empty.textContent='Unable to load downed vehicle data.';
+    sectionsContainer.appendChild(empty);
+    return;
+  }
+  data.sections.forEach(section => {
+    sectionsContainer.appendChild(renderSection(section));
+  });
+}
+
+async function loadSheet(){
+  try{
+    statusEl.textContent='Fetching latest updates…';
+    const res=await fetch(ENDPOINT,{cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const payload=await res.json();
+    const csv=(payload && typeof payload.csv==='string') ? payload.csv : '';
+    renderSheet(parseSheet(csv));
+    updatedEl.textContent='Last updated: '+formatTimestamp(payload?.fetched_at);
+    statusEl.textContent=payload?.error ? 'Warning: '+payload.error : 'Live data';
+  }catch(err){
+    statusEl.textContent='Unable to reach server';
+    console.error('Failed to load downed vehicles sheet', err);
+  }
+}
+
+function start(){
+  loadSheet();
+  if(refreshTimer) clearInterval(refreshTimer);
+  refreshTimer=setInterval(loadSheet, REFRESH_MS);
+}
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden) return;
+  loadSheet();
+});
+
+start();
+</script>
+</body>
+</html>
