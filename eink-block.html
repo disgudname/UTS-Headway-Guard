@@ -92,12 +92,21 @@
     align-items:center;
     justify-content:space-between;
     gap:8px;
+    flex-wrap:wrap;
     padding:8px 12px;
     border-bottom:3px solid #000;
     font-family:'CenturyGothic',sans-serif;
     font-size:14px;
     letter-spacing:0.04em;
     text-transform:uppercase;
+  }
+  #grid-view .grid-controls .grid-controls-status{
+    flex:1;
+  }
+  #grid-view .grid-controls .grid-controls-buttons{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
   }
   #grid-view .grid-controls button{
     font-family:'CenturyGothic',sans-serif;
@@ -123,8 +132,9 @@
     border-bottom:3px solid #000;
   }
   #grid-view .grid-table{
+    --grid-columns:4;
     display:grid;
-    grid-template-columns:repeat(4,1fr);
+    grid-template-columns:repeat(var(--grid-columns),1fr);
     grid-template-rows:repeat(9,minmax(48px,1fr));
     width:100%;
   }
@@ -150,11 +160,15 @@
     letter-spacing:0.08em;
     color:#555;
   }
-  #grid-view .cell:nth-child(n+5){
+  #grid-view .cell{
     border-top:2px solid #000;
-  }
-  #grid-view .cell:not(:nth-child(4n+1)){
     border-left:2px solid #000;
+  }
+  #grid-view .cell[data-row="0"]{
+    border-top:none;
+  }
+  #grid-view .cell[data-col="0"]{
+    border-left:none;
   }
   #grid-view .cell .block-label{
     font-family:'CenturyGothic',sans-serif;
@@ -193,6 +207,8 @@
   let selectedBlockNumber='';
   let selectedBlockId='';
 
+  const ROW_COUNT=9;
+
   const normalizeIdentifier=value=>String(value||'').replace(/[^0-9a-z]/gi,'').toUpperCase();
   const cleanBusIdentifier=value=>{
     if(value==null) return '';
@@ -210,36 +226,49 @@
     ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
   ];
 
+  const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>'' );
+
+  const normalizeColumn=(column,fallback)=>{
+    const result=createBlankColumn();
+    const source=Array.isArray(column)?column:[];
+    const fallbackSource=Array.isArray(fallback)?fallback:[];
+    for(let i=0;i<ROW_COUNT;i++){
+      const value=source[i];
+      if(typeof value==='string'){
+        result[i]=value;
+      }else if(value!=null){
+        result[i]=String(value);
+      }else{
+        const fallbackValue=fallbackSource[i];
+        if(typeof fallbackValue==='string'){
+          result[i]=fallbackValue;
+        }else if(fallbackValue!=null){
+          result[i]=String(fallbackValue);
+        }
+      }
+    }
+    return result;
+  };
+
   function loadLayout(){
     try{
       const stored=localStorage.getItem('einkBlockLayout');
       if(stored){
         const parsed=JSON.parse(stored);
         if(Array.isArray(parsed) && parsed.length){
-          const columnsCount=defaultColumns.length;
-          const rowsCount=9;
           const result=[];
-          for(let colIndex=0;colIndex<columnsCount;colIndex++){
-            const defaultCol=defaultColumns[colIndex]||[];
-            const storedCol=Array.isArray(parsed[colIndex])?parsed[colIndex]:[];
-            const column=[];
-            for(let rowIndex=0;rowIndex<rowsCount;rowIndex++){
-              const storedValue=storedCol[rowIndex];
-              if(typeof storedValue==='string'){
-                column[rowIndex]=storedValue;
-              }else{
-                column[rowIndex]=defaultCol[rowIndex]||'';
-              }
-            }
-            result.push(column);
+          for(let colIndex=0;colIndex<parsed.length;colIndex++){
+            result.push(normalizeColumn(parsed[colIndex]));
           }
-          return result;
+          if(result.length){
+            return result;
+          }
         }
       }
     }catch(err){
       console.warn('Failed to load custom layout',err);
     }
-    return defaultColumns.map(col=>col.slice());
+    return defaultColumns.map(col=>normalizeColumn(col));
   }
 
   let layout=loadLayout();
@@ -253,7 +282,7 @@
   }
 
   function resetLayout(){
-    layout=defaultColumns.map(col=>col.slice());
+    layout=defaultColumns.map(col=>normalizeColumn(col));
     saveLayout();
     buildGrid();
   }
@@ -295,8 +324,15 @@
   function buildGrid(){
     const gridTable=gridView.querySelector('.grid-table');
     if(!gridTable) return;
+    if(!Array.isArray(layout) || !layout.length){
+      layout=[createBlankColumn()];
+    }
+    layout=layout.map(col=>normalizeColumn(col));
     gridTable.innerHTML='';
-    const rows=9;
+    const rows=ROW_COUNT;
+    const columnCount=Math.max(layout.length,1);
+    gridTable.style.setProperty('--grid-columns',String(columnCount));
+    gridTable.style.gridTemplateColumns=`repeat(${columnCount},1fr)`;
     for(let row=0;row<rows;row++){
       for(let col=0;col<layout.length;col++){
         const column=layout[col]||[];
@@ -345,7 +381,7 @@
       if(!controls){
         const controlsEl=document.createElement('div');
         controlsEl.className='grid-controls';
-        controlsEl.innerHTML='<span>Edit Mode — click a block to change it</span><button type="button" id="reset-layout">Reset Layout</button>';
+        controlsEl.innerHTML='<span class="grid-controls-status">Edit Mode — click a block to change it</span><div class="grid-controls-buttons"><button type="button" id="add-column">Add Column</button><button type="button" id="remove-column">Remove Column</button><button type="button" id="reset-layout">Reset Layout</button></div>';
         gridView.insertBefore(controlsEl,gridView.firstChild);
       }
     }else if(controls){
@@ -847,6 +883,38 @@
 
   if(editMode && isGridMode){
     gridView.addEventListener('click',event=>{
+      const addButton=event.target.closest('#add-column');
+      if(addButton){
+        event.preventDefault();
+        event.stopPropagation();
+        layout.push(createBlankColumn());
+        saveLayout();
+        buildGrid();
+        refresh();
+        return;
+      }
+      const removeButton=event.target.closest('#remove-column');
+      if(removeButton){
+        event.preventDefault();
+        event.stopPropagation();
+        if(layout.length<=1){
+          alert('At least one column is required.');
+          return;
+        }
+        const input=prompt(`Enter column number to remove (1-${layout.length}):`,String(layout.length));
+        if(input===null) return;
+        const index=parseInt(input,10)-1;
+        if(!Number.isInteger(index) || index<0 || index>=layout.length){
+          alert('Invalid column number.');
+          return;
+        }
+        if(!confirm('Remove the selected column?')) return;
+        layout.splice(index,1);
+        saveLayout();
+        buildGrid();
+        refresh();
+        return;
+      }
       const resetButton=event.target.closest('#reset-layout');
       if(resetButton){
         event.preventDefault();
