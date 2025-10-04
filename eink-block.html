@@ -516,22 +516,40 @@
         }
         if(trimmedLabel){
           const match=normalizedLabel.match(/^(\d{2})(AM|PM)?$/);
-          const embeddedMatch=match||normalizedLabel.match(/(\d{2})(AM|PM)?$/);
-          if(match){
-            cell.dataset.block=match[1];
-            cell.dataset.period=(match[2]||'').toLowerCase();
-          }else if(embeddedMatch){
-            cell.dataset.block=embeddedMatch[1];
-            cell.dataset.period=(embeddedMatch[2]||'').toLowerCase();
+          let blockMatch=match||null;
+          if(!blockMatch){
+            const bracketMatch=trimmedLabel.match(/^\[(\d{2})(AM|PM)?\]$/i) || trimmedLabel.match(/\[(\d{2})(AM|PM)?\]/i);
+            if(bracketMatch){
+              blockMatch=[bracketMatch[0],bracketMatch[1],bracketMatch[2]];
+            }
           }
-          cell.dataset.customBlockId=normalizedLabel;
-          const blockNumber=match?match[1]:trimmedLabel;
-          const periodSuffix=match && match[2]?match[2].toUpperCase():'';
-          const defaultLabel=match? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
+          if(blockMatch){
+            cell.dataset.block=blockMatch[1];
+            const periodValue=(blockMatch[2]||'').toLowerCase();
+            if(periodValue){
+              cell.dataset.period=periodValue;
+            }else{
+              delete cell.dataset.period;
+            }
+          }else{
+            delete cell.dataset.block;
+            delete cell.dataset.period;
+          }
+          if(normalizedLabel){
+            cell.dataset.customBlockId=normalizedLabel;
+          }else{
+            delete cell.dataset.customBlockId;
+          }
+          const blockNumber=blockMatch?blockMatch[1]:trimmedLabel;
+          const periodSuffix=blockMatch && blockMatch[2]?blockMatch[2].toUpperCase():'';
+          const defaultLabel=blockMatch? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
           const displayLabel=displayOverride||defaultLabel;
           cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
           applyCellColors(cell);
         }else if(editMode){
+          delete cell.dataset.block;
+          delete cell.dataset.period;
+          delete cell.dataset.customBlockId;
           cell.innerHTML='<div class="block-label">Empty</div><div class="bus">—</div>';
         }
         gridTable.appendChild(cell);
@@ -816,12 +834,21 @@
 
     for(const block of blocks){
       const blockInfoNumbers=[];
-      const blockIdRaw=String(block.BlockId||'').trim();
+      const blockIdRaw=String(block.BlockId||block.BlockID||block.Block||block.BlockNumber||block.Id||block.ID||'').trim();
       const normalizedId=normalizeIdentifier(blockIdRaw);
       if(normalizedId){
-        const matchesNumbers=blockIdRaw.match(/\d+/g)||[];
-        for(const rawNum of matchesNumbers){
-          const normalizedNum=addNumber(rawNum,{allowFromBlockId:true});
+        const numericIdMatch=normalizedId.match(/^(\d{2})(AM|PM)?$/);
+        const bracketMatches=blockIdRaw.match(/\[(\d{2})(AM|PM)?\]/gi)||[];
+        if(numericIdMatch){
+          const normalizedNum=addNumber(numericIdMatch[1],{allowFromBlockId:true});
+          if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
+            blockInfoNumbers.push(normalizedNum);
+          }
+        }
+        for(const raw of bracketMatches){
+          const bracketMatch=raw.match(/\[(\d{2})(AM|PM)?\]/i);
+          if(!bracketMatch) continue;
+          const normalizedNum=addNumber(bracketMatch[1],{allowFromBlockId:true});
           if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
             blockInfoNumbers.push(normalizedNum);
           }
