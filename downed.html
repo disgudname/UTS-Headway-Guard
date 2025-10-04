@@ -336,27 +336,6 @@ function getStatusClass(text){
   return '';
 }
 
-function getVisibleColumns(section){
-  if(!section || !Array.isArray(section.headers)) return [];
-  return section.headers
-    .map((text,index)=>({ text, index }))
-    .filter(col=>!isHiddenHeader(col.text));
-}
-
-function computeSharedColumnWidths(sections){
-  const lookup=new Map();
-  sections.forEach(section=>{
-    const visible=getVisibleColumns(section);
-    const count=visible.length;
-    if(!count || lookup.has(count)) return;
-    const width=100/count;
-    lookup.set(count, Array.from({length:count},()=>width));
-  });
-  return lookup;
-}
-
-let sharedColumnWidthsByCount=new Map();
-
 function renderSection(section){
   const wrapper=document.createElement('section');
   const title=section.title ? String(section.title).trim() : '';
@@ -379,18 +358,9 @@ function renderSection(section){
   const table=document.createElement('table');
   const thead=document.createElement('thead');
   const headRow=document.createElement('tr');
-  const visibleColumns=getVisibleColumns(section);
-  const widthConfig=sharedColumnWidthsByCount.get(visibleColumns.length);
-
-  if(widthConfig && widthConfig.length===visibleColumns.length){
-    const colgroup=document.createElement('colgroup');
-    widthConfig.forEach(value=>{
-      const col=document.createElement('col');
-      col.style.width=`${value}%`;
-      colgroup.appendChild(col);
-    });
-    table.appendChild(colgroup);
-  }
+  const visibleColumns=section.headers
+    .map((text,index)=>({ text, index }))
+    .filter(col=>!isHiddenHeader(col.text));
 
   visibleColumns.forEach(col => {
     const text=abbreviateHeaderLabel(col.text);
@@ -484,8 +454,6 @@ function renderSheet(data){
       return a.index-b.index;
     })
     .map(item=>item.section);
-
-  sharedColumnWidthsByCount=computeSharedColumnWidths(orderedSections);
   orderedSections.forEach(section => {
     sectionsContainer.appendChild(renderSection(section));
   });
