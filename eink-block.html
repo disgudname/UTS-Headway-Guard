@@ -975,9 +975,8 @@
         if(lookup && lookup.has(blockIdNormalized)){
           const info=lookup.get(blockIdNormalized);
           const infoBusClean=cleanBusIdentifier(info.bus);
-          const entryBusClean=cleanBusIdentifier(entry.bus);
           const candidate={
-            bus:infoBusClean||entryBusClean||'—',
+            bus:infoBusClean||'—',
             blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
             blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
             period:entry.period,
