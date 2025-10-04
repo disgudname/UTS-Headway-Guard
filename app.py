@@ -824,6 +824,7 @@ NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
 RADAR_HTML = (BASE_DIR / "radar.html").read_text(encoding="utf-8")
 EINK_BLOCK_HTML = (BASE_DIR / "eink-block.html").read_text(encoding="utf-8")
 DOWNED_HTML = (BASE_DIR / "downed.html").read_text(encoding="utf-8")
+IPS_HTML = (BASE_DIR / "ips.html").read_text(encoding="utf-8")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -3514,3 +3515,8 @@ async def arrivalsdisplay_page():
 @app.get("/replay")
 async def replay_page():
     return HTMLResponse(REPLAY_HTML)
+
+
+@app.get("/ips")
+async def ips_page():
+    return HTMLResponse(IPS_HTML)
