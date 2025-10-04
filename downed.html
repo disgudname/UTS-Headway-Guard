@@ -175,6 +175,25 @@ const REFRESH_MS = 60000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
 
+const urlParams = new URLSearchParams(window.location.search);
+
+function getQueryFlag(name){
+  const value=urlParams.get(name);
+  if(value===null) return false;
+  const normalized=String(value).trim().toLowerCase();
+  if(!normalized) return true;
+  return !['0','false','no','off'].includes(normalized);
+}
+
+const prioritizedSectionTitles=[];
+if(getQueryFlag('bus')) prioritizedSectionTitles.push('Bus');
+if(getQueryFlag('support')) prioritizedSectionTitles.push('P&T Support Vehicle');
+
+function getSectionPriority(title){
+  const idx=prioritizedSectionTitles.indexOf(title);
+  return idx===-1 ? Number.POSITIVE_INFINITY : idx;
+}
+
 const HIDDEN_HEADER_LABELS = new Set(['current eta']);
 
 function abbreviateHeaderLabel(text){
@@ -427,7 +446,15 @@ function renderSheet(data){
     sectionsContainer.appendChild(empty);
     return;
   }
-  data.sections.forEach(section => {
+  const orderedSections=data.sections
+    .map((section,index)=>({ section, index }))
+    .sort((a,b)=>{
+      const priorityDiff=getSectionPriority(a.section.title)-getSectionPriority(b.section.title);
+      if(priorityDiff!==0) return priorityDiff;
+      return a.index-b.index;
+    })
+    .map(item=>item.section);
+  orderedSections.forEach(section => {
     sectionsContainer.appendChild(renderSection(section));
   });
 }
