@@ -3876,6 +3876,7 @@ schedulePlaneStyleOverride();
       let routeLayers = [];
       let stopMarkers = [];
       const stopMarkerCache = new Map();
+      let lastStopDisplaySignature = null;
       let stopDataCache = [];
       let catStopDataCache = [];
       let routeStopAddressMap = {};
@@ -6353,7 +6354,7 @@ ${trainPlaneMarkup}
         const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
         const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
         if (hasTranslocStops || hasCatStops) {
-          renderBusStops(stopDataCache);
+          renderStopsIfDisplayChanged();
         }
         if (trainsFeature.visible && trainsFeatureAllowed()) {
           fetchTrains().catch(error => console.error('Error refreshing trains:', error));
@@ -7954,10 +7955,67 @@ ${trainPlaneMarkup}
           });
           stopMarkerCache.clear();
           stopMarkers = [];
+          lastStopDisplaySignature = null;
+      }
+
+      function computeStopDisplaySignature() {
+          const selectedRouteIds = Array.from(getSelectedRouteIdSet())
+              .map(id => {
+                  const numeric = Number(id);
+                  return Number.isFinite(numeric) ? `${numeric}` : `${id}`;
+              })
+              .sort()
+              .join(',');
+
+          const parts = [`transloc:${selectedRouteIds}`];
+
+          const outOfServiceVisible = typeof isOutOfServiceRouteVisible === 'function'
+              ? isOutOfServiceRouteVisible()
+              : false;
+
+          if (!catOverlayEnabled) {
+              parts.push('cat:off');
+              parts.push(`out:${outOfServiceVisible ? '1' : '0'}`);
+              return parts.join('|');
+          }
+
+          const explicitCatSelectionSet = new Set();
+          if (catRouteSelections instanceof Map) {
+              catRouteSelections.forEach((selected, key) => {
+                  if (!selected) {
+                      return;
+                  }
+                  const normalized = catRouteKey(key);
+                  if (normalized) {
+                      explicitCatSelectionSet.add(normalized);
+                  }
+              });
+          }
+          const explicitCatSelections = Array.from(explicitCatSelectionSet).sort();
+
+          const activeCatKeySet = new Set();
+          if (catActiveRouteKeys instanceof Set) {
+              catActiveRouteKeys.forEach(key => {
+                  const normalized = catRouteKey(key);
+                  if (normalized) {
+                      activeCatKeySet.add(normalized);
+                  }
+              });
+          }
+          const activeCatKeys = Array.from(activeCatKeySet).sort();
+
+          parts.push(`cat:on:${explicitCatSelections.join(',')}`);
+          parts.push(`catActive:${activeCatKeys.join(',')}`);
+          parts.push(`out:${outOfServiceVisible ? '1' : '0'}`);
+
+          return parts.join('|');
       }
 
       function renderBusStops(stopsArray) {
+          const currentDisplaySignature = computeStopDisplaySignature();
+
           if (!map) {
+              lastStopDisplaySignature = currentDisplaySignature;
               return;
           }
 
@@ -7978,6 +8036,7 @@ ${trainPlaneMarkup}
 
           if (baseStops.length === 0) {
               clearStopMarkerCache();
+              lastStopDisplaySignature = currentDisplaySignature;
               return;
           }
 
@@ -8283,6 +8342,16 @@ ${trainPlaneMarkup}
                   return false;
               });
           }
+
+          lastStopDisplaySignature = currentDisplaySignature;
+      }
+
+      function renderStopsIfDisplayChanged() {
+          const nextSignature = computeStopDisplaySignature();
+          if (lastStopDisplaySignature === nextSignature) {
+              return;
+          }
+          renderBusStops(stopDataCache);
       }
 
       function scheduleStopRendering() {
