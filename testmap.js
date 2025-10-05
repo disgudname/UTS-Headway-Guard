@@ -3664,6 +3664,7 @@ schedulePlaneStyleOverride();
       let routeColors = {};
       let routeLayers = [];
       let stopMarkers = [];
+      const stopMarkerCache = new Map();
       let stopDataCache = [];
       let catStopDataCache = [];
       let routeStopAddressMap = {};
@@ -6192,8 +6193,7 @@ ${trainPlaneMarkup}
           if (b.catRouteMarker) map.removeLayer(b.catRouteMarker);
         });
         nameBubbles = {};
-        stopMarkers.forEach(m => map.removeLayer(m));
-        stopMarkers = [];
+        clearStopMarkerCache();
         routeLayers.forEach(l => map.removeLayer(l));
         routeLayers = [];
         routePolylineCache.clear();
@@ -7556,6 +7556,26 @@ ${trainPlaneMarkup}
           });
       }
 
+      function clearStopMarkerCache() {
+          stopMarkerCache.forEach(entry => {
+              if (!entry || !entry.marker) {
+                  return;
+              }
+              try {
+                  if (typeof entry.marker.off === 'function' && entry.clickHandler) {
+                      entry.marker.off('click', entry.clickHandler);
+                  }
+                  if (map && typeof map.removeLayer === 'function') {
+                      map.removeLayer(entry.marker);
+                  }
+              } catch (error) {
+                  console.warn('Failed to remove stop marker from map:', error);
+              }
+          });
+          stopMarkerCache.clear();
+          stopMarkers = [];
+      }
+
       function renderBusStops(stopsArray) {
           if (!map) {
               return;
@@ -7570,9 +7590,6 @@ ${trainPlaneMarkup}
               scheduledStopRenderTimeout = null;
           }
 
-          stopMarkers.forEach(marker => map.removeLayer(marker));
-          stopMarkers = [];
-
           const baseStops = Array.isArray(stopsArray) ? stopsArray.slice() : [];
           const includeCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
           if (includeCatStops) {
@@ -7580,6 +7597,7 @@ ${trainPlaneMarkup}
           }
 
           if (baseStops.length === 0) {
+              clearStopMarkerCache();
               return;
           }
 
@@ -7675,11 +7693,13 @@ ${trainPlaneMarkup}
           });
 
           if (stopsForVisibleRoutes.length === 0) {
+              clearStopMarkerCache();
               return;
           }
 
           const groupedStops = groupStopsByPixelDistance(stopsForVisibleRoutes, STOP_GROUPING_PIXEL_DISTANCE);
           const groupedData = [];
+          const activeMarkerKeys = new Set();
 
           groupedStops.forEach(group => {
               const stopEntries = buildStopEntriesFromStops(group.stops);
@@ -7765,22 +7785,80 @@ ${trainPlaneMarkup}
               }
 
               if (shouldRenderMarker) {
-                  const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
+                  const markerIconSignature = `${markerRouteIds.join('|')}__${markerCatRouteKeys.join('|')}`;
+                  const cachedEntry = stopMarkerCache.get(groupKey) || null;
+                  let markerEntry = cachedEntry;
 
-                  const stopMarker = L.marker(stopPosition, {
-                      icon: markerIcon,
-                      pane: 'stopsPane'
-                  }).addTo(map);
+                  if (!markerEntry || !markerEntry.marker) {
+                      const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
+                      const stopMarker = L.marker(stopPosition, {
+                          icon: markerIcon,
+                          pane: 'stopsPane'
+                      }).addTo(map);
 
-                  stopMarker.on('click', () => {
-                      createCustomPopup(Object.assign({ popupType: 'stop' }, groupInfo));
-                  });
+                      const handleClick = () => {
+                          const latestEntry = stopMarkerCache.get(groupKey);
+                          const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                          createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                      };
 
-                  stopMarkers.push(stopMarker);
+                      stopMarker.on('click', handleClick);
+
+                      markerEntry = {
+                          marker: stopMarker,
+                          iconSignature: markerIconSignature,
+                          groupInfo,
+                          clickHandler: handleClick
+                      };
+                  } else {
+                      const { marker } = markerEntry;
+                      if (marker && typeof marker.setLatLng === 'function') {
+                          marker.setLatLng(stopPosition);
+                      }
+                      if (markerEntry.iconSignature !== markerIconSignature) {
+                          const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
+                          if (marker && typeof marker.setIcon === 'function') {
+                              marker.setIcon(markerIcon);
+                          }
+                      }
+                      markerEntry.iconSignature = markerIconSignature;
+                      markerEntry.groupInfo = groupInfo;
+                  }
+
+                  stopMarkerCache.set(groupKey, markerEntry);
+                  activeMarkerKeys.add(groupKey);
               }
 
               groupedData.push(groupInfo);
           });
+
+          const removalKeys = [];
+          stopMarkerCache.forEach((entry, key) => {
+              if (!activeMarkerKeys.has(key)) {
+                  removalKeys.push(key);
+              }
+          });
+
+          removalKeys.forEach(key => {
+              const entry = stopMarkerCache.get(key);
+              if (entry && entry.marker) {
+                  try {
+                      if (typeof entry.marker.off === 'function' && entry.clickHandler) {
+                          entry.marker.off('click', entry.clickHandler);
+                      }
+                      if (map && typeof map.removeLayer === 'function') {
+                          map.removeLayer(entry.marker);
+                      }
+                  } catch (error) {
+                      console.warn('Failed to clean up obsolete stop marker:', error);
+                  }
+              }
+              stopMarkerCache.delete(key);
+          });
+
+          stopMarkers = Array.from(stopMarkerCache.values())
+              .map(entry => entry && entry.marker)
+              .filter(marker => !!marker);
 
           stopMarkers.forEach(marker => {
               if (!marker) return;
