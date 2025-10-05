@@ -769,6 +769,10 @@
       .selector-panel .incident-alert__received {
         font-weight: 600;
       }
+      .selector-panel .incident-alert__on-scene {
+        font-weight: 600;
+        color: rgba(21, 128, 61, 0.95);
+      }
       .selector-panel .incident-alert__routes-line {
         display: flex;
         flex-wrap: wrap;
