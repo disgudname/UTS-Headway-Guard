@@ -1461,13 +1461,40 @@ schedulePlaneStyleOverride();
           visible: false,
           fetchPromise: null,
           module: null,
-          loadPromise: null
+          loadPromise: null,
+          pollIntervalId: null
       };
+      const PLANE_DEPENDENCY_SCRIPTS = Object.freeze([
+          '/plane_globals.js',
+          '/markers.js',
+          '/planeObject.js',
+          '/planes_integration.js'
+      ]);
       const planesFeature = {
           visible: false,
           module: null,
-          loadPromise: null
+          loadPromise: null,
+          dependenciesPromise: null
       };
+
+      function loadPlaneDependencies() {
+          if (planesFeature.dependenciesPromise) {
+              return planesFeature.dependenciesPromise;
+          }
+          const promise = PLANE_DEPENDENCY_SCRIPTS.reduce(
+              (chain, scriptUrl) => chain.then(() => loadScriptOnce(scriptUrl)),
+              Promise.resolve()
+          )
+              .then(() => {
+                  applyPlaneStyleOptions();
+              })
+              .catch(error => {
+                  planesFeature.dependenciesPromise = null;
+                  throw error;
+              });
+          planesFeature.dependenciesPromise = promise;
+          return promise;
+      }
 
       function ensurePlanesFeatureLoaded() {
           if (planesFeature.module) {
@@ -1476,7 +1503,8 @@ schedulePlaneStyleOverride();
           if (planesFeature.loadPromise) {
               return planesFeature.loadPromise;
           }
-          const promise = loadScriptOnce('/testmap-planes.js')
+          const promise = loadPlaneDependencies()
+              .then(() => loadScriptOnce('/testmap-planes.js'))
               .then(() => {
                   if (typeof window.initializePlanesFeature !== 'function') {
                       throw new Error('Planes feature module is unavailable');
@@ -1523,6 +1551,11 @@ schedulePlaneStyleOverride();
                       onVisibilityChange(visible) {
                           trainsFeature.visible = !!visible;
                           updateTrainToggleButton();
+                          if (trainsFeature.visible) {
+                              startTrainPolling().catch(error => console.error('Failed to refresh trains:', error));
+                          } else {
+                              stopTrainPolling();
+                          }
                       },
                       onFetchPromiseChange(promise) {
                           trainsFeature.fetchPromise = promise || null;
@@ -1571,6 +1604,32 @@ schedulePlaneStyleOverride();
           setPlanesVisibility(!planesFeature.visible);
       }
 
+      function stopTrainPolling() {
+          if (trainsFeature.pollIntervalId !== null) {
+              clearInterval(trainsFeature.pollIntervalId);
+              trainsFeature.pollIntervalId = null;
+          }
+      }
+
+      function startTrainPolling() {
+          if (!trainsFeatureAllowed() || !trainsFeature.visible) {
+              stopTrainPolling();
+              return Promise.resolve();
+          }
+          if (trainsFeature.pollIntervalId !== null) {
+              return trainsFeature.fetchPromise || Promise.resolve();
+          }
+          const runFetch = () => {
+              fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+          };
+          if (typeof window === 'undefined' || typeof window.setInterval !== 'function') {
+              return fetchTrains();
+          }
+          const initialFetch = fetchTrains();
+          trainsFeature.pollIntervalId = window.setInterval(runFetch, TRAIN_POLL_INTERVAL_MS);
+          return initialFetch;
+      }
+
       function setTrainsVisibility(visible) {
           const desiredVisibility = !!visible;
           const allowTrains = trainsFeatureAllowed();
@@ -1581,6 +1640,7 @@ schedulePlaneStyleOverride();
               trainsFeature.markerStates = {};
               trainsFeature.nameBubbles = {};
               updateTrainToggleButton();
+              stopTrainPolling();
               return Promise.resolve();
           }
           trainsFeature.visible = effectiveVisibility;
@@ -1592,10 +1652,18 @@ schedulePlaneStyleOverride();
                   }
                   return undefined;
               })
+              .then(() => {
+                  if (effectiveVisibility) {
+                      return startTrainPolling();
+                  }
+                  stopTrainPolling();
+                  return undefined;
+              })
               .catch(error => {
                   console.error('Error setting train visibility:', error);
                   trainsFeature.visible = false;
                   updateTrainToggleButton();
+                  stopTrainPolling();
               });
       }
 
@@ -6087,7 +6155,7 @@ ${trainPlaneMarkup}
         if (hasTranslocStops || hasCatStops) {
           renderBusStops(stopDataCache);
         }
-        if (trainsFeatureAllowed()) {
+        if (trainsFeature.visible && trainsFeatureAllowed()) {
           fetchTrains().catch(error => console.error('Error refreshing trains:', error));
         }
         if (catOverlayEnabled) {
@@ -6098,6 +6166,7 @@ ${trainPlaneMarkup}
       function clearRefreshIntervals() {
         refreshIntervals.forEach(clearInterval);
         refreshIntervals = [];
+        stopTrainPolling();
       }
 
       function startRefreshIntervals() {
@@ -6122,11 +6191,10 @@ ${trainPlaneMarkup}
         } else {
           setIncidentsVisibility(false);
         }
-        if (trainsFeatureAllowed()) {
-          refreshIntervals.push(setInterval(() => {
-            fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
-          }, TRAIN_POLL_INTERVAL_MS));
-          fetchTrains().catch(error => console.error('Failed to fetch trains:', error));
+        if (trainsFeature.visible && trainsFeatureAllowed()) {
+          startTrainPolling().catch(error => console.error('Failed to fetch trains:', error));
+        } else {
+          stopTrainPolling();
         }
         if (shouldFetchServiceAlerts()) {
           fetchServiceAlertsForCurrentAgency();
