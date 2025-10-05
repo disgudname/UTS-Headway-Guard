@@ -294,6 +294,15 @@
         box-shadow: 0 0 0 var(--stop-marker-outline-size, 0px) var(--stop-marker-outline-color, transparent),
                     0 18px 32px rgba(15,23,42,0.32);
       }
+      .leaflet-marker-icon.stop-marker-image-icon {
+        pointer-events: auto;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+      }
+      .leaflet-marker-icon.stop-marker-image-icon.leaflet-interactive:hover,
+      .leaflet-marker-icon.stop-marker-image-icon.leaflet-interactive:focus-visible {
+        transform: translateY(-2px) scale(1.05);
+      }
       .stop-entry + .stop-entry {
         margin-top: 12px;
         padding-top: 8px;
