@@ -3787,6 +3787,8 @@ schedulePlaneStyleOverride();
       const STOP_MARKER_BORDER_COLOR = 'rgba(15,23,42,0.55)';
       const STOP_MARKER_OUTLINE_COLOR = '#FFFFFF';
       const STOP_MARKER_OUTLINE_WIDTH = 2;
+      const STOP_MARKER_BORDER_WIDTH = 2;
+      const stopMarkerIconCache = new Map();
 
       let routePolylineCache = new Map();
       let lastRouteRenderState = {
@@ -6948,7 +6950,7 @@ ${trainPlaneMarkup}
           return { routeIds, catRouteKeys };
       }
 
-      function buildStopMarkerGradient(routeIds, catRouteKeys = []) {
+      function collectStopMarkerColors(routeIds, catRouteKeys = []) {
           const colorSet = new Set();
 
           const numericRouteIds = Array.isArray(routeIds) ? routeIds : [];
@@ -6974,12 +6976,16 @@ ${trainPlaneMarkup}
           });
 
           const colors = Array.from(colorSet);
-
           if (colors.length === 0) {
-              return '#FFFFFF';
+              return ['#FFFFFF'];
           }
-          if (colors.length === 1) {
-              return colors[0];
+          return colors;
+      }
+
+      function buildStopMarkerGradient(routeIds, catRouteKeys = []) {
+          const colors = collectStopMarkerColors(routeIds, catRouteKeys);
+          if (colors.length <= 1) {
+              return colors[0] || '#FFFFFF';
           }
 
           const segmentSize = 360 / colors.length;
@@ -6992,16 +6998,100 @@ ${trainPlaneMarkup}
       }
 
       function createStopMarkerIcon(routeIds, catRouteKeys = []) {
-          const gradient = buildStopMarkerGradient(routeIds, catRouteKeys);
+          const colors = collectStopMarkerColors(routeIds, catRouteKeys);
+          const colorKey = colors.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('|');
           const size = STOP_MARKER_ICON_SIZE;
           const outline = Math.max(0, Number(STOP_MARKER_OUTLINE_WIDTH) || 0);
-          const html = `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`;
-          return L.divIcon({
-              className: 'stop-marker-container leaflet-div-icon',
-              html,
+          const borderWidth = Math.max(0, Number(STOP_MARKER_BORDER_WIDTH) || 0);
+          const devicePixelRatio = (typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0)
+              ? window.devicePixelRatio
+              : 1;
+          const cacheKey = `${colorKey}|${size}|${outline}|${borderWidth}|${devicePixelRatio}`;
+
+          if (stopMarkerIconCache.has(cacheKey)) {
+              return stopMarkerIconCache.get(cacheKey);
+          }
+
+          if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+              const gradient = buildStopMarkerGradient(routeIds, catRouteKeys);
+              const fallbackIcon = L.divIcon({
+                  className: 'stop-marker-container leaflet-div-icon',
+                  html: `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`,
+                  iconSize: [size, size],
+                  iconAnchor: [size / 2, size / 2]
+              });
+              stopMarkerIconCache.set(cacheKey, fallbackIcon);
+              return fallbackIcon;
+          }
+
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+
+          if (!context) {
+              const gradient = buildStopMarkerGradient(routeIds, catRouteKeys);
+              const fallbackIcon = L.divIcon({
+                  className: 'stop-marker-container leaflet-div-icon',
+                  html: `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`,
+                  iconSize: [size, size],
+                  iconAnchor: [size / 2, size / 2]
+              });
+              stopMarkerIconCache.set(cacheKey, fallbackIcon);
+              return fallbackIcon;
+          }
+
+          const scaledSize = Math.ceil(size * devicePixelRatio);
+          canvas.width = scaledSize;
+          canvas.height = scaledSize;
+          context.scale(devicePixelRatio, devicePixelRatio);
+
+          const center = size / 2;
+          const outlineThickness = Math.min(outline, center);
+          const outlineRadius = center;
+          const borderRadius = Math.max(0, outlineRadius - outlineThickness);
+          const fillRadius = Math.max(0, borderRadius - borderWidth);
+
+          context.clearRect(0, 0, size, size);
+
+          context.beginPath();
+          context.arc(center, center, outlineRadius, 0, Math.PI * 2);
+          context.fillStyle = STOP_MARKER_OUTLINE_COLOR;
+          context.fill();
+
+          context.beginPath();
+          context.arc(center, center, borderRadius, 0, Math.PI * 2);
+          context.fillStyle = STOP_MARKER_BORDER_COLOR;
+          context.fill();
+
+          if (fillRadius > 0) {
+              if (colors.length <= 1) {
+                  context.beginPath();
+                  context.arc(center, center, fillRadius, 0, Math.PI * 2);
+                  context.fillStyle = colors[0] || '#FFFFFF';
+                  context.fill();
+              } else {
+                  const segmentAngle = (Math.PI * 2) / colors.length;
+                  let currentAngle = -Math.PI / 2;
+                  colors.forEach(color => {
+                      context.beginPath();
+                      context.moveTo(center, center);
+                      context.arc(center, center, fillRadius, currentAngle, currentAngle + segmentAngle);
+                      context.closePath();
+                      context.fillStyle = color;
+                      context.fill();
+                      currentAngle += segmentAngle;
+                  });
+              }
+          }
+
+          const icon = L.icon({
+              iconUrl: canvas.toDataURL('image/png'),
               iconSize: [size, size],
-              iconAnchor: [size / 2, size / 2]
+              iconAnchor: [size / 2, size / 2],
+              className: 'leaflet-marker-icon stop-marker-image-icon'
           });
+
+          stopMarkerIconCache.set(cacheKey, icon);
+          return icon;
       }
 
       function createStopGroupKey(routeStopIds, fallbackStopIdText) {
