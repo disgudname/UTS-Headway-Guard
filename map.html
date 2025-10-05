@@ -6222,11 +6222,6 @@
         legendElement.style.display = "block";
         legendElement.innerHTML = "";
 
-        const title = document.createElement("div");
-        title.className = "legend-title";
-        title.textContent = "Routes";
-        legendElement.appendChild(title);
-
         routes.forEach(route => {
           const item = document.createElement("div");
           item.className = "legend-item";
