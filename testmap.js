@@ -1836,7 +1836,7 @@ schedulePlaneStyleOverride();
       const catStopsById = new Map();
       const CAT_OUT_OF_SERVICE_ROUTE_KEY = '__CAT_OUT_OF_SERVICE__';
       const CAT_OUT_OF_SERVICE_NUMERIC_ROUTE_ID = 777;
-      const kioskModeAllowedCatRouteIds = new Set([7, 12]);
+      const kioskModeAllowedCatRouteIds = new Set();
       const catRouteSelections = new Map();
       let catActiveRouteKeys = new Set();
       const catVehiclesById = new Map();
@@ -4144,7 +4144,7 @@ schedulePlaneStyleOverride();
       // Tracks which routes the API designates as public-facing.
       let routeVisibility = {};
       // Routes that should be forced visible in kiosk mode when they have vehicles.
-      const kioskModeAlwaysVisibleRoutes = new Set([7, 12]);
+      const kioskModeAlwaysVisibleRoutes = new Set();
 
       // Routes default to visible if they currently have vehicles unless the user
       // overrides the selection via the route selector.
@@ -10089,7 +10089,7 @@ ${trainPlaneMarkup}
           catRefreshIntervals = [];
       }
 
-      if (!catOverlayEnabled && kioskMode && !adminKioskMode) {
+      if (!catOverlayEnabled && kioskMode && !adminKioskMode && kioskModeAllowedCatRouteIds.size > 0) {
           enableCatOverlay();
       }
 
