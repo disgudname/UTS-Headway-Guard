@@ -1772,6 +1772,49 @@ schedulePlaneStyleOverride();
         : null;
       let isFetchingIncidents = false;
 
+      const LOW_PERFORMANCE_QUERY_PARAM = 'lowperf';
+      const LOW_PERFORMANCE_DISABLE_PARAM = 'highperf';
+      let lowPerformanceMode = false;
+
+      function getUrlBooleanOverride(paramName, defaultValue) {
+        if (!window.usp || typeof window.usp.getBoolean !== 'function') {
+          return defaultValue;
+        }
+        if (!window.usp.has(paramName)) {
+          return defaultValue;
+        }
+        return window.usp.getBoolean(paramName, defaultValue);
+      }
+
+      function detectLowPerformanceDevice() {
+        if (getUrlBooleanOverride(LOW_PERFORMANCE_DISABLE_PARAM, false)) {
+          return false;
+        }
+        if (getUrlBooleanOverride(LOW_PERFORMANCE_QUERY_PARAM, false)) {
+          return true;
+        }
+
+        const nav = typeof navigator === 'object' && navigator !== null ? navigator : null;
+        const hardwareConcurrency = nav && typeof nav.hardwareConcurrency === 'number'
+          ? nav.hardwareConcurrency
+          : Number.parseInt(nav && nav.hardwareConcurrency, 10);
+        const deviceMemory = nav && typeof nav.deviceMemory === 'number'
+          ? nav.deviceMemory
+          : Number.parseInt(nav && nav.deviceMemory, 10);
+        const userAgent = nav && typeof nav.userAgent === 'string' ? nav.userAgent.toLowerCase() : '';
+        const lowPowerUserAgent = /raspberry pi|armv[0-9]+l|aarch64/.test(userAgent);
+        const lowThreadCount = Number.isFinite(hardwareConcurrency) && hardwareConcurrency > 0 && hardwareConcurrency <= 4;
+        const lowMemory = Number.isFinite(deviceMemory) && deviceMemory > 0 && deviceMemory <= 4;
+
+        return lowPowerUserAgent || lowThreadCount || lowMemory || isReducedMotionPreferred();
+      }
+
+      function updateLowPerformanceMode() {
+        lowPerformanceMode = detectLowPerformanceDevice();
+      }
+
+      updateLowPerformanceMode();
+
       const TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY = '__default__';
       const translocSnapshotCache = new Map();
 
@@ -3005,6 +3048,7 @@ schedulePlaneStyleOverride();
 
       if (reduceMotionMediaQuery) {
         const handleReduceMotionChange = () => {
+          updateLowPerformanceMode();
           applyIncidentHaloStates();
         };
         if (typeof reduceMotionMediaQuery.addEventListener === 'function') {
@@ -3745,6 +3789,10 @@ schedulePlaneStyleOverride();
       let allRouteBounds = null;
       let mapHasFitAllRoutes = false;
       let refreshIntervals = [];
+      let refreshIntervalsActive = false;
+      let refreshSuspendedForVisibility = false;
+      let busLocationsFetchPromise = null;
+      let routePathsFetchPromise = null;
       let scheduledStopRenderFrame = null;
       let scheduledStopRenderTimeout = null;
 
@@ -6168,10 +6216,14 @@ ${trainPlaneMarkup}
       function clearRefreshIntervals() {
         refreshIntervals.forEach(clearInterval);
         refreshIntervals = [];
+        refreshIntervalsActive = false;
         stopTrainPolling();
       }
 
       function startRefreshIntervals() {
+        if (refreshIntervalsActive) {
+          return;
+        }
         refreshIntervals.push(setInterval(fetchBusLocations, 4000));
         refreshIntervals.push(setInterval(fetchBusStops, 60000));
         refreshIntervals.push(setInterval(fetchBlockAssignments, 60000));
@@ -6201,6 +6253,28 @@ ${trainPlaneMarkup}
         if (shouldFetchServiceAlerts()) {
           fetchServiceAlertsForCurrentAgency();
         }
+        refreshIntervalsActive = true;
+      }
+
+      function handleVisibilityChange() {
+        if (typeof document === 'undefined') {
+          return;
+        }
+        const hidden = document.hidden;
+        if (hidden && !refreshSuspendedForVisibility) {
+          refreshSuspendedForVisibility = true;
+          clearRefreshIntervals();
+          return;
+        }
+        if (!hidden && refreshSuspendedForVisibility) {
+          refreshSuspendedForVisibility = false;
+          refreshMap();
+          startRefreshIntervals();
+        }
+      }
+
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
       }
 
       function showCookieBanner() {
@@ -8078,12 +8152,13 @@ ${trainPlaneMarkup}
               }
           };
 
-          if (typeof requestAnimationFrame === 'function') {
+          if (!lowPerformanceMode && typeof requestAnimationFrame === 'function') {
               scheduledStopRenderFrame = requestAnimationFrame(run);
               return;
           }
 
-          scheduledStopRenderTimeout = setTimeout(run, 16);
+          const delay = lowPerformanceMode ? 75 : 16;
+          scheduledStopRenderTimeout = setTimeout(run, delay);
       }
 
       function createCustomPopup(config) {
@@ -9044,7 +9119,7 @@ ${trainPlaneMarkup}
       }
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on relevant routes.
-      async function fetchRoutePaths() {
+      async function runFetchRoutePaths() {
           const currentBaseURL = baseURL;
           try {
               const snapshot = await loadTranslocSnapshot();
@@ -9299,6 +9374,17 @@ ${trainPlaneMarkup}
           }
       }
 
+      async function fetchRoutePaths() {
+          if (routePathsFetchPromise) {
+              return routePathsFetchPromise;
+          }
+          const promise = runFetchRoutePaths();
+          routePathsFetchPromise = promise.finally(() => {
+              routePathsFetchPromise = null;
+          });
+          return routePathsFetchPromise;
+      }
+
       async function fetchBlockAssignments() {
           const currentBaseURL = baseURL;
           try {
@@ -9313,7 +9399,7 @@ ${trainPlaneMarkup}
           }
       }
 
-      async function fetchBusLocations() {
+      async function runFetchBusLocations() {
           try {
               const headingPromise = loadVehicleHeadingCache();
               if (headingPromise && typeof headingPromise.then === 'function') {
@@ -9563,6 +9649,17 @@ ${trainPlaneMarkup}
           } catch (error) {
               console.error("Error fetching bus locations:", error);
           }
+      }
+
+      async function fetchBusLocations() {
+          if (busLocationsFetchPromise) {
+              return busLocationsFetchPromise;
+          }
+          const promise = runFetchBusLocations();
+          busLocationsFetchPromise = promise.finally(() => {
+              busLocationsFetchPromise = null;
+          });
+          return busLocationsFetchPromise;
       }
 
       function clamp(value, min, max) {
@@ -13228,6 +13325,11 @@ ${trainPlaneMarkup}
 
         const startPos = marker.getLatLng();
         if (!startPos) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        if (lowPerformanceMode || typeof requestAnimationFrame !== 'function') {
           marker.setLatLng(endPos);
           return;
         }
