@@ -222,6 +222,7 @@ schedulePlaneStyleOverride();
       let adminMode = true; // shows unit numbers and speed/block bubbles
       let kioskMode = false;
       let adminKioskMode = false;
+      let kioskExperienceActive = false;
       let adminKioskUiSuppressed = false;
       let kioskUiSuppressed = false;
       let displayMode = DISPLAY_MODES.BLOCK;
@@ -240,6 +241,15 @@ schedulePlaneStyleOverride();
 
       function trainsFeatureAllowed() {
         return adminFeaturesAllowed() && !adminKioskMode;
+      }
+
+      function isKioskExperienceActive() {
+        return kioskExperienceActive;
+      }
+
+      function updateKioskExperienceState() {
+        kioskExperienceActive = Boolean(kioskMode) || Boolean(adminKioskMode);
+        return kioskExperienceActive;
       }
 
       function suppressAdminKioskPanels() {
@@ -294,6 +304,10 @@ schedulePlaneStyleOverride();
       }
 
       function ensurePanelsHiddenForKioskExperience() {
+        if (!isKioskExperienceActive()) {
+          return false;
+        }
+
         if (adminKioskMode) {
           const wasSuppressed = adminKioskUiSuppressed;
           suppressAdminKioskPanels();
@@ -304,7 +318,7 @@ schedulePlaneStyleOverride();
         }
 
         if (!kioskMode || kioskUiSuppressed) {
-          return kioskMode || adminKioskMode;
+          return true;
         }
 
         if (typeof document === 'undefined') {
@@ -1429,6 +1443,7 @@ schedulePlaneStyleOverride();
       if (adminKioskParam !== null) {
         adminKioskMode = adminKioskParam.toLowerCase() === 'true';
       }
+      updateKioskExperienceState();
       ensurePanelsHiddenForKioskExperience();
       const adminParam = params.get('adminMode');
       if (adminParam !== null) {
@@ -4119,7 +4134,8 @@ schedulePlaneStyleOverride();
       }
 
       function positionAllPanelTabs() {
-        if (ensurePanelsHiddenForKioskExperience()) {
+        if (isKioskExperienceActive()) {
+          ensurePanelsHiddenForKioskExperience();
           return;
         }
         positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
@@ -5198,7 +5214,8 @@ schedulePlaneStyleOverride();
       }
 
       function updateControlPanel() {
-        if (ensurePanelsHiddenForKioskExperience()) {
+        if (isKioskExperienceActive()) {
+          ensurePanelsHiddenForKioskExperience();
           return;
         }
         const panel = document.getElementById('controlPanel');
@@ -5400,7 +5417,8 @@ ${trainPlaneMarkup}
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
       function updateRouteSelector(activeRoutesParam, forceUpdate = false) {
-        if (ensurePanelsHiddenForKioskExperience()) {
+        if (isKioskExperienceActive()) {
+          ensurePanelsHiddenForKioskExperience();
           return;
         }
         const container = document.getElementById("routeSelector");
@@ -5819,7 +5837,7 @@ ${trainPlaneMarkup}
 
       // togglePanelVisibility toggles the provided panel's visibility and updates its tab arrow.
       function togglePanelVisibility(panelId, tabId, expandedArrow, collapsedArrow) {
-        if (kioskMode || adminKioskMode) {
+        if (isKioskExperienceActive()) {
           return;
         }
         const panel = getCachedElementById(panelId);
@@ -5843,7 +5861,8 @@ ${trainPlaneMarkup}
       }
 
       function initializePanelStateForViewport() {
-        if (ensurePanelsHiddenForKioskExperience()) {
+        if (isKioskExperienceActive()) {
+          ensurePanelsHiddenForKioskExperience();
           return;
         }
         if (!shouldCollapsePanelsOnLoad()) return;
@@ -6218,7 +6237,7 @@ ${trainPlaneMarkup}
         if (!legend) return;
 
         const { forceHide = false, preserveOnEmpty = false } = options || {};
-        const shouldShowLegend = kioskMode || adminKioskMode;
+        const shouldShowLegend = isKioskExperienceActive();
 
         if (!shouldShowLegend || forceHide) {
           legend.style.display = "none";
@@ -6424,7 +6443,7 @@ ${trainPlaneMarkup}
       }
 
       function showCookieBanner() {
-        if (kioskMode || adminKioskMode) {
+        if (isKioskExperienceActive()) {
           return;
         }
         if (localStorage.getItem('agencyConsent') !== 'true') {
@@ -6652,7 +6671,7 @@ ${trainPlaneMarkup}
             });
           }
 
-          if (kioskMode || adminKioskMode) {
+          if (isKioskExperienceActive()) {
             ensurePanelsHiddenForKioskExperience();
           }
           map.on('zoom', () => {
@@ -9561,7 +9580,9 @@ ${trainPlaneMarkup}
                           }
                       }
                       evaluateIncidentRouteAlerts();
-                      updateRouteSelector(activeRoutes);
+                      if (!isKioskExperienceActive()) {
+                          updateRouteSelector(activeRoutes);
+                      }
                       stopMarkers.forEach(stopMarker => {
                           if (!stopMarker) {
                               return;
@@ -9575,10 +9596,15 @@ ${trainPlaneMarkup}
                           }
                       });
                   }
-                  updateRouteLegend(Array.from(displayedRoutes.values()), { preserveOnEmpty: true });
+                  if (isKioskExperienceActive()) {
+                      const legendRoutes = Array.from(displayedRoutes.values());
+                      updateRouteLegend(legendRoutes, { preserveOnEmpty: true });
+                  } else {
+                      updateRouteLegend([], { forceHide: true });
+                  }
           } catch (error) {
               console.error('Error fetching route paths:', error);
-              if (kioskMode || adminKioskMode) {
+              if (isKioskExperienceActive()) {
                   updateRouteLegend(lastRenderedLegendRoutes, { preserveOnEmpty: true });
               } else {
                   updateRouteLegend([], { forceHide: true });
