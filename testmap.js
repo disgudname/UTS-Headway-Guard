@@ -2292,6 +2292,7 @@ schedulePlaneStyleOverride();
       let latestActiveIncidents = [];
       let incidentsNearRoutes = [];
       let incidentRouteAlertSignature = '';
+      const incidentFirstOnSceneTimes = new Map();
       // Demo incident preview state (delete when demo button is removed).
       let demoIncidentActive = false;
       let demoIncidentEntry = null;
@@ -2456,6 +2457,7 @@ schedulePlaneStyleOverride();
       function resetIncidentAlertState() {
         latestActiveIncidents = [];
         updateIncidentsNearRoutes([], '');
+        incidentFirstOnSceneTimes.clear();
       }
 
       function parseIncidentDate(value) {
@@ -2476,29 +2478,34 @@ schedulePlaneStyleOverride();
         return null;
       }
 
+      function formatIncidentTimestamp(date) {
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+        try {
+          const display = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: INCIDENT_TIME_ZONE
+          }).format(date);
+          const full = new Intl.DateTimeFormat('en-US', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZone: INCIDENT_TIME_ZONE
+          }).format(date);
+          return { display, full };
+        } catch (error) {
+          const fallback = date.toLocaleString();
+          return { display: fallback, full: fallback };
+        }
+      }
+
       function getIncidentReceivedTimeInfo(incident) {
         if (!incident) return null;
         for (const field of INCIDENT_RECEIVED_FIELDS) {
           if (!Object.prototype.hasOwnProperty.call(incident, field)) continue;
           const date = parseIncidentDate(incident[field]);
-          if (!date) continue;
-          try {
-            const display = new Intl.DateTimeFormat('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-              timeZone: INCIDENT_TIME_ZONE
-            }).format(date);
-            const full = new Intl.DateTimeFormat('en-US', {
-              dateStyle: 'medium',
-              timeStyle: 'short',
-              timeZone: INCIDENT_TIME_ZONE
-            }).format(date);
-            return { display, full };
-          } catch (error) {
-            const fallback = date.toLocaleString();
-            return { display: fallback, full: fallback };
-          }
+          const info = formatIncidentTimestamp(date);
+          if (info) return info;
         }
         return null;
       }
@@ -2658,6 +2665,11 @@ schedulePlaneStyleOverride();
         entry.routes = Array.isArray(entry.routes)
           ? entry.routes.map(route => ({ ...route }))
           : [];
+        if (entry.incident) {
+          ensureIncidentFirstOnSceneTracking(entry.incident, entry.id);
+          entry.firstOnSceneTimestamp = getIncidentFirstOnSceneTimestamp(entry.incident, entry.id);
+          entry.detailSignature = buildIncidentAlertDetailSignature(entry.incident);
+        }
         return entry;
       }
 
@@ -2795,10 +2807,31 @@ schedulePlaneStyleOverride();
         return units;
       }
 
+      function unitHasOnSceneStatus(unit) {
+        if (!unit) return false;
+        const statusKey = typeof unit.statusKey === 'string' ? unit.statusKey.trim().toUpperCase() : '';
+        if (statusKey === 'OS' || statusKey === 'AE') {
+          return true;
+        }
+        const labelCandidates = [unit.statusLabel, unit.rawStatus, unit.tooltip, unit.displayText];
+        for (const candidate of labelCandidates) {
+          if (typeof candidate !== 'string') continue;
+          const normalized = candidate.trim().toLowerCase();
+          if (!normalized) continue;
+          if (normalized.includes('on scene') || normalized.includes('onscene')) {
+            return true;
+          }
+        }
+        return false;
+      }
+
       function unitHasOnSceneOrEnRouteStatus(unit) {
         if (!unit) return false;
         const statusKey = typeof unit.statusKey === 'string' ? unit.statusKey.trim().toUpperCase() : '';
-        if (statusKey && INCIDENT_UNIT_ACTIVE_STATUS_KEYS.includes(statusKey)) {
+        if (unitHasOnSceneStatus(unit)) {
+          return true;
+        }
+        if (statusKey === 'ER') {
           return true;
         }
         const labelCandidates = [unit.statusLabel, unit.rawStatus, unit.tooltip, unit.displayText];
@@ -2807,9 +2840,6 @@ schedulePlaneStyleOverride();
           const normalized = candidate.trim().toLowerCase();
           if (!normalized) continue;
           if (normalized.includes('en route') || normalized.includes('enroute')) {
-            return true;
-          }
-          if (normalized.includes('on scene') || normalized.includes('onscene')) {
             return true;
           }
         }
@@ -2822,6 +2852,155 @@ schedulePlaneStyleOverride();
           return false;
         }
         return units.some(unit => unitHasOnSceneOrEnRouteStatus(unit));
+      }
+
+      function incidentHasOnSceneUnits(incident) {
+        const units = extractIncidentUnits(incident);
+        if (!Array.isArray(units) || units.length === 0) {
+          return false;
+        }
+        return units.some(unit => unitHasOnSceneStatus(unit));
+      }
+
+      function extractIncidentFirstOnSceneDate(incident) {
+        if (!incident || typeof incident !== 'object') return null;
+        const incidentFields = [
+          'FirstUnitOnSceneDateTime',
+          'FirstOnSceneDateTime',
+          'FirstUnitOnScene',
+          'FirstOnScene',
+          'FirstUnitArrivedDateTime',
+          'FirstArrivedDateTime',
+          'FirstArrivalDateTime',
+          'CallFirstUnitOnSceneDateTime',
+          'CallFirstOnSceneDateTime',
+          'CallFirstUnitArrivedDateTime'
+        ];
+        for (const field of incidentFields) {
+          if (!Object.prototype.hasOwnProperty.call(incident, field)) continue;
+          const date = parseIncidentDate(incident[field]);
+          if (date) return date;
+        }
+        const timeline = incident.Timeline || incident.timeline;
+        if (timeline && typeof timeline === 'object') {
+          for (const key of Object.keys(timeline)) {
+            if (!key || typeof key !== 'string') continue;
+            if (!/scene/i.test(key)) continue;
+            const date = parseIncidentDate(timeline[key]);
+            if (date) return date;
+          }
+        }
+        const units = Array.isArray(incident?.Unit) ? incident.Unit : [];
+        const unitFieldCandidates = [
+          'UnitOnSceneDateTime',
+          'UnitArrivedDateTime',
+          'UnitAtSceneDateTime',
+          'OnSceneDateTime',
+          'ArrivedDateTime',
+          'ArrivalDateTime',
+          'OnSceneTime',
+          'OnSceneTimestamp',
+          'Arrived'
+        ];
+        let earliest = null;
+        units.forEach(unit => {
+          if (!unit || typeof unit !== 'object') return;
+          unitFieldCandidates.forEach(field => {
+            if (!Object.prototype.hasOwnProperty.call(unit, field)) return;
+            const date = parseIncidentDate(unit[field]);
+            if (!date) return;
+            if (!earliest || date.getTime() < earliest.getTime()) {
+              earliest = date;
+            }
+          });
+        });
+        return earliest;
+      }
+
+      function ensureIncidentFirstOnSceneTracking(incident, incidentId) {
+        if (!incident || typeof incident !== 'object') return null;
+        const id = incidentId ? getNormalizedIncidentId(incidentId) : deriveIncidentLookupId(incident);
+        if (!id) return null;
+        const hasOnScene = incidentHasOnSceneUnits(incident);
+        const existing = incidentFirstOnSceneTimes.get(id) || null;
+        const dataDate = extractIncidentFirstOnSceneDate(incident);
+        let timestamp = existing?.timestamp ?? null;
+        let source = existing?.source ?? '';
+        if (dataDate instanceof Date && !Number.isNaN(dataDate.getTime())) {
+          const ms = dataDate.getTime();
+          if (!timestamp || ms < timestamp || source !== 'data') {
+            timestamp = ms;
+            source = 'data';
+          }
+        }
+        if (hasOnScene) {
+          if (!timestamp) {
+            timestamp = Date.now();
+            source = 'observed';
+          }
+          incidentFirstOnSceneTimes.set(id, { timestamp, source });
+          incident._firstOnSceneTimestamp = timestamp;
+          incident._firstOnSceneTimestampSource = source;
+          return timestamp;
+        }
+        incidentFirstOnSceneTimes.delete(id);
+        delete incident._firstOnSceneTimestamp;
+        delete incident._firstOnSceneTimestampSource;
+        return null;
+      }
+
+      function getIncidentFirstOnSceneTimestamp(incident, incidentId) {
+        if (!incident || typeof incident !== 'object') return null;
+        if (typeof incident._firstOnSceneTimestamp === 'number' && Number.isFinite(incident._firstOnSceneTimestamp)) {
+          return incident._firstOnSceneTimestamp;
+        }
+        const id = incidentId ? getNormalizedIncidentId(incidentId) : deriveIncidentLookupId(incident);
+        if (!id) return null;
+        const entry = incidentFirstOnSceneTimes.get(id) || null;
+        return entry ? entry.timestamp : null;
+      }
+
+      function getIncidentFirstOnSceneTimeInfo(incident, incidentId) {
+        const timestamp = getIncidentFirstOnSceneTimestamp(incident, incidentId);
+        if (!Number.isFinite(timestamp)) return null;
+        const date = new Date(timestamp);
+        return formatIncidentTimestamp(date);
+      }
+
+      function buildIncidentAlertDetailSignature(incident) {
+        if (!incident || typeof incident !== 'object') return '';
+        const parts = [];
+        const identifier = getIncidentIdentifier(incident);
+        if (identifier) parts.push(`id:${identifier}`);
+        const typeCode = getIncidentTypeCode(incident);
+        if (typeCode) parts.push(`type:${typeCode}`);
+        const statusCandidates = [incident.Status, incident.IncidentStatus, incident.Stage];
+        statusCandidates.forEach(value => {
+          if (typeof value !== 'string') return;
+          const trimmed = value.trim();
+          if (trimmed) {
+            parts.push(`status:${trimmed}`);
+          }
+        });
+        const locationText = getIncidentLocationText(incident);
+        if (locationText) parts.push(`loc:${locationText}`);
+        const received = getIncidentTimestamp(incident);
+        if (Number.isFinite(received)) parts.push(`recv:${received}`);
+        const firstOnScene = getIncidentFirstOnSceneTimestamp(incident);
+        if (Number.isFinite(firstOnScene)) parts.push(`firstScene:${firstOnScene}`);
+        const units = extractIncidentUnits(incident);
+        if (Array.isArray(units) && units.length) {
+          const unitParts = units.map(unit => {
+            if (!unit) return '';
+            const name = typeof unit.name === 'string' ? unit.name.trim().toLowerCase() : '';
+            const key = typeof unit.statusKey === 'string' ? unit.statusKey.trim().toLowerCase() : '';
+            const label = typeof unit.statusLabel === 'string' ? unit.statusLabel.trim().toLowerCase() : '';
+            const raw = typeof unit.rawStatus === 'string' ? unit.rawStatus.trim().toLowerCase() : '';
+            return `${name}|${key}|${label}|${raw}`;
+          }).filter(Boolean).sort();
+          parts.push(`units:${unitParts.join(';')}`);
+        }
+        return parts.join('||');
       }
 
       function getIncidentTypeCode(incident) {
@@ -2925,6 +3104,18 @@ schedulePlaneStyleOverride();
           ? rec.CallReceivedDateTime
           : (typeof rec.ReceivedDateTime === 'string' ? rec.ReceivedDateTime : '');
         return `${lat.toFixed(6)}_${lon.toFixed(6)}_${received}`;
+      }
+
+      function deriveIncidentLookupId(incident) {
+        if (!incident || typeof incident !== 'object') return '';
+        let id = getNormalizedIncidentId(getIncidentIdentifier(incident));
+        if (id) return id;
+        const lat = parseIncidentCoordinate(incident.Latitude ?? incident.latitude ?? incident.lat);
+        const lon = parseIncidentCoordinate(incident.Longitude ?? incident.longitude ?? incident.lon);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          id = getNormalizedIncidentId(`${lat.toFixed(6)}_${lon.toFixed(6)}`);
+        }
+        return id;
       }
 
       function createIncidentLeafletIcon(iconUrl, width, height) {
@@ -3210,6 +3401,15 @@ schedulePlaneStyleOverride();
           if (!entry) return;
           const candidateId = typeof entry.id === 'string' ? entry.id : getNormalizedIncidentId(entry.id);
           if (candidateId) {
+            if (entry.incident) {
+              ensureIncidentFirstOnSceneTracking(entry.incident, candidateId);
+              if (!Number.isFinite(entry.firstOnSceneTimestamp)) {
+                entry.firstOnSceneTimestamp = getIncidentFirstOnSceneTimestamp(entry.incident, candidateId);
+              }
+              if (typeof entry.detailSignature !== 'string' || !entry.detailSignature) {
+                entry.detailSignature = buildIncidentAlertDetailSignature(entry.incident);
+              }
+            }
             lookup.set(candidateId, entry);
           }
         });
@@ -3252,6 +3452,7 @@ schedulePlaneStyleOverride();
             id = fallbackId;
           }
           if (!id) return;
+          const firstOnSceneTimestamp = ensureIncidentFirstOnSceneTracking(incident, id);
           const markerUrl = incident._markerUrl;
           if (!markerUrl) return;
           const isPinned = incidentsNearRoutesLookup.has(id);
@@ -3271,6 +3472,9 @@ schedulePlaneStyleOverride();
             }
             updateIncidentMarkerTooltip(existing.marker, incident);
             existing.data = incident;
+            existing.firstOnSceneTimestamp = Number.isFinite(firstOnSceneTimestamp)
+              ? firstOnSceneTimestamp
+              : getIncidentFirstOnSceneTimestamp(incident, id);
             refreshIncidentPopup(id);
           } else {
             const marker = L.marker([lat, lon], {
@@ -3286,7 +3490,10 @@ schedulePlaneStyleOverride();
               data: incident,
               iconUrl: markerUrl,
               haloMarker: null,
-              haloAnimated: false
+              haloAnimated: false,
+              firstOnSceneTimestamp: Number.isFinite(firstOnSceneTimestamp)
+                ? firstOnSceneTimestamp
+                : getIncidentFirstOnSceneTimestamp(incident, id)
             });
             marker.on('click', () => {
               const config = buildIncidentPopupConfig(id);
@@ -3315,6 +3522,7 @@ schedulePlaneStyleOverride();
           removeIncidentHalo(entry);
           removeIncidentPopupById(id);
           incidentMarkers.delete(id);
+          incidentFirstOnSceneTimes.delete(id);
         });
         applyIncidentHaloStates();
         maintainIncidentLayers();
@@ -3640,12 +3848,19 @@ schedulePlaneStyleOverride();
           id = getNormalizedIncidentId(id);
           if (!id) return;
           const timestamp = getIncidentTimestamp(incident) ?? 0;
+          const firstOnSceneTimestamp = ensureIncidentFirstOnSceneTracking(incident, id);
+          const normalizedFirstOnScene = Number.isFinite(firstOnSceneTimestamp)
+            ? firstOnSceneTimestamp
+            : getIncidentFirstOnSceneTimestamp(incident, id);
+          const detailSignature = buildIncidentAlertDetailSignature(incident);
           matches.push({
             id,
             incident,
             routes: matchedRoutes,
             closestDistance,
-            timestamp
+            timestamp,
+            firstOnSceneTimestamp: normalizedFirstOnScene,
+            detailSignature
           });
         });
         if (!matches.length) {
@@ -3659,7 +3874,8 @@ schedulePlaneStyleOverride();
         const signature = matches.map(match => {
           const routePart = match.routes.map(route => route.routeId).join(',');
           const distancePart = Number.isFinite(match.closestDistance) ? Math.round(match.closestDistance) : 'x';
-          return `${match.id || ''}:${routePart}:${distancePart}`;
+          const detailPart = typeof match.detailSignature === 'string' ? match.detailSignature : '';
+          return `${match.id || ''}:${routePart}:${distancePart}:${detailPart}`;
         }).join('|');
         if (signature !== incidentRouteAlertSignature) {
           updateIncidentsNearRoutes(matches, signature);
@@ -4504,15 +4720,37 @@ schedulePlaneStyleOverride();
         }
         const normalizedIncidentId = getNormalizedIncidentId(incidentIdValue);
         if (!normalizedIncidentId) return '';
+        ensureIncidentFirstOnSceneTracking(incident, normalizedIncidentId);
         const safeIncidentId = escapeAttribute(normalizedIncidentId);
         const locationText = getIncidentLocationText(incident);
         const locationHtml = locationText
           ? `<div class="incident-alert__location"><span class="incident-alert__location-label">Location:</span><span class="incident-alert__location-text">${escapeHtml(locationText)}</span></div>`
           : '';
         const timeInfo = getIncidentReceivedTimeInfo(incident);
+        const units = extractIncidentUnits(incident);
+        const hasOnSceneUnits = Array.isArray(units) && units.some(unit => unitHasOnSceneStatus(unit));
+        const storedFirstOnScene = Number.isFinite(entry.firstOnSceneTimestamp)
+          ? entry.firstOnSceneTimestamp
+          : getIncidentFirstOnSceneTimestamp(incident, normalizedIncidentId);
+        if (!Number.isFinite(entry.firstOnSceneTimestamp) && Number.isFinite(storedFirstOnScene)) {
+          entry.firstOnSceneTimestamp = storedFirstOnScene;
+        }
+        let onSceneInfo = null;
+        if (hasOnSceneUnits) {
+          if (Number.isFinite(storedFirstOnScene)) {
+            onSceneInfo = formatIncidentTimestamp(new Date(storedFirstOnScene));
+          }
+          if (!onSceneInfo) {
+            onSceneInfo = getIncidentFirstOnSceneTimeInfo(incident, normalizedIncidentId);
+          }
+        }
         const metaParts = [];
         if (timeInfo) {
           metaParts.push(`<span class="incident-alert__received" title="${escapeAttribute(timeInfo.full)}">Received ${escapeHtml(timeInfo.display)}</span>`);
+        }
+        if (hasOnSceneUnits && onSceneInfo) {
+          const onSceneTitle = escapeAttribute(`First unit on-scene ${onSceneInfo.full}`);
+          metaParts.push(`<span class="incident-alert__on-scene" title="${onSceneTitle}">First unit on-scene ${escapeHtml(onSceneInfo.display)}</span>`);
         }
         const metaHtml = metaParts.length ? `<div class="incident-alert__meta">${metaParts.join('')}</div>` : '';
         const routeNames = Array.isArray(entry.routes)
@@ -4521,7 +4759,6 @@ schedulePlaneStyleOverride();
         const routesHtml = routeNames.length
           ? `<div class="incident-alert__routes-line"><span class="incident-alert__routes-label">Routes:</span><span class="incident-alert__routes-list">${routeNames.map(name => escapeHtml(name)).join(', ')}</span></div>`
           : '';
-        const units = extractIncidentUnits(incident);
         const unitsHtml = renderIncidentAlertUnitsSection(units);
         const buttonTitleParts = [];
         if (typeLabel) {
@@ -7734,9 +7971,16 @@ ${trainPlaneMarkup}
               ? `<div class="incident-popup__icon"><img src="${escapeAttribute(iconUrl)}" alt="${escapeAttribute(iconAlt)}" onerror="this.style.display='none';"></div>`
               : `<div class="incident-popup__icon"><span class="incident-popup__icon-fallback">${escapeHtml((typeLabel || 'I').charAt(0))}</span></div>`;
 
+          ensureIncidentFirstOnSceneTracking(incident, idValue);
           const timeInfo = getIncidentReceivedTimeInfo(incident);
           const receivedLine = timeInfo
               ? `<div class="incident-popup__meta-line" title="${escapeAttribute(timeInfo.full)}">Received ${escapeHtml(timeInfo.display)}</div>`
+              : '';
+          const onSceneInfo = incidentHasOnSceneUnits(incident)
+              ? getIncidentFirstOnSceneTimeInfo(incident, idValue)
+              : null;
+          const onSceneLine = onSceneInfo
+              ? `<div class="incident-popup__meta-line" title="${escapeAttribute(`First unit on-scene ${onSceneInfo.full}`)}">First unit on-scene ${escapeHtml(onSceneInfo.display)}</div>`
               : '';
           const statusCandidates = [incident.Status, incident.IncidentStatus, incident.Stage];
           let statusText = '';
@@ -7755,7 +7999,7 @@ ${trainPlaneMarkup}
           const locationLine = locationText
               ? `<div class="incident-popup__meta-line">Location: ${escapeHtml(locationText)}</div>`
               : '';
-          const metaLines = [receivedLine, statusLine, locationLine].filter(Boolean).join('');
+          const metaLines = [receivedLine, onSceneLine, statusLine, locationLine].filter(Boolean).join('');
           const metaHtml = metaLines ? `<div class="incident-popup__meta">${metaLines}</div>` : '';
 
           const routes = Array.isArray(config?.routes) ? config.routes : [];
