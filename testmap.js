@@ -223,6 +223,7 @@ schedulePlaneStyleOverride();
       let kioskMode = false;
       let adminKioskMode = false;
       let adminKioskUiSuppressed = false;
+      let kioskUiSuppressed = false;
       let displayMode = DISPLAY_MODES.BLOCK;
 
       const PANEL_COLLAPSE_BREAKPOINT = 600;
@@ -290,6 +291,58 @@ schedulePlaneStyleOverride();
         hideTab(routeTab);
 
         adminKioskUiSuppressed = true;
+      }
+
+      function ensurePanelsHiddenForKioskExperience() {
+        if (adminKioskMode) {
+          const wasSuppressed = adminKioskUiSuppressed;
+          suppressAdminKioskPanels();
+          if (!wasSuppressed && adminKioskUiSuppressed) {
+            kioskUiSuppressed = true;
+          }
+          return true;
+        }
+
+        if (!kioskMode || kioskUiSuppressed) {
+          return kioskMode || adminKioskMode;
+        }
+
+        if (typeof document === 'undefined') {
+          return kioskMode;
+        }
+
+        const hidePanelElement = panel => {
+          if (!panel) return;
+          if (panel.classList && typeof panel.classList.add === 'function') {
+            panel.classList.add('hidden');
+          }
+          if (panel.style) {
+            panel.style.display = 'none';
+          }
+          if (typeof panel.setAttribute === 'function') {
+            panel.setAttribute('aria-hidden', 'true');
+          }
+          try {
+            panel.innerHTML = '';
+          } catch (error) {
+            // Ignore DOM write failures.
+          }
+        };
+
+        const hideTabElement = tab => {
+          if (!tab) return;
+          if (tab.style) {
+            tab.style.display = 'none';
+          }
+        };
+
+        hidePanelElement(getCachedElementById('controlPanel'));
+        hidePanelElement(getCachedElementById('routeSelector'));
+        hideTabElement(getCachedElementById('controlPanelTab'));
+        hideTabElement(getCachedElementById('routeSelectorTab'));
+
+        kioskUiSuppressed = true;
+        return true;
       }
 
       const RADAR_PRODUCTS = Object.freeze({
@@ -1376,7 +1429,7 @@ schedulePlaneStyleOverride();
       if (adminKioskParam !== null) {
         adminKioskMode = adminKioskParam.toLowerCase() === 'true';
       }
-      suppressAdminKioskPanels();
+      ensurePanelsHiddenForKioskExperience();
       const adminParam = params.get('adminMode');
       if (adminParam !== null) {
         adminMode = adminParam.toLowerCase() === 'true';
@@ -4065,8 +4118,7 @@ schedulePlaneStyleOverride();
       }
 
       function positionAllPanelTabs() {
-        if (adminKioskMode) {
-          suppressAdminKioskPanels();
+        if (ensurePanelsHiddenForKioskExperience()) {
           return;
         }
         positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
@@ -4075,8 +4127,12 @@ schedulePlaneStyleOverride();
       }
 
       const positionAllPanelTabsThrottled = createAnimationFrameThrottler(positionAllPanelTabs);
-      window.addEventListener('load', positionAllPanelTabsThrottled);
-      window.addEventListener('resize', positionAllPanelTabsThrottled);
+      if (!kioskMode && !adminKioskMode) {
+        window.addEventListener('load', positionAllPanelTabsThrottled);
+        window.addEventListener('resize', positionAllPanelTabsThrottled);
+      } else {
+        ensurePanelsHiddenForKioskExperience();
+      }
 
       // Global storage for routes from GetRoutes.
       let allRoutes = {};
@@ -5141,8 +5197,7 @@ schedulePlaneStyleOverride();
       }
 
       function updateControlPanel() {
-        if (adminKioskMode) {
-          suppressAdminKioskPanels();
+        if (ensurePanelsHiddenForKioskExperience()) {
           return;
         }
         const panel = document.getElementById('controlPanel');
@@ -5344,8 +5399,7 @@ ${trainPlaneMarkup}
       // The list (excluding Out of Service) is alphabetized and defaults to
       // checking only routes that currently have vehicles.
       function updateRouteSelector(activeRoutesParam, forceUpdate = false) {
-        if (adminKioskMode) {
-          suppressAdminKioskPanels();
+        if (ensurePanelsHiddenForKioskExperience()) {
           return;
         }
         const container = document.getElementById("routeSelector");
@@ -5764,6 +5818,9 @@ ${trainPlaneMarkup}
 
       // togglePanelVisibility toggles the provided panel's visibility and updates its tab arrow.
       function togglePanelVisibility(panelId, tabId, expandedArrow, collapsedArrow) {
+        if (kioskMode || adminKioskMode) {
+          return;
+        }
         const panel = getCachedElementById(panelId);
         const tab = getCachedElementById(tabId);
         if (!panel || !tab) return;
@@ -5785,8 +5842,7 @@ ${trainPlaneMarkup}
       }
 
       function initializePanelStateForViewport() {
-        if (adminKioskMode) {
-          suppressAdminKioskPanels();
+        if (ensurePanelsHiddenForKioskExperience()) {
           return;
         }
         if (!shouldCollapsePanelsOnLoad()) return;
@@ -6601,16 +6657,7 @@ ${trainPlaneMarkup}
           }
 
           if (kioskMode || adminKioskMode) {
-            document.getElementById("routeSelector").style.display = "none";
-            document.getElementById("routeSelectorTab").style.display = "none";
-            const controlPanel = document.getElementById("controlPanel");
-            if (controlPanel) {
-              controlPanel.style.display = "none";
-            }
-            const controlPanelTab = document.getElementById("controlPanelTab");
-            if (controlPanelTab) {
-              controlPanelTab.style.display = "none";
-            }
+            ensurePanelsHiddenForKioskExperience();
           }
           map.on('zoom', () => {
               scheduleMarkerScaleUpdate();
@@ -13470,7 +13517,7 @@ ${trainPlaneMarkup}
       }
 
       document.addEventListener("DOMContentLoaded", () => {
-        suppressAdminKioskPanels();
+        ensurePanelsHiddenForKioskExperience();
         initializePanelStateForViewport();
         beginAgencyLoad();
         loadAgencies()
