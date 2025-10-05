@@ -5884,11 +5884,6 @@ ${trainPlaneMarkup}
           : null;
         const target = fragment || legendElement;
 
-        const title = document.createElement("div");
-        title.className = "legend-title";
-        title.textContent = "Routes";
-        target.appendChild(title);
-
         routes.forEach(route => {
           const item = document.createElement("div");
           item.className = "legend-item";
