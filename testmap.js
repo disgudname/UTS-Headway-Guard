@@ -3792,7 +3792,9 @@ schedulePlaneStyleOverride();
       let refreshIntervalsActive = false;
       let refreshSuspendedForVisibility = false;
       let busLocationsFetchPromise = null;
+      let busLocationsFetchBaseURL = null;
       let routePathsFetchPromise = null;
+      let routePathsFetchBaseURL = null;
       let scheduledStopRenderFrame = null;
       let scheduledStopRenderTimeout = null;
 
@@ -6321,7 +6323,14 @@ ${trainPlaneMarkup}
         beginAgencyLoad();
         clearRefreshIntervals();
         resetTranslocSnapshotCache();
+        const previousBaseURL = baseURL;
         baseURL = url;
+        if (previousBaseURL !== baseURL) {
+          busLocationsFetchPromise = null;
+          busLocationsFetchBaseURL = null;
+          routePathsFetchPromise = null;
+          routePathsFetchBaseURL = null;
+        }
         resetIncidentAlertState();
         resetServiceAlertsState();
         updateControlPanel();
@@ -9375,12 +9384,17 @@ ${trainPlaneMarkup}
       }
 
       async function fetchRoutePaths() {
-          if (routePathsFetchPromise) {
+          if (routePathsFetchPromise && routePathsFetchBaseURL === baseURL) {
               return routePathsFetchPromise;
           }
+          const currentBaseURL = baseURL;
           const promise = runFetchRoutePaths();
+          routePathsFetchBaseURL = currentBaseURL;
           routePathsFetchPromise = promise.finally(() => {
-              routePathsFetchPromise = null;
+              if (routePathsFetchBaseURL === currentBaseURL) {
+                  routePathsFetchPromise = null;
+                  routePathsFetchBaseURL = null;
+              }
           });
           return routePathsFetchPromise;
       }
@@ -9652,12 +9666,17 @@ ${trainPlaneMarkup}
       }
 
       async function fetchBusLocations() {
-          if (busLocationsFetchPromise) {
+          if (busLocationsFetchPromise && busLocationsFetchBaseURL === baseURL) {
               return busLocationsFetchPromise;
           }
+          const currentBaseURL = baseURL;
           const promise = runFetchBusLocations();
+          busLocationsFetchBaseURL = currentBaseURL;
           busLocationsFetchPromise = promise.finally(() => {
-              busLocationsFetchPromise = null;
+              if (busLocationsFetchBaseURL === currentBaseURL) {
+                  busLocationsFetchPromise = null;
+                  busLocationsFetchBaseURL = null;
+              }
           });
           return busLocationsFetchPromise;
       }
