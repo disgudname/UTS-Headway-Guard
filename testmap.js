@@ -13551,7 +13551,7 @@ ${trainPlaneMarkup}
           return;
         }
 
-        if (typeof requestAnimationFrame !== 'function') {
+        if (lowPerformanceMode || typeof requestAnimationFrame !== 'function') {
           marker.setLatLng(endPos);
           return;
         }
