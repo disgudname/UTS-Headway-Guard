@@ -1333,6 +1333,7 @@ schedulePlaneStyleOverride();
       let sharedRouteRenderer = null;
       let routePaneName = 'overlayPane';
       let lastRenderedLegendRoutes = [];
+      let lastRenderedLegendSignature = '';
 
       function createSpatialIndex(options = {}) {
         if (typeof rbush === 'function') {
@@ -6141,6 +6142,25 @@ ${trainPlaneMarkup}
         return legendEntries;
       }
 
+      function computeLegendSignature(routes) {
+        if (!Array.isArray(routes) || routes.length === 0) {
+          return '';
+        }
+        return routes
+          .map(route => {
+            const routeId = route?.routeId ?? route?.routeID ?? route?.id ?? '';
+            const name = route?.name ?? '';
+            const description = route?.description ?? '';
+            const color = route?.color ?? '';
+            const isCatRoute = route?.isCatRoute ? '1' : '0';
+            const routeKey = route?.routeKey ?? '';
+            return [routeId, name, description, color, isCatRoute, routeKey]
+              .map(value => (value === null || value === undefined ? '' : String(value)))
+              .join('|');
+          })
+          .join(';');
+      }
+
       function updateRouteLegend(displayedRoutes = [], options = {}) {
         const legend = getCachedElementById("routeLegend");
         if (!legend) return;
@@ -6156,6 +6176,7 @@ ${trainPlaneMarkup}
             legend.innerHTML = "";
           }
           lastRenderedLegendRoutes = [];
+          lastRenderedLegendSignature = '';
           return;
         }
 
@@ -6236,6 +6257,7 @@ ${trainPlaneMarkup}
             legend.style.display = "none";
             legend.innerHTML = "";
             lastRenderedLegendRoutes = [];
+            lastRenderedLegendSignature = '';
             return;
           }
         } else if (adminKioskMode) {
@@ -6254,11 +6276,18 @@ ${trainPlaneMarkup}
             legend.style.display = "none";
             legend.innerHTML = "";
             lastRenderedLegendRoutes = [];
+            lastRenderedLegendSignature = '';
           }
           return;
         }
 
+        const nextSignature = computeLegendSignature(routesToRender);
         lastRenderedLegendRoutes = routesToRender;
+        if (nextSignature === lastRenderedLegendSignature) {
+          legend.style.display = 'block';
+          return;
+        }
+        lastRenderedLegendSignature = nextSignature;
         renderRouteLegendContent(legend, routesToRender);
       }
 
