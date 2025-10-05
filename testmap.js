@@ -96,6 +96,51 @@ function schedulePlaneStyleOverride() {
 
 schedulePlaneStyleOverride();
 
+      const domElementCache = new Map();
+
+      function getCachedElementById(id) {
+        if (typeof document === 'undefined' || typeof id !== 'string') {
+          return null;
+        }
+        const trimmedId = id.trim();
+        if (trimmedId === '') return null;
+        const cached = domElementCache.get(trimmedId);
+        if (cached && cached.isConnected) {
+          return cached;
+        }
+        const element = document.getElementById(trimmedId);
+        if (element) {
+          domElementCache.set(trimmedId, element);
+          return element;
+        }
+        domElementCache.delete(trimmedId);
+        return null;
+      }
+
+      function createAnimationFrameThrottler(callback) {
+        if (typeof callback !== 'function') {
+          return () => {};
+        }
+        let scheduled = false;
+        let lastArgs = null;
+        return (...args) => {
+          lastArgs = args;
+          if (scheduled) {
+            return;
+          }
+          scheduled = true;
+          const runner = () => {
+            scheduled = false;
+            callback(...lastArgs);
+          };
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(runner);
+          } else {
+            setTimeout(runner, 16);
+          }
+        };
+      }
+
       const loadedScriptPromises = new Map();
 
       function loadScriptOnce(url) {
@@ -204,10 +249,10 @@ schedulePlaneStyleOverride();
           return;
         }
 
-        const controlPanel = document.getElementById('controlPanel');
-        const routeSelector = document.getElementById('routeSelector');
-        const controlTab = document.getElementById('controlPanelTab');
-        const routeTab = document.getElementById('routeSelectorTab');
+        const controlPanel = getCachedElementById('controlPanel');
+        const routeSelector = getCachedElementById('routeSelector');
+        const controlTab = getCachedElementById('controlPanelTab');
+        const routeTab = getCachedElementById('routeSelectorTab');
         const elementsReady = controlPanel || routeSelector || controlTab || routeTab;
         if (!elementsReady) {
           return;
@@ -3912,8 +3957,8 @@ schedulePlaneStyleOverride();
       }
 
       function positionPanelTab(panelId, tabId, side = 'right') {
-        const panel = document.getElementById(panelId);
-        const tab = document.getElementById(tabId);
+        const panel = getCachedElementById(panelId);
+        const tab = getCachedElementById(tabId);
         if (!panel || !tab) return;
 
         const panelRect = panel.getBoundingClientRect();
@@ -3989,8 +4034,8 @@ schedulePlaneStyleOverride();
       }
 
       function updatePanelTabVisibility() {
-        const controlTab = document.getElementById('controlPanelTab');
-        const routeTab = document.getElementById('routeSelectorTab');
+        const controlTab = getCachedElementById('controlPanelTab');
+        const routeTab = getCachedElementById('routeSelectorTab');
 
         if (!controlTab || !routeTab) return;
 
@@ -4000,8 +4045,8 @@ schedulePlaneStyleOverride();
           return;
         }
 
-        const controlPanel = document.getElementById('controlPanel');
-        const routePanel = document.getElementById('routeSelector');
+        const controlPanel = getCachedElementById('controlPanel');
+        const routePanel = getCachedElementById('routeSelector');
 
         const controlVisible = isPanelVisibleForMobileBehavior(controlPanel);
         const routeVisible = isPanelVisibleForMobileBehavior(routePanel);
@@ -4028,8 +4073,9 @@ schedulePlaneStyleOverride();
         updatePanelTabVisibility();
       }
 
-      window.addEventListener("load", positionAllPanelTabs);
-      window.addEventListener("resize", positionAllPanelTabs);
+      const positionAllPanelTabsThrottled = createAnimationFrameThrottler(positionAllPanelTabs);
+      window.addEventListener('load', positionAllPanelTabsThrottled);
+      window.addEventListener('resize', positionAllPanelTabsThrottled);
 
       // Global storage for routes from GetRoutes.
       let allRoutes = {};
@@ -5705,20 +5751,20 @@ ${trainPlaneMarkup}
         refreshMap();
       }
 
-      function setPanelToggleArrow(tab, arrowHtml) {
+      function setPanelToggleArrow(tab, arrowChar) {
         if (!tab) return;
         const arrowElement = tab.querySelector('.panel-toggle__arrow');
         if (arrowElement) {
-          arrowElement.innerHTML = arrowHtml;
+          arrowElement.textContent = arrowChar;
         } else {
-          tab.innerHTML = arrowHtml;
+          tab.textContent = arrowChar;
         }
       }
 
       // togglePanelVisibility toggles the provided panel's visibility and updates its tab arrow.
       function togglePanelVisibility(panelId, tabId, expandedArrow, collapsedArrow) {
-        const panel = document.getElementById(panelId);
-        const tab = document.getElementById(tabId);
+        const panel = getCachedElementById(panelId);
+        const tab = getCachedElementById(tabId);
         if (!panel || !tab) return;
         const isHidden = panel.classList.toggle('hidden');
         setPanelToggleArrow(tab, isHidden ? collapsedArrow : expandedArrow);
@@ -5726,11 +5772,11 @@ ${trainPlaneMarkup}
       }
 
       function toggleRoutePanel() {
-        togglePanelVisibility('routeSelector', 'routeSelectorTab', '&#9664;', '&#9654;');
+        togglePanelVisibility('routeSelector', 'routeSelectorTab', '◄', '▶');
       }
 
       function toggleControlPanel() {
-        togglePanelVisibility('controlPanel', 'controlPanelTab', '&#9654;', '&#9664;');
+        togglePanelVisibility('controlPanel', 'controlPanelTab', '▶', '◄');
       }
 
       function shouldCollapsePanelsOnLoad() {
@@ -5744,23 +5790,23 @@ ${trainPlaneMarkup}
         }
         if (!shouldCollapsePanelsOnLoad()) return;
 
-        const controlPanel = document.getElementById('controlPanel');
-        const controlTab = document.getElementById('controlPanelTab');
-        const routePanel = document.getElementById('routeSelector');
-        const routeTab = document.getElementById('routeSelectorTab');
+        const controlPanel = getCachedElementById('controlPanel');
+        const controlTab = getCachedElementById('controlPanelTab');
+        const routePanel = getCachedElementById('routeSelector');
+        const routeTab = getCachedElementById('routeSelectorTab');
 
         if (controlPanel && !controlPanel.classList.contains('hidden')) {
           controlPanel.classList.add('hidden');
         }
         if (controlTab) {
-          setPanelToggleArrow(controlTab, '&#9664;');
+          setPanelToggleArrow(controlTab, '◄');
         }
 
         if (routePanel && !routePanel.classList.contains('hidden')) {
           routePanel.classList.add('hidden');
         }
         if (routeTab) {
-          setPanelToggleArrow(routeTab, '&#9654;');
+          setPanelToggleArrow(routeTab, '▶');
         }
 
         positionAllPanelTabs();
@@ -5769,12 +5815,21 @@ ${trainPlaneMarkup}
       function renderRouteLegendContent(legendElement, routes) {
         if (!legendElement) return;
         legendElement.style.display = "block";
-        legendElement.innerHTML = "";
+        if (typeof legendElement.replaceChildren === 'function') {
+          legendElement.replaceChildren();
+        } else {
+          legendElement.innerHTML = "";
+        }
+
+        const fragment = typeof document !== 'undefined' && typeof document.createDocumentFragment === 'function'
+          ? document.createDocumentFragment()
+          : null;
+        const target = fragment || legendElement;
 
         const title = document.createElement("div");
         title.className = "legend-title";
         title.textContent = "Routes";
-        legendElement.appendChild(title);
+        target.appendChild(title);
 
         routes.forEach(route => {
           const item = document.createElement("div");
@@ -5801,8 +5856,12 @@ ${trainPlaneMarkup}
           }
 
           item.appendChild(textContainer);
-          legendElement.appendChild(item);
+          target.appendChild(item);
         });
+
+        if (fragment) {
+          legendElement.appendChild(fragment);
+        }
       }
 
       function createOutOfServiceLegendEntry() {
@@ -6083,7 +6142,7 @@ ${trainPlaneMarkup}
       }
 
       function updateRouteLegend(displayedRoutes = [], options = {}) {
-        const legend = document.getElementById("routeLegend");
+        const legend = getCachedElementById("routeLegend");
         if (!legend) return;
 
         const { forceHide = false, preserveOnEmpty = false } = options || {};
@@ -6091,7 +6150,11 @@ ${trainPlaneMarkup}
 
         if (!shouldShowLegend || forceHide) {
           legend.style.display = "none";
-          legend.innerHTML = "";
+          if (typeof legend.replaceChildren === 'function') {
+            legend.replaceChildren();
+          } else {
+            legend.innerHTML = "";
+          }
           lastRenderedLegendRoutes = [];
           return;
         }
