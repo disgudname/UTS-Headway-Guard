@@ -3292,6 +3292,11 @@ async def kioskmap_js():
     return _serve_js_asset("kioskmap.js")
 
 
+@app.get("/mobile-nav.js", include_in_schema=False)
+async def mobile_nav_js():
+    return _serve_js_asset("mobile-nav.js")
+
+
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
