@@ -111,6 +111,11 @@
 
   const style = document.createElement('style');
   style.textContent = `
+    :root{--hg-mobile-nav-offset:0px;}
+    body.hg-mobile-nav-active .hg-mobile-nav-scroll{
+      padding-bottom:var(--hg-mobile-nav-offset);
+      box-sizing:border-box;
+    }
     #${NAV_ID}{
       position:fixed;
       left:0;
@@ -212,16 +217,42 @@
   spacer.className = 'hg-mobile-nav-spacer';
   document.body.appendChild(spacer);
 
+  const processedScrollable = new WeakSet();
+  const markScrollableContainers = () => {
+    const all = document.querySelectorAll('*');
+    all.forEach(el => {
+      if (processedScrollable.has(el)) return;
+      if (el === nav || nav.contains(el)) return;
+      const style = window.getComputedStyle(el);
+      const overflowY = style.overflowY;
+      const overflow = style.overflow;
+      const isScrollableY = overflowY === 'auto' || overflowY === 'scroll' ||
+        ((overflow === 'auto' || overflow === 'scroll') && overflowY === 'visible');
+      if (!isScrollableY) return;
+      if (el.scrollHeight <= el.clientHeight) return;
+      el.classList.add('hg-mobile-nav-scroll');
+      processedScrollable.add(el);
+    });
+  };
+
   const updateSpacerHeight = () => {
     if (window.getComputedStyle(nav).display === 'none') {
       spacer.style.height = '0px';
+      document.documentElement.style.setProperty('--hg-mobile-nav-offset', '0px');
+      document.body.classList.remove('hg-mobile-nav-active');
       return;
     }
     const navHeight = nav.offsetHeight;
     spacer.style.height = `${navHeight}px`;
+    document.documentElement.style.setProperty('--hg-mobile-nav-offset', `${navHeight}px`);
+    document.body.classList.add('hg-mobile-nav-active');
+    markScrollableContainers();
   };
 
   updateSpacerHeight();
+  markScrollableContainers();
+  setTimeout(markScrollableContainers, 500);
+  setTimeout(markScrollableContainers, 1500);
   window.addEventListener('resize', updateSpacerHeight, { passive: true });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', updateSpacerHeight, { passive: true });
