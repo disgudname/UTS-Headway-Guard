@@ -174,7 +174,7 @@
     .hg-mobile-nav-spacer{display:none;}
     @media (max-width: 768px){
       #${NAV_ID}{display:block;}
-      .hg-mobile-nav-spacer{display:block;height:96px;}
+      .hg-mobile-nav-spacer{display:block;}
     }
   `;
   document.head.appendChild(style);
@@ -211,4 +211,20 @@
   const spacer = document.createElement('div');
   spacer.className = 'hg-mobile-nav-spacer';
   document.body.appendChild(spacer);
+
+  const updateSpacerHeight = () => {
+    if (window.getComputedStyle(nav).display === 'none') {
+      spacer.style.height = '0px';
+      return;
+    }
+    const navHeight = nav.offsetHeight;
+    spacer.style.height = `${navHeight}px`;
+  };
+
+  updateSpacerHeight();
+  window.addEventListener('resize', updateSpacerHeight, { passive: true });
+  if (window.ResizeObserver) {
+    const observer = new ResizeObserver(updateSpacerHeight);
+    observer.observe(nav);
+  }
 })();
