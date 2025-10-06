@@ -112,9 +112,15 @@
   const style = document.createElement('style');
   style.textContent = `
     :root{--hg-mobile-nav-offset:0px;}
+    body.hg-mobile-nav-active{
+      padding-bottom:var(--hg-mobile-nav-offset);
+    }
     body.hg-mobile-nav-active .hg-mobile-nav-scroll{
       padding-bottom:var(--hg-mobile-nav-offset);
       box-sizing:border-box;
+    }
+    body.hg-mobile-nav-active .leaflet-bottom{
+      bottom:calc(var(--hg-mobile-nav-offset) + 4px);
     }
     #${NAV_ID}{
       position:fixed;
