@@ -3232,6 +3232,11 @@ async def radar_wav():
     return FileResponse(BASE_DIR / "radar.wav", media_type="audio/wav")
 
 
+@app.get("/headwayguardicon.png", include_in_schema=False)
+async def headwayguard_icon():
+    return FileResponse(BASE_DIR / "headwayguardicon.png", media_type="image/png")
+
+
 @app.get("/map_defaults.js", include_in_schema=False)
 async def map_defaults_js():
     return _serve_js_asset("map_defaults.js")
