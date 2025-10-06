@@ -155,6 +155,84 @@
     font-size:18px;
     color:var(--muted);
   }
+  .mobile-list{
+    display:none;
+    flex-direction:column;
+    background:var(--panel);
+  }
+  .mobile-card{
+    border-top:1px solid rgba(159,176,201,0.08);
+  }
+  .mobile-card:first-child{
+    border-top:none;
+  }
+  .card-summary{
+    width:100%;
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:14px;
+    padding:16px 20px;
+    background:none;
+    border:none;
+    color:inherit;
+    font:inherit;
+    text-align:left;
+    cursor:pointer;
+    appearance:none;
+    -webkit-appearance:none;
+  }
+  .card-summary:focus{
+    outline:2px solid var(--accent);
+    outline-offset:2px;
+  }
+  .card-summary .vehicle{
+    font-size:18px;
+    font-weight:600;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+  }
+  .card-summary .summary-meta{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:8px;
+  }
+  .card-summary .summary-date{
+    font-size:14px;
+    color:var(--muted);
+  }
+  .card-summary .chevron{
+    margin-left:12px;
+    transition:transform 0.2s ease;
+  }
+  .mobile-card.expanded .card-summary .chevron{
+    transform:rotate(90deg);
+  }
+  .card-details{
+    display:none;
+    padding:0 20px 18px;
+    margin:0;
+    column-gap:12px;
+  }
+  .mobile-card.expanded .card-details{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    row-gap:14px;
+  }
+  .card-details dt{
+    margin:0 0 4px;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--muted);
+  }
+  .card-details dd{
+    margin:0;
+    font-size:16px;
+    line-height:1.35;
+    word-break:break-word;
+  }
   @media (max-width:1100px){
     table{font-size:14px;}
     tbody td{font-size:16px;}
@@ -163,6 +241,11 @@
   }
   @media (max-width:960px){
     #sections{gap:10px;}
+  }
+  @media (max-width:780px){
+    table{display:none;}
+    .mobile-list{display:flex;}
+    section{border-radius:14px;}
   }
 </style>
 </head>
@@ -243,6 +326,72 @@ function findDeliveryDateIndex(headers){
     }
   }
   return -1;
+}
+
+function findDownDateIndex(headers){
+  if(!Array.isArray(headers)) return -1;
+  for(let i=0;i<headers.length;i++){
+    const normalized=normalizeHeader(headers[i]);
+    if(!normalized) continue;
+    if(normalized==='date' || normalized==='down date' || normalized.includes('down date')){
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findVehicleIndex(headers){
+  if(!Array.isArray(headers)) return 0;
+  for(let i=0;i<headers.length;i++){
+    const normalized=normalizeHeader(headers[i]);
+    if(normalized==='bus' || normalized==='p&t support vehicle' || normalized==='vehicle' || normalized.includes('vehicle')){
+      return i;
+    }
+  }
+  return 0;
+}
+
+function findStatusIndices(headers){
+  if(!Array.isArray(headers)) return [];
+  const results=[];
+  headers.forEach((text,index)=>{
+    if(normalizeHeader(text)==='status') results.push(index);
+  });
+  return results;
+}
+
+function getMobileLabel(text){
+  const normalized=normalizeHeader(text);
+  if(normalized==='bus' || normalized==='p&t support vehicle' || normalized==='vehicle') return 'Vehicle';
+  if(!text) return 'Info';
+  const abbreviated=abbreviateHeaderLabel(text);
+  return abbreviated || 'Info';
+}
+
+function getPreferredStatus(values, headers){
+  const indices=findStatusIndices(headers);
+  if(!indices.length) return '';
+  for(let i=indices.length-1;i>=0;i--){
+    const value=values[indices[i]];
+    if(value && String(value).trim()) return value;
+  }
+  for(let i=0;i<indices.length;i++){
+    const value=values[indices[i]];
+    if(value && String(value).trim()) return value;
+  }
+  return '';
+}
+
+function getDisplayDate(values, deliveryIndex, downIndex){
+  if(deliveryIndex>=0 && deliveryIndex<values.length){
+    const delivery=values[deliveryIndex];
+    if(delivery && String(delivery).trim()) return delivery;
+  }
+  if(downIndex>=0 && downIndex<values.length){
+    const down=values[downIndex];
+    if(down && String(down).trim()) return down;
+  }
+  return '';
 }
 
 function parseCsv(text){
@@ -385,6 +534,10 @@ function renderSection(section){
   const diagnosticIndex=findDiagnosticDateIndex(section.headers);
   const deliveryIndex=findDeliveryDateIndex(section.headers);
   const deliveryCutoff=getDeliveryCutoff();
+  const downIndex=findDownDateIndex(section.headers);
+  const vehicleIndex=findVehicleIndex(section.headers);
+  const mobileList=document.createElement('div');
+  mobileList.className='mobile-list';
   section.rows.forEach(row => {
     const tr=document.createElement('tr');
     const padded=row.slice();
@@ -392,6 +545,8 @@ function renderSection(section){
     if(shouldHideByDeliveryDate(padded, deliveryIndex, deliveryCutoff)) return;
     const diagnosticValue=(diagnosticIndex>=0 && diagnosticIndex<padded.length) ? padded[diagnosticIndex] : '';
     const hasDiagnosticDate=!!(diagnosticValue && String(diagnosticValue).trim());
+    const statusText=getPreferredStatus(padded, section.headers);
+    const displayDate=getDisplayDate(padded, deliveryIndex, downIndex);
     visibleColumns.forEach(col => {
       const { index, text: headerText } = col;
       const cell=padded[index];
@@ -425,6 +580,103 @@ function renderSection(section){
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
+
+    const card=document.createElement('div');
+    card.className='mobile-card';
+    const summaryButton=document.createElement('button');
+    summaryButton.type='button';
+    summaryButton.className='card-summary';
+    summaryButton.setAttribute('aria-expanded','false');
+
+    const vehicleLabel=document.createElement('span');
+    vehicleLabel.className='vehicle';
+    vehicleLabel.textContent=padded[vehicleIndex] || 'Unknown Vehicle';
+    summaryButton.appendChild(vehicleLabel);
+
+    const summaryMeta=document.createElement('div');
+    summaryMeta.className='summary-meta';
+
+    if(statusText){
+      const statusCls=getStatusClass(statusText);
+      const pill=document.createElement('span');
+      pill.className='pill';
+      if(statusCls) pill.classList.add(statusCls);
+      if(!hasDiagnosticDate){
+        pill.classList.add('pulse-alert');
+      }
+      const dot=document.createElement('span');
+      dot.className='dot';
+      pill.appendChild(dot);
+      const label=document.createElement('span');
+      label.textContent=statusText;
+      pill.appendChild(label);
+      summaryMeta.appendChild(pill);
+    }
+
+    const dateEl=document.createElement('span');
+    dateEl.className='summary-date';
+    dateEl.textContent=displayDate || '—';
+    summaryMeta.appendChild(dateEl);
+
+    const chevron=document.createElement('span');
+    chevron.className='chevron';
+    chevron.textContent='›';
+    chevron.setAttribute('aria-hidden','true');
+
+    summaryButton.appendChild(summaryMeta);
+    summaryButton.appendChild(chevron);
+
+    const details=document.createElement('dl');
+    details.className='card-details';
+    visibleColumns.forEach(col => {
+      const { index, text: headerText } = col;
+      const value=padded[index];
+      if(!value) return;
+      const dt=document.createElement('dt');
+      dt.textContent=getMobileLabel(headerText);
+      const dd=document.createElement('dd');
+      if(isStatusHeader(headerText)){
+        const cls=getStatusClass(value);
+        if(value && cls){
+          const pill=document.createElement('span');
+          pill.className='pill';
+          pill.classList.add(cls);
+          if(!hasDiagnosticDate){
+            pill.classList.add('pulse-alert');
+          }
+          const dot=document.createElement('span');
+          dot.className='dot';
+          pill.appendChild(dot);
+          const label=document.createElement('span');
+          label.textContent=value;
+          pill.appendChild(label);
+          dd.appendChild(pill);
+        }else{
+          dd.textContent=value;
+        }
+      }else{
+        dd.textContent=value;
+      }
+      details.appendChild(dt);
+      details.appendChild(dd);
+    });
+
+    const hasDetails=details.children.length>0;
+    if(!hasDetails){
+      chevron.style.visibility='hidden';
+      summaryButton.setAttribute('aria-expanded','false');
+    }
+
+    summaryButton.addEventListener('click',()=>{
+      if(!hasDetails) return;
+      const expanded=!card.classList.contains('expanded');
+      card.classList.toggle('expanded');
+      summaryButton.setAttribute('aria-expanded', expanded ? 'true':'false');
+    });
+
+    card.appendChild(summaryButton);
+    card.appendChild(details);
+    mobileList.appendChild(card);
   });
   if(!tbody.children.length){
     const empty=document.createElement('div');
@@ -435,6 +687,9 @@ function renderSection(section){
   }
   table.appendChild(tbody);
   wrapper.appendChild(table);
+  if(mobileList.children.length){
+    wrapper.appendChild(mobileList);
+  }
   return wrapper;
 }
 
