@@ -217,21 +217,24 @@
   spacer.className = 'hg-mobile-nav-spacer';
   document.body.appendChild(spacer);
 
-  const processedScrollable = new WeakSet();
   const markScrollableContainers = () => {
     const all = document.querySelectorAll('*');
     all.forEach(el => {
-      if (processedScrollable.has(el)) return;
       if (el === nav || nav.contains(el)) return;
       const style = window.getComputedStyle(el);
       const overflowY = style.overflowY;
       const overflow = style.overflow;
       const isScrollableY = overflowY === 'auto' || overflowY === 'scroll' ||
         ((overflow === 'auto' || overflow === 'scroll') && overflowY === 'visible');
-      if (!isScrollableY) return;
-      if (el.scrollHeight <= el.clientHeight) return;
-      el.classList.add('hg-mobile-nav-scroll');
-      processedScrollable.add(el);
+      if (!isScrollableY) {
+        el.classList.remove('hg-mobile-nav-scroll');
+        return;
+      }
+      if (el.scrollHeight > el.clientHeight) {
+        el.classList.add('hg-mobile-nav-scroll');
+      } else {
+        el.classList.remove('hg-mobile-nav-scroll');
+      }
     });
   };
 
