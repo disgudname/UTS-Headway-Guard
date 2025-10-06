@@ -990,6 +990,9 @@
       geometrySignature: '',
       useOverlapRenderer: false
     };
+    let routeHistoryEntries = [];
+    let routeHistoryLoaded = false;
+    let lastAppliedRouteSnapshotKey = null;
 
     let markers = {};
     let busMarkerStates = {};
@@ -3503,7 +3506,141 @@
       }
     }
 
+    async function ensureRouteHistoryLoaded() {
+      if (routeHistoryLoaded) return;
+      try {
+        const resp = await fetch('/route_history');
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        const entries = Array.isArray(data?.entries) ? data.entries : [];
+        routeHistoryEntries = entries
+          .map(entry => {
+            const ts = Number(entry?.ts ?? entry?.timestamp ?? entry?.time_ms);
+            const dateStr = typeof entry?.date === 'string' ? entry.date : '';
+            return {
+              ts: Number.isFinite(ts) ? ts : null,
+              date: dateStr,
+              key: Number.isFinite(ts) ? String(ts) : (dateStr || ''),
+              routes: (entry && typeof entry.routes === 'object' && entry.routes) ? entry.routes : {}
+            };
+          })
+          .filter(entry => Number.isFinite(entry.ts));
+        routeHistoryEntries.sort((a, b) => a.ts - b.ts);
+        lastAppliedRouteSnapshotKey = null;
+      } catch (err) {
+        console.error('Failed to load route history', err);
+        routeHistoryEntries = [];
+      } finally {
+        routeHistoryLoaded = true;
+      }
+    }
+
+    function findRouteSnapshotFor(ms) {
+      if (!Array.isArray(routeHistoryEntries) || routeHistoryEntries.length === 0) {
+        return null;
+      }
+      let candidate = null;
+      for (let i = 0; i < routeHistoryEntries.length; i++) {
+        const entry = routeHistoryEntries[i];
+        if (!Number.isFinite(entry?.ts)) continue;
+        if (entry.ts <= ms) {
+          candidate = entry;
+        } else {
+          break;
+        }
+      }
+      if (!candidate) {
+        candidate = routeHistoryEntries[0];
+      }
+      return candidate;
+    }
+
+    function applyRouteSnapshotFor(ms) {
+      if (!Array.isArray(routeHistoryEntries) || routeHistoryEntries.length === 0) {
+        return;
+      }
+      const snapshot = findRouteSnapshotFor(ms);
+      if (!snapshot) return;
+      const snapshotKey = snapshot.key || String(snapshot.ts);
+      if (snapshotKey === lastAppliedRouteSnapshotKey) {
+        return;
+      }
+
+      const routesData = snapshot.routes && typeof snapshot.routes === 'object'
+        ? snapshot.routes
+        : {};
+      const nextRoutes = {};
+      const nextColors = {};
+      const desiredIds = new Set();
+
+      Object.keys(routesData).forEach(routeIdKey => {
+        const info = routesData[routeIdKey] || {};
+        const numericId = Number(info?.id ?? routeIdKey);
+        if (!Number.isFinite(numericId)) return;
+        desiredIds.add(numericId);
+        const nameRaw = typeof info?.name === 'string' ? info.name.trim() : '';
+        const colorRaw = typeof info?.color === 'string' ? info.color.trim() : '';
+        const encodedRaw = typeof info?.encoded_polyline === 'string'
+          ? info.encoded_polyline
+          : (typeof info?.encoded === 'string' ? info.encoded : '');
+        const lastSeen = typeof info?.last_seen === 'string' ? info.last_seen : '';
+        const infoTextRaw = typeof info?.info === 'string' ? info.info : '';
+        const name = nameRaw || `Route ${numericId}`;
+        const color = colorRaw || '';
+        const encoded = typeof encodedRaw === 'string' ? encodedRaw.trim() : '';
+        let infoText = infoTextRaw;
+        if (!infoText && lastSeen) {
+          infoText = `Last seen ${lastSeen}`;
+        }
+        nextRoutes[numericId] = {
+          RouteID: numericId,
+          Description: name,
+          RouteName: name,
+          InfoText: infoText,
+          MapLineColor: color,
+          EncodedPolyline: encoded,
+          encodedPolyline: encoded
+        };
+        if (color) {
+          nextColors[numericId] = color;
+        }
+      });
+
+      if (desiredIds.size > 0) {
+        Object.keys(routeSelections).forEach(key => {
+          if (Number(key) !== 0 && !desiredIds.has(Number(key))) {
+            delete routeSelections[key];
+          }
+        });
+        Array.from(routePolylineCache.keys()).forEach(routeId => {
+          if (!desiredIds.has(routeId)) {
+            routePolylineCache.delete(routeId);
+          }
+        });
+      } else {
+        Object.keys(routeSelections).forEach(key => {
+          if (Number(key) !== 0) {
+            delete routeSelections[key];
+          }
+        });
+        routePolylineCache.clear();
+      }
+
+      allRoutes = nextRoutes;
+      routeColors = nextColors;
+      lastAppliedRouteSnapshotKey = snapshotKey;
+    }
+
     async function fetchRoutes() {
+      await ensureRouteHistoryLoaded();
+      if (Array.isArray(routeHistoryEntries) && routeHistoryEntries.length > 0) {
+        const latest = routeHistoryEntries[routeHistoryEntries.length - 1];
+        const ts = Number.isFinite(latest?.ts) ? latest.ts : Date.now();
+        applyRouteSnapshotFor(ts);
+        return;
+      }
       try {
         const response = await fetch('/v1/transloc/routes');
         const data = await response.json();
@@ -4324,6 +4461,7 @@
       const entry = playbackData[i];
       const timeline = document.getElementById('timeline');
       const timeMs = (typeof displayMs !== 'undefined') ? displayMs : playbackTimes[i];
+      applyRouteSnapshotFor(timeMs);
       const formatted = new Date(timeMs).toLocaleString('en-US', {
         timeZone: 'America/New_York',
         year: 'numeric',
@@ -4624,6 +4762,7 @@
         routeLayers.forEach(layer => map.removeLayer(layer));
         routeLayers = [];
         routePolylineCache.clear();
+        lastAppliedRouteSnapshotKey = null;
         const timeline = document.getElementById('timeline');
         timeline.min = startTime.getTime();
         timeline.max = userEndTime.getTime();
@@ -4664,6 +4803,14 @@
         const dateStr = document.getElementById('datePicker').value;
         const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
         if (dateStr !== todayStr) return;
+
+        const latestHistoryDate = (routeHistoryEntries.length && routeHistoryEntries[routeHistoryEntries.length - 1])
+          ? routeHistoryEntries[routeHistoryEntries.length - 1].date
+          : '';
+        if (latestHistoryDate !== todayStr) {
+          routeHistoryLoaded = false;
+          await ensureRouteHistoryLoaded();
+        }
 
         const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
         if (now > userEndTime) {
