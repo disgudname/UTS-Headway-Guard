@@ -30,6 +30,7 @@
   @keyframes spin{to{transform:rotate(360deg);}}
   #newestDisplay{margin:12px 0;color:var(--muted);}
   #tablesContainer{display:flex;flex-direction:column;gap:18px;margin-top:12px;}
+  #tablesContainer.is-loading{opacity:0.4;filter:grayscale(0.6);pointer-events:none;transition:opacity 0.2s ease;}
   .route-block{background:var(--panel);padding:16px;border-radius:12px;border:1px solid var(--line);box-shadow:0 4px 12px rgba(0,0,0,0.2);}
   .route-header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;}
   .route-header label{display:flex;align-items:center;gap:8px;}
@@ -40,6 +41,7 @@
   #overallTotalRow{margin-top:16px;font-size:18px;font-weight:bold;}
   #addTableBtn{margin-top:16px;background:#2f9d78;}
   .quick-add{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .loading-message{margin-top:8px;color:var(--muted);font-style:italic;display:none;}
 </style>
 </head>
 <body>
@@ -52,6 +54,7 @@
 </div>
 <div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
 <div id="overallTotalRow">Overall Displayed Total: <span id="overallTotal">0</span></div>
+<div id="loadingMessage" class="loading-message">Loading Data, please wait...</div>
 <div id="tablesContainer"></div>
 <button id="addTableBtn" type="button">Add Another Route</button>
 <textarea id="notes" placeholder="Service Notes..."></textarea>
@@ -63,6 +66,7 @@ const tablesContainer=document.getElementById('tablesContainer');
 const overallTotalDisplay=document.getElementById('overallTotal');
 const addTableBtn=document.getElementById('addTableBtn');
 const notesInput=document.getElementById('notes');
+const loadingMessage=document.getElementById('loadingMessage');
 
 let ridershipByRoute={};
 let routeList=[];
@@ -86,6 +90,8 @@ if(!tablesContainer.children.length){
 
 function load(){
   spinner.style.display='inline-block';
+  tablesContainer.classList.add('is-loading');
+  loadingMessage.style.display='block';
   const [y,m,d]=dateInput.value.split('-').map(Number);
   const start=new Date(y,m-1,d);
   const end=new Date(start);
@@ -95,10 +101,12 @@ function load(){
   const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
   fetch(url).then(r=>r.json()).then(data=>{
     render(data||[]);
-    spinner.style.display='none';
   }).catch(err=>{
     console.error(err);
+  }).finally(()=>{
     spinner.style.display='none';
+    tablesContainer.classList.remove('is-loading');
+    loadingMessage.style.display='none';
   });
 }
 
