@@ -464,7 +464,12 @@ function sumForRange(route,start,end){
 function exportCsv(){
   const lines=[];
   const dateValue=dateInput.value||new Date().toISOString().split('T')[0];
+  const overallTotal=overallTotalDisplay.textContent.trim();
   lines.push(`Date,${escapeCsv(dateValue)}`);
+  if(overallTotal){
+    lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
+    lines.push('');
+  }
   const blocks=[...tablesContainer.querySelectorAll('.route-block')];
   const routeMeta=new Map();
   blocks.forEach(block=>{
@@ -504,11 +509,6 @@ function exportCsv(){
       }
     }
   });
-  const overallTotal=overallTotalDisplay.textContent.trim();
-  if(overallTotal){
-    lines.push('');
-    lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
-  }
   const notes=notesInput.value.trim();
   if(notes){
     lines.push('');
