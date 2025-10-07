@@ -75,6 +75,7 @@ const loadingMessage=document.getElementById('loadingMessage');
 
 let ridershipByRoute={};
 let routeList=[];
+let newestDataTimestamp=null;
 
 const today=new Date();
 today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
@@ -139,6 +140,7 @@ function render(data){
     if(!newest||timestamp>newest){newest=timestamp;}
   });
   routeList=Object.keys(ridershipByRoute).sort((a,b)=>a.localeCompare(b));
+  newestDataTimestamp=newest;
   newestTimestamp.textContent=newest?newest.toLocaleString():'';
   let blocks=[...tablesContainer.querySelectorAll('.route-block')];
   if(!blocks.length){
@@ -464,8 +466,9 @@ function sumForRange(route,start,end){
 function exportCsv(){
   const lines=[];
   const dateValue=dateInput.value||new Date().toISOString().split('T')[0];
+  const asOfValue=newestDataTimestamp?newestDataTimestamp.toLocaleString():'';
   const overallTotal=overallTotalDisplay.textContent.trim();
-  lines.push(`Date,${escapeCsv(dateValue)}`);
+  lines.push(`Date,${escapeCsv(dateValue)},As Of,${escapeCsv(asOfValue)}`);
   if(overallTotal){
     lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
     lines.push('');
