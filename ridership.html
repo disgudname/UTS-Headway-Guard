@@ -94,6 +94,15 @@ if(!tablesContainer.children.length){
   addRouteTable();
 }
 
+function normalizeRouteName(route){
+  if(!route){return route;}
+  const trimmed=route.trim();
+  if(trimmed==='Red Line AM'||trimmed==='Red Line PM'){
+    return 'Red Line';
+  }
+  return trimmed;
+}
+
 function load(){
   spinner.style.display='inline-block';
   tablesContainer.classList.add('is-loading');
@@ -120,7 +129,7 @@ function render(data){
   ridershipByRoute={};
   let newest=null;
   data.forEach(rec=>{
-    const route=rec.Route;
+    const route=normalizeRouteName(rec.Route);
     const entries=Number(rec.Entries)||0;
     if(!route){return;}
     const timestamp=new Date(rec.ClientTime);
@@ -524,8 +533,8 @@ function ensureRouteOption(select,route){
 
 function loadTemplate(){
   const template=[
-    {route:'Red Line AM',alternate:'Scott Stadium West Parking Lots (Red Line)',times:['0430 - 0600','0600 - 0730']},
-    {route:'Red Line PM',alternate:'Scott Stadium West Parking Lots (Red Line)',times:['1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']},
+    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line AM)',times:['0430 - 0600','0600 - 0730']},
+    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line PM)',times:['1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']},
     {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line AM)',times:['0630 - 0730','0730 - 0800','0800 - 0900','0900 - 1000']},
     {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line PM)',times:['1000 - 1430','1430 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']}
   ];
