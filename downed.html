@@ -125,9 +125,10 @@
     letter-spacing:0.08em;
   }
   .pill{
+    position:relative;
+    z-index:0;
     display:inline-flex;
     align-items:center;
-    gap:6px;
     padding:5px 14px;
     border-radius:999px;
     font-size:18px;
@@ -136,32 +137,24 @@
     background:rgba(255,255,255,0.08);
     box-shadow:0 0 0 1px rgba(255,255,255,0.12) inset;
   }
-  .pill .dot{
-    width:10px;
-    height:10px;
-    border-radius:50%;
-    background:currentColor;
+  .pill span+span{
+    margin-left:6px;
   }
-  .pill.pulse-alert{position:relative;}
-  .pill.pulse-alert .dot{
-    position:relative;
-    z-index:1;
-  }
-  .pill.pulse-alert .dot::after{
+  .pill.pulse-alert::after{
     content:'';
     position:absolute;
-    inset:-6px;
-    border-radius:50%;
+    inset:-4px;
+    border-radius:inherit;
     background:currentColor;
-    opacity:0.45;
-    transform:scale(0.6);
+    opacity:0.35;
+    transform:scale(0.85);
     z-index:-1;
     animation:statusPulse 1.8s ease-out infinite;
   }
   @keyframes statusPulse{
-    0%{transform:scale(0.6); opacity:0.45;}
-    70%{transform:scale(1.6); opacity:0;}
-    100%{transform:scale(1.6); opacity:0;}
+    0%{transform:scale(0.85); opacity:0.35;}
+    70%{transform:scale(1.35); opacity:0;}
+    100%{transform:scale(1.35); opacity:0;}
   }
   .pill.down,
   .pill.downed{
@@ -623,10 +616,6 @@ function renderSection(section){
             pill.classList.add('pulse-alert');
           }
 
-          const dot=document.createElement('span');
-          dot.className='dot';
-          pill.appendChild(dot);
-
           const label=document.createElement('span');
           label.textContent=text;
           pill.appendChild(label);
@@ -665,9 +654,6 @@ function renderSection(section){
       if(!hasDiagnosticDate){
         pill.classList.add('pulse-alert');
       }
-      const dot=document.createElement('span');
-      dot.className='dot';
-      pill.appendChild(dot);
       const label=document.createElement('span');
       label.textContent=statusText;
       pill.appendChild(label);
@@ -705,9 +691,6 @@ function renderSection(section){
           if(!hasDiagnosticDate){
             pill.classList.add('pulse-alert');
           }
-          const dot=document.createElement('span');
-          dot.className='dot';
-          pill.appendChild(dot);
           const label=document.createElement('span');
           label.textContent=value;
           pill.appendChild(label);
