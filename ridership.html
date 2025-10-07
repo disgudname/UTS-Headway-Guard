@@ -420,6 +420,11 @@ function exportCsv(){
     const total=block.querySelector('.route-total').textContent.trim();
     lines.push(`Total,${escapeCsv(total)}`);
   });
+  const overallTotal=overallTotalDisplay.textContent.trim();
+  if(overallTotal){
+    lines.push('');
+    lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
+  }
   const notes=notesInput.value.trim();
   if(notes){
     lines.push('');
