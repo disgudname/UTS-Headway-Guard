@@ -35,6 +35,7 @@
   .route-total{font-weight:bold;text-align:right;}
   #overallTotalRow{margin-top:16px;font-size:18px;font-weight:bold;}
   #addTableBtn{margin-top:16px;background:#2f9d78;}
+  .quick-add{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
 </style>
 </head>
 <body>
@@ -196,6 +197,16 @@ function addRouteTable(){
   table.appendChild(tfoot);
   block.appendChild(table);
 
+  const quickAdd=document.createElement('div');
+  quickAdd.className='quick-add';
+
+  const add30Btn=createQuickAddButton(block,'+30 min',30);
+  const add60Btn=createQuickAddButton(block,'+1 hr',60);
+  quickAdd.appendChild(add30Btn);
+  quickAdd.appendChild(add60Btn);
+
+  block.appendChild(quickAdd);
+
   tablesContainer.appendChild(block);
 
   populateRouteOptions(select);
@@ -233,6 +244,52 @@ function addTimeRow(block){
   row.appendChild(resultCell);
   tbody.appendChild(row);
   return row;
+}
+
+function createQuickAddButton(block,label,duration){
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.textContent=label;
+  btn.addEventListener('click',()=>{
+    const range=getNextRange(block,duration);
+    if(!range){return;}
+    const row=addTimeRow(block);
+    const input=row.querySelector('.time-input');
+    input.value=formatRange(range.start,range.end);
+    updateBlock(block);
+    input.focus();
+  });
+  return btn;
+}
+
+function getNextRange(block,duration){
+  const lastEnd=getLastRangeEnd(block);
+  const start=lastEnd!==null?lastEnd:0;
+  if(start>=1440){return null;}
+  const end=Math.min(start+duration,1440);
+  if(end<=start){return null;}
+  return {start,end};
+}
+
+function getLastRangeEnd(block){
+  let lastEnd=null;
+  block.querySelectorAll('.time-row .time-input').forEach(input=>{
+    const range=parseRange(input.value);
+    if(range&&range.end>(lastEnd??-Infinity)){
+      lastEnd=range.end;
+    }
+  });
+  return lastEnd;
+}
+
+function formatRange(start,end){
+  return `${formatMinutes(start)} - ${formatMinutes(end)}`;
+}
+
+function formatMinutes(total){
+  const hours=String(Math.floor(total/60)).padStart(2,'0');
+  const mins=String(total%60).padStart(2,'0');
+  return `${hours}${mins}`;
 }
 
 function updateBlock(block){
