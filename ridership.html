@@ -39,6 +39,8 @@
   .result-cell{width:120px;text-align:right;font-variant-numeric:tabular-nums;}
   .result-cell.invalid{color:var(--danger);}
   .route-total{font-weight:bold;text-align:right;}
+  .route-day-total-row{display:none;}
+  .route-day-total{font-weight:bold;text-align:right;}
   #overallTotalRow{margin-top:16px;font-size:18px;font-weight:bold;}
   #addTableBtn{margin-top:16px;background:#2f9d78;}
   .quick-add{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
@@ -217,6 +219,17 @@ function addRouteTable(){
   footRow.appendChild(totalValue);
   tfoot.appendChild(footRow);
 
+  const dayRow=document.createElement('tr');
+  dayRow.className='route-day-total-row';
+  const dayLabel=document.createElement('th');
+  dayLabel.textContent='Day Total';
+  const dayValue=document.createElement('td');
+  dayValue.className='route-day-total';
+  dayValue.textContent='0';
+  dayRow.appendChild(dayLabel);
+  dayRow.appendChild(dayValue);
+  tfoot.appendChild(dayRow);
+
   table.appendChild(thead);
   table.appendChild(tbody);
   table.appendChild(tfoot);
@@ -348,6 +361,7 @@ function updateBlock(block){
   });
   block.querySelector('.route-total').textContent=total;
   updateOverallTotal();
+  updateRouteDayTotals();
 }
 
 function updateOverallTotal(){
@@ -357,6 +371,43 @@ function updateOverallTotal(){
     if(!Number.isNaN(value)){sum+=value;}
   });
   overallTotalDisplay.textContent=sum;
+}
+
+function updateRouteDayTotals(){
+  const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  blocks.forEach(block=>{
+    const dayRow=block.querySelector('.route-day-total-row');
+    if(dayRow){dayRow.style.display='none';}
+  });
+  const routeTotals=new Map();
+  blocks.forEach(block=>{
+    const route=block.querySelector('.route-select').value;
+    if(!route){return;}
+    const totalCell=block.querySelector('.route-total');
+    const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
+    const value=Number.isNaN(numeric)?0:numeric;
+    if(!routeTotals.has(route)){
+      routeTotals.set(route,{total:0,blocks:[]});
+    }
+    const entry=routeTotals.get(route);
+    entry.total+=value;
+    entry.blocks.push(block);
+  });
+  routeTotals.forEach(({total,blocks:routeBlocks})=>{
+    const showRow=routeBlocks.length>1;
+    routeBlocks.forEach(block=>{
+      const dayRow=block.querySelector('.route-day-total-row');
+      const dayValue=block.querySelector('.route-day-total');
+      if(!dayRow||!dayValue){return;}
+      if(showRow){
+        dayRow.style.display='';
+        dayValue.textContent=total;
+      }else{
+        dayRow.style.display='none';
+        dayValue.textContent=total;
+      }
+    });
+  });
 }
 
 function parseRange(value){
@@ -405,7 +456,23 @@ function exportCsv(){
   const lines=[];
   const dateValue=dateInput.value||new Date().toISOString().split('T')[0];
   lines.push(`Date,${escapeCsv(dateValue)}`);
-  tablesContainer.querySelectorAll('.route-block').forEach((block,index)=>{
+  const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  const routeMeta=new Map();
+  blocks.forEach(block=>{
+    const routeKey=block.querySelector('.route-select').value;
+    if(!routeKey){return;}
+    const totalCell=block.querySelector('.route-total');
+    const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
+    const value=Number.isNaN(numeric)?0:numeric;
+    if(!routeMeta.has(routeKey)){
+      routeMeta.set(routeKey,{total:0,count:0});
+    }
+    const meta=routeMeta.get(routeKey);
+    meta.total+=value;
+    meta.count+=1;
+  });
+  const routeSeen=new Map();
+  blocks.forEach((block,index)=>{
     const route=block.querySelector('.route-select').value||'';
     const alternate=block.querySelector('.alternate-input')?.value||'';
     const routeLabel=alternate||route;
@@ -419,6 +486,14 @@ function exportCsv(){
     });
     const total=block.querySelector('.route-total').textContent.trim();
     lines.push(`Total,${escapeCsv(total)}`);
+    if(route){
+      const count=(routeSeen.get(route)||0)+1;
+      routeSeen.set(route,count);
+      const meta=routeMeta.get(route);
+      if(meta&&meta.count>1&&count===meta.count){
+        lines.push(`Day Total,${escapeCsv(meta.total)}`);
+      }
+    }
   });
   const notes=notesInput.value.trim();
   if(notes){
