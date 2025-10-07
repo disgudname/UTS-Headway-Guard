@@ -318,8 +318,8 @@
   <div id="sections"></div>
 </main>
 <script>
-const ENDPOINT = '/v1/dispatcher/downed_buses';
-const REFRESH_MS = 60000;
+const ENDPOINT = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const REFRESH_MS = 5 * 60 * 1000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
 
@@ -897,8 +897,7 @@ async function loadSheet(){
   try{
     const res=await fetch(ENDPOINT,{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
-    const payload=await res.json();
-    const csv=(payload && typeof payload.csv==='string') ? payload.csv : '';
+    const csv=await res.text();
     renderSheet(parseSheet(csv));
   }catch(err){
     console.error('Failed to load downed vehicles sheet', err);
