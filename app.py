@@ -129,6 +129,16 @@ VEH_LOG_DIRS = [
 ]
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
 
+ROUTE_LOG_DIRS = [
+    Path(p)
+    for p in os.getenv(
+        "ROUTE_LOG_DIRS",
+        os.getenv("ROUTE_LOG_DIR", str(PRIMARY_DATA_DIR / "route_logs")),
+    ).split(":")
+]
+ROUTE_LOG_DIR = ROUTE_LOG_DIRS[0]
+ROUTE_HISTORY_NAME = "routes_history.jsonl"
+
 # Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
 SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
@@ -351,6 +361,194 @@ class BusDay:
 
 
 LOW_CLEARANCES_CACHE: Optional[List[Dict[str, float]]] = None
+
+
+def _route_history_ordered(routes: Dict[Any, Any]) -> Dict[str, Any]:
+    ordered: Dict[str, Any] = {}
+    try:
+        keys = sorted(routes.keys(), key=lambda k: int(k))
+    except Exception:
+        keys = sorted(routes.keys(), key=str)
+    for key in keys:
+        ordered[str(key)] = routes[key]
+    return ordered
+
+
+def _route_history_snapshot(routes: Dict[int, "Route"]) -> Dict[str, Dict[str, Any]]:
+    snapshot: Dict[str, Dict[str, Any]] = {}
+    try:
+        route_ids = sorted(routes.keys(), key=lambda k: int(k))
+    except Exception:
+        route_ids = sorted(routes.keys(), key=str)
+    for key in route_ids:
+        route = routes[key]
+        rid = getattr(route, "id", key)
+        try:
+            rid_int = int(rid)
+        except Exception:
+            continue
+        entry = {
+            "id": rid_int,
+            "name": route.name,
+            "color": route.color or "",
+            "encoded_polyline": route.encoded or "",
+            "length_m": route.length_m,
+        }
+        snapshot[str(rid_int)] = entry
+    return snapshot
+
+
+def _route_history_core(entry: Optional[Dict[str, Any]]) -> Tuple[str, str, str]:
+    if not entry:
+        return ("", "", "")
+    name = str(entry.get("name") or "").strip()
+    color = str(entry.get("color") or "").strip().upper()
+    encoded = str(
+        entry.get("encoded_polyline")
+        or entry.get("encoded")
+        or ""
+    ).strip()
+    return (name, color, encoded)
+
+
+def _route_history_equal(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    keys_a = set(a.keys())
+    keys_b = set(b.keys())
+    if keys_a != keys_b:
+        return False
+    for key in keys_a:
+        if _route_history_core(a.get(key)) != _route_history_core(b.get(key)):
+            return False
+    return True
+
+
+def _read_last_route_history_entry() -> Optional[Dict[str, Any]]:
+    for log_dir in ROUTE_LOG_DIRS:
+        path = log_dir / ROUTE_HISTORY_NAME
+        if not path.exists():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f.readlines() if line.strip()]
+            if not lines:
+                continue
+            return json.loads(lines[-1])
+        except Exception as exc:
+            print(f"[route_history] failed reading {path}: {exc}")
+    return None
+
+
+def _rewrite_last_route_history_entry(entry: Dict[str, Any]) -> None:
+    serialized = json.dumps(
+        {**entry, "routes": _route_history_ordered(entry.get("routes") or {})},
+        ensure_ascii=False,
+    )
+    for log_dir in ROUTE_LOG_DIRS:
+        path = log_dir / ROUTE_HISTORY_NAME
+        if not path.exists():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if not lines:
+                continue
+            lines[-1] = serialized + "\n"
+            with path.open("w", encoding="utf-8") as f:
+                f.writelines(lines)
+        except Exception as exc:
+            print(f"[route_history] failed rewriting {path}: {exc}")
+
+
+def _append_route_history_entry(entry: Dict[str, Any]) -> None:
+    payload = json.dumps(
+        {**entry, "routes": _route_history_ordered(entry.get("routes") or {})},
+        ensure_ascii=False,
+    )
+    for log_dir in ROUTE_LOG_DIRS:
+        path = log_dir / ROUTE_HISTORY_NAME
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(payload + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as exc:
+            print(f"[route_history] failed writing {path}: {exc}")
+
+
+def load_route_history_entries() -> List[Dict[str, Any]]:
+    path: Optional[Path] = None
+    for log_dir in ROUTE_LOG_DIRS:
+        candidate = log_dir / ROUTE_HISTORY_NAME
+        if candidate.exists():
+            path = candidate
+            break
+    if path is None or not path.exists():
+        return []
+    entries: List[Dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except Exception as exc:
+        print(f"[route_history] failed loading {path}: {exc}")
+        return []
+    entries.sort(key=lambda e: e.get("ts") or 0)
+    return entries
+
+
+def maybe_log_route_history(state: "State") -> None:
+    now = datetime.now(ZoneInfo("America/New_York"))
+    date_str = now.strftime("%Y-%m-%d")
+    if getattr(state, "last_route_history_date_logged", "") == date_str:
+        return
+
+    snapshot = _route_history_snapshot(state.routes)
+    if not snapshot:
+        return
+
+    last_entry = _read_last_route_history_entry()
+    if last_entry and last_entry.get("date") == date_str:
+        state.last_route_history_date_logged = date_str
+        return
+
+    if last_entry and _route_history_equal(last_entry.get("routes") or {}, snapshot):
+        state.last_route_history_date_logged = date_str
+        return
+
+    if last_entry:
+        prev_routes = last_entry.get("routes") or {}
+        updated_routes = dict(prev_routes)
+        changed = False
+        for key, value in prev_routes.items():
+            new_value = snapshot.get(str(key))
+            if _route_history_core(value) != _route_history_core(new_value):
+                route_info = dict(value or {})
+                suffix = f" (last seen {date_str})"
+                name = str(route_info.get("name") or "")
+                if suffix not in name:
+                    route_info["name"] = f"{name}{suffix}" if name else suffix
+                route_info["last_seen"] = date_str
+                updated_routes[str(key)] = route_info
+                changed = True
+        if changed:
+            updated_entry = dict(last_entry)
+            updated_entry["routes"] = _route_history_ordered(updated_routes)
+            _rewrite_last_route_history_entry(updated_entry)
+
+    entry = {
+        "date": date_str,
+        "ts": int(now.timestamp() * 1000),
+        "routes": snapshot,
+    }
+    _append_route_history_entry(entry)
+    state.last_route_history_date_logged = date_str
 
 # ---------------------------
 # HTTP clients
@@ -1070,6 +1268,7 @@ class State:
         # Per-day mileage and block history
         self.bus_days: Dict[str, Dict[str, BusDay]] = {}
         self.vehicles_raw: List[Dict[str, Any]] = []
+        self.last_route_history_date_logged: str = ""
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -1432,6 +1631,8 @@ async def startup():
                                 route.seg_caps_mps = caps
                                 route.seg_names = names
                                 state.routes[rid] = route
+
+                        maybe_log_route_history(state)
 
                         # Vehicles per route: rebuild from fresh data only to avoid lingering assignments
                         prev_map = getattr(state, 'vehicles_by_route', {})
@@ -3310,6 +3511,11 @@ async def vehicle_log_file(log_name: str):
     if path is None:
         raise HTTPException(status_code=404, detail="Log file not found")
     return FileResponse(path, media_type="application/json")
+
+
+@app.get("/route_history", include_in_schema=False)
+async def route_history_endpoint():
+    return {"entries": load_route_history_entries()}
 
 # ---------------------------
 # LANDING PAGE
