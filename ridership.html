@@ -15,7 +15,11 @@
   button{background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer;}
   button:hover{filter:brightness(1.1);} 
   button:disabled{opacity:0.6;cursor:not-allowed;}
-  input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--panel);color:var(--ink);} 
+  input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--panel);color:var(--ink);}
+  input[type="date"]{border-color:var(--accent);cursor:pointer;box-shadow:0 0 0 0 rgba(75,133,242,0.4);transition:border-color 0.2s ease,box-shadow 0.2s ease;background:linear-gradient(135deg,rgba(75,133,242,0.15),rgba(75,133,242,0));}
+  input[type="date"]:hover,input[type="date"]:focus{border-color:#7aa6ff;box-shadow:0 0 0 3px rgba(75,133,242,0.25);}
+  input[type="date"]::-webkit-calendar-picker-indicator{background:var(--accent);border-radius:4px;padding:4px;margin-right:4px;cursor:pointer;filter:invert(1);}
+  input[type="date"]::-webkit-calendar-picker-indicator:hover{background:#6b9af5;}
   textarea{width:100%;min-height:80px;margin-top:12px;}
   table{border-collapse:collapse;width:100%;margin-top:12px;}
   th,td{border:1px solid var(--line);padding:8px;text-align:left;}
