@@ -408,11 +408,9 @@ function exportCsv(){
   tablesContainer.querySelectorAll('.route-block').forEach((block,index)=>{
     const route=block.querySelector('.route-select').value||'';
     const alternate=block.querySelector('.alternate-input')?.value||'';
+    const routeLabel=alternate||route;
     if(index>0){lines.push('');}
-    lines.push(`Route,${escapeCsv(route)}`);
-    if(alternate){
-      lines.push(`Alternate,${escapeCsv(alternate)}`);
-    }
+    lines.push(`Route,${escapeCsv(routeLabel)}`);
     lines.push('Time Range,Passengers');
     block.querySelectorAll('tbody tr').forEach(row=>{
       const timeValue=row.querySelector('.time-input').value.trim();
