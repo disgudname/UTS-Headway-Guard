@@ -65,7 +65,7 @@
     },
     {
       href: '/ridership',
-      label: 'Red/Blue Daily Counts',
+      label: 'Ridership',
       icon: `
         <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <line x1="8" y1="52" x2="56" y2="52" />
