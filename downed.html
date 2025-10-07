@@ -33,7 +33,7 @@
     background:var(--bg);
     color:var(--ink);
     font-family:'FGDC',sans-serif;
-    font-size:var(--base-font-size);
+    font-size:var(--dynamic-base-font-size, var(--base-font-size));
     line-height:1.45;
     min-height:100vh;
     display:flex;
@@ -316,6 +316,111 @@ const ENDPOINT = '/v1/dispatcher/downed_buses';
 const REFRESH_MS = 60000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
+
+const MIN_DYNAMIC_FONT_SIZE = 12;
+const MAX_DYNAMIC_FONT_SIZE = 48;
+let fontAdjustmentFrame = 0;
+let resizeDebounceTimer = 0;
+
+function setDynamicFontSize(size){
+  const clamped=Math.max(MIN_DYNAMIC_FONT_SIZE, Math.min(MAX_DYNAMIC_FONT_SIZE, size));
+  document.documentElement.style.setProperty('--dynamic-base-font-size', `${clamped.toFixed(3)}px`);
+}
+
+function removeDynamicFontSize(){
+  document.documentElement.style.removeProperty('--dynamic-base-font-size');
+}
+
+function readBaselineFontSize(){
+  const root=document.documentElement;
+  const override=root.style.getPropertyValue('--dynamic-base-font-size');
+  if(override) root.style.removeProperty('--dynamic-base-font-size');
+  const baseline=parseFloat(getComputedStyle(document.body).fontSize) || 16;
+  if(override) root.style.setProperty('--dynamic-base-font-size', override);
+  return baseline;
+}
+
+function doesAnyPillWrap(){
+  const pills=document.querySelectorAll('.pill');
+  for(const pill of pills){
+    if(pill.getClientRects().length>1) return true;
+    for(const child of pill.children){
+      if(child.getClientRects && child.getClientRects().length>1) return true;
+    }
+    if(pill.scrollHeight-pill.clientHeight>0.5) return true;
+  }
+  return false;
+}
+
+function adjustBaseFontSize(){
+  const pills=document.querySelectorAll('.pill');
+  if(!pills.length){
+    removeDynamicFontSize();
+    return;
+  }
+  const baseline=readBaselineFontSize();
+  const minSize=Math.max(MIN_DYNAMIC_FONT_SIZE, baseline*0.75);
+  const maxSize=Math.min(MAX_DYNAMIC_FONT_SIZE, Math.max(baseline*1.9, baseline+12));
+
+  setDynamicFontSize(baseline);
+  if(doesAnyPillWrap()){
+    let low=minSize;
+    setDynamicFontSize(low);
+    if(doesAnyPillWrap()){
+      setDynamicFontSize(low);
+      return;
+    }
+    let high=baseline;
+    let best=low;
+    while(high-low>0.2){
+      const mid=(low+high)/2;
+      setDynamicFontSize(mid);
+      if(doesAnyPillWrap()){
+        high=mid;
+      }else{
+        best=mid;
+        low=mid;
+      }
+    }
+    setDynamicFontSize(best);
+    return;
+  }
+
+  let low=baseline;
+  setDynamicFontSize(maxSize);
+  if(!doesAnyPillWrap()){
+    setDynamicFontSize(maxSize);
+    return;
+  }
+
+  let high=maxSize;
+  let best=low;
+  while(high-low>0.2){
+    const mid=(low+high)/2;
+    setDynamicFontSize(mid);
+    if(doesAnyPillWrap()){
+      high=mid;
+    }else{
+      best=mid;
+      low=mid;
+    }
+  }
+  setDynamicFontSize(best);
+}
+
+function scheduleFontAdjustment(){
+  if(fontAdjustmentFrame) cancelAnimationFrame(fontAdjustmentFrame);
+  fontAdjustmentFrame=requestAnimationFrame(()=>{
+    fontAdjustmentFrame=requestAnimationFrame(()=>{
+      adjustBaseFontSize();
+    });
+  });
+}
+
+window.addEventListener('resize',()=>{
+  if(resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+  resizeDebounceTimer=setTimeout(scheduleFontAdjustment, 150);
+});
 
 const urlParams = new URLSearchParams(window.location.search);
 
@@ -728,6 +833,7 @@ function renderSection(section){
       const expanded=!card.classList.contains('expanded');
       card.classList.toggle('expanded');
       summaryButton.setAttribute('aria-expanded', expanded ? 'true':'false');
+      scheduleFontAdjustment();
     });
 
     card.appendChild(summaryButton);
@@ -757,6 +863,7 @@ function renderSheet(data){
     empty.className='empty-indicator';
     empty.textContent='Unable to load downed vehicle data.';
     sectionsContainer.appendChild(empty);
+    scheduleFontAdjustment();
     return;
   }
   const orderedSections=data.sections
@@ -770,6 +877,7 @@ function renderSheet(data){
   orderedSections.forEach(section => {
     sectionsContainer.appendChild(renderSection(section));
   });
+  scheduleFontAdjustment();
 }
 
 async function loadSheet(){
