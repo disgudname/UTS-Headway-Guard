@@ -41,7 +41,6 @@
   }
   main{
     width:100%;
-    max-width:1920px;
     padding:32px 32px 36px;
     display:flex;
     flex-direction:column;
@@ -76,8 +75,13 @@
   table{
     width:100%;
     border-collapse:collapse;
-    table-layout:fixed;
+    table-layout:auto;
     background:var(--panel);
+  }
+  .table-wrapper{
+    width:100%;
+    max-width:100%;
+    overflow-x:auto;
   }
   thead th{
     font-size:20px;
@@ -249,6 +253,7 @@
     #sections{gap:10px;}
   }
   @media (max-width:780px){
+    .table-wrapper{display:none;}
     table{display:none;}
     .mobile-list{display:flex;}
     section{border-radius:14px;}
@@ -511,6 +516,8 @@ function renderSection(section){
     return wrapper;
   }
 
+  const tableWrapper=document.createElement('div');
+  tableWrapper.className='table-wrapper';
   const table=document.createElement('table');
   const thead=document.createElement('thead');
   const headRow=document.createElement('tr');
@@ -692,7 +699,8 @@ function renderSection(section){
     return wrapper;
   }
   table.appendChild(tbody);
-  wrapper.appendChild(table);
+  tableWrapper.appendChild(table);
+  wrapper.appendChild(tableWrapper);
   if(mobileList.children.length){
     wrapper.appendChild(mobileList);
   }
