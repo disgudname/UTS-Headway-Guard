@@ -134,7 +134,8 @@
     font-size:18px;
     text-transform:uppercase;
     letter-spacing:0.05em;
-    background:rgba(255,255,255,0.08);
+    --pill-bg:rgba(255,255,255,0.08);
+    background:var(--pill-bg);
     box-shadow:0 0 0 1px rgba(255,255,255,0.12) inset;
   }
   .pill span+span{
@@ -146,6 +147,7 @@
     inset:0;
     border-radius:inherit;
     background:none;
+    color:var(--pill-bg);
     opacity:0.35;
     box-shadow:0 0 0 0 currentColor;
     z-index:-1;
@@ -159,39 +161,48 @@
   }
   .pill.down,
   .pill.downed{
-    background:var(--pill-down);
+    --pill-bg:var(--pill-down);
+    background:var(--pill-bg);
     color:#fff;
   }
   .pill.hold{
-    background:var(--pill-hold);
+    --pill-bg:var(--pill-hold);
+    background:var(--pill-bg);
     color:#000;
   }
   .pill.up{
-    background:var(--pill-up);
+    --pill-bg:var(--pill-up);
+    background:var(--pill-bg);
     color:#000;
   }
   .pill.usable{
-    background:var(--pill-usable);
+    --pill-bg:var(--pill-usable);
+    background:var(--pill-bg);
     color:#fff;
   }
   .pill.cosmetic{
-    background:#00ffff;
+    --pill-bg:#00ffff;
+    background:var(--pill-bg);
     color:#000;
   }
   .pill.comfort{
-    background:#ff00ff;
+    --pill-bg:#ff00ff;
+    background:var(--pill-bg);
     color:#fff;
   }
   .pill.limited{
-    background:#ffff00;
+    --pill-bg:#ffff00;
+    background:var(--pill-bg);
     color:#000;
   }
   .pill.vsi{
-    background:#ff6d01;
+    --pill-bg:#ff6d01;
+    background:var(--pill-bg);
     color:#000;
   }
   .pill.pm{
-    background:#34a853;
+    --pill-bg:#34a853;
+    background:var(--pill-bg);
     color:#fff;
   }
   .empty-indicator{
