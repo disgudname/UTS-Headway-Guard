@@ -148,15 +148,15 @@
     border-radius:inherit;
     background:none;
     color:var(--pill-bg);
-    opacity:0.35;
+    opacity:0.6;
     box-shadow:0 0 0 0 currentColor;
     z-index:-1;
     animation:statusPulse 1.8s ease-out infinite;
     pointer-events:none;
   }
   @keyframes statusPulse{
-    0%{opacity:0.35; box-shadow:0 0 0 0 currentColor;}
-    70%{opacity:0; box-shadow:0 0 0 18px currentColor;}
+    0%{opacity:0.6; box-shadow:0 0 0 0 currentColor;}
+    70%{opacity:0.15; box-shadow:0 0 0 18px currentColor;}
     100%{opacity:0; box-shadow:0 0 0 18px currentColor;}
   }
   .pill.down,
