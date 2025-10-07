@@ -3,50 +3,65 @@
 <head>
 <link rel="icon" type="image/png" href="headwayguardicon.png" />
 <meta charset="utf-8" />
-<title>Red and Blue Daily Counts - Headway Guard</title>
+<title>Ridership Counts - Headway Guard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
 <style>
   @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
-  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; }
-  body{margin:0;background:var(--bg);color:var(--ink);font:16px 'FGDC',sans-serif;padding:20px;}
-  table{border-collapse:collapse;width:100%;max-width:800px;}
-  th,td{border:1px solid var(--line);padding:4px;text-align:center;}
-  textarea{width:100%;height:60px;}
-  input[type=date]{margin-right:8px;}
-  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--ink);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin-left:8px;}
+  :root{--bg:#0b0e11;--panel:#0f141a;--ink:#e8eef5;--muted:#9fb0c9;--line:#1f2630;--accent:#4b85f2;--danger:#f06c6c;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px 'FGDC',sans-serif;padding:20px;line-height:1.4;}
+  h1{margin-top:0;margin-bottom:16px;}
+  button{background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer;}
+  button:hover{filter:brightness(1.1);} 
+  button:disabled{opacity:0.6;cursor:not-allowed;}
+  input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--panel);color:var(--ink);} 
+  textarea{width:100%;min-height:80px;margin-top:12px;}
+  table{border-collapse:collapse;width:100%;margin-top:12px;}
+  th,td{border:1px solid var(--line);padding:8px;text-align:left;}
+  th{background:rgba(255,255,255,0.05);font-weight:normal;}
+  .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px;}
+  .controls label{display:flex;align-items:center;gap:6px;}
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--ink);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
-  #newestDisplay{margin-top:8px;}
+  #newestDisplay{margin:12px 0;color:var(--muted);}
+  #tablesContainer{display:flex;flex-direction:column;gap:18px;margin-top:12px;}
+  .route-block{background:var(--panel);padding:16px;border-radius:12px;border:1px solid var(--line);box-shadow:0 4px 12px rgba(0,0,0,0.2);}
+  .route-header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;}
+  .route-header label{display:flex;align-items:center;gap:8px;}
+  .time-input{width:100%;min-width:160px;}
+  .result-cell{width:120px;text-align:right;font-variant-numeric:tabular-nums;}
+  .result-cell.invalid{color:var(--danger);}
+  .route-total{font-weight:bold;text-align:right;}
+  #overallTotalRow{margin-top:16px;font-size:18px;font-weight:bold;}
+  #addTableBtn{margin-top:16px;background:#2f9d78;}
 </style>
 </head>
 <body>
-<h1>Red Line and Blue Line Daily APC Numbers</h1>
-<label>Date: <input type="date" id="datePicker"></label><button id="loadBtn">Load</button><span id="spinner" class="spinner" style="display:none"></span><button id="exportBtn">Export CSV</button>
+<h1>Ridership Counts</h1>
+<div class="controls">
+  <label>Date: <input type="date" id="datePicker"></label>
+  <button id="loadBtn">Load</button>
+  <span id="spinner" class="spinner" style="display:none"></span>
+  <button id="exportBtn">Export CSV</button>
+</div>
 <div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
-<table id="ridershipTable">
-  <tr><th>Overall Total:</th><td id="overallTotal" colspan="8"></td></tr>
-  <tr><td colspan="9"><textarea id="notes" placeholder="Service Notes..."></textarea></td></tr>
-  <tr><th colspan="9">Red Line</th></tr>
-  <tr><th>Total Passengers:</th><td id="totalRed"></td><td colspan="7"></td></tr>
-  <tr><th colspan="9">AM Numbers</th></tr>
-  <tr><th>5-6AM</th><th>6-7AM</th><th>AM Total</th><td colspan="6"></td></tr>
-  <tr><td id="am_5_6"></td><td id="am_6_7"></td><td id="am_total"></td><td colspan="6"></td></tr>
-  <tr><th colspan="9">PM Numbers</th></tr>
-  <tr><th></th><th>2:30PM-3PM</th><th>3-4PM</th><th>4-5PM</th><th>5-6PM</th><th>6-7PM</th><th>7-8PM</th><th>PM Total</th><th>Day Total</th></tr>
-  <tr><td></td><td id="pm_230_3"></td><td id="pm_3_4"></td><td id="pm_4_5"></td><td id="pm_5_6"></td><td id="pm_6_7"></td><td id="pm_7_8"></td><td id="pm_total"></td><td id="day_total"></td></tr>
-  <tr><th colspan="9">Blue Line</th></tr>
-  <tr><th>Total Passengers:</th><td id="totalBlue"></td><td colspan="7"></td></tr>
-  <tr><th colspan="9">AM Numbers</th></tr>
-  <tr><th>7-7:30AM</th><th>7:30-8AM</th><th>8-9AM</th><th>9-10AM</th><th>AM Total</th><td colspan="4"></td></tr>
-  <tr><td id="blue_am_7_7_30"></td><td id="blue_am_7_30_8"></td><td id="blue_am_8_9"></td><td id="blue_am_9_10"></td><td id="blue_am_total"></td><td colspan="4"></td></tr>
-  <tr><th colspan="9">PM Numbers</th></tr>
-  <tr><th>10AM-2:30PM</th><th>2:30-3PM</th><th>3-4PM</th><th>4-5PM</th><th>5-6PM</th><th>6-7PM</th><th>7-8PM</th><th>Total after 2:30PM</th><th>Day Total</th></tr>
-  <tr><td id="blue_10_14_30"></td><td id="blue_14_30_15"></td><td id="blue_15_16"></td><td id="blue_16_17"></td><td id="blue_17_18"></td><td id="blue_18_19"></td><td id="blue_19_20"></td><td id="blue_total_after_230"></td><td id="blue_day_total"></td></tr>
-</table>
+<div id="overallTotalRow">Overall Displayed Total: <span id="overallTotal">0</span></div>
+<div id="tablesContainer"></div>
+<button id="addTableBtn" type="button">Add Another Route</button>
+<textarea id="notes" placeholder="Service Notes..."></textarea>
 <script>
 const dateInput=document.getElementById('datePicker');
 const spinner=document.getElementById('spinner');
 const newestTimestamp=document.getElementById('newestTimestamp');
+const tablesContainer=document.getElementById('tablesContainer');
+const overallTotalDisplay=document.getElementById('overallTotal');
+const addTableBtn=document.getElementById('addTableBtn');
+const notesInput=document.getElementById('notes');
+
+let ridershipByRoute={};
+let routeList=[];
+
 const today=new Date();
 today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
 dateInput.value=today.toISOString().split('T')[0];
@@ -54,6 +69,15 @@ dateInput.value=today.toISOString().split('T')[0];
 document.getElementById('loadBtn').addEventListener('click',load);
 window.addEventListener('load',load);
 document.getElementById('exportBtn').addEventListener('click',exportCsv);
+addTableBtn.addEventListener('click',()=>{
+  const block=addRouteTable();
+  const input=block.querySelector('.time-input');
+  if(input){input.focus();}
+});
+
+if(!tablesContainer.children.length){
+  addRouteTable();
+}
 
 function load(){
   spinner.style.display='inline-block';
@@ -65,7 +89,7 @@ function load(){
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
   const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
   fetch(url).then(r=>r.json()).then(data=>{
-    render(data);
+    render(data||[]);
     spinner.style.display='none';
   }).catch(err=>{
     console.error(err);
@@ -74,108 +98,263 @@ function load(){
 }
 
 function render(data){
-  const overall={'Red Line AM':0,'Red Line PM':0,'Blue Line':0};
-  const routeTotals={'Red Line AM':0,'Red Line PM':0,'Blue Line AM':0,'Blue Line PM':0};
-  const redAmSlots={'5-6':0,'6-7':0};
-  const redPmSlots={'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
-  const blueAmSlots={'7-7_30':0,'7_30-8':0,'8-9':0,'9-10':0};
-  const bluePmSlots={'10-14_30':0,'14_30-15':0,'15-16':0,'16-17':0,'17-18':0,'18-19':0,'19-20':0};
+  ridershipByRoute={};
   let newest=null;
   data.forEach(rec=>{
     const route=rec.Route;
     const entries=Number(rec.Entries)||0;
-    if(overall[route]!==undefined){overall[route]+=entries;}
-    const t=new Date(rec.ClientTime);
-    if(!newest||t>newest) newest=t;
-    const h=t.getHours();
-    const m=t.getMinutes();
-    const mins=h*60+m;
-    if(route==='Red Line AM'||route==='Red Line PM'){
-      routeTotals[route]+=entries;
-      if(mins>=4*60+30 && mins<6*60) redAmSlots['5-6']+=entries;
-      else if(mins>=6*60 && mins<7*60+30) redAmSlots['6-7']+=entries;
-      if(mins>=14*60 && mins<15*60) redPmSlots['14_30-15']+=entries;
-      else if(mins>=15*60 && mins<16*60) redPmSlots['15-16']+=entries;
-      else if(mins>=16*60 && mins<17*60) redPmSlots['16-17']+=entries;
-      else if(mins>=17*60 && mins<18*60) redPmSlots['17-18']+=entries;
-      else if(mins>=18*60 && mins<19*60) redPmSlots['18-19']+=entries;
-      else if(mins>=19*60 && mins<20*60+30) redPmSlots['19-20']+=entries;
+    if(!route){return;}
+    const timestamp=new Date(rec.ClientTime);
+    const minutes=timestamp.getHours()*60+timestamp.getMinutes();
+    if(!ridershipByRoute[route]){ridershipByRoute[route]=[];}
+    ridershipByRoute[route].push({minutes,entries});
+    if(!newest||timestamp>newest){newest=timestamp;}
+  });
+  routeList=Object.keys(ridershipByRoute).sort((a,b)=>a.localeCompare(b));
+  newestTimestamp.textContent=newest?newest.toLocaleString():'';
+  let blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  if(!blocks.length){
+    addRouteTable();
+    blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  }
+  blocks.forEach(block=>{
+    const select=block.querySelector('.route-select');
+    populateRouteOptions(select);
+    updateBlock(block);
+  });
+}
+
+function populateRouteOptions(select){
+  const previous=select.value;
+  select.innerHTML='';
+  const placeholder=document.createElement('option');
+  placeholder.value='';
+  placeholder.textContent=routeList.length?'Select a route':'Loading routes...';
+  select.appendChild(placeholder);
+  routeList.forEach(route=>{
+    const opt=document.createElement('option');
+    opt.value=route;
+    opt.textContent=route;
+    select.appendChild(opt);
+  });
+  if(routeList.includes(previous)){
+    select.value=previous;
+  }else{
+    select.value='';
+  }
+}
+
+function addRouteTable(){
+  const block=document.createElement('div');
+  block.className='route-block';
+
+  const header=document.createElement('div');
+  header.className='route-header';
+
+  const label=document.createElement('label');
+  label.textContent='Route:';
+  const select=document.createElement('select');
+  select.className='route-select';
+  label.appendChild(select);
+
+  const addRowBtn=document.createElement('button');
+  addRowBtn.type='button';
+  addRowBtn.textContent='Add Time Range';
+
+  header.appendChild(label);
+  header.appendChild(addRowBtn);
+  block.appendChild(header);
+
+  const table=document.createElement('table');
+  table.className='route-table';
+
+  const thead=document.createElement('thead');
+  const headRow=document.createElement('tr');
+  const thRange=document.createElement('th');
+  thRange.textContent='Time Range (HHMM - HHMM)';
+  const thPassengers=document.createElement('th');
+  thPassengers.textContent='Passengers';
+  headRow.appendChild(thRange);
+  headRow.appendChild(thPassengers);
+  thead.appendChild(headRow);
+
+  const tbody=document.createElement('tbody');
+
+  const tfoot=document.createElement('tfoot');
+  const footRow=document.createElement('tr');
+  const totalLabel=document.createElement('th');
+  totalLabel.textContent='Total Displayed';
+  const totalValue=document.createElement('td');
+  totalValue.className='route-total';
+  totalValue.textContent='0';
+  footRow.appendChild(totalLabel);
+  footRow.appendChild(totalValue);
+  tfoot.appendChild(footRow);
+
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  table.appendChild(tfoot);
+  block.appendChild(table);
+
+  tablesContainer.appendChild(block);
+
+  populateRouteOptions(select);
+  addTimeRow(block);
+  select.addEventListener('change',()=>updateBlock(block));
+  addRowBtn.addEventListener('click',()=>{
+    const row=addTimeRow(block);
+    const input=row.querySelector('.time-input');
+    if(input){input.focus();}
+  });
+
+  updateBlock(block);
+  return block;
+}
+
+function addTimeRow(block){
+  const tbody=block.querySelector('tbody');
+  const row=document.createElement('tr');
+  row.className='time-row';
+
+  const timeCell=document.createElement('td');
+  const input=document.createElement('input');
+  input.type='text';
+  input.placeholder='1430 - 2030';
+  input.className='time-input';
+  input.addEventListener('change',()=>updateBlock(block));
+  input.addEventListener('input',()=>updateBlock(block));
+  timeCell.appendChild(input);
+
+  const resultCell=document.createElement('td');
+  resultCell.className='result-cell';
+  resultCell.textContent='-';
+
+  row.appendChild(timeCell);
+  row.appendChild(resultCell);
+  tbody.appendChild(row);
+  return row;
+}
+
+function updateBlock(block){
+  const select=block.querySelector('.route-select');
+  const route=select.value;
+  const rows=[...block.querySelectorAll('.time-row')];
+  let total=0;
+  rows.forEach(row=>{
+    const input=row.querySelector('.time-input');
+    const resultCell=row.querySelector('.result-cell');
+    const range=parseRange(input.value);
+    resultCell.classList.remove('invalid');
+    if(!route){
+      resultCell.textContent='-';
+      return;
     }
-    if(route==='Blue Line'){
-      if(mins<10*60){routeTotals['Blue Line AM']+=entries;} else {routeTotals['Blue Line PM']+=entries;}
-      if(mins>=6*60+30 && mins<7*60+30) blueAmSlots['7-7_30']+=entries;
-      else if(mins>=7*60+30 && mins<8*60) blueAmSlots['7_30-8']+=entries;
-      else if(mins>=8*60 && mins<9*60) blueAmSlots['8-9']+=entries;
-      else if(mins>=9*60 && mins<10*60) blueAmSlots['9-10']+=entries;
-      else if(mins>=10*60 && mins<14*60+30) bluePmSlots['10-14_30']+=entries;
-      else if(mins>=14*60+30 && mins<15*60) bluePmSlots['14_30-15']+=entries;
-      else if(mins>=15*60 && mins<16*60) bluePmSlots['15-16']+=entries;
-      else if(mins>=16*60 && mins<17*60) bluePmSlots['16-17']+=entries;
-      else if(mins>=17*60 && mins<18*60) bluePmSlots['17-18']+=entries;
-      else if(mins>=18*60 && mins<19*60) bluePmSlots['18-19']+=entries;
-      else if(mins>=19*60 && mins<20*60+30) bluePmSlots['19-20']+=entries;
+    if(!range){
+      const trimmed=input.value.trim();
+      if(trimmed===''||!trimmed.includes('-')){
+        resultCell.textContent='-';
+      }else{
+        resultCell.textContent='Invalid';
+        resultCell.classList.add('invalid');
+      }
+      return;
+    }
+    const sum=sumForRange(route,range.start,range.end);
+    resultCell.textContent=sum;
+    total+=sum;
+  });
+  block.querySelector('.route-total').textContent=total;
+  updateOverallTotal();
+}
+
+function updateOverallTotal(){
+  let sum=0;
+  tablesContainer.querySelectorAll('.route-total').forEach(cell=>{
+    const value=Number(cell.textContent.replace(/[^0-9.-]/g,''));
+    if(!Number.isNaN(value)){sum+=value;}
+  });
+  overallTotalDisplay.textContent=sum;
+}
+
+function parseRange(value){
+  if(!value){return null;}
+  const cleaned=value.trim().replace(/\s+/g,'');
+  const match=cleaned.match(/^(\d{1,2})(\d{2})?-(\d{1,2})(\d{2})?$/);
+  if(!match){
+    const colonMatch=value.trim().match(/^(\d{1,2})(?::?(\d{2}))\s*-\s*(\d{1,2})(?::?(\d{2}))$/);
+    if(!colonMatch){return null;}
+    return normalizeRange(colonMatch[1],colonMatch[2],colonMatch[3],colonMatch[4]);
+  }
+  const [,sh,sm,eh,em]=match;
+  const startMinutes=sm!==undefined?Number(sm):0;
+  const endMinutes=em!==undefined?Number(em):0;
+  return normalizeRange(sh,startMinutes,eh,endMinutes);
+}
+
+function normalizeRange(sh,sm,eh,em){
+  const startHour=Number(sh);
+  const startMin=Number(sm||0);
+  const endHour=Number(eh);
+  const endMin=Number(em||0);
+  if([startHour,startMin,endHour,endMin].some(n=>Number.isNaN(n))){return null;}
+  if(startHour>23||endHour>23||startMin>59||endMin>59){return null;}
+  const start=startHour*60+startMin;
+  const end=endHour*60+endMin;
+  if(end<=start){return null;}
+  return {start,end};
+}
+
+function sumForRange(route,start,end){
+  const records=ridershipByRoute[route];
+  if(!records){return 0;}
+  let total=0;
+  records.forEach(rec=>{
+    if(rec.minutes>=start&&rec.minutes<end){
+      total+=rec.entries;
     }
   });
-  document.getElementById('overallTotal').textContent=
-    overall['Red Line AM']+overall['Red Line PM']+overall['Blue Line'];
-  const totalRed=routeTotals['Red Line AM']+routeTotals['Red Line PM'];
-  document.getElementById('totalRed').textContent=totalRed;
-  document.getElementById('am_5_6').textContent=redAmSlots['5-6'];
-  document.getElementById('am_6_7').textContent=redAmSlots['6-7'];
-  const amTotal=redAmSlots['5-6']+redAmSlots['6-7'];
-  document.getElementById('am_total').textContent=amTotal;
-  document.getElementById('pm_230_3').textContent=redPmSlots['14_30-15'];
-  document.getElementById('pm_3_4').textContent=redPmSlots['15-16'];
-  document.getElementById('pm_4_5').textContent=redPmSlots['16-17'];
-  document.getElementById('pm_5_6').textContent=redPmSlots['17-18'];
-  document.getElementById('pm_6_7').textContent=redPmSlots['18-19'];
-  document.getElementById('pm_7_8').textContent=redPmSlots['19-20'];
-  const pmTotal=Object.values(redPmSlots).reduce((a,b)=>a+b,0);
-  document.getElementById('pm_total').textContent=pmTotal;
-  document.getElementById('day_total').textContent=pmTotal+amTotal;
-  const totalBlue=routeTotals['Blue Line AM']+routeTotals['Blue Line PM'];
-  document.getElementById('totalBlue').textContent=totalBlue;
-  document.getElementById('blue_am_7_7_30').textContent=blueAmSlots['7-7_30'];
-  document.getElementById('blue_am_7_30_8').textContent=blueAmSlots['7_30-8'];
-  document.getElementById('blue_am_8_9').textContent=blueAmSlots['8-9'];
-  document.getElementById('blue_am_9_10').textContent=blueAmSlots['9-10'];
-  const blueAmTotal=Object.values(blueAmSlots).reduce((a,b)=>a+b,0);
-  document.getElementById('blue_am_total').textContent=blueAmTotal;
-  document.getElementById('blue_10_14_30').textContent=bluePmSlots['10-14_30'];
-  document.getElementById('blue_14_30_15').textContent=bluePmSlots['14_30-15'];
-  document.getElementById('blue_15_16').textContent=bluePmSlots['15-16'];
-  document.getElementById('blue_16_17').textContent=bluePmSlots['16-17'];
-  document.getElementById('blue_17_18').textContent=bluePmSlots['17-18'];
-  document.getElementById('blue_18_19').textContent=bluePmSlots['18-19'];
-  document.getElementById('blue_19_20').textContent=bluePmSlots['19-20'];
-  const bluePmTotal=Object.values(bluePmSlots).reduce((a,b)=>a+b,0);
-  const blueAfter230=bluePmSlots['14_30-15']+bluePmSlots['15-16']+bluePmSlots['16-17']+bluePmSlots['17-18']+bluePmSlots['18-19']+bluePmSlots['19-20'];
-  document.getElementById('blue_total_after_230').textContent=blueAfter230;
-  document.getElementById('blue_day_total').textContent=blueAmTotal+bluePmTotal;
-  newestTimestamp.textContent=newest?newest.toLocaleString():'';
+  return total;
 }
 
 function exportCsv(){
-  const rows=[...document.querySelectorAll('#ridershipTable tr')];
-  const csvLines=rows.map(row=>
-    [...row.cells].map(cell=>{
-      const text=cell.innerText.replace(/\n/g,' ').trim();
-      return /[",\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
-    }).join(',')
-  );
-  const notes=document.getElementById('notes').value;
-  const escapedNotes=/[",\n]/.test(notes)?`"${notes.replace(/"/g,'""')}"`:notes;
-  csvLines.push(`Notes,${escapedNotes}`);
-  const csv=csvLines.join('\n');
+  const lines=[];
+  const dateValue=dateInput.value||new Date().toISOString().split('T')[0];
+  lines.push(`Date,${escapeCsv(dateValue)}`);
+  tablesContainer.querySelectorAll('.route-block').forEach((block,index)=>{
+    const route=block.querySelector('.route-select').value||'';
+    if(index>0){lines.push('');}
+    lines.push(`Route,${escapeCsv(route)}`);
+    lines.push('Time Range,Passengers');
+    block.querySelectorAll('tbody tr').forEach(row=>{
+      const timeValue=row.querySelector('.time-input').value.trim();
+      const passengers=row.querySelector('.result-cell').textContent.trim();
+      lines.push(`${escapeCsv(timeValue)},${escapeCsv(passengers)}`);
+    });
+    const total=block.querySelector('.route-total').textContent.trim();
+    lines.push(`Total,${escapeCsv(total)}`);
+  });
+  const notes=notesInput.value.trim();
+  if(notes){
+    lines.push('');
+    lines.push(`Notes,${escapeCsv(notes)}`);
+  }
+  const csv=lines.join('\n');
   const blob=new Blob([csv],{type:'text/csv'});
-  const date=document.getElementById('datePicker').value||new Date().toISOString().split('T')[0];
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download=`ridership_${date}.csv`;
+  a.download=`ridership_${dateValue}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
+}
+
+function escapeCsv(text){
+  const str=String(text||'');
+  if(/[",\n]/.test(str)){
+    return '"'+str.replace(/"/g,'""')+'"';
+  }
+  return str;
 }
 </script>
 <script src="mobile-nav.js"></script>
