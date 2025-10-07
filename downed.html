@@ -102,6 +102,12 @@
     text-align:center;
     word-break:break-word;
   }
+  tbody td.vehicle-column{
+    font-size:32px;
+    font-weight:700;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+  }
   tbody tr:hover{
     background:var(--panel-soft);
   }
@@ -529,6 +535,9 @@ function renderSection(section){
     const text=abbreviateHeaderLabel(col.text);
     const th=document.createElement('th');
     const normalized=normalizeHeader(text);
+    const originalNormalized=normalizeHeader(col.text);
+    const isVehicleColumn=originalNormalized==='bus' || originalNormalized==='p&t support vehicle' || originalNormalized==='vehicle' || originalNormalized.includes('vehicle');
+    if(isVehicleColumn) th.classList.add('vehicle-column');
     if(text && normalized!=='bus' && normalized!=='p&t support vehicle'){
       const parts=String(text).split('\n');
       parts.forEach((part,idx)=>{
@@ -565,6 +574,9 @@ function renderSection(section){
       const cell=padded[index];
       const td=document.createElement('td');
       const text=cell;
+      const normalizedHeader=normalizeHeader(headerText);
+      const isVehicleColumn=normalizedHeader==='bus' || normalizedHeader==='p&t support vehicle' || normalizedHeader==='vehicle' || normalizedHeader.includes('vehicle');
+      if(isVehicleColumn) td.classList.add('vehicle-column');
       if(isStatusHeader(headerText)){
         const cls=getStatusClass(text);
         td.className='status';
