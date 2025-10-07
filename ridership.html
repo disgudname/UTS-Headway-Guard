@@ -287,8 +287,9 @@ function formatRange(start,end){
 }
 
 function formatMinutes(total){
-  const hours=String(Math.floor(total/60)).padStart(2,'0');
-  const mins=String(total%60).padStart(2,'0');
+  const capped=Math.min(total,1439);
+  const hours=String(Math.floor(capped/60)).padStart(2,'0');
+  const mins=String(capped%60).padStart(2,'0');
   return `${hours}${mins}`;
 }
 
@@ -356,7 +357,9 @@ function normalizeRange(sh,sm,eh,em){
   if([startHour,startMin,endHour,endMin].some(n=>Number.isNaN(n))){return null;}
   if(startHour>23||endHour>23||startMin>59||endMin>59){return null;}
   const start=startHour*60+startMin;
-  const end=endHour*60+endMin;
+  let end=endHour*60+endMin;
+  if(endHour===23&&endMin===59){end=1440;}
+  if(end>1440){return null;}
   if(end<=start){return null;}
   return {start,end};
 }
