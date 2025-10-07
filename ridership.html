@@ -504,6 +504,11 @@ function exportCsv(){
       }
     }
   });
+  const overallTotal=overallTotalDisplay.textContent.trim();
+  if(overallTotal){
+    lines.push('');
+    lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
+  }
   const notes=notesInput.value.trim();
   if(notes){
     lines.push('');
