@@ -79,9 +79,99 @@ const loadingMessage=document.getElementById('loadingMessage');
 const MAX_EXTENDED_HOUR=27;
 const MAX_EXTENDED_MINUTES=MAX_EXTENDED_HOUR*60;
 
+const ROUTE_INFO_URL='https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681';
+
 let ridershipByRoute={};
 let routeList=[];
 let newestDataTimestamp=null;
+let routeInfoById={};
+let routeInfoPromise=null;
+let routeMetaByKey={};
+
+function normalizeApiArray(payload){
+  if(Array.isArray(payload)){return payload;}
+  if(payload&&Array.isArray(payload.d)){return payload.d;}
+  if(payload&&typeof payload.d==='string'){
+    try{
+      const parsed=JSON.parse(payload.d);
+      if(Array.isArray(parsed)){return parsed;}
+    }catch(err){
+      console.error('Failed to parse array payload',err);
+    }
+  }
+  return [];
+}
+
+function fetchRouteInfo(){
+  if(routeInfoPromise){return routeInfoPromise;}
+  if(Object.keys(routeInfoById).length){return Promise.resolve(routeInfoById);}
+  routeInfoPromise=fetch(ROUTE_INFO_URL).then(r=>r.json()).then(raw=>{
+    const list=normalizeApiArray(raw);
+    const map={};
+    list.forEach(route=>{
+      if(!route){return;}
+      const id=route.RouteID;
+      if(id===undefined||id===null){return;}
+      map[String(id)]=route;
+    });
+    routeInfoById=map;
+    return routeInfoById;
+  }).catch(err=>{
+    console.error('Failed to fetch route metadata',err);
+    return routeInfoById;
+  }).finally(()=>{
+    routeInfoPromise=null;
+  });
+  return routeInfoPromise;
+}
+
+function getRouteMeta(routeKey){
+  return routeMetaByKey[routeKey]||null;
+}
+
+function getRouteDisplayName(routeKey){
+  const meta=getRouteMeta(routeKey);
+  if(meta){
+    if(meta.displayName){return meta.displayName;}
+    if(meta.baseName){return meta.baseName;}
+  }
+  return routeKey||'';
+}
+
+function getRouteBaseName(routeKey){
+  const meta=getRouteMeta(routeKey);
+  if(meta&&meta.baseName){return meta.baseName;}
+  return '';
+}
+
+function findRouteKeyForTemplate(routeName,infoTextHint,usageMap){
+  const normalized=normalizeRouteName(routeName||'');
+  if(!normalized){return null;}
+  const matches=routeList.filter(key=>normalizeRouteName(getRouteBaseName(key))===normalized);
+  if(!matches.length){return null;}
+  if(infoTextHint){
+    const target=infoTextHint.trim().toLowerCase();
+    const withInfo=matches.find(key=>{
+      const meta=getRouteMeta(key);
+      if(!meta||!meta.infoText){return false;}
+      return meta.infoText.trim().toLowerCase()===target;
+    });
+    if(withInfo){
+      if(usageMap){
+        const usage=usageMap.get(normalized)||0;
+        usageMap.set(normalized,usage+1);
+      }
+      return withInfo;
+    }
+  }
+  if(usageMap){
+    const usage=usageMap.get(normalized)||0;
+    const choice=matches[usage]||matches[0];
+    usageMap.set(normalized,usage+1);
+    return choice||null;
+  }
+  return matches[0];
+}
 
 const today=new Date();
 today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
@@ -102,7 +192,7 @@ if(!tablesContainer.children.length){
 }
 
 function normalizeRouteName(route){
-  if(!route){return route;}
+  if(typeof route!=='string'){return '';}
   const trimmed=route.trim();
   if(trimmed==='Red Line AM'||trimmed==='Red Line PM'){
     return 'Red Line';
@@ -124,10 +214,21 @@ function load(){
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
   const bounds={start,nextStart,end};
   const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
-  fetch(url).then(r=>r.json()).then(data=>{
-    render(data||[],bounds);
+  const ridershipPromise=fetch(url).then(r=>r.json()).catch(err=>{
+    console.error(err);
+    return [];
+  });
+  Promise.all([
+    fetchRouteInfo().catch(err=>{
+      console.error(err);
+      return routeInfoById;
+    }),
+    ridershipPromise
+  ]).then(([,data])=>{
+    render(normalizeApiArray(data),bounds);
   }).catch(err=>{
     console.error(err);
+    render([],bounds);
   }).finally(()=>{
     spinner.style.display='none';
     tablesContainer.classList.remove('is-loading');
@@ -136,14 +237,17 @@ function load(){
 }
 
 function render(data,bounds){
-  ridershipByRoute={};
+  ridershipByRoute=Object.create(null);
+  routeMetaByKey=Object.create(null);
   let newest=null;
   const startBoundary=bounds?.start||null;
   const endBoundary=bounds?.end||null;
-  data.forEach(rec=>{
-    const route=normalizeRouteName(rec.Route);
+  (Array.isArray(data)?data:[]).forEach(rec=>{
+    if(!rec){return;}
+    const routeId=rec.RouteID;
+    const routeKey=routeId!==undefined&&routeId!==null?String(routeId):normalizeRouteName(rec.Route);
+    if(!routeKey){return;}
     const entries=Number(rec.Entries)||0;
-    if(!route){return;}
     const timestamp=new Date(rec.ClientTime);
     let minutes=timestamp.getHours()*60+timestamp.getMinutes();
     if(startBoundary){
@@ -153,11 +257,34 @@ function render(data,bounds){
     }
     if(endBoundary&&timestamp>=endBoundary){return;}
     if(minutes>MAX_EXTENDED_MINUTES){return;}
-    if(!ridershipByRoute[route]){ridershipByRoute[route]=[];}
-    ridershipByRoute[route].push({minutes,entries});
+    if(!ridershipByRoute[routeKey]){ridershipByRoute[routeKey]=[];}
+    ridershipByRoute[routeKey].push({minutes,entries});
     if(!newest||timestamp>newest){newest=timestamp;}
+    if(!routeMetaByKey[routeKey]){
+      const info=routeId!==undefined&&routeId!==null?routeInfoById[String(routeId)]:null;
+      const nameCandidates=[];
+      if(info){
+        if(typeof info.Description==='string'){nameCandidates.push(info.Description);}
+        if(typeof info.RouteName==='string'){nameCandidates.push(info.RouteName);}
+      }
+      if(typeof rec.Route==='string'){nameCandidates.push(rec.Route);}
+      let baseName='';
+      for(let i=0;i<nameCandidates.length;i+=1){
+        const normalized=normalizeRouteName(nameCandidates[i]);
+        if(normalized){
+          baseName=normalized;
+          break;
+        }
+      }
+      if(!baseName){
+        baseName=routeId!==undefined&&routeId!==null?`Route ${routeId}`:'Unknown Route';
+      }
+      const infoText=info&&typeof info.InfoText==='string'?info.InfoText.trim():'';
+      const displayName=infoText?`${baseName} – ${infoText}`:baseName;
+      routeMetaByKey[routeKey]={displayName,baseName,infoText:infoText||''};
+    }
   });
-  routeList=Object.keys(ridershipByRoute).sort((a,b)=>a.localeCompare(b));
+  routeList=Object.keys(ridershipByRoute).sort((a,b)=>getRouteDisplayName(a).localeCompare(getRouteDisplayName(b)));
   newestDataTimestamp=newest;
   newestTimestamp.textContent=newest?newest.toLocaleString():'';
   let blocks=[...tablesContainer.querySelectorAll('.route-block')];
@@ -182,7 +309,7 @@ function populateRouteOptions(select){
   routeList.forEach(route=>{
     const opt=document.createElement('option');
     opt.value=route;
-    opt.textContent=route;
+    opt.textContent=getRouteDisplayName(route);
     select.appendChild(opt);
   });
   if(routeList.includes(previous)){
@@ -532,7 +659,7 @@ function exportCsv(){
   blocks.forEach((block,index)=>{
     const route=block.querySelector('.route-select').value||'';
     const alternate=block.querySelector('.alternate-input')?.value||'';
-    const routeLabel=alternate||route;
+    const routeLabel=alternate||getRouteDisplayName(route);
     if(index>0){lines.push('');}
     lines.push(`Route,${escapeCsv(routeLabel)}`);
     lines.push('Time Range,Passengers');
@@ -568,13 +695,13 @@ function exportCsv(){
   URL.revokeObjectURL(a.href);
 }
 
-function ensureRouteOption(select,route){
+function ensureRouteOption(select,route,label){
   if(!route){return;}
   const exists=[...select.options].some(opt=>opt.value===route);
   if(!exists){
     const opt=document.createElement('option');
     opt.value=route;
-    opt.textContent=route;
+    opt.textContent=label||getRouteDisplayName(route);
     select.appendChild(opt);
   }
 }
@@ -587,11 +714,17 @@ function loadTemplate(){
     {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line PM)',times:['1000 - 1430','1430 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']}
   ];
   tablesContainer.innerHTML='';
+  const usageMap=new Map();
   template.forEach(item=>{
     const block=addRouteTable();
     const select=block.querySelector('.route-select');
-    ensureRouteOption(select,item.route);
-    select.value=item.route;
+    const routeKey=findRouteKeyForTemplate(item.route,item.matchInfoText,usageMap);
+    if(routeKey){
+      ensureRouteOption(select,routeKey);
+      select.value=routeKey;
+    }else{
+      select.value='';
+    }
     const altInput=block.querySelector('.alternate-input');
     if(altInput){altInput.value=item.alternate;}
     const rows=[...block.querySelectorAll('.time-row')];
