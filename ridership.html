@@ -73,6 +73,9 @@ const templateBtn=document.getElementById('templateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
 
+const MAX_EXTENDED_HOUR=27;
+const MAX_EXTENDED_MINUTES=MAX_EXTENDED_HOUR*60;
+
 let ridershipByRoute={};
 let routeList=[];
 let newestDataTimestamp=null;
@@ -110,13 +113,16 @@ function load(){
   loadingMessage.style.display='block';
   const [y,m,d]=dateInput.value.split('-').map(Number);
   const start=new Date(y,m-1,d);
-  const end=new Date(start);
-  end.setDate(start.getDate()+1);
+  const nextStart=new Date(start);
+  nextStart.setDate(start.getDate()+1);
+  const end=new Date(nextStart);
+  end.setDate(end.getDate()+1);
   const startStr=(start.getMonth()+1)+"/"+start.getDate()+"/"+start.getFullYear();
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
+  const bounds={start,nextStart,end};
   const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
   fetch(url).then(r=>r.json()).then(data=>{
-    render(data||[]);
+    render(data||[],bounds);
   }).catch(err=>{
     console.error(err);
   }).finally(()=>{
@@ -126,15 +132,24 @@ function load(){
   });
 }
 
-function render(data){
+function render(data,bounds){
   ridershipByRoute={};
   let newest=null;
+  const startBoundary=bounds?.start||null;
+  const endBoundary=bounds?.end||null;
   data.forEach(rec=>{
     const route=normalizeRouteName(rec.Route);
     const entries=Number(rec.Entries)||0;
     if(!route){return;}
     const timestamp=new Date(rec.ClientTime);
-    const minutes=timestamp.getHours()*60+timestamp.getMinutes();
+    let minutes=timestamp.getHours()*60+timestamp.getMinutes();
+    if(startBoundary){
+      const diffMinutes=Math.floor((timestamp-startBoundary)/60000);
+      if(diffMinutes<0){return;}
+      minutes=diffMinutes;
+    }
+    if(endBoundary&&timestamp>=endBoundary){return;}
+    if(minutes>MAX_EXTENDED_MINUTES){return;}
     if(!ridershipByRoute[route]){ridershipByRoute[route]=[];}
     ridershipByRoute[route].push({minutes,entries});
     if(!newest||timestamp>newest){newest=timestamp;}
@@ -279,7 +294,7 @@ function addTimeRow(block){
   const timeCell=document.createElement('td');
   const input=document.createElement('input');
   input.type='text';
-  input.placeholder='1430 - 2030';
+  input.placeholder='2200 - 2630';
   input.className='time-input';
   input.addEventListener('change',()=>updateBlock(block));
   input.addEventListener('input',()=>updateBlock(block));
@@ -314,8 +329,8 @@ function createQuickAddButton(block,label,duration){
 function getNextRange(block,duration){
   const lastEnd=getLastRangeEnd(block);
   const start=lastEnd!==null?lastEnd:0;
-  if(start>=1440){return null;}
-  const end=Math.min(start+duration,1440);
+  if(start>=MAX_EXTENDED_MINUTES){return null;}
+  const end=Math.min(start+duration,MAX_EXTENDED_MINUTES);
   if(end<=start){return null;}
   return {start,end};
 }
@@ -336,7 +351,7 @@ function formatRange(start,end){
 }
 
 function formatMinutes(total){
-  const capped=Math.min(total,1439);
+  const capped=Math.min(total,MAX_EXTENDED_MINUTES);
   const hours=String(Math.floor(capped/60)).padStart(2,'0');
   const mins=String(capped%60).padStart(2,'0');
   return `${hours}${mins}`;
@@ -442,11 +457,15 @@ function normalizeRange(sh,sm,eh,em){
   const endHour=Number(eh);
   const endMin=Number(em||0);
   if([startHour,startMin,endHour,endMin].some(n=>Number.isNaN(n))){return null;}
-  if(startHour>23||endHour>23||startMin>59||endMin>59){return null;}
+  if(startMin>59||endMin>59){return null;}
+  if(startHour<0||endHour<0){return null;}
+  if(startHour>MAX_EXTENDED_HOUR||endHour>MAX_EXTENDED_HOUR){return null;}
+  if((startHour===MAX_EXTENDED_HOUR&&startMin>0)||(endHour===MAX_EXTENDED_HOUR&&endMin>0)){return null;}
   const start=startHour*60+startMin;
   let end=endHour*60+endMin;
-  if(endHour===23&&endMin===59){end=1440;}
-  if(end>1440){return null;}
+  if(endHour===23&&endMin===59){end=24*60;}
+  if(endHour===MAX_EXTENDED_HOUR&&endMin===0){end=MAX_EXTENDED_MINUTES;}
+  if(end>MAX_EXTENDED_MINUTES){return null;}
   if(end<=start){return null;}
   return {start,end};
 }
