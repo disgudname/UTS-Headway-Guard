@@ -48,6 +48,12 @@
   #addTableBtn{margin-top:16px;background:#2f9d78;}
   .quick-add{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
   .loading-message{margin-top:8px;color:var(--muted);font-style:italic;display:none;}
+  #routeTotalsWrapper{margin-top:12px;display:none;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line);}
+  #routeTotalsWrapper table{margin-top:8px;}
+  #routeTotalsWrapper th{background:transparent;color:var(--muted);font-weight:normal;}
+  #routeTotalsWrapper td{border-color:var(--line);}
+  #routeTotalsWrapper .route-totals-value{text-align:right;font-variant-numeric:tabular-nums;}
+  #routeTotalsWrapper .route-totals-title{font-weight:bold;}
 </style>
 </head>
 <body>
@@ -62,6 +68,15 @@
 </div>
 <div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
 <div id="overallTotalRow">Overall Displayed Total: <span id="overallTotal">0</span></div>
+<div id="routeTotalsWrapper">
+  <div class="route-totals-title">Per-Route Totals</div>
+  <table id="routeTotalsTable">
+    <thead>
+      <tr><th>Route</th><th>Total</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
 <div id="loadingMessage" class="loading-message">Loading Data, please wait...</div>
 <div id="tablesContainer"></div>
 <button id="addTableBtn" type="button">Add Another Route</button>
@@ -585,6 +600,7 @@ function updateBlock(block){
   block.querySelector('.route-total').textContent=total;
   updateOverallTotal();
   updateRouteDayTotals();
+  updateRouteTotalsTable();
 }
 
 function updateOverallTotal(){
@@ -596,27 +612,38 @@ function updateOverallTotal(){
   overallTotalDisplay.textContent=sum;
 }
 
+function collectRouteTotals(blocks){
+  const list=blocks||[...tablesContainer.querySelectorAll('.route-block')];
+  const totals=[];
+  const indexMap=new Map();
+  list.forEach(block=>{
+    const route=normalizeRouteValue(block.querySelector('.route-select').value);
+    if(!route){return;}
+    const totalCell=block.querySelector('.route-total');
+    const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
+    const value=Number.isNaN(numeric)?0:numeric;
+    let entry;
+    if(indexMap.has(route)){
+      entry=totals[indexMap.get(route)];
+    }else{
+      entry={route,total:0,blocks:[]};
+      indexMap.set(route,totals.length);
+      totals.push(entry);
+    }
+    entry.total+=value;
+    entry.blocks.push(block);
+  });
+  return totals;
+}
+
 function updateRouteDayTotals(){
   const blocks=[...tablesContainer.querySelectorAll('.route-block')];
   blocks.forEach(block=>{
     const dayRow=block.querySelector('.route-day-total-row');
     if(dayRow){dayRow.style.display='none';}
   });
-  const routeTotals=new Map();
-  blocks.forEach(block=>{
-    const route=normalizeRouteValue(block.querySelector('.route-select').value);
-    if(!route){return;}
-    const totalCell=block.querySelector('.route-total');
-    const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
-    const value=Number.isNaN(numeric)?0:numeric;
-    if(!routeTotals.has(route)){
-      routeTotals.set(route,{total:0,blocks:[]});
-    }
-    const entry=routeTotals.get(route);
-    entry.total+=value;
-    entry.blocks.push(block);
-  });
-  routeTotals.forEach(({total,blocks:routeBlocks})=>{
+  const totals=collectRouteTotals(blocks);
+  totals.forEach(({total,blocks:routeBlocks})=>{
     const showRow=routeBlocks.length>1;
     routeBlocks.forEach(block=>{
       const dayRow=block.querySelector('.route-day-total-row');
@@ -631,6 +658,32 @@ function updateRouteDayTotals(){
       }
     });
   });
+}
+
+function updateRouteTotalsTable(){
+  const wrapper=document.getElementById('routeTotalsWrapper');
+  const table=document.getElementById('routeTotalsTable');
+  if(!wrapper||!table){return;}
+  const tbody=table.querySelector('tbody');
+  if(!tbody){return;}
+  tbody.innerHTML='';
+  const totals=collectRouteTotals();
+  if(!totals.length){
+    wrapper.style.display='none';
+    return;
+  }
+  totals.forEach(entry=>{
+    const row=document.createElement('tr');
+    const nameCell=document.createElement('td');
+    nameCell.textContent=getRouteDisplayName(entry.route);
+    const valueCell=document.createElement('td');
+    valueCell.className='route-totals-value';
+    valueCell.textContent=entry.total;
+    row.appendChild(nameCell);
+    row.appendChild(valueCell);
+    tbody.appendChild(row);
+  });
+  wrapper.style.display='block';
 }
 
 function parseRange(value){
@@ -689,24 +742,19 @@ function exportCsv(){
   const asOfValue=newestDataTimestamp?newestDataTimestamp.toLocaleString():'';
   const overallTotal=overallTotalDisplay.textContent.trim();
   lines.push(`Date,${escapeCsv(dateValue)},As Of,${escapeCsv(asOfValue)}`);
-  if(overallTotal){
-    lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
-    lines.push('');
-  }
+  lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
   const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  const perRouteTotals=collectRouteTotals(blocks);
+  if(perRouteTotals.length){
+    lines.push('Route,Total');
+    perRouteTotals.forEach(entry=>{
+      lines.push(`${escapeCsv(getRouteDisplayName(entry.route))},${escapeCsv(entry.total)}`);
+    });
+  }
+  lines.push('');
   const routeMeta=new Map();
-  blocks.forEach(block=>{
-    const routeKey=normalizeRouteValue(block.querySelector('.route-select').value);
-    if(!routeKey){return;}
-    const totalCell=block.querySelector('.route-total');
-    const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
-    const value=Number.isNaN(numeric)?0:numeric;
-    if(!routeMeta.has(routeKey)){
-      routeMeta.set(routeKey,{total:0,count:0});
-    }
-    const meta=routeMeta.get(routeKey);
-    meta.total+=value;
-    meta.count+=1;
+  perRouteTotals.forEach(entry=>{
+    routeMeta.set(entry.route,{total:entry.total,count:entry.blocks.length});
   });
   const routeSeen=new Map();
   blocks.forEach((block,index)=>{
