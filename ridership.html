@@ -13,7 +13,7 @@
   body{margin:0;background:var(--bg);color:var(--ink);font:16px 'FGDC',sans-serif;padding:20px;line-height:1.4;}
   h1{margin-top:0;margin-bottom:16px;}
   button{background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer;}
-  button:hover{filter:brightness(1.1);} 
+  button:hover{filter:brightness(1.1);}
   button:disabled{opacity:0.6;cursor:not-allowed;}
   input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--panel);color:var(--ink);}
   input[type="date"]{border-color:var(--accent);cursor:pointer;box-shadow:0 0 0 0 rgba(75,133,242,0.4);transition:border-color 0.2s ease,box-shadow 0.2s ease;background:linear-gradient(135deg,rgba(75,133,242,0.15),rgba(75,133,242,0));}
@@ -38,6 +38,9 @@
   .time-input{width:100%;min-width:160px;}
   .result-cell{width:120px;text-align:right;font-variant-numeric:tabular-nums;}
   .result-cell.invalid{color:var(--danger);}
+  .action-cell{text-align:center;width:60px;}
+  .action-header{width:60px;}
+  .remove-row-btn{background:var(--danger);padding:6px 10px;}
   .route-total{font-weight:bold;text-align:right;}
   .route-day-total-row{display:none;}
   .route-day-total{font-weight:bold;text-align:right;}
@@ -228,8 +231,12 @@ function addRouteTable(){
   thRange.textContent='Time Range (HHMM - HHMM)';
   const thPassengers=document.createElement('th');
   thPassengers.textContent='Passengers';
+  const thActions=document.createElement('th');
+  thActions.textContent='';
+  thActions.className='action-header';
   headRow.appendChild(thRange);
   headRow.appendChild(thPassengers);
+  headRow.appendChild(thActions);
   thead.appendChild(headRow);
 
   const tbody=document.createElement('tbody');
@@ -304,8 +311,22 @@ function addTimeRow(block){
   resultCell.className='result-cell';
   resultCell.textContent='-';
 
+  const actionCell=document.createElement('td');
+  actionCell.className='action-cell';
+  const removeBtn=document.createElement('button');
+  removeBtn.type='button';
+  removeBtn.className='remove-row-btn';
+  removeBtn.textContent='−';
+  removeBtn.title='Remove time frame';
+  removeBtn.addEventListener('click',()=>{
+    row.remove();
+    updateBlock(block);
+  });
+  actionCell.appendChild(removeBtn);
+
   row.appendChild(timeCell);
   row.appendChild(resultCell);
+  row.appendChild(actionCell);
   tbody.appendChild(row);
   return row;
 }
