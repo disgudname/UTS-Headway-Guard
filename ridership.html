@@ -93,6 +93,9 @@ const spinner=document.getElementById('spinner');
 const newestTimestamp=document.getElementById('newestTimestamp');
 const tablesContainer=document.getElementById('tablesContainer');
 const overallTotalDisplay=document.getElementById('overallTotal');
+const routeTotalsWrapper=document.getElementById('routeTotalsWrapper');
+const routeTotalsBody=document.getElementById('routeTotalsBody');
+const routeTotalsOverallRow=document.getElementById('routeTotalsOverallRow');
 const addTableBtn=document.getElementById('addTableBtn');
 const templateBtn=document.getElementById('templateBtn');
 const academicTemplateBtn=document.getElementById('academicTemplateBtn');
@@ -686,17 +689,14 @@ function updateRouteDayTotals(){
 }
 
 function updateRouteTotalsTable(){
-  const wrapper=document.getElementById('routeTotalsWrapper');
-  const tbody=document.getElementById('routeTotalsBody');
-  const overallRow=document.getElementById('routeTotalsOverallRow');
-  if(!wrapper||!tbody||!overallRow){return;}
-  if(overallRow.parentElement===tbody){
-    overallRow.remove();
+  if(!routeTotalsWrapper||!routeTotalsBody||!routeTotalsOverallRow){return;}
+  if(routeTotalsOverallRow.parentElement===routeTotalsBody){
+    routeTotalsBody.removeChild(routeTotalsOverallRow);
   }
-  tbody.textContent='';
+  routeTotalsBody.textContent='';
   const totals=collectRouteTotals();
   if(!totals.length){
-    wrapper.style.display='none';
+    routeTotalsWrapper.style.display='none';
     return;
   }
   totals.forEach(entry=>{
@@ -708,10 +708,10 @@ function updateRouteTotalsTable(){
     valueCell.textContent=entry.total;
     row.appendChild(nameCell);
     row.appendChild(valueCell);
-    tbody.appendChild(row);
+    routeTotalsBody.appendChild(row);
   });
-  tbody.appendChild(overallRow);
-  wrapper.style.display='block';
+  routeTotalsBody.appendChild(routeTotalsOverallRow);
+  routeTotalsWrapper.style.display='block';
 }
 
 function parseRange(value){
