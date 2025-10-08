@@ -422,13 +422,8 @@ function addRouteTable(){
   altInput.className='alternate-input';
   altLabel.appendChild(altInput);
 
-  const addRowBtn=document.createElement('button');
-  addRowBtn.type='button';
-  addRowBtn.textContent='Add Time Range';
-
   header.appendChild(label);
   header.appendChild(altLabel);
-  header.appendChild(addRowBtn);
   block.appendChild(header);
 
   const table=document.createElement('table');
@@ -482,8 +477,12 @@ function addRouteTable(){
 
   const add30Btn=createQuickAddButton(block,'+30 min',30);
   const add60Btn=createQuickAddButton(block,'+1 hr',60);
+  const addRowBtn=document.createElement('button');
+  addRowBtn.type='button';
+  addRowBtn.textContent='Add Time Range';
   quickAdd.appendChild(add30Btn);
   quickAdd.appendChild(add60Btn);
+  quickAdd.appendChild(addRowBtn);
 
   block.appendChild(quickAdd);
 
