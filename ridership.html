@@ -44,7 +44,6 @@
   .route-total{font-weight:bold;text-align:right;}
   .route-day-total-row{display:none;}
   .route-day-total{font-weight:bold;text-align:right;}
-  #overallTotalRow{margin-top:16px;font-size:18px;font-weight:bold;}
   #addTableBtn{margin-top:16px;background:#2f9d78;}
   .quick-add{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
   .loading-message{margin-top:8px;color:var(--muted);font-style:italic;display:none;}
@@ -54,6 +53,7 @@
   #routeTotalsWrapper td{border-color:var(--line);}
   #routeTotalsWrapper .route-totals-value{text-align:right;font-variant-numeric:tabular-nums;}
   #routeTotalsWrapper .route-totals-title{font-weight:bold;}
+  #routeTotalsWrapper .route-overall-row td{font-weight:bold;border-top:2px solid var(--line);}
 </style>
 </head>
 <body>
@@ -67,14 +67,18 @@
   <button id="academicTemplateBtn" type="button">Load Academic Template</button>
 </div>
 <div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
-<div id="overallTotalRow">Overall Displayed Total: <span id="overallTotal">0</span></div>
 <div id="routeTotalsWrapper">
   <div class="route-totals-title">Per-Route Totals</div>
   <table id="routeTotalsTable">
     <thead>
       <tr><th>Route</th><th>Total</th></tr>
     </thead>
-    <tbody></tbody>
+    <tbody id="routeTotalsBody">
+      <tr id="routeTotalsOverallRow" class="route-overall-row">
+        <td>Overall Displayed Total</td>
+        <td class="route-totals-value"><span id="overallTotal">0</span></td>
+      </tr>
+    </tbody>
   </table>
 </div>
 <div id="loadingMessage" class="loading-message">Loading Data, please wait...</div>
@@ -684,11 +688,13 @@ function updateRouteDayTotals(){
 
 function updateRouteTotalsTable(){
   const wrapper=document.getElementById('routeTotalsWrapper');
-  const table=document.getElementById('routeTotalsTable');
-  if(!wrapper||!table){return;}
-  const tbody=table.querySelector('tbody');
-  if(!tbody){return;}
-  tbody.innerHTML='';
+  const tbody=document.getElementById('routeTotalsBody');
+  const overallRow=document.getElementById('routeTotalsOverallRow');
+  if(!wrapper||!tbody||!overallRow){return;}
+  if(overallRow.parentElement===tbody){
+    overallRow.remove();
+  }
+  tbody.textContent='';
   const totals=collectRouteTotals();
   if(!totals.length){
     wrapper.style.display='none';
@@ -705,6 +711,7 @@ function updateRouteTotalsTable(){
     row.appendChild(valueCell);
     tbody.appendChild(row);
   });
+  tbody.appendChild(overallRow);
   wrapper.style.display='block';
 }
 
@@ -764,7 +771,6 @@ function exportCsv(){
   const asOfValue=newestDataTimestamp?newestDataTimestamp.toLocaleString():'';
   const overallTotal=overallTotalDisplay.textContent.trim();
   lines.push(`Date,${escapeCsv(dateValue)},As Of,${escapeCsv(asOfValue)}`);
-  lines.push(`Overall Total,${escapeCsv(overallTotal)}`);
   const blocks=[...tablesContainer.querySelectorAll('.route-block')];
   const perRouteTotals=collectRouteTotals(blocks);
   if(perRouteTotals.length){
@@ -772,6 +778,9 @@ function exportCsv(){
     perRouteTotals.forEach(entry=>{
       lines.push(`${escapeCsv(getRouteDisplayName(entry.route))},${escapeCsv(entry.total)}`);
     });
+    lines.push(`Overall Displayed Total,${escapeCsv(overallTotal)}`);
+  }else{
+    lines.push(`Overall Displayed Total,${escapeCsv(overallTotal)}`);
   }
   lines.push('');
   const routeMeta=new Map();
