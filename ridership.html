@@ -87,6 +87,9 @@ let newestDataTimestamp=null;
 let routeInfoById={};
 let routeInfoPromise=null;
 let routeMetaByKey={};
+let groupMetaByKey={};
+let routeGroupMembers={};
+let routeMemberToGroup={};
 
 function normalizeApiArray(payload){
   if(Array.isArray(payload)){return payload;}
@@ -126,7 +129,11 @@ function fetchRouteInfo(){
 }
 
 function getRouteMeta(routeKey){
-  return routeMetaByKey[routeKey]||null;
+  if(groupMetaByKey[routeKey]){return groupMetaByKey[routeKey];}
+  if(routeMetaByKey[routeKey]){return routeMetaByKey[routeKey];}
+  const groupKey=routeMemberToGroup[routeKey];
+  if(groupKey&&groupMetaByKey[groupKey]){return groupMetaByKey[groupKey];}
+  return null;
 }
 
 function getRouteDisplayName(routeKey){
@@ -171,6 +178,37 @@ function findRouteKeyForTemplate(routeName,infoTextHint,usageMap){
     return choice||null;
   }
   return matches[0];
+}
+
+function buildRouteGroups(){
+  Object.keys(ridershipByRoute).forEach(routeKey=>{
+    const meta=routeMetaByKey[routeKey]||{};
+    const baseName=meta.baseName||String(routeKey||'');
+    const infoText=typeof meta.infoText==='string'?meta.infoText:'';
+    const displayName=meta.displayName|| (infoText?`${baseName} – ${infoText}`:baseName);
+    const groupKey=JSON.stringify([baseName,infoText]);
+    if(!groupMetaByKey[groupKey]){
+      groupMetaByKey[groupKey]={displayName,baseName,infoText,members:[]};
+      routeGroupMembers[groupKey]=groupMetaByKey[groupKey].members;
+    }
+    groupMetaByKey[groupKey].members.push(routeKey);
+    routeMemberToGroup[routeKey]=groupKey;
+  });
+}
+
+function normalizeRouteValue(routeKey){
+  if(!routeKey){return '';}
+  if(routeGroupMembers[routeKey]){return routeKey;}
+  if(routeMemberToGroup[routeKey]){return routeMemberToGroup[routeKey];}
+  return routeKey;
+}
+
+function getGroupMembers(routeKey){
+  const normalized=normalizeRouteValue(routeKey);
+  if(!normalized){return [];}
+  if(routeGroupMembers[normalized]){return routeGroupMembers[normalized];}
+  if(ridershipByRoute[normalized]){return [normalized];}
+  return [];
 }
 
 const today=new Date();
@@ -239,6 +277,9 @@ function load(){
 function render(data,bounds){
   ridershipByRoute=Object.create(null);
   routeMetaByKey=Object.create(null);
+  groupMetaByKey=Object.create(null);
+  routeGroupMembers=Object.create(null);
+  routeMemberToGroup=Object.create(null);
   let newest=null;
   const startBoundary=bounds?.start||null;
   const endBoundary=bounds?.end||null;
@@ -284,7 +325,8 @@ function render(data,bounds){
       routeMetaByKey[routeKey]={displayName,baseName,infoText:infoText||''};
     }
   });
-  routeList=Object.keys(ridershipByRoute).sort((a,b)=>getRouteDisplayName(a).localeCompare(getRouteDisplayName(b)));
+  buildRouteGroups();
+  routeList=Object.keys(groupMetaByKey).sort((a,b)=>getRouteDisplayName(a).localeCompare(getRouteDisplayName(b)));
   newestDataTimestamp=newest;
   newestTimestamp.textContent=newest?newest.toLocaleString():'';
   let blocks=[...tablesContainer.querySelectorAll('.route-block')];
@@ -300,7 +342,7 @@ function render(data,bounds){
 }
 
 function populateRouteOptions(select){
-  const previous=select.value;
+  const previous=normalizeRouteValue(select.value);
   select.innerHTML='';
   const placeholder=document.createElement('option');
   placeholder.value='';
@@ -507,7 +549,11 @@ function formatMinutes(total){
 
 function updateBlock(block){
   const select=block.querySelector('.route-select');
-  const route=select.value;
+  const normalizedRoute=normalizeRouteValue(select.value);
+  if(normalizedRoute&&normalizedRoute!==select.value&&routeList.includes(normalizedRoute)){
+    select.value=normalizedRoute;
+  }
+  const route=normalizeRouteValue(select.value);
   const rows=[...block.querySelectorAll('.time-row')];
   let total=0;
   rows.forEach(row=>{
@@ -555,7 +601,7 @@ function updateRouteDayTotals(){
   });
   const routeTotals=new Map();
   blocks.forEach(block=>{
-    const route=block.querySelector('.route-select').value;
+    const route=normalizeRouteValue(block.querySelector('.route-select').value);
     if(!route){return;}
     const totalCell=block.querySelector('.route-total');
     const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
@@ -619,13 +665,17 @@ function normalizeRange(sh,sm,eh,em){
 }
 
 function sumForRange(route,start,end){
-  const records=ridershipByRoute[route];
-  if(!records){return 0;}
+  const members=getGroupMembers(route);
+  if(!members.length){return 0;}
   let total=0;
-  records.forEach(rec=>{
-    if(rec.minutes>=start&&rec.minutes<end){
-      total+=rec.entries;
-    }
+  members.forEach(member=>{
+    const records=ridershipByRoute[member];
+    if(!records){return;}
+    records.forEach(rec=>{
+      if(rec.minutes>=start&&rec.minutes<end){
+        total+=rec.entries;
+      }
+    });
   });
   return total;
 }
@@ -643,7 +693,7 @@ function exportCsv(){
   const blocks=[...tablesContainer.querySelectorAll('.route-block')];
   const routeMeta=new Map();
   blocks.forEach(block=>{
-    const routeKey=block.querySelector('.route-select').value;
+    const routeKey=normalizeRouteValue(block.querySelector('.route-select').value);
     if(!routeKey){return;}
     const totalCell=block.querySelector('.route-total');
     const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
@@ -657,7 +707,7 @@ function exportCsv(){
   });
   const routeSeen=new Map();
   blocks.forEach((block,index)=>{
-    const route=block.querySelector('.route-select').value||'';
+    const route=normalizeRouteValue(block.querySelector('.route-select').value)||'';
     const alternate=block.querySelector('.alternate-input')?.value||'';
     const routeLabel=alternate||getRouteDisplayName(route);
     if(index>0){lines.push('');}
@@ -697,11 +747,12 @@ function exportCsv(){
 
 function ensureRouteOption(select,route,label){
   if(!route){return;}
-  const exists=[...select.options].some(opt=>opt.value===route);
+  const normalized=normalizeRouteValue(route);
+  const exists=[...select.options].some(opt=>opt.value===normalized);
   if(!exists){
     const opt=document.createElement('option');
-    opt.value=route;
-    opt.textContent=label||getRouteDisplayName(route);
+    opt.value=normalized;
+    opt.textContent=label||getRouteDisplayName(normalized);
     select.appendChild(opt);
   }
 }
@@ -719,9 +770,10 @@ function loadTemplate(){
     const block=addRouteTable();
     const select=block.querySelector('.route-select');
     const routeKey=findRouteKeyForTemplate(item.route,item.matchInfoText,usageMap);
-    if(routeKey){
-      ensureRouteOption(select,routeKey);
-      select.value=routeKey;
+    const normalizedRoute=normalizeRouteValue(routeKey);
+    if(normalizedRoute){
+      ensureRouteOption(select,normalizedRoute);
+      select.value=normalizedRoute;
     }else{
       select.value='';
     }
