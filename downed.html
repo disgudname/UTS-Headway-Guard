@@ -16,6 +16,7 @@
   :root{
     --bg:#24234B;
     --panel:#101935;
+    --row-alt:#152349;
     --panel-soft:#142040;
     --ink:#f0f4ff;
     --muted:#9fb0c9;
@@ -110,6 +111,7 @@
   tbody td.wrap-allowed{
     white-space:normal;
     word-break:break-word;
+    text-align:left;
   }
   tbody td.vehicle-column{
     font-size:clamp(1.55rem,1.25rem + 0.5vw,2rem);
@@ -124,6 +126,9 @@
     white-space:nowrap;
     word-break:normal;
     padding:12px 6px 8px;
+  }
+  tbody tr:nth-child(even){
+    background:var(--row-alt);
   }
   tbody tr:hover{
     background:var(--panel-soft);
