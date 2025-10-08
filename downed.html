@@ -26,7 +26,7 @@
     --pill-hold:#FFFFFF;
     --pill-up:#00ff00;
     --pill-usable:#0000ff;
-    --base-font-size:clamp(21px,calc(1.2vw + 0.8vh),32px);
+    --base-font-size:clamp(24px,calc(1.45vw + 0.85vh),38px);
   }
   *{box-sizing:border-box;}
   body{
@@ -42,6 +42,11 @@
     -webkit-font-smoothing:antialiased;
     -moz-osx-font-smoothing:grayscale;
     text-rendering:geometricPrecision;
+  }
+  @media (max-width:1400px){
+    :root{
+      --dynamic-base-font-size:clamp(22px,calc(1.2vw + 0.9vh),30px);
+    }
   }
   main{
     width:100%;
