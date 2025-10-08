@@ -83,6 +83,8 @@
 <textarea id="notes" placeholder="Service Notes..."></textarea>
 <script>
 const dateInput=document.getElementById('datePicker');
+const loadBtn=document.getElementById('loadBtn');
+const exportBtn=document.getElementById('exportBtn');
 const spinner=document.getElementById('spinner');
 const newestTimestamp=document.getElementById('newestTimestamp');
 const tablesContainer=document.getElementById('tablesContainer');
@@ -92,6 +94,11 @@ const templateBtn=document.getElementById('templateBtn');
 const academicTemplateBtn=document.getElementById('academicTemplateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
+
+tablesContainer.classList.add('is-loading');
+loadingMessage.textContent='Select a date to load data.';
+loadingMessage.style.display='block';
+loadBtn.disabled=true;
 
 const MAX_EXTENDED_HOUR=27;
 const MAX_EXTENDED_MINUTES=MAX_EXTENDED_HOUR*60;
@@ -107,6 +114,14 @@ let routeMetaByKey={};
 let groupMetaByKey={};
 let routeGroupMembers={};
 let routeMemberToGroup={};
+let isLoading=false;
+
+function updateLoadAvailability(){
+  loadBtn.disabled=!dateInput.value||isLoading;
+}
+
+dateInput.addEventListener('change',updateLoadAvailability);
+dateInput.addEventListener('input',updateLoadAvailability);
 
 function normalizeApiArray(payload){
   if(Array.isArray(payload)){return payload;}
@@ -228,13 +243,10 @@ function getGroupMembers(routeKey){
   return [];
 }
 
-const today=new Date();
-today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
-dateInput.value=today.toISOString().split('T')[0];
+updateLoadAvailability();
 
-document.getElementById('loadBtn').addEventListener('click',load);
-window.addEventListener('load',load);
-document.getElementById('exportBtn').addEventListener('click',exportCsv);
+loadBtn.addEventListener('click',load);
+exportBtn.addEventListener('click',exportCsv);
 addTableBtn.addEventListener('click',()=>{
   const block=addRouteTable();
   const input=block.querySelector('.time-input');
@@ -257,8 +269,16 @@ function normalizeRouteName(route){
 }
 
 function load(){
+  if(!dateInput.value){
+    loadingMessage.textContent='Select a date to load data.';
+    loadingMessage.style.display='block';
+    return;
+  }
+  isLoading=true;
+  updateLoadAvailability();
   spinner.style.display='inline-block';
   tablesContainer.classList.add('is-loading');
+  loadingMessage.textContent='Loading Data, please wait...';
   loadingMessage.style.display='block';
   const [y,m,d]=dateInput.value.split('-').map(Number);
   const start=new Date(y,m-1,d);
@@ -286,9 +306,11 @@ function load(){
     console.error(err);
     render([],bounds);
   }).finally(()=>{
+    isLoading=false;
     spinner.style.display='none';
     tablesContainer.classList.remove('is-loading');
     loadingMessage.style.display='none';
+    updateLoadAvailability();
   });
 }
 
