@@ -58,6 +58,7 @@
   <span id="spinner" class="spinner" style="display:none"></span>
   <button id="exportBtn">Export CSV</button>
   <button id="templateBtn" type="button">Load Red/Blue Template</button>
+  <button id="academicTemplateBtn" type="button">Load Academic Template</button>
 </div>
 <div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
 <div id="overallTotalRow">Overall Displayed Total: <span id="overallTotal">0</span></div>
@@ -73,6 +74,7 @@ const tablesContainer=document.getElementById('tablesContainer');
 const overallTotalDisplay=document.getElementById('overallTotal');
 const addTableBtn=document.getElementById('addTableBtn');
 const templateBtn=document.getElementById('templateBtn');
+const academicTemplateBtn=document.getElementById('academicTemplateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
 
@@ -224,6 +226,7 @@ addTableBtn.addEventListener('click',()=>{
   if(input){input.focus();}
 });
 templateBtn.addEventListener('click',loadTemplate);
+academicTemplateBtn.addEventListener('click',loadAcademicTemplate);
 
 if(!tablesContainer.children.length){
   addRouteTable();
@@ -757,13 +760,7 @@ function ensureRouteOption(select,route,label){
   }
 }
 
-function loadTemplate(){
-  const template=[
-    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line AM)',times:['0430 - 0600','0600 - 0730']},
-    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line PM)',times:['1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']},
-    {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line AM)',times:['0630 - 0730','0730 - 0800','0800 - 0900','0900 - 1000']},
-    {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line PM)',times:['1000 - 1430','1430 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']}
-  ];
+function applyTemplateConfig(template){
   tablesContainer.innerHTML='';
   const usageMap=new Map();
   template.forEach(item=>{
@@ -778,21 +775,45 @@ function loadTemplate(){
       select.value='';
     }
     const altInput=block.querySelector('.alternate-input');
-    if(altInput){altInput.value=item.alternate;}
+    if(altInput){altInput.value=item.alternate||'';}
+    const times=Array.isArray(item.times)?item.times:[];
     const rows=[...block.querySelectorAll('.time-row')];
     if(rows[0]){
-      rows[0].querySelector('.time-input').value=item.times[0]||'';
+      rows[0].querySelector('.time-input').value=times[0]||'';
     }
-    for(let i=1;i<item.times.length;i++){
+    for(let i=1;i<times.length;i++){
       const row=addTimeRow(block);
-      row.querySelector('.time-input').value=item.times[i];
+      row.querySelector('.time-input').value=times[i];
     }
-    // Remove extra empty rows if template has fewer than default rows
-    if(item.times.length===0){
+    if(times.length===0){
       rows.forEach(row=>row.remove());
     }
     updateBlock(block);
   });
+}
+
+function loadTemplate(){
+  const template=[
+    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line AM)',times:['0430 - 0600','0600 - 0730']},
+    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line PM)',times:['1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']},
+    {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line AM)',times:['0630 - 0730','0730 - 0800','0800 - 0900','0900 - 1000']},
+    {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line PM)',times:['1000 - 1430','1430 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']}
+  ];
+  applyTemplateConfig(template);
+}
+
+function loadAcademicTemplate(){
+  const template=[
+    {route:'Green Line',alternate:'Green Line – Pre-6PM',times:['0700 - 0730','0730 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1830']},
+    {route:'Green Loop',alternate:'Green Loop – Post-6PM/Weekends',times:['1730 - 1800','1800 - 1900','1900 - 2000','2000 - 2100','2100 - 2200','2200 - 2230']},
+    {route:'Orange Line',alternate:'Orange Line – Pre-6PM',times:['0700 - 0730','0730 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1830']},
+    {route:'Orange Loop',alternate:'Orange Loop – Post-6PM/Weekends',times:['1730 - 1800','1800 - 1900','1900 - 2000','2000 - 2100','2100 - 2200','2200 - 2230']},
+    {route:'Gold Line',alternate:'Gold Line – Pre-6PM',times:['0430 - 0500','0500 - 0600','0600 - 0700','0700 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1830']},
+    {route:'Gold Line',alternate:'Gold Line – Post-6PM/Weekends',times:['1730 - 1800','1800 - 1900','1900 - 2000','2000 - 2100','2100 - 2200','2200 - 2230']},
+    {route:'Silver Line',alternate:'Silver Line',times:['0600 - 0630','0630 - 0700','0700 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2000','2000 - 2030']},
+    {route:'Night Pilot',alternate:'Night Pilot',times:['2130 - 2200','2200 - 2300','2300 - 2400','2400 - 2500','2500 - 2600','2600 - 2630']}
+  ];
+  applyTemplateConfig(template);
 }
 
 function escapeCsv(text){
