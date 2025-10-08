@@ -735,7 +735,7 @@ function exportCsv(){
     lines.push(`Notes,${escapeCsv(notes)}`);
   }
   const csv=lines.join('\n');
-  const blob=new Blob([csv],{type:'text/csv'});
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download=`ridership_${dateValue}.csv`;
