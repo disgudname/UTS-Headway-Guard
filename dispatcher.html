@@ -184,9 +184,9 @@ body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel #downed-table tb
   font-size:14px;
   padding:var(--kiosk-entry-padding) calc(var(--kiosk-entry-padding)*1.5);
 }
-#blocks-table,#future-blocks-table{width:auto;table-layout:fixed}
-#blocks td,#future-blocks td{border:none;padding:2px 4px;text-align:center;width:12ch}
-#blocks td .cell,#future-blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;min-height:2.6em;max-height:2.6em;padding:2px 0;line-height:1.15}
+#blocks-table{width:auto;table-layout:fixed}
+#blocks td{border:none;padding:2px 4px;text-align:center;width:12ch}
+#blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;min-height:2.6em;max-height:2.6em;padding:2px 0;line-height:1.15}
 .blocks-grid{display:flex;flex-direction:column;gap:8px}
 .blocks-grid-status{font-size:14px;color:#9fb0c9}
 .blocks-grid-status[hidden]{display:none}
@@ -236,9 +236,9 @@ body.kiosk-mode #layout aside .panel h2{margin:0 0 8px;font-size:16px}
 body.kiosk-mode #layout aside .panel .panel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 body.kiosk-mode #layout aside .panel .panel-body table{flex:1;overflow:auto;width:100%}
 body.kiosk-mode #layout aside .panel .panel-body ul{flex:1;overflow:auto;margin:0;width:100%}
-body.kiosk-mode #blocks-table,body.kiosk-mode #future-blocks-table,body.kiosk-mode #downed-table{width:100%;table-layout:fixed}
-body.kiosk-mode #blocks td,body.kiosk-mode #future-blocks td{width:clamp(11ch,25%,14ch)}
-body.kiosk-mode #blocks td .cell,body.kiosk-mode #future-blocks td .cell{min-height:var(--kiosk-block-height);max-height:var(--kiosk-block-height);padding:var(--kiosk-entry-padding) 0;gap:2px}
+body.kiosk-mode #blocks-table,body.kiosk-mode #downed-table{width:100%;table-layout:fixed}
+body.kiosk-mode #blocks td{width:clamp(11ch,25%,14ch)}
+body.kiosk-mode #blocks td .cell{min-height:var(--kiosk-block-height);max-height:var(--kiosk-block-height);padding:var(--kiosk-entry-padding) 0;gap:2px}
 body.kiosk-mode #blocks-grid .blocks-grid-table{gap:10px}
 body.kiosk-mode #blocks-grid .cell{min-height:var(--kiosk-block-height);padding:var(--kiosk-entry-padding) 10px}
 body.kiosk-mode #blocks-grid .cell .bus{font-size:20px}
@@ -288,7 +288,7 @@ body.lcars th{font-size:12px;color:#FFCC66}
 body.lcars tbody tr:last-child td{border-bottom:none}
 body.lcars tbody tr{transition:background-color .45s ease,transform .45s ease}
 body.lcars tbody tr:hover{background:rgba(255,204,102,.16);transform:translateX(4px)}
-body.lcars #blocks td .cell,body.lcars #future-blocks td .cell{border-radius:20px;padding:10px 0;min-height:3.1em;max-height:3.1em}
+body.lcars #blocks td .cell{border-radius:20px;padding:10px 0;min-height:3.1em;max-height:3.1em}
 body.lcars #extra-buses{gap:12px}
 body.lcars #extra-buses li{background:#0C0C12;border:3px solid #FF9966;border-radius:30px;padding:12px 10px;color:#E0E0E0;transition:border-color .45s ease,transform .45s ease}
 body.lcars #extra-buses li:hover{transform:translateY(-2px);border-color:#FFCC66}
@@ -474,14 +474,6 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
           <div class="blocks-grid-status hint">Loading…</div>
           <div class="blocks-grid-table" hidden></div>
         </div>
-      </div>
-    </section>
-    <section class="panel">
-      <h2>Future Block Assignments</h2>
-      <div class="panel-body">
-        <table id="future-blocks-table">
-          <tbody id="future-blocks"><tr><td class="hint">Loading…</td></tr></tbody>
-        </table>
       </div>
     </section>
     <section class="panel">
@@ -1559,6 +1551,50 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
   }
 }
 
+function formatAssignmentLabel(entry,blockId,numbers){
+  if(blockId){
+    return blockId;
+  }
+  if(Array.isArray(numbers) && numbers.length){
+    return '['+numbers.join('/')+']';
+  }
+  if(entry && typeof entry.id==='string' && entry.id.trim()){
+    return entry.id.trim();
+  }
+  if(entry && Array.isArray(entry.blockNumbers) && entry.blockNumbers.length){
+    return '['+entry.blockNumbers.join('/')+']';
+  }
+  return '';
+}
+
+function collectBusAssignments(entries,nowMinutes){
+  const allAssignments=new Map();
+  const activeAssignments=new Map();
+  for(const entry of entries){
+    if(!entry) continue;
+    const active=isActive(entry,nowMinutes);
+    const register=(bus,label)=>{
+      const clean=cleanBusIdentifier(bus);
+      if(!clean) return;
+      if(!allAssignments.has(clean)){
+        allAssignments.set(clean,label||'');
+      }
+      if(active && !activeAssignments.has(clean)){
+        activeAssignments.set(clean,label||'');
+      }
+    };
+    register(entry.bus,formatAssignmentLabel(entry,null,null));
+    if(entry.blockIdLookup instanceof Map){
+      for(const [blockId,info] of entry.blockIdLookup.entries()){
+        if(!info) continue;
+        const label=formatAssignmentLabel(entry,blockId,info.numbers);
+        register(info.bus,label);
+      }
+    }
+  }
+  return {allAssignments,activeAssignments};
+}
+
 function normalizeHeaderText(value){
   return (value||'').replace(/\s+/g,' ').trim().toLowerCase();
 }
@@ -2455,7 +2491,6 @@ function updateExtraBuses(){
 }
 
 async function loadBlocks(){
-  const futureBody=$('#future-blocks');
   try{
     await ensureBlockGridReady();
     setBlocksGridMessage('Loading…');
@@ -2480,176 +2515,35 @@ async function loadBlocks(){
 
     if(!groups.length){
       clearBlockGrid({message:'No block assignments available.'});
-      if(futureBody) futureBody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
       blockByBus=new Map();
       allBlockByBus=new Map();
       updateExtraBuses();
       return;
     }
 
-    const entryMap=new Map();
-    const busMap=new Map();
     const busColorMap=new Map();
     for(const g of groups){
       const blocks=g.Blocks||[];
-      if(blocks.length){
-        for(const b of blocks){
-          const trip=b.Trips?.[0];
-          const bus=trip?.VehicleName||'—';
-          let rid=routeByBus.get(bus);
-          if(rid==null) rid=trip?.RouteID||b.Route?.RouteId;
-          let col=null;
-          if(rid===0){
-            col='#000000';
-          }else if(rid){
-            col=colorByRoute.get(String(rid))||trip?.RouteColor||b.Route?.Color||null;
-          }else{
-            col=trip?.RouteColor||b.Route?.Color||null;
-          }
-          if(col && !col.startsWith('#')) col='#'+col;
-          if(bus && bus!=='—' && col){
-            busColorMap.set(bus,col);
-          }
-          let key=g.BlockGroupId;
-          if(!String(key).includes('[')) key=b.BlockId||key;
-          const segs=[];
-          segs.push({start:b.BlockStartTime,end:b.BlockEndTime});
-          for(const t of (b.Trips||[])){
-            segs.push({start:t.TripStartTime||t.BlockStartTime,end:t.TripEndTime||t.BlockEndTime});
-          }
-          let info=entryMap.get(key);
-          if(!info){
-            info={block:key,bus:bus,color:col,textColor:contrastColor(col),segments:[]};
-            entryMap.set(key,info);
-          }else{
-            if(info.bus==='—' && bus!=='—') info.bus=bus;
-            if(!info.color && col){
-              info.color=col;
-              info.textColor=contrastColor(col);
-            }
-          }
-          info.segments.push(...segs);
-          if(bus && bus!=='—'){
-            let bb=busMap.get(bus);
-            if(!bb){
-              bb={block:key,segments:[]};
-              busMap.set(bus,bb);
-            }
-            bb.segments.push(...segs);
-          }
+      if(!blocks.length) continue;
+      for(const b of blocks){
+        const trip=b.Trips?.[0];
+        const bus=trip?.VehicleName||'—';
+        let rid=routeByBus.get(bus);
+        if(rid==null) rid=trip?.RouteID||b.Route?.RouteId;
+        let col=null;
+        if(rid===0){
+          col='#000000';
+        }else if(rid){
+          col=colorByRoute.get(String(rid))||trip?.RouteColor||b.Route?.Color||null;
+        }else{
+          col=trip?.RouteColor||b.Route?.Color||null;
         }
-      }else{
-        const key=g.BlockGroupId;
-        if(!entryMap.has(key)){
-          entryMap.set(key,{block:key,bus:'—',color:null,textColor:contrastColor(null),segments:[]});
+        if(col && !col.startsWith('#')) col='#'+col;
+        if(bus && bus!=='—' && col){
+          busColorMap.set(bus,col);
         }
       }
     }
-
-    let listEntries=Array.from(entryMap.values()).filter(e=>e.block.includes('[') || e.bus!=='—');
-    let busBlocks=Array.from(busMap.entries()).map(([bus,val])=>({bus,block:val.block,segments:val.segments}));
-    const alias={
-      "[01]":"[01]/[04]",
-      "[03]":"[05]/[03]",
-      "[04]":"[01]/[04]",
-      "[05]":"[05]/[03]",
-      "[06]":"[22]/[06]",
-      "[10]":"[20]/[10]",
-      "[15]":"[26]/[15]",
-      "[16] AM":"[21]/[16] AM",
-      "[17]":"[23]/[17]",
-      "[18] AM":"[24]/[18] AM",
-      "[20] AM":"[20]/[10]",
-      "[21] AM":"[21]/[16] AM",
-      "[22] AM":"[22]/[06]",
-      "[23]":"[23]/[17]",
-      "[24] AM":"[24]/[18] AM",
-      "[26] AM":"[26]/[15]"
-    };
-    const aliasBlock=b=>{ const key=String(b||'').trim(); return alias[key]||key; };
-    listEntries=listEntries.map(e=>({...e,block:aliasBlock(e.block)}));
-    busBlocks=busBlocks.map(e=>({...e,block:aliasBlock(e.block)}));
-    allBlockByBus=new Map(busBlocks.map(e=>[e.bus,e.block]));
-    const seen=new Map();
-    const filtered=[];
-    for(const e of listEntries){
-      if(e.block.includes('[')){
-        const prev=seen.get(e.block);
-        if(!prev || (prev.bus==='—' && e.bus!=='—')){
-          seen.set(e.block,e);
-        }
-      }else{
-        filtered.push(e);
-      }
-    }
-    listEntries=[...filtered,...seen.values()];
-    listEntries.sort((a,b)=>{
-      function parse(s){
-        s=String(s).trim();
-        const letters=(s.match(/^[A-Za-z]+/)||[''])[0].toUpperCase();
-        const nums=(s.match(/\d+/g)||[]).map(Number);
-        return {letters,nums};
-      }
-      const pa=parse(a.block), pb=parse(b.block);
-      if(pa.letters<pb.letters) return -1; if(pa.letters>pb.letters) return 1;
-      const len=Math.max(pa.nums.length,pb.nums.length);
-      for(let i=0;i<len;i++){
-        const na=pa.nums[i]||0, nb=pb.nums[i]||0;
-        if(na!==nb) return na-nb;
-      }
-      return 0;
-    });
-    const now=new Date();
-    function parseTime(t){
-      if(!t) return null;
-      const m=t.match(/(\d+):(\d+)\s*(AM|PM)/i);
-      if(!m) return null;
-      let [_,hh,mm,ap]=m; hh=parseInt(hh,10); mm=parseInt(mm,10); ap=ap.toUpperCase();
-      if(ap==='PM' && hh<12) hh+=12; if(ap==='AM' && hh===12) hh=0;
-      const d=new Date(); d.setHours(hh,mm,0,0); return d;
-    }
-    for(const e of listEntries){
-      e.active=e.segments.some(seg=>{
-        const start=parseTime(seg.start), end=parseTime(seg.end);
-        return start && end && now>=start && now<=end;
-      });
-    }
-    const futureEntries=listEntries.filter(e=>!e.active && e.bus!=='—');
-    const tmp=new Map();
-    for(const e of busBlocks){
-      for(const seg of e.segments){
-        const start=parseTime(seg.start), end=parseTime(seg.end);
-        if(!start||!end) continue;
-        const s=new Date(start.getTime()-30*60000);
-        const f=new Date(end.getTime()+30*60000);
-        if(now>=s && now<=f){
-          const prev=tmp.get(e.bus);
-          if(!prev || prev.start<start){ tmp.set(e.bus,{block:e.block,start}); }
-        }
-      }
-    }
-    blockByBus=new Map(Array.from(tmp.entries()).map(([bus,val])=>[bus,val.block]));
-    const cols=4;
-    function renderTable(list,useColors){
-      const rows=Math.ceil(list.length/cols);
-      let html='';
-      for(let r=0;r<rows;r++){
-        html+='<tr>';
-        for(let c=0;c<cols;c++){
-          const it=list[r+c*rows];
-          html+=it
-            ? `<td><div class="cell" style="--route-color:${useColors&&it.color?it.color:'transparent'};--text-color:${useColors&&it.color?it.textColor:contrastColor(null)}"><div class="mono">${it.block}</div><div>${it.bus}</div></div></td>`
-            : '<td></td>';
-        }
-        html+='</tr>';
-      }
-      if(!list.length) html='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
-      return html;
-    }
-    if(futureBody){
-      futureBody.innerHTML=renderTable(futureEntries,false);
-    }
-    updateExtraBuses();
 
     const gridEntries=[];
     for(const group of groups){
@@ -2659,12 +2553,16 @@ async function loadBlocks(){
         gridEntries.push(entry);
       }
     }
+    const now=new Date();
     const nowMinutes=now.getHours()*60+now.getMinutes();
+    const {allAssignments,activeAssignments}=collectBusAssignments(gridEntries,nowMinutes);
+    allBlockByBus=allAssignments;
+    blockByBus=activeAssignments;
+    updateExtraBuses();
     updateBlockGrid(gridEntries,nowMinutes,{busColorMap});
   }catch(e){
     console.error('Failed to load block assignments',e);
     clearBlockGrid({message:'Error loading blocks.'});
-    if(futureBody) futureBody.innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>';
     blockByBus=new Map();
     allBlockByBus=new Map();
     updateExtraBuses();
