@@ -1770,21 +1770,42 @@ async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
         return csv_text, fetch_ts, None
 
 
+def _normalize_plain_block_name(text: str) -> Optional[str]:
+    normalized = re.sub(r"\s+", " ", text.strip())
+    if not normalized:
+        return None
+    lowered = normalized.lower()
+    if lowered.startswith("block "):
+        normalized = normalized[6:]
+        normalized = re.sub(r"\s+", " ", normalized.strip())
+        if not normalized:
+            return None
+    # If this is purely numeric, zero-pad to match block formatting.
+    if normalized.isdigit():
+        return str(int(normalized)).zfill(2)
+    return normalized
+
+
 def _extract_block_from_position_name(value: Any) -> Tuple[Optional[str], str]:
     if value is None:
         return None, ""
-    match = W2W_POSITION_RE.search(str(value))
-    if not match:
+    text = str(value)
+    match = W2W_POSITION_RE.search(text)
+    if match:
+        number = match.group(1)
+        period = (match.group(2) or "").strip().lower()
+        try:
+            block_number = str(int(number)).zfill(2)
+        except (TypeError, ValueError):
+            return None, ""
+        if period not in {"am", "pm"}:
+            period = ""
+        return block_number, period
+
+    normalized = _normalize_plain_block_name(text)
+    if not normalized:
         return None, ""
-    number = match.group(1)
-    period = (match.group(2) or "").strip().lower()
-    try:
-        block_number = str(int(number)).zfill(2)
-    except (TypeError, ValueError):
-        return None, ""
-    if period not in {"am", "pm"}:
-        period = ""
-    return block_number, period
+    return normalized, "any"
 
 
 def _parse_w2w_time_components(value: Any) -> Optional[Tuple[int, int, int]]:
@@ -1905,7 +1926,9 @@ def _build_driver_assignments(
         if end_dt <= now:
             continue
         period = explicit_period or ("am" if start_dt.hour < 12 else "pm")
-        if block_number not in AM_PM_BLOCKS:
+        if period == "any":
+            pass
+        elif block_number not in AM_PM_BLOCKS:
             period = "any"
         elif period not in {"am", "pm"}:
             period = "any"
