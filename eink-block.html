@@ -321,11 +321,19 @@
   const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>createEmptyCell());
 
   function equalizeGridColumnWidths(){
-    if(!isGridMode) return;
+    if(!isGridMode){
+      return;
+    }
     const gridTable=gridView.querySelector('.grid-table');
-    if(!gridTable) return;
+    if(!gridTable){
+      gridView.style.removeProperty('width');
+      return;
+    }
     const columnCount=Array.isArray(layout)?layout.length:0;
-    if(!columnCount) return;
+    if(!columnCount){
+      gridView.style.removeProperty('width');
+      return;
+    }
     const previousWidth=gridTable.style.getPropertyValue('--grid-column-width');
     gridTable.style.setProperty('--grid-column-width','max-content');
     gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
@@ -352,6 +360,24 @@
         gridTable.style.removeProperty('--grid-column-width');
       }
       gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width,1fr))`;
+    }
+    syncGridViewWidth();
+  }
+
+  function syncGridViewWidth(){
+    if(!isGridMode){
+      return;
+    }
+    const gridTable=gridView.querySelector('.grid-table');
+    if(!gridTable){
+      gridView.style.removeProperty('width');
+      return;
+    }
+    const width=Math.ceil(gridTable.getBoundingClientRect().width);
+    if(width>0){
+      gridView.style.width=`${width}px`;
+    }else{
+      gridView.style.removeProperty('width');
     }
   }
 
