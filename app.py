@@ -1913,6 +1913,10 @@ def _build_driver_assignments(
         bucket = entry.setdefault(period, [])
         start_ts = int(start_dt.timestamp() * 1000)
         end_ts = int(end_dt.timestamp() * 1000)
+        color_id_raw = shift.get("COLOR_ID")
+        color_id = str(color_id_raw).strip() if color_id_raw is not None else None
+        if color_id == "":
+            color_id = None
         bucket.append(
             {
                 "name": name,
@@ -1920,6 +1924,7 @@ def _build_driver_assignments(
                 "end_ts": end_ts,
                 "start_label": _format_driver_time(start_dt),
                 "end_label": _format_driver_time(end_dt),
+                "color_id": color_id,
             }
         )
     for entry in assignments.values():
