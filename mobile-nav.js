@@ -193,7 +193,7 @@
   const nav = document.createElement('nav');
   nav.id = NAV_ID;
   nav.className = 'hg-mobile-nav';
-  nav.setAttribute('aria-label', 'Headway Guard navigation');
+  nav.setAttribute('aria-label', 'UTS Operations Dashboard navigation');
 
   const inner = document.createElement('div');
   inner.className = 'hg-mobile-nav__inner';

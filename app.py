@@ -1,5 +1,5 @@
 """
-Headway Guard Service — Dispatcher API (FastAPI skeleton)
+UTS Operations Dashboard Service — Dispatcher API (FastAPI skeleton)
 
 Purpose
 =======
@@ -814,7 +814,7 @@ class VehicleView:
 # ---------------------------
 # App & state
 # ---------------------------
-app = FastAPI(title="Headway Guard")
+app = FastAPI(title="UTS Operations Dashboard")
 
 BASE_DIR = Path(__file__).resolve().parent
 DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
