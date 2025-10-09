@@ -77,6 +77,25 @@
     letter-spacing:0.06em;
     text-transform:uppercase;
   }
+  #driver-info{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:12px;
+    letter-spacing:0.02em;
+    text-transform:none;
+    text-align:center;
+    line-height:1.2;
+    display:none;
+    gap:2px;
+    margin-top:2px;
+  }
+  #driver-info .driver-line{
+    white-space:nowrap;
+  }
+  body.show-drivers #driver-info{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
   #grid-view{
     width:520px;
     max-width:100%;
@@ -149,7 +168,7 @@
     align-items:center;
     justify-content:center;
     min-height:40px;
-    gap:6px;
+    gap:4px;
   }
   #grid-view .cell.editable{
     cursor:pointer;
@@ -182,11 +201,29 @@
   #grid-view .cell .bus{
     font-size:18px;
   }
+  #grid-view .cell .drivers{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:11px;
+    letter-spacing:0.01em;
+    text-transform:none;
+    line-height:1.2;
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+  }
+  #grid-view .cell .drivers .driver-line{
+    white-space:nowrap;
+  }
+  body.show-drivers #grid-view .cell .drivers{
+    display:flex;
+  }
 </style>
 <main>
   <div id="block-view">
     <div id="block-number" hidden>Block --</div>
     <div id="bus">--</div>
+    <div id="driver-info" hidden></div>
     <div id="status"></div>
   </div>
   <div id="grid-view" hidden>
@@ -198,20 +235,32 @@
 (function(){
   const params=new URLSearchParams(location.search);
   const enableColors=params.get('colors')==='true';
+  const showDrivers=params.get('showDrivers')==='true';
   const editMode=params.get('edit')==='true';
   let block=params.get('block');
   const periodParam=(params.get('period')||'').trim().toLowerCase();
   const statusEl=document.getElementById('status');
   const busEl=document.getElementById('bus');
+  const driverInfoEl=document.getElementById('driver-info');
   const blockView=document.getElementById('block-view');
   const gridView=document.getElementById('grid-view');
   const blockNumberEl=document.getElementById('block-number');
   const isGridMode=!block;
+  if(showDrivers){
+    document.body.classList.add('show-drivers');
+  }else{
+    document.body.classList.remove('show-drivers');
+  }
   let blockPeriod='';
   let selectedBlockNumber='';
   let selectedBlockId='';
 
   const ROW_COUNT=9;
+  const REFRESH_INTERVAL_MS=60000;
+  let refreshTimer=null;
+  let refreshPromise=null;
+  let driverAssignmentsByBlock=Object.create(null);
+  let driverAssignmentsDisabled=false;
 
   const normalizeIdentifier=value=>String(value||'').replace(/[^0-9a-z]/gi,'').toUpperCase();
   const cleanBusIdentifier=value=>{
@@ -285,6 +334,126 @@
     }
     return result;
   };
+
+  function normalizeDriverAssignmentsPayload(payload){
+    const result=Object.create(null);
+    if(!payload || typeof payload!=='object') return result;
+    const assignments=payload.assignments_by_block || payload.assignmentsByBlock;
+    if(!assignments || typeof assignments!=='object') return result;
+    for(const [blockKey, periods] of Object.entries(assignments)){
+      if(!periods || typeof periods!=='object') continue;
+      const blockMap=Object.create(null);
+      for(const [periodKey, drivers] of Object.entries(periods)){
+        if(!Array.isArray(drivers) || !drivers.length) continue;
+        const normalizedDrivers=[];
+        for(const driver of drivers){
+          if(!driver || typeof driver!=='object') continue;
+          const rawName=typeof driver.name==='string'?driver.name.trim():'';
+          if(!rawName) continue;
+          const startLabel=typeof driver.start_label==='string'?driver.start_label.trim():
+            (typeof driver.startLabel==='string'?driver.startLabel.trim():'');
+          const endLabel=typeof driver.end_label==='string'?driver.end_label.trim():
+            (typeof driver.endLabel==='string'?driver.endLabel.trim():'');
+          let startTs=null;
+          const rawStartTs=('start_ts' in driver)?driver.start_ts:driver.startTs;
+          if(typeof rawStartTs==='number' && Number.isFinite(rawStartTs)){
+            startTs=rawStartTs;
+          }else if(typeof rawStartTs==='string'){
+            const trimmed=rawStartTs.trim();
+            if(trimmed){
+              const parsed=Number(trimmed);
+              if(Number.isFinite(parsed)) startTs=parsed;
+            }
+          }
+          let endTs=null;
+          const rawEndTs=('end_ts' in driver)?driver.end_ts:driver.endTs;
+          if(typeof rawEndTs==='number' && Number.isFinite(rawEndTs)){
+            endTs=rawEndTs;
+          }else if(typeof rawEndTs==='string'){
+            const trimmed=rawEndTs.trim();
+            if(trimmed){
+              const parsed=Number(trimmed);
+              if(Number.isFinite(parsed)) endTs=parsed;
+            }
+          }
+          normalizedDrivers.push({
+            name:rawName,
+            startLabel:startLabel,
+            endLabel:endLabel,
+            startTs:startTs,
+            endTs:endTs
+          });
+        }
+        if(!normalizedDrivers.length) continue;
+        normalizedDrivers.sort((a,b)=>{
+          const aKey=a.startTs!=null?a.startTs:(a.endTs!=null?a.endTs:0);
+          const bKey=b.startTs!=null?b.startTs:(b.endTs!=null?b.endTs:0);
+          return aKey-bKey;
+        });
+        const periodKeyString=String(periodKey||'').toLowerCase();
+        blockMap[periodKeyString]=normalizedDrivers;
+      }
+      if(Object.keys(blockMap).length){
+        result[String(blockKey)]=blockMap;
+      }
+    }
+    return result;
+  }
+
+  function selectDriversForBlock(blockNumber,periodSuffix){
+    if(!blockNumber) return [];
+    const normalizedBlock=String(blockNumber).padStart(2,'0');
+    const entry=driverAssignmentsByBlock[normalizedBlock]
+      || driverAssignmentsByBlock[String(blockNumber)]
+      || null;
+    if(!entry || typeof entry!=='object') return [];
+    const normalizedPeriod=String(periodSuffix||'').toLowerCase();
+    if(normalizedPeriod){
+      const specific=entry[normalizedPeriod];
+      if(Array.isArray(specific) && specific.length) return specific;
+    }
+    const fallbackKeys=['any',''];
+    for(const key of fallbackKeys){
+      const list=entry[key];
+      if(Array.isArray(list) && list.length) return list;
+    }
+    if(!normalizedPeriod){
+      for(const key of Object.keys(entry)){
+        const list=entry[key];
+        if(Array.isArray(list) && list.length) return list;
+      }
+    }
+    return [];
+  }
+
+  function renderDriverLines(container,drivers){
+    if(!container) return;
+    if(!showDrivers || driverAssignmentsDisabled){
+      container.innerHTML='';
+      container.hidden=true;
+      return;
+    }
+    const items=Array.isArray(drivers)?drivers.filter(item=>item && item.name):[];
+    if(!items.length){
+      container.innerHTML='';
+      container.hidden=true;
+      return;
+    }
+    container.innerHTML='';
+    for(let i=0;i<items.length;i++){
+      const driver=items[i];
+      const line=document.createElement('div');
+      line.className='driver-line';
+      const primaryLabel=i===0?driver.endLabel:driver.startLabel;
+      const secondaryLabel=i===0?driver.startLabel:driver.endLabel;
+      const label=typeof primaryLabel==='string' && primaryLabel.trim()
+        ? primaryLabel.trim()
+        : (typeof secondaryLabel==='string'?secondaryLabel.trim():'');
+      line.textContent=label?`${driver.name} ${label}`:driver.name;
+      container.appendChild(line);
+    }
+    container.hidden=false;
+  }
 
   function getGridStatusEl(){
     if(!isGridMode || !editMode) return null;
@@ -420,7 +589,7 @@
       if(data && Array.isArray(data.layout) && data.layout.length){
         const applied=setLayoutFromData(data.layout,{persist:true,rebuild:isGridMode});
         if(applied && isGridMode){
-          refresh();
+          triggerRefresh();
         }
         if(announce && applied){
           setGridStatus('Loaded saved layout',{temporary:true});
@@ -548,13 +717,13 @@
           const periodSuffix=blockMatch && blockMatch[2]?blockMatch[2].toUpperCase():'';
           const defaultLabel=blockMatch? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
           const displayLabel=displayOverride||defaultLabel;
-          cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div>`;
+          cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div><div class="drivers" hidden></div>`;
           applyCellColors(cell);
         }else if(editMode){
           delete cell.dataset.block;
           delete cell.dataset.period;
           delete cell.dataset.customBlockId;
-          cell.innerHTML='<div class="block-label">Empty</div><div class="bus">—</div>';
+          cell.innerHTML='<div class="block-label">Empty</div><div class="bus">—</div><div class="drivers" hidden></div>';
         }
         gridTable.appendChild(cell);
       }
@@ -567,6 +736,7 @@
     blockView.hidden=true;
     gridView.hidden=false;
     if(blockNumberEl) blockNumberEl.hidden=true;
+    if(driverInfoEl) renderDriverLines(driverInfoEl,[]);
     const controls=gridView.querySelector('.grid-controls');
     if(editMode){
       if(!controls){
@@ -1051,15 +1221,49 @@
       if(busEl){
         busEl.textContent=bus||'—';
       }
+      const driverContainer=cell.querySelector('.drivers');
+      if(driverContainer){
+        let driverBlock=blockNumber;
+        let driverPeriod=periodSuffix;
+        if(!driverBlock && customId){
+          const blockMatch=customId.match(/^(\d{2})/);
+          if(blockMatch){
+            driverBlock=blockMatch[1];
+          }
+          if(!driverPeriod){
+            const periodMatch=customId.match(/(AM|PM)$/);
+            if(periodMatch){
+              driverPeriod=periodMatch[1].toLowerCase();
+            }
+          }
+        }
+        const driverList=selectDriversForBlock(driverBlock,driverPeriod);
+        renderDriverLines(driverContainer,driverList);
+      }
     }
   }
 
   async function refresh(){
     try{
       statusEl.textContent='';
-      const res=await fetch('/v1/dispatch/blocks');
-      if(!res.ok) throw new Error(res.status+'');
-      const data=await res.json();
+      const [blockRes,driverRes]=await Promise.all([
+        fetch('/v1/dispatch/blocks'),
+        showDrivers?fetch('/v1/dispatch/block-drivers', {cache:'no-store'}):Promise.resolve(null)
+      ]);
+      if(!blockRes.ok) throw new Error(blockRes.status+'');
+      const data=await blockRes.json();
+      if(showDrivers && driverRes){
+        if(driverRes.ok){
+          const driverData=await driverRes.json();
+          driverAssignmentsDisabled=!!(driverData && driverData.disabled);
+          driverAssignmentsByBlock=driverAssignmentsDisabled?Object.create(null):normalizeDriverAssignmentsPayload(driverData);
+        }else{
+          console.warn('Failed to fetch driver assignments',driverRes.status);
+        }
+      }else if(!showDrivers){
+        driverAssignmentsByBlock=Object.create(null);
+        driverAssignmentsDisabled=false;
+      }
       const groups=Array.isArray(data.block_groups)?data.block_groups:[];
       const entries=[];
       for(const group of groups){
@@ -1080,14 +1284,42 @@
         const bus=findBestBus(selectedBlockNumber||'',periodSuffix,selectedBlockId,entries,nowMinutes);
         busEl.textContent=bus||'—';
         statusEl.textContent='';
+        const driverList=selectDriversForBlock(selectedBlockNumber||'',periodSuffix);
+        renderDriverLines(driverInfoEl,driverList);
       }
     }catch(err){
       console.error(err);
       statusEl.textContent='Offline';
       if(!isGridMode){
         busEl.textContent='--';
+        renderDriverLines(driverInfoEl,[]);
       }
     }
+  }
+
+  function performRefresh(){
+    if(refreshPromise) return refreshPromise;
+    refreshPromise=refresh().finally(()=>{
+      refreshPromise=null;
+    });
+    return refreshPromise;
+  }
+
+  function scheduleNextRefresh(){
+    if(refreshTimer){
+      clearTimeout(refreshTimer);
+      refreshTimer=null;
+    }
+    if(document.hidden) return;
+    refreshTimer=setTimeout(()=>{
+      triggerRefresh();
+    },REFRESH_INTERVAL_MS);
+  }
+
+  function triggerRefresh(){
+    return performRefresh().finally(()=>{
+      scheduleNextRefresh();
+    });
   }
 
   if(editMode && isGridMode){
@@ -1099,7 +1331,7 @@
         layout.push(createBlankColumn());
         saveLayout();
         buildGrid();
-        refresh();
+        triggerRefresh();
         return;
       }
       const removeButton=event.target.closest('#remove-column');
@@ -1121,7 +1353,7 @@
         layout.splice(index,1);
         saveLayout();
         buildGrid();
-        refresh();
+        triggerRefresh();
         return;
       }
       const resetButton=event.target.closest('#reset-layout');
@@ -1130,7 +1362,7 @@
         event.stopPropagation();
         if(confirm('Reset layout to defaults?')){
           resetLayout();
-          refresh();
+          triggerRefresh();
         }
         return;
       }
@@ -1157,7 +1389,7 @@
       }
       saveLayout();
       buildGrid();
-      refresh();
+      triggerRefresh();
     });
   }else if(isGridMode){
     const controls=gridView.querySelector('.grid-controls');
@@ -1165,7 +1397,22 @@
   }
 
   fetchLayoutFromServer({announce:editMode&&isGridMode}).catch(()=>{});
-  refresh();
-  setInterval(refresh, 30000);
+
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){
+      if(refreshTimer){
+        clearTimeout(refreshTimer);
+        refreshTimer=null;
+      }
+    }else{
+      triggerRefresh();
+    }
+  });
+
+  if(document.hidden){
+    scheduleNextRefresh();
+  }else{
+    triggerRefresh();
+  }
 })();
 </script>
