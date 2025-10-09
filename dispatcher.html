@@ -20,6 +20,23 @@ th,td{border-bottom:1px solid #1f2630;padding:8px 10px;text-align:left}
 #blocks-table,#future-blocks-table{width:auto;table-layout:fixed}
 #blocks td,#future-blocks td{border:none;padding:2px 4px;text-align:center;width:12ch}
 #blocks td .cell,#future-blocks td .cell{border-radius:4px;background:var(--route-color,transparent);color:var(--text-color,#e8eef5);display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%;min-height:2.6em;max-height:2.6em;padding:2px 0;line-height:1.15}
+.blocks-grid{display:flex;flex-direction:column;gap:8px}
+.blocks-grid-status{font-size:14px;color:#9fb0c9}
+.blocks-grid-status[hidden]{display:none}
+.blocks-grid-table{--grid-columns:4;display:grid;grid-template-columns:repeat(var(--grid-columns),minmax(0,1fr));gap:6px}
+.blocks-grid .cell{background:var(--cell-bg,#10151c);border:1px solid var(--cell-border,#1f2630);border-radius:10px;padding:10px;min-height:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;transition:background-color .2s ease,border-color .2s ease,color .2s ease}
+.blocks-grid .cell[data-empty="true"]{background:#0f141c;border-color:#1b232d;color:#6f7d92}
+.blocks-grid .cell .block-label{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--label-color,#9fb0c9)}
+.blocks-grid .cell .bus{font-size:24px;font-weight:600;letter-spacing:.08em;color:var(--cell-text,#e8eef5)}
+.blocks-grid .cell .drivers{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.2;color:var(--driver-color,#cfe1ff)}
+.blocks-grid .cell .drivers[hidden]{display:none}
+#blocks-grid[hidden]{display:none}
+#blocks-grid .hint{margin:0}
+#blocks-grid .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
+#blocks-grid .cell .mono{font-size:12px;letter-spacing:.08em}
+#blocks-grid .cell .mono+.drivers{margin-top:2px}
+#blocks-grid .cell .drivers .driver-line{white-space:nowrap}
+#blocks-grid .cell .status{font-size:12px;color:#9fb0c9}
 #extra-buses{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(10ch,1fr));gap:4px}
 .panel-body{position:relative}
 #extra-buses li{background:#10151c;border:1px solid #2a3442;border-radius:4px;padding:4px 6px;text-align:center;line-height:1.15;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:calc(1.2em + 8px)}
@@ -55,6 +72,10 @@ body.kiosk-mode #layout aside .panel .panel-body ul{flex:1;overflow:auto;margin:
 body.kiosk-mode #blocks-table,body.kiosk-mode #future-blocks-table,body.kiosk-mode #downed-table{width:100%;table-layout:fixed}
 body.kiosk-mode #blocks td,body.kiosk-mode #future-blocks td{width:clamp(11ch,25%,14ch)}
 body.kiosk-mode #blocks td .cell,body.kiosk-mode #future-blocks td .cell{min-height:var(--kiosk-block-height);max-height:var(--kiosk-block-height);padding:var(--kiosk-entry-padding) 0;gap:2px}
+body.kiosk-mode #blocks-grid .blocks-grid-table{gap:10px}
+body.kiosk-mode #blocks-grid .cell{min-height:var(--kiosk-block-height);padding:var(--kiosk-entry-padding) 10px}
+body.kiosk-mode #blocks-grid .cell .bus{font-size:20px}
+body.kiosk-mode #blocks-grid .cell .drivers{font-size:11px}
 body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fill,minmax(11ch,1fr));grid-auto-rows:auto;gap:6px}
 body.kiosk-mode #extra-buses li{display:flex;align-items:center;justify-content:center;min-height:calc(1.2em + 2*var(--kiosk-entry-padding));padding:var(--kiosk-entry-padding) calc(var(--kiosk-entry-padding)*1.5)}
 body.kiosk-mode #downed-table th,body.kiosk-mode #downed-table td{width:50%}
@@ -283,9 +304,10 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
     <section class="panel">
       <h2>Current Block Assignments</h2>
       <div class="panel-body">
-        <table id="blocks-table">
-          <tbody id="blocks"><tr><td class="hint">Loading…</td></tr></tbody>
-        </table>
+        <div id="blocks-grid" class="blocks-grid">
+          <div class="blocks-grid-status hint">Loading…</div>
+          <div class="blocks-grid-table" hidden></div>
+        </div>
       </div>
     </section>
     <section class="panel">
@@ -359,6 +381,1004 @@ if (KIOSK_MODE) {
     downedTable.querySelectorAll('tbody td[colspan]').forEach(cell => {
       cell.colSpan = DOWNED_TABLE_COLSPAN;
     });
+  }
+}
+
+const blocksGridEl = document.getElementById('blocks-grid');
+const blocksGridTable = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-table') : null;
+const blocksGridStatus = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-status') : null;
+
+const BLOCK_GRID_ROW_COUNT = 9;
+const BLOCK_GRID_LAYOUT_ENDPOINT = '/api/eink-block/layout';
+const BLOCK_GRID_DEFAULT_LAYOUT_DATA = [
+  ['01','02','03','04','05','06','07','08','09'],
+  ['10','11','12','13','14','15','16AM','17','18AM'],
+  ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
+  ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
+];
+
+let blockGridLayout = [];
+let blockGridInitialized = false;
+let blockGridLayoutPromise = null;
+
+const DRIVER_DISPLAY_ENABLED = true;
+let driverAssignmentsByBlock = Object.create(null);
+let driverAssignmentsDisabled = false;
+
+const AM_PM_BLOCKS = new Set(['20','21','22','23','24','25','26']);
+const DAY_IN_MS = 24*60*60*1000;
+const MINUTES_PER_DAY = 1440;
+const NOON_MINUTES = 12*60;
+
+function setBlocksGridMessage(message){
+  if(!blocksGridStatus || !blocksGridTable) return;
+  if(message){
+    blocksGridStatus.textContent = message;
+    blocksGridStatus.hidden = false;
+    blocksGridTable.hidden = true;
+  }else{
+    blocksGridStatus.hidden = true;
+    blocksGridTable.hidden = false;
+  }
+}
+
+function createEmptyCell(){
+  return {value:'',display:''};
+}
+
+function toCellString(value){
+  if(typeof value==='string') return value;
+  if(value==null) return '';
+  return String(value);
+}
+
+function normalizeCellValue(value){
+  if(value && typeof value==='object'){
+    const cell=createEmptyCell();
+    if('value' in value){
+      cell.value=toCellString(value.value);
+    }else if('label' in value){
+      cell.value=toCellString(value.label);
+    }else if('block' in value){
+      cell.value=toCellString(value.block);
+    }
+    if('display' in value){
+      cell.display=toCellString(value.display);
+    }else if('text' in value){
+      cell.display=toCellString(value.text);
+    }
+    return cell;
+  }
+  const cell=createEmptyCell();
+  cell.value=toCellString(value);
+  return cell;
+}
+
+function normalizeColumn(column,fallback){
+  const result=Array.from({length:BLOCK_GRID_ROW_COUNT},()=>createEmptyCell());
+  const source=Array.isArray(column)?column:[];
+  const fallbackSource=Array.isArray(fallback)?fallback:[];
+  for(let i=0;i<BLOCK_GRID_ROW_COUNT;i++){
+    const value=source[i];
+    if(value!=null){
+      result[i]=normalizeCellValue(value);
+    }else{
+      const fallbackValue=fallbackSource[i];
+      if(fallbackValue!=null){
+        result[i]=normalizeCellValue(fallbackValue);
+      }
+    }
+  }
+  return result;
+}
+
+function normalizeLayout(layoutData){
+  const layoutArray=Array.isArray(layoutData)?layoutData:[];
+  if(!layoutArray.length){
+    return BLOCK_GRID_DEFAULT_LAYOUT_DATA.map(col=>normalizeColumn(col));
+  }
+  return layoutArray.map((col,index)=>normalizeColumn(col,BLOCK_GRID_DEFAULT_LAYOUT_DATA[index]));
+}
+
+async function fetchBlockGridLayout(){
+  try{
+    const res=await fetch(BLOCK_GRID_LAYOUT_ENDPOINT,{cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    if(data && Array.isArray(data.layout) && data.layout.length){
+      return data.layout;
+    }
+  }catch(err){
+    console.warn('Failed to load block grid layout',err);
+  }
+  return BLOCK_GRID_DEFAULT_LAYOUT_DATA;
+}
+
+async function ensureBlockGridReady(){
+  if(blockGridInitialized) return true;
+  if(!blocksGridTable) return false;
+  if(!blockGridLayoutPromise){
+    blockGridLayoutPromise=fetchBlockGridLayout();
+  }
+  const layoutData=await blockGridLayoutPromise;
+  blockGridLayout=normalizeLayout(layoutData);
+  buildBlockGrid();
+  blockGridInitialized=true;
+  return true;
+}
+
+function buildBlockGrid(){
+  if(!blocksGridTable) return;
+  blocksGridTable.innerHTML='';
+  if(!Array.isArray(blockGridLayout) || !blockGridLayout.length){
+    setBlocksGridMessage('Layout unavailable.');
+    return;
+  }
+  const columnCount=blockGridLayout.length;
+  blocksGridTable.style.setProperty('--grid-columns',String(columnCount));
+  for(let row=0;row<BLOCK_GRID_ROW_COUNT;row++){
+    for(let col=0;col<columnCount;col++){
+      const column=blockGridLayout[col]||[];
+      const cellData=normalizeCellValue(column[row]);
+      const cell=document.createElement('div');
+      cell.className='cell';
+      cell.dataset.col=String(col);
+      cell.dataset.row=String(row);
+      const trimmedLabel=(cellData.value||'').trim();
+      const displayOverride=(cellData.display||'').trim();
+      if(trimmedLabel){
+        const normalizedLabel=normalizeIdentifier(trimmedLabel);
+        const match=normalizedLabel.match(/^(\d{2})(AM|PM)?$/);
+        let blockMatch=match||null;
+        if(!blockMatch){
+          const bracketMatch=trimmedLabel.match(/^\[(\d{2})(AM|PM)?\]$/i) || trimmedLabel.match(/\[(\d{2})(AM|PM)?\]/i);
+          if(bracketMatch){
+            blockMatch=[bracketMatch[0],bracketMatch[1],bracketMatch[2]];
+          }
+        }
+        if(blockMatch){
+          cell.dataset.block=blockMatch[1];
+          const periodValue=(blockMatch[2]||'').toLowerCase();
+          if(periodValue){
+            cell.dataset.period=periodValue;
+          }else{
+            delete cell.dataset.period;
+          }
+        }else{
+          delete cell.dataset.block;
+          delete cell.dataset.period;
+        }
+        if(normalizedLabel){
+          cell.dataset.customBlockId=normalizedLabel;
+        }else{
+          delete cell.dataset.customBlockId;
+        }
+        const blockNumber=blockMatch?blockMatch[1]:trimmedLabel;
+        const periodSuffix=blockMatch && blockMatch[2]?blockMatch[2].toUpperCase():'';
+        const defaultLabel=blockMatch?(periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`):trimmedLabel;
+        const displayLabel=displayOverride||defaultLabel;
+        cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus mono">—</div><div class="drivers" hidden></div>`;
+      }else{
+        cell.dataset.empty='true';
+        cell.innerHTML='<div class="block-label">&nbsp;</div><div class="bus mono">—</div><div class="drivers" hidden></div>';
+      }
+      blocksGridTable.appendChild(cell);
+    }
+  }
+}
+
+function clearBlockGrid({message}={}){
+  if(!blocksGridTable) return;
+  const cells=blocksGridTable.querySelectorAll('.cell');
+  cells.forEach(cell=>{
+    const busEl=cell.querySelector('.bus');
+    if(busEl) busEl.textContent='—';
+    const driverContainer=cell.querySelector('.drivers');
+    if(driverContainer){
+      driverContainer.innerHTML='';
+      driverContainer.hidden=true;
+    }
+    cell.style.removeProperty('--cell-bg');
+    cell.style.removeProperty('--cell-border');
+    cell.style.removeProperty('--cell-text');
+    cell.style.removeProperty('--label-color');
+    cell.style.removeProperty('--driver-color');
+  });
+  if(message){
+    setBlocksGridMessage(message);
+  }
+}
+
+function normalizeIdentifier(value){
+  return String(value||'').replace(/[^0-9a-z]/gi,'').toUpperCase();
+}
+
+function cleanBusIdentifier(value){
+  if(value==null) return '';
+  const text=String(value).trim();
+  if(!text) return '';
+  if(text==='—') return '';
+  if(/^0+$/.test(text)) return '';
+  return text;
+}
+
+function supportsAmPmBlock(blockNumber){
+  return AM_PM_BLOCKS.has(String(blockNumber||'').padStart(2,'0'));
+}
+
+function formatDriverTimeParts(hourStr,minuteStr,meridiem){
+  let hour=Number(hourStr);
+  if(!Number.isFinite(hour)) return hourStr;
+  let minutes=Number(minuteStr);
+  if(!Number.isFinite(minutes)) minutes=0;
+  if(meridiem){
+    const marker=String(meridiem).toLowerCase();
+    if(marker.startsWith('p') && hour<12){
+      hour+=12;
+    }else if(marker.startsWith('a') && hour===12){
+      hour=0;
+    }
+  }
+  hour=(hour%24+24)%24;
+  const hourOut=String(hour).padStart(2,'0');
+  const minuteOut=String(Math.max(0,Math.min(59,Math.trunc(minutes)))).padStart(2,'0');
+  return `${hourOut}:${minuteOut}`;
+}
+
+function formatDriverTimeLabel(label,timestamp){
+  const raw=typeof label==='string'?label:'';
+  const trimmed=raw.trim();
+  if(trimmed){
+    const replaced=trimmed.replace(/\b(\d{1,2})(?::([0-5]\d))?\s*([AaPp])(?:[Mm]\.?|\.?)?\b/g,
+      (match,hour,minute,meridiem)=>formatDriverTimeParts(hour,minute,meridiem));
+    if(replaced!==trimmed){
+      return replaced;
+    }
+    const simpleMatch=trimmed.match(/^\s*(\d{1,2})(?::([0-5]\d))?\s*$/);
+    if(simpleMatch){
+      return formatDriverTimeParts(simpleMatch[1],simpleMatch[2],null);
+    }
+    return trimmed;
+  }
+  if(timestamp!=null){
+    let numericTs=Number(timestamp);
+    if(Number.isFinite(numericTs)){
+      if(Math.abs(numericTs)<1e12){
+        numericTs*=1000;
+      }
+      const date=new Date(numericTs);
+      if(!Number.isNaN(date.getTime())){
+        return `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+      }
+    }
+  }
+  return trimmed;
+}
+
+function normalizeDriverAssignmentsPayload(payload){
+  const result=Object.create(null);
+  if(!payload || typeof payload!=='object') return result;
+  const assignments=payload.assignments_by_block || payload.assignmentsByBlock;
+  if(!assignments || typeof assignments!=='object') return result;
+  for(const [blockKey,periods] of Object.entries(assignments)){
+    if(!periods || typeof periods!=='object') continue;
+    const blockMap=Object.create(null);
+    for(const [periodKey,drivers] of Object.entries(periods)){
+      if(!Array.isArray(drivers) || !drivers.length) continue;
+      const normalizedDrivers=[];
+      for(const driver of drivers){
+        if(!driver || typeof driver!=='object') continue;
+        const rawName=typeof driver.name==='string'?driver.name.trim():'';
+        if(!rawName) continue;
+        const rawColorId=('COLOR_ID' in driver)?driver.COLOR_ID:(('color_id' in driver)?driver.color_id:(('colorId' in driver)?driver.colorId:null));
+        let colorId=null;
+        if(typeof rawColorId==='number' && Number.isFinite(rawColorId)){
+          colorId=String(Math.trunc(rawColorId));
+        }else if(typeof rawColorId==='string'){
+          const trimmedColorId=rawColorId.trim();
+          if(trimmedColorId){
+            const numericColor=Number(trimmedColorId);
+            colorId=Number.isFinite(numericColor)?String(Math.trunc(numericColor)):trimmedColorId;
+          }
+        }
+        if(colorId==='9') continue;
+        const startLabel=typeof driver.start_label==='string'?driver.start_label.trim():(typeof driver.startLabel==='string'?driver.startLabel.trim():'');
+        const endLabel=typeof driver.end_label==='string'?driver.end_label.trim():(typeof driver.endLabel==='string'?driver.endLabel.trim():'');
+        let startTs=null;
+        const rawStartTs=('start_ts' in driver)?driver.start_ts:driver.startTs;
+        if(typeof rawStartTs==='number' && Number.isFinite(rawStartTs)){
+          startTs=rawStartTs;
+        }else if(typeof rawStartTs==='string'){
+          const trimmed=rawStartTs.trim();
+          if(trimmed){
+            const parsed=Number(trimmed);
+            if(Number.isFinite(parsed)) startTs=parsed;
+          }
+        }
+        let endTs=null;
+        const rawEndTs=('end_ts' in driver)?driver.end_ts:driver.endTs;
+        if(typeof rawEndTs==='number' && Number.isFinite(rawEndTs)){
+          endTs=rawEndTs;
+        }else if(typeof rawEndTs==='string'){
+          const trimmed=rawEndTs.trim();
+          if(trimmed){
+            const parsed=Number(trimmed);
+            if(Number.isFinite(parsed)) endTs=parsed;
+          }
+        }
+        normalizedDrivers.push({
+          name:rawName,
+          startLabel:formatDriverTimeLabel(startLabel,startTs),
+          endLabel:formatDriverTimeLabel(endLabel,endTs),
+          startTs:startTs,
+          endTs:endTs,
+          colorId:colorId
+        });
+      }
+      if(!normalizedDrivers.length) continue;
+      normalizedDrivers.sort((a,b)=>{
+        const aKey=a.startTs!=null?a.startTs:(a.endTs!=null?a.endTs:0);
+        const bKey=b.startTs!=null?b.startTs:(b.endTs!=null?b.endTs:0);
+        return aKey-bKey;
+      });
+      const periodKeyString=String(periodKey||'').toLowerCase();
+      blockMap[periodKeyString]=normalizedDrivers;
+    }
+    if(Object.keys(blockMap).length){
+      result[String(blockKey)]=blockMap;
+    }
+  }
+  return result;
+}
+
+function selectDriversForBlock(blockNumber,periodSuffix){
+  if(!DRIVER_DISPLAY_ENABLED || driverAssignmentsDisabled) return [];
+  if(!blockNumber) return [];
+  const normalizedBlock=String(blockNumber).padStart(2,'0');
+  const normalizedPeriod=supportsAmPmBlock(normalizedBlock)?String(periodSuffix||'').toLowerCase():'';
+  const entry=driverAssignmentsByBlock[normalizedBlock] || driverAssignmentsByBlock[String(blockNumber)] || null;
+  if(!entry || typeof entry!=='object') return [];
+  if(normalizedPeriod){
+    const specific=entry[normalizedPeriod];
+    if(Array.isArray(specific) && specific.length) return specific;
+  }
+  const fallbackKeys=['any',''];
+  for(const key of fallbackKeys){
+    const list=entry[key];
+    if(Array.isArray(list) && list.length) return list;
+  }
+  if(!normalizedPeriod){
+    for(const key of Object.keys(entry)){
+      const list=entry[key];
+      if(Array.isArray(list) && list.length) return list;
+    }
+  }
+  return [];
+}
+
+function normalizeDriverTimestampToMs(value){
+  if(value==null) return null;
+  const numeric=Number(value);
+  if(!Number.isFinite(numeric)) return null;
+  if(Math.abs(numeric)<1e12){
+    return numeric*1000;
+  }
+  return numeric;
+}
+
+function isDriverActiveNow(driver,nowMs){
+  if(!driver) return false;
+  const startMs=normalizeDriverTimestampToMs(driver.startTs);
+  const endMs=normalizeDriverTimestampToMs(driver.endTs);
+  if(startMs==null && endMs==null){
+    return true;
+  }
+  let current=nowMs;
+  if(startMs!=null && endMs!=null){
+    let start=startMs;
+    let end=endMs;
+    if(end<start){
+      end+=DAY_IN_MS;
+      if(current<start){
+        current+=DAY_IN_MS;
+      }
+    }
+    return current>=start && current<=end;
+  }
+  if(startMs!=null){
+    return current>=startMs;
+  }
+  if(endMs!=null){
+    return current<=endMs;
+  }
+  return false;
+}
+
+function findNextDriver(drivers,nowMs){
+  let nextDriver=null;
+  let nextStartMs=null;
+  for(const driver of drivers){
+    const startMs=normalizeDriverTimestampToMs(driver.startTs);
+    if(startMs==null) continue;
+    if(startMs<nowMs) continue;
+    if(nextStartMs==null || startMs<nextStartMs){
+      nextDriver=driver;
+      nextStartMs=startMs;
+    }
+  }
+  return {driver:nextDriver,startMs:nextStartMs};
+}
+
+function getDriverStartLabel(driver){
+  if(!driver) return '';
+  const label=typeof driver.startLabel==='string'?driver.startLabel.trim():'';
+  if(label) return label;
+  return formatDriverTimeLabel('',driver.startTs);
+}
+
+function renderDriverLines(container,drivers){
+  if(!container) return;
+  if(!DRIVER_DISPLAY_ENABLED || driverAssignmentsDisabled){
+    container.innerHTML='';
+    container.hidden=true;
+    return;
+  }
+  const items=Array.isArray(drivers)?drivers.filter(item=>{
+    if(!item || !item.name) return false;
+    if(item.colorId!=null){
+      const normalizedColor=typeof item.colorId==='number'?String(Math.trunc(item.colorId)):(typeof item.colorId==='string'?item.colorId.trim():null);
+      if(normalizedColor==='9') return false;
+    }
+    return true;
+  }):[];
+  if(!items.length){
+    container.innerHTML='';
+    container.hidden=true;
+    return;
+  }
+  const nowMs=Date.now();
+  const hasActive=items.some(item=>isDriverActiveNow(item,nowMs));
+  if(!hasActive){
+    const {driver:nextDriver}=findNextDriver(items,nowMs);
+    if(nextDriver){
+      const lines=[];
+      const nextLabel=getDriverStartLabel(nextDriver);
+      lines.push(nextLabel ? `Next: ${nextDriver.name} @ ${nextLabel}` : `Next: ${nextDriver.name}`);
+      for(const driver of items){
+        if(driver===nextDriver) continue;
+        const startLabel=getDriverStartLabel(driver);
+        lines.push(startLabel ? `${driver.name} @ ${startLabel}` : driver.name);
+      }
+      container.innerHTML='';
+      for(const text of lines){
+        const line=document.createElement('div');
+        line.className='driver-line';
+        line.textContent=text;
+        container.appendChild(line);
+      }
+      container.hidden=false;
+      return;
+    }
+  }
+  container.innerHTML='';
+  const includeLabels=items.length>1;
+  for(let i=0;i<items.length;i++){
+    const driver=items[i];
+    const line=document.createElement('div');
+    line.className='driver-line';
+    if(includeLabels){
+      const endLabelRaw=typeof driver.endLabel==='string'?driver.endLabel.trim():'';
+      const startLabelRaw=typeof driver.startLabel==='string'?driver.startLabel.trim():'';
+      if(i===0){
+        const label=endLabelRaw || startLabelRaw;
+        line.textContent=label?`${driver.name} until ${label}`:driver.name;
+      }else{
+        const label=startLabelRaw || endLabelRaw;
+        line.textContent=label?`${driver.name} @ ${label}`:driver.name;
+      }
+    }else{
+      line.textContent=driver.name;
+    }
+    container.appendChild(line);
+  }
+  container.hidden=false;
+}
+
+function parseTimeToMinutes(str){
+  if(!str) return null;
+  const value=String(str).trim();
+  if(!value) return null;
+
+  let match=value.match(/^PT(?:(\d+)H)?(?:(\d+)M)?$/i);
+  if(match){
+    const hours=parseInt(match[1]||'0',10);
+    const minutes=parseInt(match[2]||'0',10);
+    return hours*60+minutes;
+  }
+
+  match=value.match(/^\/Date\((\d+)\)\/$/);
+  if(match){
+    const date=new Date(Number(match[1]));
+    if(!isNaN(date.getTime())){
+      return date.getHours()*60+date.getMinutes();
+    }
+  }
+
+  match=value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if(match){
+    let hours=parseInt(match[1],10)%12;
+    const minutes=parseInt(match[2],10);
+    if(match[3].toUpperCase()==='PM') hours+=12;
+    return hours*60+minutes;
+  }
+
+  match=value.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if(match){
+    const hours=parseInt(match[1],10);
+    const minutes=parseInt(match[2],10);
+    return hours*60+minutes;
+  }
+
+  return null;
+}
+
+function collectRanges(block){
+  const ranges=[];
+  const consider=(startStr,endStr)=>{
+    const start=parseTimeToMinutes(startStr);
+    const end=parseTimeToMinutes(endStr);
+    if(start==null && end==null) return;
+    ranges.push({start,end});
+  };
+
+  consider(block.BlockStartTime,block.BlockEndTime);
+  consider(block.TripStartTime,block.TripEndTime);
+
+  const trips=Array.isArray(block.Trips)?block.Trips:[];
+  for(const trip of trips){
+    consider(trip.BlockStartTime,trip.BlockEndTime);
+    consider(trip.TripStartTime,trip.TripEndTime);
+    consider(trip.StartTime,trip.EndTime);
+    consider(trip.StartTimeDate,trip.EndTimeDate);
+  }
+
+  return ranges;
+}
+
+function calculatePeriodMinutes(start,end){
+  let am=0;
+  let pm=0;
+  if(start==null || end==null) return {am,pm};
+
+  let rangeStart=start;
+  let rangeEnd=end;
+  if(rangeEnd<rangeStart) rangeEnd+=MINUTES_PER_DAY;
+
+  while(rangeStart<rangeEnd){
+    const dayStart=Math.floor(rangeStart/MINUTES_PER_DAY)*MINUTES_PER_DAY;
+    const dayEnd=dayStart+MINUTES_PER_DAY;
+    const segmentEnd=Math.min(rangeEnd,dayEnd);
+    const segStartOfDay=rangeStart-dayStart;
+    const segEndOfDay=segmentEnd-dayStart;
+
+    const amStart=Math.max(segStartOfDay,0);
+    const amEnd=Math.min(segEndOfDay,NOON_MINUTES);
+    if(amEnd>amStart) am+=amEnd-amStart;
+
+    const pmStart=Math.max(segStartOfDay,NOON_MINUTES);
+    const pmEnd=Math.min(segEndOfDay,MINUTES_PER_DAY);
+    if(pmEnd>pmStart) pm+=pmEnd-pmStart;
+
+    rangeStart=segmentEnd;
+  }
+
+  return {am,pm};
+}
+
+function buildBlockGridEntry(group){
+  const id=String(group.BlockGroupId||'').trim();
+  const blocks=Array.isArray(group.Blocks)?group.Blocks:[];
+  const blockNumbers=[];
+  const blockPeriods=Object.create(null);
+  const seenNumbers=new Set();
+  const matches=id.match(/\[(\d+)\]/g)||[];
+  for(const raw of matches){
+    const num=raw.replace(/[^0-9]/g,'');
+    if(!num) continue;
+    const parsed=parseInt(num,10);
+    if(Number.isNaN(parsed)) continue;
+    const normalized=String(parsed).padStart(2,'0');
+    if(!seenNumbers.has(normalized)){
+      seenNumbers.add(normalized);
+      blockNumbers.push(normalized);
+    }
+  }
+
+  const periodMatch=id.match(/\b(AM|PM)\b/i);
+  const periodLabel=periodMatch?periodMatch[1].toLowerCase():'';
+
+  if(periodLabel){
+    for(const num of blockNumbers){
+      if(supportsAmPmBlock(num)){
+        blockPeriods[num]=periodLabel;
+      }
+    }
+  }else if(blockNumbers.length===2){
+    const [first,second]=blockNumbers;
+    if(supportsAmPmBlock(first) && supportsAmPmBlock(second)){
+      blockPeriods[first]='am';
+      blockPeriods[second]='pm';
+    }
+  }
+
+  let bus='—';
+  for(const block of blocks){
+    const trips=Array.isArray(block.Trips)?block.Trips:[];
+    for(const trip of trips){
+      const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
+      if(tripBus){
+        bus=tripBus;
+        break;
+      }
+    }
+    if(bus!=='—') break;
+  }
+
+  let minStart=null;
+  let maxEnd=null;
+  let amMinutes=0;
+  let pmMinutes=0;
+  for(const block of blocks){
+    const ranges=collectRanges(block);
+    for(const range of ranges){
+      let {start,end}=range;
+      if(start==null && end==null) continue;
+      if(start!=null && end!=null){
+        const contribution=calculatePeriodMinutes(start,end);
+        amMinutes+=contribution.am;
+        pmMinutes+=contribution.pm;
+      }
+      if(start!=null){
+        if(minStart==null || start<minStart) minStart=start;
+      }
+      if(start!=null && end!=null && end<start){
+        end+=MINUTES_PER_DAY;
+      }
+      if(end!=null){
+        if(minStart!=null && end<minStart){
+          while(end<minStart){
+            end+=MINUTES_PER_DAY;
+          }
+        }
+        if(maxEnd==null || end>maxEnd) maxEnd=end;
+      }
+    }
+  }
+
+  let inferredPeriod='';
+  if(periodLabel){
+    inferredPeriod=periodLabel;
+  }else if(amMinutes && !pmMinutes){
+    inferredPeriod='am';
+  }else if(pmMinutes && !amMinutes){
+    inferredPeriod='pm';
+  }else if(amMinutes || pmMinutes){
+    if(pmMinutes>amMinutes) inferredPeriod='pm';
+    else if(amMinutes>pmMinutes) inferredPeriod='am';
+  }else if(minStart!=null && maxEnd!=null){
+    let start=minStart;
+    let end=maxEnd;
+    if(end<start) end+=MINUTES_PER_DAY;
+    const duration=end-start;
+    if(duration>0){
+      const midpoint=(start+duration/2)%MINUTES_PER_DAY;
+      inferredPeriod=midpoint>=NOON_MINUTES?'pm':'am';
+    }
+  }
+
+  const blockIdLookup=new Map();
+  const blockNumberSet=new Set(blockNumbers);
+  const hasAuthoritativeNumbers=blockNumbers.length>0;
+
+  const addNumber=(num,{allowFromBlockId=false}={})=>{
+    if(!num) return null;
+    const parsed=parseInt(num,10);
+    if(Number.isNaN(parsed)) return null;
+    const normalized=String(parsed).padStart(2,'0');
+    if(allowFromBlockId && hasAuthoritativeNumbers && !blockNumberSet.has(normalized)){
+      return null;
+    }
+    if(!blockNumberSet.has(normalized)){
+      blockNumberSet.add(normalized);
+      blockNumbers.push(normalized);
+    }
+    return normalized;
+  };
+
+  for(const block of blocks){
+    const blockInfoNumbers=[];
+    const blockIdRaw=String(block.BlockId||block.BlockID||block.Block||block.BlockNumber||block.Id||block.ID||'').trim();
+    const normalizedId=normalizeIdentifier(blockIdRaw);
+    if(normalizedId){
+      const numericIdMatch=normalizedId.match(/^(\d{2})(AM|PM)?$/);
+      const bracketMatches=blockIdRaw.match(/\[(\d{2})(AM|PM)?\]/gi)||[];
+      if(numericIdMatch){
+        const normalizedNum=addNumber(numericIdMatch[1],{allowFromBlockId:true});
+        if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
+          blockInfoNumbers.push(normalizedNum);
+        }
+      }
+      for(const raw of bracketMatches){
+        const bracketMatch=raw.match(/\[(\d{2})(AM|PM)?\]/i);
+        if(!bracketMatch) continue;
+        const normalizedNum=addNumber(bracketMatch[1],{allowFromBlockId:true});
+        if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
+          blockInfoNumbers.push(normalizedNum);
+        }
+      }
+    }
+
+    let blockBus='—';
+    const blockVehicleName=cleanBusIdentifier(block.VehicleName);
+    if(blockVehicleName){
+      blockBus=blockVehicleName;
+    }
+    if(blockBus==='—' && block.VehicleId!=null){
+      const idString=cleanBusIdentifier(block.VehicleId);
+      if(idString){
+        blockBus=idString;
+      }
+    }
+    const trips=Array.isArray(block.Trips)?block.Trips:[];
+    for(const trip of trips){
+      const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
+      if(tripBus){
+        blockBus=tripBus;
+        break;
+      }
+    }
+
+    if(normalizedId){
+      const periodsForBlock=Object.create(null);
+      const periodInId=normalizedId.match(/(AM|PM)$/);
+      if(periodInId){
+        const label=periodInId[1].toLowerCase();
+        for(const num of blockInfoNumbers){
+          if(!supportsAmPmBlock(num)) continue;
+          periodsForBlock[num]=label;
+          if(!blockPeriods[num]){
+            blockPeriods[num]=label;
+          }
+        }
+      }
+      blockIdLookup.set(normalizedId,{
+        bus:blockBus,
+        numbers:blockInfoNumbers.slice(),
+        periods:periodsForBlock
+      });
+    }
+
+    if(bus==='—' && blockBus && blockBus!=='—'){
+      bus=blockBus;
+    }
+  }
+
+  return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,minStart,maxEnd,blockIdLookup};
+}
+
+function isActive(entry,nowMinutes){
+  if(entry.minStart==null || entry.maxEnd==null) return false;
+  let start=entry.minStart;
+  let end=entry.maxEnd;
+  let now=nowMinutes;
+  if(end<start){
+    end+=MINUTES_PER_DAY;
+    if(now<start) now+=MINUTES_PER_DAY;
+  }
+  return now>=start && now<=end;
+}
+
+function pickBest(entries,nowMinutes){
+  if(!entries.length) return null;
+  const active=entries.filter(e=>isActive(e,nowMinutes));
+  const activeWithBus=active.find(e=>e.bus && e.bus!=='—');
+  if(activeWithBus) return activeWithBus;
+  if(active.length) return active[0];
+
+  const withBus=entries.find(e=>e.bus && e.bus!=='—');
+  if(withBus) return withBus;
+
+  return entries[0];
+}
+
+function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
+  if(!matches.length) return '—';
+  let filtered=matches;
+  let allowFallback=!normalizedPeriod;
+  if(blockNumber){
+    const exactMatches=matches.filter(entry=>{
+      const periods=entry.blockPeriods||null;
+      if(!periods) return false;
+      const assigned=periods[blockNumber];
+      return assigned===normalizedPeriod;
+    });
+    if(normalizedPeriod && exactMatches.length){
+      filtered=exactMatches;
+      allowFallback=false;
+    }else if(normalizedPeriod){
+      const unspecified=matches.filter(entry=>{
+        const periods=entry.blockPeriods||null;
+        const assigned=periods?periods[blockNumber]:'';
+        if(assigned) return false;
+        const explicit=(entry.period||'').toLowerCase();
+        if(explicit && explicit!==normalizedPeriod) return false;
+        const inferred=(entry.inferredPeriod||'').toLowerCase();
+        if(inferred && inferred!==normalizedPeriod) return false;
+        return true;
+      });
+      if(unspecified.length){
+        filtered=unspecified;
+        allowFallback=true;
+      }else if(!exactMatches.length){
+        filtered=[];
+        allowFallback=false;
+      }
+    }
+  }else if(normalizedPeriod){
+    const periodFiltered=matches.filter(entry=>{
+      const explicit=(entry.period||'').toLowerCase();
+      const inferred=(entry.inferredPeriod||'').toLowerCase();
+      if(explicit) return explicit===normalizedPeriod;
+      if(inferred) return inferred===normalizedPeriod;
+      return true;
+    });
+    if(periodFiltered.length){
+      filtered=periodFiltered;
+      const hasPeriodInfo=periodFiltered.some(entry=>{
+        const explicit=(entry.period||'').toLowerCase();
+        const inferred=(entry.inferredPeriod||'').toLowerCase();
+        return explicit || inferred;
+      });
+      allowFallback=!hasPeriodInfo;
+    }else{
+      filtered=[];
+      allowFallback=false;
+    }
+  }
+
+  const best=pickBest(filtered,nowMinutes);
+  if(best && best.bus) return best.bus;
+  if(filtered!==matches && allowFallback){
+    const fallback=pickBest(matches,nowMinutes);
+    if(fallback && fallback.bus) return fallback.bus;
+  }
+  return '—';
+}
+
+function findBestBus(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinutes){
+  const matches=blockNumber?entries.filter(e=>Array.isArray(e.blockNumbers)&&e.blockNumbers.includes(blockNumber)):[];
+  const normalizedPeriod=(periodSuffix||'').toLowerCase();
+
+  if(blockIdNormalized){
+    const idCandidates=[];
+    for(const entry of entries){
+      const lookup=entry.blockIdLookup;
+      if(lookup && lookup.has(blockIdNormalized)){
+        const info=lookup.get(blockIdNormalized);
+        const infoBusClean=cleanBusIdentifier(info.bus);
+        const candidate={
+          bus:infoBusClean||'—',
+          blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
+          blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
+          period:entry.period,
+          inferredPeriod:entry.inferredPeriod,
+          minStart:entry.minStart,
+          maxEnd:entry.maxEnd
+        };
+        idCandidates.push(candidate);
+      }
+    }
+    if(idCandidates.length){
+      let targetNumber=blockNumber;
+      if(!targetNumber){
+        for(const candidate of idCandidates){
+          if(Array.isArray(candidate.blockNumbers) && candidate.blockNumbers.length){
+            targetNumber=candidate.blockNumbers[0];
+            break;
+          }
+        }
+      }
+      const busFromId=selectBestBus(idCandidates,targetNumber||'',normalizedPeriod,nowMinutes);
+      if(busFromId && busFromId!=='—') return busFromId;
+      if(busFromId) return busFromId;
+    }
+  }
+  if(!blockNumber){
+    return '—';
+  }
+  if(!matches.length) return '—';
+  return selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes);
+}
+
+function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
+  if(!blocksGridTable) return;
+  if(!Array.isArray(entries) || !entries.length){
+    clearBlockGrid({});
+    setBlocksGridMessage('No block assignments available.');
+    return;
+  }
+  const colorLookup=busColorMap||null;
+  const cells=blocksGridTable.querySelectorAll('.cell');
+  let hasAny=false;
+  cells.forEach(cell=>{
+    const blockNumber=cell.dataset.block||'';
+    const periodSuffix=cell.dataset.period||'';
+    const customId=cell.dataset.customBlockId||'';
+    let bus='—';
+    if(blockNumber || customId){
+      bus=findBestBus(blockNumber,periodSuffix,customId,entries,nowMinutes)||'—';
+    }
+    const busEl=cell.querySelector('.bus');
+    if(busEl){
+      busEl.textContent=bus||'—';
+    }
+    const driverContainer=cell.querySelector('.drivers');
+    if(driverContainer){
+      let driverBlock=blockNumber;
+      let driverPeriod=periodSuffix;
+      if(!driverBlock && customId){
+        const blockMatch=customId.match(/^(\d{2})/);
+        if(blockMatch){
+          driverBlock=blockMatch[1];
+        }
+        if(!driverPeriod){
+          const periodMatch=customId.match(/(AM|PM)$/);
+          if(periodMatch){
+            driverPeriod=periodMatch[1].toLowerCase();
+          }
+        }
+      }
+      const driverList=selectDriversForBlock(driverBlock,driverPeriod);
+      renderDriverLines(driverContainer,driverList);
+    }
+    if(bus && bus!=='—'){
+      hasAny=true;
+      let colorValue=colorLookup?colorLookup.get(bus):null;
+      if(colorValue && !String(colorValue).startsWith('#')){
+        colorValue='#'+String(colorValue);
+      }
+      if(colorValue){
+        const textColor=contrastColor(colorValue);
+        cell.style.setProperty('--cell-bg',colorValue);
+        cell.style.setProperty('--cell-border',colorValue);
+        cell.style.setProperty('--cell-text',textColor);
+        cell.style.setProperty('--driver-color',textColor);
+        cell.style.setProperty('--label-color',textColor);
+      }else{
+        cell.style.removeProperty('--cell-bg');
+        cell.style.removeProperty('--cell-border');
+        cell.style.removeProperty('--cell-text');
+        cell.style.removeProperty('--driver-color');
+        cell.style.removeProperty('--label-color');
+      }
+    }else{
+      cell.style.removeProperty('--cell-bg');
+      cell.style.removeProperty('--cell-border');
+      cell.style.removeProperty('--cell-text');
+      cell.style.removeProperty('--driver-color');
+      cell.style.removeProperty('--label-color');
+    }
+  });
+  if(hasAny){
+    setBlocksGridMessage(null);
+  }else{
+    if(blocksGridStatus){
+      blocksGridStatus.textContent='No buses assigned.';
+      blocksGridStatus.hidden=false;
+    }
+    if(blocksGridTable){
+      blocksGridTable.hidden=false;
+    }
   }
 }
 
@@ -1241,17 +2261,32 @@ function updateExtraBuses(){
 }
 
 async function loadBlocks(){
+  const futureBody=$('#future-blocks');
   try{
-    const res=await j('/v1/dispatch/blocks');
+    await ensureBlockGridReady();
+    setBlocksGridMessage('Loading…');
+    const blockPromise=j('/v1/dispatch/blocks');
+    const driverPromise=fetch('/v1/dispatch/block-drivers',{cache:'no-store'}).catch(()=>null);
+    const [res,driverRes]=await Promise.all([blockPromise,driverPromise]);
     const groups=res.block_groups||[];
     const colorByRoute=new Map(Object.entries(res.color_by_route||{}));
     const routeByBus=new Map(Object.entries(res.route_by_bus||{}));
-    const tbody=$('#blocks');
-    const futureBody=$('#future-blocks');
+
+    if(driverRes && driverRes.ok){
+      const driverData=await driverRes.json();
+      driverAssignmentsDisabled=!!(driverData && driverData.disabled);
+      driverAssignmentsByBlock=driverAssignmentsDisabled?Object.create(null):normalizeDriverAssignmentsPayload(driverData);
+    }else{
+      driverAssignmentsByBlock=Object.create(null);
+      driverAssignmentsDisabled=false;
+      if(driverRes && !driverRes.ok){
+        console.warn('Failed to fetch driver assignments',driverRes.status);
+      }
+    }
+
     if(!groups.length){
-      const msg='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
-      tbody.innerHTML=msg;
-      futureBody.innerHTML=msg;
+      clearBlockGrid({message:'No block assignments available.'});
+      if(futureBody) futureBody.innerHTML='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
       blockByBus=new Map();
       allBlockByBus=new Map();
       updateExtraBuses();
@@ -1260,6 +2295,7 @@ async function loadBlocks(){
 
     const entryMap=new Map();
     const busMap=new Map();
+    const busColorMap=new Map();
     for(const g of groups){
       const blocks=g.Blocks||[];
       if(blocks.length){
@@ -1277,8 +2313,11 @@ async function loadBlocks(){
             col=trip?.RouteColor||b.Route?.Color||null;
           }
           if(col && !col.startsWith('#')) col='#'+col;
+          if(bus && bus!=='—' && col){
+            busColorMap.set(bus,col);
+          }
           let key=g.BlockGroupId;
-          if(!String(key).includes('[')) key = b.BlockId || key;
+          if(!String(key).includes('[')) key=b.BlockId||key;
           const segs=[];
           segs.push({start:b.BlockStartTime,end:b.BlockEndTime});
           for(const t of (b.Trips||[])){
@@ -1290,12 +2329,18 @@ async function loadBlocks(){
             entryMap.set(key,info);
           }else{
             if(info.bus==='—' && bus!=='—') info.bus=bus;
-            if(!info.color && col){ info.color=col; info.textColor=contrastColor(col); }
+            if(!info.color && col){
+              info.color=col;
+              info.textColor=contrastColor(col);
+            }
           }
           info.segments.push(...segs);
           if(bus && bus!=='—'){
             let bb=busMap.get(bus);
-            if(!bb){ bb={block:key,segments:[]}; busMap.set(bus,bb); }
+            if(!bb){
+              bb={block:key,segments:[]};
+              busMap.set(bus,bb);
+            }
             bb.segments.push(...segs);
           }
         }
@@ -1307,7 +2352,7 @@ async function loadBlocks(){
       }
     }
 
-    let entries=Array.from(entryMap.values()).filter(e=>e.block.includes('[') || e.bus!=='—');
+    let listEntries=Array.from(entryMap.values()).filter(e=>e.block.includes('[') || e.bus!=='—');
     let busBlocks=Array.from(busMap.entries()).map(([bus,val])=>({bus,block:val.block,segments:val.segments}));
     const alias={
       "[01]":"[01]/[04]",
@@ -1327,13 +2372,13 @@ async function loadBlocks(){
       "[24] AM":"[24]/[18] AM",
       "[26] AM":"[26]/[15]"
     };
-    function aliasBlock(b){ const key=String(b||'').trim(); return alias[key]||key; }
-    entries=entries.map(e=>({...e,block:aliasBlock(e.block)}));
+    const aliasBlock=b=>{ const key=String(b||'').trim(); return alias[key]||key; };
+    listEntries=listEntries.map(e=>({...e,block:aliasBlock(e.block)}));
     busBlocks=busBlocks.map(e=>({...e,block:aliasBlock(e.block)}));
     allBlockByBus=new Map(busBlocks.map(e=>[e.bus,e.block]));
     const seen=new Map();
     const filtered=[];
-    for(const e of entries){
+    for(const e of listEntries){
       if(e.block.includes('[')){
         const prev=seen.get(e.block);
         if(!prev || (prev.bus==='—' && e.bus!=='—')){
@@ -1343,8 +2388,8 @@ async function loadBlocks(){
         filtered.push(e);
       }
     }
-    entries=[...filtered,...seen.values()];
-    entries.sort((a,b)=>{
+    listEntries=[...filtered,...seen.values()];
+    listEntries.sort((a,b)=>{
       function parse(s){
         s=String(s).trim();
         const letters=(s.match(/^[A-Za-z]+/)||[''])[0].toUpperCase();
@@ -1369,14 +2414,13 @@ async function loadBlocks(){
       if(ap==='PM' && hh<12) hh+=12; if(ap==='AM' && hh===12) hh=0;
       const d=new Date(); d.setHours(hh,mm,0,0); return d;
     }
-    for(const e of entries){
+    for(const e of listEntries){
       e.active=e.segments.some(seg=>{
         const start=parseTime(seg.start), end=parseTime(seg.end);
         return start && end && now>=start && now<=end;
       });
     }
-    const activeEntries=entries.filter(e=>e.active);
-    const futureEntries=entries.filter(e=>!e.active && e.bus!=='—');
+    const futureEntries=listEntries.filter(e=>!e.active && e.bus!=='—');
     const tmp=new Map();
     for(const e of busBlocks){
       for(const seg of e.segments){
@@ -1408,10 +2452,29 @@ async function loadBlocks(){
       if(!list.length) html='<tr><td class="hint" colspan="4">No blocks.</td></tr>';
       return html;
     }
-    tbody.innerHTML=renderTable(activeEntries,true);
-    futureBody.innerHTML=renderTable(futureEntries,false);
+    if(futureBody){
+      futureBody.innerHTML=renderTable(futureEntries,false);
+    }
     updateExtraBuses();
-  }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; $('#future-blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; blockByBus=new Map(); allBlockByBus=new Map(); updateExtraBuses(); }
+
+    const gridEntries=[];
+    for(const group of groups){
+      const entry=buildBlockGridEntry(group);
+      const hasCustomIds=entry.blockIdLookup && entry.blockIdLookup.size;
+      if(entry.blockNumbers.length || hasCustomIds){
+        gridEntries.push(entry);
+      }
+    }
+    const nowMinutes=now.getHours()*60+now.getMinutes();
+    updateBlockGrid(gridEntries,nowMinutes,{busColorMap});
+  }catch(e){
+    console.error('Failed to load block assignments',e);
+    clearBlockGrid({message:'Error loading blocks.'});
+    if(futureBody) futureBody.innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>';
+    blockByBus=new Map();
+    allBlockByBus=new Map();
+    updateExtraBuses();
+  }
 }
 
 async function pollHealth(){
