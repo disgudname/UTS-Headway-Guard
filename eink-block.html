@@ -373,9 +373,13 @@
       gridView.style.removeProperty('width');
       return;
     }
-    const width=Math.ceil(gridTable.getBoundingClientRect().width);
+    const previousWidth=gridView.style.width;
+    gridView.style.width='auto';
+    const width=Math.ceil(gridTable.scrollWidth);
     if(width>0){
       gridView.style.width=`${width}px`;
+    }else if(previousWidth){
+      gridView.style.width=previousWidth;
     }else{
       gridView.style.removeProperty('width');
     }
