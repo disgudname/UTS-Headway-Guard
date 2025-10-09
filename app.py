@@ -73,6 +73,7 @@ if W2W_KEY:
     W2W_KEY = W2W_KEY.strip()
 W2W_ASSIGNMENT_TTL_S = int(os.getenv("W2W_ASSIGNMENT_TTL_S", "45"))
 W2W_POSITION_RE = re.compile(r"\[(\d{1,2})(?:\s*(AM|PM))?\]", re.IGNORECASE)
+AM_PM_BLOCKS: set[str] = {f"{number:02d}" for number in range(20, 27)}
 W2W_TIME_RE = re.compile(
     r"^\s*(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([AP])?M?\s*$",
     re.IGNORECASE,
@@ -1904,7 +1905,9 @@ def _build_driver_assignments(
         if end_dt <= now:
             continue
         period = explicit_period or ("am" if start_dt.hour < 12 else "pm")
-        if period not in {"am", "pm"}:
+        if block_number not in AM_PM_BLOCKS:
+            period = "any"
+        elif period not in {"am", "pm"}:
             period = "any"
         entry = assignments.setdefault(block_number, {})
         bucket = entry.setdefault(period, [])
