@@ -866,7 +866,8 @@ function updateRouteTotalsChart(){
         },
         y:{
           beginAtZero:true,
-          max:maxY,
+          suggestedMax:maxY,
+          grace:'10%',
           ticks:{color:'var(--ink)'},
           title:{display:true,text:'Passengers',color:'var(--muted)'},
           grid:{color:'rgba(159,176,201,0.15)'}
