@@ -727,9 +727,14 @@ function buildBlockGrid(){
         const defaultLabel=blockMatch?(periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`):trimmedLabel;
         const displayLabel=displayOverride||defaultLabel;
         cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus mono">—</div><div class="drivers" hidden></div>`;
+        const colors=getBlockCellColors(cell.dataset.block||'',cell.dataset.period||'',cell.dataset.customBlockId||'');
+        setDefaultBlockCellColors(cell,colors);
+        applyDefaultBlockCellColors(cell);
       }else{
         cell.dataset.empty='true';
         cell.innerHTML='<div class="block-label">&nbsp;</div><div class="bus mono">—</div><div class="drivers" hidden></div>';
+        setDefaultBlockCellColors(cell,null);
+        applyDefaultBlockCellColors(cell);
       }
       blocksGridTable.appendChild(cell);
     }
@@ -747,11 +752,7 @@ function clearBlockGrid({message}={}){
       driverContainer.innerHTML='';
       driverContainer.hidden=true;
     }
-    cell.style.removeProperty('--cell-bg');
-    cell.style.removeProperty('--cell-border');
-    cell.style.removeProperty('--cell-text');
-    cell.style.removeProperty('--label-color');
-    cell.style.removeProperty('--driver-color');
+    applyDefaultBlockCellColors(cell);
   });
   if(message){
     setBlocksGridMessage(message);
@@ -760,6 +761,78 @@ function clearBlockGrid({message}={}){
 
 function normalizeIdentifier(value){
   return String(value||'').replace(/[^0-9a-z]/gi,'').toUpperCase();
+}
+
+function getBlockCellColors(block,period,customId){
+  const blockId=String(block||'').padStart(2,'0');
+  const periodId=String(period||'').toLowerCase();
+  const normalizedCustom=String(customId||'').toLowerCase();
+
+  if(normalizedCustom.includes('charter')){
+    return {bg:'#FF69B4',text:'#000'};
+  }
+
+  if(normalizedCustom.includes('training')){
+    return {bg:'#92FB02',text:'#000'};
+  }
+
+  if(!blockId) return null;
+
+  const numeric=parseInt(blockId,10);
+
+  if(['01','02'].includes(blockId)) return {bg:'#0C8103',text:'#fff'};
+  if(['03','04'].includes(blockId)) return {bg:'#232D48',text:'#fff'};
+  if(Number.isFinite(numeric) && numeric>=5 && numeric<=8) return {bg:'#FF7300',text:'#111'};
+  if(Number.isFinite(numeric) && numeric>=9 && numeric<=12) return {bg:'#FFDD00',text:'#000'};
+  if(Number.isFinite(numeric) && numeric>=13 && numeric<=14) return {bg:'#C3C1C1',text:'#000'};
+  if(Number.isFinite(numeric) && numeric>=15 && numeric<=18) return {bg:'#0072BC',text:'#fff'};
+
+  if(periodId==='am' && Number.isFinite(numeric) && numeric>=20 && numeric<=26){
+    return {bg:'#F60303',text:'#fff'};
+  }
+
+  if(periodId==='pm' && blockId==='21'){
+    return {bg:'#A812C9',text:'#fff'};
+  }
+
+  if(periodId==='pm' && ['20','22','24','26'].includes(blockId)){
+    return {bg:'#F60303',text:'#fff'};
+  }
+
+  return null;
+}
+
+function setDefaultBlockCellColors(cell,colors){
+  if(!cell) return;
+  if(colors){
+    cell.dataset.defaultCellBg=colors.bg;
+    cell.dataset.defaultCellText=colors.text;
+  }else{
+    delete cell.dataset.defaultCellBg;
+    delete cell.dataset.defaultCellText;
+  }
+}
+
+function applyDefaultBlockCellColors(cell){
+  if(!cell) return;
+  const defaultBg=cell.dataset.defaultCellBg||'';
+  const defaultText=cell.dataset.defaultCellText||'';
+  if(defaultBg){
+    cell.style.setProperty('--cell-bg',defaultBg);
+    cell.style.setProperty('--cell-border',defaultBg);
+  }else{
+    cell.style.removeProperty('--cell-bg');
+    cell.style.removeProperty('--cell-border');
+  }
+  if(defaultText){
+    cell.style.setProperty('--cell-text',defaultText);
+    cell.style.setProperty('--driver-color',defaultText);
+    cell.style.setProperty('--label-color',defaultText);
+  }else{
+    cell.style.removeProperty('--cell-text');
+    cell.style.removeProperty('--driver-color');
+    cell.style.removeProperty('--label-color');
+  }
 }
 
 function cleanBusIdentifier(value){
@@ -1574,18 +1647,10 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
         cell.style.setProperty('--driver-color',textColor);
         cell.style.setProperty('--label-color',textColor);
       }else{
-        cell.style.removeProperty('--cell-bg');
-        cell.style.removeProperty('--cell-border');
-        cell.style.removeProperty('--cell-text');
-        cell.style.removeProperty('--driver-color');
-        cell.style.removeProperty('--label-color');
+        applyDefaultBlockCellColors(cell);
       }
     }else{
-      cell.style.removeProperty('--cell-bg');
-      cell.style.removeProperty('--cell-border');
-      cell.style.removeProperty('--cell-text');
-      cell.style.removeProperty('--driver-color');
-      cell.style.removeProperty('--label-color');
+      applyDefaultBlockCellColors(cell);
     }
   });
   if(hasAny){
