@@ -584,11 +584,15 @@
       if(nextDriver){
         const lines=[];
         const nextLabel=getDriverStartLabel(nextDriver);
-        lines.push(`Next: ${nextDriver.name}${nextLabel?` ${nextLabel}`:''}`);
+        lines.push(nextLabel
+          ? `Next: ${nextDriver.name} @ ${nextLabel}`
+          : `Next: ${nextDriver.name}`);
         for(const driver of items){
           if(driver===nextDriver) continue;
           const startLabel=getDriverStartLabel(driver);
-          lines.push(`${driver.name}${startLabel?` ${startLabel}`:''}`);
+          lines.push(startLabel
+            ? `${driver.name} @ ${startLabel}`
+            : driver.name);
         }
         container.innerHTML='';
         for(const text of lines){
@@ -609,13 +613,18 @@
       line.className='driver-line';
       let label='';
       if(includeLabels){
-        const primaryLabel=i===0?driver.endLabel:driver.startLabel;
-        const secondaryLabel=i===0?driver.startLabel:driver.endLabel;
-        label=typeof primaryLabel==='string' && primaryLabel.trim()
-          ? primaryLabel.trim()
-          : (typeof secondaryLabel==='string'?secondaryLabel.trim():'');
+        const endLabelRaw=typeof driver.endLabel==='string'?driver.endLabel.trim():'';
+        const startLabelRaw=typeof driver.startLabel==='string'?driver.startLabel.trim():'';
+        if(i===0){
+          label=endLabelRaw || startLabelRaw;
+          line.textContent=label?`${driver.name} until ${label}`:driver.name;
+        }else{
+          label=startLabelRaw || endLabelRaw;
+          line.textContent=label?`${driver.name} @ ${label}`:driver.name;
+        }
+      }else{
+        line.textContent=driver.name;
       }
-      line.textContent=label?`${driver.name} ${label}`:driver.name;
       container.appendChild(line);
     }
     container.hidden=false;
