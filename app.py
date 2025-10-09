@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import httpx
 from collections import deque, defaultdict
@@ -63,6 +63,19 @@ AMTRAKER_URL = os.getenv("AMTRAKER_URL", "https://api-v3.amtraker.com/v3/trains"
 RIDESYSTEMS_CLIENTS_URL = os.getenv(
     "RIDESYSTEMS_CLIENTS_URL",
     "https://admin.ridesystems.net/api/Clients/GetClients",
+)
+W2W_ASSIGNED_SHIFT_URL = os.getenv(
+    "W2W_ASSIGNED_SHIFT_URL",
+    "https://www7.whentowork.com/cgi-bin/w2wG.dll/api/AssignedShiftList",
+)
+W2W_KEY = os.getenv("W2W_KEY")
+if W2W_KEY:
+    W2W_KEY = W2W_KEY.strip()
+W2W_ASSIGNMENT_TTL_S = int(os.getenv("W2W_ASSIGNMENT_TTL_S", "45"))
+W2W_POSITION_RE = re.compile(r"\[(\d{1,2})(?:\s*(AM|PM))?\]", re.IGNORECASE)
+W2W_TIME_RE = re.compile(
+    r"^\s*(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([AP])?M?\s*$",
+    re.IGNORECASE,
 )
 TRAIN_TARGET_STATION_CODE = os.getenv("TRAIN_TARGET_STATION_CODE", "").strip().upper()
 
@@ -1086,6 +1099,7 @@ cat_stop_etas_cache = PerKeyTTLCache(CAT_STOP_ETA_TTL_S)
 pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
 ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
+w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
 
@@ -1904,6 +1918,206 @@ async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
         _downed_sheet_fetched_at = fetch_ts
         _downed_sheet_error = None
         return csv_text, fetch_ts, None
+
+
+def _extract_block_from_position_name(value: Any) -> Tuple[Optional[str], str]:
+    if value is None:
+        return None, ""
+    match = W2W_POSITION_RE.search(str(value))
+    if not match:
+        return None, ""
+    number = match.group(1)
+    period = (match.group(2) or "").strip().lower()
+    try:
+        block_number = str(int(number)).zfill(2)
+    except (TypeError, ValueError):
+        return None, ""
+    if period not in {"am", "pm"}:
+        period = ""
+    return block_number, period
+
+
+def _parse_w2w_time_components(value: Any) -> Optional[Tuple[int, int, int]]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered == "noon":
+        return 12, 0, 0
+    if lowered in {"midnight", "12am"}:
+        return 0, 0, 0
+    match = W2W_TIME_RE.match(text)
+    if not match:
+        return None
+    try:
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        second = int(match.group(3) or 0)
+    except (TypeError, ValueError):
+        return None
+    if minute >= 60 or second >= 60:
+        return None
+    suffix = match.group(4)
+    if suffix:
+        suffix = suffix.lower()
+        hour = hour % 12
+        if suffix == "p":
+            hour += 12
+    if hour >= 24:
+        hour = hour % 24
+    return hour, minute, second
+
+
+def _parse_w2w_datetime(date_str: Any, time_str: Any, tz: ZoneInfo) -> Optional[datetime]:
+    if not date_str:
+        return None
+    try:
+        base_date = datetime.strptime(str(date_str).strip(), "%m/%d/%Y")
+    except Exception:
+        return None
+    time_parts = _parse_w2w_time_components(time_str)
+    if time_parts is None:
+        return None
+    hour, minute, second = time_parts
+    try:
+        return datetime(
+            base_date.year,
+            base_date.month,
+            base_date.day,
+            hour,
+            minute,
+            second,
+            tzinfo=tz,
+        )
+    except ValueError:
+        return None
+
+
+def _format_driver_time(dt: datetime) -> str:
+    hour = dt.hour
+    minute = dt.minute
+    suffix = "a" if hour < 12 else "p"
+    display_hour = hour % 12 or 12
+    if minute:
+        return f"{display_hour}:{minute:02d}{suffix}"
+    return f"{display_hour}{suffix}"
+
+
+def _parse_duration_hours(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        duration = float(text)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(duration) or math.isinf(duration):
+        return None
+    if duration <= 0:
+        return None
+    return duration
+
+
+def _build_driver_assignments(
+    shifts: Iterable[Dict[str, Any]], now: datetime, tz: ZoneInfo
+) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    assignments: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+    fallback_ts = int(now.timestamp() * 1000)
+    for shift in shifts:
+        if not isinstance(shift, dict):
+            continue
+        block_number, explicit_period = _extract_block_from_position_name(
+            shift.get("POSITION_NAME")
+        )
+        if not block_number:
+            continue
+        first = str(shift.get("FIRST_NAME") or "").strip()
+        last = str(shift.get("LAST_NAME") or "").strip()
+        name = (first + " " + last).strip()
+        if not name:
+            continue
+        start_dt = _parse_w2w_datetime(shift.get("START_DATE"), shift.get("START_TIME"), tz)
+        if start_dt is None:
+            continue
+        end_dt = _parse_w2w_datetime(shift.get("END_DATE"), shift.get("END_TIME"), tz)
+        if end_dt is None:
+            duration_hours = _parse_duration_hours(shift.get("DURATION"))
+            if duration_hours:
+                end_dt = start_dt + timedelta(hours=duration_hours)
+        if end_dt is None:
+            continue
+        if end_dt <= start_dt:
+            end_dt += timedelta(days=1)
+        if not (start_dt <= now < end_dt):
+            continue
+        period = explicit_period or ("am" if start_dt.hour < 12 else "pm")
+        if period not in {"am", "pm"}:
+            period = "any"
+        entry = assignments.setdefault(block_number, {})
+        bucket = entry.setdefault(period, [])
+        start_ts = int(start_dt.timestamp() * 1000)
+        end_ts = int(end_dt.timestamp() * 1000)
+        bucket.append(
+            {
+                "name": name,
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "start_label": _format_driver_time(start_dt),
+                "end_label": _format_driver_time(end_dt),
+            }
+        )
+    for entry in assignments.values():
+        for drivers in entry.values():
+            drivers.sort(key=lambda item: item.get("start_ts") or fallback_ts)
+    return assignments
+
+
+async def _fetch_w2w_assignments():
+    tz = ZoneInfo("America/New_York")
+    now = datetime.now(tz)
+    if not W2W_KEY:
+        return {
+            "disabled": True,
+            "fetched_at": int(now.timestamp() * 1000),
+            "assignments_by_block": {},
+        }
+    params = {
+        "start_date": f"{now.month}/{now.day}/{now.year}",
+        "end_date": f"{now.month}/{now.day}/{now.year}",
+        "key": W2W_KEY,
+    }
+    url = httpx.URL(W2W_ASSIGNED_SHIFT_URL)
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, params=params, timeout=20)
+    log_url = str(url.copy_add_params({**params, "key": "***"}))
+    record_api_call("GET", log_url, response.status_code)
+    response.raise_for_status()
+    payload = response.json()
+    shifts: Iterable[Dict[str, Any]] = []
+    if isinstance(payload, dict):
+        raw_shifts = payload.get("AssignedShiftList")
+        if isinstance(raw_shifts, list):
+            shifts = raw_shifts
+    assignments = _build_driver_assignments(shifts, now, tz)
+    return {
+        "fetched_at": int(now.timestamp() * 1000),
+        "assignments_by_block": assignments,
+    }
+
+
+@app.get("/v1/dispatch/block-drivers")
+async def dispatch_block_drivers():
+    try:
+        return await w2w_assignments_cache.get(_fetch_w2w_assignments)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[block_drivers] fetch failed: {exc}")
+        raise HTTPException(status_code=502, detail="driver assignments unavailable") from exc
 
 
 @app.get("/v1/dispatch/blocks")
