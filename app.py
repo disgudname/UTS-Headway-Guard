@@ -3,15 +3,15 @@ Headway Guard Service — Dispatcher API (FastAPI skeleton)
 
 Purpose
 =======
-Centralise anti-bunching calculations and expose them to driver/dispatcher clients.
+Proxy TransLoc data sources, enrich the feed with safety context, and surface
+operations dashboards for UVA's University Transit Service.
 
 Key features in this skeleton
 -----------------------------
 - Poll TransLoc for routes/vehicles. (HTTP calls sketched; plug in API key & base.)
 - Fetch & cache Overpass speed limits per route (fetch-once; invalidate on polyline change).
-- Compute headway = time along-route from follower → leader (arc-based).
-- Target headway anchored to speed-limit profile, lightly blended with live EMA.
- - Dispatcher-friendly fields: status (OK/Ease off/HOLD), headway_sec, gap_label (Ahead/Behind/On target), countdown_sec, leader_name.
+- Persist telemetry for replay, expose block assignments, and surface low-clearance
+  guidance for over-height coaches.
 - REST endpoints + Server-Sent Events (SSE) stream.
 
 Run
@@ -92,17 +92,9 @@ VEHICLE_STALE_THRESHOLD_S = int(
 # Grace window to keep routes "active" despite brief data hiccups (prevents dispatcher flicker)
 ROUTE_GRACE_S   = int(os.getenv("ROUTE_GRACE_S", "60"))
 
-URBAN_FACTOR      = float(os.getenv("URBAN_FACTOR", "1.12"))
-GREEN_FRAC        = float(os.getenv("GREEN_FRAC", "0.75"))
-RED_FRAC          = float(os.getenv("RED_FRAC", "0.50"))
-ONTARGET_TOL_SEC  = int(os.getenv("ONTARGET_TOL_SEC", "30"))
-W_LIMIT           = float(os.getenv("W_LIMIT", "0.85"))  # 85% limits, 15% live
-
 EMA_ALPHA       = float(os.getenv("EMA_ALPHA", "0.40"))
 MIN_SPEED_FLOOR = float(os.getenv("MIN_SPEED_FLOOR", "1.2"))
 MAX_SPEED_CEIL  = float(os.getenv("MAX_SPEED_CEIL", "22.0"))
-LEADER_EPS_M   = float(os.getenv("LEADER_EPS_M", "8.0"))
-STOPPED_MPS    = float(os.getenv("STOPPED_MPS", "0.5"))
 MPH_TO_MPS      = 0.44704
 DEFAULT_CAP_MPS = 25 * MPH_TO_MPS
 HEADING_JITTER_M = float(os.getenv("HEADING_JITTER_M", "3.0"))
@@ -283,11 +275,6 @@ def normalize_bus_name(name: Optional[str]) -> str:
         return ""
     return re.sub(r"\D", "", str(name))
 
-
-def fmt_mmss(sec: float) -> str:
-    """Format seconds as MM:SS."""
-    sec = int(round(abs(sec)))
-    return f"{sec//60:02d}:{sec%60:02d}"
 
 def parse_maxheight(val: Optional[str]) -> Optional[float]:
     """Parse an OSM maxheight tag into feet."""
@@ -624,14 +611,6 @@ out center;
 # ---------------------------
 # Core maths (abridged but functional)
 # ---------------------------
-def find_seg_index_at_s(cum: List[float], s: float) -> int:
-    lo, hi = 0, len(cum)-1
-    while lo < hi - 1:
-        mid = (lo + hi) // 2
-        if cum[mid] <= s: lo = mid
-        else: hi = mid
-    return lo
-
 def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] = None,
                              heading: Optional[float] = None) -> Tuple[float, int]:
     """Project vehicle to the nearest point on the polyline (by segment),
@@ -680,136 +659,6 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
             if prefer:
                 best_d2 = d2; best_s = s; best_i = i; best_heading = seg_heading
     return best_s, best_i
-
-def target_headway_sec(route: Route, veh_count: int) -> float:
-    # speed-limit-based lap time / veh_count
-    if route.length_m <= 0 or veh_count <= 0: return 0.0
-    avg_cap = sum(route.seg_caps_mps)/max(1,len(route.seg_caps_mps)) if route.seg_caps_mps else DEFAULT_CAP_MPS
-    lap = (route.length_m / max(avg_cap, 0.1)) * URBAN_FACTOR
-    return lap / veh_count
-
-def compute_status_for_route(route: Route, vehs_by_id: Dict[int, Vehicle]) -> List["VehicleView"]:
-    """Compute headway guidance for each vehicle on a route.
-
-    All active vehicles are ordered around the route's loop distance and each bus
-    takes the next bus in that order as its leader.  Headways and countdowns are
-    computed using modular gaps so the ring remains stable even as vehicles pass
-    the zero‑distance boundary or stop temporarily.
-    """
-
-    vehicles = list(vehs_by_id.values())
-    if not vehicles:
-        return []
-
-    loop_len = max(1.0, route.length_m)
-    ordered = sorted(vehicles, key=lambda v: v.s_pos)
-    n = len(ordered)
-    target = target_headway_sec(route, n)
-    results: List[VehicleView] = []
-
-    def ref_speed(v: Vehicle) -> float:
-        seg_idx = find_seg_index_at_s(route.cum, v.s_pos)
-        cap = route.seg_caps_mps[seg_idx] if route.seg_caps_mps else DEFAULT_CAP_MPS
-        return max(
-            MIN_SPEED_FLOOR,
-            min(MAX_SPEED_CEIL, W_LIMIT * cap + (1 - W_LIMIT) * v.ema_mps),
-        )
-
-    for idx, me in enumerate(ordered):
-        if n == 1:
-            results.append(
-                VehicleView(
-                    id=me.id,
-                    name=me.name,
-                    status="green",
-                    headway_sec=None,
-                    target_headway_sec=int(target) if target > 0 else None,
-                    gap_label="—",
-                    leader_name=None,
-                    countdown_sec=None,
-                    updated_at=min(me.ts_ms, int(time.time() * 1000)) // 1000,
-                )
-            )
-            continue
-
-        leader = ordered[(idx + 1) % n]
-        gap_m = (leader.s_pos - me.s_pos) % loop_len
-        gap_m = max(gap_m, LEADER_EPS_M)
-
-        speed = ref_speed(me)
-        headway = gap_m / max(speed, 0.1)
-        diff = headway - target
-
-        if target > 0 and headway < RED_FRAC * target:
-            status = "red"
-            gap_label = f"Ahead {fmt_mmss(diff)}"
-            countdown = int(max(0, target - headway))
-        elif target > 0 and headway < GREEN_FRAC * target:
-            status = "yellow"
-            gap_label = f"Ahead {fmt_mmss(diff)}"
-            countdown = int(max(0, target - headway))
-        else:
-            status = "green"
-            if target > 0 and abs(diff) <= ONTARGET_TOL_SEC:
-                gap_label = "On target"
-            elif diff < 0:
-                gap_label = f"Ahead {fmt_mmss(diff)}"
-            else:
-                gap_label = f"Behind {fmt_mmss(diff)}"
-            countdown = None
-
-        results.append(
-            VehicleView(
-                id=me.id,
-                name=me.name,
-                status=status,
-                headway_sec=int(headway),
-                target_headway_sec=int(target) if target > 0 else None,
-                gap_label=gap_label,
-                leader_name=leader.name,
-                countdown_sec=countdown,
-                updated_at=min(me.ts_ms, int(time.time() * 1000)) // 1000,
-            )
-        )
-
-    # Accumulate hold times: if a leader is holding, followers must also wait.
-    if n > 1:
-        bases = [v.countdown_sec for v in results]
-        roots = [i for i, b in enumerate(bases) if not b] or [0]
-        for start in roots:
-            i = (start - 1) % n
-            while i != start:
-                if bases[i]:
-                    leader_idx = (i + 1) % n
-                    leader_hold = results[leader_idx].countdown_sec or 0
-                    results[i].countdown_sec = bases[i] + leader_hold
-                    bases[i] = results[i].countdown_sec
-                    i = (i - 1) % n
-                else:
-                    break
-
-    id_map = {v.id: v for v in ordered if v.id is not None}
-
-    def sort_key(vv: VehicleView):
-        v = id_map.get(vv.id)
-        s = v.s_pos if v else 0.0
-        return (round(s, 3), vv.updated_at)
-
-    return sorted(results, key=sort_key)
-# ---------------------------
-# Presentation models
-# ---------------------------
-@dataclass
-class VehicleView:
-    id: Optional[int]
-    name: str
-    status: str  # "green" | "yellow" | "red"
-    headway_sec: Optional[int]
-    target_headway_sec: Optional[int]
-    gap_label: str
-    leader_name: Optional[str]
-    countdown_sec: Optional[int]
-    updated_at: int
 
 # ---------------------------
 # App & state
@@ -874,8 +723,7 @@ def record_api_call(method: str, url: str, status: int) -> None:
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
     "VEH_REFRESH_S","ROUTE_REFRESH_S","STALE_FIX_S","ROUTE_GRACE_S",
-    "URBAN_FACTOR","GREEN_FRAC","RED_FRAC","ONTARGET_TOL_SEC","W_LIMIT",
-    "EMA_ALPHA","MIN_SPEED_FLOOR","MAX_SPEED_CEIL","LEADER_EPS_M",
+    "EMA_ALPHA","MIN_SPEED_FLOOR","MAX_SPEED_CEIL",
     "DEFAULT_CAP_MPS","BRIDGE_LAT","BRIDGE_LON","LOW_CLEARANCE_SEARCH_M",
     "LOW_CLEARANCE_LIMIT_FT","BRIDGE_IGNORE_RADIUS_M","OVERHEIGHT_BUSES",
     "LOW_CLEARANCE_RADIUS","BRIDGE_RADIUS","ALL_BUSES"
@@ -1060,7 +908,6 @@ class State:
     def __init__(self):
         self.routes: Dict[int, Route] = {}
         self.vehicles_by_route: Dict[int, Dict[int, Vehicle]] = {}
-        self.headway_ema: Dict[int, float] = {}
         # Remember each vehicle's last known direction (+1/-1) even if it drops
         # out of the feed briefly. This helps preserve ring assignment when a
         # bus is stationary and TransLoc stops reporting movement, preventing
@@ -3309,105 +3156,6 @@ async def low_clearances():
         except Exception as e:
             raise HTTPException(502, f"overpass error: {e}")
     return {"clearances": LOW_CLEARANCES_CACHE}
-
-# ---------------------------
-# REST: Per-route status & instruction
-# ---------------------------
-@app.get("/v1/routes/{route_id}/status", response_model=List[VehicleView])
-async def route_status(route_id: int):
-    async with state.lock:
-        route = state.routes.get(route_id)
-        vehs = state.vehicles_by_route.get(route_id, {})
-        if not route:
-            # If the route isn't currently active, return empty list instead of 404
-            return []
-        return compute_status_for_route(route, vehs)
-
-@app.get("/v1/routes/{route_id}/debug")
-async def route_debug(route_id: int):
-    async with state.lock:
-        route = state.routes.get(route_id)
-        vehs = state.vehicles_by_route.get(route_id, {})
-        if not route:
-            return []
-        views = compute_status_for_route(route, vehs)
-        by_id = {v.id: v for v in vehs.values()}
-        out = []
-        for vv in views:
-            raw = by_id.get(vv.id)
-            d = {
-                "id": vv.id,
-                "name": vv.name,
-                "status": vv.status,
-                "headway_sec": vv.headway_sec,
-                "target_headway_sec": vv.target_headway_sec,
-                "gap_label": vv.gap_label,
-                "leader_name": vv.leader_name,
-                "countdown_sec": vv.countdown_sec,
-                "updated_at": vv.updated_at,
-            }
-            if raw:
-                seg_idx = find_seg_index_at_s(route.cum, raw.s_pos)
-                cap = route.seg_caps_mps[seg_idx] if route.seg_caps_mps else DEFAULT_CAP_MPS
-                d.update({
-                    "lat": raw.lat,
-                    "lon": raw.lon,
-                    "s_pos": raw.s_pos,
-                    "ground_mps": raw.ground_mps,
-                    "ema_mps": raw.ema_mps,
-                    "dir_sign": raw.dir_sign,
-                    "heading": raw.heading,
-                    "age_s": raw.age_s,
-                    "speed_limit_mph": cap / MPH_TO_MPS,
-                })
-            out.append(d)
-        return out
-
-@app.get("/v1/routes/{route_id}/vehicles/{vehicle_name}/instruction")
-async def vehicle_instruction(route_id: int, vehicle_name: str):
-    async with state.lock:
-        route = state.routes.get(route_id)
-        if not route:
-            raise HTTPException(404, "route not found or inactive")
-        vehs = state.vehicles_by_route.get(route_id, {})
-        # find by Name (display), not ID
-        me = next((v for v in vehs.values() if str(v.name) == vehicle_name), None)
-        if not me:
-            return JSONResponse({"order":"Waiting","headway":"—","target":"—","gap":"—","countdown":"—","leader":"—","updated_at": int(time.time())})
-        views = compute_status_for_route(route, vehs)
-        vv = next((x for x in views if x.name == vehicle_name), None)
-        if not vv:
-            return JSONResponse({"order":"Waiting","headway":"—","target":"—","gap":"—","countdown":"—","leader":"—","updated_at": int(time.time())})
-        # human form
-        order_map = {"green":"OK","yellow":"Ease off","red":"HOLD"}
-        return {
-            "order": order_map.get(vv.status, "OK"),
-            "headway": f"{int(vv.headway_sec//60):02d}:{int(vv.headway_sec%60):02d}" if vv.headway_sec is not None else "—",
-            "target": f"{int(vv.target_headway_sec//60):02d}:{int(vv.target_headway_sec%60):02d}" if vv.target_headway_sec else "—",
-            "gap": vv.gap_label or "—",
-            "countdown": f"{int(vv.countdown_sec//60):02d}:{int(vv.countdown_sec%60):02d}" if vv.countdown_sec is not None else "—",
-            "leader": vv.leader_name or "—",
-            "updated_at": vv.updated_at
-        }
-
-# ---------------------------
-# SSE: Per-route stream
-# ---------------------------
-@app.get("/v1/stream/routes/{route_id}")
-async def stream_route(route_id: int):
-    async def gen():
-        # poll every refresh and emit current list as JSON
-        while True:
-            async with state.lock:
-                route = state.routes.get(route_id)
-                vehs = state.vehicles_by_route.get(route_id, {})
-                if route:
-                    rows = compute_status_for_route(route, vehs)
-                else:
-                    rows = []
-            yield f"data: {json.dumps([r.__dict__ for r in rows])}\n\n"
-            await asyncio.sleep(VEH_REFRESH_S)
-    return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ---------------------------
 # SSE: External API calls

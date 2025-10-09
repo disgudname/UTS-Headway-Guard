@@ -1,6 +1,6 @@
 # UTS Headway Guard
 
-UTS Headway Guard is a full real-time operations platform for the University Transit Service. It polls live vehicle and schedule data, computes optimal headways, highlights safety risks, persists telemetry for after-action review, and serves specialized web tools for drivers, dispatchers, service crews, and digital signage. The backend is a FastAPI service augmented by asyncio tasks and Server-Sent Events streams, while the frontend surfaces lightweight Leaflet dashboards and status boards tailored to each audience.
+UTS Headway Guard is a full real-time operations platform for the University Transit Service. It polls live vehicle and schedule data, highlights safety risks, persists telemetry for after-action review, and serves specialized web tools for drivers, dispatchers, service crews, and digital signage. The backend is a FastAPI service augmented by asyncio tasks and Server-Sent Events streams, while the frontend surfaces lightweight Leaflet dashboards and status boards tailored to each audience.
 
 ## System architecture
 
@@ -11,11 +11,11 @@ UTS Headway Guard is a full real-time operations platform for the University Tra
 
 ### Headway computation and safety logic
 - Vehicles are projected to the closest arc length on each route polyline, blending proximity, heading, and previous segment to stabilize the position even when the bus is stopped or reversing.【F:app.py†L430-L506】
-- Segment-level speed caps from Overpass are blended with an exponential moving average of observed speeds to derive a target headway and countdown guidance (green/ease off/hold) for every coach on the loop.【F:app.py†L506-L614】
+- Segment-level speed caps from Overpass are blended with an exponential moving average of observed speeds so downstream tools always have a realistic reference for posted limits versus live performance.【F:app.py†L506-L614】
 - Overheight vehicles and low-clearance structures are tracked so driver tools can warn operators as they approach the 14th Street bridge. The list of monitored buses and radii are configurable at runtime.【F:driver.html†L66-L184】【F:app.py†L685-L723】
 
 ### Background processing
-- An asyncio startup task keeps the in-memory model fresh: it polls routes, vehicles (including unassigned units), block groups, and caches derived data structures (active routes, roster list, speed profiles, headway EMAs, block-to-bus maps). Failures are surfaced through the `/v1/health` endpoint and UI banners.【F:app.py†L877-L1132】
+- An asyncio startup task keeps the in-memory model fresh: it polls routes, vehicles (including unassigned units), block groups, and caches derived data structures (active routes, roster list, speed profiles, block-to-bus maps). Failures are surfaced through the `/v1/health` endpoint and UI banners.【F:app.py†L877-L1132】
 - A separate vehicle logger captures the full TransLoc payload every few seconds, deduplicates stationary snapshots, annotates block assignments, writes hourly JSONL files, and prunes data beyond the configured retention window.【F:app.py†L1133-L1214】
 - Mileage is accumulated per vehicle per service day (based on America/New_York), carrying the previous day’s odometer forward, recording block history, and exposing reset controls to service crew tools.【F:app.py†L733-L872】【F:app.py†L1564-L1608】
 
@@ -40,10 +40,6 @@ UTS Headway Guard is a full real-time operations platform for the University Tra
 - `GET /v1/roster/vehicles` — deduplicated list of unit numbers encountered in the feed for driver dropdowns.【F:app.py†L1274-L1280】
 - `GET /v1/vehicles` — on-demand proxy to TransLoc returning vehicles with optional stale/unassigned filtering for kiosk displays.【F:app.py†L1282-L1312】
 - `GET /v1/routes/{route_id}/vehicles_raw` — detailed telemetry (position, EMA, segment speed limit, roadway name, direction) for every vehicle assigned to a route.【F:app.py†L1314-L1354】
-- `GET /v1/routes/{route_id}/status` — structured headway guidance objects (status color, countdown, leader, gap label) consumed by driver and dispatcher UIs.【F:app.py†L1388-L1399】
-- `GET /v1/routes/{route_id}/debug` — merges guidance with raw telemetry for troubleshooting speed limits, projections, and headings.【F:app.py†L1401-L1427】
-- `GET /v1/routes/{route_id}/vehicles/{vehicle_name}/instruction` — human-readable instruction card for a specific coach (handles inactive selections gracefully).【F:app.py†L1429-L1456】
-- `GET /v1/stream/routes/{route_id}` — Server-Sent Events stream that pushes fresh guidance lists on every polling cycle.【F:app.py†L1458-L1473】
 
 ### Dispatch utilities
 - `GET /v1/dispatch/blocks` — aggregates block group schedules, plain-language block assignments, route colors, and route assignment by bus, cached between polls so tables render instantly.【F:app.py†L1743-L1773】
@@ -80,11 +76,10 @@ The driver view walks operators through selecting their unit and route, then sho
 - Periodic health checks and light/dark theme toggle for night operations.【F:driver.html†L1-L414】
 
 ### Dispatcher operations board
-Dispatchers receive a split-screen headway dashboard and live map:
-- SSE-driven table listing each bus, block assignment, order, leader, and countdown, including an “only bus” banner when headway control is inactive.
-- Side-by-side comparison with TransLoc’s anti-bunching feed.
-- Block roster panels (current and future), alias expansion, automatic highlighting of extra buses, and mileage-aware sorting.
-- Route selector that prioritizes active lines, status banners tied to health checks, and an embedded `/map` iframe.【F:dispatcher.html†L1-L430】
+Dispatchers receive a split-screen operations dashboard and live map:
+- Block roster panels (current and future) with alias expansion, automatic highlighting of extra buses, and mileage-aware sorting.
+- Extra- and downed-bus panels fed from shared spreadsheets so fleet availability is always up to date.
+- Health-check driven status banner plus an embedded `/map` iframe for geographic context.【F:dispatcher.html†L1-L430】
 
 ### Live map suite
 `/map`, `/madmap`, and `/metromap` power day-to-day UVA operations while `/testmap` and `/testmap-minimal` expose an experimental control panel for advanced monitoring:
@@ -119,7 +114,7 @@ The Red/Blue line dashboard downloads APC entries for a selected day, aggregates
 `/buses` lists every vehicle with its current block, roadway segment, posted speed limit, actual speed (highlighting speeding coaches), and stale data shading, alongside a live map for context.【F:buses.html†L1-L132】
 
 ### Debug and monitoring utilities
-- `/debug` shows per-route guidance merged with raw telemetry for engineering analysis, plus an embedded live map.【F:debug.html†L1-L102】
+- `/debug` now focuses on the embedded live map and route list; anti-bunching debug tables have been retired.【F:debug.html†L1-L102】
 - `/apicalls` subscribes to the API call SSE feed to audit outbound HTTP traffic in real time.【F:apicalls.html†L1-L38】
 - `/transloc_ticker` renders a configurable alert ticker suitable for broadcast overlays, honoring URL parameters for duration, colors, and visibility.【F:transloc_ticker.html†L1-L200】
 
@@ -145,7 +140,7 @@ The Red/Blue line dashboard downloads APC entries for a selected day, aggregates
 ## Configuration and environment variables
 Key tunables may be provided via environment variables or edited live through `/admin`:
 - **TransLoc / Overpass**: `TRANSLOC_BASE`, `TRANSLOC_KEY`, `OVERPASS_EP`.
-- **Polling & headway**: `VEH_REFRESH_S`, `ROUTE_REFRESH_S`, `BLOCK_REFRESH_S`, `STALE_FIX_S`, `ROUTE_GRACE_S`, `URBAN_FACTOR`, `GREEN_FRAC`, `RED_FRAC`, `ONTARGET_TOL_SEC`, `W_LIMIT`, `EMA_ALPHA`, `MIN_SPEED_FLOOR`, `MAX_SPEED_CEIL`, `LEADER_EPS_M`.
+- **Polling & headway**: `VEH_REFRESH_S`, `ROUTE_REFRESH_S`, `BLOCK_REFRESH_S`, `STALE_FIX_S`, `ROUTE_GRACE_S`, `EMA_ALPHA`, `MIN_SPEED_FLOOR`, `MAX_SPEED_CEIL`.
 - **Safety**: `DEFAULT_CAP_MPS`, `BRIDGE_LAT`, `BRIDGE_LON`, `LOW_CLEARANCE_SEARCH_M`, `LOW_CLEARANCE_LIMIT_FT`, `BRIDGE_IGNORE_RADIUS_M`, `OVERHEIGHT_BUSES`, `LOW_CLEARANCE_RADIUS`, `BRIDGE_RADIUS`, `ALL_BUSES`.
 - **Data directories**: `DATA_DIRS`, `VEH_LOG_DIRS`, `VEH_LOG_DIR`, `VEH_LOG_INTERVAL_S`, `VEH_LOG_RETENTION_MS`, `VEH_LOG_MIN_MOVE_M`.
 - **Sync & secrets**: `SYNC_PEERS`, `SYNC_SECRET`.
