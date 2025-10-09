@@ -190,8 +190,8 @@ body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel #downed-table tb
 .blocks-grid{display:flex;flex-direction:column;gap:8px}
 .blocks-grid-status{font-size:14px;color:#9fb0c9}
 .blocks-grid-status[hidden]{display:none}
-.blocks-grid-table{--grid-columns:4;display:grid;grid-template-columns:repeat(var(--grid-columns),minmax(0,1fr));gap:6px}
-.blocks-grid .cell{background:var(--cell-bg,#10151c);border:1px solid var(--cell-border,#1f2630);border-radius:10px;padding:10px;min-height:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;transition:background-color .2s ease,border-color .2s ease,color .2s ease}
+.blocks-grid-table{--grid-columns:4;display:grid;grid-template-columns:repeat(var(--grid-columns),minmax(0,1fr));gap:4px}
+.blocks-grid .cell{background:var(--cell-bg,#10151c);border:1px solid var(--cell-border,#1f2630);border-radius:10px;padding:8px;min-height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:6px;transition:background-color .2s ease,border-color .2s ease,color .2s ease}
 .blocks-grid .cell[data-empty="true"]{background:#0f141c;border-color:#1b232d;color:#6f7d92}
 .blocks-grid .cell .block-label{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--label-color,#9fb0c9)}
 .blocks-grid .cell .bus{font-size:24px;font-weight:600;letter-spacing:.08em;color:var(--cell-text,#e8eef5)}
@@ -202,7 +202,7 @@ body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel #downed-table tb
 #blocks-grid .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
 #blocks-grid .cell .mono{font-size:12px;letter-spacing:.08em}
 #blocks-grid .cell .mono+.drivers{margin-top:2px}
-#blocks-grid .cell .drivers .driver-line{white-space:nowrap}
+#blocks-grid .cell .drivers .driver-line{white-space:normal;word-break:keep-all}
 #blocks-grid .cell .status{font-size:12px;color:#9fb0c9}
 #extra-buses{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(10ch,1fr));gap:4px}
 .panel-body{position:relative}
