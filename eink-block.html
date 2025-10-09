@@ -475,6 +475,68 @@
     return [];
   }
 
+  const DAY_IN_MS=24*60*60*1000;
+
+  function normalizeDriverTimestampToMs(value){
+    if(value==null) return null;
+    const numeric=Number(value);
+    if(!Number.isFinite(numeric)) return null;
+    if(Math.abs(numeric)<1e12){
+      return numeric*1000;
+    }
+    return numeric;
+  }
+
+  function isDriverActiveNow(driver,nowMs){
+    if(!driver) return false;
+    const startMs=normalizeDriverTimestampToMs(driver.startTs);
+    const endMs=normalizeDriverTimestampToMs(driver.endTs);
+    if(startMs==null && endMs==null){
+      return true;
+    }
+    let current=nowMs;
+    if(startMs!=null && endMs!=null){
+      let start=startMs;
+      let end=endMs;
+      if(end<start){
+        end+=DAY_IN_MS;
+        if(current<start){
+          current+=DAY_IN_MS;
+        }
+      }
+      return current>=start && current<=end;
+    }
+    if(startMs!=null){
+      return current>=startMs;
+    }
+    if(endMs!=null){
+      return current<=endMs;
+    }
+    return false;
+  }
+
+  function findNextDriver(drivers,nowMs){
+    let nextDriver=null;
+    let nextStartMs=null;
+    for(const driver of drivers){
+      const startMs=normalizeDriverTimestampToMs(driver.startTs);
+      if(startMs==null) continue;
+      if(startMs<nowMs) continue;
+      if(nextStartMs==null || startMs<nextStartMs){
+        nextDriver=driver;
+        nextStartMs=startMs;
+      }
+    }
+    return {driver:nextDriver,startMs:nextStartMs};
+  }
+
+  function getDriverStartLabel(driver){
+    if(!driver) return '';
+    const label=typeof driver.startLabel==='string'?driver.startLabel.trim():'';
+    if(label) return label;
+    return formatDriverTimeLabel('',driver.startTs);
+  }
+
   function renderDriverLines(container,drivers){
     if(!container) return;
     if(!showDrivers || driverAssignmentsDisabled){
@@ -487,6 +549,30 @@
       container.innerHTML='';
       container.hidden=true;
       return;
+    }
+    const nowMs=Date.now();
+    const hasActive=items.some(item=>isDriverActiveNow(item,nowMs));
+    if(!hasActive){
+      const {driver:nextDriver}=findNextDriver(items,nowMs);
+      if(nextDriver){
+        const lines=[];
+        const nextLabel=getDriverStartLabel(nextDriver);
+        lines.push(`Next: ${nextDriver.name}${nextLabel?` ${nextLabel}`:''}`);
+        for(const driver of items){
+          if(driver===nextDriver) continue;
+          const startLabel=getDriverStartLabel(driver);
+          lines.push(`${driver.name}${startLabel?` ${startLabel}`:''}`);
+        }
+        container.innerHTML='';
+        for(const text of lines){
+          const line=document.createElement('div');
+          line.className='driver-line';
+          line.textContent=text;
+          container.appendChild(line);
+        }
+        container.hidden=false;
+        return;
+      }
     }
     container.innerHTML='';
     const includeLabels=items.length>1;
