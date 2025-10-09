@@ -157,7 +157,7 @@
   #grid-view .grid-table{
     --grid-columns:4;
     display:grid;
-    grid-template-columns:repeat(var(--grid-columns),1fr);
+    grid-template-columns:repeat(var(--grid-columns),var(--grid-column-width,1fr));
     grid-template-rows:repeat(9,minmax(48px,1fr));
     width:100%;
   }
@@ -286,6 +286,7 @@
   let gridStatusEl=null;
   let gridStatusTimer=null;
   let saveSequence=0;
+  let columnWidthSyncHandle=null;
 
   const createEmptyCell=()=>({value:'',display:''});
 
@@ -318,6 +319,52 @@
   };
 
   const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>createEmptyCell());
+
+  function equalizeGridColumnWidths(){
+    if(!isGridMode) return;
+    const gridTable=gridView.querySelector('.grid-table');
+    if(!gridTable) return;
+    const columnCount=Array.isArray(layout)?layout.length:0;
+    if(!columnCount) return;
+    const previousWidth=gridTable.style.getPropertyValue('--grid-column-width');
+    gridTable.style.setProperty('--grid-column-width','max-content');
+    gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
+    void gridTable.offsetWidth;
+    const columnWidths=new Array(columnCount).fill(0);
+    const cells=gridTable.querySelectorAll('.cell');
+    for(const cell of cells){
+      const col=Number(cell.dataset.col);
+      if(!Number.isFinite(col) || col<0 || col>=columnCount) continue;
+      const width=cell.getBoundingClientRect().width;
+      if(width>columnWidths[col]){
+        columnWidths[col]=width;
+      }
+    }
+    const widest=columnWidths.reduce((max,value)=>value>max?value:max,0);
+    if(widest>0){
+      const widthValue=`${Math.ceil(widest)}px`;
+      gridTable.style.setProperty('--grid-column-width',widthValue);
+      gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
+    }else{
+      if(previousWidth){
+        gridTable.style.setProperty('--grid-column-width',previousWidth);
+      }else{
+        gridTable.style.removeProperty('--grid-column-width');
+      }
+      gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width,1fr))`;
+    }
+  }
+
+  function scheduleColumnWidthSync(){
+    if(!isGridMode) return;
+    if(columnWidthSyncHandle!=null){
+      cancelAnimationFrame(columnWidthSyncHandle);
+    }
+    columnWidthSyncHandle=requestAnimationFrame(()=>{
+      columnWidthSyncHandle=null;
+      equalizeGridColumnWidths();
+    });
+  }
 
   const normalizeColumn=(column,fallback)=>{
     const result=createBlankColumn();
@@ -846,7 +893,8 @@
     const rows=ROW_COUNT;
     const columnCount=Math.max(layout.length,1);
     gridTable.style.setProperty('--grid-columns',String(columnCount));
-    gridTable.style.gridTemplateColumns=`repeat(${columnCount},1fr)`;
+    gridTable.style.setProperty('--grid-column-width','1fr');
+    gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
     for(let row=0;row<rows;row++){
       for(let col=0;col<layout.length;col++){
         const column=layout[col]||[];
@@ -903,6 +951,7 @@
         gridTable.appendChild(cell);
       }
     }
+    scheduleColumnWidthSync();
   }
 
   if(isGridMode){
@@ -1424,6 +1473,7 @@
         renderDriverLines(driverContainer,driverList);
       }
     }
+    scheduleColumnWidthSync();
   }
 
   async function refresh(){
