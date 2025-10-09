@@ -59,7 +59,7 @@ body.kiosk-mode #extra-buses li{display:flex;align-items:center;justify-content:
 body.kiosk-mode #downed-table th,body.kiosk-mode #downed-table td{width:50%}
 body.kiosk-mode #downed-table tbody tr{height:auto}
 body.kiosk-mode #downed-table tbody td{padding:var(--kiosk-entry-padding) calc(var(--kiosk-entry-padding)*1.5);line-height:1.1}
-body.kiosk-mode iframe#map-frame{flex:1.1;border-left:1px solid #1f2630}
+body.kiosk-mode iframe#map-frame{flex:1;border-left:1px solid #1f2630}
 body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 body.cyberpunk.kiosk-mode #layout aside .panel{background:rgba(3,18,28,.92);border-color:rgba(117,247,255,.35);box-shadow:0 0 18px rgba(0,255,255,.18)}
 body.cyberpunk.kiosk-mode #layout aside .panel h2{color:#ff80ff}
@@ -201,7 +201,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 @keyframes fadeInUp{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
  </style>
 <body>
-<div id="left" style="flex:2;position:relative">
+<div id="left" style="flex:1;position:relative">
 <header>
   <h1 style="font-size:18px;margin:0">Dispatch - Headway Guard</h1>
   <div id="controls">
@@ -209,10 +209,6 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
   </div>
 </header>
 <div id="layout">
-  <main style="flex:1;padding:0 12px 16px">
-    <h2>Operations Overview</h2>
-    <p class="hint">Anti-bunching guidance now comes directly from TransLoc. Use the panels on the right for block assignments, extra buses, and downed bus status.</p>
-  </main>
   <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
     <section class="panel">
       <h2>Current Block Assignments</h2>
