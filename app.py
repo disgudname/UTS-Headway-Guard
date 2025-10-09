@@ -2102,7 +2102,7 @@ async def _fetch_w2w_assignments():
     url = httpx.URL(W2W_ASSIGNED_SHIFT_URL)
     async with httpx.AsyncClient() as client:
         response = await client.get(url, params=params, timeout=20)
-    log_url = str(url.copy_add_params({**params, "key": "***"}))
+    log_url = str(httpx.URL(str(url), params={**params, "key": "***"}))
     record_api_call("GET", log_url, response.status_code)
     response.raise_for_status()
     payload = response.json()
