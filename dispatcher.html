@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
+@font-face{font-family:'Antonio';src:url('ANTONIO.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 :root{--route-color:#2a3442}
 body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative}
 #left{overflow:auto}
@@ -68,6 +69,75 @@ body.cyberpunk.kiosk-mode #layout aside .panel h2{color:#ff80ff}
   #layout aside{border-left:none !important;border-top:1px solid #1f2630}
 }
 .credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
+
+body.lcars{background:#0C0C12;color:#E0E0E0;font-family:'Antonio','FGDC',system-ui;letter-spacing:.08em;text-transform:uppercase;gap:32px;padding:32px;align-items:stretch;transition:background-color .5s ease,color .5s ease}
+body.lcars *{font-family:'Antonio','FGDC',system-ui;letter-spacing:.08em;text-transform:inherit}
+body.lcars #left,body.lcars iframe#map-frame{position:relative;z-index:1}
+body.lcars #left{background:#0C0C12;border:4px solid #66CCCC;border-radius:40px;padding:0 0 56px 0;overflow:hidden;transition:border-color .45s ease}
+body.lcars #left::before{content:"";position:absolute;top:120px;left:0;width:26px;height:calc(100% - 200px);background:#66CCCC;border-radius:0 22px 22px 0;pointer-events:none}
+body.lcars #left::after{content:"";position:absolute;top:40px;right:-110px;width:320px;height:220px;background:#CC6699;border-radius:160px 0 0 160px;transform:rotate(-6deg);pointer-events:none}
+body.lcars header{background:#0C0C12;padding:32px 48px 20px;border-bottom:none;position:relative;margin:0 0 24px;align-items:flex-end;gap:28px;transition:background-color .45s ease,color .45s ease}
+body.lcars header::before{content:"";position:absolute;left:0;top:18px;bottom:-36px;width:150px;background:#FF9966;border-radius:0 36px 36px 0;pointer-events:none}
+body.lcars header::after{content:"";position:absolute;left:150px;right:120px;bottom:-36px;height:28px;background:#FFCC66;border-radius:0 0 32px 32px;pointer-events:none}
+body.lcars header h1{font-size:30px!important;margin:0!important;color:#E0E0E0;padding-left:180px;position:relative;z-index:1;letter-spacing:.16em;line-height:1.1}
+body.lcars #controls{margin-left:auto;position:static;padding-right:0;display:flex;flex-wrap:wrap;gap:18px;justify-content:flex-end;z-index:1}
+body.lcars #controls label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#FFCC66}
+body.lcars #controls select{order:2}
+body.lcars select{background:#0C0C12;color:#E0E0E0;border:3px solid #FF9966;border-radius:28px;padding:12px 18px;letter-spacing:.08em;text-transform:uppercase;transition:border-color .4s ease,color .4s ease,background-color .4s ease}
+body.lcars select:focus{outline:none;border-color:#FFCC66}
+body.lcars option{background:#0C0C12;color:#E0E0E0}
+body.lcars #layout{padding:0 48px 36px;gap:32px}
+body.lcars aside{padding:0 28px 28px 28px!important;border-left:none!important;display:grid;gap:28px}
+body.lcars .panel{background:#0C0C12;border:3px solid #66CCCC;border-radius:36px;padding-top:20px;overflow:hidden;position:relative;transition:transform .5s ease,border-color .5s ease}
+body.lcars .panel::before{content:"";position:absolute;top:0;left:0;right:0;height:18px;background:#FF9966;pointer-events:none}
+body.lcars .panel::after{content:"";position:absolute;bottom:0;right:0;width:32%;height:16px;background:#CC6699;border-radius:16px 0 0 0;pointer-events:none}
+body.lcars .panel:hover{transform:translateX(6px)}
+body.lcars h2{margin:0;padding:26px 32px 0;font-size:16px;letter-spacing:.14em;color:#FFCC66}
+body.lcars .panel-body{padding:20px 32px 28px}
+body.lcars table{border-collapse:separate;border-spacing:0;width:100%}
+body.lcars th,body.lcars td{border-bottom:1px solid #66CCCC;padding:10px 0;text-align:left;color:#E0E0E0}
+body.lcars th{font-size:12px;color:#FFCC66}
+body.lcars tbody tr:last-child td{border-bottom:none}
+body.lcars tbody tr{transition:background-color .45s ease,transform .45s ease}
+body.lcars tbody tr:hover{background:rgba(255,204,102,.16);transform:translateX(4px)}
+body.lcars #blocks td .cell,body.lcars #future-blocks td .cell{border-radius:20px;padding:10px 0;min-height:3.1em;max-height:3.1em}
+body.lcars #extra-buses{gap:12px}
+body.lcars #extra-buses li{background:#0C0C12;border:3px solid #FF9966;border-radius:30px;padding:12px 10px;color:#E0E0E0;transition:border-color .45s ease,transform .45s ease}
+body.lcars #extra-buses li:hover{transform:translateY(-2px);border-color:#FFCC66}
+body.lcars .hint{color:#B3A6C9}
+body.lcars .pill{background:#CC6699;border:3px solid #FF9966;color:#0C0C12;border-radius:32px;padding:6px 14px}
+body.lcars .pill .dot{background:#FFCC66}
+body.lcars .ok{color:#FFCC66}
+body.lcars .ok .dot{background:#FFCC66}
+body.lcars .warn{color:#FF9966}
+body.lcars .warn .dot{background:#FF9966}
+body.lcars .bad{color:#FF3300}
+body.lcars .bad .dot{background:#FF3300}
+body.lcars .banner{position:static;border-radius:28px;padding:10px 18px;border:none}
+body.lcars .banner.info{background:#66CCCC;color:#0C0C12}
+body.lcars .banner.error{background:#FF3300;color:#0C0C12}
+body.lcars iframe#map-frame{border:none!important;border-left:none!important;border-radius:40px!important;border:4px solid #FF9966!important;height:100%;margin:0;transition:border-color .45s ease}
+body.lcars .credit{right:48px;color:#B3A6C9;letter-spacing:.14em}
+body.lcars .mono{font-family:'Antonio','FGDC',system-ui}
+body.lcars .lcars-overlay{position:fixed;inset:0;pointer-events:none;z-index:0}
+body.lcars .lcars-rail{position:absolute;display:flex;transition:opacity .5s ease}
+body.lcars .lcars-rail-left{left:36px;top:140px;bottom:90px;flex-direction:column;gap:18px}
+body.lcars .lcars-node{display:block;width:160px;border-radius:0 44px 44px 0;height:58px}
+body.lcars .lcars-node.primary{background:#FF9966}
+body.lcars .lcars-node.secondary{background:#CC6699;height:72px}
+body.lcars .lcars-node.highlight{background:#FFCC66;height:40px;margin-top:auto;border-radius:0 40px 40px 0}
+body.lcars .lcars-rail-top{top:36px;right:56px;flex-direction:row;gap:18px;align-items:flex-end}
+body.lcars .lcars-strip{display:block;height:34px;border-radius:34px;opacity:.55;transition:opacity .5s ease,transform .5s ease}
+body.lcars .lcars-strip.primary{background:#FF9966;width:220px}
+body.lcars .lcars-strip.secondary{background:#CC6699;width:160px}
+body.lcars .lcars-strip.highlight{background:#FFCC66;width:120px;height:26px}
+body.lcars .lcars-strip.alert{background:#FF3300;width:72px;height:20px}
+body.lcars .lcars-strip.is-active{opacity:1;transform:translateY(-6px)}
+body.lcars .lcars-rail-top::after{content:"";display:block;width:46px;height:180px;background:#66CCCC;border-radius:46px 46px 0 46px;pointer-events:none}
+body.lcars .lcars-swoop{position:absolute;right:-60px;bottom:-80px;width:420px;height:320px;background:#CC6699;border-radius:60% 0 0 60%;transform:rotate(-12deg);opacity:.35;pointer-events:none}
+body.lcars.kiosk-mode #layout{padding:0 28px 32px}
+body.lcars.kiosk-mode aside{grid-template-columns:repeat(auto-fit,minmax(260px,1fr));grid-auto-rows:minmax(0,1fr)}
+body.lcars.kiosk-mode .panel{height:100%}
 
 body.cyberpunk{background:radial-gradient(circle at 20% 20%,rgba(0,255,255,.18),transparent 55%),radial-gradient(circle at 80% 35%,rgba(255,0,183,.18),transparent 60%),#02010a;color:#d9fbff;text-shadow:0 0 12px rgba(0,255,255,.35);position:relative;overflow:hidden;font-family:'Courier Prime','Fira Code','Source Code Pro','IBM Plex Mono','Lucida Console','Courier New',monospace}
 body.cyberpunk::before{content:"";position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,255,255,.04)0,rgba(0,255,255,.04)2px,transparent 2px,transparent 4px);mix-blend-mode:screen;pointer-events:none;animation:scanlines 8s linear infinite}
@@ -258,13 +328,16 @@ const SHOP_STATUS_VALUES = new Set(['DOWN','UP','USABLE']);
 const STATUS_LABELS = {DOWNED:'Downed',LIMITED:'Limited',COSMETIC:'Cosmetic',COMFORT:'Comfort',DOWN:'Down',UP:'Up',USABLE:'Usable'};
 
 const urlParams = new URLSearchParams(window.location.search);
-const CYBERPUNK_ENABLED = urlParams.get('cyberpunk') === 'true';
+const LCARS_ENABLED = urlParams.get('lcars') === 'true';
+const CYBERPUNK_ENABLED = !LCARS_ENABLED && urlParams.get('cyberpunk') === 'true';
 const KIOSK_MODE = urlParams.has('kioskMode');
 const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
 if (KIOSK_MODE) {
   document.body.classList.add('kiosk-mode');
 }
-if (CYBERPUNK_ENABLED) {
+if (LCARS_ENABLED) {
+  activateLcarsMode();
+} else if (CYBERPUNK_ENABLED) {
   const mapFrame = document.getElementById('map-frame');
   if (mapFrame) {
     const url = new URL(mapFrame.getAttribute('src'), window.location.origin);
@@ -456,6 +529,39 @@ function runCyberpunkBootSequence(){
       if(!finished) startFade();
     });
   });
+}
+
+function activateLcarsMode(){
+  document.body.classList.add('lcars');
+  document.documentElement.style.setProperty('color-scheme','dark');
+
+  const overlay=document.createElement('div');
+  overlay.className='lcars-overlay';
+  overlay.innerHTML=`
+    <div class="lcars-rail lcars-rail-left">
+      <span class="lcars-node primary"></span>
+      <span class="lcars-node secondary"></span>
+      <span class="lcars-node highlight"></span>
+    </div>
+    <div class="lcars-rail lcars-rail-top">
+      <span class="lcars-strip primary"></span>
+      <span class="lcars-strip highlight"></span>
+      <span class="lcars-strip secondary"></span>
+      <span class="lcars-strip alert"></span>
+    </div>
+    <div class="lcars-swoop" aria-hidden="true"></div>`;
+  document.body.appendChild(overlay);
+
+  const strips=overlay.querySelectorAll('.lcars-strip');
+  const prefersReduced=window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(strips.length && !prefersReduced){
+    let activeIndex=0;
+    strips.forEach((strip,index)=>strip.classList.toggle('is-active',index===activeIndex));
+    setInterval(()=>{
+      activeIndex=(activeIndex+1)%strips.length;
+      strips.forEach((strip,index)=>strip.classList.toggle('is-active',index===activeIndex));
+    },4200);
+  }
 }
 
 function activateCyberpunkMode(){
