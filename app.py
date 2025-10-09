@@ -2117,7 +2117,11 @@ async def dispatch_block_drivers():
         raise
     except Exception as exc:
         print(f"[block_drivers] fetch failed: {exc}")
-        raise HTTPException(status_code=502, detail="driver assignments unavailable") from exc
+        detail = {
+            "message": "driver assignments unavailable",
+            "reason": str(exc),
+        }
+        raise HTTPException(status_code=502, detail=detail) from exc
 
 
 @app.get("/v1/dispatch/blocks")
