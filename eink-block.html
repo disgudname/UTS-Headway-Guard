@@ -272,6 +272,8 @@
     return text;
   };
 
+  const AM_PM_BLOCKS=new Set(['20','21','22','23','24','25','26']);
+
   const defaultColumns=[
     ['01','02','03','04','05','06','07','08','09'],
     ['10','11','12','13','14','15','16AM','17','18AM'],
@@ -449,14 +451,16 @@
     return result;
   }
 
+  const supportsAmPmBlock=blockNumber=>AM_PM_BLOCKS.has(String(blockNumber||'').padStart(2,'0'));
+
   function selectDriversForBlock(blockNumber,periodSuffix){
     if(!blockNumber) return [];
     const normalizedBlock=String(blockNumber).padStart(2,'0');
+    const normalizedPeriod=supportsAmPmBlock(normalizedBlock)?String(periodSuffix||'').toLowerCase():'';
     const entry=driverAssignmentsByBlock[normalizedBlock]
       || driverAssignmentsByBlock[String(blockNumber)]
       || null;
     if(!entry || typeof entry!=='object') return [];
-    const normalizedPeriod=String(periodSuffix||'').toLowerCase();
     if(normalizedPeriod){
       const specific=entry[normalizedPeriod];
       if(Array.isArray(specific) && specific.length) return specific;
@@ -909,8 +913,10 @@
     const blockMatch=normalizedBlock.match(/^(\d{2})(AM|PM)?$/);
     if(blockMatch){
       block=blockMatch[1];
-      if(blockMatch[2]) blockPeriod=blockMatch[2].toLowerCase();
-      const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
+      const supportsPeriods=supportsAmPmBlock(block);
+      blockPeriod=(blockMatch[2] && supportsPeriods)?blockMatch[2].toLowerCase():'';
+      const urlPeriod=(periodParam==='am'||periodParam==='pm')?periodParam:'';
+      const periodSuffix=supportsPeriods?(blockPeriod||urlPeriod):'';
       selectedBlockNumber=blockMatch[1];
       selectedBlockId=normalizedBlock;
       const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
@@ -1054,11 +1060,16 @@
 
     if(periodLabel){
       for(const num of blockNumbers){
-        blockPeriods[num]=periodLabel;
+        if(supportsAmPmBlock(num)){
+          blockPeriods[num]=periodLabel;
+        }
       }
     }else if(blockNumbers.length===2){
-      blockPeriods[blockNumbers[0]]='am';
-      blockPeriods[blockNumbers[1]]='pm';
+      const [first,second]=blockNumbers;
+      if(supportsAmPmBlock(first) && supportsAmPmBlock(second)){
+        blockPeriods[first]='am';
+        blockPeriods[second]='pm';
+      }
     }
 
     let bus='—';
@@ -1194,6 +1205,7 @@
         if(periodInId){
           const label=periodInId[1].toLowerCase();
           for(const num of blockInfoNumbers){
+            if(!supportsAmPmBlock(num)) continue;
             periodsForBlock[num]=label;
             if(!blockPeriods[num]){
               blockPeriods[num]=label;
