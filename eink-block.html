@@ -1200,6 +1200,8 @@
     let maxEnd=null;
     let amMinutes=0;
     let pmMinutes=0;
+    const blockPeriodMinutes=new Map();
+    const perNumberMinutes=new Map();
     for(const block of blocks){
       const ranges=collectRanges(block);
       for(const range of ranges){
@@ -1209,6 +1211,13 @@
           const contribution=calculatePeriodMinutes(start,end);
           amMinutes+=contribution.am;
           pmMinutes+=contribution.pm;
+          let totals=blockPeriodMinutes.get(block);
+          if(!totals){
+            totals={am:0,pm:0};
+            blockPeriodMinutes.set(block,totals);
+          }
+          totals.am+=contribution.am;
+          totals.pm+=contribution.pm;
         }
         if(start!=null){
           if(minStart==null || start<minStart) minStart=start;
@@ -1292,6 +1301,20 @@
         }
       }
 
+      const coverageNumbers=blockInfoNumbers.filter(num=>supportsAmPmBlock(num));
+      const blockTotals=blockPeriodMinutes.get(block);
+      if(blockTotals && coverageNumbers.length){
+        for(const num of coverageNumbers){
+          let totals=perNumberMinutes.get(num);
+          if(!totals){
+            totals={am:0,pm:0};
+            perNumberMinutes.set(num,totals);
+          }
+          totals.am+=blockTotals.am;
+          totals.pm+=blockTotals.pm;
+        }
+      }
+
       let blockBus='—';
       const blockVehicleName=cleanBusIdentifier(block.VehicleName);
       if(blockVehicleName){
@@ -1337,31 +1360,43 @@
       }
     }
 
-    const coverageLabel=coversAm && coversPm ? 'any' : coversAm ? 'am' : coversPm ? 'pm' : '';
-    if(coverageLabel){
-      for(const num of blockNumbers){
-        if(!supportsAmPmBlock(num)) continue;
+    if(perNumberMinutes.size){
+      const applyCoverageLabel=(num,label)=>{
+        if(!label || !supportsAmPmBlock(num)) return;
         const current=blockPeriods[num];
         if(!current){
-          blockPeriods[num]=coverageLabel;
-        }else if(current!==coverageLabel && current!=='any'){
+          blockPeriods[num]=label;
+        }else if(current!==label && current!=='any'){
           blockPeriods[num]='any';
         }
-      }
-      if(blockIdLookup.size){
+        if(!blockIdLookup.size) return;
         for(const info of blockIdLookup.values()){
           if(!info) continue;
-          const periods=info.periods || (info.periods=Object.create(null));
           const numbers=Array.isArray(info.numbers) && info.numbers.length?info.numbers:blockNumbers;
-          for(const num of numbers){
-            if(!supportsAmPmBlock(num)) continue;
-            const current=periods[num];
-            if(!current){
-              periods[num]=coverageLabel;
-            }else if(current!==coverageLabel && current!=='any'){
-              periods[num]='any';
-            }
+          if(!numbers.includes(num)) continue;
+          const periods=info.periods || (info.periods=Object.create(null));
+          const assigned=periods[num];
+          if(!assigned){
+            periods[num]=label;
+          }else if(assigned!==label && assigned!=='any'){
+            periods[num]='any';
           }
+        }
+      };
+
+      for(const [num,totals] of perNumberMinutes.entries()){
+        const am=totals.am||0;
+        const pm=totals.pm||0;
+        let label='';
+        if(am>0 && pm>0){
+          label='any';
+        }else if(am>0){
+          label='am';
+        }else if(pm>0){
+          label='pm';
+        }
+        if(label){
+          applyCoverageLabel(num,label);
         }
       }
     }
