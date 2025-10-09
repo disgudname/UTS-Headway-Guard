@@ -317,13 +317,14 @@ async function tick(){
     const vehicleTs=parseTranslocDate(vehicle.TimeStampUTC)||parseTranslocDate(routeEntry.TimeStampUTC);
     const box=$('#instruction');
     const cls=severity==='red'?'red':(severity==='yellow'?'yellow':'green');
+    const severityLabel=severity==='red'?'HOLD':(severity==='yellow'?'Slow Down':'OK');
     box.className=cls;
     if(adjustment!=null && adjustment>0){
       box.innerHTML=`HOLD<br><span style="font-size:32px">${fmt(adjustment)}</span>`;
     }else if(adjustment!=null && adjustment<0){
       box.innerHTML=`Proceed<br><span style="font-size:32px">${fmt(adjustment)}</span>`;
     }else{
-      box.textContent=severity==='green'?'Keep Moving':'Proceed';
+      box.textContent=severityLabel;
     }
     lastUpdateTs=vehicleTs?vehicleTs.getTime():Date.now();
     const detailLines=[
