@@ -1224,16 +1224,18 @@ function buildBlockGridEntry(group){
     }
   }
 
+  const coversAm=amMinutes>0;
+  const coversPm=pmMinutes>0;
+
   let inferredPeriod='';
   if(periodLabel){
     inferredPeriod=periodLabel;
-  }else if(amMinutes && !pmMinutes){
+  }else if(coversAm && !coversPm){
     inferredPeriod='am';
-  }else if(pmMinutes && !amMinutes){
+  }else if(coversPm && !coversAm){
     inferredPeriod='pm';
-  }else if(amMinutes || pmMinutes){
-    if(pmMinutes>amMinutes) inferredPeriod='pm';
-    else if(amMinutes>pmMinutes) inferredPeriod='am';
+  }else if(coversAm && coversPm){
+    inferredPeriod='any';
   }else if(minStart!=null && maxEnd!=null){
     let start=minStart;
     let end=maxEnd;
@@ -1332,6 +1334,35 @@ function buildBlockGridEntry(group){
     }
   }
 
+  const coverageLabel=coversAm && coversPm ? 'any' : coversAm ? 'am' : coversPm ? 'pm' : '';
+  if(coverageLabel){
+    for(const num of blockNumbers){
+      if(!supportsAmPmBlock(num)) continue;
+      const current=blockPeriods[num];
+      if(!current){
+        blockPeriods[num]=coverageLabel;
+      }else if(current!==coverageLabel && current!=='any'){
+        blockPeriods[num]='any';
+      }
+    }
+    if(blockIdLookup.size){
+      for(const info of blockIdLookup.values()){
+        if(!info) continue;
+        const periods=info.periods || (info.periods=Object.create(null));
+        const numbers=Array.isArray(info.numbers) && info.numbers.length?info.numbers:blockNumbers;
+        for(const num of numbers){
+          if(!supportsAmPmBlock(num)) continue;
+          const current=periods[num];
+          if(!current){
+            periods[num]=coverageLabel;
+          }else if(current!==coverageLabel && current!=='any'){
+            periods[num]='any';
+          }
+        }
+      }
+    }
+  }
+
   return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,minStart,maxEnd,blockIdLookup};
 }
 
@@ -1369,6 +1400,8 @@ function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
       const periods=entry.blockPeriods||null;
       if(!periods) return false;
       const assigned=periods[blockNumber];
+      if(!assigned) return false;
+      if(assigned==='any') return true;
       return assigned===normalizedPeriod;
     });
     if(normalizedPeriod && exactMatches.length){
@@ -1378,11 +1411,20 @@ function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
       const unspecified=matches.filter(entry=>{
         const periods=entry.blockPeriods||null;
         const assigned=periods?periods[blockNumber]:'';
-        if(assigned) return false;
+        if(assigned){
+          if(assigned==='any') return true;
+          return false;
+        }
         const explicit=(entry.period||'').toLowerCase();
-        if(explicit && explicit!==normalizedPeriod) return false;
+        if(explicit){
+          if(explicit==='any') return true;
+          if(explicit!==normalizedPeriod) return false;
+        }
         const inferred=(entry.inferredPeriod||'').toLowerCase();
-        if(inferred && inferred!==normalizedPeriod) return false;
+        if(inferred){
+          if(inferred==='any') return true;
+          if(inferred!==normalizedPeriod) return false;
+        }
         return true;
       });
       if(unspecified.length){
@@ -1396,17 +1438,25 @@ function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
   }else if(normalizedPeriod){
     const periodFiltered=matches.filter(entry=>{
       const explicit=(entry.period||'').toLowerCase();
+      if(explicit){
+        if(explicit==='any') return true;
+        return explicit===normalizedPeriod;
+      }
       const inferred=(entry.inferredPeriod||'').toLowerCase();
-      if(explicit) return explicit===normalizedPeriod;
-      if(inferred) return inferred===normalizedPeriod;
+      if(inferred){
+        if(inferred==='any') return true;
+        return inferred===normalizedPeriod;
+      }
       return true;
     });
     if(periodFiltered.length){
       filtered=periodFiltered;
       const hasPeriodInfo=periodFiltered.some(entry=>{
         const explicit=(entry.period||'').toLowerCase();
+        if(explicit && explicit!=='any') return true;
         const inferred=(entry.inferredPeriod||'').toLowerCase();
-        return explicit || inferred;
+        if(inferred && inferred!=='any') return true;
+        return false;
       });
       allowFallback=!hasPeriodInfo;
     }else{
