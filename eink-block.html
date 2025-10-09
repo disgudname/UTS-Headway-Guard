@@ -440,15 +440,19 @@
       return;
     }
     container.innerHTML='';
+    const includeLabels=items.length>1;
     for(let i=0;i<items.length;i++){
       const driver=items[i];
       const line=document.createElement('div');
       line.className='driver-line';
-      const primaryLabel=i===0?driver.endLabel:driver.startLabel;
-      const secondaryLabel=i===0?driver.startLabel:driver.endLabel;
-      const label=typeof primaryLabel==='string' && primaryLabel.trim()
-        ? primaryLabel.trim()
-        : (typeof secondaryLabel==='string'?secondaryLabel.trim():'');
+      let label='';
+      if(includeLabels){
+        const primaryLabel=i===0?driver.endLabel:driver.startLabel;
+        const secondaryLabel=i===0?driver.startLabel:driver.endLabel;
+        label=typeof primaryLabel==='string' && primaryLabel.trim()
+          ? primaryLabel.trim()
+          : (typeof secondaryLabel==='string'?secondaryLabel.trim():'');
+      }
       line.textContent=label?`${driver.name} ${label}`:driver.name;
       container.appendChild(line);
     }
