@@ -113,15 +113,19 @@ const academicTemplateBtn=document.getElementById('academicTemplateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
 
-const DEFAULT_ROUTE_COLOR=(()=>{
+function readCssVar(name,fallback){
   try{
-    const accent=getComputedStyle(document.documentElement).getPropertyValue('--accent');
-    const trimmed=(accent||'').trim();
-    return trimmed||'#4b85f2';
+    const value=getComputedStyle(document.documentElement).getPropertyValue(name);
+    const trimmed=(value||'').trim();
+    return trimmed||fallback;
   }catch(err){
-    return '#4b85f2';
+    return fallback;
   }
-})();
+}
+
+const INK_COLOR=readCssVar('--ink','#ffffff');
+const MUTED_COLOR=readCssVar('--muted','#9fb0c9');
+const DEFAULT_ROUTE_COLOR=readCssVar('--accent','#4b85f2');
 
 let routeTotalsChart=null;
 
@@ -840,13 +844,13 @@ function updateRouteTotalsChart(){
   }
   const context=routeTotalsChartCanvas.getContext('2d');
   const plugins={
-    legend:{labels:{color:'var(--ink)'}}
+    legend:{labels:{color:INK_COLOR}}
   };
   if(window.ChartDataLabels){
     plugins.datalabels={
       anchor:'end',
       align:'end',
-      color:'var(--ink)',
+      color:INK_COLOR,
       formatter:value=>value>0?value:'',
       clamp:true
     };
@@ -861,15 +865,15 @@ function updateRouteTotalsChart(){
       scales:{
         x:{
           stacked:false,
-          ticks:{color:'var(--ink)'},
-          title:{display:true,text:'Hour',color:'var(--muted)'}
+          ticks:{color:INK_COLOR},
+          title:{display:true,text:'Hour',color:MUTED_COLOR}
         },
         y:{
           beginAtZero:true,
           suggestedMax:maxY,
           grace:'10%',
-          ticks:{color:'var(--ink)'},
-          title:{display:true,text:'Passengers',color:'var(--muted)'},
+          ticks:{color:INK_COLOR},
+          title:{display:true,text:'Passengers',color:MUTED_COLOR},
           grid:{color:'rgba(159,176,201,0.15)'}
         }
       },
