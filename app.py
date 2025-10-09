@@ -77,6 +77,8 @@ W2W_TIME_RE = re.compile(
     r"^\s*(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([AP])?M?\s*$",
     re.IGNORECASE,
 )
+_W2W_KEY_QUERY_RE = re.compile(r"(?i)(key=)([^&'\"\s]+)")
+_W2W_KEY_ENCODED_RE = re.compile(r"(?i)(key%3D)([^&'\"\s]+)")
 TRAIN_TARGET_STATION_CODE = os.getenv("TRAIN_TARGET_STATION_CODE", "").strip().upper()
 
 VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "10"))
@@ -2076,6 +2078,13 @@ def _build_driver_assignments(
     return assignments
 
 
+def _redact_w2w_error(message: str) -> str:
+    if not message:
+        return message
+    redacted = _W2W_KEY_QUERY_RE.sub(r"\1***", message)
+    return _W2W_KEY_ENCODED_RE.sub(r"\1***", redacted)
+
+
 async def _fetch_w2w_assignments():
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
@@ -2119,7 +2128,7 @@ async def dispatch_block_drivers():
         print(f"[block_drivers] fetch failed: {exc}")
         detail = {
             "message": "driver assignments unavailable",
-            "reason": str(exc),
+            "reason": _redact_w2w_error(str(exc)),
         }
         raise HTTPException(status_code=502, detail=detail) from exc
 
