@@ -843,11 +843,11 @@ function updateRouteTotalsChart(){
     return;
   }
   const context=routeTotalsChartCanvas.getContext('2d');
-  const plugins={
+  const pluginOptions={
     legend:{labels:{color:INK_COLOR}}
   };
   if(window.ChartDataLabels){
-    plugins.datalabels={
+    pluginOptions.datalabels={
       anchor:'end',
       align:'end',
       color:INK_COLOR,
@@ -855,6 +855,17 @@ function updateRouteTotalsChart(){
       clamp:true
     };
   }
+  const whiteBackgroundPlugin={
+    id:'whiteBackground',
+    beforeDraw(chart){
+      const {ctx,canvas}=chart;
+      ctx.save();
+      ctx.globalCompositeOperation='destination-over';
+      ctx.fillStyle='#fff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.restore();
+    }
+  };
   routeTotalsChart=new Chart(context,{
     type:'bar',
     data:{labels,datasets},
@@ -877,9 +888,10 @@ function updateRouteTotalsChart(){
           grid:{color:'rgba(159,176,201,0.15)'}
         }
       },
-      plugins,
+      plugins:pluginOptions,
       interaction:{mode:'index',intersect:false}
-    }
+    },
+    plugins:[whiteBackgroundPlugin]
   });
   routeTotalsChartWrapper.style.display='block';
 }
