@@ -35,24 +35,9 @@ async function loadDebug(){
       const h=document.createElement('h3');
       h.textContent=`${r.name} (ID ${r.id})`;
       sect.appendChild(h);
-      try{
-        const resp=await fetch(`/v1/routes/${r.id}/debug`);
-        const vehs=await resp.json();
-        if(!vehs.length){
-          const p=document.createElement('p');p.textContent='No vehicles.';sect.appendChild(p);
-        }else{
-          const tbl=document.createElement('table');
-          tbl.innerHTML='<tr><th>Bus</th><th>Status</th><th>Headway</th><th>Target</th><th>Gap</th><th>Leader</th><th>s (m)</th><th>Lat</th><th>Lon</th><th>mph</th><th>Limit</th></tr>';
-          for(const v of vehs){
-            const mph=(v.ground_mps||0)*2.23694;
-            const lim=v.speed_limit_mph;
-            tbl.innerHTML+=`<tr><td>${v.name}</td><td>${v.status}</td><td>${v.headway_sec??'—'}</td><td>${v.target_headway_sec??'—'}</td><td>${v.gap_label||'—'}</td><td>${v.leader_name||'—'}</td><td>${v.s_pos?.toFixed(1)}</td><td>${v.lat?.toFixed(5)}</td><td>${v.lon?.toFixed(5)}</td><td>${mph.toFixed(1)}</td><td>${lim!=null?lim.toFixed(1):'—'}</td></tr>`;
-          }
-          sect.appendChild(tbl);
-        }
-      }catch(e){
-        const p=document.createElement('p');p.textContent='Error loading vehicles';sect.appendChild(p);
-      }
+      const p=document.createElement('p');
+      p.textContent='Anti-bunching debug data is no longer available.';
+      sect.appendChild(p);
       container.appendChild(sect);
     }
   }catch(e){

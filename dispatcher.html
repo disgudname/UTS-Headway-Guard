@@ -205,28 +205,13 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 <header>
   <h1 style="font-size:18px;margin:0">Dispatch - Headway Guard</h1>
   <div id="controls">
-    <label>Route: <select id="route"></select></label>
-    <span id="target" class="chip">Target —</span>
-    <span id="upd" class="chip">Updated — ago</span>
     <div id="banner" class="banner info"></div>
   </div>
 </header>
 <div id="layout">
   <main style="flex:1;padding:0 12px 16px">
-    <h2>Headway Guard AntiBunching</h2>
-    <table>
-      <thead><tr>
-        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
-      </tr></thead>
-      <tbody id="rows"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
-    </table>
-    <h2>TransLoc AntiBunching</h2>
-    <table>
-      <thead><tr>
-        <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
-      </tr></thead>
-      <tbody id="rows-tl"><tr><td class="hint" colspan="5">Loading…</td></tr></tbody>
-    </table>
+    <h2>Operations Overview</h2>
+    <p class="hint">Anti-bunching guidance now comes directly from TransLoc. Use the panels on the right for block assignments, extra buses, and downed bus status.</p>
   </main>
   <aside style="flex:1;padding:0 12px 16px;border-left:1px solid #1f2630">
     <section class="panel">
@@ -269,8 +254,6 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 <iframe src="/testmap?dispatcher=true" id="map-frame" style="flex:1;border-left:1px solid #1f2630;border:none;height:100%"></iframe>
 <script>
 const $ = s => document.querySelector(s);
-const fmt = s => { if (s==null || !isFinite(s)) return "—"; s = Math.round(s); return String(Math.floor(s/60)).padStart(2,'0')+":"+String(s%60).padStart(2,'0'); };
-const pill = st => { const m = {green:["OK","ok"],yellow:["Slow Down","warn"],red:["HOLD","bad"]}; const [t,c] = m[st] || ["OK","ok"]; return '<span class="pill '+c+'"><span class="dot"></span><span>'+t+'</span></span>'; };
 const DOWNED_ENDPOINT = '/v1/dispatcher/downed_buses';
 const DOWNED_REFRESH_MS = 60000;
 const DOWNED_SUFFIXES = new Set(['12','31','32']);
@@ -1136,13 +1119,7 @@ async function loadConfig(){
   }catch(e){}
 }
 
-let activeES=null, activeIV=null, activeTL=null, currentRid=null, sessionId=0, userLocked=false, busOrder=[], lastRows=[], lastTLRows=[], blockByBus=new Map(), allBlockByBus=new Map(), lastUpdateTs=Date.now();
-
-function updateLastUpdated(){
-  const secondsAgo = (Date.now() - lastUpdateTs) / 1000;
-  const updatedAgo = fmt(secondsAgo);
-  $('#upd').textContent = "Updated " + updatedAgo + " ago";
-}
+let blockByBus=new Map(), allBlockByBus=new Map();
 
 function updateExtraBuses(){
   const extra=$('#extra-buses');
@@ -1332,143 +1309,7 @@ async function loadBlocks(){
     tbody.innerHTML=renderTable(activeEntries,true);
     futureBody.innerHTML=renderTable(futureEntries,false);
     updateExtraBuses();
-    if(lastRows.length) render(lastRows);
-    if(lastTLRows.length) renderTL(lastTLRows);
   }catch(e){ $('#blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; $('#future-blocks').innerHTML='<tr><td class="hint" colspan="4">Error</td></tr>'; blockByBus=new Map(); allBlockByBus=new Map(); updateExtraBuses(); }
-}
-
-async function loadRoutes(){
-  const d = await j("/v1/routes");
-  const list = d.routes || [];
-  const active = list.filter(r => r.active_vehicles > 0).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  const inactive = list.filter(r => !r.active_vehicles).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  const sel = $('#route');
-  const prev = currentRid;
-  const combined = active.concat(inactive);
-  sel.innerHTML = combined.map(r => '<option value="' + r.id + '">' + (r.name || ("Route " + r.id)) + '</option>').join("");
-  if (prev) { sel.value = String(prev); }
-  if (!sel.value && combined.length) { sel.value = String(combined[0].id); }
-  if (!currentRid && sel.value) await start(sel.value);
-}
-
-function computeBusOrder(rows){
-  const names = rows.map(r=>r.name).filter(Boolean);
-  const followerOf=new Map();
-  for(const r of rows){
-    const leader=r.leader_name;
-    if(leader && names.includes(leader)) followerOf.set(r.name, leader);
-  }
-  const next=new Map();
-  for(const [f,l] of followerOf){ next.set(l,f); }
-  const starts=names.filter(n=>!followerOf.has(n) || !names.includes(followerOf.get(n)));
-  const order=[];
-  const seen=new Set();
-  for(const st of starts){
-    let cur=st;
-    while(cur && !seen.has(cur)){
-      order.push(cur);
-      seen.add(cur);
-      cur=next.get(cur);
-    }
-  }
-  for(const n of names) if(!seen.has(n)) order.push(n);
-  return order.length?order:names.slice().sort();
-}
-
-function render(rows){
-  lastRows=rows.slice();
-  const t=lastRows.find(x=>x.target_headway_sec!=null)?.target_headway_sec; $('#target').textContent="Target "+(t!=null?fmt(t):"—");
-  const ts = lastRows[0]?.updated_at ? (lastRows[0].updated_at * 1000) : Date.now();
-  lastUpdateTs = ts;
-  updateLastUpdated();
-  rows = rows.filter(r=>blockByBus.has(r.name));
-  const onlyBus = rows.length===1 && rows.every(x=>x.headway_sec==null || x.headway_sec===undefined);
-
-  if(!rows.length){ $('#rows').innerHTML='<tr><td class="hint" colspan="5">No vehicles.</td></tr>'; return; }
-
-  busOrder = computeBusOrder(rows);
-  const orderMap=new Map(busOrder.map((n,i)=>[n,i]));
-  rows = rows.slice().sort((a,b)=>{
-    const ia=orderMap.has(a.name)?orderMap.get(a.name):Infinity;
-    const ib=orderMap.has(b.name)?orderMap.get(b.name):Infinity;
-    if(ia!==ib) return ia-ib;
-    return String(a.name||'').localeCompare(String(b.name||''));
-  });
-
-  $('#rows').innerHTML=rows.map(v=>'<tr>'
-    +'<td class="mono">'+(v.name||"—")+'</td>'
-    +'<td class="mono">'+(blockByBus.get(v.name)||"—")+'</td>'
-    +'<td>'+ (onlyBus ? '<span class="pill ok"><span class="dot"></span><span>Only Bus</span></span>' : pill(v.status)) +'</td>'
-    +'<td class="mono">'+(v.leader_name||"—")+'</td>'
-    +'<td class="mono">'+(v.countdown_sec!=null?fmt(v.countdown_sec):"—")+'</td>'
-    +'</tr>').join("");
-  setBanner(onlyBus ? 'Only 1 vehicle on route — headway control inactive.' : '', 'info');
-  if(lastTLRows.length) renderTL(lastTLRows);
-}
-
-function renderTL(rows){
-  lastTLRows = rows.slice();
-  rows = rows.filter(r=>blockByBus.has(r.VehicleName));
-  if(!rows.length){ $('#rows-tl').innerHTML='<tr><td class="hint" colspan="5">No vehicles.</td></tr>'; return; }
-  const orderMap=new Map(busOrder.map((n,i)=>[n,i]));
-  rows = rows.slice().sort((a,b)=>{
-    const ia=orderMap.has(a.VehicleName)?orderMap.get(a.VehicleName):Infinity;
-    const ib=orderMap.has(b.VehicleName)?orderMap.get(b.VehicleName):Infinity;
-    if(ia!==ib) return ia-ib;
-    return String(a.VehicleName||'').localeCompare(String(b.VehicleName||''));
-  });
-  $('#rows-tl').innerHTML=rows.map(v=>{
-    const sev=String(v.Severity||'').toLowerCase();
-    return '<tr>'
-      +'<td class="mono">'+(v.VehicleName||"—")+'</td>'
-      +'<td class="mono">'+(blockByBus.get(v.VehicleName)||"—")+'</td>'
-      +'<td>'+pill(sev)+'</td>'
-      +'<td class="mono">—</td>'
-      +'<td class="mono">'+(v.Adjustment!=null?fmt(v.Adjustment):"—")+'</td>'
-      +'</tr>';
-  }).join('');
-}
-
-async function start(rid){
-  rid=String(rid);
-  if(activeES){ try{ activeES.close(); }catch(_){}; activeES=null; }
-  if(activeIV){ clearInterval(activeIV); activeIV=null; }
-  if(activeTL){ clearInterval(activeTL); activeTL=null; }
-  currentRid=rid;
-  const sid=++sessionId;
-  try{
-    const route=await j('/v1/routes/'+rid);
-    const col=route && route.color ? route.color : null;
-    if(col) document.documentElement.style.setProperty('--route-color', col);
-  }catch(_){ document.documentElement.style.setProperty('--route-color','#2a3442'); }
-
-  try{
-    const es=new EventSource("/v1/stream/routes/"+rid);
-    activeES=es;
-    es.onmessage=ev=>{ if(rid!==currentRid || sid!==sessionId) return; try{ render(JSON.parse(ev.data||"[]")); }catch(_){} };
-    es.onerror=_=>{ if(activeES===es){ es.close(); if(sid!==sessionId) return; activeES=null; startPoll(); } };
-  }catch(_){ startPoll(); }
-
-  function startPoll(){
-    async function tick(){ if(rid!==currentRid || sid!==sessionId) return; try{ render(await j('/v1/routes/'+rid+'/status')); }catch(_){} }
-    tick();
-    activeIV=setInterval(tick, 10000);
-  }
-
-  function startTransloc(){
-    async function tick(){
-      if(rid!==currentRid || sid!==sessionId) return;
-      try{
-        const data=await j('/v1/transloc/anti_bunching');
-        const route=(data||[]).find(r=>String(r.RouteID)===rid);
-        renderTL(route?.VehicleAntiBunching||[]);
-      }catch(_){ }
-    }
-    tick();
-    activeTL=setInterval(tick, 10000);
-  }
-
-  startTransloc();
 }
 
 async function pollHealth(){
@@ -1480,16 +1321,12 @@ async function pollHealth(){
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadConfig();
-  loadRoutes();
   pollHealth();
   loadBlocks();
   setInterval(loadBlocks,30000);
   loadDownedBuses();
   setInterval(loadDownedBuses,DOWNED_REFRESH_MS);
-  updateLastUpdated();
-  setInterval(updateLastUpdated,1000);
 });
-document.getElementById('route').addEventListener('change', e=> { userLocked=true; start(e.target.value); });
 </script>
 <script src="mobile-nav.js"></script>
 </body>
