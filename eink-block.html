@@ -401,6 +401,20 @@
           if(!driver || typeof driver!=='object') continue;
           const rawName=typeof driver.name==='string'?driver.name.trim():'';
           if(!rawName) continue;
+          const rawColorId=('COLOR_ID' in driver)?driver.COLOR_ID:
+            (('color_id' in driver)?driver.color_id:
+              (('colorId' in driver)?driver.colorId:null));
+          let colorId=null;
+          if(typeof rawColorId==='number' && Number.isFinite(rawColorId)){
+            colorId=String(Math.trunc(rawColorId));
+          }else if(typeof rawColorId==='string'){
+            const trimmedColorId=rawColorId.trim();
+            if(trimmedColorId){
+              const numericColor=Number(trimmedColorId);
+              colorId=Number.isFinite(numericColor)?String(Math.trunc(numericColor)):trimmedColorId;
+            }
+          }
+          if(colorId==='9') continue;
           const startLabel=typeof driver.start_label==='string'?driver.start_label.trim():
             (typeof driver.startLabel==='string'?driver.startLabel.trim():'');
           const endLabel=typeof driver.end_label==='string'?driver.end_label.trim():
@@ -432,7 +446,8 @@
             startLabel:formatDriverTimeLabel(startLabel,startTs),
             endLabel:formatDriverTimeLabel(endLabel,endTs),
             startTs:startTs,
-            endTs:endTs
+            endTs:endTs,
+            colorId:colorId
           });
         }
         if(!normalizedDrivers.length) continue;
@@ -548,7 +563,15 @@
       container.hidden=true;
       return;
     }
-    const items=Array.isArray(drivers)?drivers.filter(item=>item && item.name):[];
+    const items=Array.isArray(drivers)?drivers.filter(item=>{
+      if(!item || !item.name) return false;
+      if(item.colorId!=null){
+        const normalizedColor=typeof item.colorId==='number'?String(Math.trunc(item.colorId)):
+          (typeof item.colorId==='string'?item.colorId.trim():null);
+        if(normalizedColor==='9') return false;
+      }
+      return true;
+    }):[];
     if(!items.length){
       container.innerHTML='';
       container.hidden=true;
