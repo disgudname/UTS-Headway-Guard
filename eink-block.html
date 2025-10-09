@@ -335,6 +335,55 @@
     return result;
   };
 
+  function formatDriverTimeParts(hourStr,minuteStr,meridiem){
+    let hour=Number(hourStr);
+    if(!Number.isFinite(hour)) return hourStr;
+    let minutes=Number(minuteStr);
+    if(!Number.isFinite(minutes)) minutes=0;
+    if(meridiem){
+      const marker=String(meridiem).toLowerCase();
+      if(marker.startsWith('p') && hour<12){
+        hour+=12;
+      }else if(marker.startsWith('a') && hour===12){
+        hour=0;
+      }
+    }
+    hour=(hour%24+24)%24;
+    const hourOut=String(hour).padStart(2,'0');
+    const minuteOut=String(Math.max(0,Math.min(59,Math.trunc(minutes)))).padStart(2,'0');
+    return `${hourOut}:${minuteOut}`;
+  }
+
+  function formatDriverTimeLabel(label,timestamp){
+    const raw=typeof label==='string'?label:'';
+    const trimmed=raw.trim();
+    if(trimmed){
+      const replaced=trimmed.replace(/\b(\d{1,2})(?::([0-5]\d))?\s*([AaPp])(?:[Mm]\.?|\.?)?\b/g,
+        (match,hour,minute,meridiem)=>formatDriverTimeParts(hour,minute,meridiem));
+      if(replaced!==trimmed){
+        return replaced;
+      }
+      const simpleMatch=trimmed.match(/^\s*(\d{1,2})(?::([0-5]\d))?\s*$/);
+      if(simpleMatch){
+        return formatDriverTimeParts(simpleMatch[1],simpleMatch[2],null);
+      }
+      return trimmed;
+    }
+    if(timestamp!=null){
+      let numericTs=Number(timestamp);
+      if(Number.isFinite(numericTs)){
+        if(Math.abs(numericTs)<1e12){
+          numericTs*=1000;
+        }
+        const date=new Date(numericTs);
+        if(!Number.isNaN(date.getTime())){
+          return `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+        }
+      }
+    }
+    return trimmed;
+  }
+
   function normalizeDriverAssignmentsPayload(payload){
     const result=Object.create(null);
     if(!payload || typeof payload!=='object') return result;
@@ -378,8 +427,8 @@
           }
           normalizedDrivers.push({
             name:rawName,
-            startLabel:startLabel,
-            endLabel:endLabel,
+            startLabel:formatDriverTimeLabel(startLabel,startTs),
+            endLabel:formatDriverTimeLabel(endLabel,endTs),
             startTs:startTs,
             endTs:endTs
           });
