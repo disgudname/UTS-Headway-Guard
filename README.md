@@ -1,6 +1,6 @@
-# UTS Headway Guard
+# UTS Operations Dashboard
 
-UTS Headway Guard is a full real-time operations platform for the University Transit Service. It polls live vehicle and schedule data, computes optimal headways, highlights safety risks, persists telemetry for after-action review, and serves specialized web tools for drivers, dispatchers, service crews, and digital signage. The backend is a FastAPI service augmented by asyncio tasks and Server-Sent Events streams, while the frontend surfaces lightweight Leaflet dashboards and status boards tailored to each audience.
+UTS Operations Dashboard is a full real-time operations platform for the University Transit Service. It polls live vehicle and schedule data, computes optimal headways, highlights safety risks, persists telemetry for after-action review, and serves specialized web tools for drivers, dispatchers, service crews, and digital signage. The backend is a FastAPI service augmented by asyncio tasks and Server-Sent Events streams, while the frontend surfaces lightweight Leaflet dashboards and status boards tailored to each audience.
 
 ## System architecture
 

@@ -1,7 +1,7 @@
 <!doctype html>
 <link rel="icon" type="image/png" href="headwayguardicon.png" />
 <meta charset="utf-8">
-<title>Dispatch - Headway Guard</title>
+<title>Dispatch - UTS Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
@@ -203,7 +203,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 <body>
 <div id="left" style="flex:2;position:relative">
 <header>
-  <h1 style="font-size:18px;margin:0">Dispatch - Headway Guard</h1>
+  <h1 style="font-size:18px;margin:0">Dispatch - UTS Operations Dashboard</h1>
   <div id="controls">
     <label>Route: <select id="route"></select></label>
     <span id="target" class="chip">Target —</span>
@@ -213,7 +213,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 </header>
 <div id="layout">
   <main style="flex:1;padding:0 12px 16px">
-    <h2>Headway Guard AntiBunching</h2>
+    <h2>UTS Operations Dashboard AntiBunching</h2>
     <table>
       <thead><tr>
         <th>Vehicle</th><th>Block</th><th>Order</th><th>Leader</th><th>Adjustment</th>
@@ -725,7 +725,7 @@ function startCyberpunkSplash(){
   const progressValue=overlay.querySelector('.boot-progress-value');
   const steps=[
     {delay:400,text:'<span class="hint">[SYS]</span> Starting grounds fiber uplink…'},
-    {delay:520,text:'<span class="hint">[CORE]</span> Booting Headway Guard primary systems.'},
+    {delay:520,text:'<span class="hint">[CORE]</span> Booting UTS Operations Dashboard primary systems.'},
     {delay:540,text:'<span class="hint">[SENSORS]</span> Syncing with all AVL beacons <span class="ok">LOCKED</span>.',glitch:true},
     {delay:460,text:'<span class="hint">[OPS]</span> Parsing block assignments &mdash; vehicles within tolerance.'},
     {delay:580,text:'<span class="hint">[AI]</span> Predictive load balancer compiling headway futures…',glitch:true},
