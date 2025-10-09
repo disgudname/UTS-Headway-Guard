@@ -54,6 +54,9 @@
   #routeTotalsWrapper .route-totals-value{text-align:right;font-variant-numeric:tabular-nums;}
   #routeTotalsWrapper .route-totals-title{font-weight:bold;}
   #routeTotalsWrapper .route-overall-row td{font-weight:bold;border-top:2px solid var(--line);}
+  #routeTotalsChartWrapper{margin-top:12px;display:none;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line);position:relative;}
+  #routeTotalsChartWrapper .route-totals-title{font-weight:bold;margin-bottom:8px;}
+  #routeTotalsChart{width:100%;height:320px;}
 </style>
 </head>
 <body>
@@ -81,10 +84,16 @@
     </tbody>
   </table>
 </div>
+<div id="routeTotalsChartWrapper">
+  <div class="route-totals-title">Ridership by Hour</div>
+  <canvas id="routeTotalsChart" aria-label="Ridership by Hour" role="img" height="320"></canvas>
+</div>
 <div id="loadingMessage" class="loading-message">Loading Data, please wait...</div>
 <div id="tablesContainer"></div>
 <button id="addTableBtn" type="button">Add Another Route</button>
 <textarea id="notes" placeholder="Service Notes..."></textarea>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 <script>
 const dateInput=document.getElementById('datePicker');
 const loadBtn=document.getElementById('loadBtn');
@@ -96,11 +105,29 @@ const overallTotalDisplay=document.getElementById('overallTotal');
 const routeTotalsWrapper=document.getElementById('routeTotalsWrapper');
 const routeTotalsBody=document.getElementById('routeTotalsBody');
 const routeTotalsOverallRow=document.getElementById('routeTotalsOverallRow');
+const routeTotalsChartWrapper=document.getElementById('routeTotalsChartWrapper');
+const routeTotalsChartCanvas=document.getElementById('routeTotalsChart');
 const addTableBtn=document.getElementById('addTableBtn');
 const templateBtn=document.getElementById('templateBtn');
 const academicTemplateBtn=document.getElementById('academicTemplateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
+
+const DEFAULT_ROUTE_COLOR=(()=>{
+  try{
+    const accent=getComputedStyle(document.documentElement).getPropertyValue('--accent');
+    const trimmed=(accent||'').trim();
+    return trimmed||'#4b85f2';
+  }catch(err){
+    return '#4b85f2';
+  }
+})();
+
+let routeTotalsChart=null;
+
+if(window.Chart&&window.ChartDataLabels){
+  Chart.register(window.ChartDataLabels);
+}
 
 tablesContainer.classList.add('is-loading');
 loadingMessage.textContent='Select a date to load data.';
@@ -129,6 +156,15 @@ function updateLoadAvailability(){
 
 dateInput.addEventListener('change',updateLoadAvailability);
 dateInput.addEventListener('input',updateLoadAvailability);
+
+function normalizeColor(value){
+  if(typeof value!=='string'){return null;}
+  const trimmed=value.trim();
+  if(!trimmed){return null;}
+  if(trimmed[0]==='#'){return trimmed;}
+  if(/^[0-9a-f]{6}$/i.test(trimmed)){return `#${trimmed}`;}
+  return trimmed;
+}
 
 function normalizeApiArray(payload){
   if(Array.isArray(payload)){return payload;}
@@ -227,8 +263,11 @@ function buildRouteGroups(){
     const displayName=meta.displayName|| (infoText?`${baseName} – ${infoText}`:baseName);
     const groupKey=JSON.stringify([baseName,infoText]);
     if(!groupMetaByKey[groupKey]){
-      groupMetaByKey[groupKey]={displayName,baseName,infoText,members:[]};
+      groupMetaByKey[groupKey]={displayName,baseName,infoText,color:meta.color||null,members:[]};
       routeGroupMembers[groupKey]=groupMetaByKey[groupKey].members;
+    }
+    if(meta.color&&!groupMetaByKey[groupKey].color){
+      groupMetaByKey[groupKey].color=meta.color;
     }
     groupMetaByKey[groupKey].members.push(routeKey);
     routeMemberToGroup[routeKey]=groupKey;
@@ -248,6 +287,12 @@ function getGroupMembers(routeKey){
   if(routeGroupMembers[normalized]){return routeGroupMembers[normalized];}
   if(ridershipByRoute[normalized]){return [normalized];}
   return [];
+}
+
+function getRouteColor(routeKey){
+  const meta=getRouteMeta(routeKey);
+  if(meta&&meta.color){return meta.color;}
+  return DEFAULT_ROUTE_COLOR;
 }
 
 updateLoadAvailability();
@@ -369,7 +414,8 @@ function render(data,bounds){
       }
       const infoText=info&&typeof info.InfoText==='string'?info.InfoText.trim():'';
       const displayName=infoText?`${baseName} – ${infoText}`:baseName;
-      routeMetaByKey[routeKey]={displayName,baseName,infoText:infoText||''};
+      const infoColor=info&&typeof info.MapLineColor==='string'?normalizeColor(info.MapLineColor):null;
+      routeMetaByKey[routeKey]={displayName,baseName,infoText:infoText||'',color:infoColor};
     }
   });
   buildRouteGroups();
@@ -697,6 +743,7 @@ function updateRouteTotalsTable(){
   const totals=collectRouteTotals();
   if(!totals.length){
     routeTotalsWrapper.style.display='none';
+    updateRouteTotalsChart();
     return;
   }
   totals.forEach(entry=>{
@@ -712,6 +759,124 @@ function updateRouteTotalsTable(){
   });
   routeTotalsBody.appendChild(routeTotalsOverallRow);
   routeTotalsWrapper.style.display='block';
+  updateRouteTotalsChart();
+}
+
+function sumEntriesForRangeByHour(routeKey,start,end){
+  const perHour=new Map();
+  const members=getGroupMembers(routeKey);
+  if(!members.length){return perHour;}
+  members.forEach(member=>{
+    const records=ridershipByRoute[member];
+    if(!records){return;}
+    records.forEach(({minutes,entries})=>{
+      if(minutes>=start&&minutes<end){
+        const hour=Math.floor(minutes/60);
+        perHour.set(hour,(perHour.get(hour)||0)+entries);
+      }
+    });
+  });
+  return perHour;
+}
+
+function formatHourLabel(hour){
+  const normalized=Math.max(0,Math.min(hour,MAX_EXTENDED_HOUR));
+  return `${String(normalized).padStart(2,'0')}:00`;
+}
+
+function collectRouteChartData(){
+  const hourSet=new Set();
+  const routeHourTotals=new Map();
+  const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  blocks.forEach(block=>{
+    const route=normalizeRouteValue(block.querySelector('.route-select').value);
+    if(!route){return;}
+    const rows=[...block.querySelectorAll('.time-row')];
+    if(!rows.length){return;}
+    const hourMap=routeHourTotals.get(route)||new Map();
+    rows.forEach(row=>{
+      const input=row.querySelector('.time-input');
+      const range=parseRange(input.value);
+      if(!range){return;}
+      const contributions=sumEntriesForRangeByHour(route,range.start,range.end);
+      contributions.forEach((value,hour)=>{
+        hourSet.add(hour);
+        hourMap.set(hour,(hourMap.get(hour)||0)+value);
+      });
+    });
+    if(hourMap.size){
+      routeHourTotals.set(route,hourMap);
+    }
+  });
+  const hours=Array.from(hourSet).sort((a,b)=>a-b);
+  const labels=hours.map(formatHourLabel);
+  const datasets=[];
+  let maxY=0;
+  let hasData=false;
+  routeHourTotals.forEach((hourMap,route)=>{
+    const label=getRouteDisplayName(route);
+    const color=getRouteColor(route);
+    const data=hours.map(hour=>{
+      const value=hourMap.get(hour)||0;
+      if(value>maxY){maxY=value;}
+      if(value>0){hasData=true;}
+      return value;
+    });
+    datasets.push({label,data,backgroundColor:color,borderRadius:6,borderSkipped:false,maxBarThickness:40});
+  });
+  return {labels,datasets,maxY,hasData};
+}
+
+function updateRouteTotalsChart(){
+  if(!routeTotalsChartWrapper||!routeTotalsChartCanvas||!window.Chart){return;}
+  if(routeTotalsChart){
+    routeTotalsChart.destroy();
+    routeTotalsChart=null;
+  }
+  const {labels,datasets,maxY,hasData}=collectRouteChartData();
+  if(!labels.length||!datasets.length||!hasData){
+    routeTotalsChartWrapper.style.display='none';
+    return;
+  }
+  const context=routeTotalsChartCanvas.getContext('2d');
+  const plugins={
+    legend:{labels:{color:'var(--ink)'}}
+  };
+  if(window.ChartDataLabels){
+    plugins.datalabels={
+      anchor:'end',
+      align:'end',
+      color:'var(--ink)',
+      formatter:value=>value>0?value:'',
+      clamp:true
+    };
+  }
+  routeTotalsChart=new Chart(context,{
+    type:'bar',
+    data:{labels,datasets},
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      layout:{padding:{top:12,right:12,left:8,bottom:12}},
+      scales:{
+        x:{
+          stacked:false,
+          ticks:{color:'var(--ink)'},
+          title:{display:true,text:'Hour',color:'var(--muted)'}
+        },
+        y:{
+          beginAtZero:true,
+          max:maxY,
+          ticks:{color:'var(--ink)'},
+          title:{display:true,text:'Passengers',color:'var(--muted)'},
+          grid:{color:'rgba(159,176,201,0.15)'}
+        }
+      },
+      plugins,
+      interaction:{mode:'index',intersect:false}
+    }
+  });
+  routeTotalsChartWrapper.style.display='block';
 }
 
 function parseRange(value){
