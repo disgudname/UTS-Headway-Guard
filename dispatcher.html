@@ -1089,7 +1089,7 @@ function renderDriverLines(container,drivers){
     if(nextDriver){
       const lines=[];
       const nextLabel=getDriverStartLabel(nextDriver);
-      lines.push(nextLabel ? `Next: ${nextDriver.name} @ ${nextLabel}` : `Next: ${nextDriver.name}`);
+      lines.push(nextLabel ? `${nextDriver.name} @ ${nextLabel}` : nextDriver.name);
       for(const driver of items){
         if(driver===nextDriver) continue;
         const startLabel=getDriverStartLabel(driver);
