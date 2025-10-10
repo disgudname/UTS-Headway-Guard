@@ -98,6 +98,8 @@
 const urlParams=new URLSearchParams(window.location.search);
 const isBrokenChartMode=urlParams.get('broken')==='true';
 let brokenChartHeight=null;
+let brokenChartGrowthFrame=null;
+let brokenChartChaosFrame=null;
 
 const dateInput=document.getElementById('datePicker');
 const loadBtn=document.getElementById('loadBtn');
@@ -124,6 +126,17 @@ if(isBrokenChartMode&&routeTotalsChartWrapper&&routeTotalsChartCanvas){
   routeTotalsChartCanvas.style.height='auto';
 }
 
+function stopBrokenChartChaos(){
+  if(brokenChartGrowthFrame!==null){
+    cancelAnimationFrame(brokenChartGrowthFrame);
+    brokenChartGrowthFrame=null;
+  }
+  if(brokenChartChaosFrame!==null){
+    cancelAnimationFrame(brokenChartChaosFrame);
+    brokenChartChaosFrame=null;
+  }
+}
+
 function resetRouteTotalsChartDimensions(){
   if(!routeTotalsChartWrapper||!routeTotalsChartCanvas){return;}
   routeTotalsChartWrapper.style.maxHeight='';
@@ -132,6 +145,63 @@ function resetRouteTotalsChartDimensions(){
   routeTotalsChartCanvas.style.height='';
   routeTotalsChartCanvas.height=320;
   brokenChartHeight=null;
+  stopBrokenChartChaos();
+}
+
+function unleashBrokenChartRampage(){
+  if(!isBrokenChartMode){return;}
+  if(brokenChartGrowthFrame!==null){return;}
+  const rampage=()=>{
+    if(!isBrokenChartMode){
+      if(brokenChartGrowthFrame!==null){
+        cancelAnimationFrame(brokenChartGrowthFrame);
+        brokenChartGrowthFrame=null;
+      }
+      return;
+    }
+    if(!routeTotalsChartWrapper||routeTotalsChartWrapper.style.display==='none'){
+      brokenChartGrowthFrame=null;
+      return;
+    }
+    const rawHeight=brokenChartHeight??routeTotalsChartCanvas.getBoundingClientRect().height;
+    const currentHeight=Number.isFinite(rawHeight)&&rawHeight>0?rawHeight:320;
+    const nextHeight=currentHeight*1.08+12;
+    brokenChartHeight=nextHeight;
+    routeTotalsChartWrapper.style.maxHeight='none';
+    routeTotalsChartWrapper.style.height=`${nextHeight}px`;
+    routeTotalsChartCanvas.style.height=`${nextHeight}px`;
+    routeTotalsChartCanvas.height=nextHeight;
+    brokenChartGrowthFrame=window.requestAnimationFrame(rampage);
+  };
+  brokenChartGrowthFrame=window.requestAnimationFrame(rampage);
+}
+
+function igniteBrokenChartChaos(){
+  if(!isBrokenChartMode||!routeTotalsChart){return;}
+  if(brokenChartChaosFrame!==null){return;}
+  const escalate=()=>{
+    if(!isBrokenChartMode||!routeTotalsChart){
+      stopBrokenChartChaos();
+      return;
+    }
+    let needsUpdate=false;
+    const growthMultiplier=1.025+Math.random()*0.04;
+    const bonus=8+Math.random()*4;
+    routeTotalsChart.data.datasets.forEach(dataset=>{
+      if(!Array.isArray(dataset.data)){return;}
+      dataset.data=dataset.data.map(value=>{
+        const numeric=Number.isFinite(value)?value:Number(value)||0;
+        const nextValue=numeric*growthMultiplier+bonus;
+        if(nextValue!==numeric){needsUpdate=true;}
+        return nextValue;
+      });
+    });
+    if(needsUpdate){
+      routeTotalsChart.update('none');
+    }
+    brokenChartChaosFrame=window.requestAnimationFrame(escalate);
+  };
+  brokenChartChaosFrame=window.requestAnimationFrame(escalate);
 }
 
 function readCssVar(name,fallback){
@@ -879,6 +949,7 @@ function updateRouteTotalsChart(){
   if(!labels.length||!datasets.length||!hasData){
     if(isBrokenChartMode){
       brokenChartHeight=null;
+      stopBrokenChartChaos();
     }
     routeTotalsChartWrapper.style.display='none';
     return;
@@ -935,13 +1006,17 @@ function updateRouteTotalsChart(){
     plugins:[whiteBackgroundPlugin]
   });
   if(isBrokenChartMode){
-    const candidateHeight=brokenChartHeight??Number.parseInt(window.getComputedStyle(routeTotalsChartCanvas).height,10);
-    const computedHeight=(Number.isFinite(candidateHeight)?candidateHeight:0)||320;
-    brokenChartHeight=computedHeight+80;
+    const measuredHeight=Number.parseInt(window.getComputedStyle(routeTotalsChartCanvas).height,10);
+    const computedHeight=(Number.isFinite(measuredHeight)?measuredHeight:0)||320;
+    if(!Number.isFinite(brokenChartHeight)||brokenChartHeight<computedHeight){
+      brokenChartHeight=computedHeight;
+    }
     routeTotalsChartWrapper.style.maxHeight='none';
     routeTotalsChartWrapper.style.height=`${brokenChartHeight}px`;
     routeTotalsChartCanvas.style.height=`${brokenChartHeight}px`;
     routeTotalsChartCanvas.height=brokenChartHeight;
+    unleashBrokenChartRampage();
+    igniteBrokenChartChaos();
   }
   routeTotalsChartWrapper.style.display='block';
 }
