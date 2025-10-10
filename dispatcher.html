@@ -893,6 +893,13 @@ function cleanBusIdentifier(value){
   return text;
 }
 
+function extractVehicleName(value){
+  if(value==null) return '';
+  const text=String(value).trim();
+  if(!text || text==='—') return '';
+  return text;
+}
+
 function extractConfiguredVehicleNames(cfg){
   const map=new Map();
   if(!cfg || typeof cfg!=='object') return map;
@@ -1338,15 +1345,23 @@ function buildBlockGridEntry(group){
   let busValue='';
   let displayBus='';
   let vehicleId='';
+  let vehicleName='';
   for(const block of blocks){
     const trips=Array.isArray(block.Trips)?block.Trips:[];
     let blockBusId='';
     let blockBusLabel='';
+    let blockVehicleDisplay='';
     let hasVehicleName=false;
-    const blockVehicleName=cleanBusIdentifier(block.VehicleName);
-    if(blockVehicleName){
-      blockBusId=blockVehicleName;
-      blockBusLabel=blockVehicleName;
+    const blockVehicleNameDisplay=extractVehicleName(block.VehicleName);
+    const blockVehicleNameClean=cleanBusIdentifier(blockVehicleNameDisplay||block.VehicleName);
+    if(blockVehicleNameClean){
+      blockBusId=blockVehicleNameClean;
+      const preferred=blockVehicleNameDisplay||blockVehicleNameClean;
+      blockBusLabel=preferred;
+      blockVehicleDisplay=preferred;
+      if(!vehicleName || blockVehicleNameDisplay){
+        vehicleName=preferred;
+      }
       hasVehicleName=true;
     }
     let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
@@ -1367,13 +1382,20 @@ function buildBlockGridEntry(group){
       }
     }
     for(const trip of trips){
-      const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
-      if(tripBus && !blockBusId){
-        blockBusId=tripBus;
-        if(!blockBusLabel){
+      const tripVehicleNameDisplay=extractVehicleName(trip?.VehicleName);
+      const tripBus=trip?cleanBusIdentifier(tripVehicleNameDisplay||trip.VehicleName):'';
+      if(tripBus){
+        if(!blockBusId){
+          blockBusId=tripBus;
+        }
+        if(tripVehicleNameDisplay){
+          blockBusLabel=tripVehicleNameDisplay;
+          blockVehicleDisplay=tripVehicleNameDisplay;
+          vehicleName=tripVehicleNameDisplay;
+          hasVehicleName=true;
+        }else if(!blockBusLabel){
           blockBusLabel=tripBus;
         }
-        hasVehicleName=true;
       }
       const tripVehicleId=trip?cleanBusIdentifier(trip.VehicleId??trip.VehicleID):'';
       if(tripVehicleId){
@@ -1402,6 +1424,9 @@ function buildBlockGridEntry(group){
     }
     if(!displayBus && blockBusLabel){
       displayBus=blockBusLabel;
+    }
+    if(!vehicleName && blockVehicleDisplay){
+      vehicleName=blockVehicleDisplay;
     }
     if(!vehicleId && blockVehicleId){
       vehicleId=blockVehicleId;
@@ -1535,15 +1560,21 @@ function buildBlockGridEntry(group){
 
     let blockBusId='';
     let blockBusLabel='';
-    const blockVehicleName=cleanBusIdentifier(block.VehicleName);
-    if(blockVehicleName){
-      blockBusId=blockVehicleName;
-      blockBusLabel=blockVehicleName;
+    let blockVehicleDisplay='';
+    let hasVehicleName=false;
+    const blockVehicleNameDisplay=extractVehicleName(block.VehicleName);
+    const blockVehicleNameClean=cleanBusIdentifier(blockVehicleNameDisplay||block.VehicleName);
+    if(blockVehicleNameClean){
+      blockBusId=blockVehicleNameClean;
+      const preferred=blockVehicleNameDisplay||blockVehicleNameClean;
+      blockBusLabel=preferred;
+      blockVehicleDisplay=preferred;
+      hasVehicleName=true;
     }
     let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
     if(blockVehicleId){
       const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
-      if(friendly){
+      if(friendly && !hasVehicleName){
         blockBusLabel=friendly;
       }
     }
@@ -1559,10 +1590,17 @@ function buildBlockGridEntry(group){
     }
     const trips=Array.isArray(block.Trips)?block.Trips:[];
     for(const trip of trips){
-      const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
-      if(tripBus && !blockBusId){
-        blockBusId=tripBus;
-        if(!blockBusLabel){
+      const tripVehicleNameDisplay=extractVehicleName(trip?.VehicleName);
+      const tripBus=trip?cleanBusIdentifier(tripVehicleNameDisplay||trip.VehicleName):'';
+      if(tripBus){
+        if(!blockBusId){
+          blockBusId=tripBus;
+        }
+        if(tripVehicleNameDisplay){
+          blockBusLabel=tripVehicleNameDisplay;
+          blockVehicleDisplay=tripVehicleNameDisplay;
+          hasVehicleName=true;
+        }else if(!blockBusLabel){
           blockBusLabel=tripBus;
         }
       }
@@ -1571,7 +1609,7 @@ function buildBlockGridEntry(group){
         if(!blockVehicleId){
           blockVehicleId=tripVehicleId;
         }
-        if(!blockBusLabel){
+        if(!blockBusLabel && !hasVehicleName){
           const friendly=lookupPlainLanguageVehicleName(tripVehicleId);
           if(friendly){
             blockBusLabel=friendly;
@@ -1582,7 +1620,7 @@ function buildBlockGridEntry(group){
         break;
       }
     }
-    if(blockVehicleId && !blockBusLabel){
+    if(blockVehicleId && !blockBusLabel && !hasVehicleName){
       const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
       if(friendly){
         blockBusLabel=friendly;
@@ -1608,6 +1646,7 @@ function buildBlockGridEntry(group){
         bus:busValue,
         displayBus:displayBusValue,
         vehicleId:blockVehicleId||'',
+        vehicleName:hasVehicleName?(blockVehicleDisplay||displayBusValue):'',
         numbers:blockInfoNumbers.slice(),
         periods:periodsForBlock
       });
@@ -1659,7 +1698,11 @@ function buildBlockGridEntry(group){
     }
   }
 
-  return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus:busValue,displayBus,vehicleId,minStart,maxEnd,blockIdLookup};
+  if(vehicleName && displayBus!==vehicleName){
+    displayBus=vehicleName;
+  }
+
+  return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus:busValue,displayBus,vehicleId,vehicleName,minStart,maxEnd,blockIdLookup};
 }
 
 function isActive(entry,nowMinutes){
@@ -1789,10 +1832,14 @@ function lookupPlainLanguageVehicleName(id){
   return '';
 }
 
-function deriveVehicleDisplayLabel({display,bus,vehicleId}){
+function deriveVehicleDisplayLabel({display,bus,vehicleId,vehicleName}){
   const trimmedDisplay=typeof display==='string'?display.trim():'';
   const normalizedVehicleId=cleanBusIdentifier(vehicleId);
   const normalizedBus=cleanBusIdentifier(bus);
+  const trimmedVehicleName=typeof vehicleName==='string'?vehicleName.trim():'';
+  if(trimmedVehicleName && trimmedVehicleName!=='—'){
+    return trimmedVehicleName;
+  }
   const friendlyByVehicle=lookupPlainLanguageVehicleName(normalizedVehicleId);
   const friendlyByBus=lookupPlainLanguageVehicleName(normalizedBus);
   if(trimmedDisplay && trimmedDisplay!=='—'){
@@ -1819,10 +1866,12 @@ function normalizeAssignmentResult(entry){
   const bus=busClean||rawBus.trim()||'—';
   const vehicleIdClean=cleanBusIdentifier(entry.vehicleId);
   const displayRaw=typeof entry.displayBus==='string'?entry.displayBus:'';
+  const vehicleNameRaw=typeof entry.vehicleName==='string'?entry.vehicleName:'';
   const label=deriveVehicleDisplayLabel({
     display:displayRaw,
     bus:bus,
-    vehicleId:vehicleIdClean||busClean
+    vehicleId:vehicleIdClean||busClean,
+    vehicleName:vehicleNameRaw
   });
   return {bus:bus||'—',vehicleId:vehicleIdClean,label};
 }
@@ -1849,6 +1898,7 @@ function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,n
           bus:infoBusClean||infoBusRaw.trim()||'—',
           vehicleId:infoVehicleIdClean||cleanBusIdentifier(entry.vehicleId),
           displayBus:displayCandidate,
+          vehicleName:typeof info?.vehicleName==='string' && info.vehicleName.trim()?info.vehicleName:entry.vehicleName,
           blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
           blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
           period:entry.period,
