@@ -933,6 +933,92 @@ function extractConfiguredVehicleNames(cfg){
   return map;
 }
 
+function normalizeVehicleNameForCompare(value){
+  if(value==null) return '';
+  const text=String(value).replace(/\s+/g,' ').trim();
+  if(!text) return '';
+  return text.toUpperCase();
+}
+
+function normalizeExtraBusEntry(value){
+  if(value==null) return null;
+  let vehicleName='';
+  let displayText='';
+  let busId='';
+  if(typeof value==='object' && !Array.isArray(value)){
+    const nameCandidate=value.VehicleName ?? value.vehicle_name ?? value.vehicleName ?? value.name ?? value.label ?? value.display ?? value.text ?? '';
+    if(nameCandidate!=null){
+      vehicleName=String(nameCandidate).trim();
+    }
+    const idCandidate=value.VehicleId ?? value.vehicle_id ?? value.vehicleId ?? value.id ?? value.bus ?? value.code ?? value.number ?? '';
+    if(idCandidate!=null){
+      const normalized=cleanBusIdentifier(idCandidate);
+      if(normalized){
+        busId=normalized;
+      }
+    }
+    if(!vehicleName){
+      const alt=value.alias ?? value.title ?? value.value ?? '';
+      if(alt!=null){
+        vehicleName=String(alt).trim();
+      }
+    }
+    if(value.display!=null){
+      displayText=String(value.display).trim();
+    }
+    if(!displayText){
+      displayText=vehicleName;
+    }
+  }else{
+    const text=String(value).trim();
+    if(!text) return null;
+    vehicleName=text;
+    displayText=text;
+    const normalized=cleanBusIdentifier(text);
+    if(normalized){
+      busId=normalized;
+    }
+  }
+  if(!busId){
+    const inferred=cleanBusIdentifier(vehicleName);
+    if(inferred){
+      busId=inferred;
+    }
+  }
+  if(!displayText){
+    displayText=busId || vehicleName;
+  }
+  vehicleName=vehicleName || displayText || busId || '';
+  const normalizedName=normalizeVehicleNameForCompare(vehicleName);
+  const digitString=String(vehicleName||displayText||busId||'').replace(/\D+/g,'');
+  const normalizedDigits=digitString?normalizeVehicleNameForCompare(digitString):'';
+  if(!busId && !normalizedName){
+    return null;
+  }
+  return {
+    id:busId,
+    display:displayText||busId||'',
+    vehicleName,
+    normalizedName,
+    normalizedDigits
+  };
+}
+
+function buildExtraBusEntries(values){
+  const entries=[];
+  if(!Array.isArray(values)) return entries;
+  const seen=new Set();
+  for(const value of values){
+    const entry=normalizeExtraBusEntry(value);
+    if(!entry) continue;
+    const key=`${entry.id||''}::${entry.normalizedName||''}::${entry.normalizedDigits||''}::${entry.display}`;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    entries.push(entry);
+  }
+  return entries;
+}
+
 function supportsAmPmBlock(blockNumber){
   return AM_PM_BLOCKS.has(String(blockNumber||'').padStart(2,'0'));
 }
@@ -2135,29 +2221,48 @@ function formatAssignmentLabel(entry,blockId,numbers){
 function collectBusAssignments(entries,nowMinutes){
   const allAssignments=new Map();
   const activeAssignments=new Map();
-  for(const entry of entries){
-    if(!entry) continue;
-    const active=isActive(entry,nowMinutes);
-    const register=(bus,label)=>{
-      const clean=cleanBusIdentifier(bus);
-      if(!clean) return;
+  const assignedNames=new Set();
+  const register=(bus,label,{isActive=false,vehicleName='',displayBus=''}={})=>{
+    const clean=cleanBusIdentifier(bus);
+    if(clean){
+      assignedNames.add(normalizeVehicleNameForCompare(clean));
       if(!allAssignments.has(clean)){
         allAssignments.set(clean,label||'');
       }
-      if(active && !activeAssignments.has(clean)){
+      if(isActive && !activeAssignments.has(clean)){
         activeAssignments.set(clean,label||'');
       }
-    };
-    register(entry.bus,formatAssignmentLabel(entry,null,null));
+    }
+    const friendly=extractVehicleName(vehicleName)||extractVehicleName(displayBus)||extractVehicleName(bus);
+    if(friendly){
+      assignedNames.add(normalizeVehicleNameForCompare(friendly));
+    }
+    const digits=String(vehicleName||displayBus||bus||'').replace(/\D+/g,'');
+    if(digits){
+      assignedNames.add(normalizeVehicleNameForCompare(digits));
+    }
+  };
+  for(const entry of entries){
+    if(!entry) continue;
+    const active=isActive(entry,nowMinutes);
+    register(entry.bus,formatAssignmentLabel(entry,null,null),{
+      isActive:active,
+      vehicleName:entry.vehicleName,
+      displayBus:entry.displayBus
+    });
     if(entry.blockIdLookup instanceof Map){
       for(const [blockId,info] of entry.blockIdLookup.entries()){
         if(!info) continue;
         const label=formatAssignmentLabel(entry,blockId,info.numbers);
-        register(info.bus,label);
+        register(info.bus,label,{
+          isActive:active,
+          vehicleName:info.vehicleName ?? entry.vehicleName,
+          displayBus:info.displayBus ?? entry.displayBus
+        });
       }
     }
   }
-  return {allAssignments,activeAssignments};
+  return {allAssignments,activeAssignments,assignedNames};
 }
 
 function normalizeHeaderText(value){
@@ -3015,7 +3120,7 @@ function contrastColor(hex){
   return l>0.5?'#000':'#fff';
 }
 
-let allBuses=[
+const DEFAULT_ALL_BUSES=[
   "12132","12232","12332","12432","12532","12632",
   "14132","14232","14332","14432","14532",
   "17132","17232","17332","17432","17532","17632","17732",
@@ -3026,32 +3131,67 @@ let allBuses=[
   "25131","25231","25331","25431",
 ];
 
+let allBuses=DEFAULT_ALL_BUSES.slice();
+let extraBusEntries=buildExtraBusEntries(allBuses);
 let OVERHEIGHT_BUSES=['25131','25231','25331','25431','17132','14132','12432','18532'];
+let assignedVehicleNamesNormalized=new Set();
 
 async function loadConfig(){
   try{
     const cfg = await j('/v1/config');
-    if(cfg.ALL_BUSES) allBuses = cfg.ALL_BUSES;
-    if(cfg.OVERHEIGHT_BUSES) OVERHEIGHT_BUSES = cfg.OVERHEIGHT_BUSES;
+    if(cfg.ALL_BUSES){
+      if(Array.isArray(cfg.ALL_BUSES)){
+        allBuses=cfg.ALL_BUSES.slice();
+      }else{
+        allBuses=[cfg.ALL_BUSES];
+      }
+    }else{
+      allBuses=DEFAULT_ALL_BUSES.slice();
+    }
+    extraBusEntries=buildExtraBusEntries(allBuses);
+    if(cfg.OVERHEIGHT_BUSES){
+      const list=Array.isArray(cfg.OVERHEIGHT_BUSES)?cfg.OVERHEIGHT_BUSES:[cfg.OVERHEIGHT_BUSES];
+      OVERHEIGHT_BUSES=list.map(item=>{
+        const normalized=cleanBusIdentifier(item);
+        if(normalized) return normalized;
+        const text=String(item??'').trim();
+        return text||null;
+      }).filter(Boolean);
+    }
     configuredVehicleNames = extractConfiguredVehicleNames(cfg);
-  }catch(e){}
+  }catch(e){
+    extraBusEntries=buildExtraBusEntries(allBuses);
+  }
+  updateExtraBuses();
 }
 
 let blockByBus=new Map(), allBlockByBus=new Map();
 
 function updateExtraBuses(){
   const extra=$('#extra-buses');
-  const unassigned=allBuses.filter(b=>!allBlockByBus.has(b) && !isBusDowned(b));
+  if(!extra) return;
+  const unassigned=extraBusEntries.filter(entry=>{
+    if(!entry) return false;
+    const normalizedId=entry.id||'';
+    if(normalizedId && allBlockByBus.has(normalizedId)) return false;
+    if(entry.normalizedName && assignedVehicleNamesNormalized.has(entry.normalizedName)) return false;
+    if(entry.normalizedDigits && assignedVehicleNamesNormalized.has(entry.normalizedDigits)) return false;
+    const downedKey=normalizedId || entry.vehicleName || entry.display;
+    if(downedKey && isBusDowned(downedKey)) return false;
+    return true;
+  });
   extra.innerHTML=unassigned.length
-    ? unassigned.map(b=>{
+    ? unassigned.map(entry=>{
+        const normalizedId=entry.id||'';
         let bg='#EEE8AA';
-        if(OVERHEIGHT_BUSES.includes(b)){
+        if(normalizedId && OVERHEIGHT_BUSES.includes(normalizedId)){
           bg='#E57200';
-        }else if(b.startsWith('24')){
+        }else if(normalizedId && normalizedId.startsWith('24')){
           bg='#232D4B';
         }
         const color=contrastColor(bg);
-        return `<li class="mono" style="background:${bg};color:${color};border-color:${bg}">${b}</li>`;
+        const label=entry.display || entry.vehicleName || normalizedId || '—';
+        return `<li class="mono" style="background:${bg};color:${color};border-color:${bg}">${label}</li>`;
       }).join('')
     : '<li class="hint">None</li>';
 }
@@ -3107,6 +3247,7 @@ async function loadBlocks(){
       blockByBus=new Map();
       allBlockByBus=new Map();
       plainLanguageVehicleNames=new Map();
+      assignedVehicleNamesNormalized=new Set();
       updateExtraBuses();
       return;
     }
@@ -3145,9 +3286,10 @@ async function loadBlocks(){
     }
     const now=new Date();
     const nowMinutes=now.getHours()*60+now.getMinutes();
-    const {allAssignments,activeAssignments}=collectBusAssignments(gridEntries,nowMinutes);
+    const {allAssignments,activeAssignments,assignedNames}=collectBusAssignments(gridEntries,nowMinutes);
     allBlockByBus=allAssignments;
     blockByBus=activeAssignments;
+    assignedVehicleNamesNormalized=assignedNames;
     updateExtraBuses();
     updateBlockGrid(gridEntries,nowMinutes,{busColorMap});
   }catch(e){
@@ -3156,6 +3298,7 @@ async function loadBlocks(){
     blockByBus=new Map();
     allBlockByBus=new Map();
     plainLanguageVehicleNames=new Map();
+    assignedVehicleNamesNormalized=new Set();
     updateExtraBuses();
   }
 }
