@@ -124,6 +124,16 @@ if(isBrokenChartMode&&routeTotalsChartWrapper&&routeTotalsChartCanvas){
   routeTotalsChartCanvas.style.height='auto';
 }
 
+function resetRouteTotalsChartDimensions(){
+  if(!routeTotalsChartWrapper||!routeTotalsChartCanvas){return;}
+  routeTotalsChartWrapper.style.maxHeight='';
+  routeTotalsChartWrapper.style.height='';
+  routeTotalsChartCanvas.style.maxHeight='';
+  routeTotalsChartCanvas.style.height='';
+  routeTotalsChartCanvas.height=320;
+  brokenChartHeight=null;
+}
+
 function readCssVar(name,fallback){
   try{
     const value=getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -849,8 +859,14 @@ function updateRouteTotalsChart(){
     routeTotalsChart.destroy();
     routeTotalsChart=null;
   }
+  if(!isBrokenChartMode){
+    resetRouteTotalsChartDimensions();
+  }
   const {labels,datasets,maxY,hasData}=collectRouteChartData();
   if(!labels.length||!datasets.length||!hasData){
+    if(isBrokenChartMode){
+      brokenChartHeight=null;
+    }
     routeTotalsChartWrapper.style.display='none';
     return;
   }
