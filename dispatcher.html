@@ -820,18 +820,22 @@ function applyDefaultBlockCellColors(cell){
   if(defaultBg){
     cell.style.setProperty('--cell-bg',defaultBg);
     cell.style.setProperty('--cell-border',defaultBg);
+    cell.style.setProperty('--route-color',defaultBg);
   }else{
     cell.style.removeProperty('--cell-bg');
     cell.style.removeProperty('--cell-border');
+    cell.style.removeProperty('--route-color');
   }
   if(defaultText){
     cell.style.setProperty('--cell-text',defaultText);
     cell.style.setProperty('--driver-color',defaultText);
     cell.style.setProperty('--label-color',defaultText);
+    cell.style.setProperty('--text-color',defaultText);
   }else{
     cell.style.removeProperty('--cell-text');
     cell.style.removeProperty('--driver-color');
     cell.style.removeProperty('--label-color');
+    cell.style.removeProperty('--text-color');
   }
 }
 
@@ -1678,9 +1682,11 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
         const textColor=contrastColor(colorValue);
         cell.style.setProperty('--cell-bg',colorValue);
         cell.style.setProperty('--cell-border',colorValue);
+        cell.style.setProperty('--route-color',colorValue);
         cell.style.setProperty('--cell-text',textColor);
         cell.style.setProperty('--driver-color',textColor);
         cell.style.setProperty('--label-color',textColor);
+        cell.style.setProperty('--text-color',textColor);
       }else{
         applyDefaultBlockCellColors(cell);
       }
