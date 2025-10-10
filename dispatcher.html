@@ -1125,19 +1125,18 @@ function isDriverActiveNow(driver,nowMs){
   return false;
 }
 
-function findNextDriver(drivers,nowMs){
-  let nextDriver=null;
-  let nextStartMs=null;
-  for(const driver of drivers){
-    const startMs=normalizeDriverTimestampToMs(driver.startTs);
-    if(startMs==null) continue;
-    if(startMs<nowMs) continue;
-    if(nextStartMs==null || startMs<nextStartMs){
-      nextDriver=driver;
-      nextStartMs=startMs;
-    }
-  }
-  return {driver:nextDriver,startMs:nextStartMs};
+function shouldDisplayDriver(driver,nowMs,nowMinutes){
+  if(!driver) return false;
+  if(isDriverActiveNow(driver,nowMs)) return true;
+  const startMs=normalizeDriverTimestampToMs(driver.startTs);
+  if(startMs!=null && startMs>=nowMs) return true;
+  const endMs=normalizeDriverTimestampToMs(driver.endTs);
+  if(endMs!=null && endMs>=nowMs) return true;
+  const startInfo=getDriverTimeInfo(driver,'start');
+  if(startInfo.minutes!=null && startInfo.minutes>=nowMinutes) return true;
+  const endInfo=getDriverTimeInfo(driver,'end');
+  if(endInfo.minutes!=null && endInfo.minutes>=nowMinutes) return true;
+  return false;
 }
 
 function getDriverStartLabel(driver){
@@ -1167,35 +1166,60 @@ function renderDriverLines(container,drivers){
     container.hidden=true;
     return;
   }
-  const nowMs=Date.now();
-  const hasActive=items.some(item=>isDriverActiveNow(item,nowMs));
+  const now=new Date();
+  const nowMs=now.getTime();
+  const nowMinutes=now.getHours()*60+now.getMinutes();
+  const visibleEntries=items.map((driver,index)=>({driver,index}))
+    .filter(entry=>shouldDisplayDriver(entry.driver,nowMs,nowMinutes));
+  const visibleDrivers=visibleEntries.map(entry=>entry.driver);
+  if(!visibleDrivers.length){
+    container.innerHTML='';
+    container.hidden=true;
+    return;
+  }
+  const hasActive=visibleDrivers.some(item=>isDriverActiveNow(item,nowMs));
+  const firstVisibleIndex=visibleEntries[0].index;
+  const precedingDriver=firstVisibleIndex>0?items[firstVisibleIndex-1]:null;
   if(!hasActive){
-    const {driver:nextDriver}=findNextDriver(items,nowMs);
-    if(nextDriver){
-      const lines=[];
-      const nextLabel=getDriverStartLabel(nextDriver);
-      lines.push(nextLabel ? `${nextDriver.name} @ ${nextLabel}` : nextDriver.name);
-      for(const driver of items){
-        if(driver===nextDriver) continue;
-        const startLabel=getDriverStartLabel(driver);
-        lines.push(startLabel ? `${driver.name} @ ${startLabel}` : driver.name);
+    const lines=[];
+    if(precedingDriver && !shouldDisplayDriver(precedingDriver,nowMs,nowMinutes)){
+      const gapLabel=buildOpenGapLabel(precedingDriver,visibleDrivers[0]);
+      if(gapLabel){
+        lines.push(gapLabel);
       }
-      container.innerHTML='';
-      for(const text of lines){
-        const line=document.createElement('div');
-        line.className='driver-line';
-        line.textContent=text;
-        container.appendChild(line);
-      }
-      container.hidden=false;
-      return;
     }
+    const nextDriver=visibleDrivers[0];
+    const nextLabel=getDriverStartLabel(nextDriver);
+    lines.push(nextLabel ? `${nextDriver.name} @ ${nextLabel}` : nextDriver.name);
+    for(let i=1;i<visibleDrivers.length;i++){
+      const driver=visibleDrivers[i];
+      const startLabel=getDriverStartLabel(driver);
+      lines.push(startLabel ? `${driver.name} @ ${startLabel}` : driver.name);
+    }
+    container.innerHTML='';
+    for(const text of lines){
+      const line=document.createElement('div');
+      line.className='driver-line';
+      line.textContent=text;
+      container.appendChild(line);
+    }
+    container.hidden=false;
+    return;
   }
   container.innerHTML='';
-  const includeLabels=items.length>1;
+  if(precedingDriver && !shouldDisplayDriver(precedingDriver,nowMs,nowMinutes)){
+    const gapLabel=buildOpenGapLabel(precedingDriver,visibleDrivers[0]);
+    if(gapLabel){
+      const gapLine=document.createElement('div');
+      gapLine.className='driver-line';
+      gapLine.textContent=gapLabel;
+      container.appendChild(gapLine);
+    }
+  }
+  const includeLabels=visibleDrivers.length>1;
   let previousDriver=null;
-  for(let i=0;i<items.length;i++){
-    const driver=items[i];
+  for(let i=0;i<visibleDrivers.length;i++){
+    const driver=visibleDrivers[i];
     if(previousDriver){
       const gapLabel=buildOpenGapLabel(previousDriver,driver);
       if(gapLabel){
