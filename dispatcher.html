@@ -1342,15 +1342,17 @@ function buildBlockGridEntry(group){
     const trips=Array.isArray(block.Trips)?block.Trips:[];
     let blockBusId='';
     let blockBusLabel='';
+    let hasVehicleName=false;
     const blockVehicleName=cleanBusIdentifier(block.VehicleName);
     if(blockVehicleName){
       blockBusId=blockVehicleName;
       blockBusLabel=blockVehicleName;
+      hasVehicleName=true;
     }
     let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
     if(blockVehicleId){
       const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
-      if(friendly){
+      if(friendly && !hasVehicleName){
         blockBusLabel=friendly;
       }
     }
@@ -1371,13 +1373,14 @@ function buildBlockGridEntry(group){
         if(!blockBusLabel){
           blockBusLabel=tripBus;
         }
+        hasVehicleName=true;
       }
       const tripVehicleId=trip?cleanBusIdentifier(trip.VehicleId??trip.VehicleID):'';
       if(tripVehicleId){
         if(!blockVehicleId){
           blockVehicleId=tripVehicleId;
         }
-        if(!blockBusLabel){
+        if(!blockBusLabel && !hasVehicleName){
           const friendly=lookupPlainLanguageVehicleName(tripVehicleId);
           if(friendly){
             blockBusLabel=friendly;
@@ -1388,7 +1391,7 @@ function buildBlockGridEntry(group){
         break;
       }
     }
-    if(blockVehicleId && !blockBusLabel){
+    if(blockVehicleId && !blockBusLabel && !hasVehicleName){
       const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
       if(friendly){
         blockBusLabel=friendly;
