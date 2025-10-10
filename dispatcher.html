@@ -610,6 +610,7 @@ const BLOCK_GRID_DEFAULT_LAYOUT_DATA = [
 let blockGridLayout = [];
 let blockGridInitialized = false;
 let blockGridLayoutPromise = null;
+let plainLanguageVehicleNames = new Map();
 
 const DRIVER_DISPLAY_ENABLED = true;
 let driverAssignmentsByBlock = Object.create(null);
@@ -1300,45 +1301,81 @@ function buildBlockGridEntry(group){
     }
   }
 
-  let bus='—';
+  let busValue='';
+  let displayBus='';
   let vehicleId='';
   for(const block of blocks){
     const trips=Array.isArray(block.Trips)?block.Trips:[];
-    let blockBus='—';
+    let blockBusId='';
+    let blockBusLabel='';
     const blockVehicleName=cleanBusIdentifier(block.VehicleName);
     if(blockVehicleName){
-      blockBus=blockVehicleName;
+      blockBusId=blockVehicleName;
+      blockBusLabel=blockVehicleName;
     }
     let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
-    if(blockBus==='—' && block.VehicleId!=null){
+    if(blockVehicleId){
+      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
+      if(typeof friendly==='string' && friendly.trim()){
+        blockBusLabel=friendly.trim();
+      }
+    }
+    if(!blockBusId && block.VehicleId!=null){
       const idString=cleanBusIdentifier(block.VehicleId);
       if(idString){
-        blockBus=idString;
+        blockBusId=idString;
+        if(!blockBusLabel){
+          const friendly=plainLanguageVehicleNames.get(idString);
+          blockBusLabel=(typeof friendly==='string' && friendly.trim())?friendly.trim():idString;
+        }
       }
     }
     for(const trip of trips){
       const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
-      if(tripBus && blockBus==='—'){
-        blockBus=tripBus;
+      if(tripBus && !blockBusId){
+        blockBusId=tripBus;
+        if(!blockBusLabel){
+          blockBusLabel=tripBus;
+        }
       }
       const tripVehicleId=trip?cleanBusIdentifier(trip.VehicleId??trip.VehicleID):'';
-      if(tripVehicleId && !blockVehicleId){
-        blockVehicleId=tripVehicleId;
+      if(tripVehicleId){
+        if(!blockVehicleId){
+          blockVehicleId=tripVehicleId;
+        }
+        if(!blockBusLabel){
+          const friendly=plainLanguageVehicleNames.get(tripVehicleId);
+          if(typeof friendly==='string' && friendly.trim()){
+            blockBusLabel=friendly.trim();
+          }
+        }
       }
-      if(blockBus!=='—' && blockVehicleId){
+      if(blockBusId && blockVehicleId && blockBusLabel){
         break;
       }
     }
-    if(bus==='—' && blockBus && blockBus!=='—'){
-      bus=blockBus;
+    if(blockVehicleId && !blockBusLabel){
+      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
+      if(typeof friendly==='string' && friendly.trim()){
+        blockBusLabel=friendly.trim();
+      }
+    }
+    if(!busValue && blockBusId){
+      busValue=blockBusId;
+    }
+    if(!displayBus && blockBusLabel){
+      displayBus=blockBusLabel;
     }
     if(!vehicleId && blockVehicleId){
       vehicleId=blockVehicleId;
     }
-    if(bus!=='—' && vehicleId){
+    if(busValue && vehicleId && displayBus){
       break;
     }
   }
+
+  const bus=busValue||'—';
+  displayBus=displayBus||bus;
 
   let minStart=null;
   let maxEnd=null;
@@ -1459,32 +1496,63 @@ function buildBlockGridEntry(group){
       }
     }
 
-    let blockBus='—';
+    let blockBusId='';
+    let blockBusLabel='';
     const blockVehicleName=cleanBusIdentifier(block.VehicleName);
     if(blockVehicleName){
-      blockBus=blockVehicleName;
+      blockBusId=blockVehicleName;
+      blockBusLabel=blockVehicleName;
     }
     let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
-    if(blockBus==='—' && block.VehicleId!=null){
+    if(blockVehicleId){
+      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
+      if(typeof friendly==='string' && friendly.trim()){
+        blockBusLabel=friendly.trim();
+      }
+    }
+    if(!blockBusId && block.VehicleId!=null){
       const idString=cleanBusIdentifier(block.VehicleId);
       if(idString){
-        blockBus=idString;
+        blockBusId=idString;
+        if(!blockBusLabel){
+          const friendly=plainLanguageVehicleNames.get(idString);
+          blockBusLabel=(typeof friendly==='string' && friendly.trim())?friendly.trim():idString;
+        }
       }
     }
     const trips=Array.isArray(block.Trips)?block.Trips:[];
     for(const trip of trips){
       const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
-      if(tripBus && blockBus==='—'){
-        blockBus=tripBus;
+      if(tripBus && !blockBusId){
+        blockBusId=tripBus;
+        if(!blockBusLabel){
+          blockBusLabel=tripBus;
+        }
       }
       const tripVehicleId=trip?cleanBusIdentifier(trip.VehicleId??trip.VehicleID):'';
-      if(tripVehicleId && !blockVehicleId){
-        blockVehicleId=tripVehicleId;
+      if(tripVehicleId){
+        if(!blockVehicleId){
+          blockVehicleId=tripVehicleId;
+        }
+        if(!blockBusLabel){
+          const friendly=plainLanguageVehicleNames.get(tripVehicleId);
+          if(typeof friendly==='string' && friendly.trim()){
+            blockBusLabel=friendly.trim();
+          }
+        }
       }
-      if(blockBus!=='—' && blockVehicleId){
+      if(blockBusId && blockVehicleId && blockBusLabel){
         break;
       }
     }
+    if(blockVehicleId && !blockBusLabel){
+      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
+      if(typeof friendly==='string' && friendly.trim()){
+        blockBusLabel=friendly.trim();
+      }
+    }
+    const busValue=blockBusId||'—';
+    const displayBusValue=blockBusLabel||busValue;
 
     if(normalizedId){
       const periodsForBlock=Object.create(null);
@@ -1500,7 +1568,8 @@ function buildBlockGridEntry(group){
         }
       }
       blockIdLookup.set(normalizedId,{
-        bus:blockBus,
+        bus:busValue,
+        displayBus:displayBusValue,
         vehicleId:blockVehicleId||'',
         numbers:blockInfoNumbers.slice(),
         periods:periodsForBlock
@@ -1553,7 +1622,7 @@ function buildBlockGridEntry(group){
     }
   }
 
-  return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,vehicleId,minStart,maxEnd,blockIdLookup};
+  return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus:busValue,displayBus,vehicleId,minStart,maxEnd,blockIdLookup};
 }
 
 function isActive(entry,nowMinutes){
@@ -1665,12 +1734,16 @@ function selectBestAssignment(matches,blockNumber,normalizedPeriod,nowMinutes){
 }
 
 function normalizeAssignmentResult(entry){
-  if(!entry) return {bus:'—',vehicleId:''};
+  if(!entry) return {bus:'—',vehicleId:'',label:'—'};
   const rawBus=typeof entry.bus==='string'?entry.bus:'';
   const busClean=cleanBusIdentifier(rawBus);
   const bus=busClean||rawBus.trim()||'—';
   const vehicleIdClean=cleanBusIdentifier(entry.vehicleId);
-  return {bus:bus||'—',vehicleId:vehicleIdClean};
+  const displayRaw=typeof entry.displayBus==='string'?entry.displayBus:'';
+  const displayTrimmed=displayRaw.trim();
+  const display=displayTrimmed && displayTrimmed!=='—'?displayTrimmed:'';
+  const label=display||bus||'—';
+  return {bus:bus||'—',vehicleId:vehicleIdClean,label};
 }
 
 function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinutes){
@@ -1686,9 +1759,15 @@ function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,n
         const infoBusRaw=typeof info?.bus==='string'?info.bus:'';
         const infoBusClean=cleanBusIdentifier(infoBusRaw);
         const infoVehicleIdClean=cleanBusIdentifier(info?.vehicleId);
+        const entryDisplayRaw=typeof entry.displayBus==='string'?entry.displayBus:'';
+        const infoDisplayRaw=typeof info?.displayBus==='string'?info.displayBus:'';
+        const displayCandidate=(infoDisplayRaw && infoDisplayRaw.trim())
+          ? infoDisplayRaw.trim()
+          : (entryDisplayRaw && entryDisplayRaw.trim()?entryDisplayRaw.trim():'');
         const candidate={
           bus:infoBusClean||infoBusRaw.trim()||'—',
           vehicleId:infoVehicleIdClean||cleanBusIdentifier(entry.vehicleId),
+          displayBus:displayCandidate,
           blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
           blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
           period:entry.period,
@@ -1717,9 +1796,9 @@ function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,n
     }
   }
   if(!blockNumber){
-    return {bus:'—',vehicleId:''};
+    return {bus:'—',vehicleId:'',label:'—'};
   }
-  if(!matches.length) return {bus:'—',vehicleId:''};
+  if(!matches.length) return {bus:'—',vehicleId:'',label:'—'};
   const assignment=selectBestAssignment(matches,blockNumber,normalizedPeriod,nowMinutes);
   return normalizeAssignmentResult(assignment);
 }
@@ -1738,14 +1817,15 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
     const blockNumber=cell.dataset.block||'';
     const periodSuffix=cell.dataset.period||'';
     const customId=cell.dataset.customBlockId||'';
-    let assignment={bus:'—',vehicleId:''};
+    let assignment={bus:'—',vehicleId:'',label:'—'};
     if(blockNumber || customId){
-      assignment=findBestAssignment(blockNumber,periodSuffix,customId,entries,nowMinutes)||{bus:'—',vehicleId:''};
+      assignment=findBestAssignment(blockNumber,periodSuffix,customId,entries,nowMinutes)||{bus:'—',vehicleId:'',label:'—'};
     }
     const bus=assignment.bus||'—';
+    const displayBus=assignment.label||bus||'—';
     const busEl=cell.querySelector('.bus');
     if(busEl){
-      busEl.textContent=bus||'—';
+      busEl.textContent=displayBus||'—';
     }
     const normalizedBus=cleanBusIdentifier(bus);
     if(normalizedBus){
@@ -1778,7 +1858,7 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
       const driverList=selectDriversForBlock(driverBlock,driverPeriod);
       renderDriverLines(driverContainer,driverList);
     }
-    if(bus && bus!=='—'){
+    if((displayBus && displayBus!=='—') || (bus && bus!=='—')){
       hasAny=true;
       let colorValue=colorLookup?colorLookup.get(bus):null;
       if(colorValue && !String(colorValue).startsWith('#')){
@@ -2765,6 +2845,29 @@ async function loadBlocks(){
     const groups=res.block_groups||[];
     const colorByRoute=new Map(Object.entries(res.color_by_route||{}));
     const routeByBus=new Map(Object.entries(res.route_by_bus||{}));
+    const plainLanguageBlocks=Array.isArray(res.plain_language_blocks)?res.plain_language_blocks:[];
+
+    if(plainLanguageBlocks.length){
+      const map=new Map();
+      for(const entry of plainLanguageBlocks){
+        if(!entry || typeof entry!=='object') continue;
+        const rawId=('vehicle_id' in entry)?entry.vehicle_id:(('vehicleId' in entry)?entry.vehicleId:null);
+        const id=cleanBusIdentifier(rawId);
+        if(!id) continue;
+        let name='';
+        if(typeof entry.vehicle_name==='string'){ 
+          name=entry.vehicle_name.trim();
+        }else if(typeof entry.vehicleName==='string'){
+          name=entry.vehicleName.trim();
+        }
+        if(name && name!=='—'){
+          map.set(id,name);
+        }
+      }
+      plainLanguageVehicleNames=map;
+    }else{
+      plainLanguageVehicleNames=new Map();
+    }
 
     if(driverRes && driverRes.ok){
       const driverData=await driverRes.json();
@@ -2782,6 +2885,7 @@ async function loadBlocks(){
       clearBlockGrid({message:'No block assignments available.'});
       blockByBus=new Map();
       allBlockByBus=new Map();
+      plainLanguageVehicleNames=new Map();
       updateExtraBuses();
       return;
     }
@@ -2830,6 +2934,7 @@ async function loadBlocks(){
     clearBlockGrid({message:'Error loading blocks.'});
     blockByBus=new Map();
     allBlockByBus=new Map();
+    plainLanguageVehicleNames=new Map();
     updateExtraBuses();
   }
 }
