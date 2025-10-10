@@ -1678,7 +1678,10 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
       if(colorValue && !String(colorValue).startsWith('#')){
         colorValue='#'+String(colorValue);
       }
-      if(colorValue){
+      const hasDefaultColors=Boolean(
+        (cell.dataset && (cell.dataset.defaultCellBg || cell.dataset.defaultCellText))
+      );
+      if(colorValue && !hasDefaultColors){
         const textColor=contrastColor(colorValue);
         cell.style.setProperty('--cell-bg',colorValue);
         cell.style.setProperty('--cell-border',colorValue);
