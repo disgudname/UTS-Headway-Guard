@@ -1577,6 +1577,14 @@ schedulePlaneStyleOverride();
           focusBus: 'dispatcher:focusBus',
           centerMap: 'dispatcher:centerMap'
       });
+      const vehicleFollowState = {
+          active: false,
+          vehicleId: '',
+          desiredZoom: null,
+          pendingInitialCenter: false
+      };
+      let vehicleFollowInteractionHandlersBound = false;
+      const VEHICLE_FOLLOW_CENTER_EPSILON = 0.00001;
 
       function normalizeDispatcherVehicleKey(value) {
           if (value == null) {
@@ -1589,24 +1597,202 @@ schedulePlaneStyleOverride();
           return text;
       }
 
+      function getVehicleDisplayName(vehicleId) {
+          const normalizedKey = normalizeDispatcherVehicleKey(vehicleId);
+          if (!normalizedKey) {
+              return '';
+          }
+          const name = busMarkerStates?.[normalizedKey]?.busName;
+          if (typeof name === 'string') {
+              const trimmed = name.trim();
+              if (trimmed) {
+                  return trimmed;
+              }
+          }
+          return normalizedKey;
+      }
+
+      function showVehicleFollowToast(message) {
+          const toast = getCachedElementById('mapToast');
+          if (!toast) {
+              return;
+          }
+          toast.textContent = message;
+          toast.setAttribute('aria-hidden', 'false');
+          toast.classList.add('is-visible');
+      }
+
+      function hideVehicleFollowToast() {
+          const toast = getCachedElementById('mapToast');
+          if (!toast) {
+              return;
+          }
+          toast.classList.remove('is-visible');
+          toast.setAttribute('aria-hidden', 'true');
+      }
+
+      function updateVehicleFollowToast() {
+          if (!vehicleFollowState.active) {
+              hideVehicleFollowToast();
+              return;
+          }
+          const vehicleName = getVehicleDisplayName(vehicleFollowState.vehicleId);
+          const message = vehicleName ? `Following ${vehicleName}` : 'Following vehicle';
+          showVehicleFollowToast(message);
+      }
+
+      function stopFollowingVehicle() {
+          if (!vehicleFollowState.active) {
+              hideVehicleFollowToast();
+              return;
+          }
+          vehicleFollowState.active = false;
+          vehicleFollowState.vehicleId = '';
+          vehicleFollowState.desiredZoom = null;
+          vehicleFollowState.pendingInitialCenter = false;
+          hideVehicleFollowToast();
+      }
+
+      function updateVehicleFollowPosition(force = false) {
+          if (!vehicleFollowState.active || !map) {
+              return;
+          }
+          const vehicleId = vehicleFollowState.vehicleId;
+          if (!vehicleId) {
+              stopFollowingVehicle();
+              return;
+          }
+          const marker = markers && markers[vehicleId];
+          if (!marker || typeof marker.getLatLng !== 'function') {
+              return;
+          }
+          const latLng = marker.getLatLng();
+          if (!latLng) {
+              return;
+          }
+
+          if (vehicleFollowState.pendingInitialCenter) {
+              vehicleFollowState.pendingInitialCenter = false;
+              if (Number.isFinite(vehicleFollowState.desiredZoom)) {
+                  if (typeof map.flyTo === 'function') {
+                      map.flyTo(latLng, vehicleFollowState.desiredZoom, { animate: true, duration: 0.75, easeLinearity: 0.25 });
+                  } else if (typeof map.setView === 'function') {
+                      map.setView([latLng.lat, latLng.lng], vehicleFollowState.desiredZoom);
+                  } else if (typeof map.panTo === 'function') {
+                      map.panTo(latLng);
+                  }
+              } else if (typeof map.panTo === 'function') {
+                  map.panTo(latLng);
+              } else if (typeof map.setView === 'function') {
+                  const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : undefined;
+                  if (currentZoom !== undefined) {
+                      map.setView([latLng.lat, latLng.lng], currentZoom);
+                  } else {
+                      map.setView([latLng.lat, latLng.lng]);
+                  }
+              }
+              return;
+          }
+
+          const center = typeof map.getCenter === 'function' ? map.getCenter() : null;
+          let needsPan = force;
+          if (!needsPan) {
+              if (!center) {
+                  needsPan = true;
+              } else {
+                  const deltaLat = Math.abs(center.lat - latLng.lat);
+                  const deltaLng = Math.abs(center.lng - latLng.lng);
+                  needsPan = deltaLat > VEHICLE_FOLLOW_CENTER_EPSILON || deltaLng > VEHICLE_FOLLOW_CENTER_EPSILON;
+              }
+          }
+
+          if (!needsPan) {
+              return;
+          }
+
+          if (typeof map.panTo === 'function') {
+              map.panTo(latLng, { animate: true });
+          } else if (typeof map.setView === 'function') {
+              const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : undefined;
+              if (currentZoom !== undefined) {
+                  map.setView([latLng.lat, latLng.lng], currentZoom);
+              } else {
+                  map.setView([latLng.lat, latLng.lng]);
+              }
+          }
+      }
+
+      function startVehicleFollow(vehicleId, options = {}) {
+          if (!map) {
+              return;
+          }
+          const normalizedKey = normalizeDispatcherVehicleKey(vehicleId);
+          if (!normalizedKey) {
+              stopFollowingVehicle();
+              return;
+          }
+          vehicleFollowState.active = true;
+          vehicleFollowState.vehicleId = normalizedKey;
+          const desiredZoom = Number.isFinite(options.zoom) ? options.zoom : null;
+          vehicleFollowState.desiredZoom = desiredZoom;
+          vehicleFollowState.pendingInitialCenter = !options.immediate;
+          updateVehicleFollowToast();
+          if (options.forcePan) {
+              updateVehicleFollowPosition(true);
+          }
+      }
+
+      function maintainVehicleFollowAfterUpdate() {
+          if (!vehicleFollowState.active) {
+              hideVehicleFollowToast();
+              return;
+          }
+          updateVehicleFollowToast();
+          updateVehicleFollowPosition(false);
+      }
+
+      function registerVehicleFollowInteractionHandlers() {
+          if (vehicleFollowInteractionHandlersBound) {
+              return;
+          }
+          if (!map || typeof map.getContainer !== 'function') {
+              return;
+          }
+          const container = map.getContainer();
+          if (!container) {
+              return;
+          }
+          const handler = () => {
+              stopFollowingVehicle();
+          };
+          ['mousedown', 'touchstart', 'wheel', 'click', 'keydown'].forEach(eventName => {
+              container.addEventListener(eventName, handler, { passive: true });
+          });
+          vehicleFollowInteractionHandlersBound = true;
+      }
+
       function focusDispatcherVehicle(vehicleId) {
           if (!map) {
               return false;
           }
           const normalizedKey = normalizeDispatcherVehicleKey(vehicleId);
           if (!normalizedKey) {
+              stopFollowingVehicle();
               return false;
           }
           const marker = markers && markers[normalizedKey];
           if (!marker || typeof marker.getLatLng !== 'function') {
+              startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true });
               return false;
           }
           const latLng = marker.getLatLng();
           if (!latLng) {
+              startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true });
               return false;
           }
           const { lat, lng } = latLng;
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true });
               return false;
           }
           try {
@@ -1620,14 +1806,17 @@ schedulePlaneStyleOverride();
               } else if (typeof map.setView === 'function') {
                   map.setView([lat, lng], desiredZoom);
               }
+              startVehicleFollow(normalizedKey, { zoom: desiredZoom, immediate: true });
               return true;
           } catch (error) {
               console.error('Failed to focus dispatcher vehicle on map:', error);
+              startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true });
               return false;
           }
       }
 
       function centerDispatcherMapOnRoutes() {
+          stopFollowingVehicle();
           if (!map) {
               return false;
           }
@@ -7038,6 +7227,7 @@ ${trainPlaneMarkup}
               }
           }
           applyIncidentHaloStates();
+          registerVehicleFollowInteractionHandlers();
       }
 
       async function fetchBusStops() {
@@ -10231,6 +10421,18 @@ ${trainPlaneMarkup}
                       }
                   }
               });
+              if (vehicleFollowState.active) {
+                  const followedVehicleId = vehicleFollowState.vehicleId;
+                  if (followedVehicleId) {
+                      const markerExists = Boolean(markers && markers[followedVehicleId]);
+                      const vehicleVisible = Boolean(currentBusData[followedVehicleId]);
+                      const waitingForInitialCenter = vehicleFollowState.pendingInitialCenter;
+                      if (!waitingForInitialCenter && (!markerExists || !vehicleVisible)) {
+                          stopFollowingVehicle();
+                      }
+                  }
+              }
+              maintainVehicleFollowAfterUpdate();
               previousBusData = currentBusData;
           } catch (error) {
               console.error("Error fetching bus locations:", error);

@@ -199,6 +199,28 @@
         color: rgba(248, 250, 252, 0.92);
         letter-spacing: 0.35px;
       }
+      .map-toast {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translate(-50%, 20px);
+        background: rgba(35, 45, 75, 0.92);
+        color: #f8fafc;
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-family: var(--app-font-family);
+        font-size: 14px;
+        letter-spacing: 0.3px;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.35);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        z-index: 2000;
+      }
+      .map-toast.is-visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
       .cat-vehicle-icon {
         width: 0;
         height: 0;
