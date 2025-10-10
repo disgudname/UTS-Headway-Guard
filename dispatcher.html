@@ -1193,8 +1193,18 @@ function renderDriverLines(container,drivers){
   }
   container.innerHTML='';
   const includeLabels=items.length>1;
+  let previousDriver=null;
   for(let i=0;i<items.length;i++){
     const driver=items[i];
+    if(previousDriver){
+      const gapLabel=buildOpenGapLabel(previousDriver,driver);
+      if(gapLabel){
+        const gapLine=document.createElement('div');
+        gapLine.className='driver-line';
+        gapLine.textContent=gapLabel;
+        container.appendChild(gapLine);
+      }
+    }
     const line=document.createElement('div');
     line.className='driver-line';
     if(includeLabels){
@@ -1211,8 +1221,56 @@ function renderDriverLines(container,drivers){
       line.textContent=driver.name;
     }
     container.appendChild(line);
+    previousDriver=driver;
   }
   container.hidden=false;
+}
+
+function buildOpenGapLabel(previousDriver,nextDriver){
+  if(!previousDriver || !nextDriver) return '';
+  const previousEndInfo=getDriverTimeInfo(previousDriver,'end');
+  const nextStartInfo=getDriverTimeInfo(nextDriver,'start');
+  if(previousEndInfo.minutes==null || nextStartInfo.minutes==null) return '';
+  const prevEnd=previousEndInfo.minutes;
+  const nextStart=nextStartInfo.minutes;
+  if(!Number.isFinite(prevEnd) || !Number.isFinite(nextStart)) return '';
+  if(nextStart<=prevEnd) return '';
+  const startLabel=formatGapTimeForDisplay(prevEnd,previousEndInfo.label);
+  const endLabel=formatGapTimeForDisplay(nextStart,nextStartInfo.label);
+  if(!startLabel || !endLabel) return '';
+  return `OPEN ${startLabel} - ${endLabel}`;
+}
+
+function getDriverTimeInfo(driver,type){
+  const prop=type==='end'?'endLabel':'startLabel';
+  const tsProp=type==='end'?'endTs':'startTs';
+  const rawLabel=typeof driver[prop]==='string'?driver[prop].trim():'';
+  let minutes=parseTimeToMinutes(rawLabel);
+  if(minutes==null){
+    const ts=normalizeDriverTimestampToMs(driver[tsProp]);
+    if(ts!=null){
+      const date=new Date(ts);
+      if(!Number.isNaN(date.getTime())){
+        minutes=date.getHours()*60+date.getMinutes();
+      }
+    }
+  }
+  return {minutes,label:rawLabel};
+}
+
+function formatGapTimeForDisplay(minutes,fallbackLabel){
+  if(minutes!=null && Number.isFinite(minutes)){
+    let value=minutes%MINUTES_PER_DAY;
+    if(value<0) value+=MINUTES_PER_DAY;
+    const hours=Math.floor(value/60);
+    const mins=value%60;
+    return `${String(hours).padStart(2,'0')}${String(mins).padStart(2,'0')}`;
+  }
+  if(!fallbackLabel) return '';
+  const digits=fallbackLabel.replace(/[^0-9]/g,'');
+  if(!digits) return '';
+  if(digits.length>=4) return digits.slice(-4);
+  return digits.padStart(4,'0');
 }
 
 function parseTimeToMinutes(str){
