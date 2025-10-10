@@ -646,7 +646,7 @@ function normalizeLayout(layoutData){
   if(!layoutArray.length){
     return BLOCK_GRID_DEFAULT_LAYOUT_DATA.map(col=>normalizeColumn(col));
   }
-  return layoutArray.map((col,index)=>normalizeColumn(col,BLOCK_GRID_DEFAULT_LAYOUT_DATA[index]));
+  return layoutArray.map(col=>normalizeColumn(col));
 }
 
 async function fetchBlockGridLayout(){
