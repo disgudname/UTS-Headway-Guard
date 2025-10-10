@@ -590,9 +590,11 @@ if(blocksGridTable){
     const cell=event.target.closest('.cell');
     if(!cell || !blocksGridTable.contains(cell)) return;
     if(cell.dataset.empty==='true') return;
+    const vehicleId=cell.dataset.vehicleId||'';
     const bus=cell.dataset.bus||cleanBusIdentifier(cell.querySelector('.bus')?.textContent||'');
-    if(!bus) return;
-    postMapMessage({type:MAP_MESSAGE_TYPES.focusBus,vehicleId:bus});
+    const targetId=vehicleId||bus;
+    if(!targetId) return;
+    postMapMessage({type:MAP_MESSAGE_TYPES.focusBus,vehicleId:targetId});
   });
 }
 
@@ -792,6 +794,7 @@ function clearBlockGrid({message}={}){
       driverContainer.hidden=true;
     }
     delete cell.dataset.bus;
+    delete cell.dataset.vehicleId;
     applyDefaultBlockCellColors(cell);
   });
   if(message){
@@ -1298,16 +1301,43 @@ function buildBlockGridEntry(group){
   }
 
   let bus='—';
+  let vehicleId='';
   for(const block of blocks){
     const trips=Array.isArray(block.Trips)?block.Trips:[];
+    let blockBus='—';
+    const blockVehicleName=cleanBusIdentifier(block.VehicleName);
+    if(blockVehicleName){
+      blockBus=blockVehicleName;
+    }
+    let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
+    if(blockBus==='—' && block.VehicleId!=null){
+      const idString=cleanBusIdentifier(block.VehicleId);
+      if(idString){
+        blockBus=idString;
+      }
+    }
     for(const trip of trips){
       const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
-      if(tripBus){
-        bus=tripBus;
+      if(tripBus && blockBus==='—'){
+        blockBus=tripBus;
+      }
+      const tripVehicleId=trip?cleanBusIdentifier(trip.VehicleId??trip.VehicleID):'';
+      if(tripVehicleId && !blockVehicleId){
+        blockVehicleId=tripVehicleId;
+      }
+      if(blockBus!=='—' && blockVehicleId){
         break;
       }
     }
-    if(bus!=='—') break;
+    if(bus==='—' && blockBus && blockBus!=='—'){
+      bus=blockBus;
+    }
+    if(!vehicleId && blockVehicleId){
+      vehicleId=blockVehicleId;
+    }
+    if(bus!=='—' && vehicleId){
+      break;
+    }
   }
 
   let minStart=null;
@@ -1434,6 +1464,7 @@ function buildBlockGridEntry(group){
     if(blockVehicleName){
       blockBus=blockVehicleName;
     }
+    let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
     if(blockBus==='—' && block.VehicleId!=null){
       const idString=cleanBusIdentifier(block.VehicleId);
       if(idString){
@@ -1443,8 +1474,14 @@ function buildBlockGridEntry(group){
     const trips=Array.isArray(block.Trips)?block.Trips:[];
     for(const trip of trips){
       const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
-      if(tripBus){
+      if(tripBus && blockBus==='—'){
         blockBus=tripBus;
+      }
+      const tripVehicleId=trip?cleanBusIdentifier(trip.VehicleId??trip.VehicleID):'';
+      if(tripVehicleId && !blockVehicleId){
+        blockVehicleId=tripVehicleId;
+      }
+      if(blockBus!=='—' && blockVehicleId){
         break;
       }
     }
@@ -1464,13 +1501,14 @@ function buildBlockGridEntry(group){
       }
       blockIdLookup.set(normalizedId,{
         bus:blockBus,
+        vehicleId:blockVehicleId||'',
         numbers:blockInfoNumbers.slice(),
         periods:periodsForBlock
       });
     }
 
-    if(bus==='—' && blockBus && blockBus!=='—'){
-      bus=blockBus;
+    if(!vehicleId && blockVehicleId){
+      vehicleId=blockVehicleId;
     }
   }
 
@@ -1515,7 +1553,7 @@ function buildBlockGridEntry(group){
     }
   }
 
-  return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,minStart,maxEnd,blockIdLookup};
+  return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,vehicleId,minStart,maxEnd,blockIdLookup};
 }
 
 function isActive(entry,nowMinutes){
@@ -1543,8 +1581,8 @@ function pickBest(entries,nowMinutes){
   return entries[0];
 }
 
-function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
-  if(!matches.length) return '—';
+function selectBestAssignment(matches,blockNumber,normalizedPeriod,nowMinutes){
+  if(!matches.length) return null;
   let filtered=matches;
   let allowFallback=!normalizedPeriod;
   if(blockNumber){
@@ -1618,15 +1656,24 @@ function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
   }
 
   const best=pickBest(filtered,nowMinutes);
-  if(best && best.bus) return best.bus;
+  if(best) return best;
   if(filtered!==matches && allowFallback){
     const fallback=pickBest(matches,nowMinutes);
-    if(fallback && fallback.bus) return fallback.bus;
+    if(fallback) return fallback;
   }
-  return '—';
+  return null;
 }
 
-function findBestBus(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinutes){
+function normalizeAssignmentResult(entry){
+  if(!entry) return {bus:'—',vehicleId:''};
+  const rawBus=typeof entry.bus==='string'?entry.bus:'';
+  const busClean=cleanBusIdentifier(rawBus);
+  const bus=busClean||rawBus.trim()||'—';
+  const vehicleIdClean=cleanBusIdentifier(entry.vehicleId);
+  return {bus:bus||'—',vehicleId:vehicleIdClean};
+}
+
+function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinutes){
   const matches=blockNumber?entries.filter(e=>Array.isArray(e.blockNumbers)&&e.blockNumbers.includes(blockNumber)):[];
   const normalizedPeriod=(periodSuffix||'').toLowerCase();
 
@@ -1636,9 +1683,12 @@ function findBestBus(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinut
       const lookup=entry.blockIdLookup;
       if(lookup && lookup.has(blockIdNormalized)){
         const info=lookup.get(blockIdNormalized);
-        const infoBusClean=cleanBusIdentifier(info.bus);
+        const infoBusRaw=typeof info?.bus==='string'?info.bus:'';
+        const infoBusClean=cleanBusIdentifier(infoBusRaw);
+        const infoVehicleIdClean=cleanBusIdentifier(info?.vehicleId);
         const candidate={
-          bus:infoBusClean||'—',
+          bus:infoBusClean||infoBusRaw.trim()||'—',
+          vehicleId:infoVehicleIdClean||cleanBusIdentifier(entry.vehicleId),
           blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
           blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
           period:entry.period,
@@ -1659,16 +1709,19 @@ function findBestBus(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinut
           }
         }
       }
-      const busFromId=selectBestBus(idCandidates,targetNumber||'',normalizedPeriod,nowMinutes);
-      if(busFromId && busFromId!=='—') return busFromId;
-      if(busFromId) return busFromId;
+      const assignmentFromId=selectBestAssignment(idCandidates,targetNumber||'',normalizedPeriod,nowMinutes);
+      const normalizedAssignment=normalizeAssignmentResult(assignmentFromId);
+      if(normalizedAssignment.vehicleId || (normalizedAssignment.bus && normalizedAssignment.bus!=='—')){
+        return normalizedAssignment;
+      }
     }
   }
   if(!blockNumber){
-    return '—';
+    return {bus:'—',vehicleId:''};
   }
-  if(!matches.length) return '—';
-  return selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes);
+  if(!matches.length) return {bus:'—',vehicleId:''};
+  const assignment=selectBestAssignment(matches,blockNumber,normalizedPeriod,nowMinutes);
+  return normalizeAssignmentResult(assignment);
 }
 
 function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
@@ -1685,10 +1738,11 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
     const blockNumber=cell.dataset.block||'';
     const periodSuffix=cell.dataset.period||'';
     const customId=cell.dataset.customBlockId||'';
-    let bus='—';
+    let assignment={bus:'—',vehicleId:''};
     if(blockNumber || customId){
-      bus=findBestBus(blockNumber,periodSuffix,customId,entries,nowMinutes)||'—';
+      assignment=findBestAssignment(blockNumber,periodSuffix,customId,entries,nowMinutes)||{bus:'—',vehicleId:''};
     }
+    const bus=assignment.bus||'—';
     const busEl=cell.querySelector('.bus');
     if(busEl){
       busEl.textContent=bus||'—';
@@ -1698,6 +1752,12 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
       cell.dataset.bus=normalizedBus;
     }else{
       delete cell.dataset.bus;
+    }
+    const normalizedVehicleId=cleanBusIdentifier(assignment.vehicleId);
+    if(normalizedVehicleId){
+      cell.dataset.vehicleId=normalizedVehicleId;
+    }else{
+      delete cell.dataset.vehicleId;
     }
     const driverContainer=cell.querySelector('.drivers');
     if(driverContainer){
