@@ -526,6 +526,7 @@ const STATUS_CLASSES = {
 const urlParams = new URLSearchParams(window.location.search);
 const LCARS_ENABLED = urlParams.get('lcars') === 'true';
 const CYBERPUNK_ENABLED = !LCARS_ENABLED && urlParams.get('cyberpunk') === 'true';
+const BROKEN_GRAPH_MODE = urlParams.get('broken') === 'true';
 const KIOSK_MODE = urlParams.has('kioskMode');
 const mapFrame = document.getElementById('map-frame');
 const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
@@ -2376,10 +2377,23 @@ function activateCyberpunkMode(){
       }
       el.textContent=`Δ ${textDelta}${suffix}`;
     };
+    const brokenGraphState=Object.create(null);
     const updateGraph=name=>{
       const graph=hud.querySelector(`[data-graph="${name}"]`);
       if(!graph) return;
       const bars=graph.querySelectorAll('.hud-bar');
+      if(BROKEN_GRAPH_MODE){
+        const heights=brokenGraphState[name]||Array.from({length:bars.length},()=>randomBetween(10,30));
+        const nextHeights=heights.map(height=>height+randomBetween(8,24));
+        brokenGraphState[name]=nextHeights;
+        bars.forEach((bar,index)=>{
+          const height=nextHeights[index]||nextHeights[nextHeights.length-1]||100;
+          bar.style.height=Math.round(height)+'%';
+          bar.style.opacity=(0.6+Math.random()*0.4).toFixed(2);
+          bar.style.animationDelay=(index*0.18)+'s';
+        });
+        return;
+      }
       bars.forEach((bar,index)=>{
         bar.style.height=Math.round(randomBetween(25,100))+'%';
         bar.style.opacity=(0.6+Math.random()*0.4).toFixed(2);
