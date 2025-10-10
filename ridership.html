@@ -175,6 +175,14 @@ let groupMetaByKey={};
 let routeGroupMembers={};
 let routeMemberToGroup={};
 let isLoading=false;
+let hasLoadedData=false;
+
+function updateDataDependentControls(){
+  const disabled=isLoading||!hasLoadedData;
+  exportBtn.disabled=disabled;
+  templateBtn.disabled=disabled;
+  academicTemplateBtn.disabled=disabled;
+}
 
 function updateLoadAvailability(){
   loadBtn.disabled=!dateInput.value||isLoading;
@@ -322,6 +330,7 @@ function getRouteColor(routeKey){
 }
 
 updateLoadAvailability();
+updateDataDependentControls();
 
 loadBtn.addEventListener('click',load);
 exportBtn.addEventListener('click',exportCsv);
@@ -354,6 +363,7 @@ function load(){
   }
   isLoading=true;
   updateLoadAvailability();
+  updateDataDependentControls();
   spinner.style.display='inline-block';
   tablesContainer.classList.add('is-loading');
   loadingMessage.textContent='Loading Data, please wait...';
@@ -389,6 +399,7 @@ function load(){
     tablesContainer.classList.remove('is-loading');
     loadingMessage.style.display='none';
     updateLoadAvailability();
+    updateDataDependentControls();
   });
 }
 
@@ -448,6 +459,8 @@ function render(data,bounds){
   routeList=Object.keys(groupMetaByKey).sort((a,b)=>getRouteDisplayName(a).localeCompare(getRouteDisplayName(b)));
   newestDataTimestamp=newest;
   newestTimestamp.textContent=newest?newest.toLocaleString():'';
+  hasLoadedData=Object.keys(ridershipByRoute).length>0;
+  updateDataDependentControls();
   let blocks=[...tablesContainer.querySelectorAll('.route-block')];
   if(!blocks.length){
     addRouteTable();
