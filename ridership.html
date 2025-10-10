@@ -54,9 +54,11 @@
   #routeTotalsWrapper .route-totals-value{text-align:right;font-variant-numeric:tabular-nums;}
   #routeTotalsWrapper .route-totals-title{font-weight:bold;}
   #routeTotalsWrapper .route-overall-row td{font-weight:bold;border-top:2px solid var(--line);}
-  #routeTotalsChartWrapper{margin-top:12px;display:none;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line);position:relative;}
+  #routeTotalsChartWrapper{margin-top:12px;display:none;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line);position:relative;max-height:420px;}
   #routeTotalsChartWrapper .route-totals-title{font-weight:bold;margin-bottom:8px;}
-  #routeTotalsChart{width:100%;height:320px;}
+  #routeTotalsChart{width:100%;height:min(320px,40vh);max-height:360px;}
+  body.is-broken #routeTotalsChartWrapper{max-height:none;}
+  body.is-broken #routeTotalsChart{height:320px;max-height:none;}
 </style>
 </head>
 <body>
@@ -112,6 +114,12 @@ const templateBtn=document.getElementById('templateBtn');
 const academicTemplateBtn=document.getElementById('academicTemplateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
+
+const urlParams=new URLSearchParams(window.location.search);
+const isBrokenMode=urlParams.get('broken')==='true';
+if(isBrokenMode){
+  document.body.classList.add('is-broken');
+}
 
 const DEFAULT_ROUTE_COLOR=(()=>{
   try{
