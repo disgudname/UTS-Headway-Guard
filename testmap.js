@@ -1582,10 +1582,12 @@ schedulePlaneStyleOverride();
           vehicleId: '',
           desiredZoom: null,
           pendingInitialCenter: false,
-          displayLabel: ''
+          displayLabel: '',
+          visibilityGraceDeadline: 0
       };
       let vehicleFollowInteractionHandlersBound = false;
       const VEHICLE_FOLLOW_CENTER_EPSILON = 0.00001;
+      const VEHICLE_FOLLOW_VISIBILITY_GRACE_MS = 4000;
 
       function normalizeDispatcherVehicleKey(value) {
           if (value == null) {
@@ -1707,6 +1709,14 @@ schedulePlaneStyleOverride();
           toast.setAttribute('aria-hidden', 'true');
       }
 
+      function isVehicleFollowVisibilityGraceActive() {
+          const deadline = vehicleFollowState.visibilityGraceDeadline;
+          if (!Number.isFinite(deadline) || deadline <= 0) {
+              return false;
+          }
+          return Date.now() < deadline;
+      }
+
       function updateVehicleFollowToast() {
           if (!vehicleFollowState.active) {
               hideVehicleFollowToast();
@@ -1729,6 +1739,7 @@ schedulePlaneStyleOverride();
           vehicleFollowState.desiredZoom = null;
           vehicleFollowState.pendingInitialCenter = false;
           vehicleFollowState.displayLabel = '';
+          vehicleFollowState.visibilityGraceDeadline = 0;
           hideVehicleFollowToast();
       }
 
@@ -1818,6 +1829,14 @@ schedulePlaneStyleOverride();
           const displayLabelCandidate = typeof options.displayLabel === 'string' ? options.displayLabel : '';
           const normalizedLabel = displayLabelCandidate.trim();
           vehicleFollowState.displayLabel = normalizedLabel || normalizedKey;
+          if (VEHICLE_FOLLOW_VISIBILITY_GRACE_MS > 0) {
+              const now = Date.now();
+              vehicleFollowState.visibilityGraceDeadline = Number.isFinite(now)
+                  ? now + VEHICLE_FOLLOW_VISIBILITY_GRACE_MS
+                  : VEHICLE_FOLLOW_VISIBILITY_GRACE_MS;
+          } else {
+              vehicleFollowState.visibilityGraceDeadline = 0;
+          }
           updateVehicleFollowToast();
           if (options.forcePan) {
               updateVehicleFollowPosition(true);
@@ -10524,8 +10543,12 @@ ${trainPlaneMarkup}
                   if (followedVehicleId) {
                       const markerExists = Boolean(markers && markers[followedVehicleId]);
                       const vehicleVisible = Boolean(currentBusData[followedVehicleId]);
+                      if (vehicleVisible) {
+                          vehicleFollowState.visibilityGraceDeadline = 0;
+                      }
                       const waitingForInitialCenter = vehicleFollowState.pendingInitialCenter;
-                      if (!waitingForInitialCenter && (!markerExists || !vehicleVisible)) {
+                      const waitingForVisibility = isVehicleFollowVisibilityGraceActive();
+                      if (!waitingForInitialCenter && !waitingForVisibility && (!markerExists || !vehicleVisible)) {
                           stopFollowingVehicle();
                       }
                   }
