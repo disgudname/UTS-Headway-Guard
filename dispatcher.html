@@ -1970,17 +1970,21 @@ function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,n
         const info=lookup.get(blockIdNormalized);
         const infoBusRaw=typeof info?.bus==='string'?info.bus:'';
         const infoBusClean=cleanBusIdentifier(infoBusRaw);
+        const infoBusTrimmed=infoBusRaw.trim();
+        const hasInfoBus=Boolean(infoBusClean || cleanBusIdentifier(infoBusTrimmed));
         const infoVehicleIdClean=cleanBusIdentifier(info?.vehicleId);
         const entryDisplayRaw=typeof entry.displayBus==='string'?entry.displayBus:'';
         const infoDisplayRaw=typeof info?.displayBus==='string'?info.displayBus:'';
-        const displayCandidate=(infoDisplayRaw && infoDisplayRaw.trim())
-          ? infoDisplayRaw.trim()
-          : (entryDisplayRaw && entryDisplayRaw.trim()?entryDisplayRaw.trim():'');
+        const trimmedInfoDisplay=typeof infoDisplayRaw==='string'?infoDisplayRaw.trim():'';
+        const entryDisplayTrimmed=entryDisplayRaw.trim();
+        const displayCandidate=trimmedInfoDisplay || (hasInfoBus?entryDisplayTrimmed:'');
+        const infoVehicleNameRaw=typeof info?.vehicleName==='string'?info.vehicleName:'';
+        const infoVehicleName=infoVehicleNameRaw.trim();
         const candidate={
-          bus:infoBusClean||infoBusRaw.trim()||'—',
-          vehicleId:infoVehicleIdClean||cleanBusIdentifier(entry.vehicleId),
+          bus:hasInfoBus?(infoBusClean||infoBusTrimmed||'—'):'—',
+          vehicleId:infoVehicleIdClean||'',
           displayBus:displayCandidate,
-          vehicleName:typeof info?.vehicleName==='string' && info.vehicleName.trim()?info.vehicleName:entry.vehicleName,
+          vehicleName:infoVehicleName,
           blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
           blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
           period:entry.period,
