@@ -611,6 +611,7 @@ let blockGridLayout = [];
 let blockGridInitialized = false;
 let blockGridLayoutPromise = null;
 let plainLanguageVehicleNames = new Map();
+let configuredVehicleNames = new Map();
 
 const DRIVER_DISPLAY_ENABLED = true;
 let driverAssignmentsByBlock = Object.create(null);
@@ -890,6 +891,39 @@ function cleanBusIdentifier(value){
   if(text==='—') return '';
   if(/^0+$/.test(text)) return '';
   return text;
+}
+
+function extractConfiguredVehicleNames(cfg){
+  const map=new Map();
+  if(!cfg || typeof cfg!=='object') return map;
+  const addEntry=(id,name)=>{
+    const normalized=cleanBusIdentifier(id);
+    if(!normalized) return;
+    if(name==null) return;
+    let text=typeof name==='string'?name:String(name);
+    text=text.trim();
+    if(!text || text==='—') return;
+    if(/^\d+$/.test(text) && text===normalized) return;
+    map.set(normalized,text);
+  };
+  const candidateKeys=['VEHICLE_NAMES','VEHICLE_NAME_OVERRIDES','VEHICLE_LABELS','VEHICLE_ALIASES'];
+  for(const key of candidateKeys){
+    const value=cfg[key];
+    if(!value) continue;
+    if(Array.isArray(value)){
+      for(const entry of value){
+        if(!entry || typeof entry!=='object') continue;
+        const id=entry.id ?? entry.vehicle_id ?? entry.vehicleId ?? entry.bus ?? entry.code ?? entry.key ?? entry.number;
+        const label=entry.name ?? entry.label ?? entry.display ?? entry.vehicle_name ?? entry.vehicleName ?? entry.value;
+        addEntry(id,label);
+      }
+    }else if(typeof value==='object'){
+      for(const [id,label] of Object.entries(value)){
+        addEntry(id,label);
+      }
+    }
+  }
+  return map;
 }
 
 function supportsAmPmBlock(blockNumber){
@@ -1315,9 +1349,9 @@ function buildBlockGridEntry(group){
     }
     let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
     if(blockVehicleId){
-      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
-      if(typeof friendly==='string' && friendly.trim()){
-        blockBusLabel=friendly.trim();
+      const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
+      if(friendly){
+        blockBusLabel=friendly;
       }
     }
     if(!blockBusId && block.VehicleId!=null){
@@ -1325,8 +1359,8 @@ function buildBlockGridEntry(group){
       if(idString){
         blockBusId=idString;
         if(!blockBusLabel){
-          const friendly=plainLanguageVehicleNames.get(idString);
-          blockBusLabel=(typeof friendly==='string' && friendly.trim())?friendly.trim():idString;
+          const friendly=lookupPlainLanguageVehicleName(idString);
+          blockBusLabel=friendly||idString;
         }
       }
     }
@@ -1344,9 +1378,9 @@ function buildBlockGridEntry(group){
           blockVehicleId=tripVehicleId;
         }
         if(!blockBusLabel){
-          const friendly=plainLanguageVehicleNames.get(tripVehicleId);
-          if(typeof friendly==='string' && friendly.trim()){
-            blockBusLabel=friendly.trim();
+          const friendly=lookupPlainLanguageVehicleName(tripVehicleId);
+          if(friendly){
+            blockBusLabel=friendly;
           }
         }
       }
@@ -1355,9 +1389,9 @@ function buildBlockGridEntry(group){
       }
     }
     if(blockVehicleId && !blockBusLabel){
-      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
-      if(typeof friendly==='string' && friendly.trim()){
-        blockBusLabel=friendly.trim();
+      const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
+      if(friendly){
+        blockBusLabel=friendly;
       }
     }
     if(!busValue && blockBusId){
@@ -1505,9 +1539,9 @@ function buildBlockGridEntry(group){
     }
     let blockVehicleId=cleanBusIdentifier(block?.VehicleId??block?.VehicleID);
     if(blockVehicleId){
-      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
-      if(typeof friendly==='string' && friendly.trim()){
-        blockBusLabel=friendly.trim();
+      const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
+      if(friendly){
+        blockBusLabel=friendly;
       }
     }
     if(!blockBusId && block.VehicleId!=null){
@@ -1515,8 +1549,8 @@ function buildBlockGridEntry(group){
       if(idString){
         blockBusId=idString;
         if(!blockBusLabel){
-          const friendly=plainLanguageVehicleNames.get(idString);
-          blockBusLabel=(typeof friendly==='string' && friendly.trim())?friendly.trim():idString;
+          const friendly=lookupPlainLanguageVehicleName(idString);
+          blockBusLabel=friendly||idString;
         }
       }
     }
@@ -1535,9 +1569,9 @@ function buildBlockGridEntry(group){
           blockVehicleId=tripVehicleId;
         }
         if(!blockBusLabel){
-          const friendly=plainLanguageVehicleNames.get(tripVehicleId);
-          if(typeof friendly==='string' && friendly.trim()){
-            blockBusLabel=friendly.trim();
+          const friendly=lookupPlainLanguageVehicleName(tripVehicleId);
+          if(friendly){
+            blockBusLabel=friendly;
           }
         }
       }
@@ -1546,9 +1580,9 @@ function buildBlockGridEntry(group){
       }
     }
     if(blockVehicleId && !blockBusLabel){
-      const friendly=plainLanguageVehicleNames.get(blockVehicleId);
-      if(typeof friendly==='string' && friendly.trim()){
-        blockBusLabel=friendly.trim();
+      const friendly=lookupPlainLanguageVehicleName(blockVehicleId);
+      if(friendly){
+        blockBusLabel=friendly;
       }
     }
     const busValue=blockBusId||'—';
@@ -1733,6 +1767,48 @@ function selectBestAssignment(matches,blockNumber,normalizedPeriod,nowMinutes){
   return null;
 }
 
+function lookupPlainLanguageVehicleName(id){
+  const normalized=cleanBusIdentifier(id);
+  if(!normalized) return '';
+  const sources=[plainLanguageVehicleNames,configuredVehicleNames];
+  for(const source of sources){
+    const friendly=source.get(normalized);
+    if(typeof friendly==='string'){
+      const trimmed=friendly.trim();
+      if(trimmed && trimmed!=='—'){
+        if(/^\d+$/.test(trimmed) && trimmed===normalized){
+          continue;
+        }
+        return trimmed;
+      }
+    }
+  }
+  return '';
+}
+
+function deriveVehicleDisplayLabel({display,bus,vehicleId}){
+  const trimmedDisplay=typeof display==='string'?display.trim():'';
+  const normalizedVehicleId=cleanBusIdentifier(vehicleId);
+  const normalizedBus=cleanBusIdentifier(bus);
+  const friendlyByVehicle=lookupPlainLanguageVehicleName(normalizedVehicleId);
+  const friendlyByBus=lookupPlainLanguageVehicleName(normalizedBus);
+  if(trimmedDisplay && trimmedDisplay!=='—'){
+    const normalizedDisplay=cleanBusIdentifier(trimmedDisplay);
+    const looksNumeric=/^\d+$/.test(normalizedDisplay);
+    const matchesVehicle=normalizedVehicleId && normalizedDisplay===normalizedVehicleId;
+    const matchesBus=normalizedBus && normalizedDisplay===normalizedBus;
+    if(!(looksNumeric && (matchesVehicle || matchesBus))){
+      return trimmedDisplay;
+    }
+  }
+  if(friendlyByVehicle) return friendlyByVehicle;
+  if(friendlyByBus) return friendlyByBus;
+  if(trimmedDisplay && trimmedDisplay!=='—') return trimmedDisplay;
+  if(normalizedBus) return normalizedBus;
+  if(normalizedVehicleId) return normalizedVehicleId;
+  return '—';
+}
+
 function normalizeAssignmentResult(entry){
   if(!entry) return {bus:'—',vehicleId:'',label:'—'};
   const rawBus=typeof entry.bus==='string'?entry.bus:'';
@@ -1740,9 +1816,11 @@ function normalizeAssignmentResult(entry){
   const bus=busClean||rawBus.trim()||'—';
   const vehicleIdClean=cleanBusIdentifier(entry.vehicleId);
   const displayRaw=typeof entry.displayBus==='string'?entry.displayBus:'';
-  const displayTrimmed=displayRaw.trim();
-  const display=displayTrimmed && displayTrimmed!=='—'?displayTrimmed:'';
-  const label=display||bus||'—';
+  const label=deriveVehicleDisplayLabel({
+    display:displayRaw,
+    bus:bus,
+    vehicleId:vehicleIdClean||busClean
+  });
   return {bus:bus||'—',vehicleId:vehicleIdClean,label};
 }
 
@@ -2813,6 +2891,7 @@ async function loadConfig(){
     const cfg = await j('/v1/config');
     if(cfg.ALL_BUSES) allBuses = cfg.ALL_BUSES;
     if(cfg.OVERHEIGHT_BUSES) OVERHEIGHT_BUSES = cfg.OVERHEIGHT_BUSES;
+    configuredVehicleNames = extractConfiguredVehicleNames(cfg);
   }catch(e){}
 }
 
