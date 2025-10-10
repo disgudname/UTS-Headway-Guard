@@ -2006,6 +2006,9 @@ function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,n
       if(normalizedAssignment.vehicleId || (normalizedAssignment.bus && normalizedAssignment.bus!=='—')){
         return normalizedAssignment;
       }
+      if(!/^\d{2}(?:AM|PM)?$/.test(blockIdNormalized)){
+        return {bus:'—',vehicleId:'',label:'—'};
+      }
     }
   }
   if(!blockNumber){
