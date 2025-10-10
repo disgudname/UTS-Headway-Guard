@@ -892,6 +892,39 @@ function cleanBusIdentifier(value){
   return text;
 }
 
+const FRIENDLY_BUS_SUFFIXES=['12','31','32'];
+
+function friendlyBusNumberFromDigits(digits){
+  if(!digits) return '';
+  const trimmed=String(digits).replace(/\D+/g,'').replace(/^0+/,'')||'0';
+  const prefix=trimmed.slice(-3).padStart(3,'0');
+  const suffixIndex=parseInt(trimmed,10);
+  const suffix=FRIENDLY_BUS_SUFFIXES[Number.isNaN(suffixIndex)?0:suffixIndex%FRIENDLY_BUS_SUFFIXES.length];
+  return prefix+suffix;
+}
+
+function formatFriendlyBusLabel(value){
+  if(value==null) return '';
+  const text=String(value).trim();
+  if(!text) return '';
+  if(text==='—') return '—';
+  const digitsOnly=text.replace(/\D+/g,'');
+  if(!digitsOnly) return text;
+  if(/^[0-9]+$/.test(text)){
+    if(digitsOnly.length>=5){
+      const lastFive=digitsOnly.slice(-5);
+      if(/(?:12|31|32)$/.test(lastFive.slice(-2))){
+        return lastFive;
+      }
+    }
+    return friendlyBusNumberFromDigits(digitsOnly);
+  }
+  return text.replace(/\d+/g,part=>{
+    const friendly=formatFriendlyBusLabel(part);
+    return friendly||part;
+  });
+}
+
 function supportsAmPmBlock(blockNumber){
   return AM_PM_BLOCKS.has(String(blockNumber||'').padStart(2,'0'));
 }
@@ -1375,7 +1408,7 @@ function buildBlockGridEntry(group){
   }
 
   const bus=busValue||'—';
-  displayBus=displayBus||bus;
+  displayBus=formatFriendlyBusLabel(displayBus||bus)||displayBus||bus;
 
   let minStart=null;
   let maxEnd=null;
@@ -1552,7 +1585,9 @@ function buildBlockGridEntry(group){
       }
     }
     const busValue=blockBusId||'—';
-    const displayBusValue=blockBusLabel||busValue;
+    const rawDisplayValue=blockBusLabel||busValue;
+    const friendlyDisplayValue=formatFriendlyBusLabel(rawDisplayValue);
+    const displayBusValue=friendlyDisplayValue||rawDisplayValue;
 
     if(normalizedId){
       const periodsForBlock=Object.create(null);
@@ -1742,7 +1777,9 @@ function normalizeAssignmentResult(entry){
   const displayRaw=typeof entry.displayBus==='string'?entry.displayBus:'';
   const displayTrimmed=displayRaw.trim();
   const display=displayTrimmed && displayTrimmed!=='—'?displayTrimmed:'';
-  const label=display||bus||'—';
+  const rawLabel=display||bus||'—';
+  const friendlyLabel=formatFriendlyBusLabel(rawLabel);
+  const label=friendlyLabel||rawLabel;
   return {bus:bus||'—',vehicleId:vehicleIdClean,label};
 }
 
