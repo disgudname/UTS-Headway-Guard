@@ -1568,6 +1568,105 @@ schedulePlaneStyleOverride();
       let map;
       let markers = {};
       let busMarkerStates = {};
+      const INITIAL_MAP_VIEW = Object.freeze({
+          center: [38.03799212281404, -78.50981502838886],
+          zoom: 15
+      });
+      const dispatcherMessageSource = 'dispatcher';
+      const dispatcherMessageTypes = Object.freeze({
+          focusBus: 'dispatcher:focusBus',
+          centerMap: 'dispatcher:centerMap'
+      });
+
+      function normalizeDispatcherVehicleKey(value) {
+          if (value == null) {
+              return '';
+          }
+          const text = `${value}`.trim();
+          if (!text || text === '—') {
+              return '';
+          }
+          return text;
+      }
+
+      function focusDispatcherVehicle(vehicleId) {
+          if (!map) {
+              return false;
+          }
+          const normalizedKey = normalizeDispatcherVehicleKey(vehicleId);
+          if (!normalizedKey) {
+              return false;
+          }
+          const marker = markers && markers[normalizedKey];
+          if (!marker || typeof marker.getLatLng !== 'function') {
+              return false;
+          }
+          const latLng = marker.getLatLng();
+          if (!latLng) {
+              return false;
+          }
+          const { lat, lng } = latLng;
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              return false;
+          }
+          try {
+              const targetLatLng = L.latLng(lat, lng);
+              const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : null;
+              const desiredZoom = Number.isFinite(currentZoom) ? Math.max(currentZoom, 17) : 17;
+              if (typeof map.flyTo === 'function') {
+                  map.flyTo(targetLatLng, desiredZoom, { animate: true, duration: 0.75, easeLinearity: 0.25 });
+              } else if (typeof map.panTo === 'function') {
+                  map.panTo(targetLatLng);
+              } else if (typeof map.setView === 'function') {
+                  map.setView([lat, lng], desiredZoom);
+              }
+              return true;
+          } catch (error) {
+              console.error('Failed to focus dispatcher vehicle on map:', error);
+              return false;
+          }
+      }
+
+      function centerDispatcherMapOnRoutes() {
+          if (!map) {
+              return false;
+          }
+          if (allRouteBounds && typeof map.fitBounds === 'function') {
+              try {
+                  map.fitBounds(allRouteBounds, { padding: [20, 20] });
+                  return true;
+              } catch (error) {
+                  console.warn('Failed to fit all route bounds for dispatcher:', error);
+              }
+          }
+          if (typeof map.setView === 'function') {
+              map.setView(INITIAL_MAP_VIEW.center, INITIAL_MAP_VIEW.zoom);
+              return true;
+          }
+          return false;
+      }
+
+      function handleDispatcherMessage(event) {
+          if (!event || !event.data || typeof event.data !== 'object') {
+              return;
+          }
+          if (event.origin && event.origin !== window.location.origin) {
+              return;
+          }
+          const { source, type, vehicleId } = event.data;
+          if (source !== dispatcherMessageSource) {
+              return;
+          }
+          if (type === dispatcherMessageTypes.focusBus) {
+              focusDispatcherVehicle(vehicleId);
+          } else if (type === dispatcherMessageTypes.centerMap) {
+              centerDispatcherMapOnRoutes();
+          }
+      }
+
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+          window.addEventListener('message', handleDispatcherMessage);
+      }
       const trainsFeature = {
           markers: {},
           markerStates: {},
@@ -6818,7 +6917,7 @@ ${trainPlaneMarkup}
               crs: L.CRS.EPSG3857,
               zoomAnimation: true,
               markerZoomAnimation: true
-          }).setView([38.03799212281404, -78.50981502838886], 15);
+          }).setView(INITIAL_MAP_VIEW.center, INITIAL_MAP_VIEW.zoom);
           map.on('popupclose', handleDispatcherPopupClosed);
           map.on('click', () => {
               closeCatVehicleTooltip();

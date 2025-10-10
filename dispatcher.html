@@ -13,6 +13,10 @@ header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:
 header h1{flex-basis:100%}
  #controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
 select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
+button{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 12px;font-family:inherit;font-size:15px;cursor:pointer;transition:background-color .2s ease,border-color .2s ease}
+button:hover{background:#15202b;border-color:#334355}
+button:focus{outline:2px solid #3a83f5;outline-offset:2px}
+button:disabled{opacity:.65;cursor:not-allowed}
 .chip{display:inline-block;border:1px solid #2a3442;border-radius:999px;padding:2px 8px;margin-left:8px;color:#cfe1ff}
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th,td{border-bottom:1px solid #1f2630;padding:8px 10px;text-align:left}
@@ -462,6 +466,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 <div id="left" style="flex:1;position:relative">
 <header>
   <div id="controls">
+    <button id="center-map-button" type="button">Center Map</button>
     <div id="banner" class="banner info"></div>
   </div>
 </header>
@@ -522,6 +527,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const LCARS_ENABLED = urlParams.get('lcars') === 'true';
 const CYBERPUNK_ENABLED = !LCARS_ENABLED && urlParams.get('cyberpunk') === 'true';
 const KIOSK_MODE = urlParams.has('kioskMode');
+const mapFrame = document.getElementById('map-frame');
 const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
 if (KIOSK_MODE) {
   document.body.classList.add('kiosk-mode');
@@ -529,7 +535,6 @@ if (KIOSK_MODE) {
 if (LCARS_ENABLED) {
   activateLcarsMode();
 } else if (CYBERPUNK_ENABLED) {
-  const mapFrame = document.getElementById('map-frame');
   if (mapFrame) {
     const url = new URL(mapFrame.getAttribute('src'), window.location.origin);
     url.pathname = '/radar';
@@ -556,6 +561,40 @@ if (KIOSK_MODE) {
 const blocksGridEl = document.getElementById('blocks-grid');
 const blocksGridTable = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-table') : null;
 const blocksGridStatus = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-status') : null;
+const centerMapButton = document.getElementById('center-map-button');
+
+const MAP_MESSAGE_SOURCE = 'dispatcher';
+const MAP_MESSAGE_TYPES = Object.freeze({
+  focusBus: 'dispatcher:focusBus',
+  centerMap: 'dispatcher:centerMap'
+});
+
+function postMapMessage(message){
+  if(!mapFrame || !mapFrame.contentWindow || !message || typeof message!=='object') return;
+  const payload=Object.assign({source:MAP_MESSAGE_SOURCE},message);
+  try{
+    mapFrame.contentWindow.postMessage(payload,window.location.origin);
+  }catch(error){
+    console.warn('Failed to post message to map frame:',error);
+  }
+}
+
+if(centerMapButton){
+  centerMapButton.addEventListener('click',()=>{
+    postMapMessage({type:MAP_MESSAGE_TYPES.centerMap});
+  });
+}
+
+if(blocksGridTable){
+  blocksGridTable.addEventListener('click',event=>{
+    const cell=event.target.closest('.cell');
+    if(!cell || !blocksGridTable.contains(cell)) return;
+    if(cell.dataset.empty==='true') return;
+    const bus=cell.dataset.bus||cleanBusIdentifier(cell.querySelector('.bus')?.textContent||'');
+    if(!bus) return;
+    postMapMessage({type:MAP_MESSAGE_TYPES.focusBus,vehicleId:bus});
+  });
+}
 
 const BLOCK_GRID_ROW_COUNT = 9;
 const BLOCK_GRID_LAYOUT_ENDPOINT = '/api/eink-block/layout';
@@ -752,6 +791,7 @@ function clearBlockGrid({message}={}){
       driverContainer.innerHTML='';
       driverContainer.hidden=true;
     }
+    delete cell.dataset.bus;
     applyDefaultBlockCellColors(cell);
   });
   if(message){
@@ -1652,6 +1692,12 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
     const busEl=cell.querySelector('.bus');
     if(busEl){
       busEl.textContent=bus||'—';
+    }
+    const normalizedBus=cleanBusIdentifier(bus);
+    if(normalizedBus){
+      cell.dataset.bus=normalizedBus;
+    }else{
+      delete cell.dataset.bus;
     }
     const driverContainer=cell.querySelector('.drivers');
     if(driverContainer){
