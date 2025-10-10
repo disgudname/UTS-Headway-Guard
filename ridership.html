@@ -117,6 +117,13 @@ const academicTemplateBtn=document.getElementById('academicTemplateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
 
+if(isBrokenChartMode&&routeTotalsChartWrapper&&routeTotalsChartCanvas){
+  routeTotalsChartWrapper.style.maxHeight='none';
+  routeTotalsChartWrapper.style.height='auto';
+  routeTotalsChartCanvas.style.maxHeight='none';
+  routeTotalsChartCanvas.style.height='auto';
+}
+
 function readCssVar(name,fallback){
   try{
     const value=getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -902,7 +909,7 @@ function updateRouteTotalsChart(){
     const candidateHeight=brokenChartHeight??Number.parseInt(window.getComputedStyle(routeTotalsChartCanvas).height,10);
     const computedHeight=(Number.isFinite(candidateHeight)?candidateHeight:0)||320;
     brokenChartHeight=computedHeight+80;
-    routeTotalsChartWrapper.style.maxHeight=`${brokenChartHeight}px`;
+    routeTotalsChartWrapper.style.maxHeight='none';
     routeTotalsChartWrapper.style.height=`${brokenChartHeight}px`;
     routeTotalsChartCanvas.style.height=`${brokenChartHeight}px`;
     routeTotalsChartCanvas.height=brokenChartHeight;
