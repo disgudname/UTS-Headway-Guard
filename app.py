@@ -1957,9 +1957,7 @@ def _build_driver_assignments(
             continue
         first = str(shift.get("FIRST_NAME") or "").strip()
         last = str(shift.get("LAST_NAME") or "").strip()
-        name = (first + " " + last).strip()
-        if not name:
-            continue
+        name = (first + " " + last).strip() or "OPEN"
         start_dt = _parse_w2w_datetime(shift.get("START_DATE"), shift.get("START_TIME"), tz)
         if start_dt is None:
             continue
