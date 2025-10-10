@@ -158,6 +158,8 @@ CAT_STOP_ETA_TTL_S = int(os.getenv("CAT_STOP_ETA_TTL_S", "30"))
 PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
 AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
 RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
+RIDERSHIP_DATA_TTL_S = int(os.getenv("RIDERSHIP_DATA_TTL_S", str(60)))
+RIDERSHIP_ROUTES_TTL_S = int(os.getenv("RIDERSHIP_ROUTES_TTL_S", str(5 * 60)))
 ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
 DISPATCHER_DOWNED_SHEET_URL = os.getenv(
     "DISPATCHER_DOWNED_SHEET_URL",
@@ -448,6 +450,30 @@ async def fetch_block_groups(client: httpx.AsyncClient, base_url: Optional[str] 
         record_api_call("GET", r2_url, r2.status_code)
         r2.raise_for_status()
         return r2.json().get("BlockGroups", [])
+    return []
+
+
+async def fetch_ridership_counts(
+    client: httpx.AsyncClient,
+    start_date: str,
+    end_date: str,
+    base_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    start_q = quote(start_date)
+    end_q = quote(end_date)
+    url = build_transloc_url(
+        base_url, f"GetRidershipData?startDate={start_q}&endDate={end_q}"
+    )
+    resp = await client.get(url, timeout=20)
+    record_api_call("GET", url, resp.status_code)
+    resp.raise_for_status()
+    data = resp.json()
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        payload = data.get("d")
+        if isinstance(payload, list):
+            return payload
     return []
 
 
@@ -950,6 +976,8 @@ pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
 ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
 w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
+ridership_data_cache = PerKeyTTLCache(RIDERSHIP_DATA_TTL_S)
+ridership_routes_cache = TTLCache(RIDERSHIP_ROUTES_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
 
@@ -3136,6 +3164,42 @@ async def _fetch_ridesystems_clients() -> List[Dict[str, str]]:
     return normalised
 
 
+def _parse_ridership_date(value: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("missing date")
+    text = value.strip()
+    if not text:
+        raise ValueError("missing date")
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ValueError("invalid date format")
+
+
+async def _get_ridership_routes() -> List[Dict[str, Any]]:
+    async def fetch():
+        async with state.lock:
+            cached = list(getattr(state, "routes_raw", []))
+        if cached:
+            return cached
+        async with httpx.AsyncClient(timeout=20) as client:
+            return await fetch_routes_with_shapes(client)
+
+    return await ridership_routes_cache.get(fetch)
+
+
+async def _get_ridership_data(start: str, end: str) -> List[Dict[str, Any]]:
+    key = f"{start}|{end}"
+
+    async def fetch():
+        async with httpx.AsyncClient(timeout=20) as client:
+            return await fetch_ridership_counts(client, start, end)
+
+    return await ridership_data_cache.get(key, fetch)
+
+
 @app.get("/v1/testmap/pulsepoint")
 async def pulsepoint_endpoint():
     return await _get_pulsepoint_incidents()
@@ -3172,6 +3236,48 @@ async def anti_bunching_raw():
         state.anti_cache = data
         state.anti_cache_ts = time.time()
     return data
+
+
+# ---------------------------
+# REST: Ridership
+# ---------------------------
+
+
+@app.get("/v1/ridership/routes")
+async def ridership_routes():
+    try:
+        routes = await _get_ridership_routes()
+    except Exception as exc:
+        raise HTTPException(502, f"ridership routes error: {exc}")
+    return routes
+
+
+@app.get("/v1/ridership/data")
+async def ridership_data(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None, alias="startDate"),
+    end_date: Optional[str] = Query(None, alias="endDate"),
+):
+    start_raw = (start or start_date or "").strip()
+    end_raw = (end or end_date or "").strip()
+    if not start_raw or not end_raw:
+        raise HTTPException(400, "start and end dates are required")
+    try:
+        start_dt = _parse_ridership_date(start_raw)
+        end_dt = _parse_ridership_date(end_raw)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if end_dt <= start_dt:
+        raise HTTPException(400, "end date must be after start date")
+    start_fmt = start_dt.strftime("%m/%d/%Y")
+    end_fmt = end_dt.strftime("%m/%d/%Y")
+    try:
+        data = await _get_ridership_data(start_fmt, end_fmt)
+    except Exception as exc:
+        raise HTTPException(502, f"ridership fetch error: {exc}")
+    return data
+
 
 # ---------------------------
 # REST: Low clearances

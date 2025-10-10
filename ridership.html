@@ -233,7 +233,7 @@ loadBtn.disabled=true;
 const MAX_EXTENDED_HOUR=27;
 const MAX_EXTENDED_MINUTES=MAX_EXTENDED_HOUR*60;
 
-const ROUTE_INFO_URL='https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681';
+const ROUTE_INFO_URL='/v1/ridership/routes';
 
 let ridershipByRoute={};
 let routeList=[];
@@ -287,7 +287,12 @@ function normalizeApiArray(payload){
 function fetchRouteInfo(){
   if(routeInfoPromise){return routeInfoPromise;}
   if(Object.keys(routeInfoById).length){return Promise.resolve(routeInfoById);}
-  routeInfoPromise=fetch(ROUTE_INFO_URL).then(r=>r.json()).then(raw=>{
+  routeInfoPromise=fetch(ROUTE_INFO_URL).then(r=>{
+    if(!r.ok){
+      throw new Error(`Route metadata request failed (${r.status})`);
+    }
+    return r.json();
+  }).then(raw=>{
     const list=normalizeApiArray(raw);
     const map={};
     list.forEach(route=>{
@@ -447,8 +452,13 @@ function load(){
   const startStr=(start.getMonth()+1)+"/"+start.getDate()+"/"+start.getFullYear();
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
   const bounds={start,nextStart,end};
-  const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
-  const ridershipPromise=fetch(url).then(r=>r.json()).catch(err=>{
+  const params=new URLSearchParams({start:startStr,end:endStr});
+  const ridershipPromise=fetch(`/v1/ridership/data?${params.toString()}`).then(r=>{
+    if(!r.ok){
+      throw new Error(`Ridership request failed (${r.status})`);
+    }
+    return r.json();
+  }).catch(err=>{
     console.error(err);
     return [];
   });
