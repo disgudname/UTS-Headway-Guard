@@ -25,7 +25,7 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Any, Iterable
+from typing import List, Dict, Optional, Tuple, Any, Iterable, Union
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib
 from datetime import datetime, timedelta
@@ -428,7 +428,12 @@ async def fetch_vehicles(
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
 
-async def fetch_block_groups(client: httpx.AsyncClient, base_url: Optional[str] = None) -> List[Dict]:
+async def fetch_block_groups(
+    client: httpx.AsyncClient,
+    base_url: Optional[str] = None,
+    *,
+    include_metadata: bool = False,
+) -> Union[List[Dict], Tuple[List[Dict], Dict[str, Any]]]:
     d = datetime.now(ZoneInfo("America/New_York"))
     ds = f"{d.month}/{d.day}/{d.year}"
     r1_url = build_transloc_url(
@@ -440,6 +445,8 @@ async def fetch_block_groups(client: httpx.AsyncClient, base_url: Optional[str] 
     sched = r1.json()
     sched = sched if isinstance(sched, list) else sched.get("d", [])
     ids = ",".join(str(s.get("ScheduleVehicleCalendarID")) for s in sched if s.get("ScheduleVehicleCalendarID"))
+    payload: Dict[str, Any] = {}
+    block_groups: List[Dict[str, Any]] = []
     if ids:
         r2_url = build_transloc_url(
             base_url, f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
@@ -447,17 +454,37 @@ async def fetch_block_groups(client: httpx.AsyncClient, base_url: Optional[str] 
         r2 = await client.get(r2_url, timeout=20)
         record_api_call("GET", r2_url, r2.status_code)
         r2.raise_for_status()
-        return r2.json().get("BlockGroups", [])
-    return []
+        payload = r2.json()
+        block_groups = payload.get("BlockGroups", [])
+
+    if include_metadata:
+        return block_groups, payload
+    return block_groups
 
 
-def _extract_plain_language_blocks(block_groups: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _extract_plain_language_blocks(
+    block_groups: Iterable[Dict[str, Any]],
+    vehicle_roster: Optional[Iterable[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     def _safe_int(value: Any) -> Optional[int]:
         try:
             iv = int(value)
         except (TypeError, ValueError):
             return None
         return iv if iv else None
+
+    roster_names: Dict[int, str] = {}
+    if vehicle_roster:
+        for entry in vehicle_roster:
+            if not isinstance(entry, dict):
+                continue
+            vehicle_id = _safe_int(entry.get("VehicleID") or entry.get("VehicleId"))
+            if not vehicle_id:
+                continue
+            name_val = entry.get("Name") or entry.get("VehicleName")
+            name = str(name_val).strip() if name_val is not None else ""
+            if name:
+                roster_names[vehicle_id] = name
 
     plain_blocks: List[Dict[str, Any]] = []
     for group in block_groups:
@@ -507,6 +534,11 @@ def _extract_plain_language_blocks(block_groups: Iterable[Dict[str, Any]]) -> Li
                 name_val = block.get("VehicleName")
                 if name_val:
                     vehicle_name = str(name_val).strip()
+
+            if not vehicle_name and vehicle_id:
+                roster_name = roster_names.get(vehicle_id)
+                if roster_name:
+                    vehicle_name = roster_name
 
             plain_blocks.append(
                 {
@@ -1211,9 +1243,12 @@ async def startup():
                         print(f"[updater] routes catalog fetch error: {e}")
                     vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
                     try:
-                        block_groups = await fetch_block_groups(client)
+                        block_groups, block_meta = await fetch_block_groups(
+                            client, include_metadata=True
+                        )
                     except Exception as e:
                         block_groups = []
+                        block_meta = {}
                         print(f"[updater] block fetch error: {e}")
                     async with state.lock:
                         state.routes_raw = routes_raw
@@ -1445,10 +1480,24 @@ async def startup():
                         for rid, vehs in state.vehicles_by_route.items():
                             for v in vehs.values():
                                 route_by_bus[str(v.name)] = rid
+                        vehicle_roster: List[Dict[str, Any]] = []
+                        if isinstance(block_meta, dict):
+                            vehicles_raw = block_meta.get("Vehicles")
+                            if isinstance(vehicles_raw, list):
+                                vehicle_roster.extend(vehicles_raw)
+                            sched_trip = block_meta.get("ScheduleTripVehicles")
+                            if isinstance(sched_trip, list):
+                                vehicle_roster.extend(sched_trip)
+
+                        plain_language_blocks = _extract_plain_language_blocks(
+                            block_groups, vehicle_roster=vehicle_roster
+                        )
+
                         state.blocks_cache = {
                             "block_groups": block_groups,
                             "color_by_route": color_by_route,
                             "route_by_bus": route_by_bus,
+                            "plain_language_blocks": plain_language_blocks,
                         }
                         state.blocks_cache_ts = time.time()
                         today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
@@ -2017,7 +2066,7 @@ async def dispatch_blocks():
         if state.blocks_cache:
             return state.blocks_cache
     async with httpx.AsyncClient() as client:
-        block_groups = await fetch_block_groups(client)
+        block_groups, block_meta = await fetch_block_groups(client, include_metadata=True)
     async with state.lock:
         color_by_route = {rid: r.color for rid, r in state.routes.items() if r.color}
         route_by_bus: Dict[str, int] = {}
@@ -2032,7 +2081,18 @@ async def dispatch_blocks():
                 if not name:
                     continue
                 route_by_bus[name] = rid
-        plain_language_blocks = _extract_plain_language_blocks(block_groups)
+        vehicle_roster: List[Dict[str, Any]] = []
+        if isinstance(block_meta, dict):
+            vehicles_raw = block_meta.get("Vehicles")
+            if isinstance(vehicles_raw, list):
+                vehicle_roster.extend(vehicles_raw)
+            sched_trip = block_meta.get("ScheduleTripVehicles")
+            if isinstance(sched_trip, list):
+                vehicle_roster.extend(sched_trip)
+
+        plain_language_blocks = _extract_plain_language_blocks(
+            block_groups, vehicle_roster=vehicle_roster
+        )
         res = {
             "block_groups": block_groups,
             "color_by_route": color_by_route,
