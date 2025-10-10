@@ -593,8 +593,10 @@ if(blocksGridTable){
     const vehicleId=cell.dataset.vehicleId||'';
     const bus=cell.dataset.bus||cleanBusIdentifier(cell.querySelector('.bus')?.textContent||'');
     const targetId=vehicleId||bus;
-    if(!targetId) return;
-    postMapMessage({type:MAP_MESSAGE_TYPES.focusBus,vehicleId:targetId});
+    const displayLabelRaw=(cell.querySelector('.bus')?.textContent||'').trim();
+    const displayLabel=displayLabelRaw==='—'?'':displayLabelRaw;
+    if(!targetId && !displayLabel) return;
+    postMapMessage({type:MAP_MESSAGE_TYPES.focusBus,vehicleId:targetId,bus:bus||'',label:displayLabel});
   });
 }
 
