@@ -899,8 +899,9 @@ function updateRouteTotalsChart(){
     plugins:[whiteBackgroundPlugin]
   });
   if(isBrokenChartMode){
-    const computedHeight=brokenChartHeight??Number.parseInt(window.getComputedStyle(routeTotalsChartCanvas).height,10)||320;
-    brokenChartHeight=(Number.isFinite(computedHeight)?computedHeight:320)+80;
+    const candidateHeight=brokenChartHeight??Number.parseInt(window.getComputedStyle(routeTotalsChartCanvas).height,10);
+    const computedHeight=(Number.isFinite(candidateHeight)?candidateHeight:0)||320;
+    brokenChartHeight=computedHeight+80;
     routeTotalsChartWrapper.style.maxHeight=`${brokenChartHeight}px`;
     routeTotalsChartWrapper.style.height=`${brokenChartHeight}px`;
     routeTotalsChartCanvas.style.height=`${brokenChartHeight}px`;
