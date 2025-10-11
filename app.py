@@ -146,6 +146,45 @@ _dispatch_password_entries: list[tuple[str, str]] = []
 _dispatch_password_seen_labels: set[str] = set()
 
 
+def _load_dispatch_secret(env_name: str) -> Optional[str]:
+    """Return a stripped secret value for the given base env name.
+
+    The helper looks for the variable in both its original case and lowercase form
+    to accommodate deployments that may have stored Fly.io secrets with a lowercase
+    key. When ``*_FILE`` variants are present (for Docker/OCI secret mounts), the
+    file contents are also read. Any trailing newline is stripped so that secrets
+    set via ``fly secrets set HOWELL_PASS=@secret.txt`` continue to work.
+    """
+
+    seen: set[str] = set()
+    for candidate in (env_name, env_name.lower()):
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+
+        raw_value = os.getenv(candidate)
+        if raw_value is not None:
+            value = raw_value.strip()
+            if value:
+                return value
+
+        file_env = f"{candidate}_FILE"
+        file_path = os.getenv(file_env)
+        if not file_path:
+            continue
+        try:
+            value = Path(file_path).read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            print(
+                f"[auth] Failed to read secret from {file_env}={file_path!r}: {exc}",
+                flush=True,
+            )
+            continue
+        if value:
+            return value
+    return None
+
+
 def _register_dispatch_password(label: str, raw_value: Optional[str]) -> None:
     if label in _dispatch_password_seen_labels:
         return
@@ -164,24 +203,31 @@ _dispatch_password_sources: dict[str, tuple[str, ...]] = {
 }
 for label, env_names in _dispatch_password_sources.items():
     for env_name in env_names:
-        # Fly.io secrets are case-sensitive, so accommodate deployments that may
-        # have stored them with a lowercase name (e.g. `fly secrets set howell_pass=`)
-        for candidate in (env_name, env_name.lower()):
-            _register_dispatch_password(label, os.getenv(candidate))
+        secret_value = _load_dispatch_secret(env_name)
+        if secret_value is not None:
+            _register_dispatch_password(label, secret_value)
         if label in _dispatch_password_seen_labels:
             break
 
 
-for env_name, raw_value in os.environ.items():
+for env_name in os.environ:
     if not env_name:
         continue
-    if not env_name.upper().endswith("_PASS"):
+    env_name_upper = env_name.upper()
+    base_env_name: Optional[str] = None
+    if env_name_upper.endswith("_PASS"):
+        base_env_name = env_name
+    elif env_name_upper.endswith("_PASS_FILE"):
+        base_env_name = env_name[:-5]
+    if not base_env_name:
         continue
-    label_prefix = env_name[:-5]
+    label_prefix = base_env_name[:-5]
     if not label_prefix:
         continue
     label = label_prefix.upper()
-    _register_dispatch_password(label, raw_value)
+    secret_value = _load_dispatch_secret(base_env_name)
+    if secret_value is not None:
+        _register_dispatch_password(label, secret_value)
 
 
 DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(value for _, value in _dispatch_password_entries)
