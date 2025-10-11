@@ -630,8 +630,9 @@ function getDeliveryCutoff(){
   return cutoff;
 }
 
-function shouldHideByDeliveryDate(values, deliveryIndex, cutoff){
+function shouldHideByDeliveryDate(values, deliveryIndex, cutoff, statusText=''){
   if(deliveryIndex<0 || !Array.isArray(values) || deliveryIndex>=values.length) return false;
+  if(statusText && /\bUP\b/i.test(String(statusText))) return false;
   const date=parseDeliveryDate(values[deliveryIndex]);
   if(!date) return false;
   return date<=cutoff;
@@ -731,10 +732,10 @@ function renderSection(section){
     const tr=document.createElement('tr');
     const padded=row.slice();
     while(padded.length<section.headers.length){ padded.push(''); }
-    if(shouldHideByDeliveryDate(padded, deliveryIndex, deliveryCutoff)) return;
+    const statusText=getPreferredStatus(padded, section.headers);
+    if(shouldHideByDeliveryDate(padded, deliveryIndex, deliveryCutoff, statusText)) return;
     const diagnosticValue=(diagnosticIndex>=0 && diagnosticIndex<padded.length) ? padded[diagnosticIndex] : '';
     const hasDiagnosticDate=!!(diagnosticValue && String(diagnosticValue).trim());
-    const statusText=getPreferredStatus(padded, section.headers);
     const displayDate=getDisplayDate(padded, deliveryIndex, downIndex);
     visibleColumns.forEach(col => {
       const { index, text: headerText } = col;
