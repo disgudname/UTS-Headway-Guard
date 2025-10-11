@@ -198,7 +198,14 @@ def _register_dispatch_password(label: str, raw_value: Optional[str]) -> None:
 
 
 _dispatch_password_sources: dict[str, tuple[str, ...]] = {
-    "DISPATCH": ("DISPATCH_PASS", "DISPATCH_PASSWORD", "DISPATCH_SECRET"),
+    "DISPATCH": (
+        "DISPATCH_PASS",
+        "DISPATCH_PASSWORD",
+        "DISPATCH_SECRET",
+        "DISPATCHER_PASS",
+        "DISPATCHER_PASSWORD",
+        "DISPATCHER_SECRET",
+    ),
     "HOWELL": ("HOWELL_PASS", "HOWELL_PASSWORD", "HOWELL_SECRET"),
 }
 for label, env_names in _dispatch_password_sources.items():
