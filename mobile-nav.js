@@ -2,6 +2,9 @@
   const NAV_ID = 'hg-mobile-nav';
   if (document.getElementById(NAV_ID)) return;
 
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('dispatcher') === 'true') return;
+
   const links = [
     {
       href: '/',
