@@ -8,7 +8,12 @@
 @font-face{font-family:'Antonio';src:url('ANTONIO.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 :root{--route-color:#2a3442}
 body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative}
-#left{overflow:auto}
+#left{overflow:auto;flex:1 1 50%;min-width:260px;max-width:100%}
+#splitter{flex:0 0 8px;cursor:col-resize;background:linear-gradient(180deg,rgba(31,38,48,.8),rgba(21,27,36,.8));border-left:1px solid rgba(61,74,92,.65);border-right:1px solid rgba(8,10,14,.85);position:relative;z-index:3}
+#splitter::after{content:"";position:absolute;top:50%;left:50%;width:2px;height:40px;background:rgba(143,163,193,.55);border-radius:999px;transform:translate(-50%,-50%)}
+iframe#map-frame{flex:1 1 0%;min-width:320px;border-left:1px solid #1f2630;height:100%}
+body.resizing{cursor:col-resize;user-select:none}
+body.resizing iframe#map-frame{pointer-events:none}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630;flex-wrap:wrap}
 header h1{flex-basis:100%}
  #controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
@@ -504,7 +509,8 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 </div>
-<iframe src="/testmap?dispatcher=true" id="map-frame" style="flex:1;border-left:1px solid #1f2630;border:none;height:100%"></iframe>
+<div id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize panels"></div>
+<iframe src="/testmap?dispatcher=true" id="map-frame" style="flex:1;height:100%"></iframe>
 <script>
 const $ = s => document.querySelector(s);
 const DOWNED_ENDPOINT = '/v1/dispatcher/downed_buses';
@@ -527,7 +533,59 @@ const urlParams = new URLSearchParams(window.location.search);
 const LCARS_ENABLED = urlParams.get('lcars') === 'true';
 const CYBERPUNK_ENABLED = !LCARS_ENABLED && urlParams.get('cyberpunk') === 'true';
 const KIOSK_MODE = urlParams.has('kioskMode');
+const leftPane = document.getElementById('left');
 const mapFrame = document.getElementById('map-frame');
+const splitter = document.getElementById('splitter');
+if(leftPane && mapFrame && splitter){
+  let isResizing=false;
+  let startX=0;
+  let startWidth=0;
+  let activePointerId=null;
+  const LEFT_MIN_WIDTH=260;
+  const RIGHT_MIN_WIDTH=320;
+  const onPointerMove=event=>{
+    if(!isResizing || event.pointerId!==activePointerId) return;
+    const delta=event.clientX-startX;
+    const bodyWidth=document.body.getBoundingClientRect().width;
+    const maxWidth=Math.max(LEFT_MIN_WIDTH,bodyWidth-RIGHT_MIN_WIDTH);
+    let newWidth=startWidth+delta;
+    newWidth=Math.min(Math.max(newWidth,LEFT_MIN_WIDTH),maxWidth);
+    leftPane.style.flex='0 0 auto';
+    leftPane.style.width=`${newWidth}px`;
+  };
+  const stopResizing=event=>{
+    if(!isResizing || (event && event.pointerId!==activePointerId)) return;
+    isResizing=false;
+    if(activePointerId!==null){
+      try{splitter.releasePointerCapture(activePointerId);}catch(_err){}
+    }
+    activePointerId=null;
+    document.body.classList.remove('resizing');
+  };
+  splitter.addEventListener('pointerdown',event=>{
+    if(event.button!==0) return;
+    isResizing=true;
+    activePointerId=event.pointerId;
+    startX=event.clientX;
+    startWidth=leftPane.getBoundingClientRect().width;
+    leftPane.style.flex='0 0 auto';
+    try{splitter.setPointerCapture(event.pointerId);}catch(_err){}
+    document.body.classList.add('resizing');
+  });
+  splitter.addEventListener('pointermove',onPointerMove);
+  splitter.addEventListener('pointerup',stopResizing);
+  splitter.addEventListener('pointercancel',stopResizing);
+  window.addEventListener('pointerup',stopResizing);
+  window.addEventListener('resize',()=>{
+    if(!leftPane.style.width) return;
+    const bodyWidth=document.body.getBoundingClientRect().width;
+    const maxWidth=Math.max(LEFT_MIN_WIDTH,bodyWidth-RIGHT_MIN_WIDTH);
+    const currentWidth=parseFloat(leftPane.style.width);
+    if(currentWidth>maxWidth){
+      leftPane.style.width=`${maxWidth}px`;
+    }
+  });
+}
 const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
 if (KIOSK_MODE) {
   document.body.classList.add('kiosk-mode');
@@ -2570,7 +2628,6 @@ function activateCyberpunkMode(){
   };
   requestAnimationFrame(drawRain);
 
-  const leftPane=document.getElementById('left');
   if(leftPane){
     const hud=document.createElement('div');
     hud.className='cyberpunk-hud';
