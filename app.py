@@ -282,6 +282,10 @@ DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(_dispatch_passwords.values())
 DISPATCH_PASSWORD_LABELS: Dict[str, str] = {
     value: label for label, value in _dispatch_passwords.items()
 }
+DISPATCH_PASSWORD_BYTES: Dict[str, bytes] = {
+    password: password.encode("utf-8", errors="surrogatepass")
+    for password in DISPATCH_PASSWORDS
+}
 DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
 del _dispatch_passwords
 
@@ -3765,8 +3769,9 @@ async def dispatcher_auth(
         return {"ok": True, "secret": None}
     password = payload.get("password")
     if isinstance(password, str):
-        for valid_password in DISPATCH_PASSWORDS:
-            if secrets.compare_digest(password, valid_password):
+        password_bytes = password.encode("utf-8", errors="surrogatepass")
+        for valid_password, valid_bytes in DISPATCH_PASSWORD_BYTES.items():
+            if secrets.compare_digest(password_bytes, valid_bytes):
                 label = DISPATCH_PASSWORD_LABELS.get(valid_password)
                 cookie_value = _dispatcher_cookie_value(valid_password)
                 if cookie_value:

@@ -69,3 +69,12 @@ def test_howell_password_still_rejects_wrong_secret():
         wrong = client.post("/api/dispatcher/auth", json={"password": "wrong"})
         assert wrong.status_code == 401
         assert wrong.json().get("detail") == "Incorrect password."
+
+
+def test_howell_password_allows_unicode_secret():
+    with dispatch_env(HOWELL_PASS="päss"):
+        app_module = reload_app()
+        client = TestClient(app_module.app)
+        response = client.post("/api/dispatcher/auth", json={"password": "päss"})
+        assert response.status_code == 200
+        assert response.json().get("secret") == "HOWELL"
