@@ -1577,6 +1577,10 @@ schedulePlaneStyleOverride();
           focusBus: 'dispatcher:focusBus',
           centerMap: 'dispatcher:centerMap'
       });
+      const dispatcherResponseSource = 'testmap';
+      const dispatcherResponseTypes = Object.freeze({
+          vehicleUnavailable: 'testmap:vehicleUnavailable'
+      });
       const vehicleFollowState = {
           active: false,
           vehicleId: '',
@@ -1631,9 +1635,10 @@ schedulePlaneStyleOverride();
                   return vehicleKey;
               }
               if (!partialMatch) {
-                  if (identifierDigits && comparison.includes(identifierDigits)) {
+                  const comparisonDigits = comparison.replace(/[^0-9]/g, '');
+                  if (identifierDigits && identifierDigits.length > 0 && identifierDigits === comparisonDigits) {
                       partialMatch = vehicleKey;
-                  } else if (comparison.includes(normalized) || normalized.includes(comparison)) {
+                  } else if (!identifierDigits && (comparison.includes(normalized) || normalized.includes(comparison))) {
                       partialMatch = vehicleKey;
                   }
               }
@@ -1661,18 +1666,22 @@ schedulePlaneStyleOverride();
           const uniqueIdentifiers = Array.from(new Set(identifiers));
           for (const candidate of uniqueIdentifiers) {
               if ((markers && markers[candidate]) || (busMarkerStates && busMarkerStates[candidate])) {
-                  return { vehicleKey: candidate, displayLabel: identifiers[0] || candidate };
+                  return { vehicleKey: candidate, displayLabel: identifiers[0] || candidate, resolvedFromFallback: false };
               }
           }
           for (const candidate of uniqueIdentifiers) {
               const matchedKey = findVehicleKeyByIdentifier(candidate);
               if (matchedKey) {
-                  return { vehicleKey: matchedKey, displayLabel: candidate };
+                  return { vehicleKey: matchedKey, displayLabel: candidate, resolvedFromFallback: false };
               }
           }
-          const fallbackLabel = identifiers[0];
-          const fallbackKey = normalizedVehicleId || fallbackLabel;
-          return { vehicleKey: fallbackKey, displayLabel: fallbackLabel };
+          const fallbackLabel = identifiers[0] || '';
+          const fallbackKey = normalizeDispatcherVehicleKey(normalizedVehicleId) || normalizeDispatcherVehicleKey(fallbackLabel);
+          return {
+              vehicleKey: fallbackKey,
+              displayLabel: fallbackLabel || fallbackKey || '',
+              resolvedFromFallback: true
+          };
       }
 
       function getVehicleDisplayName(vehicleId) {
@@ -1688,6 +1697,50 @@ schedulePlaneStyleOverride();
               }
           }
           return normalizedKey;
+      }
+
+      function notifyDispatcherVehicleUnavailable(details = {}) {
+          if (typeof window === 'undefined' || !window.parent || window.parent === window) {
+              return;
+          }
+          const payload = {
+              source: dispatcherResponseSource,
+              type: dispatcherResponseTypes.vehicleUnavailable
+          };
+          const labelCandidates = [];
+          if (details && typeof details === 'object') {
+              const normalizedVehicleId = normalizeDispatcherVehicleKey(details.vehicleId);
+              if (normalizedVehicleId) {
+                  payload.vehicleId = normalizedVehicleId;
+                  labelCandidates.push(normalizedVehicleId);
+              }
+              const normalizedBus = normalizeDispatcherVehicleKey(details.bus);
+              if (normalizedBus) {
+                  payload.bus = normalizedBus;
+                  labelCandidates.push(normalizedBus);
+              }
+              if (typeof details.label === 'string') {
+                  const trimmedLabel = details.label.trim();
+                  if (trimmedLabel) {
+                      payload.label = trimmedLabel;
+                      labelCandidates.unshift(trimmedLabel);
+                  }
+              }
+              if (typeof details.reason === 'string') {
+                  const trimmedReason = details.reason.trim();
+                  if (trimmedReason) {
+                      payload.reason = trimmedReason;
+                  }
+              }
+          }
+          if (!payload.label && labelCandidates.length > 0) {
+              payload.label = labelCandidates[0];
+          }
+          try {
+              window.parent.postMessage(payload, window.location.origin);
+          } catch (error) {
+              console.warn('Failed to notify dispatcher about unavailable vehicle:', error);
+          }
       }
 
       function showVehicleFollowToast(message) {
@@ -1717,6 +1770,23 @@ schedulePlaneStyleOverride();
           return Date.now() < deadline;
       }
 
+      function isVehicleMarkerReady(vehicleId) {
+          const normalizedKey = normalizeDispatcherVehicleKey(vehicleId);
+          if (!normalizedKey) {
+              return false;
+          }
+          const marker = markers && markers[normalizedKey];
+          if (!marker || typeof marker.getLatLng !== 'function') {
+              return false;
+          }
+          const latLng = marker.getLatLng();
+          if (!latLng) {
+              return false;
+          }
+          const { lat, lng } = latLng;
+          return Number.isFinite(lat) && Number.isFinite(lng);
+      }
+
       function updateVehicleFollowToast() {
           if (!vehicleFollowState.active) {
               hideVehicleFollowToast();
@@ -1725,7 +1795,15 @@ schedulePlaneStyleOverride();
           const vehicleName = getVehicleDisplayName(vehicleFollowState.vehicleId);
           const fallbackLabel = normalizeDispatcherVehicleKey(vehicleFollowState.displayLabel || vehicleFollowState.vehicleId);
           const displayName = vehicleName || fallbackLabel;
-          const message = displayName ? `Following ${displayName}` : 'Following vehicle';
+          const markerReady = isVehicleMarkerReady(vehicleFollowState.vehicleId);
+          let message;
+          if (markerReady) {
+              message = displayName ? `Following ${displayName}` : 'Following vehicle';
+          } else {
+              message = displayName
+                  ? `Waiting for ${displayName} to appear on the map`
+                  : 'Waiting for vehicle to appear on the map';
+          }
           showVehicleFollowToast(message);
       }
 
@@ -1886,29 +1964,54 @@ schedulePlaneStyleOverride();
               }
           }
           const resolution = resolveDispatcherVehicleKey(vehicleId, fallbackIdentifiers);
-          const normalizedKey = normalizeDispatcherVehicleKey(resolution.vehicleKey);
-          if (!normalizedKey) {
-              stopFollowingVehicle();
-              return false;
-          }
           const candidateLabel = typeof resolution.displayLabel === 'string' && resolution.displayLabel.trim().length > 0
               ? resolution.displayLabel.trim()
               : '';
           const fallbackLabel = typeof details.label === 'string' ? details.label.trim() : '';
           const busLabel = typeof details.bus === 'string' ? details.bus.trim() : '';
-          const displayLabel = candidateLabel || fallbackLabel || busLabel || normalizedKey;
+          const normalizedKey = normalizeDispatcherVehicleKey(resolution.vehicleKey);
+          const fallbackIdentifier = normalizeDispatcherVehicleKey(vehicleId);
+          const displayLabel = candidateLabel || fallbackLabel || busLabel || normalizedKey || fallbackIdentifier;
+          if (!normalizedKey) {
+              stopFollowingVehicle();
+              notifyDispatcherVehicleUnavailable({
+                  vehicleId: fallbackIdentifier,
+                  bus: busLabel,
+                  label: displayLabel,
+                  reason: 'unresolved'
+              });
+              return false;
+          }
           const marker = markers && markers[normalizedKey];
           if (!marker || typeof marker.getLatLng !== 'function') {
+              notifyDispatcherVehicleUnavailable({
+                  vehicleId: normalizedKey,
+                  bus: busLabel,
+                  label: displayLabel,
+                  reason: 'not_visible'
+              });
               startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true, displayLabel });
               return false;
           }
           const latLng = marker.getLatLng();
           if (!latLng) {
+              notifyDispatcherVehicleUnavailable({
+                  vehicleId: normalizedKey,
+                  bus: busLabel,
+                  label: displayLabel,
+                  reason: 'not_visible'
+              });
               startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true, displayLabel });
               return false;
           }
           const { lat, lng } = latLng;
           if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              notifyDispatcherVehicleUnavailable({
+                  vehicleId: normalizedKey,
+                  bus: busLabel,
+                  label: displayLabel,
+                  reason: 'not_visible'
+              });
               startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true, displayLabel });
               return false;
           }
@@ -1927,6 +2030,12 @@ schedulePlaneStyleOverride();
               return true;
           } catch (error) {
               console.error('Failed to focus dispatcher vehicle on map:', error);
+              notifyDispatcherVehicleUnavailable({
+                  vehicleId: normalizedKey,
+                  bus: busLabel,
+                  label: displayLabel,
+                  reason: 'error'
+              });
               startVehicleFollow(normalizedKey, { zoom: 17, immediate: false, forcePan: true, displayLabel });
               return false;
           }
