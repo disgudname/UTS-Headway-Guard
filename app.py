@@ -1116,7 +1116,39 @@ def _decode_layout_payload(payload: Any) -> Tuple[List[List[Any]], Optional[int]
     return layout, updated_at
 
 
-def load_eink_block_layout() -> Tuple[List[List[Any]], Optional[int]]:
+def _normalize_layout_identifier(layout_id: Any) -> str:
+    if layout_id is None:
+        return "default"
+    if isinstance(layout_id, (int, float)) and not isinstance(layout_id, bool):
+        layout_id = str(int(layout_id)) if float(layout_id).is_integer() else str(layout_id)
+    text = str(layout_id).strip()
+    if not text:
+        return "default"
+    sanitized = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
+    sanitized = sanitized.strip("_")
+    if not sanitized:
+        return "default"
+    return sanitized[:64]
+
+
+def _decode_layout_collection(raw: Any) -> Dict[str, Dict[str, Any]]:
+    layouts: Dict[str, Dict[str, Any]] = {}
+    if isinstance(raw, dict) and isinstance(raw.get("layouts"), dict):
+        for key, value in raw["layouts"].items():
+            layout, updated_at = _decode_layout_payload(value)
+            if not layout:
+                continue
+            identifier = _normalize_layout_identifier(key)
+            layouts[identifier] = {"layout": layout, "updated_at": updated_at}
+    else:
+        layout, updated_at = _decode_layout_payload(raw)
+        if layout:
+            layouts["default"] = {"layout": layout, "updated_at": updated_at}
+    return layouts
+
+
+def _read_eink_layout_store() -> Dict[str, Dict[str, Any]]:
+    store: Dict[str, Dict[str, Any]] = {}
     for base in DATA_DIRS:
         path = base / EINK_BLOCK_LAYOUT_NAME
         if not path.exists():
@@ -1126,19 +1158,54 @@ def load_eink_block_layout() -> Tuple[List[List[Any]], Optional[int]]:
         except Exception as exc:
             print(f"[eink_layout] error reading {path}: {exc}")
             continue
-        layout, updated_at = _decode_layout_payload(raw)
-        if layout:
-            return layout, updated_at
-    return [], None
+        layouts = _decode_layout_collection(raw)
+        for key, value in layouts.items():
+            existing = store.get(key)
+            if not existing or (value.get("updated_at") or 0) >= (existing.get("updated_at") or 0):
+                store[key] = value
+    return store
 
 
-def save_eink_block_layout(layout_payload: Any) -> Tuple[List[List[Any]], int]:
+def _determine_layout_identifier(payload: Any, *candidates: Any) -> str:
+    values: List[Any] = [candidate for candidate in candidates if candidate is not None]
+    if isinstance(payload, dict):
+        for key in ("layout_id", "layoutId", "layout_key", "layoutKey", "name"):
+            if key in payload:
+                values.append(payload[key])
+    for value in values:
+        identifier = _normalize_layout_identifier(value)
+        if identifier == "default" and isinstance(value, str) and not value.strip():
+            continue
+        return identifier
+    return "default"
+
+
+def load_eink_block_layout(layout_id: Optional[str] = None) -> Tuple[List[List[Any]], Optional[int], str, Dict[str, Dict[str, Any]]]:
+    store = _read_eink_layout_store()
+    requested_id = _normalize_layout_identifier(layout_id)
+    if requested_id not in store:
+        requested_id = "default" if "default" in store else (next(iter(store.keys()), requested_id))
+    entry = store.get(requested_id, {"layout": [], "updated_at": None})
+    layout = entry.get("layout", [])
+    updated_at = entry.get("updated_at")
+    return layout, updated_at, requested_id, store
+
+
+def save_eink_block_layout(layout_payload: Any, layout_id: Optional[str] = None) -> Tuple[List[List[Any]], int, str, Dict[str, Dict[str, Any]]]:
     layout = _normalize_layout(layout_payload)
     if not layout:
         raise ValueError("layout must contain at least one column")
+    store = _read_eink_layout_store()
+    identifier = _normalize_layout_identifier(layout_id)
+    timestamp = int(time.time())
+    store[identifier] = {"layout": layout, "updated_at": timestamp}
+    serialized_layouts = {
+        key: {"layout": value["layout"], "updated_at": value.get("updated_at")}
+        for key, value in store.items()
+    }
     payload = {
-        "layout": layout,
-        "updated_at": int(time.time()),
+        "layouts": serialized_layouts,
+        "updated_at": timestamp,
     }
     encoded = json.dumps(payload)
     for base in DATA_DIRS:
@@ -1149,7 +1216,7 @@ def save_eink_block_layout(layout_payload: Any) -> Tuple[List[List[Any]], int]:
         except Exception as exc:
             print(f"[eink_layout] error writing {path}: {exc}")
     propagate_file(EINK_BLOCK_LAYOUT_NAME, encoded)
-    return layout, payload["updated_at"]
+    return layout, timestamp, identifier, store
 
 class State:
     def __init__(self):
@@ -2335,24 +2402,63 @@ async def dispatcher_downed_buses(request: Request):
 
 
 @app.get("/api/eink-block/layout")
-async def get_eink_block_layout():
-    layout, updated_at = load_eink_block_layout()
-    return {"layout": layout, "updated_at": updated_at}
+async def get_eink_block_layout(
+    layout_id: Optional[str] = Query(None),
+    layout_name: Optional[str] = Query(None, alias="name"),
+    layout_key: Optional[str] = Query(None, alias="layoutKey"),
+    layout_query: Optional[str] = Query(None, alias="layout"),
+    include_all: bool = Query(False, alias="all"),
+):
+    requested_id = _determine_layout_identifier(
+        None, layout_id, layout_name, layout_key, layout_query
+    )
+    layout, updated_at, resolved_id, store = load_eink_block_layout(requested_id)
+    response: Dict[str, Any] = {
+        "layout": layout,
+        "updated_at": updated_at,
+        "layout_id": resolved_id,
+        "available_layouts": sorted(store.keys()),
+    }
+    if include_all:
+        response["layouts"] = {
+            key: value["layout"] for key, value in store.items()
+        }
+        response["layouts_updated_at"] = {
+            key: value.get("updated_at") for key, value in store.items()
+        }
+    return response
 
 
 @app.post("/api/eink-block/layout")
-async def update_eink_block_layout(payload: Any = Body(...)):
+async def update_eink_block_layout(
+    payload: Any = Body(...),
+    layout_id: Optional[str] = Query(None),
+    layout_name: Optional[str] = Query(None, alias="name"),
+    layout_key: Optional[str] = Query(None, alias="layoutKey"),
+    layout_query: Optional[str] = Query(None, alias="layout"),
+):
     layout_payload = payload.get("layout") if isinstance(payload, dict) else payload
     if layout_payload is None:
         raise HTTPException(status_code=400, detail="layout is required")
     try:
-        layout, updated_at = save_eink_block_layout(layout_payload)
+        identifier = _determine_layout_identifier(
+            payload, layout_id, layout_name, layout_key, layout_query
+        )
+        layout, updated_at, resolved_id, store = save_eink_block_layout(
+            layout_payload, identifier
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         print(f"[eink_layout] error saving layout: {exc}")
         raise HTTPException(status_code=500, detail="failed to save layout") from exc
-    return {"ok": True, "layout": layout, "updated_at": updated_at}
+    return {
+        "ok": True,
+        "layout": layout,
+        "updated_at": updated_at,
+        "layout_id": resolved_id,
+        "available_layouts": sorted(store.keys()),
+    }
 
 
 def _normalize_hex_color(value: Optional[str]) -> Optional[str]:
