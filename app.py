@@ -142,17 +142,22 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
-_dispatch_passwords: list[str] = []
+_dispatch_password_entries: list[tuple[str, str]] = []
 for env_name in ("DISPATCH_PASS", "HOWELL_PASS"):
     value = os.getenv(env_name)
     if value is not None:
         value = value.strip()
         if value:
-            _dispatch_passwords.append(value)
+            label = env_name.removesuffix("_PASS") if env_name.endswith("_PASS") else env_name
+            _dispatch_password_entries.append((label, value))
 
-DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(_dispatch_passwords)
+DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(value for _, value in _dispatch_password_entries)
+DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_password_entries)
+DISPATCH_PASSWORD_LABELS: Dict[str, str] = {
+    value: label for label, value in _dispatch_password_entries
+}
 DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
-del _dispatch_passwords
+del _dispatch_password_entries
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
@@ -3571,20 +3576,35 @@ def _dispatcher_cookie_value(password: Optional[str] = None) -> Optional[str]:
         return None
     if password is None:
         password = DISPATCH_PASSWORDS[0]
-    return hashlib.sha256(f"dispatcher::{password}".encode("utf-8")).hexdigest()
+    label = DISPATCH_PASSWORD_LABELS.get(password)
+    if not label:
+        return None
+    digest = hashlib.sha256(f"dispatcher::{password}".encode("utf-8")).hexdigest()
+    return f"{label}:{digest}"
+
+
+def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
+    if not DISPATCH_PASSWORDS:
+        return None
+    provided = request.cookies.get(DISPATCH_COOKIE_NAME)
+    if not provided:
+        return None
+    label, sep, _hash = provided.partition(":")
+    if not sep:
+        return None
+    password = DISPATCH_PASSWORD_BY_LABEL.get(label)
+    if not password:
+        return None
+    expected = _dispatcher_cookie_value(password)
+    if expected and secrets.compare_digest(provided, expected):
+        return label
+    return None
 
 
 def _has_dispatcher_access(request: Request) -> bool:
     if not DISPATCH_PASSWORDS:
         return True
-    provided = request.cookies.get(DISPATCH_COOKIE_NAME)
-    if not provided:
-        return False
-    for password in DISPATCH_PASSWORDS:
-        expected = _dispatcher_cookie_value(password)
-        if expected and secrets.compare_digest(provided, expected):
-            return True
-    return False
+    return _get_dispatcher_secret_label(request) is not None
 
 
 def _require_dispatcher_access(request: Request) -> None:
@@ -3594,9 +3614,11 @@ def _require_dispatcher_access(request: Request) -> None:
 
 @app.get("/api/dispatcher/auth")
 async def dispatcher_auth_status(request: Request):
+    secret_label = _get_dispatcher_secret_label(request)
     return {
         "required": bool(DISPATCH_PASSWORDS),
-        "authorized": _has_dispatcher_access(request),
+        "authorized": bool(secret_label) if DISPATCH_PASSWORDS else True,
+        "secret": secret_label,
     }
 
 
@@ -3605,11 +3627,12 @@ async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)
 ):
     if not DISPATCH_PASSWORDS:
-        return {"ok": True}
+        return {"ok": True, "secret": None}
     password = payload.get("password")
     if isinstance(password, str):
         for valid_password in DISPATCH_PASSWORDS:
             if secrets.compare_digest(password, valid_password):
+                label = DISPATCH_PASSWORD_LABELS.get(valid_password)
                 cookie_value = _dispatcher_cookie_value(valid_password)
                 if cookie_value:
                     response.set_cookie(
@@ -3620,7 +3643,7 @@ async def dispatcher_auth(
                         secure=DISPATCH_COOKIE_SECURE,
                         samesite="lax",
                     )
-                return {"ok": True}
+                return {"ok": True, "secret": label}
     raise HTTPException(status_code=401, detail="Incorrect password.")
 
 
