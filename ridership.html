@@ -860,8 +860,27 @@ function updateOverallTotal(){
   overallTotalDisplay.textContent=sum;
 }
 
-function collectRouteTotals(blocks){
+function areNamesEquivalent(a,b){
+  if(!a||!b){return false;}
+  return a.trim().toLowerCase()===b.trim().toLowerCase();
+}
+
+function getDistinctAlternateLabel(routeKey,block){
+  if(!block){return '';}
+  const input=block.querySelector('.alternate-input');
+  if(!input){return '';}
+  const raw=(input.value||'').trim();
+  if(!raw){return '';}
+  const routeName=getRouteDisplayName(routeKey);
+  if(areNamesEquivalent(routeName,raw)){return '';}
+  const baseName=getRouteBaseName(routeKey);
+  if(areNamesEquivalent(baseName,raw)){return '';}
+  return raw;
+}
+
+function collectRouteTotals(blocks,options){
   const list=blocks||[...tablesContainer.querySelectorAll('.route-block')];
+  const {splitAlternates=false}=options||{};
   const totals=[];
   const indexMap=new Map();
   list.forEach(block=>{
@@ -870,12 +889,14 @@ function collectRouteTotals(blocks){
     const totalCell=block.querySelector('.route-total');
     const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
     const value=Number.isNaN(numeric)?0:numeric;
+    const alternateLabel=splitAlternates?getDistinctAlternateLabel(route,block):'';
+    const key=alternateLabel?JSON.stringify([route,alternateLabel]):route;
     let entry;
-    if(indexMap.has(route)){
-      entry=totals[indexMap.get(route)];
+    if(indexMap.has(key)){
+      entry=totals[indexMap.get(key)];
     }else{
-      entry={route,total:0,blocks:[]};
-      indexMap.set(route,totals.length);
+      entry={route,total:0,blocks:[],displayName:alternateLabel||getRouteDisplayName(route)};
+      indexMap.set(key,totals.length);
       totals.push(entry);
     }
     entry.total+=value;
@@ -914,7 +935,7 @@ function updateRouteTotalsTable(){
     routeTotalsBody.removeChild(routeTotalsOverallRow);
   }
   routeTotalsBody.textContent='';
-  const totals=collectRouteTotals();
+  const totals=collectRouteTotals(undefined,{splitAlternates:true});
   if(!totals.length){
     routeTotalsWrapper.style.display='none';
     updateRouteTotalsChart();
@@ -923,7 +944,7 @@ function updateRouteTotalsTable(){
   totals.forEach(entry=>{
     const row=document.createElement('tr');
     const nameCell=document.createElement('td');
-    nameCell.textContent=getRouteDisplayName(entry.route);
+    nameCell.textContent=entry.displayName||getRouteDisplayName(entry.route);
     const valueCell=document.createElement('td');
     valueCell.className='route-totals-value';
     valueCell.textContent=entry.total;
@@ -1143,11 +1164,13 @@ function exportCsv(){
   const overallTotal=overallTotalDisplay.textContent.trim();
   lines.push(`Date,${escapeCsv(dateValue)},As Of,${escapeCsv(asOfValue)}`);
   const blocks=[...tablesContainer.querySelectorAll('.route-block')];
-  const perRouteTotals=collectRouteTotals(blocks);
+  const perRouteTotals=collectRouteTotals(blocks,{splitAlternates:true});
+  const aggregateRouteTotals=collectRouteTotals(blocks);
   if(perRouteTotals.length){
     lines.push('Route,Total');
     perRouteTotals.forEach(entry=>{
-      lines.push(`${escapeCsv(getRouteDisplayName(entry.route))},${escapeCsv(entry.total)}`);
+      const label=entry.displayName||getRouteDisplayName(entry.route);
+      lines.push(`${escapeCsv(label)},${escapeCsv(entry.total)}`);
     });
     lines.push(`Overall Displayed Total,${escapeCsv(overallTotal)}`);
   }else{
@@ -1155,7 +1178,7 @@ function exportCsv(){
   }
   lines.push('');
   const routeMeta=new Map();
-  perRouteTotals.forEach(entry=>{
+  aggregateRouteTotals.forEach(entry=>{
     routeMeta.set(entry.route,{total:entry.total,count:entry.blocks.length});
   });
   const routeSeen=new Map();
@@ -1293,7 +1316,7 @@ function exportEmailSummary(){
     const asOfValue=newestDataTimestamp?newestDataTimestamp.toLocaleString():'';
     const overallTotal=overallTotalDisplay.textContent.trim();
     const blocks=[...tablesContainer.querySelectorAll('.route-block')];
-    const perRouteTotals=collectRouteTotals(blocks);
+    const perRouteTotals=collectRouteTotals(blocks,{splitAlternates:true});
     const chartUrl=getRouteTotalsChartImageUrl();
     const baseTableStyle='border-collapse:collapse;width:100%;max-width:680px;margin-top:8px;font-size:14px;';
     const headerCellStyle='padding:6px 10px;background:#eef2fb;border:1px solid #d8dde5;text-align:left;';
@@ -1314,7 +1337,8 @@ function exportEmailSummary(){
         `<th style="${headerCellStyle};text-align:right;">Total</th>`+
         `</tr></thead><tbody>`);
       perRouteTotals.forEach(entry=>{
-        htmlParts.push(`<tr><td style="${cellStyle}">${escapeHtml(getRouteDisplayName(entry.route))}</td>`+
+        const label=entry.displayName||getRouteDisplayName(entry.route);
+        htmlParts.push(`<tr><td style="${cellStyle}">${escapeHtml(label)}</td>`+
           `<td style="${numberCellStyle}">${escapeHtml(entry.total)}</td></tr>`);
       });
       htmlParts.push(`<tr><td style="${cellStyle};font-weight:600;">Overall Displayed Total</td>`+
@@ -1331,7 +1355,8 @@ function exportEmailSummary(){
     if(perRouteTotals.length){
       plainTextLines.push('', 'Per-Route Totals:');
       perRouteTotals.forEach(entry=>{
-        plainTextLines.push(`- ${getRouteDisplayName(entry.route)}: ${entry.total}`);
+        const label=entry.displayName||getRouteDisplayName(entry.route);
+        plainTextLines.push(`- ${label}: ${entry.total}`);
       });
       plainTextLines.push(`Overall Displayed Total: ${overallTotal}`);
     }
