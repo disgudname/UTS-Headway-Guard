@@ -649,6 +649,98 @@ const MAP_MESSAGE_TYPES = Object.freeze({
   focusBus: 'dispatcher:focusBus',
   centerMap: 'dispatcher:centerMap'
 });
+const MAP_RESPONSE_SOURCE = 'testmap';
+const MAP_RESPONSE_TYPES = Object.freeze({
+  vehicleUnavailable: 'testmap:vehicleUnavailable'
+});
+let mapBannerRestoreTimeoutId = null;
+let mapBannerBaseState = null;
+let mapBannerActiveMessage = null;
+
+function showMapTransientBanner(message, kind = 'info', duration = 6000) {
+  const bannerEl = document.getElementById('banner');
+  if (!bannerEl) return;
+  const bannerVisible = bannerEl.style.display !== 'none';
+  const hasErrorBanner = bannerVisible && bannerEl.classList.contains('error');
+  if (hasErrorBanner && kind !== 'error') {
+    return;
+  }
+  if (!mapBannerBaseState) {
+    if (bannerVisible) {
+      const bannerKind = bannerEl.classList.contains('error') ? 'error'
+        : (bannerEl.classList.contains('info') ? 'info' : '');
+      mapBannerBaseState = {
+        text: bannerEl.textContent || '',
+        kind: bannerKind
+      };
+    } else {
+      mapBannerBaseState = { text: '', kind: kind || 'info' };
+    }
+  }
+  if (mapBannerRestoreTimeoutId) {
+    clearTimeout(mapBannerRestoreTimeoutId);
+    mapBannerRestoreTimeoutId = null;
+  }
+  setBanner(message, kind);
+  mapBannerActiveMessage = message || '';
+  if (duration > 0) {
+    mapBannerRestoreTimeoutId = window.setTimeout(() => {
+      const bannerNode = document.getElementById('banner');
+      if (bannerNode) {
+        const currentText = (bannerNode.textContent || '').trim();
+        const activeText = (mapBannerActiveMessage || '').trim();
+        if (currentText && activeText && currentText !== activeText) {
+          mapBannerBaseState = null;
+          mapBannerActiveMessage = null;
+          mapBannerRestoreTimeoutId = null;
+          return;
+        }
+        if (bannerNode.classList.contains('error') && (!mapBannerBaseState || mapBannerBaseState.kind !== 'error')) {
+          mapBannerBaseState = null;
+          mapBannerActiveMessage = null;
+          mapBannerRestoreTimeoutId = null;
+          return;
+        }
+      }
+      if (mapBannerBaseState && mapBannerBaseState.text) {
+        setBanner(mapBannerBaseState.text, mapBannerBaseState.kind);
+      } else {
+        setBanner('', kind);
+      }
+      mapBannerBaseState = null;
+      mapBannerActiveMessage = null;
+      mapBannerRestoreTimeoutId = null;
+    }, duration);
+  }
+}
+
+function handleMapVehicleUnavailableMessage(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  const labels = [];
+  if (typeof payload.label === 'string') labels.push(payload.label.trim());
+  if (typeof payload.bus === 'string') labels.push(payload.bus.trim());
+  if (typeof payload.vehicleId === 'string') labels.push(payload.vehicleId.trim());
+  const label = labels.find(text => text) || 'Vehicle';
+  const reason = typeof payload.reason === 'string' ? payload.reason.trim() : '';
+  const message = reason === 'unresolved'
+    ? `${label} does not have a live vehicle on the map right now.`
+    : `${label} is not currently visible on the map.`;
+  showMapTransientBanner(message, 'info', 6000);
+}
+
+function handleMapFrameMessage(event) {
+  if (!event || !event.data || typeof event.data !== 'object') return;
+  if (event.origin && event.origin !== window.location.origin) return;
+  const { source, type } = event.data;
+  if (source !== MAP_RESPONSE_SOURCE) return;
+  if (type === MAP_RESPONSE_TYPES.vehicleUnavailable) {
+    handleMapVehicleUnavailableMessage(event.data);
+  }
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('message', handleMapFrameMessage);
+}
 
 function postMapMessage(message){
   if(!mapFrame || !mapFrame.contentWindow || !message || typeof message!=='object') return;
