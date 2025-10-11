@@ -16,6 +16,10 @@
   button{background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer;}
   button:hover{filter:brightness(1.1);}
   button:disabled{opacity:0.6;cursor:not-allowed;}
+  #loadBtn.needs-action{animation:loadBtnPulse 0.9s ease-in-out infinite alternate;box-shadow:0 0 0 rgba(75,133,242,0.6);position:relative;}
+  #loadBtn.needs-action::after{content:'';position:absolute;inset:-4px;border-radius:inherit;border:2px solid rgba(255,255,255,0.4);opacity:0.6;animation:loadBtnRing 1.4s ease-out infinite;}
+  @keyframes loadBtnPulse{from{transform:scale(1);box-shadow:0 0 0 rgba(75,133,242,0.45);}to{transform:scale(1.06);box-shadow:0 0 18px rgba(75,133,242,0.7);}}
+  @keyframes loadBtnRing{0%{transform:scale(0.9);opacity:0.55;}70%{opacity:0;}100%{transform:scale(1.25);opacity:0;}}
   input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--panel);color:var(--ink);}
   input[type="date"]{border-color:var(--accent);cursor:pointer;box-shadow:0 0 0 0 rgba(75,133,242,0.4);transition:border-color 0.2s ease,box-shadow 0.2s ease;background:linear-gradient(135deg,rgba(75,133,242,0.15),rgba(75,133,242,0));}
   input[type="date"]:hover,input[type="date"]:focus{border-color:#7aa6ff;box-shadow:0 0 0 3px rgba(75,133,242,0.25);}
@@ -274,6 +278,24 @@ let routeGroupMembers={};
 let routeMemberToGroup={};
 let isLoading=false;
 let hasLoadedData=false;
+let lastLoadedDate=null;
+
+function updateLoadButtonAttention(){
+  if(!loadBtn){return;}
+  if(loadBtn.disabled){
+    loadBtn.classList.remove('needs-action');
+    loadBtn.removeAttribute('title');
+    return;
+  }
+  const selectedDate=dateInput.value;
+  const needsAttention=!!selectedDate&&selectedDate!==lastLoadedDate;
+  loadBtn.classList.toggle('needs-action',needsAttention);
+  if(needsAttention){
+    loadBtn.title='Click to load data for '+selectedDate;
+  }else{
+    loadBtn.removeAttribute('title');
+  }
+}
 
 function updateDataDependentControls(){
   const disabled=isLoading||!hasLoadedData;
@@ -284,6 +306,7 @@ function updateDataDependentControls(){
 
 function updateLoadAvailability(){
   loadBtn.disabled=!dateInput.value||isLoading;
+  updateLoadButtonAttention();
 }
 
 dateInput.addEventListener('change',updateLoadAvailability);
@@ -459,6 +482,7 @@ function load(){
     loadingMessage.style.display='block';
     return;
   }
+  const requestedDate=dateInput.value;
   isLoading=true;
   updateLoadAvailability();
   updateDataDependentControls();
@@ -487,10 +511,10 @@ function load(){
     }),
     ridershipPromise
   ]).then(([,data])=>{
-    render(normalizeApiArray(data),bounds);
+    render(normalizeApiArray(data),bounds,requestedDate);
   }).catch(err=>{
     console.error(err);
-    render([],bounds);
+    render([],bounds,requestedDate);
   }).finally(()=>{
     isLoading=false;
     spinner.style.display='none';
@@ -501,7 +525,7 @@ function load(){
   });
 }
 
-function render(data,bounds){
+function render(data,bounds,requestedDate){
   ridershipByRoute=Object.create(null);
   routeMetaByKey=Object.create(null);
   groupMetaByKey=Object.create(null);
@@ -569,6 +593,8 @@ function render(data,bounds){
     populateRouteOptions(select);
     updateBlock(block);
   });
+  lastLoadedDate=requestedDate||null;
+  updateLoadButtonAttention();
 }
 
 function populateRouteOptions(select){
