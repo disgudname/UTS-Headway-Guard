@@ -143,19 +143,25 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
 _dispatch_password_entries: list[tuple[str, str]] = []
-for env_name in ("DISPATCH_PASS", "HOWELL_PASS"):
-    # Fly.io secrets are case-sensitive, so accommodate deployments that may
-    # have stored them with a lowercase name (e.g. `fly secrets set howell_pass=`)
-    for candidate in (env_name, env_name.lower()):
-        value = os.getenv(candidate)
-        if value is None:
-            continue
-        value = value.strip()
-        if not value:
-            continue
-        label = env_name.removesuffix("_PASS") if env_name.endswith("_PASS") else env_name
-        _dispatch_password_entries.append((label, value))
-        break
+_dispatch_password_sources: dict[str, tuple[str, ...]] = {
+    "DISPATCH": ("DISPATCH_PASS", "DISPATCH_PASSWORD", "DISPATCH_SECRET"),
+    "HOWELL": ("HOWELL_PASS", "HOWELL_PASSWORD", "HOWELL_SECRET"),
+}
+for label, env_names in _dispatch_password_sources.items():
+    for env_name in env_names:
+        # Fly.io secrets are case-sensitive, so accommodate deployments that may
+        # have stored them with a lowercase name (e.g. `fly secrets set howell_pass=`)
+        for candidate in (env_name, env_name.lower()):
+            value = os.getenv(candidate)
+            if value is None:
+                continue
+            value = value.strip()
+            if not value:
+                continue
+            _dispatch_password_entries.append((label, value))
+            break
+        if any(label == existing_label for existing_label, _ in _dispatch_password_entries):
+            break
 
 DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(value for _, value in _dispatch_password_entries)
 DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_password_entries)
@@ -164,6 +170,15 @@ DISPATCH_PASSWORD_LABELS: Dict[str, str] = {
 }
 DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
 del _dispatch_password_entries
+
+if DISPATCH_PASSWORDS:
+    configured_labels = ", ".join(sorted(DISPATCH_PASSWORD_BY_LABEL.keys()))
+    print(
+        f"[auth] Dispatcher passwords configured for: {configured_labels}",
+        flush=True,
+    )
+else:
+    print("[auth] Dispatcher password not configured; access is open.", flush=True)
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
