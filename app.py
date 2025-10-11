@@ -36,7 +36,7 @@ import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, Query
+from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
@@ -2052,17 +2052,9 @@ async def _fetch_w2w_assignments():
     }
 
 
-def _dispatcher_access_dependency(request: Request) -> Request:
-    """FastAPI dependency that enforces dispatcher authentication."""
-
-    _require_dispatcher_access(request)
-    return request
-
-
 @app.get("/v1/dispatch/block-drivers")
-async def dispatch_block_drivers(
-    request: Request = Depends(_dispatcher_access_dependency),
-):
+async def dispatch_block_drivers(request: Request):
+    _require_dispatcher_access(request)
     try:
         return await w2w_assignments_cache.get(_fetch_w2w_assignments)
     except HTTPException:
