@@ -31,7 +31,7 @@ import asyncio, time, math, os, json, re, base64, hashlib, secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import httpx
-from collections import deque, defaultdict
+from collections import deque, defaultdict, OrderedDict
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
@@ -142,10 +142,6 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
-_dispatch_password_entries: list[tuple[str, str]] = []
-_dispatch_password_seen_labels: set[str] = set()
-
-
 def _load_dispatch_secret(env_name: str) -> Optional[str]:
     """Return a stripped secret value for the given base env name.
 
@@ -182,61 +178,71 @@ def _load_dispatch_secret(env_name: str) -> Optional[str]:
             continue
         if value:
             return value
-    return None
 
 
-def _register_dispatch_password(label: str, raw_value: Optional[str]) -> None:
-    if label in _dispatch_password_seen_labels:
-        return
-    if raw_value is None:
-        return
-    value = raw_value.strip()
-    if not value:
-        return
-    _dispatch_password_entries.append((label, value))
-    _dispatch_password_seen_labels.add(label)
+def _discover_dispatch_passwords() -> "OrderedDict[str, str]":
+    discovered: "OrderedDict[str, str]" = OrderedDict()
 
-
-_dispatch_password_sources: dict[str, tuple[str, ...]] = {
-    "DISPATCH": ("DISPATCH_PASS", "DISPATCH_PASSWORD", "DISPATCH_SECRET"),
-    "HOWELL": ("HOWELL_PASS", "HOWELL_PASSWORD", "HOWELL_SECRET"),
-}
-for label, env_names in _dispatch_password_sources.items():
-    for env_name in env_names:
+    def register(label: str, env_name: str) -> bool:
         secret_value = _load_dispatch_secret(env_name)
-        if secret_value is not None:
-            _register_dispatch_password(label, secret_value)
-        if label in _dispatch_password_seen_labels:
-            break
+        if not secret_value:
+            return False
+        if label not in discovered:
+            discovered[label] = secret_value
+        return True
+
+    canonical_sources: dict[str, tuple[str, ...]] = {
+        "DISPATCHER": (
+            "DISPATCHER_PASS",
+            "DISPATCHER_PASSWORD",
+            "DISPATCHER_SECRET",
+            "DISPATCH_PASS",
+            "DISPATCH_PASSWORD",
+            "DISPATCH_SECRET",
+        ),
+        "HOWELL": (
+            "HOWELL_PASS",
+            "HOWELL_PASSWORD",
+            "HOWELL_SECRET",
+        ),
+    }
+
+    for label, env_names in canonical_sources.items():
+        for env_name in env_names:
+            if register(label, env_name):
+                break
+
+    for env_name in sorted(os.environ):
+        if not env_name:
+            continue
+        env_name_upper = env_name.upper()
+        base_env_name: Optional[str] = None
+        if env_name_upper.endswith("_PASS_FILE"):
+            base_env_name = env_name[: -len("_FILE")]
+        elif env_name_upper.endswith("_PASS"):
+            base_env_name = env_name
+        if not base_env_name:
+            continue
+        label_prefix = base_env_name[:-5]
+        if not label_prefix:
+            continue
+        label = label_prefix.upper()
+        if label in discovered:
+            continue
+        register(label, base_env_name)
+
+    return discovered
 
 
-for env_name in os.environ:
-    if not env_name:
-        continue
-    env_name_upper = env_name.upper()
-    base_env_name: Optional[str] = None
-    if env_name_upper.endswith("_PASS"):
-        base_env_name = env_name
-    elif env_name_upper.endswith("_PASS_FILE"):
-        base_env_name = env_name[:-5]
-    if not base_env_name:
-        continue
-    label_prefix = base_env_name[:-5]
-    if not label_prefix:
-        continue
-    label = label_prefix.upper()
-    secret_value = _load_dispatch_secret(base_env_name)
-    if secret_value is not None:
-        _register_dispatch_password(label, secret_value)
+_dispatch_passwords = _discover_dispatch_passwords()
 
-
-DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(value for _, value in _dispatch_password_entries)
-DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_password_entries)
+DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_passwords)
+DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(_dispatch_passwords.values())
 DISPATCH_PASSWORD_LABELS: Dict[str, str] = {
-    value: label for label, value in _dispatch_password_entries
+    value: label for label, value in _dispatch_passwords.items()
 }
 DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
-del _dispatch_password_entries, _dispatch_password_seen_labels, _register_dispatch_password
+del _dispatch_passwords
 
 if DISPATCH_PASSWORDS:
     configured_labels = ", ".join(sorted(DISPATCH_PASSWORD_BY_LABEL.keys()))
