@@ -636,7 +636,7 @@ function showHowellBootScreen(){
       </div>
       <div class="howell-core">
         <div class="howell-title">STARFLEET DISPATCH CONSOLE</div>
-        <div class="howell-welcome">WELCOME, VICE ADMIRAL HOWELL</div>
+        <div class="howell-welcome">AUTHORIZATION PENDING…</div>
         <div class="howell-subtitle">SOVEREIGN-CLASS OPERATIONS CONTROL</div>
         <div class="howell-strip-group">
           <span class="howell-strip primary"></span>
@@ -667,12 +667,18 @@ function showHowellBootScreen(){
   document.body.appendChild(overlay);
 
   const logContainer=overlay.querySelector('.howell-log');
+  const welcomeEl=overlay.querySelector('.howell-welcome');
   const logMessages=[
     'Initializing LCARS interface…',
+    'Establishing secure subspace uplink…',
     'Routing command authorization…',
     'Calibrating inertial dampeners…',
     'Synchronizing dispatch buoys…',
-    'Vice Admiral override confirmed.'
+    'Verifying vice admiral clearance codes…',
+    'Decrypting fleet operations packet…',
+    'Running tactical readiness diagnostics…',
+    'Vice Admiral override confirmed.',
+    'Starfleet dispatch lattice synchronized.'
   ];
   const logTimeouts=[];
   if(logContainer){
@@ -683,6 +689,11 @@ function showHowellBootScreen(){
         line.textContent=text;
         logContainer.appendChild(line);
         requestAnimationFrame(()=>line.classList.add('visible'));
+        if(idx===logMessages.length-1 && welcomeEl){
+          window.setTimeout(()=>{
+            welcomeEl.textContent='Authorization Accepted. Welcome, Vice Admiral Howell';
+          },260);
+        }
       },400*idx+420);
       logTimeouts.push(timeout);
     });
