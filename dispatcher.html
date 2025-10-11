@@ -3,11 +3,46 @@
 <meta charset="utf-8">
 <title>Dispatch - Headway Guard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
+<style id="dispatcher-style">
 @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype')}
 @font-face{font-family:'Antonio';src:url('ANTONIO.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 :root{--route-color:#2a3442}
 body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative}
+#howell-boot-screen{position:fixed;inset:0;z-index:12000;display:flex;align-items:center;justify-content:center;padding:42px;background:radial-gradient(circle at 20% 20%,rgba(255,204,102,.12)0,transparent 52%),radial-gradient(circle at 82% 78%,rgba(102,204,204,.16)0,transparent 58%),linear-gradient(135deg,#02040b 0,#090d1c 48%,#05070f 100%);font-family:'Antonio','FGDC','Century Gothic',sans-serif;color:#f5f6ff;opacity:0;pointer-events:auto;transition:opacity .8s ease}
+#howell-boot-screen.visible{opacity:1}
+#howell-boot-screen.fade-out{opacity:0;pointer-events:none}
+#howell-boot-screen .howell-lcars-frame{position:relative;display:flex;gap:28px;background:#0b1021;border-radius:48px;border:4px solid #ff9966;padding:42px 52px;box-shadow:0 32px 90px rgba(255,153,102,.28);max-width:min(960px,92vw);width:100%;overflow:hidden}
+#howell-boot-screen .howell-lcars-frame::before{content:"";position:absolute;inset:18px;border:2px solid rgba(102,204,204,.4);border-radius:40px;pointer-events:none}
+#howell-boot-screen .howell-lcars-frame::after{content:"";position:absolute;right:-120px;top:-90px;width:360px;height:360px;background:#cc6699;border-radius:170px 0 0 170px;transform:rotate(-18deg);opacity:.55;pointer-events:none}
+#howell-boot-screen .howell-lcars-column{display:flex;flex-direction:column;align-items:flex-start;width:146px;gap:18px;position:relative;z-index:1}
+#howell-boot-screen .howell-bar{display:block;width:100%;height:64px;border-radius:0 44px 44px 0;background:var(--howell-bar-color,#ff9966);box-shadow:0 0 0 4px rgba(0,0,0,.24) inset;animation:howellBarPulse 4.4s ease-in-out infinite}
+#howell-boot-screen .howell-bar.secondary{--howell-bar-color:#cc6699;height:86px}
+#howell-boot-screen .howell-bar.tertiary{--howell-bar-color:#66cccc;height:52px;margin-top:auto}
+#howell-boot-screen .howell-core{flex:1;display:flex;flex-direction:column;gap:18px;position:relative;z-index:2}
+#howell-boot-screen .howell-title{font-size:14px;letter-spacing:.32em;text-transform:uppercase;color:#66cccc}
+#howell-boot-screen .howell-welcome{font-size:clamp(26px,4vw,46px);letter-spacing:.22em;text-transform:uppercase;color:#ffcc66;text-shadow:0 0 18px rgba(255,204,102,.55);animation:howellGlint 3.6s ease-in-out infinite}
+#howell-boot-screen .howell-subtitle{font-size:16px;letter-spacing:.2em;text-transform:uppercase;color:#f4f0ff;opacity:.82}
+#howell-boot-screen .howell-strip-group{display:flex;gap:14px;margin-top:6px}
+#howell-boot-screen .howell-strip{height:18px;border-radius:22px;background:var(--howell-strip-color,#ff9966);box-shadow:0 0 12px rgba(255,153,102,.45);position:relative;overflow:hidden;flex:1;min-width:80px}
+#howell-boot-screen .howell-strip::after{content:"";position:absolute;inset:-2px;background:linear-gradient(120deg,transparent 0,rgba(255,255,255,.45)38%,transparent 72%);animation:howellStripSweep 5.2s linear infinite}
+#howell-boot-screen .howell-strip.accent{--howell-strip-color:#cc6699;flex:0 0 140px}
+#howell-boot-screen .howell-strip.danger{--howell-strip-color:#ff3300;flex:0 0 92px}
+#howell-boot-screen .howell-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:18px;margin-top:10px}
+#howell-boot-screen .howell-status-card{background:rgba(12,18,34,.88);border-radius:32px;padding:18px 22px;border:2px solid rgba(255,153,102,.45);box-shadow:0 0 0 3px rgba(6,10,24,.85) inset;display:flex;flex-direction:column;gap:6px;min-height:120px}
+#howell-boot-screen .howell-status-card span{font-size:12px;letter-spacing:.26em;text-transform:uppercase;color:#66cccc}
+#howell-boot-screen .howell-status-card strong{font-size:26px;letter-spacing:.18em;color:#ff9966}
+#howell-boot-screen .howell-status-detail{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:#f6f6ff;opacity:.78}
+#howell-boot-screen .howell-ticker{display:flex;align-items:center;gap:16px;background:rgba(255,153,102,.18);border-radius:40px;padding:12px 20px;font-size:14px;letter-spacing:.24em;text-transform:uppercase;color:#ffcc66}
+#howell-boot-screen .howell-ticker::before{content:"LCARS";font-size:12px;background:#ff9966;color:#05060f;padding:6px 14px;border-radius:999px;letter-spacing:.32em}
+#howell-boot-screen .howell-log{margin-top:10px;padding:16px 20px;border-radius:26px;background:rgba(102,204,204,.14);font-family:'Courier Prime','IBM Plex Mono','Fira Code',monospace;font-size:13px;line-height:1.6;letter-spacing:.12em;color:#8feff3;max-height:190px;overflow:hidden;display:flex;flex-direction:column;gap:6px}
+#howell-boot-screen .howell-log-line{opacity:0;transform:translateX(-24px);transition:opacity .4s ease,transform .4s ease}
+#howell-boot-screen .howell-log-line.visible{opacity:1;transform:translateX(0)}
+@keyframes howellGlint{0%,100%{text-shadow:0 0 12px rgba(255,204,102,.35)}50%{text-shadow:0 0 24px rgba(255,204,102,.75)}}
+@keyframes howellBarPulse{0%,100%{filter:brightness(1)}40%{filter:brightness(1.35)}60%{filter:brightness(.82)}}
+@keyframes howellStripSweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+@media(max-width:780px){#howell-boot-screen{padding:24px}#howell-boot-screen .howell-lcars-frame{flex-direction:column;align-items:flex-start;padding:28px 30px;border-radius:36px}#howell-boot-screen .howell-lcars-column{flex-direction:row;width:100%;gap:12px}#howell-boot-screen .howell-bar{height:48px;border-radius:44px}#howell-boot-screen .howell-bar.secondary{height:58px}}
+body.howell-mode{background:radial-gradient(circle at 12% 18%,rgba(255,153,102,.12)0,transparent 54%),radial-gradient(circle at 86% 84%,rgba(102,204,204,.1)0,transparent 60%),linear-gradient(130deg,#070b1a 0,#04060f 42%,#070b1a 100%)}
+body.howell-mode header h1{letter-spacing:.14em}
 body.locked{overflow:hidden}
 #password-overlay{position:fixed;inset:0;background:rgba(7,10,14,.92);display:none;align-items:center;justify-content:center;z-index:10000;opacity:1;transition:opacity .25s ease}
 #password-overlay .overlay-card{background:#10151c;border:1px solid #2a3442;border-radius:18px;padding:28px;box-shadow:0 18px 32px rgba(6,11,28,.6);max-width:360px;width:90%;display:flex;flex-direction:column;gap:16px;text-align:center}
@@ -556,6 +591,184 @@ const urlParams = new URLSearchParams(window.location.search);
 const LCARS_ENABLED = urlParams.get('lcars') === 'true';
 const CYBERPUNK_ENABLED = !LCARS_ENABLED && urlParams.get('cyberpunk') === 'true';
 const KIOSK_MODE = urlParams.has('kioskMode');
+let dispatcherSecretLabel = null;
+let howellBootHasShown = false;
+
+function applyDispatcherSecretMode(){
+  if(dispatcherSecretLabel === 'HOWELL'){
+    applyHowellMode();
+  }
+}
+
+function applyHowellMode(){
+  if(!document.body) return;
+  document.body.classList.add('howell-mode');
+  applyHowellFontOverride();
+  showHowellBootScreen();
+}
+
+function applyHowellFontOverride(){
+  if(applyHowellFontOverride.done) return;
+  const styleEl=document.getElementById('dispatcher-style');
+  if(styleEl){
+    const text=styleEl.textContent||'';
+    if(text.includes('FGDC.ttf')){
+      styleEl.textContent=text.replace(/FGDC\.ttf/g,'centurygothic.ttf');
+    }
+  }
+  applyHowellFontOverride.done=true;
+}
+applyHowellFontOverride.done=false;
+
+function showHowellBootScreen(){
+  if(howellBootHasShown || !document.body) return;
+  howellBootHasShown=true;
+  const overlay=document.createElement('div');
+  overlay.id='howell-boot-screen';
+  overlay.setAttribute('role','dialog');
+  overlay.setAttribute('aria-live','polite');
+  overlay.innerHTML=`
+    <div class="howell-lcars-frame">
+      <div class="howell-lcars-column">
+        <span class="howell-bar"></span>
+        <span class="howell-bar secondary"></span>
+        <span class="howell-bar tertiary"></span>
+      </div>
+      <div class="howell-core">
+        <div class="howell-title">STARFLEET DISPATCH CONSOLE</div>
+        <div class="howell-welcome">WELCOME, VICE ADMIRAL HOWELL</div>
+        <div class="howell-subtitle">SOVEREIGN-CLASS OPERATIONS CONTROL</div>
+        <div class="howell-strip-group">
+          <span class="howell-strip primary"></span>
+          <span class="howell-strip accent"></span>
+          <span class="howell-strip danger"></span>
+        </div>
+        <div class="howell-status-grid">
+          <div class="howell-status-card" data-status="fleet">
+            <span>Fleet Sync</span>
+            <strong data-value>000%</strong>
+            <div class="howell-status-detail" data-detail>VECTOR HOLD</div>
+          </div>
+          <div class="howell-status-card" data-status="transport">
+            <span>Transport Buffers</span>
+            <strong data-value>0.0 MJ</strong>
+            <div class="howell-status-detail" data-detail>BUFFER READY</div>
+          </div>
+          <div class="howell-status-card" data-status="defense">
+            <span>Shield Envelope</span>
+            <strong data-value>000%</strong>
+            <div class="howell-status-detail" data-detail>STANDBY</div>
+          </div>
+        </div>
+        <div class="howell-ticker"><span data-ticker>SD 00000.0 • WARP CORE NOMINAL</span></div>
+        <div class="howell-log" aria-live="polite"></div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const logContainer=overlay.querySelector('.howell-log');
+  const logMessages=[
+    'Initializing LCARS interface…',
+    'Routing command authorization…',
+    'Calibrating inertial dampeners…',
+    'Synchronizing dispatch buoys…',
+    'Vice Admiral override confirmed.'
+  ];
+  const logTimeouts=[];
+  if(logContainer){
+    logMessages.forEach((text,idx)=>{
+      const timeout=window.setTimeout(()=>{
+        const line=document.createElement('div');
+        line.className='howell-log-line';
+        line.textContent=text;
+        logContainer.appendChild(line);
+        requestAnimationFrame(()=>line.classList.add('visible'));
+      },400*idx+420);
+      logTimeouts.push(timeout);
+    });
+  }
+
+  const tickerNode=overlay.querySelector('[data-ticker]');
+  const tickerPhrases=['WARP CORE NOMINAL','PHOTON RESERVES 98%','DOCK 47 GREEN','EPS RELAYS SYNCED','TRANSPORTER MATRIX READY'];
+  const updateTicker=()=>{
+    if(!tickerNode) return;
+    const now=new Date();
+    const base=(now.getFullYear()-2000)*10;
+    const fractional=((now.getMonth()+1)/12)*10 + (now.getDate()/100) + (now.getHours()/240);
+    const stardate=(1000+base+fractional).toFixed(1);
+    const phrase=tickerPhrases[Math.floor(Math.random()*tickerPhrases.length)];
+    tickerNode.textContent=`SD ${stardate.padStart(6,'0')} • ${phrase}`;
+  };
+
+  const statusCards=overlay.querySelectorAll('.howell-status-card');
+  const updateStatuses=()=>{
+    statusCards.forEach(card=>{
+      const valueEl=card.querySelector('[data-value]');
+      const detailEl=card.querySelector('[data-detail]');
+      if(!valueEl||!detailEl) return;
+      const mode=card.getAttribute('data-status');
+      if(mode==='fleet'){
+        valueEl.textContent=`${(97+Math.random()*2.6).toFixed(1)}%`;
+        const variants=['VECTOR HOLD','FORMATION LOCK','SYNC STABLE'];
+        detailEl.textContent=variants[Math.floor(Math.random()*variants.length)];
+      }else if(mode==='transport'){
+        valueEl.textContent=`${(4+Math.random()*1.6).toFixed(1)} MJ`;
+        const variants=['BUFFER READY','MATRIX PRIME','PATTERN GREEN'];
+        detailEl.textContent=variants[Math.floor(Math.random()*variants.length)];
+      }else if(mode==='defense'){
+        valueEl.textContent=`${(84+Math.random()*9).toFixed(0)}%`;
+        const variants=['FORE SHIELDS','AFT SHIELDS','ENVELOPE LOCK'];
+        detailEl.textContent=`${variants[Math.floor(Math.random()*variants.length)]} NOMINAL`;
+      }
+    });
+  };
+
+  updateTicker();
+  updateStatuses();
+
+  const intervals=[
+    window.setInterval(updateTicker,1500),
+    window.setInterval(updateStatuses,1300)
+  ];
+  const logClear=()=>{logTimeouts.forEach(id=>clearTimeout(id));};
+  let autoFadeId=null;
+  let faded=false;
+
+  function handleKey(ev){
+    if(ev.key==='Escape'||ev.key==='Enter'||ev.key===' '){
+      ev.preventDefault();
+      startFade();
+    }
+  }
+
+  function cleanup(){
+    intervals.forEach(id=>clearInterval(id));
+    logClear();
+    if(autoFadeId!==null){
+      clearTimeout(autoFadeId);
+      autoFadeId=null;
+    }
+    window.removeEventListener('keydown',handleKey);
+    overlay.removeEventListener('click',startFade);
+  }
+
+  function startFade(){
+    if(faded) return;
+    faded=true;
+    overlay.classList.add('fade-out');
+    cleanup();
+    window.setTimeout(()=>{
+      if(overlay.parentNode){
+        overlay.parentNode.removeChild(overlay);
+      }
+    },900);
+  }
+
+  overlay.addEventListener('click',startFade);
+  window.addEventListener('keydown',handleKey);
+  requestAnimationFrame(()=>overlay.classList.add('visible'));
+  autoFadeId=window.setTimeout(startFade,6500);
+}
 const leftPane = document.getElementById('left');
 const mapFrame = document.getElementById('map-frame');
 const splitter = document.getElementById('splitter');
@@ -3502,10 +3715,14 @@ async function requireDispatcherPassword(){
     document.body.classList.add('locked');
     let requiresPassword=true;
     let alreadyAuthorized=false;
+    dispatcherSecretLabel=null;
     try{
       const resp=await fetch('/api/dispatcher/auth');
       if(resp.ok){
         const data=await resp.json();
+        if(data&&typeof data.secret==='string'&&data.secret){
+          dispatcherSecretLabel=data.secret;
+        }
         if(data&&typeof data.authorized==='boolean'){
           alreadyAuthorized=data.authorized;
         }
@@ -3536,6 +3753,13 @@ async function requireDispatcherPassword(){
         try{
           const resp=await fetch('/api/dispatcher/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
           if(resp.ok){
+            let responseData=null;
+            try{
+              responseData=await resp.json();
+            }catch(_err){}
+            if(responseData&&typeof responseData.secret==='string'&&responseData.secret){
+              dispatcherSecretLabel=responseData.secret;
+            }
             passwordForm.removeEventListener('submit',submitHandler);
             passwordOverlay.classList.add('fade-out');
             setTimeout(()=>passwordOverlay.remove(),250);
@@ -3567,6 +3791,7 @@ async function requireDispatcherPassword(){
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   await requireDispatcherPassword();
+  applyDispatcherSecretMode();
   await loadConfig();
   pollHealth();
   loadBlocks();
