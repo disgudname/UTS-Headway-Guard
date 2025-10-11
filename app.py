@@ -142,9 +142,17 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
-DISPATCH_PASS = os.getenv("DISPATCH_PASS")
-if DISPATCH_PASS is not None:
-    DISPATCH_PASS = DISPATCH_PASS.strip()
+_dispatch_passwords: list[str] = []
+for env_name in ("DISPATCH_PASS", "HOWELL_PASS"):
+    value = os.getenv(env_name)
+    if value is not None:
+        value = value.strip()
+        if value:
+            _dispatch_passwords.append(value)
+
+DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(_dispatch_passwords)
+DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
+del _dispatch_passwords
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
@@ -3558,22 +3566,25 @@ async def driver_page():
 # ---------------------------
 # DISPATCHER PAGE
 # ---------------------------
-def _dispatcher_cookie_value() -> Optional[str]:
-    if not DISPATCH_PASS:
+def _dispatcher_cookie_value(password: Optional[str] = None) -> Optional[str]:
+    if not DISPATCH_PASSWORDS:
         return None
-    return hashlib.sha256(f"dispatcher::{DISPATCH_PASS}".encode("utf-8")).hexdigest()
+    if password is None:
+        password = DISPATCH_PASSWORDS[0]
+    return hashlib.sha256(f"dispatcher::{password}".encode("utf-8")).hexdigest()
 
 
 def _has_dispatcher_access(request: Request) -> bool:
-    if not DISPATCH_PASS:
-        return True
-    expected = _dispatcher_cookie_value()
-    if not expected:
+    if not DISPATCH_PASSWORDS:
         return True
     provided = request.cookies.get(DISPATCH_COOKIE_NAME)
     if not provided:
         return False
-    return secrets.compare_digest(provided, expected)
+    for password in DISPATCH_PASSWORDS:
+        expected = _dispatcher_cookie_value(password)
+        if expected and secrets.compare_digest(provided, expected):
+            return True
+    return False
 
 
 def _require_dispatcher_access(request: Request) -> None:
@@ -3584,7 +3595,7 @@ def _require_dispatcher_access(request: Request) -> None:
 @app.get("/api/dispatcher/auth")
 async def dispatcher_auth_status(request: Request):
     return {
-        "required": bool(DISPATCH_PASS),
+        "required": bool(DISPATCH_PASSWORDS),
         "authorized": _has_dispatcher_access(request),
     }
 
@@ -3593,27 +3604,29 @@ async def dispatcher_auth_status(request: Request):
 async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)
 ):
-    if not DISPATCH_PASS:
+    if not DISPATCH_PASSWORDS:
         return {"ok": True}
     password = payload.get("password")
-    if isinstance(password, str) and secrets.compare_digest(password, DISPATCH_PASS):
-        cookie_value = _dispatcher_cookie_value()
-        if cookie_value:
-            response.set_cookie(
-                DISPATCH_COOKIE_NAME,
-                cookie_value,
-                max_age=DISPATCH_COOKIE_MAX_AGE,
-                httponly=True,
-                secure=DISPATCH_COOKIE_SECURE,
-                samesite="lax",
-            )
-        return {"ok": True}
+    if isinstance(password, str):
+        for valid_password in DISPATCH_PASSWORDS:
+            if secrets.compare_digest(password, valid_password):
+                cookie_value = _dispatcher_cookie_value(valid_password)
+                if cookie_value:
+                    response.set_cookie(
+                        DISPATCH_COOKIE_NAME,
+                        cookie_value,
+                        max_age=DISPATCH_COOKIE_MAX_AGE,
+                        httponly=True,
+                        secure=DISPATCH_COOKIE_SECURE,
+                        samesite="lax",
+                    )
+                return {"ok": True}
     raise HTTPException(status_code=401, detail="Incorrect password.")
 
 
 @app.get("/dispatcher")
 async def dispatcher_page(request: Request):
-    if not DISPATCH_PASS or _has_dispatcher_access(request):
+    if not DISPATCH_PASSWORDS or _has_dispatcher_access(request):
         return HTMLResponse(DISPATCHER_HTML)
     response = HTMLResponse(DISPATCHER_HTML, status_code=401)
     response.headers["Cache-Control"] = "no-store"
