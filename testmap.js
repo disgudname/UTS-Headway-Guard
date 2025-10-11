@@ -6842,7 +6842,7 @@ ${trainPlaneMarkup}
       }
 
       function shouldCollapsePanelsOnLoad() {
-        return isCompactViewport();
+        return dispatcherMode || isCompactViewport();
       }
 
       function initializePanelStateForViewport() {
