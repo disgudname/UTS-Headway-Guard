@@ -8,6 +8,17 @@
 @font-face{font-family:'Antonio';src:url('ANTONIO.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 :root{--route-color:#2a3442}
 body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;color:#e8eef5;display:flex;height:100vh;position:relative}
+body.locked{overflow:hidden}
+#password-overlay{position:fixed;inset:0;background:rgba(7,10,14,.92);display:none;align-items:center;justify-content:center;z-index:10000;opacity:1;transition:opacity .25s ease}
+#password-overlay .overlay-card{background:#10151c;border:1px solid #2a3442;border-radius:18px;padding:28px;box-shadow:0 18px 32px rgba(6,11,28,.6);max-width:360px;width:90%;display:flex;flex-direction:column;gap:16px;text-align:center}
+#password-overlay h2{margin:0;font-size:22px;letter-spacing:.08em;text-transform:uppercase;color:#cfe1ff}
+#password-overlay p{margin:0;color:#9fb0c9;font-size:15px}
+#password-overlay form{display:flex;flex-direction:column;gap:12px}
+#password-overlay input{background:#0b1119;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:10px 12px;font-family:inherit;font-size:16px}
+#password-overlay input:focus{outline:2px solid #3a83f5;outline-offset:2px}
+#password-overlay button{align-self:center;min-width:140px}
+#password-overlay .status{min-height:20px;font-size:14px;color:#ff8686}
+#password-overlay.fade-out{opacity:0;pointer-events:none}
 #left{overflow:auto;flex:1 1 50%;min-width:260px;max-width:100%}
 #splitter{flex:0 0 8px;cursor:col-resize;background:linear-gradient(180deg,rgba(31,38,48,.8),rgba(21,27,36,.8));border-left:1px solid rgba(61,74,92,.65);border-right:1px solid rgba(8,10,14,.85);position:relative;z-index:3}
 #splitter::after{content:"";position:absolute;top:50%;left:50%;width:2px;height:40px;background:rgba(143,163,193,.55);border-radius:999px;transform:translate(-50%,-50%)}
@@ -468,6 +479,18 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 @keyframes fadeInUp{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
  </style>
 <body>
+<div id="password-overlay">
+  <div class="overlay-card">
+    <h2>Dispatcher Access</h2>
+    <p>Enter the dispatch password to continue.</p>
+    <form id="password-form">
+      <input id="dispatch-password" type="password" autocomplete="current-password" placeholder="Password" required>
+      <div class="status" id="password-status"></div>
+      <button type="submit">Unlock</button>
+    </form>
+    <p style="font-size:13px;color:#cfe1ff">Need a password? Send Pat a Teams message.</p>
+  </div>
+</div>
 <div id="left" style="flex:1;position:relative">
 <header>
   <div id="controls">
@@ -3369,7 +3392,84 @@ async function pollHealth(){
   setTimeout(pollHealth, 15000);
 }
 
+const passwordOverlay=document.getElementById('password-overlay');
+const passwordForm=document.getElementById('password-form');
+const passwordInput=document.getElementById('dispatch-password');
+const passwordStatus=document.getElementById('password-status');
+const passwordButton=passwordForm?passwordForm.querySelector('button'):null;
+let dispatcherAuthPromise=null;
+
+async function requireDispatcherPassword(){
+  if(dispatcherAuthPromise) return dispatcherAuthPromise;
+  dispatcherAuthPromise=(async()=>{
+    if(!passwordOverlay||!passwordForm||!passwordInput){
+      return;
+    }
+    passwordOverlay.style.display='flex';
+    passwordOverlay.style.opacity='1';
+    document.body.classList.add('locked');
+    let requiresPassword=true;
+    try{
+      const resp=await fetch('/api/dispatcher/auth');
+      if(resp.ok){
+        const data=await resp.json();
+        if(!data.required){
+          requiresPassword=false;
+        }
+      }
+    }catch(err){
+      console.warn('Failed to check dispatcher auth',err);
+    }
+    if(!requiresPassword){
+      document.body.classList.remove('locked');
+      passwordOverlay.remove();
+      return;
+    }
+    return await new Promise((resolve)=>{
+      const showError=(msg)=>{ if(passwordStatus) passwordStatus.textContent=msg; };
+      const submitHandler=async (event)=>{
+        event.preventDefault();
+        const password=passwordInput.value.trim();
+        if(!password){
+          showError('Please enter the password.');
+          return;
+        }
+        if(passwordButton) passwordButton.disabled=true;
+        showError('');
+        try{
+          const resp=await fetch('/api/dispatcher/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+          if(resp.ok){
+            passwordForm.removeEventListener('submit',submitHandler);
+            passwordOverlay.classList.add('fade-out');
+            setTimeout(()=>passwordOverlay.remove(),250);
+            document.body.classList.remove('locked');
+            resolve();
+            return;
+          }
+          let detail='Incorrect password.';
+          try{
+            const data=await resp.json();
+            if(data&&typeof data.detail==='string') detail=data.detail;
+          }catch(e){}
+          showError(detail);
+        }catch(err){
+          console.error('Password verification failed',err);
+          showError('Unable to verify password. Try again.');
+        }finally{
+          if(passwordButton) passwordButton.disabled=false;
+          passwordInput.value='';
+          passwordInput.focus();
+        }
+      };
+      passwordForm.addEventListener('submit',submitHandler);
+      passwordInput.focus();
+    });
+  })();
+  return dispatcherAuthPromise;
+}
+
 document.addEventListener('DOMContentLoaded', async ()=>{
+  await requireDispatcherPassword();
   await loadConfig();
   pollHealth();
   loadBlocks();

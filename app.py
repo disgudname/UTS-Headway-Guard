@@ -142,6 +142,10 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
+DISPATCH_PASS = os.getenv("DISPATCH_PASS")
+if DISPATCH_PASS is not None:
+    DISPATCH_PASS = DISPATCH_PASS.strip()
+
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
 VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
@@ -3544,6 +3548,21 @@ async def driver_page():
 # ---------------------------
 # DISPATCHER PAGE
 # ---------------------------
+@app.get("/api/dispatcher/auth")
+async def dispatcher_auth_status():
+    return {"required": bool(DISPATCH_PASS)}
+
+
+@app.post("/api/dispatcher/auth")
+async def dispatcher_auth(payload: dict[str, Any] = Body(...)):
+    if not DISPATCH_PASS:
+        return {"ok": True}
+    password = payload.get("password")
+    if isinstance(password, str) and password == DISPATCH_PASS:
+        return {"ok": True}
+    raise HTTPException(status_code=401, detail="Incorrect password.")
+
+
 @app.get("/dispatcher")
 async def dispatcher_page():
     return HTMLResponse(DISPATCHER_HTML)
