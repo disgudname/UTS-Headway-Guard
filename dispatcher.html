@@ -3409,20 +3409,25 @@ async function requireDispatcherPassword(){
     passwordOverlay.style.opacity='1';
     document.body.classList.add('locked');
     let requiresPassword=true;
+    let alreadyAuthorized=false;
     try{
       const resp=await fetch('/api/dispatcher/auth');
       if(resp.ok){
         const data=await resp.json();
-        if(!data.required){
-          requiresPassword=false;
+        if(data&&typeof data.authorized==='boolean'){
+          alreadyAuthorized=data.authorized;
+        }
+        if(data&&typeof data.required==='boolean'){
+          requiresPassword=data.required;
         }
       }
     }catch(err){
       console.warn('Failed to check dispatcher auth',err);
     }
-    if(!requiresPassword){
+    if(!requiresPassword||alreadyAuthorized){
       document.body.classList.remove('locked');
-      passwordOverlay.remove();
+      passwordOverlay.classList.add('fade-out');
+      setTimeout(()=>passwordOverlay.remove(),250);
       return;
     }
     return await new Promise((resolve)=>{
