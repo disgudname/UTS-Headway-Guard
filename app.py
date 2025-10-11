@@ -1472,9 +1472,9 @@ async def receive_sync(payload: dict):
     elif name == EINK_BLOCK_LAYOUT_NAME:
         try:
             decoded = json.loads(data)
-            layout, _ = _decode_layout_payload(decoded)
-            if not layout:
-                raise ValueError("empty layout")
+            layouts = _decode_layout_collection(decoded)
+            if not layouts:
+                raise ValueError("empty layout collection")
         except Exception as exc:
             print(f"[sync] invalid layout payload: {exc}")
             raise HTTPException(status_code=400, detail="invalid payload") from exc
