@@ -18,5 +18,6 @@ if [ -n "$VEH_LOG_DIRS" ]; then
     fi
   done
 fi
-exec su appuser -c "exec python -m uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"
+# Preserve the environment (Fly.io secrets) when switching to appuser
+exec su --preserve-environment appuser -c "exec python -m uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"
 
