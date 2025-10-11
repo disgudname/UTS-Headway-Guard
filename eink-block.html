@@ -150,9 +150,30 @@
     font-size:22px;
     letter-spacing:0.1em;
     text-transform:uppercase;
-    text-align:center;
     padding:12px 8px;
     border-bottom:3px solid #000;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  #grid-view .grid-header .grid-title{
+    flex:1;
+    text-align:center;
+  }
+  #grid-view .grid-header button{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:12px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:6px 10px;
+    border:2px solid #000;
+    background:#fff;
+    cursor:pointer;
+  }
+  #grid-view .grid-header button:active{
+    background:#000;
+    color:#fff;
   }
   #grid-view .grid-table{
     --grid-columns:4;
@@ -227,7 +248,7 @@
     <div id="status"></div>
   </div>
   <div id="grid-view" hidden>
-    <div class="grid-header">BLOCK ASSIGNMENTS</div>
+    <div class="grid-header"><span class="grid-title">BLOCK ASSIGNMENTS</span><button type="button" id="layout-toggle">Switch Layout</button></div>
     <div class="grid-table"></div>
   </div>
 </main>
@@ -239,11 +260,14 @@
   const editMode=params.get('edit')==='true';
   let block=params.get('block');
   const periodParam=(params.get('period')||'').trim().toLowerCase();
+  const layoutParam=(params.get('layout')||'').trim().toLowerCase();
   const statusEl=document.getElementById('status');
   const busEl=document.getElementById('bus');
   const driverInfoEl=document.getElementById('driver-info');
   const blockView=document.getElementById('block-view');
   const gridView=document.getElementById('grid-view');
+  const layoutToggleButton=document.getElementById('layout-toggle');
+  const gridTitleEl=gridView?gridView.querySelector('.grid-title'):null;
   const blockNumberEl=document.getElementById('block-number');
   const isGridMode=!block;
   if(showDrivers){
@@ -280,7 +304,25 @@
     ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
     ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
   ];
+  const footballLayoutColumns=[
+    ['01','04','07','10','13','16AM','19','22AM','25AM'],
+    ['02','05','08','11','14','17','20AM','23AM','26AM'],
+    ['03','06','09','12','15','18AM','21AM','24AM','27'],
+    ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
+  ];
+  const DEFAULT_LAYOUT_NAME='default';
+  const FOOTBALL_LAYOUT_NAME='football-layout';
+  const LAYOUT_DISPLAY_NAMES={
+    [DEFAULT_LAYOUT_NAME]:'Standard Layout',
+    [FOOTBALL_LAYOUT_NAME]:'Football Layout'
+  };
+  const layoutPresets={
+    [DEFAULT_LAYOUT_NAME]:defaultColumns,
+    [FOOTBALL_LAYOUT_NAME]:footballLayoutColumns
+  };
+  const VALID_LAYOUT_NAMES=new Set(Object.keys(layoutPresets));
   const LAYOUT_STORAGE_KEY='einkBlockLayout';
+  const ACTIVE_LAYOUT_STORAGE_KEY=`${LAYOUT_STORAGE_KEY}:active`;
   const LAYOUT_ENDPOINT='/api/eink-block/layout';
   const DEFAULT_STATUS_MESSAGE='Edit Mode — click a block to change it';
   let gridStatusEl=null;
@@ -744,18 +786,44 @@
     }
   }
 
-  function readLocalLayout(){
+  function getStorageKeyForLayout(name){
+    return name===DEFAULT_LAYOUT_NAME?LAYOUT_STORAGE_KEY:`${LAYOUT_STORAGE_KEY}:${name}`;
+  }
+
+  function readActiveLayoutName(){
     try{
-      const stored=localStorage.getItem(LAYOUT_STORAGE_KEY);
+      const stored=localStorage.getItem(ACTIVE_LAYOUT_STORAGE_KEY);
+      if(stored && VALID_LAYOUT_NAMES.has(stored)){
+        return stored;
+      }
+    }catch(err){
+      console.warn('Failed to read active layout',err);
+    }
+    return null;
+  }
+
+  function setActiveLayoutName(name){
+    layoutName=name;
+    try{
+      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,name);
+    }catch(err){
+      console.warn('Failed to store active layout',err);
+    }
+  }
+
+  function readLocalLayout(name){
+    const key=getStorageKeyForLayout(name);
+    try{
+      const stored=localStorage.getItem(key);
       if(stored){
         const parsed=JSON.parse(stored);
         if(Array.isArray(parsed) && parsed.length){
-          const result=[];
-          for(let colIndex=0;colIndex<parsed.length;colIndex++){
-            result.push(normalizeColumn(parsed[colIndex]));
-          }
-          if(result.length){
-            return result;
+          return parsed.map(col=>normalizeColumn(col));
+        }
+        if(parsed && typeof parsed==='object'){
+          const source=Array.isArray(parsed.layout)?parsed.layout:Array.isArray(parsed.columns)?parsed.columns:null;
+          if(source && source.length){
+            return source.map(col=>normalizeColumn(col));
           }
         }
       }
@@ -765,18 +833,60 @@
     return null;
   }
 
-  function persistLocalLayout(data){
+  function persistLocalLayout(columns,{name=layoutName}={}){
+    const key=getStorageKeyForLayout(name);
     try{
-      localStorage.setItem(LAYOUT_STORAGE_KEY,JSON.stringify(data));
+      localStorage.setItem(key,JSON.stringify(columns));
+      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,name);
     }catch(err){
       console.warn('Failed to store layout locally',err);
     }
   }
 
-  let layout=defaultColumns.map(col=>normalizeColumn(col));
-  const localLayout=readLocalLayout();
+  function getPresetLayout(name){
+    const preset=layoutPresets[name]||defaultColumns;
+    return preset.map(col=>normalizeColumn(col));
+  }
+
+  function determineInitialLayoutName(){
+    if(layoutParam && VALID_LAYOUT_NAMES.has(layoutParam)){
+      return layoutParam;
+    }
+    const stored=readActiveLayoutName();
+    if(stored && VALID_LAYOUT_NAMES.has(stored)){
+      return stored;
+    }
+    return DEFAULT_LAYOUT_NAME;
+  }
+
+  let layoutName=determineInitialLayoutName();
+  let layout=getPresetLayout(layoutName);
+  const localLayout=readLocalLayout(layoutName);
   if(localLayout){
     layout=localLayout;
+  }
+  setActiveLayoutName(layoutName);
+  updateLayoutToggleButton();
+
+  function getLayoutDisplayName(name){
+    return LAYOUT_DISPLAY_NAMES[name]||'Default Layout';
+  }
+
+  function updateLayoutToggleButton(){
+    if(layoutToggleButton){
+      const nextLayout=layoutName===FOOTBALL_LAYOUT_NAME?DEFAULT_LAYOUT_NAME:FOOTBALL_LAYOUT_NAME;
+      layoutToggleButton.textContent=`Switch to ${getLayoutDisplayName(nextLayout)}`;
+      layoutToggleButton.dataset.nextLayout=nextLayout;
+      layoutToggleButton.hidden=!isGridMode;
+    }
+    if(gridTitleEl){
+      gridTitleEl.textContent=layoutName===FOOTBALL_LAYOUT_NAME
+        ? 'BLOCK ASSIGNMENTS — FOOTBALL'
+        : 'BLOCK ASSIGNMENTS';
+    }
+    if(gridView){
+      gridView.dataset.layout=layoutName;
+    }
   }
 
   function serializeLayout(){
@@ -794,36 +904,82 @@
     });
   }
 
-  function setLayoutFromData(data,{persist=true,rebuild=true}={}){
+  function setLayoutFromData(data,{persist=true,rebuild=true,name}={}){
     if(!Array.isArray(data) || !data.length) return false;
     const normalized=data.map(col=>normalizeColumn(col));
     if(!normalized.length) return false;
+    if(typeof name==='string' && VALID_LAYOUT_NAMES.has(name)){
+      setActiveLayoutName(name);
+    }
     layout=normalized;
     if(persist){
-      persistLocalLayout(serializeLayout());
+      persistLocalLayout(serializeLayout(),{name:layoutName});
     }
     if(rebuild && isGridMode){
       buildGrid();
+    }else{
+      updateLayoutToggleButton();
     }
     return true;
   }
 
+  function switchLayout(name){
+    if(!VALID_LAYOUT_NAMES.has(name) || name===layoutName) return;
+    let applied=false;
+    const stored=readLocalLayout(name);
+    if(stored && stored.length){
+      applied=setLayoutFromData(stored,{persist:true,rebuild:isGridMode,name});
+    }
+    if(!applied){
+      const preset=getPresetLayout(name);
+      applied=setLayoutFromData(preset,{persist:true,rebuild:isGridMode,name});
+    }
+    if(!applied) return;
+    if(isGridMode){
+      triggerRefresh();
+    }
+    if(typeof history!=='undefined' && history.replaceState){
+      const newParams=new URLSearchParams(location.search);
+      if(name===DEFAULT_LAYOUT_NAME){
+        newParams.delete('layout');
+      }else{
+        newParams.set('layout',name);
+      }
+      const newQuery=newParams.toString();
+      const newUrl=newQuery?`${location.pathname}?${newQuery}`:location.pathname;
+      history.replaceState(null,'',newUrl);
+    }
+    fetchLayoutFromServer({announce:true,name}).catch(()=>{});
+  }
+
+  if(layoutToggleButton){
+    layoutToggleButton.addEventListener('click',()=>{
+      const target=layoutToggleButton.dataset.nextLayout
+        || (layoutName===FOOTBALL_LAYOUT_NAME?DEFAULT_LAYOUT_NAME:FOOTBALL_LAYOUT_NAME);
+      switchLayout(target);
+    });
+  }
+
   function saveLayout(){
     const serialized=serializeLayout();
-    persistLocalLayout(serialized);
+    persistLocalLayout(serialized,{name:layoutName});
     const current=++saveSequence;
     setGridStatus('Saving…');
-    fetch(LAYOUT_ENDPOINT,{
+    const url=layoutName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(layoutName)}`:LAYOUT_ENDPOINT;
+    fetch(url,{
       method:'POST',
       headers:{'content-type':'application/json'},
-      body:JSON.stringify({layout:serialized})
+      body:JSON.stringify({layout:serialized,layoutName})
     }).then(res=>{
       if(!res.ok) throw new Error('HTTP '+res.status);
       return res.json();
     }).then(data=>{
       if(current!==saveSequence) return;
       if(data && Array.isArray(data.layout)){
-        setLayoutFromData(data.layout,{persist:true,rebuild:false});
+        const responseName=typeof data.layoutName==='string' && VALID_LAYOUT_NAMES.has(data.layoutName)
+          ? data.layoutName
+          : layoutName;
+        setLayoutFromData(data.layout,{persist:true,rebuild:false,name:responseName});
       }
       setGridStatus('Saved',{temporary:true});
     }).catch(err=>{
@@ -833,13 +989,18 @@
     });
   }
 
-  function fetchLayoutFromServer({announce=false}={}){
-    return fetch(LAYOUT_ENDPOINT,{cache:'no-store'}).then(res=>{
+  function fetchLayoutFromServer({announce=false,name=layoutName}={}){
+    const targetName=VALID_LAYOUT_NAMES.has(name)?name:layoutName;
+    const url=targetName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(targetName)}`:LAYOUT_ENDPOINT;
+    return fetch(url,{cache:'no-store'}).then(res=>{
       if(!res.ok) throw new Error('HTTP '+res.status);
       return res.json();
     }).then(data=>{
       if(data && Array.isArray(data.layout) && data.layout.length){
-        const applied=setLayoutFromData(data.layout,{persist:true,rebuild:isGridMode});
+        const responseName=typeof data.layoutName==='string' && VALID_LAYOUT_NAMES.has(data.layoutName)
+          ? data.layoutName
+          : targetName;
+        const applied=setLayoutFromData(data.layout,{persist:true,rebuild:isGridMode,name:responseName});
         if(applied && isGridMode){
           triggerRefresh();
         }
@@ -860,9 +1021,12 @@
   }
 
   function resetLayout(){
-    layout=defaultColumns.map(col=>normalizeColumn(col));
+    const preset=getPresetLayout(layoutName);
+    setLayoutFromData(preset,{persist:false,rebuild:isGridMode,name:layoutName});
     saveLayout();
-    buildGrid();
+    if(isGridMode){
+      triggerRefresh();
+    }
   }
 
   function getCellColors(block,period,customId){
@@ -913,6 +1077,7 @@
   }
 
   function buildGrid(){
+    updateLayoutToggleButton();
     const gridTable=gridView.querySelector('.grid-table');
     if(!gridTable) return;
     if(!Array.isArray(layout) || !layout.length){
@@ -1744,7 +1909,7 @@
     if(controls) controls.remove();
   }
 
-  fetchLayoutFromServer({announce:editMode&&isGridMode}).catch(()=>{});
+  fetchLayoutFromServer({announce:editMode&&isGridMode,name:layoutName}).catch(()=>{});
 
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden){
