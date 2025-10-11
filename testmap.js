@@ -219,7 +219,8 @@ schedulePlaneStyleOverride();
         BLOCK: 'block',
         NONE: 'none'
       });
-      let adminMode = true; // shows unit numbers and speed/block bubbles
+      let adminMode = false; // shows unit numbers and speed/block bubbles
+      let adminModeExplicitlySet = false;
       let kioskMode = false;
       let adminKioskMode = false;
       let kioskExperienceActive = false;
@@ -250,6 +251,229 @@ schedulePlaneStyleOverride();
       function updateKioskExperienceState() {
         kioskExperienceActive = Boolean(kioskMode) || Boolean(adminKioskMode);
         return kioskExperienceActive;
+      }
+
+      const ADMIN_AUTH_ENDPOINT = '/api/dispatcher/auth';
+      let adminAuthCheckPromise = null;
+      let adminAuthInitialized = false;
+
+      function setAdminModeEnabled(enabled, options = {}) {
+        const normalized = Boolean(enabled);
+        const clearExplicitFlag = options && options.clearExplicitFlag === true;
+        const modeChanged = adminMode !== normalized;
+        adminMode = normalized;
+        if (clearExplicitFlag) {
+          adminModeExplicitlySet = false;
+        }
+        if (!modeChanged) {
+          return adminMode;
+        }
+        updateControlPanel();
+        updateRouteSelector(activeRoutes, true);
+        updateRouteLegend([], { preserveOnEmpty: true });
+        updateDisplayModeOverlays();
+        refreshMap();
+        return adminMode;
+      }
+
+      function getAdminAuthElements() {
+        return {
+          overlay: getCachedElementById('adminAuthOverlay'),
+          form: getCachedElementById('adminAuthForm'),
+          passwordInput: getCachedElementById('adminAuthPassword'),
+          status: getCachedElementById('adminAuthStatus'),
+          submitButton: getCachedElementById('adminAuthSubmit'),
+          closeButton: getCachedElementById('adminAuthClose')
+        };
+      }
+
+      function closeAdminPasswordPrompt() {
+        const { overlay, status, passwordInput, submitButton } = getAdminAuthElements();
+        if (!overlay) {
+          return;
+        }
+        overlay.classList.remove('is-visible');
+        overlay.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('admin-auth-open');
+        if (status) {
+          status.textContent = '';
+        }
+        if (passwordInput) {
+          passwordInput.value = '';
+        }
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+      }
+
+      async function checkAdminAuthorization(options = {}) {
+        const { silent = false, forceEnable = false, forceRefresh = false } = options || {};
+        if (!forceEnable && adminModeExplicitlySet && adminMode === false) {
+          return false;
+        }
+        if (adminAuthCheckPromise && !forceRefresh) {
+          return adminAuthCheckPromise;
+        }
+        const checkPromise = (async () => {
+          try {
+            const response = await fetch(ADMIN_AUTH_ENDPOINT);
+            if (!response.ok) {
+              return false;
+            }
+            let data = null;
+            try {
+              data = await response.json();
+            } catch (error) {
+              data = null;
+            }
+            const authorized = data && data.authorized === true;
+            const requiresPassword = data && typeof data.required === 'boolean' ? data.required : true;
+            if (authorized || requiresPassword === false) {
+              if (forceEnable) {
+                setAdminModeEnabled(true, { clearExplicitFlag: true });
+              } else if (!adminMode) {
+                setAdminModeEnabled(true);
+              }
+              return true;
+            }
+          } catch (error) {
+            if (!silent) {
+              console.warn('Failed to verify admin authorization', error);
+            }
+          }
+          return false;
+        })().finally(() => {
+          adminAuthCheckPromise = null;
+        });
+        adminAuthCheckPromise = checkPromise;
+        return checkPromise;
+      }
+
+      function initializeAdminAuthUI() {
+        if (adminAuthInitialized) {
+          return;
+        }
+        const { overlay, form, passwordInput, status, submitButton, closeButton } = getAdminAuthElements();
+        if (!overlay || !form || !passwordInput) {
+          return;
+        }
+        adminAuthInitialized = true;
+
+        const handleSubmit = async event => {
+          event.preventDefault();
+          if (!passwordInput) {
+            return;
+          }
+          const password = passwordInput.value.trim();
+          if (password.length === 0) {
+            if (status) {
+              status.textContent = 'Please enter the password.';
+            }
+            passwordInput.focus();
+            return;
+          }
+          if (submitButton) {
+            submitButton.disabled = true;
+          }
+          if (status) {
+            status.textContent = '';
+          }
+          try {
+            const response = await fetch(ADMIN_AUTH_ENDPOINT, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ password })
+            });
+            if (response.ok) {
+              setAdminModeEnabled(true, { clearExplicitFlag: true });
+              closeAdminPasswordPrompt();
+              return;
+            }
+            let detail = 'Incorrect password.';
+            try {
+              const data = await response.json();
+              if (data && typeof data.detail === 'string' && data.detail.trim() !== '') {
+                detail = data.detail.trim();
+              }
+            } catch (error) {
+              // Ignore JSON parsing errors.
+            }
+            if (status) {
+              status.textContent = detail;
+            }
+          } catch (error) {
+            console.error('Password verification failed', error);
+            if (status) {
+              status.textContent = 'Unable to verify password. Try again.';
+            }
+          } finally {
+            if (submitButton) {
+              submitButton.disabled = false;
+            }
+            if (passwordInput) {
+              passwordInput.value = '';
+              if (overlay && overlay.classList.contains('is-visible')) {
+                passwordInput.focus();
+              }
+            }
+          }
+        };
+
+        form.addEventListener('submit', handleSubmit);
+        overlay.addEventListener('click', event => {
+          if (event.target === overlay) {
+            closeAdminPasswordPrompt();
+          }
+        });
+        if (closeButton) {
+          closeButton.addEventListener('click', event => {
+            event.preventDefault();
+            closeAdminPasswordPrompt();
+          });
+        }
+        document.addEventListener('keydown', event => {
+          if (event.key === 'Escape') {
+            const { overlay: currentOverlay } = getAdminAuthElements();
+            if (currentOverlay && currentOverlay.classList.contains('is-visible')) {
+              closeAdminPasswordPrompt();
+            }
+          }
+        });
+      }
+
+      async function openAdminPasswordPrompt() {
+        initializeAdminAuthUI();
+        const alreadyAuthorized = await checkAdminAuthorization({ silent: true, forceEnable: true });
+        if (alreadyAuthorized && adminMode) {
+          return;
+        }
+        const { overlay, passwordInput, status, submitButton } = getAdminAuthElements();
+        if (!overlay || !passwordInput) {
+          return;
+        }
+        if (status) {
+          status.textContent = '';
+        }
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+        overlay.classList.add('is-visible');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('admin-auth-open');
+        requestAnimationFrame(() => {
+          try {
+            passwordInput.focus();
+          } catch (error) {
+            // Ignore focus errors.
+          }
+        });
+      }
+
+      if (typeof window !== 'undefined') {
+        window.openAdminPasswordPrompt = openAdminPasswordPrompt;
+        window.closeAdminPasswordPrompt = closeAdminPasswordPrompt;
       }
 
       function suppressAdminKioskPanels() {
@@ -1447,6 +1671,7 @@ schedulePlaneStyleOverride();
       ensurePanelsHiddenForKioskExperience();
       const adminParam = params.get('adminMode');
       if (adminParam !== null) {
+        adminModeExplicitlySet = true;
         adminMode = adminParam.toLowerCase() === 'true';
       }
 
@@ -6095,6 +6320,14 @@ ${trainPlaneMarkup}
             </button>
           </div>
         ` : '';
+        const adminButtonHtml = `
+          <div class="selector-group admin-auth-control">
+            <div class="selector-label">Admin Mode</div>
+            <button type="button" class="pill-button admin-auth-button${adminMode ? ' is-active' : ''}" aria-pressed="${adminMode ? 'true' : 'false'}" onclick="openAdminPasswordPrompt()">
+              Admin Mode<span class="toggle-indicator">${adminMode ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+        `;
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -6122,6 +6355,7 @@ ${trainPlaneMarkup}
               </button>
             </div>
         `;
+        html += adminButtonHtml;
         html += serviceAlertsSectionHtml;
         html += incidentAlertsHtml;
 
@@ -14382,6 +14616,8 @@ ${trainPlaneMarkup}
       }
 
       document.addEventListener("DOMContentLoaded", () => {
+        initializeAdminAuthUI();
+        checkAdminAuthorization({ silent: true });
         ensurePanelsHiddenForKioskExperience();
         initializePanelStateForViewport();
         beginAgencyLoad();
