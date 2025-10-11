@@ -144,12 +144,18 @@ SYNC_SECRET = os.getenv("SYNC_SECRET")
 
 _dispatch_password_entries: list[tuple[str, str]] = []
 for env_name in ("DISPATCH_PASS", "HOWELL_PASS"):
-    value = os.getenv(env_name)
-    if value is not None:
+    # Fly.io secrets are case-sensitive, so accommodate deployments that may
+    # have stored them with a lowercase name (e.g. `fly secrets set howell_pass=`)
+    for candidate in (env_name, env_name.lower()):
+        value = os.getenv(candidate)
+        if value is None:
+            continue
         value = value.strip()
-        if value:
-            label = env_name.removesuffix("_PASS") if env_name.endswith("_PASS") else env_name
-            _dispatch_password_entries.append((label, value))
+        if not value:
+            continue
+        label = env_name.removesuffix("_PASS") if env_name.endswith("_PASS") else env_name
+        _dispatch_password_entries.append((label, value))
+        break
 
 DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(value for _, value in _dispatch_password_entries)
 DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_password_entries)
