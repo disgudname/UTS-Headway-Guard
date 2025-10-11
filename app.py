@@ -277,26 +277,77 @@ def _discover_dispatch_passwords() -> "OrderedDict[str, str]":
 
 _dispatch_passwords = _discover_dispatch_passwords()
 
-DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_passwords)
-DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(_dispatch_passwords.values())
-DISPATCH_PASSWORD_LABELS: Dict[str, str] = {
-    value: label for label, value in _dispatch_passwords.items()
-}
-DISPATCH_PASSWORD_BYTES: Dict[str, bytes] = {
-    password: password.encode("utf-8", errors="surrogatepass")
-    for password in DISPATCH_PASSWORDS
-}
-DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
-del _dispatch_passwords
+DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = {}
+DISPATCH_PASSWORDS: Tuple[str, ...] = ()
+DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
+DISPATCH_PASSWORD_BYTES: Dict[str, bytes] = {}
+DISPATCH_PASS: Optional[str] = None
 
-if DISPATCH_PASSWORDS:
-    configured_labels = ", ".join(sorted(DISPATCH_PASSWORD_BY_LABEL.keys()))
-    print(
-        f"[auth] Dispatcher passwords configured for: {configured_labels}",
-        flush=True,
-    )
-else:
-    print("[auth] Dispatcher password not configured; access is open.", flush=True)
+
+def _dispatch_env_snapshot() -> Tuple[Tuple[str, str], ...]:
+    """Return a sorted snapshot of dispatcher-related environment variables."""
+
+    relevant: list[Tuple[str, str]] = []
+    for key, value in os.environ.items():
+        key_upper = key.upper()
+        if key_upper.startswith("DISPATCH") or key_upper.startswith("HOWELL"):
+            relevant.append((key, value))
+        elif key_upper.endswith("_PASS_FILE") and (
+            key_upper[:-5].startswith("DISPATCH") or key_upper[:-5].startswith("HOWELL")
+        ):
+            relevant.append((key, value))
+    relevant.sort(key=lambda item: item[0])
+    return tuple(relevant)
+
+
+_dispatch_snapshot: Optional[Tuple[Tuple[str, str], ...]] = None
+_dispatch_logged_labels: Optional[Tuple[str, ...]] = None
+
+
+def _refresh_dispatch_passwords(force: bool = False) -> None:
+    """Refresh cached dispatcher passwords if the environment changed."""
+
+    global _dispatch_snapshot
+    snapshot = _dispatch_env_snapshot()
+    if not force and snapshot == _dispatch_snapshot:
+        return
+
+    _dispatch_snapshot = snapshot
+    discovered = _discover_dispatch_passwords()
+
+    global DISPATCH_PASSWORD_BY_LABEL
+    global DISPATCH_PASSWORDS
+    global DISPATCH_PASSWORD_LABELS
+    global DISPATCH_PASSWORD_BYTES
+    global DISPATCH_PASS
+
+    DISPATCH_PASSWORD_BY_LABEL = dict(discovered)
+    DISPATCH_PASSWORDS = tuple(discovered.values())
+    DISPATCH_PASSWORD_LABELS = {value: label for label, value in discovered.items()}
+    DISPATCH_PASSWORD_BYTES = {
+        password: password.encode("utf-8", errors="surrogatepass")
+        for password in DISPATCH_PASSWORDS
+    }
+    DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
+
+    global _dispatch_logged_labels
+    configured_labels = tuple(sorted(DISPATCH_PASSWORD_BY_LABEL.keys()))
+    if configured_labels != _dispatch_logged_labels:
+        _dispatch_logged_labels = configured_labels
+        if DISPATCH_PASSWORDS:
+            configured = ", ".join(configured_labels)
+            print(
+                f"[auth] Dispatcher passwords configured for: {configured}",
+                flush=True,
+            )
+        else:
+            print(
+                "[auth] Dispatcher password not configured; access is open.",
+                flush=True,
+            )
+
+
+_refresh_dispatch_passwords(force=True)
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
@@ -3711,6 +3762,7 @@ async def driver_page():
 # DISPATCHER PAGE
 # ---------------------------
 def _dispatcher_cookie_value(password: Optional[str] = None) -> Optional[str]:
+    _refresh_dispatch_passwords()
     if not DISPATCH_PASSWORDS:
         return None
     if password is None:
@@ -3723,6 +3775,7 @@ def _dispatcher_cookie_value(password: Optional[str] = None) -> Optional[str]:
 
 
 def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
+    _refresh_dispatch_passwords()
     if not DISPATCH_PASSWORDS:
         return None
     provided = request.cookies.get(DISPATCH_COOKIE_NAME)
@@ -3741,18 +3794,21 @@ def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
 
 
 def _has_dispatcher_access(request: Request) -> bool:
+    _refresh_dispatch_passwords()
     if not DISPATCH_PASSWORDS:
         return True
     return _get_dispatcher_secret_label(request) is not None
 
 
 def _require_dispatcher_access(request: Request) -> None:
+    _refresh_dispatch_passwords()
     if not _has_dispatcher_access(request):
         raise HTTPException(status_code=401, detail="dispatcher auth required")
 
 
 @app.get("/api/dispatcher/auth")
 async def dispatcher_auth_status(request: Request):
+    _refresh_dispatch_passwords()
     secret_label = _get_dispatcher_secret_label(request)
     return {
         "required": bool(DISPATCH_PASSWORDS),
@@ -3765,6 +3821,7 @@ async def dispatcher_auth_status(request: Request):
 async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)
 ):
+    _refresh_dispatch_passwords()
     if not DISPATCH_PASSWORDS:
         return {"ok": True, "secret": None}
     password = payload.get("password")
@@ -3789,6 +3846,7 @@ async def dispatcher_auth(
 
 @app.get("/dispatcher")
 async def dispatcher_page(request: Request):
+    _refresh_dispatch_passwords()
     if not DISPATCH_PASSWORDS or _has_dispatcher_access(request):
         return HTMLResponse(DISPATCHER_HTML)
     response = HTMLResponse(DISPATCHER_HTML, status_code=401)

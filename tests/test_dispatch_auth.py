@@ -78,3 +78,23 @@ def test_howell_password_allows_unicode_secret():
         response = client.post("/api/dispatcher/auth", json={"password": "päss"})
         assert response.status_code == 200
         assert response.json().get("secret") == "HOWELL"
+
+
+def test_new_dispatch_password_detected_without_reload():
+    with dispatch_env(DISPATCH_PASS="alpha"):
+        app_module = reload_app()
+        client = TestClient(app_module.app)
+
+        initial = client.post("/api/dispatcher/auth", json={"password": "alpha"})
+        assert initial.status_code == 200
+        assert initial.json().get("secret") in {"DISPATCH", "DISPATCHER"}
+
+        os.environ["HOWELL_PASS"] = "beta"
+        try:
+            refreshed = client.post(
+                "/api/dispatcher/auth", json={"password": "beta"}
+            )
+            assert refreshed.status_code == 200
+            assert refreshed.json().get("secret") == "HOWELL"
+        finally:
+            os.environ.pop("HOWELL_PASS", None)
