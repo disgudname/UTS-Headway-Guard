@@ -198,7 +198,16 @@ def _register_dispatch_password(label: str, raw_value: Optional[str]) -> None:
 
 
 _dispatch_password_sources: dict[str, tuple[str, ...]] = {
-    "DISPATCH": ("DISPATCH_PASS", "DISPATCH_PASSWORD", "DISPATCH_SECRET"),
+    "DISPATCH": (
+        "DISPATCH_PASS",
+        "DISPATCH_PASSWORD",
+        "DISPATCH_SECRET",
+    ),
+    "DISPATCHER": (
+        "DISPATCHER_PASS",
+        "DISPATCHER_PASSWORD",
+        "DISPATCHER_SECRET",
+    ),
     "HOWELL": ("HOWELL_PASS", "HOWELL_PASSWORD", "HOWELL_SECRET"),
 }
 for label, env_names in _dispatch_password_sources.items():
@@ -210,21 +219,37 @@ for label, env_names in _dispatch_password_sources.items():
             break
 
 
-for env_name in os.environ:
-    if not env_name:
-        continue
-    env_name_upper = env_name.upper()
-    base_env_name: Optional[str] = None
-    if env_name_upper.endswith("_PASS"):
-        base_env_name = env_name
-    elif env_name_upper.endswith("_PASS_FILE"):
-        base_env_name = env_name[:-5]
+def _iter_dispatch_secret_candidates() -> Iterable[tuple[str, str]]:
+    suffixes = ("_PASS", "_PASSWORD", "_SECRET")
+    file_suffixes = tuple(f"{suffix}_FILE" for suffix in suffixes)
+    for env_name in os.environ:
+        if not env_name:
+            continue
+        env_name_upper = env_name.upper()
+        base_env_name: Optional[str] = None
+        label_prefix: Optional[str] = None
+        for suffix in suffixes:
+            if env_name_upper.endswith(suffix):
+                base_env_name = env_name
+                label_prefix = env_name[:-len(suffix)]
+                break
+        if base_env_name is None:
+            for suffix in file_suffixes:
+                if env_name_upper.endswith(suffix):
+                    base_env_name = env_name[:-5]
+                    suffix_base = suffix[:-5]
+                    if suffix_base:
+                        label_prefix = base_env_name[:-len(suffix_base)]
+                    break
+        if not base_env_name or not label_prefix:
+            continue
+        label = label_prefix.upper()
+        yield label, base_env_name
+
+
+for label, base_env_name in _iter_dispatch_secret_candidates():
     if not base_env_name:
         continue
-    label_prefix = base_env_name[:-5]
-    if not label_prefix:
-        continue
-    label = label_prefix.upper()
     secret_value = _load_dispatch_secret(base_env_name)
     if secret_value is not None:
         _register_dispatch_password(label, secret_value)
@@ -232,9 +257,9 @@ for env_name in os.environ:
 
 DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(value for _, value in _dispatch_password_entries)
 DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_password_entries)
-DISPATCH_PASSWORD_LABELS: Dict[str, str] = {
-    value: label for label, value in _dispatch_password_entries
-}
+DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
+for label, value in _dispatch_password_entries:
+    DISPATCH_PASSWORD_LABELS.setdefault(value, label)
 DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
 del _dispatch_password_entries, _dispatch_password_seen_labels, _register_dispatch_password
 
