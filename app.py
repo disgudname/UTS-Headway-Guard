@@ -143,6 +143,21 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
 _dispatch_password_entries: list[tuple[str, str]] = []
+_dispatch_password_seen_labels: set[str] = set()
+
+
+def _register_dispatch_password(label: str, raw_value: Optional[str]) -> None:
+    if label in _dispatch_password_seen_labels:
+        return
+    if raw_value is None:
+        return
+    value = raw_value.strip()
+    if not value:
+        return
+    _dispatch_password_entries.append((label, value))
+    _dispatch_password_seen_labels.add(label)
+
+
 _dispatch_password_sources: dict[str, tuple[str, ...]] = {
     "DISPATCH": ("DISPATCH_PASS", "DISPATCH_PASSWORD", "DISPATCH_SECRET"),
     "HOWELL": ("HOWELL_PASS", "HOWELL_PASSWORD", "HOWELL_SECRET"),
@@ -152,16 +167,22 @@ for label, env_names in _dispatch_password_sources.items():
         # Fly.io secrets are case-sensitive, so accommodate deployments that may
         # have stored them with a lowercase name (e.g. `fly secrets set howell_pass=`)
         for candidate in (env_name, env_name.lower()):
-            value = os.getenv(candidate)
-            if value is None:
-                continue
-            value = value.strip()
-            if not value:
-                continue
-            _dispatch_password_entries.append((label, value))
+            _register_dispatch_password(label, os.getenv(candidate))
+        if label in _dispatch_password_seen_labels:
             break
-        if any(label == existing_label for existing_label, _ in _dispatch_password_entries):
-            break
+
+
+for env_name, raw_value in os.environ.items():
+    if not env_name:
+        continue
+    if not env_name.upper().endswith("_PASS"):
+        continue
+    label_prefix = env_name[:-5]
+    if not label_prefix:
+        continue
+    label = label_prefix.upper()
+    _register_dispatch_password(label, raw_value)
+
 
 DISPATCH_PASSWORDS: Tuple[str, ...] = tuple(value for _, value in _dispatch_password_entries)
 DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = dict(_dispatch_password_entries)
@@ -169,7 +190,7 @@ DISPATCH_PASSWORD_LABELS: Dict[str, str] = {
     value: label for label, value in _dispatch_password_entries
 }
 DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
-del _dispatch_password_entries
+del _dispatch_password_entries, _dispatch_password_seen_labels, _register_dispatch_password
 
 if DISPATCH_PASSWORDS:
     configured_labels = ", ".join(sorted(DISPATCH_PASSWORD_BY_LABEL.keys()))
