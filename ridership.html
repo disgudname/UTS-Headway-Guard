@@ -31,6 +31,7 @@
   th{background:rgba(255,255,255,0.05);font-weight:normal;}
   .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px;}
   .controls label{display:flex;align-items:center;gap:6px;}
+  .controls .export-status{flex-basis:100%;min-height:1em;}
   .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--ink);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
   #newestDisplay{margin:12px 0;color:var(--muted);}
@@ -72,6 +73,8 @@
   #password-overlay button{align-self:center;min-width:140px;}
   #password-overlay .status{min-height:20px;font-size:14px;color:#ff8686;}
   #password-overlay.fade-out{opacity:0;pointer-events:none;}
+  .export-status{color:var(--muted);}
+  .export-status.error{color:var(--danger);}
 </style>
 </head>
 <body>
@@ -94,8 +97,10 @@
   <button id="loadBtn">Load</button>
   <span id="spinner" class="spinner" style="display:none"></span>
   <button id="exportBtn">Export CSV</button>
+  <button id="emailExportBtn" type="button">Copy Email Summary</button>
   <button id="templateBtn" type="button">Load Red/Blue Template</button>
   <button id="academicTemplateBtn" type="button">Load Academic Template</button>
+  <span id="exportStatus" class="export-status" aria-live="polite"></span>
 </div>
 <div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
 <div id="routeTotalsWrapper">
@@ -136,6 +141,7 @@ let brokenChartChaosFrame=null;
 const dateInput=document.getElementById('datePicker');
 const loadBtn=document.getElementById('loadBtn');
 const exportBtn=document.getElementById('exportBtn');
+const emailExportBtn=document.getElementById('emailExportBtn');
 const spinner=document.getElementById('spinner');
 const newestTimestamp=document.getElementById('newestTimestamp');
 const tablesContainer=document.getElementById('tablesContainer');
@@ -150,6 +156,8 @@ const templateBtn=document.getElementById('templateBtn');
 const academicTemplateBtn=document.getElementById('academicTemplateBtn');
 const notesInput=document.getElementById('notes');
 const loadingMessage=document.getElementById('loadingMessage');
+const exportStatus=document.getElementById('exportStatus');
+let exportStatusTimer=null;
 
 if(isBrokenChartMode&&routeTotalsChartWrapper&&routeTotalsChartCanvas){
   routeTotalsChartWrapper.style.maxHeight='none';
@@ -300,6 +308,7 @@ function updateLoadButtonAttention(){
 function updateDataDependentControls(){
   const disabled=isLoading||!hasLoadedData;
   exportBtn.disabled=disabled;
+  if(emailExportBtn){emailExportBtn.disabled=disabled;}
   templateBtn.disabled=disabled;
   academicTemplateBtn.disabled=disabled;
 }
@@ -455,6 +464,7 @@ updateDataDependentControls();
 
 loadBtn.addEventListener('click',load);
 exportBtn.addEventListener('click',exportCsv);
+if(emailExportBtn){emailExportBtn.addEventListener('click',exportEmailSummary);}
 addTableBtn.addEventListener('click',()=>{
   const block=addRouteTable();
   const input=block.querySelector('.time-input');
@@ -477,6 +487,7 @@ function normalizeRouteName(route){
 }
 
 function load(){
+  setExportStatus('',false);
   if(!dateInput.value){
     loadingMessage.textContent='Select a date to load data.';
     loadingMessage.style.display='block';
@@ -1185,6 +1196,225 @@ function exportCsv(){
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
+  setExportStatus('CSV downloaded.');
+}
+
+function setExportStatus(message,isError){
+  if(!exportStatus){return;}
+  if(exportStatusTimer){
+    clearTimeout(exportStatusTimer);
+    exportStatusTimer=null;
+  }
+  exportStatus.textContent=message||'';
+  if(isError){
+    exportStatus.classList.add('error');
+  }else{
+    exportStatus.classList.remove('error');
+  }
+  if(message){
+    exportStatusTimer=setTimeout(()=>{
+      exportStatus.textContent='';
+      exportStatus.classList.remove('error');
+      exportStatusTimer=null;
+    },4000);
+  }
+}
+
+function escapeHtml(value){
+  if(value===undefined||value===null){return '';}
+  return String(value)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function getRouteTotalsChartImageUrl(){
+  if(routeTotalsChart&&typeof routeTotalsChart.toBase64Image==='function'){
+    try{
+      return routeTotalsChart.toBase64Image('image/png',1);
+    }catch(err){
+      console.warn('Failed to export chart via Chart.js helper',err);
+    }
+  }
+  if(routeTotalsChartCanvas){
+    try{
+      return routeTotalsChartCanvas.toDataURL('image/png');
+    }catch(err){
+      console.warn('Failed to export chart via canvas toDataURL',err);
+    }
+  }
+  return '';
+}
+
+function copyEmailSummaryToClipboard(htmlContent,plainText){
+  if(navigator.clipboard&&window.ClipboardItem){
+    const htmlBlob=new Blob([htmlContent],{type:'text/html'});
+    const textBlob=new Blob([plainText],{type:'text/plain'});
+    const item=new ClipboardItem({'text/html':htmlBlob,'text/plain':textBlob});
+    return navigator.clipboard.write([item]).then(()=> 'html').catch(err=>{
+      console.warn('Clipboard HTML write failed, falling back to text copy',err);
+      return copySummaryTextFallback(plainText);
+    });
+  }
+  return copySummaryTextFallback(plainText);
+}
+
+function copySummaryTextFallback(text){
+  return new Promise((resolve,reject)=>{
+    try{
+      const textarea=document.createElement('textarea');
+      textarea.value=text;
+      textarea.setAttribute('readonly','');
+      textarea.style.position='fixed';
+      textarea.style.top='-1000px';
+      textarea.style.opacity='0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0,textarea.value.length);
+      const successful=document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if(successful){
+        resolve('text');
+      }else{
+        reject(new Error('Copy command was unsuccessful'));
+      }
+    }catch(err){
+      reject(err);
+    }
+  });
+}
+
+function exportEmailSummary(){
+  try{
+    const dateValue=dateInput.value||new Date().toISOString().split('T')[0];
+    const asOfValue=newestDataTimestamp?newestDataTimestamp.toLocaleString():'';
+    const overallTotal=overallTotalDisplay.textContent.trim();
+    const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+    const perRouteTotals=collectRouteTotals(blocks);
+    const chartUrl=getRouteTotalsChartImageUrl();
+    const baseTableStyle='border-collapse:collapse;width:100%;max-width:680px;margin-top:8px;font-size:14px;';
+    const headerCellStyle='padding:6px 10px;background:#eef2fb;border:1px solid #d8dde5;text-align:left;';
+    const cellStyle='border:1px solid #d8dde5;padding:6px 10px;text-align:left;';
+    const numberCellStyle='border:1px solid #d8dde5;padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;';
+    const htmlParts=[
+      '<div style="font-family:\'Segoe UI\',Arial,sans-serif;color:#111;line-height:1.45;background:#fff;padding:16px;max-width:720px;">',
+      '<h2 style="margin:0 0 12px;font-size:20px;">Ridership Summary</h2>'
+    ];
+    const summaryBits=[`<div><strong>Date:</strong> ${escapeHtml(dateValue)}</div>`];
+    if(asOfValue){summaryBits.push(`<div><strong>As Of:</strong> ${escapeHtml(asOfValue)}</div>`);}
+    summaryBits.push(`<div><strong>Overall Displayed Total:</strong> ${escapeHtml(overallTotal)}</div>`);
+    htmlParts.push(`<div style="margin-bottom:12px;">${summaryBits.join('')}</div>`);
+    if(perRouteTotals.length){
+      htmlParts.push(`<div style="margin:12px 0 0;font-weight:600;">Per-Route Totals</div>`);
+      htmlParts.push(`<table style="${baseTableStyle}"><thead><tr>`+
+        `<th style="${headerCellStyle}">Route</th>`+
+        `<th style="${headerCellStyle};text-align:right;">Total</th>`+
+        `</tr></thead><tbody>`);
+      perRouteTotals.forEach(entry=>{
+        htmlParts.push(`<tr><td style="${cellStyle}">${escapeHtml(getRouteDisplayName(entry.route))}</td>`+
+          `<td style="${numberCellStyle}">${escapeHtml(entry.total)}</td></tr>`);
+      });
+      htmlParts.push(`<tr><td style="${cellStyle};font-weight:600;">Overall Displayed Total</td>`+
+        `<td style="${numberCellStyle};font-weight:600;">${escapeHtml(overallTotal)}</td></tr>`);
+      htmlParts.push('</tbody></table>');
+    }
+    if(chartUrl){
+      htmlParts.push(`<div style="margin:16px 0 8px;">`+
+        `<div style="font-weight:600;margin-bottom:6px;">Ridership by Hour</div>`+
+        `<img src="${chartUrl}" alt="Ridership by Hour" style="width:100%;max-width:680px;border:1px solid #d8dde5;border-radius:8px;" />`+
+        '</div>');
+    }
+    const plainTextLines=[`Date: ${dateValue}`, asOfValue?`As Of: ${asOfValue}`:null, `Overall Displayed Total: ${overallTotal}`].filter(Boolean);
+    if(perRouteTotals.length){
+      plainTextLines.push('', 'Per-Route Totals:');
+      perRouteTotals.forEach(entry=>{
+        plainTextLines.push(`- ${getRouteDisplayName(entry.route)}: ${entry.total}`);
+      });
+      plainTextLines.push(`Overall Displayed Total: ${overallTotal}`);
+    }
+    blocks.forEach(block=>{
+      const route=normalizeRouteValue(block.querySelector('.route-select').value)||'';
+      const alternate=(block.querySelector('.alternate-input')?.value||'').trim();
+      const rows=[...block.querySelectorAll('.time-row')];
+      const rowData=rows.map(row=>{
+        const timeValue=row.querySelector('.time-input')?.value.trim()||'';
+        const passengers=row.querySelector('.result-cell')?.textContent.trim()||'';
+        return {time:timeValue,passengers};
+      });
+      const hasMeaningfulRow=rowData.some(item=>item.time|| (item.passengers&&item.passengers!=='-'));
+      if(!hasMeaningfulRow&&!route&&!alternate){
+        return;
+      }
+      const routeLabel=(alternate||getRouteDisplayName(route)||'Route Details').trim()||'Route Details';
+      htmlParts.push(`<div style="margin-top:18px;">`+
+        `<div style="font-weight:600;margin-bottom:6px;font-size:15px;">${escapeHtml(routeLabel)}</div>`+
+        `<table style="${baseTableStyle}">`+
+        `<thead><tr>`+
+        `<th style="${headerCellStyle}">Time Range</th>`+
+        `<th style="${headerCellStyle};text-align:right;">Passengers</th>`+
+        `</tr></thead><tbody>`);
+      rowData.forEach(({time,passengers})=>{
+        const timeText=time||'—';
+        const passengerText=passengers&&passengers!=='-'?passengers:'—';
+        htmlParts.push(`<tr><td style="${cellStyle}">${escapeHtml(timeText)}</td>`+
+          `<td style="${numberCellStyle}">${escapeHtml(passengerText)}</td></tr>`);
+      });
+      const total=block.querySelector('.route-total')?.textContent.trim()||'';
+      htmlParts.push(`<tr><td style="${cellStyle};font-weight:600;">Total Displayed</td>`+
+        `<td style="${numberCellStyle};font-weight:600;">${escapeHtml(total)}</td></tr>`);
+      const dayRow=block.querySelector('.route-day-total-row');
+      if(dayRow&&dayRow.style.display!=='none'){
+        const dayValue=dayRow.querySelector('.route-day-total')?.textContent.trim()||'';
+        htmlParts.push(`<tr><td style="${cellStyle};font-weight:600;">Day Total</td>`+
+          `<td style="${numberCellStyle};font-weight:600;">${escapeHtml(dayValue)}</td></tr>`);
+      }
+      htmlParts.push('</tbody></table></div>');
+      plainTextLines.push('', routeLabel);
+      rowData.forEach(({time,passengers})=>{
+        const timeText=time||'—';
+        const passengerText=passengers&&passengers!=='-'?passengers:'—';
+        plainTextLines.push(`  ${timeText} — ${passengerText}`);
+      });
+      plainTextLines.push(`  Total Displayed: ${total||'0'}`);
+      const dayRowValue=block.querySelector('.route-day-total-row .route-day-total');
+      if(dayRow&&dayRow.style.display!=='none'&&dayRowValue){
+        const dayValue=dayRowValue.textContent.trim();
+        plainTextLines.push(`  Day Total: ${dayValue}`);
+      }
+    });
+    const notes=notesInput.value.trim();
+    if(notes){
+      htmlParts.push(`<div style="margin-top:18px;">`+
+        `<div style="font-weight:600;margin-bottom:4px;">Notes</div>`+
+        `<div>${escapeHtml(notes).replace(/\n/g,'<br>')}</div>`+
+        '</div>');
+      plainTextLines.push('', 'Notes:', notes);
+    }
+    if(!chartUrl){
+      plainTextLines.push('', 'Ridership by Hour chart: not available.');
+    }else{
+      plainTextLines.push('', 'Ridership by Hour chart: included when pasting into an email.');
+    }
+    htmlParts.push('</div>');
+    const htmlContent=htmlParts.join('');
+    const plainText=plainTextLines.join('\n');
+    copyEmailSummaryToClipboard(htmlContent,plainText).then(mode=>{
+      if(mode==='html'){
+        setExportStatus('Email summary copied to clipboard.');
+      }else{
+        setExportStatus('Summary copied as plain text (chart image not included).');
+      }
+    }).catch(err=>{
+      console.error('Failed to copy email summary',err);
+      setExportStatus('Could not copy email summary. Please try again.',true);
+    });
+  }catch(err){
+    console.error('Failed to prepare email summary',err);
+    setExportStatus('Could not prepare email summary.',true);
+  }
 }
 
 function ensureRouteOption(select,route,label){
