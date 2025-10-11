@@ -27,7 +27,7 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re, base64, hashlib
+import asyncio, time, math, os, json, re, base64, hashlib, secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import httpx
@@ -145,6 +145,13 @@ SYNC_SECRET = os.getenv("SYNC_SECRET")
 DISPATCH_PASS = os.getenv("DISPATCH_PASS")
 if DISPATCH_PASS is not None:
     DISPATCH_PASS = DISPATCH_PASS.strip()
+DISPATCH_COOKIE_NAME = "dispatcher_auth"
+DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
+DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 # Vehicle position logging
 VEH_LOG_URL = f"{TRANSLOC_BASE}/GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute=true"
@@ -2046,7 +2053,8 @@ async def _fetch_w2w_assignments():
 
 
 @app.get("/v1/dispatch/block-drivers")
-async def dispatch_block_drivers():
+async def dispatch_block_drivers(request: Request):
+    _require_dispatcher_access(request)
     try:
         return await w2w_assignments_cache.get(_fetch_w2w_assignments)
     except HTTPException:
@@ -2061,7 +2069,8 @@ async def dispatch_block_drivers():
 
 
 @app.get("/v1/dispatch/blocks")
-async def dispatch_blocks():
+async def dispatch_blocks(request: Request):
+    _require_dispatcher_access(request)
     async with state.lock:
         if state.blocks_cache:
             return state.blocks_cache
@@ -2105,7 +2114,8 @@ async def dispatch_blocks():
 
 
 @app.get("/v1/dispatcher/downed_buses")
-async def dispatcher_downed_buses():
+async def dispatcher_downed_buses(request: Request):
+    _require_dispatcher_access(request)
     csv_text, fetched_at, error = await _get_cached_downed_sheet()
     payload = {
         "csv": csv_text,
@@ -3548,24 +3558,66 @@ async def driver_page():
 # ---------------------------
 # DISPATCHER PAGE
 # ---------------------------
+def _dispatcher_cookie_value() -> Optional[str]:
+    if not DISPATCH_PASS:
+        return None
+    return hashlib.sha256(f"dispatcher::{DISPATCH_PASS}".encode("utf-8")).hexdigest()
+
+
+def _has_dispatcher_access(request: Request) -> bool:
+    if not DISPATCH_PASS:
+        return True
+    expected = _dispatcher_cookie_value()
+    if not expected:
+        return True
+    provided = request.cookies.get(DISPATCH_COOKIE_NAME)
+    if not provided:
+        return False
+    return secrets.compare_digest(provided, expected)
+
+
+def _require_dispatcher_access(request: Request) -> None:
+    if not _has_dispatcher_access(request):
+        raise HTTPException(status_code=401, detail="dispatcher auth required")
+
+
 @app.get("/api/dispatcher/auth")
-async def dispatcher_auth_status():
-    return {"required": bool(DISPATCH_PASS)}
+async def dispatcher_auth_status(request: Request):
+    return {
+        "required": bool(DISPATCH_PASS),
+        "authorized": _has_dispatcher_access(request),
+    }
 
 
 @app.post("/api/dispatcher/auth")
-async def dispatcher_auth(payload: dict[str, Any] = Body(...)):
+async def dispatcher_auth(
+    response: Response, payload: dict[str, Any] = Body(...)
+):
     if not DISPATCH_PASS:
         return {"ok": True}
     password = payload.get("password")
-    if isinstance(password, str) and password == DISPATCH_PASS:
+    if isinstance(password, str) and secrets.compare_digest(password, DISPATCH_PASS):
+        cookie_value = _dispatcher_cookie_value()
+        if cookie_value:
+            response.set_cookie(
+                DISPATCH_COOKIE_NAME,
+                cookie_value,
+                max_age=DISPATCH_COOKIE_MAX_AGE,
+                httponly=True,
+                secure=DISPATCH_COOKIE_SECURE,
+                samesite="lax",
+            )
         return {"ok": True}
     raise HTTPException(status_code=401, detail="Incorrect password.")
 
 
 @app.get("/dispatcher")
-async def dispatcher_page():
-    return HTMLResponse(DISPATCHER_HTML)
+async def dispatcher_page(request: Request):
+    if not DISPATCH_PASS or _has_dispatcher_access(request):
+        return HTMLResponse(DISPATCHER_HTML)
+    response = HTMLResponse(DISPATCHER_HTML, status_code=401)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/downed")
