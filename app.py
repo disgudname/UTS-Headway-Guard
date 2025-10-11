@@ -142,37 +142,78 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
+def _get_env_value_casefold(name: str) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(value, actual_key)`` for an env var, ignoring case differences.
+
+    Some deployment platforms normalize secret names to unexpected casings. Rather
+    than assume a specific style (all upper or all lower case), we scan the current
+    environment for any key whose lowercase form matches the requested name. The
+    helper returns both the value and the actual key that was found so that callers
+    can avoid re-processing the same environment variable multiple times.
+    """
+
+    if not name:
+        return None, None
+    if name in os.environ:
+        return os.environ[name], name
+    name_lower = name.lower()
+    for key, value in os.environ.items():
+        if key.lower() == name_lower:
+            return value, key
+    return None, None
+
+
 def _load_dispatch_secret(env_name: str) -> Optional[str]:
     """Return a stripped secret value for the given base env name.
 
-    The helper looks for the variable in both its original case and lowercase form
-    to accommodate deployments that may have stored Fly.io secrets with a lowercase
-    key. When ``*_FILE`` variants are present (for Docker/OCI secret mounts), the
+    The helper looks for the variable regardless of how the environment key is
+    cased. When ``*_FILE`` variants are present (for Docker/OCI secret mounts), the
     file contents are also read. Any trailing newline is stripped so that secrets
     set via ``fly secrets set HOWELL_PASS=@secret.txt`` continue to work.
     """
 
-    seen: set[str] = set()
-    for candidate in (env_name, env_name.lower()):
-        if candidate in seen:
-            continue
-        seen.add(candidate)
+    if not env_name:
+        return None
 
-        raw_value = os.getenv(candidate)
+    env_lower = env_name.lower()
+    candidate_names: list[str] = []
+    seen_names: set[str] = set()
+    for candidate in (env_name, env_lower):
+        if candidate and candidate not in seen_names:
+            candidate_names.append(candidate)
+            seen_names.add(candidate)
+    for key in os.environ:
+        if key.lower() == env_lower and key not in seen_names:
+            candidate_names.append(key)
+            seen_names.add(key)
+
+    processed_keys: set[str] = set()
+    for candidate in candidate_names:
+        raw_value, actual_key = _get_env_value_casefold(candidate)
+        if actual_key and actual_key in processed_keys:
+            raw_value = None
+        elif actual_key:
+            processed_keys.add(actual_key)
+
         if raw_value is not None:
             value = raw_value.strip()
             if value:
                 return value
 
         file_env = f"{candidate}_FILE"
-        file_path = os.getenv(file_env)
+        file_path, file_key = _get_env_value_casefold(file_env)
+        if file_key and file_key in processed_keys:
+            file_path = None
+        elif file_key:
+            processed_keys.add(file_key)
         if not file_path:
             continue
         try:
             value = Path(file_path).read_text(encoding="utf-8").strip()
         except OSError as exc:
+            display_key = file_key or file_env
             print(
-                f"[auth] Failed to read secret from {file_env}={file_path!r}: {exc}",
+                f"[auth] Failed to read secret from {display_key}={file_path!r}: {exc}",
                 flush=True,
             )
             continue
