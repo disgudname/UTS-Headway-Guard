@@ -143,12 +143,34 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
 # Dispatcher authentication helpers
+DISPATCH_PASSWORDS: Dict[str, str] = {}
+_DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str], ...]] = None
 
 
 def _refresh_dispatch_passwords(force: bool = False) -> None:
-    """Dispatcher passwords are now dynamic; refresh is a no-op."""
+    """Load dispatcher passwords from environment secrets."""
 
-    return
+    global DISPATCH_PASSWORDS, _DISPATCH_PASSWORD_CACHE
+
+    secrets_list: list[Tuple[str, str]] = []
+    for key, value in os.environ.items():
+        if not key.endswith("_PASS"):
+            continue
+        if key.upper() != key:
+            continue
+        if not value:
+            continue
+        label = key[:-5]
+        normalized = label.lower()
+        secrets_list.append((normalized, value))
+
+    secrets_list.sort()
+    cache_state = tuple(secrets_list)
+    if not force and cache_state == _DISPATCH_PASSWORD_CACHE:
+        return
+
+    DISPATCH_PASSWORDS = {label: secret for label, secret in secrets_list}
+    _DISPATCH_PASSWORD_CACHE = cache_state
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
@@ -3671,18 +3693,21 @@ async def driver_page():
 def _normalize_dispatch_password(password: Optional[str]) -> Optional[str]:
     if not isinstance(password, str):
         return None
-    if not password.endswith("_PASS"):
+    _refresh_dispatch_passwords()
+    for label, secret in DISPATCH_PASSWORDS.items():
+        if secrets.compare_digest(password, secret):
+            return label
+    return None
+
+
+def _dispatcher_cookie_value_for_label(label: str) -> Optional[str]:
+    _refresh_dispatch_passwords()
+    secret = DISPATCH_PASSWORDS.get(label)
+    if not secret:
         return None
-    return password
-
-
-def _password_to_label(password: str) -> str:
-    return password[:-5]
-
-
-def _dispatcher_cookie_value_for_label(label: str) -> str:
-    password = f"{label}_PASS"
-    digest = hashlib.sha256(f"dispatcher::{password}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        f"dispatcher::{label}:{secret}".encode("utf-8")
+    ).hexdigest()
     return f"{label}:{digest}"
 
 
@@ -3727,10 +3752,11 @@ async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)
 ):
     _refresh_dispatch_passwords()
-    password = _normalize_dispatch_password(payload.get("password"))
-    if password is not None:
-        label = _password_to_label(password)
+    label = _normalize_dispatch_password(payload.get("password"))
+    if label is not None:
         cookie_value = _dispatcher_cookie_value_for_label(label)
+        if not cookie_value:
+            raise HTTPException(status_code=401, detail="Incorrect password.")
         response.set_cookie(
             DISPATCH_COOKIE_NAME,
             cookie_value,
