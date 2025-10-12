@@ -144,15 +144,16 @@ SYNC_SECRET = os.getenv("SYNC_SECRET")
 
 # Dispatcher authentication helpers
 DISPATCH_PASSWORDS: Dict[str, str] = {}
-_DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str], ...]] = None
+DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
+_DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str, str], ...]] = None
 
 
 def _refresh_dispatch_passwords(force: bool = False) -> None:
     """Load dispatcher passwords from environment secrets."""
 
-    global DISPATCH_PASSWORDS, _DISPATCH_PASSWORD_CACHE
+    global DISPATCH_PASSWORDS, DISPATCH_PASSWORD_LABELS, _DISPATCH_PASSWORD_CACHE
 
-    secrets_list: list[Tuple[str, str]] = []
+    secrets_list: list[Tuple[str, str, str]] = []
     for key, value in os.environ.items():
         if not key.endswith("_PASS"):
             continue
@@ -162,14 +163,19 @@ def _refresh_dispatch_passwords(force: bool = False) -> None:
             continue
         label = key[:-5]
         normalized = label.lower()
-        secrets_list.append((normalized, value))
+        secrets_list.append((normalized, value, label))
 
     secrets_list.sort()
     cache_state = tuple(secrets_list)
     if not force and cache_state == _DISPATCH_PASSWORD_CACHE:
         return
 
-    DISPATCH_PASSWORDS = {label: secret for label, secret in secrets_list}
+    DISPATCH_PASSWORDS = {
+        normalized: secret for normalized, secret, _label in secrets_list
+    }
+    DISPATCH_PASSWORD_LABELS = {
+        normalized: label for normalized, _secret, label in secrets_list
+    }
     _DISPATCH_PASSWORD_CACHE = cache_state
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
@@ -3694,21 +3700,29 @@ def _normalize_dispatch_password(password: Optional[str]) -> Optional[str]:
     if not isinstance(password, str):
         return None
     _refresh_dispatch_passwords()
-    for label, secret in DISPATCH_PASSWORDS.items():
+    for normalized_label, secret in DISPATCH_PASSWORDS.items():
         if secrets.compare_digest(password, secret):
-            return label
+            return DISPATCH_PASSWORD_LABELS.get(
+                normalized_label, normalized_label.upper()
+            )
     return None
 
 
 def _dispatcher_cookie_value_for_label(label: str) -> Optional[str]:
     _refresh_dispatch_passwords()
-    secret = DISPATCH_PASSWORDS.get(label)
+    if not isinstance(label, str):
+        return None
+    normalized = label.strip().lower()
+    if not normalized:
+        return None
+    secret = DISPATCH_PASSWORDS.get(normalized)
     if not secret:
         return None
+    display_label = DISPATCH_PASSWORD_LABELS.get(normalized, label.strip())
     digest = hashlib.sha256(
-        f"dispatcher::{label}:{secret}".encode("utf-8")
+        f"dispatcher::{display_label}:{secret}".encode("utf-8")
     ).hexdigest()
-    return f"{label}:{digest}"
+    return f"{display_label}:{digest}"
 
 
 def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
@@ -3721,6 +3735,9 @@ def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
         return None
     expected = _dispatcher_cookie_value_for_label(label)
     if expected and secrets.compare_digest(provided, expected):
+        normalized = label.strip().lower()
+        if normalized:
+            return DISPATCH_PASSWORD_LABELS.get(normalized, label)
         return label
     return None
 
