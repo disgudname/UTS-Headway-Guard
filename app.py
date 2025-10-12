@@ -10,7 +10,7 @@ Key features in this skeleton
 -----------------------------
 - Poll TransLoc for routes/vehicles. (HTTP calls sketched; plug in API key & base.)
 - Fetch & cache Overpass speed limits per route (fetch-once; invalidate on polyline change).
-- Persist telemetry for replay, expose block assignments, and surface low-clearance
+- Persist telemetry for replay, expose block assignment, and surface low-clearance
   guidance for over-height coaches.
 - REST endpoints + Server-Sent Events (SSE) stream.
 
