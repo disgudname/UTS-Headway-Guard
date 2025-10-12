@@ -288,13 +288,15 @@ def _dispatch_env_snapshot() -> Tuple[Tuple[str, str], ...]:
     """Return a sorted snapshot of dispatcher-related environment variables."""
 
     relevant: list[Tuple[str, str]] = []
+    pass_suffixes = ("_PASS", "_PASS_FILE")
+
     for key, value in os.environ.items():
         key_upper = key.upper()
         if key_upper.startswith("DISPATCH") or key_upper.startswith("HOWELL"):
             relevant.append((key, value))
-        elif key_upper.endswith("_PASS_FILE") and (
-            key_upper[:-5].startswith("DISPATCH") or key_upper[:-5].startswith("HOWELL")
-        ):
+            continue
+
+        if key_upper.endswith(pass_suffixes):
             relevant.append((key, value))
     relevant.sort(key=lambda item: item[0])
     return tuple(relevant)
