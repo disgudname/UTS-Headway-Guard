@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+<meta charset="utf-8" />
+<title>Page Not Found</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --line:#1f2630; }
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;}
+  h1{margin-bottom:24px;}
+  button{padding:10px 20px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-family:'FGDC',sans-serif;cursor:pointer;}
+  button:hover{background:var(--line);}
+</style>
+</head>
+<body>
+<h1>404 - Page Not Found</h1>
+<button onclick="window.location.href='/'">Return to Home</button>
+</body>
+</html>

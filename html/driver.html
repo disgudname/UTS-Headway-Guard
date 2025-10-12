@@ -1,0 +1,480 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+<meta charset="utf-8" />
+<title>Driver - Headway Guard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{ --bg:#0b0e11; --panel:#0f141a; --ink:#e8eef5; --muted:#9fb0c9; --line:#1f2630; --chip:#2a3442; --btn:#15202b; --btn-danger:#2b1515; --btn-danger-border:#523737; --ok:#24c28a; --warn:#ffbf47; --bad:#ff6b6b; }
+  body.light{ --bg:#f0f4f8; --panel:#ffffff; --ink:#000000; --muted:#555555; --line:#cccccc; --chip:#dddddd; --btn:#e0e0e0; --btn-danger:#ffdddd; --btn-danger-border:#ffbbbb; }
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;}
+  *,*::before,*::after{font-family:'FGDC',sans-serif !important;}
+  button,select{font-family:inherit;}
+  body.centered{display:flex;align-items:center;justify-content:center;}
+  .card{width:min(560px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  h1{margin:0 0 12px 0;font-size:18px}
+  label{display:block;margin:8px 0 6px 2px;color:var(--muted)}
+  select{width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--chip);border-radius:10px;padding:10px}
+  .row{display:flex;gap:10px}
+  .row>div{flex:1}
+  .btn{width:100%;margin-top:12px;background:var(--btn);border:1px solid var(--chip);color:var(--ink);border-radius:10px;padding:10px;cursor:pointer;font-weight:600}
+  .btn:hover{filter:brightness(1.1)}
+  .btn.danger{background:var(--btn-danger);border-color:var(--btn-danger-border)}
+  .btn.danger:hover{filter:brightness(1.05)}
+  .out{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .mono{font-family:'FGDC',ui-monospace,Menlo,Consolas,monospace}
+  .muted{color:var(--muted)}
+  .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
+  .disclaimer{position:fixed;bottom:8px;left:8px;font-size:12px;color:var(--muted,#9fb0c9);max-width:260px}
+  /* Dashboard layout */
+  #dashboard{display:flex;height:100%;width:100%;}
+  #left,#right{flex:1;display:flex;flex-direction:column;}
+  #topbar{background:var(--panel);padding:16px;border-bottom:1px solid var(--line);text-align:center;font-size:24px;}
+  .route-pill{display:inline-block;padding:2px 8px;border-radius:999px;}
+  #overheight{background:var(--bad);color:#000;text-align:center;padding:8px;font-weight:700;display:none;font-size:20px;}
+  #info{padding:12px;flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;}
+  #info .out{margin-top:0;border-top:none;padding-top:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;}
+  #instruction{width:100%;height:120px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);}
+  #instruction.green{background:var(--ok);color:#000;}
+  #instruction.yellow{background:var(--warn);color:#000;}
+  #instruction.red{background:var(--bad);color:#000;}
+  #clock{flex:0 0 33%;display:flex;align-items:center;justify-content:center;font-size:20vh;border-bottom:1px solid var(--line);background:var(--panel);}
+  #map{flex:1;}
+  #bridgeWarning{position:fixed;top:0;left:0;width:100vw;height:100vh;background:#ff0000;color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:8vh;font-weight:700;z-index:10000;}
+  #bridgeWarning p{margin:1vh 0;}
+</style>
+</head>
+<body class="centered">
+<div id="setup" class="card">
+  <h1>Driver Anti-Bunching</h1>
+  <div id="warn" class="muted" style="display:none;margin:6px 2px 2px"></div>
+  <div id="setupInner">
+    <div class="row">
+      <div>
+        <label>Unit Number</label>
+        <select id="bus"></select>
+      </div>
+      <div>
+        <label>Route</label>
+        <select id="route"></select>
+      </div>
+    </div>
+    <button id="go" class="btn">Start Anti-Bunching</button>
+    <div class="muted" style="margin-top:8px">Pick your bus and route, then press Start.</div>
+  </div>
+</div>
+<div id="dashboard" style="display:none">
+  <div id="left">
+    <div id="topbar"></div>
+    <div id="overheight">OVERHEIGHT VEHICLE: 11' 11". DO NOT GO UNDER THE 14TH STREET BRIDGE.</div>
+    <div id="info">
+      <div id="out" class="out">
+        <div id="instruction">Connecting…</div>
+        <div id="details" class="mono muted"></div>
+      </div>
+      <div class="row" style="margin-top:auto">
+        <button id="theme" class="btn">Light Mode</button>
+        <button id="end" class="btn danger">End Anti-Bunching</button>
+      </div>
+    </div>
+  </div>
+  <div id="right">
+    <div id="clock"></div>
+    <div id="map"></div>
+  </div>
+</div>
+<div id="bridgeWarning">
+  <p>LOW CLEARANCE AHEAD</p>
+  <p>VEHICLE IS OVERHEIGHT: 11' 11"</p>
+  <p>DAMAGE WILL OCCUR</p>
+</div>
+<div class="disclaimer">anti-bunching guidance on this page is provided directly from TransLoc.</div>
+<div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+<script>
+const $ = s=>document.querySelector(s);
+const fmt = s=>{ if(s==null||!isFinite(s)) return "—"; s=Math.round(s); const sign=s<0?-1:1; s=Math.abs(s); const m=Math.floor(s/60), r=s%60; const out=`${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`; return sign<0?`-${out}`:out; };
+const parseTranslocDate = str=>{
+  if(!str || typeof str!=='string') return null;
+  const m=str.match(/\/Date\(([-\d]+)(?:[+-]\d+)?\)\//);
+  if(!m) return null;
+  const ts=Number(m[1]);
+  if(!isFinite(ts)) return null;
+  return new Date(ts);
+};
+async function j(u){ const r=await fetch(u,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+r.statusText); return r.json(); }
+let timer=null, busTimer=null, currentBus="", currentRoute=0, currentRouteLabel="", map=null, routeLayer=null, markers={}, nameMarkers={}, routeColor='#E57200', lastUpdateTs=Date.now();
+let OVERHEIGHT_BUSES = ['25131','25231','25331','25431','17132','14132','12432','18532'];
+let LOW_CLEARANCE_RADIUS = 122; // meters (~400 ft)
+let BRIDGE_RADIUS = 117; // meters
+let BRIDGE_LAT = 38.03404931117353;
+let BRIDGE_LON = -78.4995922309842;
+let lowClearances = [];
+let clearanceCircles = [];
+let bridgeWarningActive = false;
+let alertCtx=null, alertInterval=null;
+
+async function loadConfig(){
+  try{
+    const cfg = await j('/v1/config');
+    if(cfg.OVERHEIGHT_BUSES) OVERHEIGHT_BUSES = cfg.OVERHEIGHT_BUSES;
+    if(cfg.LOW_CLEARANCE_RADIUS!=null) LOW_CLEARANCE_RADIUS = cfg.LOW_CLEARANCE_RADIUS;
+    if(cfg.BRIDGE_RADIUS!=null) BRIDGE_RADIUS = cfg.BRIDGE_RADIUS;
+    if(cfg.BRIDGE_LAT!=null) BRIDGE_LAT = cfg.BRIDGE_LAT;
+    if(cfg.BRIDGE_LON!=null) BRIDGE_LON = cfg.BRIDGE_LON;
+  }catch(e){}
+}
+
+function startAlert(){
+  if(alertInterval) return;
+  alertCtx = new (window.AudioContext||window.webkitAudioContext)();
+  const overlay=$('#bridgeWarning');
+  overlay.querySelectorAll('p').forEach(p=>p.style.visibility='visible');
+  const beep=()=>{
+    const osc=alertCtx.createOscillator();
+    const gain=alertCtx.createGain();
+    osc.type='sine';
+    osc.frequency.value=440;
+    gain.gain.value=0.2;
+    osc.connect(gain);
+    gain.connect(alertCtx.destination);
+    osc.start();
+    osc.stop(alertCtx.currentTime+0.2);
+  };
+  beep();
+  alertInterval=setInterval(beep,500);
+}
+function stopAlert(){
+  const overlay=$('#bridgeWarning');
+  overlay.querySelectorAll('p').forEach(p=>p.style.visibility='visible');
+  if(alertInterval){
+    clearInterval(alertInterval);
+    alertInterval=null;
+  }
+  if(alertCtx){
+    alertCtx.close();
+    alertCtx=null;
+  }
+}
+function updateBridgeWarning(show, isBridge=false){
+  const overlay=$('#bridgeWarning');
+  const lines=overlay.querySelectorAll('p');
+  if(isBridge){
+    lines[0].textContent='DO NOT GO UNDER THE 14TH STREET BRIDGE';
+  }else{
+    lines[0].textContent='LOW CLEARANCE AHEAD';
+  }
+  lines[1].textContent='VEHICLE IS OVERHEIGHT: 11\' 11"';
+  lines[2].textContent='DAMAGE WILL OCCUR';
+  if(show){
+    if(!bridgeWarningActive){
+      overlay.style.display='flex';
+      startAlert();
+      bridgeWarningActive=true;
+    }
+  }else{
+    if(bridgeWarningActive){
+      overlay.style.display='none';
+      stopAlert();
+      bridgeWarningActive=false;
+    }
+  }
+}
+// Load pickers once
+async function loadBuses(){
+  let list=[];
+  try{ const d=await j('/v1/vehicles?include_stale=1&include_unassigned=1'); list=(d.vehicles||[]).map(x=>x.name); }
+  catch(e){ try{ const d=await j('/v1/roster/vehicles'); list=(d.vehicles||[]).map(x=>x.name); } catch(_) { list=[]; } }
+  const uniq=[...new Set(list.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
+  $('#bus').innerHTML=uniq.map(n=>`<option>${n}</option>`).join('');
+}
+async function loadRoutes(){
+  let list=[]; const d=await j('/v1/routes_all'); list=(d.routes||[]);
+  const active = list.filter(r=>r.active).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const inactive = list.filter(r=>!r.active).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+  const combined = active.concat(inactive);
+  $('#route').innerHTML=combined.map(r=>`<option value="${r.id}">${r.name}${r.active?'':' (inactive)'}</option>`).join('');
+}
+async function loadLowClearances(){
+  try{
+    const d=await j('/v1/low_clearances');
+    lowClearances=(d.clearances||[]).filter(c=>{
+      const dist=L.latLng(c.lat,c.lon).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
+      return dist>BRIDGE_RADIUS;
+    });
+  }
+  catch(e){ lowClearances=[]; }
+  updateLowClearanceCircles();
+}
+function showSession(busName, routeId, routeLabel){
+  $('#setup').style.display='none';
+  document.body.classList.remove('centered');
+  $('#dashboard').style.display='flex';
+  updateOverheightBanner(busName);
+  updateBridgeWarning(false);
+  currentRouteLabel = routeLabel;
+  $('#topbar').innerHTML = `Unit ${busName} • <span id="route-pill" class="route-pill">${routeLabel}</span>`;
+  setRoutePillColor(routeColor);
+  $('#instruction').className='';
+  $('#instruction').textContent='Connecting…';
+  $('#details').textContent='';
+  updateClock();
+  if(timer) clearInterval(timer);
+  tick();
+  timer = setInterval(tick, 5000);
+  initMap();
+  updateLowClearanceCircles();
+  if(busTimer) clearInterval(busTimer);
+  updateBuses();
+  busTimer = setInterval(updateBuses, 4000);
+}
+function showSetup(){
+  $('#dashboard').style.display='none';
+  document.body.classList.add('centered');
+  $('#setup').style.display='block';
+  updateBridgeWarning(false);
+  updateOverheightBanner('');
+  if(map){ map.remove(); map=null; routeLayer=null; markers={}; nameMarkers={}; clearanceCircles=[]; }
+  routeColor='#E57200';
+  currentRouteLabel='';
+  if(timer) { clearInterval(timer); timer=null; }
+  if(busTimer){ clearInterval(busTimer); busTimer=null; }
+}
+
+function updateOverheightBanner(busName){
+  const banner = $('#overheight');
+  if(banner){
+    banner.style.display = OVERHEIGHT_BUSES.includes(String(busName)) ? 'block' : 'none';
+  }
+}
+
+function updateLowClearanceCircles(){
+  if(!map) return;
+  clearanceCircles.forEach(c=>map.removeLayer(c));
+  clearanceCircles=[];
+  if(OVERHEIGHT_BUSES.includes(String(currentBus))){
+    lowClearances.forEach(c=>{
+      const circle=L.circle([c.lat,c.lon],{
+        radius:LOW_CLEARANCE_RADIUS,
+        color:'#ff0000',
+        fillColor:'#ff0000',
+        fillOpacity:0.15
+      }).addTo(map);
+      clearanceCircles.push(circle);
+    });
+    const bridgeCircle=L.circle([BRIDGE_LAT,BRIDGE_LON],{
+      radius:BRIDGE_RADIUS,
+      color:'#ff0000',
+      fillColor:'#ff0000',
+      fillOpacity:0.15
+    }).addTo(map);
+    clearanceCircles.push(bridgeCircle);
+  }
+}
+
+function setRoutePillColor(color){
+  const pill = $('#route-pill');
+  if(pill){
+    const contrast = getContrastColor(color);
+    pill.style.background = color;
+    pill.style.color = contrast;
+  }
+}
+function updateLastUpdated(){
+  const el=$('#upd');
+  if(!el) return;
+  const secondsAgo=(Date.now()-lastUpdateTs)/1000;
+  el.textContent="Updated "+fmt(secondsAgo)+" ago";
+}
+function renderInactive(message){
+  const box=$('#instruction');
+  box.className='red';
+  box.textContent='Anti-Bunching not available';
+  $('#details').innerHTML=`<div class="red mono">${message}</div><div class="muted">Check your unit and route selection or contact dispatch.</div>`;
+  lastUpdateTs=Date.now();
+  updateLastUpdated();
+}
+async function tick(){
+  try{
+    const routes=await j('/v1/transloc/anti_bunching');
+    const routeEntry=(routes||[]).find(r=>String(r.RouteID)===String(currentRoute));
+    if(!routeEntry){ renderInactive('Anti-bunching data is unavailable for this route.'); return; }
+    const vehicles=Array.isArray(routeEntry.VehicleAntiBunching)?routeEntry.VehicleAntiBunching:[];
+    if(!vehicles.length){ renderInactive('No vehicles are currently participating in anti-bunching for this route.'); return; }
+    const vehicle=vehicles.find(v=>String(v.VehicleName)===String(currentBus));
+    if(!vehicle){ renderInactive('Selected unit has no anti-bunching assignment on this route.'); return; }
+    const severity=String(vehicle.Severity||'').toLowerCase();
+    const adjustmentRaw=Number(vehicle.Adjustment);
+    const adjustment=isFinite(adjustmentRaw)?adjustmentRaw:null;
+    const routeGapRaw=Number(routeEntry.TargetGap);
+    const routeGap=isFinite(routeGapRaw)?routeGapRaw:null;
+    const vehicleTs=parseTranslocDate(vehicle.TimeStampUTC)||parseTranslocDate(routeEntry.TimeStampUTC);
+    const box=$('#instruction');
+    const cls=severity==='red'?'red':(severity==='yellow'?'yellow':'green');
+    const severityLabel=severity==='red'?'HOLD':(severity==='yellow'?'Slow Down':'OK');
+    box.className=cls;
+    if(adjustment!=null && adjustment>0){
+      box.innerHTML=`HOLD<br><span style="font-size:32px">${fmt(adjustment)}</span>`;
+    }else if(adjustment!=null && adjustment<0){
+      box.innerHTML=`Proceed<br><span style="font-size:32px">${fmt(adjustment)}</span>`;
+    }else{
+      box.textContent=severityLabel;
+    }
+    lastUpdateTs=vehicleTs?vehicleTs.getTime():Date.now();
+    const detailLines=[
+      `Severity: ${vehicle.Severity||'—'} • Adjustment: ${adjustment!=null?(adjustment>0?'+':'')+Math.round(adjustment)+'s':'—'}`,
+      `Target Gap: ${routeGap!=null?fmt(routeGap):'—'} • Assigned Vehicles: ${routeEntry.AssignedVehicles??'—'}`,
+      `<span class="muted">Last updated: ${vehicleTs?vehicleTs.toLocaleTimeString('en-US',{timeZone:'America/New_York',hour12:false}):'—'} • <span id="upd"></span></span>`
+    ];
+    $('#details').innerHTML=detailLines.join('<br>');
+    updateLastUpdated();
+  }catch(e){
+    renderInactive('Unable to load anti-bunching data. Retrying…');
+  }
+}
+function updateClock(){
+  const t = new Date().toLocaleTimeString('en-US', {
+    timeZone:'America/New_York',
+    hour:'2-digit',
+    minute:'2-digit',
+    second:'2-digit',
+    hour12:false
+  });
+  $('#clock').textContent=t;
+}
+updateClock();
+setInterval(updateClock,1000);
+function initMap(){
+  map = L.map('map').setView([38.03799212281404, -78.50981502838886], 14);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(map);
+  loadRoutePath();
+}
+async function loadRoutePath(){
+  try{
+    const data=await j(`/v1/routes/${currentRoute}/shape`);
+    if(data && data.polyline){
+      routeColor = data.color ? (data.color.startsWith('#') ? data.color : `#${data.color}`) : '#E57200';
+      setRoutePillColor(routeColor);
+      const pts=polyline.decode(data.polyline);
+      routeLayer=L.polyline(pts,{color:routeColor,weight:5}).addTo(map);
+      map.fitBounds(routeLayer.getBounds());
+    }
+  }catch(e){console.error('route load',e);}
+}
+async function updateBuses(){
+  if(!map) return;
+  try{
+    const data=await j(`/v1/routes/${currentRoute}/vehicles_raw`);
+    const active=new Set();
+    let nearBridge=false, nearOther=false;
+    (data.vehicles||[]).forEach(v=>{
+      const id=v.id;
+      const pos=[v.lat,v.lon];
+      const isMoving = v.ground_mps > 0;
+      const heading = v.heading || 0;
+      const busName = v.name;
+      active.add(id);
+        if(busName===currentBus){
+          for(const c of lowClearances){
+            const dist=L.latLng(pos).distanceTo([c.lat,c.lon]);
+            if(dist<=LOW_CLEARANCE_RADIUS){ nearOther=true; break; }
+          }
+          const distBridge=L.latLng(pos).distanceTo([BRIDGE_LAT,BRIDGE_LON]);
+          if(distBridge<=BRIDGE_RADIUS){ nearBridge=true; }
+        }
+        const color = routeColor;
+        const contrast = getContrastColor(color);
+        const svgIcon = `<svg width="40" height="80" viewBox="0 0 40 80" xmlns="http://www.w3.org/2000/svg"><g><circle cx="20" cy="20" r="15" fill="${color}" stroke="white" stroke-width="3" />${isMoving ? `<line x1="20" y1="10" x2="20" y2="22" stroke="${contrast}" stroke-width="4" stroke-linecap="round" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" /><polygon points="15,22 25,22 20,30" fill="${contrast}" style="transform: rotate(${heading + 180}deg); transform-origin: 20px 20px" />` : `<rect x="14" y="14" width="12" height="12" fill="${contrast}" />`}</g></svg>`;
+        const busIcon = L.divIcon({html: svgIcon, className:'', iconSize:[40,40], iconAnchor:[20,20]});
+        if(markers[id]){ animateMarkerTo(markers[id], pos); markers[id].setIcon(busIcon); }
+        else { markers[id]=L.marker(pos,{icon:busIcon}).addTo(map); }
+        const bubbleWidth = Math.max(40, busName.length * 10);
+        const nameBubble = `<svg width="${bubbleWidth}" height="30" viewBox="0 0 ${bubbleWidth} 30" xmlns="http://www.w3.org/2000/svg"><g><rect x="0" y="5" width="${bubbleWidth}" height="20" rx="10" ry="10" fill="${color}" stroke="white" stroke-width="3" /><text x="${bubbleWidth/2}" y="20" font-size="14" font-weight="bold" text-anchor="middle" fill="${contrast}" font-family="FGDC">${busName}</text></g></svg>`;
+        const nameIcon = L.divIcon({html:nameBubble, className:'', iconSize:[bubbleWidth,30], iconAnchor:[bubbleWidth/2,40]});
+        if(nameMarkers[id]){ animateMarkerTo(nameMarkers[id], pos); nameMarkers[id].setIcon(nameIcon); }
+        else { nameMarkers[id]=L.marker(pos,{icon:nameIcon,interactive:false}).addTo(map); }
+    });
+    const overheight=OVERHEIGHT_BUSES.includes(String(currentBus));
+    if(overheight && (nearBridge || nearOther)){ updateBridgeWarning(true, nearBridge); }
+    else{ updateBridgeWarning(false); }
+    Object.keys(markers).forEach(id=>{
+      if(!active.has(Number(id))){
+        map.removeLayer(markers[id]); delete markers[id];
+        if(nameMarkers[id]){ map.removeLayer(nameMarkers[id]); delete nameMarkers[id]; }
+      }
+    });
+  }catch(e){console.error('bus load',e);}
+}
+$('#go').onclick = ()=>{
+  currentBus = $('#bus').value;
+  currentRoute = Number($('#route').value);
+  const routeLabel = $('#route').selectedOptions[0]?.text || `Route ${currentRoute}`;
+  showSession(currentBus, currentRoute, routeLabel);
+};
+$('#end').onclick = ()=>{
+  currentBus=""; currentRoute=0;
+  $('#instruction').className='';
+  $('#instruction').textContent='';
+  $('#details').innerHTML='<div class=\"muted\">Pick your bus and route, then press Start.</div>';
+  showSetup();
+};
+
+$('#theme').onclick = ()=>{
+  const light=document.body.classList.toggle('light');
+  $('#theme').textContent=light?'Dark Mode':'Light Mode';
+};
+document.addEventListener('DOMContentLoaded', async ()=>{
+  try{
+    await loadConfig();
+    await loadBuses();
+    await loadRoutes();
+    await loadLowClearances();
+  }catch(e){
+    $('#instruction').className='red';
+    $('#instruction').textContent='Error loading lists';
+  }
+  updateLastUpdated();
+  setInterval(updateLastUpdated,1000);
+});
+async function pollHealth(){
+  try{ const h=await j('/v1/health'); const w=$('#warn'); if(!h.ok && h.last_error){ w.style.display='block'; w.textContent='Feed error: '+h.last_error; } else { w.style.display='none'; w.textContent=''; } }
+  catch(e){ const w=$('#warn'); w.style.display='block'; w.textContent='Health check failed'; }
+  setTimeout(pollHealth,15000);
+}
+pollHealth();
+
+function getContrastColor(hexColor){
+  hexColor = hexColor.replace('#','');
+  const r = parseInt(hexColor.substring(0,2),16);
+  const g = parseInt(hexColor.substring(2,4),16);
+  const b = parseInt(hexColor.substring(4,6),16);
+  const luminance = (0.299*r + 0.587*g + 0.114*b)/255;
+  return luminance > 0.565 ? 'black':'white';
+}
+
+function animateMarkerTo(marker, newPosition){
+  const startPos = marker.getLatLng();
+  const endPos = L.latLng(newPosition);
+  const duration = 1000;
+  const startTime = performance.now();
+  function animate(time){
+    const elapsed = time - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    const currentPos = L.latLng(
+      startPos.lat + t * (endPos.lat - startPos.lat),
+      startPos.lng + t * (endPos.lng - startPos.lng)
+    );
+    marker.setLatLng(currentPos);
+    if(t < 1) requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+}
+</script>
+</body>
+</html>

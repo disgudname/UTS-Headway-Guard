@@ -1,0 +1,1663 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+<meta charset="utf-8" />
+<title>Ridership Counts - Headway Guard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{--bg:#0b0e11;--panel:#0f141a;--ink:#e8eef5;--muted:#9fb0c9;--line:#1f2630;--accent:#4b85f2;--danger:#f06c6c;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px 'FGDC',sans-serif;padding:20px;line-height:1.4;}
+  body.locked{overflow:hidden;}
+  h1{margin-top:0;margin-bottom:16px;}
+  button{background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:6px;font:inherit;cursor:pointer;}
+  button:hover{filter:brightness(1.1);}
+  button:disabled{opacity:0.6;cursor:not-allowed;}
+  #loadBtn.needs-action{animation:loadBtnPulse 0.9s ease-in-out infinite alternate;box-shadow:0 0 0 rgba(75,133,242,0.6);position:relative;}
+  #loadBtn.needs-action::after{content:'';position:absolute;inset:-4px;border-radius:inherit;border:2px solid rgba(255,255,255,0.4);opacity:0.6;animation:loadBtnRing 1.4s ease-out infinite;}
+  label.needs-action{animation:loadBtnPulse 0.9s ease-in-out infinite alternate;box-shadow:0 0 0 rgba(75,133,242,0.6);position:relative;border-radius:10px;padding:4px 8px;margin:-4px -8px;}
+  label.needs-action::after{content:'';position:absolute;inset:-6px;border-radius:inherit;border:2px solid rgba(255,255,255,0.4);opacity:0.6;animation:loadBtnRing 1.4s ease-out infinite;pointer-events:none;}
+  @keyframes loadBtnPulse{from{transform:scale(1);box-shadow:0 0 0 rgba(75,133,242,0.45);}to{transform:scale(1.06);box-shadow:0 0 18px rgba(75,133,242,0.7);}}
+  @keyframes loadBtnRing{0%{transform:scale(0.9);opacity:0.55;}70%{opacity:0;}100%{transform:scale(1.25);opacity:0;}}
+  input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--panel);color:var(--ink);}
+  input[type="date"]{border-color:var(--accent);cursor:pointer;box-shadow:0 0 0 0 rgba(75,133,242,0.4);transition:border-color 0.2s ease,box-shadow 0.2s ease;background:linear-gradient(135deg,rgba(75,133,242,0.15),rgba(75,133,242,0));}
+  input[type="date"]:hover,input[type="date"]:focus{border-color:#7aa6ff;box-shadow:0 0 0 3px rgba(75,133,242,0.25);}
+  input[type="date"]::-webkit-calendar-picker-indicator{background:var(--accent);border-radius:4px;padding:4px;margin-right:4px;cursor:pointer;filter:invert(1);}
+  input[type="date"]::-webkit-calendar-picker-indicator:hover{background:#6b9af5;}
+  textarea{width:100%;min-height:80px;margin-top:12px;}
+  table{border-collapse:collapse;width:100%;margin-top:12px;}
+  th,td{border:1px solid var(--line);padding:8px;text-align:left;}
+  th{background:rgba(255,255,255,0.05);font-weight:normal;}
+  .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px;}
+  .controls label{display:flex;align-items:center;gap:6px;}
+  .controls .export-status{flex-basis:100%;min-height:1em;}
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--ink);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  #newestDisplay{margin:12px 0;color:var(--muted);}
+  #tablesContainer{display:flex;flex-direction:column;gap:18px;margin-top:12px;}
+  #tablesContainer.is-loading{opacity:0.4;filter:grayscale(0.6);pointer-events:none;transition:opacity 0.2s ease;}
+  .route-block{background:var(--panel);padding:16px;border-radius:12px;border:1px solid var(--line);box-shadow:0 4px 12px rgba(0,0,0,0.2);}
+  .route-header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;}
+  .alternate-input{min-width:220px;}
+  .route-header label{display:flex;align-items:center;gap:8px;}
+  .time-input{width:100%;min-width:160px;}
+  .result-cell{width:120px;text-align:right;font-variant-numeric:tabular-nums;}
+  .result-cell.invalid{color:var(--danger);}
+  .action-cell{text-align:center;width:60px;}
+  .action-header{width:60px;}
+  .remove-row-btn{background:var(--danger);padding:6px 10px;}
+  .route-total{font-weight:bold;text-align:right;}
+  .route-day-total-row{display:none;}
+  .route-day-total{font-weight:bold;text-align:right;}
+  #addTableBtn{margin-top:16px;background:#2f9d78;}
+  .quick-add{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .loading-message{margin-top:8px;color:var(--muted);font-style:italic;display:none;}
+  #routeTotalsWrapper{margin-top:12px;display:none;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line);}
+  #routeTotalsWrapper table{margin-top:8px;}
+  #routeTotalsWrapper th{background:transparent;color:var(--muted);font-weight:normal;}
+  #routeTotalsWrapper td{border-color:var(--line);}
+  #routeTotalsWrapper .route-totals-value{text-align:right;font-variant-numeric:tabular-nums;}
+  #routeTotalsWrapper .route-totals-title{font-weight:bold;}
+  #routeTotalsWrapper .route-overall-row td{font-weight:bold;border-top:2px solid var(--line);}
+  #routeTotalsChartWrapper{margin-top:12px;display:none;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line);position:relative;max-height:420px;}
+  #routeTotalsChartWrapper .route-totals-title{font-weight:bold;margin-bottom:8px;}
+  #routeTotalsChart{width:100%;height:min(320px,40vh);max-height:360px;}
+  #password-overlay{position:fixed;inset:0;background:rgba(7,10,14,.92);display:none;align-items:center;justify-content:center;z-index:10000;opacity:1;transition:opacity .25s ease;}
+  #password-overlay .overlay-card{background:#10151c;border:1px solid #2a3442;border-radius:18px;padding:28px;box-shadow:0 18px 32px rgba(6,11,28,.6);max-width:360px;width:90%;display:flex;flex-direction:column;gap:16px;text-align:center;}
+  #password-overlay h2{margin:0;font-size:22px;letter-spacing:.08em;text-transform:uppercase;color:#cfe1ff;}
+  #password-overlay p{margin:0;color:#9fb0c9;font-size:15px;}
+  #password-overlay form{display:flex;flex-direction:column;gap:12px;}
+  #password-overlay input{background:#0b1119;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:10px 12px;font-family:inherit;font-size:16px;}
+  #password-overlay input:focus{outline:2px solid #3a83f5;outline-offset:2px;}
+  #password-overlay button{align-self:center;min-width:140px;}
+  #password-overlay .status{min-height:20px;font-size:14px;color:#ff8686;}
+  #password-overlay.fade-out{opacity:0;pointer-events:none;}
+  .logout-button{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;border:1px solid #2a3442;background:#182330;color:#e8eef5;cursor:pointer;z-index:10001;}
+  .export-status{color:var(--muted);}
+  .export-status.error{color:var(--danger);}
+</style>
+</head>
+<body>
+<div id="password-overlay">
+  <div class="overlay-card">
+    <h2>Ridership Access</h2>
+    <p>Enter the dispatch password to continue.</p>
+    <form id="password-form">
+      <input id="dispatch-password" type="password" autocomplete="current-password" placeholder="Password" required>
+      <div class="status" id="password-status"></div>
+      <button type="submit">Unlock</button>
+    </form>
+    <p style="font-size:13px;color:#cfe1ff">Need a password? Send Pat a Teams message.</p>
+  </div>
+</div>
+<div id="ridership-app" hidden>
+<button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
+<h1>Ridership Counts</h1>
+<div class="controls">
+  <label>Date: <input type="date" id="datePicker"></label>
+  <button id="loadBtn">Load</button>
+  <span id="spinner" class="spinner" style="display:none"></span>
+  <button id="exportBtn">Export CSV</button>
+  <button id="emailExportBtn" type="button">Copy Email Summary</button>
+  <button id="templateBtn" type="button">Load Red/Blue Template</button>
+  <button id="academicTemplateBtn" type="button">Load Academic Template</button>
+  <span id="exportStatus" class="export-status" aria-live="polite"></span>
+</div>
+<div id="newestDisplay">Newest Data: <span id="newestTimestamp"></span></div>
+<div id="routeTotalsWrapper">
+  <div class="route-totals-title">Per-Route Totals</div>
+  <table id="routeTotalsTable">
+    <thead>
+      <tr><th>Route</th><th>Total</th></tr>
+    </thead>
+    <tbody id="routeTotalsBody">
+      <tr id="routeTotalsOverallRow" class="route-overall-row">
+        <td>Overall Displayed Total</td>
+        <td class="route-totals-value"><span id="overallTotal">0</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<div id="routeTotalsChartWrapper">
+  <div class="route-totals-title">Ridership by Hour</div>
+  <canvas id="routeTotalsChart" aria-label="Ridership by Hour" role="img" height="320"></canvas>
+</div>
+<div id="loadingMessage" class="loading-message">Loading Data, please wait...</div>
+<div id="tablesContainer"></div>
+<button id="addTableBtn" type="button">Add Another Route</button>
+<textarea id="notes" placeholder="Service Notes..."></textarea>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+<script>
+function initializeRidershipApp(){
+  if(window.__RIDERSHIP_APP_INITIALIZED__){return;}
+  window.__RIDERSHIP_APP_INITIALIZED__=true;
+  const urlParams=new URLSearchParams(window.location.search);
+const isBrokenChartMode=urlParams.get('broken')==='true';
+let brokenChartHeight=null;
+let brokenChartGrowthFrame=null;
+let brokenChartChaosFrame=null;
+
+const dateInput=document.getElementById('datePicker');
+const dateLabel=dateInput?dateInput.closest('label'):null;
+const loadBtn=document.getElementById('loadBtn');
+const exportBtn=document.getElementById('exportBtn');
+const emailExportBtn=document.getElementById('emailExportBtn');
+const spinner=document.getElementById('spinner');
+const newestTimestamp=document.getElementById('newestTimestamp');
+const tablesContainer=document.getElementById('tablesContainer');
+const overallTotalDisplay=document.getElementById('overallTotal');
+const routeTotalsWrapper=document.getElementById('routeTotalsWrapper');
+const routeTotalsBody=document.getElementById('routeTotalsBody');
+const routeTotalsOverallRow=document.getElementById('routeTotalsOverallRow');
+const routeTotalsChartWrapper=document.getElementById('routeTotalsChartWrapper');
+const routeTotalsChartCanvas=document.getElementById('routeTotalsChart');
+const addTableBtn=document.getElementById('addTableBtn');
+const templateBtn=document.getElementById('templateBtn');
+const academicTemplateBtn=document.getElementById('academicTemplateBtn');
+const notesInput=document.getElementById('notes');
+const loadingMessage=document.getElementById('loadingMessage');
+const exportStatus=document.getElementById('exportStatus');
+let exportStatusTimer=null;
+
+if(isBrokenChartMode&&routeTotalsChartWrapper&&routeTotalsChartCanvas){
+  routeTotalsChartWrapper.style.maxHeight='none';
+  routeTotalsChartWrapper.style.height='auto';
+  routeTotalsChartCanvas.style.maxHeight='none';
+  routeTotalsChartCanvas.style.height='auto';
+}
+
+function stopBrokenChartChaos(){
+  if(brokenChartGrowthFrame!==null){
+    cancelAnimationFrame(brokenChartGrowthFrame);
+    brokenChartGrowthFrame=null;
+  }
+  if(brokenChartChaosFrame!==null){
+    cancelAnimationFrame(brokenChartChaosFrame);
+    brokenChartChaosFrame=null;
+  }
+}
+
+function resetRouteTotalsChartDimensions(){
+  if(!routeTotalsChartWrapper||!routeTotalsChartCanvas){return;}
+  routeTotalsChartWrapper.style.maxHeight='';
+  routeTotalsChartWrapper.style.height='';
+  routeTotalsChartCanvas.style.maxHeight='';
+  routeTotalsChartCanvas.style.height='';
+  routeTotalsChartCanvas.height=320;
+  brokenChartHeight=null;
+  stopBrokenChartChaos();
+}
+
+function unleashBrokenChartRampage(){
+  if(!isBrokenChartMode){return;}
+  if(brokenChartGrowthFrame!==null){return;}
+  const rampage=()=>{
+    if(!isBrokenChartMode){
+      if(brokenChartGrowthFrame!==null){
+        cancelAnimationFrame(brokenChartGrowthFrame);
+        brokenChartGrowthFrame=null;
+      }
+      return;
+    }
+    if(!routeTotalsChartWrapper||routeTotalsChartWrapper.style.display==='none'){
+      brokenChartGrowthFrame=null;
+      return;
+    }
+    const rawHeight=brokenChartHeight??routeTotalsChartCanvas.getBoundingClientRect().height;
+    const currentHeight=Number.isFinite(rawHeight)&&rawHeight>0?rawHeight:320;
+    const nextHeight=currentHeight*1.08+12;
+    brokenChartHeight=nextHeight;
+    routeTotalsChartWrapper.style.maxHeight='none';
+    routeTotalsChartWrapper.style.height=`${nextHeight}px`;
+    routeTotalsChartCanvas.style.height=`${nextHeight}px`;
+    routeTotalsChartCanvas.height=nextHeight;
+    brokenChartGrowthFrame=window.requestAnimationFrame(rampage);
+  };
+  brokenChartGrowthFrame=window.requestAnimationFrame(rampage);
+}
+
+function igniteBrokenChartChaos(){
+  if(!isBrokenChartMode||!routeTotalsChart){return;}
+  if(brokenChartChaosFrame!==null){return;}
+  const escalate=()=>{
+    if(!isBrokenChartMode||!routeTotalsChart){
+      stopBrokenChartChaos();
+      return;
+    }
+    let needsUpdate=false;
+    const growthMultiplier=1.025+Math.random()*0.04;
+    const bonus=8+Math.random()*4;
+    routeTotalsChart.data.datasets.forEach(dataset=>{
+      if(!Array.isArray(dataset.data)){return;}
+      dataset.data=dataset.data.map(value=>{
+        const numeric=Number.isFinite(value)?value:Number(value)||0;
+        const nextValue=numeric*growthMultiplier+bonus;
+        if(nextValue!==numeric){needsUpdate=true;}
+        return nextValue;
+      });
+    });
+    if(needsUpdate){
+      routeTotalsChart.update('none');
+    }
+    brokenChartChaosFrame=window.requestAnimationFrame(escalate);
+  };
+  brokenChartChaosFrame=window.requestAnimationFrame(escalate);
+}
+
+function readCssVar(name,fallback){
+  try{
+    const value=getComputedStyle(document.documentElement).getPropertyValue(name);
+    const trimmed=(value||'').trim();
+    return trimmed||fallback;
+  }catch(err){
+    return fallback;
+  }
+}
+
+const INK_COLOR=readCssVar('--ink','#ffffff');
+const CHART_LABEL_COLOR='#000000';
+const MUTED_COLOR=readCssVar('--muted','#9fb0c9');
+const DEFAULT_ROUTE_COLOR=readCssVar('--accent','#4b85f2');
+
+let routeTotalsChart=null;
+
+if(window.Chart&&window.ChartDataLabels){
+  Chart.register(window.ChartDataLabels);
+}
+
+tablesContainer.classList.add('is-loading');
+loadingMessage.textContent='Select a date to load data.';
+loadingMessage.style.display='block';
+loadBtn.disabled=true;
+
+const MAX_EXTENDED_HOUR=27;
+const MAX_EXTENDED_MINUTES=MAX_EXTENDED_HOUR*60;
+
+const ROUTE_INFO_URL='https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681';
+
+let ridershipByRoute={};
+let routeList=[];
+let newestDataTimestamp=null;
+let routeInfoById={};
+let routeInfoPromise=null;
+let routeMetaByKey={};
+let groupMetaByKey={};
+let routeGroupMembers={};
+let routeMemberToGroup={};
+let isLoading=false;
+let hasLoadedData=false;
+let lastLoadedDate=null;
+
+function updateLoadButtonAttention(){
+  if(!loadBtn){return;}
+  if(loadBtn.disabled){
+    loadBtn.classList.remove('needs-action');
+    loadBtn.removeAttribute('title');
+    return;
+  }
+  const selectedDate=dateInput.value;
+  const needsAttention=!!selectedDate&&selectedDate!==lastLoadedDate;
+  loadBtn.classList.toggle('needs-action',needsAttention);
+  if(needsAttention){
+    loadBtn.title='Click to load data for '+selectedDate;
+  }else{
+    loadBtn.removeAttribute('title');
+  }
+}
+
+function updateDataDependentControls(){
+  const disabled=isLoading||!hasLoadedData;
+  exportBtn.disabled=disabled;
+  if(emailExportBtn){emailExportBtn.disabled=disabled;}
+  templateBtn.disabled=disabled;
+  academicTemplateBtn.disabled=disabled;
+}
+
+function updateLoadAvailability(){
+  loadBtn.disabled=!dateInput.value||isLoading;
+  updateLoadButtonAttention();
+  if(dateLabel){
+    const needsDateAttention=!dateInput.value;
+    dateLabel.classList.toggle('needs-action',needsDateAttention);
+    if(needsDateAttention){
+      dateInput.setAttribute('title','Select a date to load ridership data');
+    }else{
+      dateInput.removeAttribute('title');
+    }
+  }
+}
+
+dateInput.addEventListener('change',updateLoadAvailability);
+dateInput.addEventListener('input',updateLoadAvailability);
+
+function normalizeColor(value){
+  if(typeof value!=='string'){return null;}
+  const trimmed=value.trim();
+  if(!trimmed){return null;}
+  if(trimmed[0]==='#'){return trimmed;}
+  if(/^[0-9a-f]{6}$/i.test(trimmed)){return `#${trimmed}`;}
+  return trimmed;
+}
+
+function normalizeApiArray(payload){
+  if(Array.isArray(payload)){return payload;}
+  if(payload&&Array.isArray(payload.d)){return payload.d;}
+  if(payload&&typeof payload.d==='string'){
+    try{
+      const parsed=JSON.parse(payload.d);
+      if(Array.isArray(parsed)){return parsed;}
+    }catch(err){
+      console.error('Failed to parse array payload',err);
+    }
+  }
+  return [];
+}
+
+function fetchRouteInfo(){
+  if(routeInfoPromise){return routeInfoPromise;}
+  if(Object.keys(routeInfoById).length){return Promise.resolve(routeInfoById);}
+  routeInfoPromise=fetch(ROUTE_INFO_URL).then(r=>r.json()).then(raw=>{
+    const list=normalizeApiArray(raw);
+    const map={};
+    list.forEach(route=>{
+      if(!route){return;}
+      const id=route.RouteID;
+      if(id===undefined||id===null){return;}
+      map[String(id)]=route;
+    });
+    routeInfoById=map;
+    return routeInfoById;
+  }).catch(err=>{
+    console.error('Failed to fetch route metadata',err);
+    return routeInfoById;
+  }).finally(()=>{
+    routeInfoPromise=null;
+  });
+  return routeInfoPromise;
+}
+
+function getRouteMeta(routeKey){
+  if(groupMetaByKey[routeKey]){return groupMetaByKey[routeKey];}
+  if(routeMetaByKey[routeKey]){return routeMetaByKey[routeKey];}
+  const groupKey=routeMemberToGroup[routeKey];
+  if(groupKey&&groupMetaByKey[groupKey]){return groupMetaByKey[groupKey];}
+  return null;
+}
+
+function getRouteDisplayName(routeKey){
+  const meta=getRouteMeta(routeKey);
+  if(meta){
+    if(meta.displayName){return meta.displayName;}
+    if(meta.baseName){return meta.baseName;}
+  }
+  return routeKey||'';
+}
+
+function getRouteBaseName(routeKey){
+  const meta=getRouteMeta(routeKey);
+  if(meta&&meta.baseName){return meta.baseName;}
+  return '';
+}
+
+function findRouteKeyForTemplate(routeName,infoTextHint,usageMap){
+  const normalized=normalizeRouteName(routeName||'');
+  if(!normalized){return null;}
+  const matches=routeList.filter(key=>normalizeRouteName(getRouteBaseName(key))===normalized);
+  if(!matches.length){return null;}
+  if(infoTextHint){
+    const target=infoTextHint.trim().toLowerCase();
+    const withInfo=matches.find(key=>{
+      const meta=getRouteMeta(key);
+      if(!meta||!meta.infoText){return false;}
+      return meta.infoText.trim().toLowerCase()===target;
+    });
+    if(withInfo){
+      if(usageMap){
+        const usage=usageMap.get(normalized)||0;
+        usageMap.set(normalized,usage+1);
+      }
+      return withInfo;
+    }
+  }
+  if(usageMap){
+    const usage=usageMap.get(normalized)||0;
+    const choice=matches[usage]||matches[0];
+    usageMap.set(normalized,usage+1);
+    return choice||null;
+  }
+  return matches[0];
+}
+
+function buildRouteGroups(){
+  Object.keys(ridershipByRoute).forEach(routeKey=>{
+    const meta=routeMetaByKey[routeKey]||{};
+    const baseName=meta.baseName||String(routeKey||'');
+    const infoText=typeof meta.infoText==='string'?meta.infoText:'';
+    const displayName=meta.displayName|| (infoText?`${baseName} – ${infoText}`:baseName);
+    const groupKey=JSON.stringify([baseName,infoText]);
+    if(!groupMetaByKey[groupKey]){
+      groupMetaByKey[groupKey]={displayName,baseName,infoText,color:meta.color||null,members:[]};
+      routeGroupMembers[groupKey]=groupMetaByKey[groupKey].members;
+    }
+    if(meta.color&&!groupMetaByKey[groupKey].color){
+      groupMetaByKey[groupKey].color=meta.color;
+    }
+    groupMetaByKey[groupKey].members.push(routeKey);
+    routeMemberToGroup[routeKey]=groupKey;
+  });
+}
+
+function normalizeRouteValue(routeKey){
+  if(!routeKey){return '';}
+  if(routeGroupMembers[routeKey]){return routeKey;}
+  if(routeMemberToGroup[routeKey]){return routeMemberToGroup[routeKey];}
+  return routeKey;
+}
+
+function getGroupMembers(routeKey){
+  const normalized=normalizeRouteValue(routeKey);
+  if(!normalized){return [];}
+  if(routeGroupMembers[normalized]){return routeGroupMembers[normalized];}
+  if(ridershipByRoute[normalized]){return [normalized];}
+  return [];
+}
+
+function getRouteColor(routeKey){
+  const meta=getRouteMeta(routeKey);
+  if(meta&&meta.color){return meta.color;}
+  return DEFAULT_ROUTE_COLOR;
+}
+
+updateLoadAvailability();
+updateDataDependentControls();
+
+loadBtn.addEventListener('click',load);
+exportBtn.addEventListener('click',exportCsv);
+if(emailExportBtn){emailExportBtn.addEventListener('click',exportEmailSummary);}
+addTableBtn.addEventListener('click',()=>{
+  const block=addRouteTable();
+  const input=block.querySelector('.time-input');
+  if(input){input.focus();}
+});
+templateBtn.addEventListener('click',loadTemplate);
+academicTemplateBtn.addEventListener('click',loadAcademicTemplate);
+
+if(!tablesContainer.children.length){
+  addRouteTable();
+}
+
+function normalizeRouteName(route){
+  if(typeof route!=='string'){return '';}
+  const trimmed=route.trim();
+  if(trimmed==='Red Line AM'||trimmed==='Red Line PM'){
+    return 'Red Line';
+  }
+  return trimmed;
+}
+
+function load(){
+  setExportStatus('',false);
+  if(!dateInput.value){
+    loadingMessage.textContent='Select a date to load data.';
+    loadingMessage.style.display='block';
+    return;
+  }
+  const requestedDate=dateInput.value;
+  isLoading=true;
+  updateLoadAvailability();
+  updateDataDependentControls();
+  spinner.style.display='inline-block';
+  tablesContainer.classList.add('is-loading');
+  loadingMessage.textContent='Loading Data, please wait...';
+  loadingMessage.style.display='block';
+  const [y,m,d]=dateInput.value.split('-').map(Number);
+  const start=new Date(y,m-1,d);
+  const nextStart=new Date(start);
+  nextStart.setDate(start.getDate()+1);
+  const end=new Date(nextStart);
+  end.setDate(end.getDate()+1);
+  const startStr=(start.getMonth()+1)+"/"+start.getDate()+"/"+start.getFullYear();
+  const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
+  const bounds={start,nextStart,end};
+  const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
+  const ridershipPromise=fetch(url).then(r=>r.json()).catch(err=>{
+    console.error(err);
+    return [];
+  });
+  Promise.all([
+    fetchRouteInfo().catch(err=>{
+      console.error(err);
+      return routeInfoById;
+    }),
+    ridershipPromise
+  ]).then(([,data])=>{
+    render(normalizeApiArray(data),bounds,requestedDate);
+  }).catch(err=>{
+    console.error(err);
+    render([],bounds,requestedDate);
+  }).finally(()=>{
+    isLoading=false;
+    spinner.style.display='none';
+    tablesContainer.classList.remove('is-loading');
+    loadingMessage.style.display='none';
+    updateLoadAvailability();
+    updateDataDependentControls();
+  });
+}
+
+function render(data,bounds,requestedDate){
+  ridershipByRoute=Object.create(null);
+  routeMetaByKey=Object.create(null);
+  groupMetaByKey=Object.create(null);
+  routeGroupMembers=Object.create(null);
+  routeMemberToGroup=Object.create(null);
+  let newest=null;
+  const startBoundary=bounds?.start||null;
+  const endBoundary=bounds?.end||null;
+  (Array.isArray(data)?data:[]).forEach(rec=>{
+    if(!rec){return;}
+    const routeId=rec.RouteID;
+    const routeKey=routeId!==undefined&&routeId!==null?String(routeId):normalizeRouteName(rec.Route);
+    if(!routeKey){return;}
+    const entries=Number(rec.Entries)||0;
+    const timestamp=new Date(rec.ClientTime);
+    let minutes=timestamp.getHours()*60+timestamp.getMinutes();
+    if(startBoundary){
+      const diffMinutes=Math.floor((timestamp-startBoundary)/60000);
+      if(diffMinutes<0){return;}
+      minutes=diffMinutes;
+    }
+    if(endBoundary&&timestamp>=endBoundary){return;}
+    if(minutes>MAX_EXTENDED_MINUTES){return;}
+    if(!ridershipByRoute[routeKey]){ridershipByRoute[routeKey]=[];}
+    ridershipByRoute[routeKey].push({minutes,entries});
+    if(!newest||timestamp>newest){newest=timestamp;}
+    if(!routeMetaByKey[routeKey]){
+      const info=routeId!==undefined&&routeId!==null?routeInfoById[String(routeId)]:null;
+      const nameCandidates=[];
+      if(info){
+        if(typeof info.Description==='string'){nameCandidates.push(info.Description);}
+        if(typeof info.RouteName==='string'){nameCandidates.push(info.RouteName);}
+      }
+      if(typeof rec.Route==='string'){nameCandidates.push(rec.Route);}
+      let baseName='';
+      for(let i=0;i<nameCandidates.length;i+=1){
+        const normalized=normalizeRouteName(nameCandidates[i]);
+        if(normalized){
+          baseName=normalized;
+          break;
+        }
+      }
+      if(!baseName){
+        baseName=routeId!==undefined&&routeId!==null?`Route ${routeId}`:'Unknown Route';
+      }
+      const infoText=info&&typeof info.InfoText==='string'?info.InfoText.trim():'';
+      const displayName=infoText?`${baseName} – ${infoText}`:baseName;
+      const infoColor=info&&typeof info.MapLineColor==='string'?normalizeColor(info.MapLineColor):null;
+      routeMetaByKey[routeKey]={displayName,baseName,infoText:infoText||'',color:infoColor};
+    }
+  });
+  buildRouteGroups();
+  routeList=Object.keys(groupMetaByKey).sort((a,b)=>getRouteDisplayName(a).localeCompare(getRouteDisplayName(b)));
+  newestDataTimestamp=newest;
+  newestTimestamp.textContent=newest?newest.toLocaleString():'';
+  hasLoadedData=Object.keys(ridershipByRoute).length>0;
+  updateDataDependentControls();
+  let blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  if(!blocks.length){
+    addRouteTable();
+    blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  }
+  blocks.forEach(block=>{
+    const select=block.querySelector('.route-select');
+    populateRouteOptions(select);
+    updateBlock(block);
+  });
+  lastLoadedDate=requestedDate||null;
+  updateLoadButtonAttention();
+}
+
+function populateRouteOptions(select){
+  const previous=normalizeRouteValue(select.value);
+  select.innerHTML='';
+  const placeholder=document.createElement('option');
+  placeholder.value='';
+  placeholder.textContent=routeList.length?'Select a route':'Loading routes...';
+  select.appendChild(placeholder);
+  routeList.forEach(route=>{
+    const opt=document.createElement('option');
+    opt.value=route;
+    opt.textContent=getRouteDisplayName(route);
+    select.appendChild(opt);
+  });
+  if(routeList.includes(previous)){
+    select.value=previous;
+  }else{
+    select.value='';
+  }
+}
+
+function addRouteTable(){
+  const block=document.createElement('div');
+  block.className='route-block';
+
+  const header=document.createElement('div');
+  header.className='route-header';
+
+  const label=document.createElement('label');
+  label.textContent='Route:';
+  const select=document.createElement('select');
+  select.className='route-select';
+  label.appendChild(select);
+
+  const altLabel=document.createElement('label');
+  altLabel.textContent='Alternate Name:';
+  const altInput=document.createElement('input');
+  altInput.type='text';
+  altInput.placeholder='Optional description';
+  altInput.className='alternate-input';
+  altLabel.appendChild(altInput);
+
+  header.appendChild(label);
+  header.appendChild(altLabel);
+  block.appendChild(header);
+
+  const table=document.createElement('table');
+  table.className='route-table';
+
+  const thead=document.createElement('thead');
+  const headRow=document.createElement('tr');
+  const thRange=document.createElement('th');
+  thRange.textContent='Time Range (HHMM - HHMM)';
+  const thPassengers=document.createElement('th');
+  thPassengers.textContent='Passengers';
+  const thActions=document.createElement('th');
+  thActions.textContent='';
+  thActions.className='action-header';
+  headRow.appendChild(thRange);
+  headRow.appendChild(thPassengers);
+  headRow.appendChild(thActions);
+  thead.appendChild(headRow);
+
+  const tbody=document.createElement('tbody');
+
+  const tfoot=document.createElement('tfoot');
+  const footRow=document.createElement('tr');
+  const totalLabel=document.createElement('th');
+  totalLabel.textContent='Total Displayed';
+  const totalValue=document.createElement('td');
+  totalValue.className='route-total';
+  totalValue.textContent='0';
+  footRow.appendChild(totalLabel);
+  footRow.appendChild(totalValue);
+  tfoot.appendChild(footRow);
+
+  const dayRow=document.createElement('tr');
+  dayRow.className='route-day-total-row';
+  const dayLabel=document.createElement('th');
+  dayLabel.textContent='Day Total';
+  const dayValue=document.createElement('td');
+  dayValue.className='route-day-total';
+  dayValue.textContent='0';
+  dayRow.appendChild(dayLabel);
+  dayRow.appendChild(dayValue);
+  tfoot.appendChild(dayRow);
+
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  table.appendChild(tfoot);
+  block.appendChild(table);
+
+  const quickAdd=document.createElement('div');
+  quickAdd.className='quick-add';
+
+  const add30Btn=createQuickAddButton(block,'+30 min',30);
+  const add60Btn=createQuickAddButton(block,'+1 hr',60);
+  const addRowBtn=document.createElement('button');
+  addRowBtn.type='button';
+  addRowBtn.textContent='Add Time Range';
+  quickAdd.appendChild(add30Btn);
+  quickAdd.appendChild(add60Btn);
+  quickAdd.appendChild(addRowBtn);
+
+  block.appendChild(quickAdd);
+
+  tablesContainer.appendChild(block);
+
+  populateRouteOptions(select);
+  addTimeRow(block);
+  select.addEventListener('change',()=>updateBlock(block));
+  addRowBtn.addEventListener('click',()=>{
+    const row=addTimeRow(block);
+    const input=row.querySelector('.time-input');
+    if(input){input.focus();}
+  });
+
+  updateBlock(block);
+  return block;
+}
+
+function addTimeRow(block){
+  const tbody=block.querySelector('tbody');
+  const row=document.createElement('tr');
+  row.className='time-row';
+
+  const timeCell=document.createElement('td');
+  const input=document.createElement('input');
+  input.type='text';
+  input.placeholder='2200 - 2630';
+  input.className='time-input';
+  input.addEventListener('change',()=>updateBlock(block));
+  input.addEventListener('input',()=>updateBlock(block));
+  timeCell.appendChild(input);
+
+  const resultCell=document.createElement('td');
+  resultCell.className='result-cell';
+  resultCell.textContent='-';
+
+  const actionCell=document.createElement('td');
+  actionCell.className='action-cell';
+  const removeBtn=document.createElement('button');
+  removeBtn.type='button';
+  removeBtn.className='remove-row-btn';
+  removeBtn.textContent='−';
+  removeBtn.title='Remove time frame';
+  removeBtn.addEventListener('click',()=>{
+    row.remove();
+    updateBlock(block);
+  });
+  actionCell.appendChild(removeBtn);
+
+  row.appendChild(timeCell);
+  row.appendChild(resultCell);
+  row.appendChild(actionCell);
+  tbody.appendChild(row);
+  return row;
+}
+
+function createQuickAddButton(block,label,duration){
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.textContent=label;
+  btn.addEventListener('click',()=>{
+    const range=getNextRange(block,duration);
+    if(!range){return;}
+    const row=addTimeRow(block);
+    const input=row.querySelector('.time-input');
+    input.value=formatRange(range.start,range.end);
+    updateBlock(block);
+    input.focus();
+  });
+  return btn;
+}
+
+function getNextRange(block,duration){
+  const lastEnd=getLastRangeEnd(block);
+  const start=lastEnd!==null?lastEnd:0;
+  if(start>=MAX_EXTENDED_MINUTES){return null;}
+  const end=Math.min(start+duration,MAX_EXTENDED_MINUTES);
+  if(end<=start){return null;}
+  return {start,end};
+}
+
+function getLastRangeEnd(block){
+  let lastEnd=null;
+  block.querySelectorAll('.time-row .time-input').forEach(input=>{
+    const range=parseRange(input.value);
+    if(range&&range.end>(lastEnd??-Infinity)){
+      lastEnd=range.end;
+    }
+  });
+  return lastEnd;
+}
+
+function formatRange(start,end){
+  return `${formatMinutes(start)} - ${formatMinutes(end)}`;
+}
+
+function formatMinutes(total){
+  const capped=Math.min(total,MAX_EXTENDED_MINUTES);
+  const hours=String(Math.floor(capped/60)).padStart(2,'0');
+  const mins=String(capped%60).padStart(2,'0');
+  return `${hours}${mins}`;
+}
+
+function updateBlock(block){
+  const select=block.querySelector('.route-select');
+  const normalizedRoute=normalizeRouteValue(select.value);
+  if(normalizedRoute&&normalizedRoute!==select.value&&routeList.includes(normalizedRoute)){
+    select.value=normalizedRoute;
+  }
+  const route=normalizeRouteValue(select.value);
+  const rows=[...block.querySelectorAll('.time-row')];
+  let total=0;
+  rows.forEach(row=>{
+    const input=row.querySelector('.time-input');
+    const resultCell=row.querySelector('.result-cell');
+    const range=parseRange(input.value);
+    resultCell.classList.remove('invalid');
+    if(!route){
+      resultCell.textContent='-';
+      return;
+    }
+    if(!range){
+      const trimmed=input.value.trim();
+      if(trimmed===''||!trimmed.includes('-')){
+        resultCell.textContent='-';
+      }else{
+        resultCell.textContent='Invalid';
+        resultCell.classList.add('invalid');
+      }
+      return;
+    }
+    const sum=sumForRange(route,range.start,range.end);
+    resultCell.textContent=sum;
+    total+=sum;
+  });
+  block.querySelector('.route-total').textContent=total;
+  updateOverallTotal();
+  updateRouteDayTotals();
+  updateRouteTotalsTable();
+}
+
+function updateOverallTotal(){
+  let sum=0;
+  tablesContainer.querySelectorAll('.route-total').forEach(cell=>{
+    const value=Number(cell.textContent.replace(/[^0-9.-]/g,''));
+    if(!Number.isNaN(value)){sum+=value;}
+  });
+  overallTotalDisplay.textContent=sum;
+}
+
+function areNamesEquivalent(a,b){
+  if(!a||!b){return false;}
+  return a.trim().toLowerCase()===b.trim().toLowerCase();
+}
+
+function getDistinctAlternateLabel(routeKey,block){
+  if(!block){return '';}
+  const input=block.querySelector('.alternate-input');
+  if(!input){return '';}
+  const raw=(input.value||'').trim();
+  if(!raw){return '';}
+  const routeName=getRouteDisplayName(routeKey);
+  if(areNamesEquivalent(routeName,raw)){return '';}
+  const baseName=getRouteBaseName(routeKey);
+  if(areNamesEquivalent(baseName,raw)){return '';}
+  return raw;
+}
+
+function collectRouteTotals(blocks,options){
+  const list=blocks||[...tablesContainer.querySelectorAll('.route-block')];
+  const {splitAlternates=false}=options||{};
+  const totals=[];
+  const indexMap=new Map();
+  list.forEach(block=>{
+    const route=normalizeRouteValue(block.querySelector('.route-select').value);
+    if(!route){return;}
+    const totalCell=block.querySelector('.route-total');
+    const numeric=Number(totalCell.textContent.replace(/[^0-9.-]/g,''));
+    const value=Number.isNaN(numeric)?0:numeric;
+    const alternateLabel=splitAlternates?getDistinctAlternateLabel(route,block):'';
+    const key=alternateLabel?JSON.stringify([route,alternateLabel]):route;
+    let entry;
+    if(indexMap.has(key)){
+      entry=totals[indexMap.get(key)];
+    }else{
+      entry={route,total:0,blocks:[],displayName:alternateLabel||getRouteDisplayName(route)};
+      indexMap.set(key,totals.length);
+      totals.push(entry);
+    }
+    entry.total+=value;
+    entry.blocks.push(block);
+  });
+  return totals;
+}
+
+function updateRouteDayTotals(){
+  const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  blocks.forEach(block=>{
+    const dayRow=block.querySelector('.route-day-total-row');
+    if(dayRow){dayRow.style.display='none';}
+  });
+  const totals=collectRouteTotals(blocks);
+  totals.forEach(({total,blocks:routeBlocks})=>{
+    const showRow=routeBlocks.length>1;
+    routeBlocks.forEach(block=>{
+      const dayRow=block.querySelector('.route-day-total-row');
+      const dayValue=block.querySelector('.route-day-total');
+      if(!dayRow||!dayValue){return;}
+      if(showRow){
+        dayRow.style.display='';
+        dayValue.textContent=total;
+      }else{
+        dayRow.style.display='none';
+        dayValue.textContent=total;
+      }
+    });
+  });
+}
+
+function updateRouteTotalsTable(){
+  if(!routeTotalsWrapper||!routeTotalsBody||!routeTotalsOverallRow){return;}
+  if(routeTotalsOverallRow.parentElement===routeTotalsBody){
+    routeTotalsBody.removeChild(routeTotalsOverallRow);
+  }
+  routeTotalsBody.textContent='';
+  const totals=collectRouteTotals(undefined,{splitAlternates:true});
+  if(!totals.length){
+    routeTotalsWrapper.style.display='none';
+    updateRouteTotalsChart();
+    return;
+  }
+  totals.forEach(entry=>{
+    const row=document.createElement('tr');
+    const nameCell=document.createElement('td');
+    nameCell.textContent=entry.displayName||getRouteDisplayName(entry.route);
+    const valueCell=document.createElement('td');
+    valueCell.className='route-totals-value';
+    valueCell.textContent=entry.total;
+    row.appendChild(nameCell);
+    row.appendChild(valueCell);
+    routeTotalsBody.appendChild(row);
+  });
+  routeTotalsBody.appendChild(routeTotalsOverallRow);
+  routeTotalsWrapper.style.display='block';
+  updateRouteTotalsChart();
+}
+
+function sumEntriesForRangeByHour(routeKey,start,end){
+  const perHour=new Map();
+  const members=getGroupMembers(routeKey);
+  if(!members.length){return perHour;}
+  members.forEach(member=>{
+    const records=ridershipByRoute[member];
+    if(!records){return;}
+    records.forEach(({minutes,entries})=>{
+      if(minutes>=start&&minutes<end){
+        const hour=Math.floor(minutes/60);
+        perHour.set(hour,(perHour.get(hour)||0)+entries);
+      }
+    });
+  });
+  return perHour;
+}
+
+function formatHourLabel(hour){
+  const normalized=Math.max(0,Math.min(hour,MAX_EXTENDED_HOUR));
+  return `${String(normalized).padStart(2,'0')}:00`;
+}
+
+function collectRouteChartData(){
+  const hourSet=new Set();
+  const routeHourTotals=new Map();
+  const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  blocks.forEach(block=>{
+    const route=normalizeRouteValue(block.querySelector('.route-select').value);
+    if(!route){return;}
+    const rows=[...block.querySelectorAll('.time-row')];
+    if(!rows.length){return;}
+    const hourMap=routeHourTotals.get(route)||new Map();
+    rows.forEach(row=>{
+      const input=row.querySelector('.time-input');
+      const range=parseRange(input.value);
+      if(!range){return;}
+      const contributions=sumEntriesForRangeByHour(route,range.start,range.end);
+      contributions.forEach((value,hour)=>{
+        hourSet.add(hour);
+        hourMap.set(hour,(hourMap.get(hour)||0)+value);
+      });
+    });
+    if(hourMap.size){
+      routeHourTotals.set(route,hourMap);
+    }
+  });
+  const hours=Array.from(hourSet).sort((a,b)=>a-b);
+  const labels=hours.map(formatHourLabel);
+  const datasets=[];
+  let maxY=0;
+  let hasData=false;
+  routeHourTotals.forEach((hourMap,route)=>{
+    const label=getRouteDisplayName(route);
+    const color=getRouteColor(route);
+    const data=hours.map(hour=>{
+      const value=hourMap.get(hour)||0;
+      if(value>maxY){maxY=value;}
+      if(value>0){hasData=true;}
+      return value;
+    });
+    datasets.push({label,data,backgroundColor:color,borderRadius:6,borderSkipped:false,maxBarThickness:40});
+  });
+  return {labels,datasets,maxY,hasData};
+}
+
+function updateRouteTotalsChart(){
+  if(!routeTotalsChartWrapper||!routeTotalsChartCanvas||!window.Chart){return;}
+  if(routeTotalsChart){
+    routeTotalsChart.destroy();
+    routeTotalsChart=null;
+  }
+  if(!isBrokenChartMode){
+    resetRouteTotalsChartDimensions();
+  }
+  const {labels,datasets,maxY,hasData}=collectRouteChartData();
+  if(!labels.length||!datasets.length||!hasData){
+    if(isBrokenChartMode){
+      brokenChartHeight=null;
+      stopBrokenChartChaos();
+    }
+    routeTotalsChartWrapper.style.display='none';
+    return;
+  }
+  const context=routeTotalsChartCanvas.getContext('2d');
+  const pluginOptions={
+    legend:{labels:{color:CHART_LABEL_COLOR}}
+  };
+  if(window.ChartDataLabels){
+    pluginOptions.datalabels={
+      anchor:'end',
+      align:'end',
+      color:CHART_LABEL_COLOR,
+      formatter:value=>value>0?value:'',
+      clamp:true
+    };
+  }
+  const whiteBackgroundPlugin={
+    id:'whiteBackground',
+    beforeDraw(chart){
+      const {ctx,canvas}=chart;
+      ctx.save();
+      ctx.globalCompositeOperation='destination-over';
+      ctx.fillStyle='#fff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.restore();
+    }
+  };
+  routeTotalsChart=new Chart(context,{
+    type:'bar',
+    data:{labels,datasets},
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      layout:{padding:{top:12,right:12,left:8,bottom:12}},
+      scales:{
+        x:{
+          stacked:false,
+          ticks:{color:CHART_LABEL_COLOR},
+          title:{display:true,text:'Hour',color:CHART_LABEL_COLOR}
+        },
+        y:{
+          beginAtZero:true,
+          suggestedMax:maxY,
+          grace:'10%',
+          ticks:{color:CHART_LABEL_COLOR},
+          title:{display:true,text:'Passengers',color:CHART_LABEL_COLOR},
+          grid:{color:'rgba(159,176,201,0.15)'}
+        }
+      },
+      plugins:pluginOptions,
+      interaction:{mode:'index',intersect:false}
+    },
+    plugins:[whiteBackgroundPlugin]
+  });
+  if(isBrokenChartMode){
+    const measuredHeight=Number.parseInt(window.getComputedStyle(routeTotalsChartCanvas).height,10);
+    const computedHeight=(Number.isFinite(measuredHeight)?measuredHeight:0)||320;
+    if(!Number.isFinite(brokenChartHeight)||brokenChartHeight<computedHeight){
+      brokenChartHeight=computedHeight;
+    }
+    routeTotalsChartWrapper.style.maxHeight='none';
+    routeTotalsChartWrapper.style.height=`${brokenChartHeight}px`;
+    routeTotalsChartCanvas.style.height=`${brokenChartHeight}px`;
+    routeTotalsChartCanvas.height=brokenChartHeight;
+    unleashBrokenChartRampage();
+    igniteBrokenChartChaos();
+  }
+  routeTotalsChartWrapper.style.display='block';
+}
+
+function parseRange(value){
+  if(!value){return null;}
+  const cleaned=value.trim().replace(/\s+/g,'');
+  const match=cleaned.match(/^(\d{1,2})(\d{2})?-(\d{1,2})(\d{2})?$/);
+  if(!match){
+    const colonMatch=value.trim().match(/^(\d{1,2})(?::?(\d{2}))\s*-\s*(\d{1,2})(?::?(\d{2}))$/);
+    if(!colonMatch){return null;}
+    return normalizeRange(colonMatch[1],colonMatch[2],colonMatch[3],colonMatch[4]);
+  }
+  const [,sh,sm,eh,em]=match;
+  const startMinutes=sm!==undefined?Number(sm):0;
+  const endMinutes=em!==undefined?Number(em):0;
+  return normalizeRange(sh,startMinutes,eh,endMinutes);
+}
+
+function normalizeRange(sh,sm,eh,em){
+  const startHour=Number(sh);
+  const startMin=Number(sm||0);
+  const endHour=Number(eh);
+  const endMin=Number(em||0);
+  if([startHour,startMin,endHour,endMin].some(n=>Number.isNaN(n))){return null;}
+  if(startMin>59||endMin>59){return null;}
+  if(startHour<0||endHour<0){return null;}
+  if(startHour>MAX_EXTENDED_HOUR||endHour>MAX_EXTENDED_HOUR){return null;}
+  if((startHour===MAX_EXTENDED_HOUR&&startMin>0)||(endHour===MAX_EXTENDED_HOUR&&endMin>0)){return null;}
+  const start=startHour*60+startMin;
+  let end=endHour*60+endMin;
+  if(endHour===23&&endMin===59){end=24*60;}
+  if(endHour===MAX_EXTENDED_HOUR&&endMin===0){end=MAX_EXTENDED_MINUTES;}
+  if(end>MAX_EXTENDED_MINUTES){return null;}
+  if(end<=start){return null;}
+  return {start,end};
+}
+
+function sumForRange(route,start,end){
+  const members=getGroupMembers(route);
+  if(!members.length){return 0;}
+  let total=0;
+  members.forEach(member=>{
+    const records=ridershipByRoute[member];
+    if(!records){return;}
+    records.forEach(rec=>{
+      if(rec.minutes>=start&&rec.minutes<end){
+        total+=rec.entries;
+      }
+    });
+  });
+  return total;
+}
+
+function exportCsv(){
+  const lines=[];
+  const dateValue=dateInput.value||new Date().toISOString().split('T')[0];
+  const asOfValue=newestDataTimestamp?newestDataTimestamp.toLocaleString():'';
+  const overallTotal=overallTotalDisplay.textContent.trim();
+  lines.push(`Date,${escapeCsv(dateValue)},As Of,${escapeCsv(asOfValue)}`);
+  const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+  const perRouteTotals=collectRouteTotals(blocks,{splitAlternates:true});
+  const aggregateRouteTotals=collectRouteTotals(blocks);
+  if(perRouteTotals.length){
+    lines.push('Route,Total');
+    perRouteTotals.forEach(entry=>{
+      const label=entry.displayName||getRouteDisplayName(entry.route);
+      lines.push(`${escapeCsv(label)},${escapeCsv(entry.total)}`);
+    });
+    lines.push(`Overall Displayed Total,${escapeCsv(overallTotal)}`);
+  }else{
+    lines.push(`Overall Displayed Total,${escapeCsv(overallTotal)}`);
+  }
+  lines.push('');
+  const routeMeta=new Map();
+  aggregateRouteTotals.forEach(entry=>{
+    routeMeta.set(entry.route,{total:entry.total,count:entry.blocks.length});
+  });
+  const routeSeen=new Map();
+  blocks.forEach((block,index)=>{
+    const route=normalizeRouteValue(block.querySelector('.route-select').value)||'';
+    const alternate=block.querySelector('.alternate-input')?.value||'';
+    const routeLabel=alternate||getRouteDisplayName(route);
+    if(index>0){lines.push('');}
+    lines.push(`Route,${escapeCsv(routeLabel)}`);
+    lines.push('Time Range,Passengers');
+    block.querySelectorAll('tbody tr').forEach(row=>{
+      const timeValue=row.querySelector('.time-input').value.trim();
+      const passengers=row.querySelector('.result-cell').textContent.trim();
+      lines.push(`${escapeCsv(timeValue)},${escapeCsv(passengers)}`);
+    });
+    const total=block.querySelector('.route-total').textContent.trim();
+    lines.push(`Total,${escapeCsv(total)}`);
+    if(route){
+      const count=(routeSeen.get(route)||0)+1;
+      routeSeen.set(route,count);
+      const meta=routeMeta.get(route);
+      if(meta&&meta.count>1&&count===meta.count){
+        lines.push(`Day Total,${escapeCsv(meta.total)}`);
+      }
+    }
+  });
+  const notes=notesInput.value.trim();
+  if(notes){
+    lines.push('');
+    lines.push(`Notes,${escapeCsv(notes)}`);
+  }
+  const csv=lines.join('\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`ridership_${dateValue}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+  setExportStatus('CSV downloaded.');
+}
+
+function setExportStatus(message,isError){
+  if(!exportStatus){return;}
+  if(exportStatusTimer){
+    clearTimeout(exportStatusTimer);
+    exportStatusTimer=null;
+  }
+  exportStatus.textContent=message||'';
+  if(isError){
+    exportStatus.classList.add('error');
+  }else{
+    exportStatus.classList.remove('error');
+  }
+  if(message){
+    exportStatusTimer=setTimeout(()=>{
+      exportStatus.textContent='';
+      exportStatus.classList.remove('error');
+      exportStatusTimer=null;
+    },4000);
+  }
+}
+
+function escapeHtml(value){
+  if(value===undefined||value===null){return '';}
+  return String(value)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function getRouteTotalsChartImageUrl(){
+  if(routeTotalsChart&&typeof routeTotalsChart.toBase64Image==='function'){
+    try{
+      return routeTotalsChart.toBase64Image('image/png',1);
+    }catch(err){
+      console.warn('Failed to export chart via Chart.js helper',err);
+    }
+  }
+  if(routeTotalsChartCanvas){
+    try{
+      return routeTotalsChartCanvas.toDataURL('image/png');
+    }catch(err){
+      console.warn('Failed to export chart via canvas toDataURL',err);
+    }
+  }
+  return '';
+}
+
+function copyEmailSummaryToClipboard(htmlContent,plainText){
+  if(navigator.clipboard&&window.ClipboardItem){
+    const htmlBlob=new Blob([htmlContent],{type:'text/html'});
+    const textBlob=new Blob([plainText],{type:'text/plain'});
+    const item=new ClipboardItem({'text/html':htmlBlob,'text/plain':textBlob});
+    return navigator.clipboard.write([item]).then(()=> 'html').catch(err=>{
+      console.warn('Clipboard HTML write failed, falling back to text copy',err);
+      return copySummaryTextFallback(plainText);
+    });
+  }
+  return copySummaryTextFallback(plainText);
+}
+
+function copySummaryTextFallback(text){
+  return new Promise((resolve,reject)=>{
+    try{
+      const textarea=document.createElement('textarea');
+      textarea.value=text;
+      textarea.setAttribute('readonly','');
+      textarea.style.position='fixed';
+      textarea.style.top='-1000px';
+      textarea.style.opacity='0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0,textarea.value.length);
+      const successful=document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if(successful){
+        resolve('text');
+      }else{
+        reject(new Error('Copy command was unsuccessful'));
+      }
+    }catch(err){
+      reject(err);
+    }
+  });
+}
+
+function exportEmailSummary(){
+  try{
+    const dateValue=dateInput.value||new Date().toISOString().split('T')[0];
+    const asOfValue=newestDataTimestamp?newestDataTimestamp.toLocaleString():'';
+    const overallTotal=overallTotalDisplay.textContent.trim();
+    const blocks=[...tablesContainer.querySelectorAll('.route-block')];
+    const perRouteTotals=collectRouteTotals(blocks,{splitAlternates:true});
+    const chartUrl=getRouteTotalsChartImageUrl();
+    const baseTableStyle='border-collapse:collapse;width:100%;max-width:680px;margin-top:8px;font-size:14px;';
+    const headerCellStyle='padding:6px 10px;background:#eef2fb;border:1px solid #d8dde5;text-align:left;';
+    const cellStyle='border:1px solid #d8dde5;padding:6px 10px;text-align:left;';
+    const numberCellStyle='border:1px solid #d8dde5;padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;';
+    const htmlParts=[
+      '<div style="font-family:\'Segoe UI\',Arial,sans-serif;color:#111;line-height:1.45;background:#fff;padding:16px;max-width:720px;">',
+      '<h2 style="margin:0 0 12px;font-size:20px;">Ridership Summary</h2>'
+    ];
+    const summaryBits=[`<div><strong>Date:</strong> ${escapeHtml(dateValue)}</div>`];
+    if(asOfValue){summaryBits.push(`<div><strong>As Of:</strong> ${escapeHtml(asOfValue)}</div>`);}
+    summaryBits.push(`<div><strong>Overall Displayed Total:</strong> ${escapeHtml(overallTotal)}</div>`);
+    htmlParts.push(`<div style="margin-bottom:12px;">${summaryBits.join('')}</div>`);
+    if(perRouteTotals.length){
+      htmlParts.push(`<div style="margin:12px 0 0;font-weight:600;">Per-Route Totals</div>`);
+      htmlParts.push(`<table style="${baseTableStyle}"><thead><tr>`+
+        `<th style="${headerCellStyle}">Route</th>`+
+        `<th style="${headerCellStyle};text-align:right;">Total</th>`+
+        `</tr></thead><tbody>`);
+      perRouteTotals.forEach(entry=>{
+        const label=entry.displayName||getRouteDisplayName(entry.route);
+        htmlParts.push(`<tr><td style="${cellStyle}">${escapeHtml(label)}</td>`+
+          `<td style="${numberCellStyle}">${escapeHtml(entry.total)}</td></tr>`);
+      });
+      htmlParts.push(`<tr><td style="${cellStyle};font-weight:600;">Overall Displayed Total</td>`+
+        `<td style="${numberCellStyle};font-weight:600;">${escapeHtml(overallTotal)}</td></tr>`);
+      htmlParts.push('</tbody></table>');
+    }
+    if(chartUrl){
+      htmlParts.push(`<div style="margin:16px 0 8px;">`+
+        `<div style="font-weight:600;margin-bottom:6px;">Ridership by Hour</div>`+
+        `<img src="${chartUrl}" alt="Ridership by Hour" style="width:100%;max-width:680px;border:1px solid #d8dde5;border-radius:8px;" />`+
+        '</div>');
+    }
+    const plainTextLines=[`Date: ${dateValue}`, asOfValue?`As Of: ${asOfValue}`:null, `Overall Displayed Total: ${overallTotal}`].filter(Boolean);
+    if(perRouteTotals.length){
+      plainTextLines.push('', 'Per-Route Totals:');
+      perRouteTotals.forEach(entry=>{
+        const label=entry.displayName||getRouteDisplayName(entry.route);
+        plainTextLines.push(`- ${label}: ${entry.total}`);
+      });
+      plainTextLines.push(`Overall Displayed Total: ${overallTotal}`);
+    }
+    blocks.forEach(block=>{
+      const route=normalizeRouteValue(block.querySelector('.route-select').value)||'';
+      const alternate=(block.querySelector('.alternate-input')?.value||'').trim();
+      const rows=[...block.querySelectorAll('.time-row')];
+      const rowData=rows.map(row=>{
+        const timeValue=row.querySelector('.time-input')?.value.trim()||'';
+        const passengers=row.querySelector('.result-cell')?.textContent.trim()||'';
+        return {time:timeValue,passengers};
+      });
+      const hasMeaningfulRow=rowData.some(item=>item.time|| (item.passengers&&item.passengers!=='-'));
+      if(!hasMeaningfulRow&&!route&&!alternate){
+        return;
+      }
+      const routeLabel=(alternate||getRouteDisplayName(route)||'Route Details').trim()||'Route Details';
+      htmlParts.push(`<div style="margin-top:18px;">`+
+        `<div style="font-weight:600;margin-bottom:6px;font-size:15px;">${escapeHtml(routeLabel)}</div>`+
+        `<table style="${baseTableStyle}">`+
+        `<thead><tr>`+
+        `<th style="${headerCellStyle}">Time Range</th>`+
+        `<th style="${headerCellStyle};text-align:right;">Passengers</th>`+
+        `</tr></thead><tbody>`);
+      rowData.forEach(({time,passengers})=>{
+        const timeText=time||'—';
+        const passengerText=passengers&&passengers!=='-'?passengers:'—';
+        htmlParts.push(`<tr><td style="${cellStyle}">${escapeHtml(timeText)}</td>`+
+          `<td style="${numberCellStyle}">${escapeHtml(passengerText)}</td></tr>`);
+      });
+      const total=block.querySelector('.route-total')?.textContent.trim()||'';
+      htmlParts.push(`<tr><td style="${cellStyle};font-weight:600;">Total Displayed</td>`+
+        `<td style="${numberCellStyle};font-weight:600;">${escapeHtml(total)}</td></tr>`);
+      const dayRow=block.querySelector('.route-day-total-row');
+      if(dayRow&&dayRow.style.display!=='none'){
+        const dayValue=dayRow.querySelector('.route-day-total')?.textContent.trim()||'';
+        htmlParts.push(`<tr><td style="${cellStyle};font-weight:600;">Day Total</td>`+
+          `<td style="${numberCellStyle};font-weight:600;">${escapeHtml(dayValue)}</td></tr>`);
+      }
+      htmlParts.push('</tbody></table></div>');
+      plainTextLines.push('', routeLabel);
+      rowData.forEach(({time,passengers})=>{
+        const timeText=time||'—';
+        const passengerText=passengers&&passengers!=='-'?passengers:'—';
+        plainTextLines.push(`  ${timeText} — ${passengerText}`);
+      });
+      plainTextLines.push(`  Total Displayed: ${total||'0'}`);
+      const dayRowValue=block.querySelector('.route-day-total-row .route-day-total');
+      if(dayRow&&dayRow.style.display!=='none'&&dayRowValue){
+        const dayValue=dayRowValue.textContent.trim();
+        plainTextLines.push(`  Day Total: ${dayValue}`);
+      }
+    });
+    const notes=notesInput.value.trim();
+    if(notes){
+      htmlParts.push(`<div style="margin-top:18px;">`+
+        `<div style="font-weight:600;margin-bottom:4px;">Notes</div>`+
+        `<div>${escapeHtml(notes).replace(/\n/g,'<br>')}</div>`+
+        '</div>');
+      plainTextLines.push('', 'Notes:', notes);
+    }
+    if(!chartUrl){
+      plainTextLines.push('', 'Ridership by Hour chart: not available.');
+    }else{
+      plainTextLines.push('', 'Ridership by Hour chart: included when pasting into an email.');
+    }
+    htmlParts.push('</div>');
+    const htmlContent=htmlParts.join('');
+    const plainText=plainTextLines.join('\n');
+    copyEmailSummaryToClipboard(htmlContent,plainText).then(mode=>{
+      if(mode==='html'){
+        setExportStatus('Email summary copied to clipboard.');
+      }else{
+        setExportStatus('Summary copied as plain text (chart image not included).');
+      }
+    }).catch(err=>{
+      console.error('Failed to copy email summary',err);
+      setExportStatus('Could not copy email summary. Please try again.',true);
+    });
+  }catch(err){
+    console.error('Failed to prepare email summary',err);
+    setExportStatus('Could not prepare email summary.',true);
+  }
+}
+
+function ensureRouteOption(select,route,label){
+  if(!route){return;}
+  const normalized=normalizeRouteValue(route);
+  const exists=[...select.options].some(opt=>opt.value===normalized);
+  if(!exists){
+    const opt=document.createElement('option');
+    opt.value=normalized;
+    opt.textContent=label||getRouteDisplayName(normalized);
+    select.appendChild(opt);
+  }
+}
+
+function applyTemplateConfig(template){
+  tablesContainer.innerHTML='';
+  const usageMap=new Map();
+  template.forEach(item=>{
+    const block=addRouteTable();
+    const select=block.querySelector('.route-select');
+    const routeKey=findRouteKeyForTemplate(item.route,item.matchInfoText,usageMap);
+    const normalizedRoute=normalizeRouteValue(routeKey);
+    if(normalizedRoute){
+      ensureRouteOption(select,normalizedRoute);
+      select.value=normalizedRoute;
+    }else{
+      select.value='';
+    }
+    const altInput=block.querySelector('.alternate-input');
+    if(altInput){altInput.value=item.alternate||'';}
+    const times=Array.isArray(item.times)?item.times:[];
+    const rows=[...block.querySelectorAll('.time-row')];
+    if(rows[0]){
+      rows[0].querySelector('.time-input').value=times[0]||'';
+    }
+    for(let i=1;i<times.length;i++){
+      const row=addTimeRow(block);
+      row.querySelector('.time-input').value=times[i];
+    }
+    if(times.length===0){
+      rows.forEach(row=>row.remove());
+    }
+    updateBlock(block);
+  });
+}
+
+function loadTemplate(){
+  const template=[
+    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line AM)',times:['0430 - 0600','0600 - 0730']},
+    {route:'Red Line',alternate:'Scott Stadium West Parking Lots (Red Line PM)',times:['1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']},
+    {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line AM)',times:['0630 - 0730','0730 - 0800','0800 - 0900','0900 - 1000']},
+    {route:'Blue Line',alternate:'Emmet-Ivy Garage (Blue Line PM)',times:['1000 - 1430','1430 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2030']}
+  ];
+  applyTemplateConfig(template);
+}
+
+function loadAcademicTemplate(){
+  const template=[
+    {route:'Green Line',alternate:'Green Line – Pre-6PM',times:['0700 - 0730','0730 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1830']},
+    {route:'Green Loop',alternate:'Green Loop – Post-6PM/Weekends',times:['1730 - 1800','1800 - 1900','1900 - 2000','2000 - 2100','2100 - 2200','2200 - 2230']},
+    {route:'Orange Line',alternate:'Orange Line – Pre-6PM',times:['0700 - 0730','0730 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1830']},
+    {route:'Orange Loop',alternate:'Orange Loop – Post-6PM/Weekends',times:['1730 - 1800','1800 - 1900','1900 - 2000','2000 - 2100','2100 - 2200','2200 - 2230']},
+    {route:'Gold Line',matchInfoText:'Pre-6PM',alternate:'Gold Line – Pre-6PM',times:['0430 - 0500','0500 - 0600','0600 - 0700','0700 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1830']},
+    {route:'Gold Line',matchInfoText:'Post-6PM/Weekends',alternate:'Gold Line – Post-6PM/Weekends',times:['1730 - 1800','1800 - 1900','1900 - 2000','2000 - 2100','2100 - 2200','2200 - 2230']},
+    {route:'Silver Line',alternate:'Silver Line',times:['0600 - 0630','0630 - 0700','0700 - 0800','0800 - 0900','0900 - 1000','1000 - 1100','1100 - 1200','1200 - 1300','1300 - 1400','1400 - 1500','1500 - 1600','1600 - 1700','1700 - 1800','1800 - 1900','1900 - 2000','2000 - 2030']},
+    {route:'Night Pilot',alternate:'Night Pilot',times:['2130 - 2200','2200 - 2300','2300 - 2400','2400 - 2500','2500 - 2600','2600 - 2630']}
+  ];
+  applyTemplateConfig(template);
+}
+
+function escapeCsv(text){
+  const str=String(text||'');
+  if(/[",\n]/.test(str)){
+    return '"'+str.replace(/"/g,'""')+'"';
+  }
+  return str;
+}
+}
+</script>
+<script>
+(function(){
+  const appContainer=document.getElementById('ridership-app');
+  const passwordOverlay=document.getElementById('password-overlay');
+  const passwordForm=document.getElementById('password-form');
+  const passwordInput=document.getElementById('dispatch-password');
+  const passwordStatus=document.getElementById('password-status');
+  const passwordButton=passwordForm?passwordForm.querySelector('button'):null;
+  const logoutButton=document.getElementById('logoutButton');
+  if(logoutButton){
+    const defaultLabel=logoutButton.textContent;
+    logoutButton.addEventListener('click',async ()=>{
+      logoutButton.disabled=true;
+      logoutButton.textContent='Logging out...';
+      try{
+        const resp=await fetch('/api/dispatcher/logout',{method:'POST'});
+        if(!resp.ok) throw new Error('logout failed');
+        window.location.reload();
+      }catch(err){
+        logoutButton.disabled=false;
+        logoutButton.textContent=defaultLabel;
+        alert('Unable to log out. Please try again.');
+      }
+    });
+  }
+  let authPromise=null;
+
+  const showApp=()=>{
+    if(appContainer) appContainer.hidden=false;
+    if(logoutButton) logoutButton.hidden=false;
+  };
+  const removeOverlay=()=>{
+    if(passwordOverlay){
+      passwordOverlay.classList.add('fade-out');
+      setTimeout(()=>passwordOverlay.remove(),250);
+    }
+    document.body.classList.remove('locked');
+  };
+  const unlock=()=>{
+    showApp();
+    removeOverlay();
+  };
+
+  async function requireDispatcherPassword(){
+    if(authPromise) return authPromise;
+    authPromise=(async()=>{
+      if(!passwordOverlay||!passwordForm||!passwordInput){
+        unlock();
+        return;
+      }
+      passwordOverlay.style.display='flex';
+      passwordOverlay.style.opacity='1';
+      document.body.classList.add('locked');
+      let requiresPassword=true;
+      let alreadyAuthorized=false;
+      try{
+        const resp=await fetch('/api/dispatcher/auth');
+        if(resp.ok){
+          const data=await resp.json();
+          if(data&&typeof data.authorized==='boolean') alreadyAuthorized=data.authorized;
+          if(data&&typeof data.required==='boolean') requiresPassword=data.required;
+        }
+      }catch(err){
+        console.warn('Failed to check dispatcher auth',err);
+      }
+      if(!requiresPassword||alreadyAuthorized){
+        unlock();
+        return;
+      }
+      await new Promise((resolve)=>{
+        const showError=(msg)=>{ if(passwordStatus) passwordStatus.textContent=msg; };
+        const submitHandler=async(event)=>{
+          event.preventDefault();
+          const password=passwordInput.value.trim();
+          if(!password){
+            showError('Please enter the password.');
+            return;
+          }
+          if(passwordButton) passwordButton.disabled=true;
+          showError('');
+          try{
+            const resp=await fetch('/api/dispatcher/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+            if(resp.ok){
+              passwordForm.removeEventListener('submit',submitHandler);
+              unlock();
+              resolve();
+              return;
+            }
+            let detail='Incorrect password.';
+            try{
+              const data=await resp.json();
+              if(data&&typeof data.detail==='string') detail=data.detail;
+            }catch(e){}
+            showError(detail);
+          }catch(err){
+            console.error('Password verification failed',err);
+            showError('Unable to verify password. Try again.');
+          }finally{
+            if(passwordButton) passwordButton.disabled=false;
+            passwordInput.value='';
+            passwordInput.focus();
+          }
+        };
+        passwordForm.addEventListener('submit',submitHandler);
+        passwordInput.focus();
+      });
+    })();
+    return authPromise;
+  }
+
+  const start=()=>{
+    requireDispatcherPassword().then(()=>{
+      if(typeof initializeRidershipApp==='function'){
+        initializeRidershipApp();
+      }
+    });
+  };
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',start,{once:true});
+  }else{
+    start();
+  }
+})();
+</script>
+<script src="mobile-nav.js"></script>
+</body>
+</html>

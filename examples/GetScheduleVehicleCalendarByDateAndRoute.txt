@@ -1,0 +1,37 @@
+[
+    {
+        "CopyScheduleVehicleCalendarID": 0,
+        "EndDate": "\/Date(1924905600000)\/",
+        "ScheduleID": 37,
+        "ScheduleVehicleCalendarID": 32,
+        "StartDate": "\/Date(1745971200000)\/"
+    },
+    {
+        "CopyScheduleVehicleCalendarID": 0,
+        "EndDate": "\/Date(2537913600000)\/",
+        "ScheduleID": 42,
+        "ScheduleVehicleCalendarID": 37,
+        "StartDate": "\/Date(1748995200000)\/"
+    },
+    {
+        "CopyScheduleVehicleCalendarID": 0,
+        "EndDate": "\/Date(1765152000000)\/",
+        "ScheduleID": 47,
+        "ScheduleVehicleCalendarID": 40,
+        "StartDate": "\/Date(1756080000000)\/"
+    },
+    {
+        "CopyScheduleVehicleCalendarID": 0,
+        "EndDate": "\/Date(1765152000000)\/",
+        "ScheduleID": 48,
+        "ScheduleVehicleCalendarID": 41,
+        "StartDate": "\/Date(1756080000000)\/"
+    },
+    {
+        "CopyScheduleVehicleCalendarID": 0,
+        "EndDate": "\/Date(1765152000000)\/",
+        "ScheduleID": 50,
+        "ScheduleVehicleCalendarID": 43,
+        "StartDate": "\/Date(1756080000000)\/"
+    }
+]

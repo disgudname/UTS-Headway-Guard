@@ -1,0 +1,4715 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+  <title>Replay Map - Headway Guard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+  <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <style>
+    @font-face {
+      font-family: 'FGDC';
+      src: url('FGDC.ttf') format('truetype');
+    }
+    :root {
+      --navy: #232D4B;
+      --navy-dark: #1b274a;
+      --navy-darker: #1a2441;
+      --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
+      --panel-border-color: rgba(35, 45, 75, 0.12);
+      --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+      --panel-highlight: rgba(35, 45, 75, 0.06);
+      --panel-text-color: #1f2937;
+      --panel-heading-color: #232D4B;
+      --panel-muted-text: #4b5563;
+      --accent: #E57200;
+      --accent-bright: #ff9c3e;
+      --accent-soft: rgba(229, 114, 0, 0.28);
+      --controls-height: 180px;
+      --mobile-controls-peek: 0px;
+    }
+    .custom-popup {
+      position: absolute;
+      background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+      border: 3px solid rgba(255, 255, 255, 0.92);
+      border-radius: 16px;
+      padding: 12px 14px;
+      pointer-events: auto;
+      transform: translate(-50%, -100%);
+      white-space: nowrap;
+      z-index: 1000;
+      color: #f8fafc;
+      text-transform: uppercase;
+      font-family: 'FGDC', sans-serif;
+      font-size: 14px;
+      letter-spacing: 0.35px;
+      box-shadow: 0 18px 36px rgba(15, 23, 42, 0.38);
+    }
+    .custom-popup-arrow {
+      position: absolute;
+      left: 50%;
+      bottom: -10px;
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 10px solid rgba(255, 255, 255, 0.92);
+      transform: translateX(-50%);
+    }
+    .custom-popup-close {
+      position: absolute;
+      bottom: 5px;
+      right: 5px;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
+      border: none;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      font-size: 13px;
+      box-shadow: 0 10px 20px rgba(229, 114, 0, 0.35);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .custom-popup-close:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 24px rgba(229, 114, 0, 0.4);
+    }
+    .route-pill {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 999px;
+      color: #1f1300;
+      font-weight: bold;
+      margin-top: 10px;
+      text-align: center;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      box-shadow: 0 12px 24px var(--route-pill-shadow-color, rgba(229, 114, 0, 0.35));
+    }
+    .bus-marker {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      line-height: 0;
+    }
+    .bus-marker__root {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      cursor: pointer;
+      touch-action: manipulation;
+      user-select: none;
+    }
+    .bus-marker__svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      transition: transform var(--rotation-smoothing-duration, 0.2s) ease, filter 0.2s ease;
+      transform-box: view-box;
+      transform-origin: 50% 50%;
+      will-change: transform;
+      pointer-events: none;
+    }
+    .bus-marker__svg .st1 {
+      paint-order: stroke fill;
+      transition: fill 0.2s ease, fill-opacity 0.2s ease;
+      pointer-events: auto;
+    }
+    .bus-marker__svg .st0 {
+      transition: fill 0.2s ease;
+      pointer-events: auto;
+    }
+    .bus-marker__svg #halo {
+      pointer-events: none;
+    }
+    .bus-marker__root.is-stale .bus-marker__svg {
+      opacity: 0.6;
+    }
+    .bus-marker__root.is-hover .bus-marker__svg {
+      filter: drop-shadow(0 3px 8px rgba(15, 23, 42, 0.35));
+    }
+    .bus-marker__root.is-selected .bus-marker__svg {
+      filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.68));
+    }
+    .bus-marker__root.is-selected.is-hover .bus-marker__svg {
+      filter: drop-shadow(0 3px 12px rgba(15, 23, 42, 0.35)) drop-shadow(0 0 7px rgba(255, 255, 255, 0.72));
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'FGDC', sans-serif;
+      background: linear-gradient(180deg, #e2e8f0, #f8fafc);
+      color: var(--panel-text-color);
+      overflow: hidden;
+    }
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    #controls.playback-controls {
+      position: fixed;
+      left: 50%;
+      bottom: calc(var(--hg-mobile-nav-offset, 0px) + 16px);
+      transform: translateX(-50%);
+      width: min(1120px, calc(100% - 32px));
+      background: var(--panel-surface);
+      border-radius: 18px;
+      border: 1px solid var(--panel-border-color);
+      box-shadow: var(--panel-shadow);
+      padding: 18px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      z-index: 1200;
+      backdrop-filter: blur(12px);
+      box-sizing: border-box;
+      transition: transform 0.35s ease, opacity 0.3s ease;
+    }
+    #controlsToggle {
+      display: none;
+    }
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      justify-content: center;
+    }
+    .controls-row--filters {
+      justify-content: flex-start;
+    }
+    .control-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 140px;
+      flex: 1 1 160px;
+    }
+    .control-field--button {
+      flex: 0 0 auto;
+      align-self: flex-end;
+    }
+    #controls label,
+    .control-field label,
+    .timeline-label {
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      font-size: 12px;
+      color: rgba(35, 45, 75, 0.7);
+    }
+    .control-field input {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(35, 45, 75, 0.25);
+      background: rgba(255, 255, 255, 0.92);
+      font-size: 16px;
+      font-family: 'FGDC', sans-serif;
+      box-shadow: 0 6px 18px rgba(17, 24, 39, 0.1);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .control-field input:focus {
+      outline: none;
+      border-color: rgba(229, 114, 0, 0.8);
+      box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.2);
+    }
+    .speed-button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      align-items: center;
+    }
+    .speed-button-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .pill-button {
+      border: none;
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(35, 45, 75, 0.92), rgba(27, 39, 74, 0.92));
+      color: #f8fafc;
+      padding: 10px 18px;
+      font-family: 'FGDC', sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.25);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+    .pill-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.28);
+    }
+    .pill-button:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(15, 23, 42, 0.28);
+    }
+    .pill-button:active {
+      transform: translateY(0);
+      box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
+    }
+    .pill-button.accent {
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
+      box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
+    }
+    .pill-button.accent:hover {
+      box-shadow: 0 16px 30px rgba(229, 114, 0, 0.4);
+    }
+    .pill-button.is-active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
+      box-shadow: 0 16px 30px rgba(229, 114, 0, 0.45);
+    }
+    .pill-button.is-active:hover {
+      box-shadow: 0 20px 36px rgba(229, 114, 0, 0.48);
+    }
+    .timeline-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+    #timeline {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    .timeline-value {
+      font-size: 14px;
+      letter-spacing: 0.3px;
+      text-align: center;
+      color: var(--panel-heading-color);
+    }
+    .selector-panel {
+      width: 360px;
+      position: fixed;
+      top: 16px;
+      bottom: calc(var(--controls-height) + 24px);
+      z-index: 1100;
+      background: var(--panel-surface);
+      border-radius: 18px;
+      border: 1px solid var(--panel-border-color);
+      box-shadow: var(--panel-shadow);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+      transition: transform 0.35s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+      font-size: 16px;
+      color: var(--panel-text-color);
+    }
+    #busSelector {
+      left: 16px;
+    }
+    #routeSelector {
+      right: 16px;
+    }
+    #busSelector.hidden {
+      transform: translateX(calc(-100% - 24px));
+      opacity: 0;
+      pointer-events: none;
+    }
+    #routeSelector.hidden {
+      transform: translateX(calc(100% + 24px));
+      opacity: 0;
+      pointer-events: none;
+    }
+    .selector-panel .selector-header {
+      background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+      color: #f8fafc;
+      padding: 16px 20px 18px;
+      box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .selector-panel .selector-title {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0.4px;
+    }
+    .selector-panel .selector-subtitle {
+      margin: 0;
+      font-size: 13px;
+      opacity: 0.75;
+      letter-spacing: 0.3px;
+    }
+    .selector-panel .selector-content {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 18px 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar {
+      width: 8px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar-track {
+      background: rgba(35, 45, 75, 0.08);
+      border-radius: 12px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar-thumb {
+      background: rgba(35, 45, 75, 0.35);
+      border-radius: 12px;
+    }
+    .selector-panel .selector-content::-webkit-scrollbar-thumb:hover {
+      background: rgba(229, 114, 0, 0.6);
+    }
+    .selector-panel .selector-group {
+      background: var(--panel-highlight);
+      border-radius: 14px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .selector-panel .selector-section {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .selector-panel .selector-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.6px;
+      color: rgba(35, 45, 75, 0.75);
+    }
+    .display-mode-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .display-mode-group .pill-button {
+      flex: 1 1 auto;
+      text-align: center;
+    }
+    .route-action-buttons {
+      justify-content: stretch;
+    }
+    .selector-panel .route-list,
+    .selector-panel .selector-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .selector-panel label.route-option,
+    .selector-panel label.selector-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--panel-highlight);
+      border-radius: 14px;
+      border: 1px solid transparent;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+      cursor: pointer;
+    }
+    .selector-panel label.route-option:hover,
+    .selector-panel label.selector-option:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+      border-color: rgba(35, 45, 75, 0.25);
+    }
+    .selector-panel label.route-option.is-active,
+    .selector-panel label.selector-option.is-active {
+      background: rgba(229, 114, 0, 0.16);
+      border-color: rgba(229, 114, 0, 0.45);
+      box-shadow: 0 16px 32px rgba(229, 114, 0, 0.24);
+    }
+    .selector-panel label.route-option--out {
+      background: rgba(35, 45, 75, 0.08);
+    }
+    .selector-panel label.route-option input[type="checkbox"],
+    .selector-panel label.selector-option input[type="checkbox"] {
+      margin-top: 2px;
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .selector-panel .route-option-swatch {
+      display: inline-flex;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      margin-top: 2px;
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 0 1px rgba(35, 45, 75, 0.2);
+      flex-shrink: 0;
+    }
+    .selector-panel label.route-option input[type="checkbox"]:checked + .route-option-swatch {
+      transform: scale(1.1);
+      box-shadow: 0 0 0 2px rgba(229, 114, 0, 0.4);
+    }
+    .selector-panel .route-option-text,
+    .selector-panel .selector-option-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+    .selector-panel .route-option-name,
+    .selector-panel .selector-option-name {
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      color: var(--panel-heading-color);
+    }
+    .selector-panel .route-option-detail,
+    .selector-panel .selector-option-detail {
+      font-size: 13px;
+      color: var(--panel-muted-text);
+    }
+    .panel-toggle {
+      position: fixed;
+      top: 50%;
+      width: 34px;
+      height: 70px;
+      background: linear-gradient(180deg, var(--navy), var(--navy-darker));
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform: translateY(-50%);
+      z-index: 1150;
+      text-align: center;
+      font-size: 22px;
+      user-select: none;
+      transition: left 0.3s ease, right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+      color: #f8fafc;
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+    }
+    .panel-toggle--left {
+      left: 0;
+      border-top-right-radius: 14px;
+      border-bottom-right-radius: 14px;
+    }
+    .panel-toggle--right {
+      right: 0;
+      border-top-left-radius: 14px;
+      border-bottom-left-radius: 14px;
+    }
+    .panel-toggle:hover {
+      background: linear-gradient(180deg, #2d3a5e, #253355);
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.3);
+    }
+    .panel-toggle:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(15, 23, 42, 0.3);
+    }
+    #disclaimerOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(35, 45, 75, 0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    #disclaimerBox {
+      background: var(--panel-surface);
+      padding: 28px 32px;
+      border-radius: 18px;
+      max-width: 640px;
+      text-align: center;
+      font-size: 18px;
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.35);
+      border: 1px solid var(--panel-border-color);
+      color: var(--panel-heading-color);
+      letter-spacing: 0.2px;
+      line-height: 1.5;
+    }
+    #disclaimerBox p {
+      margin-bottom: 24px;
+    }
+    #disclaimerBtn {
+      padding: 12px 26px;
+      font-size: 18px;
+      font-family: 'FGDC', sans-serif;
+      background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+      color: #1f1300;
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: 0 16px 30px rgba(229, 114, 0, 0.4);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    #disclaimerBtn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 20px 36px rgba(229, 114, 0, 0.45);
+    }
+    #disclaimerBtn:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--accent-soft), 0 20px 36px rgba(229, 114, 0, 0.45);
+    }
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(71, 85, 105, 0.55);
+      color: #f1f5f9;
+      font-family: 'FGDC', sans-serif;
+      font-size: 18px;
+      letter-spacing: 0.3rem;
+      text-transform: uppercase;
+      z-index: 3000;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+      backdrop-filter: blur(2px);
+    }
+    .loading-overlay.is-visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: all;
+    }
+    .loading-overlay__inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .loading-overlay__spinner {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 4px solid rgba(241, 245, 249, 0.35);
+      border-top-color: #f8fafc;
+      animation: loading-overlay-spin 1s linear infinite;
+    }
+    .loading-overlay__text {
+      font-size: 16px;
+      letter-spacing: 0.35rem;
+    }
+    @keyframes loading-overlay-spin {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    @media (max-width: 1024px) {
+      #controls.playback-controls {
+        width: calc(100% - 32px);
+      }
+      .control-field {
+        flex: 1 1 140px;
+      }
+    }
+    @media (max-width: 720px) {
+      :root {
+        --mobile-controls-peek: 156px;
+      }
+      #controls.playback-controls {
+        gap: 6px;
+        max-height: calc(100vh - 96px);
+        overflow-y: auto;
+        padding: 12px 12px 14px;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(35, 45, 75, 0.35) transparent;
+        -webkit-overflow-scrolling: touch;
+        align-items: stretch;
+        transition: transform 0.35s ease, opacity 0.3s ease, max-height 0.35s ease;
+      }
+      #controls.playback-controls::-webkit-scrollbar {
+        width: 6px;
+      }
+      #controls.playback-controls::-webkit-scrollbar-thumb {
+        background: rgba(35, 45, 75, 0.35);
+        border-radius: 999px;
+      }
+      .controls-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        width: 100%;
+      }
+      #controls .controls-row--playback {
+        order: -1;
+      }
+      #controls .controls-row--filters {
+        order: 0;
+      }
+      .controls-row.controls-row--playback {
+        gap: 6px;
+      }
+      .control-field {
+        width: 100%;
+        flex: 1 1 100%;
+        gap: 3px;
+        max-height: 76px;
+      }
+      .control-field input {
+        padding: 9px 12px;
+        font-size: 15px;
+        min-height: 40px;
+      }
+      .control-field--button {
+        align-self: stretch;
+      }
+      .control-field--button .pill-button {
+        width: 100%;
+      }
+      .pill-button {
+        min-height: 42px;
+        padding: 10px 14px;
+      }
+      .speed-button-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+        width: 100%;
+        max-height: 320px;
+      }
+      .speed-button-row {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 6px;
+        align-items: stretch;
+      }
+      .speed-button-row .pill-button {
+        flex: 1 1 auto;
+        width: 100%;
+      }
+      .timeline-group {
+        gap: 4px;
+        width: 100%;
+        max-height: 160px;
+      }
+      .controls-row.controls-row--playback .timeline-group {
+        order: -1;
+      }
+      #timeline {
+        min-height: 32px;
+      }
+      .timeline-value {
+        font-size: 13px;
+      }
+      #controls.playback-controls.is-collapsed {
+        transform: translateX(-50%);
+        max-height: var(--mobile-controls-peek);
+        opacity: 1;
+        pointer-events: auto;
+        overflow-y: hidden;
+      }
+      #controlsToggle {
+        position: fixed;
+        left: 50%;
+        bottom: calc(var(--controls-height) + var(--hg-mobile-nav-offset, 0px) + 24px);
+        transform: translateX(-50%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 18px;
+        border-radius: 999px;
+        border: none;
+        font-family: 'FGDC', sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        color: #f8fafc;
+        background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.25);
+        cursor: pointer;
+        z-index: 1250;
+        transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.3s ease;
+      }
+      #controlsToggle:hover {
+        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.28);
+      }
+      #controlsToggle:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 30px rgba(15, 23, 42, 0.3);
+      }
+      body.controls-collapsed #controlsToggle {
+        bottom: calc(var(--controls-height) + var(--hg-mobile-nav-offset, 0px) + 16px);
+        color: #1f1300;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
+      }
+      body.controls-collapsed #controlsToggle:hover {
+        box-shadow: 0 16px 32px rgba(229, 114, 0, 0.4);
+      }
+      body.controls-collapsed #controlsToggle:focus-visible {
+        box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 32px rgba(229, 114, 0, 0.4);
+      }
+      body.controls-collapsed #controls .controls-row--filters,
+      body.controls-collapsed #controls .speed-button-group {
+        display: none;
+      }
+      .panel-toggle {
+        width: 40px;
+        height: 80px;
+        font-size: 26px;
+      }
+      .selector-panel {
+        width: calc(100% - 32px);
+        left: 16px;
+        right: 16px;
+      }
+      #busSelector,
+      #routeSelector {
+        left: 16px;
+        right: 16px;
+      }
+      #busSelector.hidden {
+        transform: translateX(calc(-100% - 20px));
+      }
+      #routeSelector.hidden {
+        transform: translateX(calc(100% + 20px));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="disclaimerOverlay">
+    <div id="disclaimerBox">
+      <p>Information on this page is only as accurate as information received from TransLoc, and may not be correct. This page should only be used for initial investigations following a report of an issue. Any information should be verified via camera footage.</p>
+      <button id="disclaimerBtn">10-4</button>
+    </div>
+  </div>
+  <div id="map"></div>
+  <div id="busSelector" class="selector-panel hidden" aria-live="polite"></div>
+  <div id="busSelectorTab" class="panel-toggle panel-toggle--left" onclick="toggleBusPanel()" title="Toggle vehicle selector">&#9664;</div>
+  <div id="routeSelector" class="selector-panel hidden" aria-live="polite"></div>
+  <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">&#9654;</div>
+  <div id="controls" class="playback-controls">
+    <div class="controls-row controls-row--filters">
+      <div class="control-field">
+        <label for="datePicker">Date</label>
+        <input id="datePicker" placeholder="Date">
+      </div>
+      <div class="control-field">
+        <label for="startTime">From</label>
+        <input id="startTime" placeholder="Start time">
+      </div>
+      <div class="control-field">
+        <label for="endTime">To</label>
+        <input id="endTime" placeholder="End time">
+      </div>
+      <div class="control-field control-field--button">
+        <button id="loadRangeBtn" type="button" class="pill-button accent">Load Range</button>
+      </div>
+    </div>
+    <div class="controls-row controls-row--playback">
+      <div class="speed-button-group">
+        <div class="speed-button-row speed-button-row--primary">
+          <button id="pauseBtn" type="button" class="pill-button speed-btn" title="Pause">&#10074;&#10074;</button>
+          <button id="playBtn" type="button" class="pill-button speed-btn">1x</button>
+          <button id="ff2Btn" type="button" class="pill-button speed-btn">2x</button>
+          <button id="ff4Btn" type="button" class="pill-button speed-btn">4x</button>
+          <button id="ff8Btn" type="button" class="pill-button speed-btn">8x</button>
+          <button id="ff10Btn" type="button" class="pill-button speed-btn">10x</button>
+        </div>
+        <div class="speed-button-row speed-button-row--extended">
+          <button id="ff30Btn" type="button" class="pill-button speed-btn">30x</button>
+          <button id="ff100Btn" type="button" class="pill-button speed-btn">100x</button>
+          <button id="ff200Btn" type="button" class="pill-button speed-btn">200x</button>
+          <button id="ff500Btn" type="button" class="pill-button speed-btn">500x</button>
+          <button id="ff1000Btn" type="button" class="pill-button speed-btn">1000x</button>
+        </div>
+      </div>
+      <div class="timeline-group">
+        <label for="timeline" class="timeline-label">Replay Timeline</label>
+        <input type="range" id="timeline" min="0" value="0">
+        <span id="timeLabel" class="timeline-value"></span>
+      </div>
+    </div>
+  </div>
+  <button id="controlsToggle" type="button" aria-controls="controls" aria-expanded="true">Hide Controls</button>
+  <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="false">
+    <div class="loading-overlay__inner">
+      <div class="loading-overlay__spinner" aria-hidden="true"></div>
+      <div class="loading-overlay__text">Loading range</div>
+    </div>
+  </div>
+  <script>
+    const enableOverlapDashRendering = true;
+
+    const ROUTE_LAYER_BASE_OPTIONS = Object.freeze({
+      updateWhenZooming: true,
+      updateWhenIdle: true,
+      interactive: false
+    });
+    let sharedRouteRenderer = null;
+    let routePaneName = 'overlayPane';
+    let overlapRenderer = null;
+
+    const DEFAULT_ROUTE_STROKE_WEIGHT = 6;
+    const MIN_ROUTE_STROKE_WEIGHT = 3;
+    const MAX_ROUTE_STROKE_WEIGHT = 12;
+    const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
+    const ROUTE_WEIGHT_BASE_ZOOM = 15;
+    const ROUTE_WEIGHT_STEP_PER_ZOOM = 1;
+
+    function computeRouteStrokeWeight(zoom) {
+      const baseWeight = DEFAULT_ROUTE_STROKE_WEIGHT;
+      const minWeight = MIN_ROUTE_STROKE_WEIGHT;
+      const maxWeight = MAX_ROUTE_STROKE_WEIGHT;
+      const targetZoom = Number.isFinite(zoom)
+        ? zoom
+        : (map && typeof map?.getZoom === 'function' ? map.getZoom() : null);
+      if (!Number.isFinite(targetZoom)) {
+        return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+      }
+      const zoomDeltaRaw = targetZoom - ROUTE_WEIGHT_BASE_ZOOM;
+      const limitedDelta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoomDeltaRaw));
+      const computed = baseWeight + ROUTE_WEIGHT_STEP_PER_ZOOM * limitedDelta;
+      if (!Number.isFinite(computed)) {
+        return Math.max(minWeight, Math.min(maxWeight, baseWeight));
+      }
+      return Math.max(minWeight, Math.min(maxWeight, computed));
+    }
+
+    function mergeRouteLayerOptions(overrides = {}, rendererOverride = null, paneOverride = null) {
+      const base = Object.assign({}, ROUTE_LAYER_BASE_OPTIONS);
+      const renderer = rendererOverride || sharedRouteRenderer;
+      if (renderer) {
+        base.renderer = renderer;
+      }
+      const pane = paneOverride || routePaneName;
+      if (typeof pane === 'string' && pane) {
+        base.pane = pane;
+      }
+      return Object.assign(base, overrides || {});
+    }
+
+    const BUS_MARKER_SVG_URL = 'busmarker.svg';
+
+    const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
+    const BUS_MARKER_VIEWBOX_HEIGHT = 86.99;
+    const BUS_MARKER_PIVOT_X = BUS_MARKER_VIEWBOX_WIDTH / 2;
+    const BUS_MARKER_PIVOT_Y = BUS_MARKER_VIEWBOX_HEIGHT / 2;
+    const BUS_MARKER_ASPECT_RATIO = BUS_MARKER_VIEWBOX_HEIGHT / BUS_MARKER_VIEWBOX_WIDTH;
+    const BUS_MARKER_BASE_WIDTH_PX = 26;
+    const BUS_MARKER_MIN_WIDTH_PX = 18;
+    const BUS_MARKER_MAX_WIDTH_PX = 48;
+    const BUS_MARKER_BASE_ZOOM = 15;
+    const BUS_MARKER_MIN_SCALE = BUS_MARKER_MIN_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
+    const BUS_MARKER_MAX_SCALE = BUS_MARKER_MAX_WIDTH_PX / BUS_MARKER_BASE_WIDTH_PX;
+    const BUS_MARKER_SCALE_ZOOM_FACTOR = 5;
+    const BUS_MARKER_ICON_ANCHOR_X_RATIO = BUS_MARKER_PIVOT_X / BUS_MARKER_VIEWBOX_WIDTH;
+    const BUS_MARKER_ICON_ANCHOR_Y_RATIO = BUS_MARKER_PIVOT_Y / BUS_MARKER_VIEWBOX_HEIGHT;
+    const BUS_MARKER_TRANSFORM_ORIGIN = '50% 50%';
+    const BUS_MARKER_DEFAULT_HEADING = 0;
+    const BUS_MARKER_DEFAULT_ROUTE_COLOR = '#0B7A26';
+    const BUS_MARKER_DEFAULT_CONTRAST_COLOR = '#FFFFFF';
+    const BUS_MARKER_CENTER_RING_CENTER_X = 26.5;
+    const BUS_MARKER_CENTER_RING_CENTER_Y = 43.49;
+    const BUS_MARKER_STOPPED_SQUARE_SIZE_PX = 20;
+    const BUS_MARKER_STOPPED_SQUARE_ID = 'center_square';
+    const BUS_MARKER_CENTER_RING_ID = 'center_ring';
+    let BUS_MARKER_SVG_TEXT = null;
+    let BUS_MARKER_SVG_LOAD_PROMISE = null;
+    const BUS_MARKER_LABEL_FONT_FAMILY = 'FGDC, sans-serif';
+    const BUS_MARKER_LABEL_MIN_FONT_PX = 10;
+
+    const SPEED_BUBBLE_BASE_FONT_PX = 12;
+    const SPEED_BUBBLE_HORIZONTAL_PADDING = 12;
+    const SPEED_BUBBLE_VERTICAL_PADDING = 4;
+    const SPEED_BUBBLE_MIN_WIDTH = 60;
+    const SPEED_BUBBLE_MIN_HEIGHT = 20;
+    const SPEED_BUBBLE_CORNER_RADIUS = 10;
+    const LABEL_VERTICAL_CLEARANCE_PX = -7; // pull labels ~7px closer to the vehicle while relying on the half-diagonal for rotation safety
+    const LABEL_VERTICAL_ALIGNMENT_BONUS_PX = 6; // push labels a little farther away when the vehicle is nearly north/south
+    const LABEL_VERTICAL_ALIGNMENT_EXPONENT = 4; // emphasize the bonus for headings close to due north/south
+    const LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX = 1; // give east/west headings extra breathing room
+    const LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO = 0.06;
+    const NAME_BUBBLE_BASE_FONT_PX = 14;
+    const NAME_BUBBLE_HORIZONTAL_PADDING = 14;
+    const NAME_BUBBLE_VERTICAL_PADDING = 3;
+    const NAME_BUBBLE_MIN_WIDTH = 40;
+    const NAME_BUBBLE_MIN_HEIGHT = 20;
+    const NAME_BUBBLE_CORNER_RADIUS = 10;
+    const NAME_BUBBLE_FRAME_INSET = 5;
+    const BLOCK_BUBBLE_BASE_FONT_PX = 14;
+    const BLOCK_BUBBLE_HORIZONTAL_PADDING = 14;
+    const BLOCK_BUBBLE_VERTICAL_PADDING = 3;
+    const BLOCK_BUBBLE_MIN_WIDTH = 40;
+    const BLOCK_BUBBLE_MIN_HEIGHT = 20;
+    const BLOCK_BUBBLE_CORNER_RADIUS = 10;
+    const BLOCK_BUBBLE_FRAME_INSET = 5;
+    const LABEL_BASE_STROKE_WIDTH = 3;
+
+    const MIN_HEADING_DISTANCE_METERS = 2;
+    const MIN_POSITION_UPDATE_METERS = 0.5;
+    const MIN_HEADING_SPEED_METERS_PER_SECOND = 1;
+    const METERS_PER_SECOND_PER_MPH = 0.44704;
+    const GPS_STALE_THRESHOLD_SECONDS = 60;
+    const MARKER_ANIMATION_MIN_DURATION_MS = 16;
+    const MARKER_ANIMATION_MAX_DURATION_MS = 1200;
+    const MARKER_ANIMATION_MAX_DATA_GAP_MS = 2 * 60 * 1000;
+    const ROTATION_SMOOTHING_DEFAULT_MS = 200;
+    const ROTATION_SMOOTHING_MIN_DURATION_MS = 16;
+    const ROTATION_SMOOTHING_MAX_DURATION_MS = 320;
+    const ROTATION_SMOOTHING_DURATION_MULTIPLIER = 0.9;
+    const ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE = 0.6;
+    const ROTATION_SMOOTHING_HEADING_EXPONENT = 1.35;
+
+    let map = null;
+
+    let playbackData = [];
+    let playbackTimes = [];
+    let startTime = null;
+    let endTime = null;
+    let userEndTime = null;
+    let loadedHours = new Set();
+
+    let routeLayers = [];
+    let routePolylineCache = new Map();
+    let lastRouteRenderState = {
+      selectionKey: '',
+      colorSignature: '',
+      geometrySignature: '',
+      useOverlapRenderer: false
+    };
+
+    let markers = {};
+    let busMarkerStates = {};
+    let busMarkerContrastOverrideColor = null;
+    let busMarkerVisibleExtents = null;
+    let pendingBusVisualUpdates = new Map();
+    let busMarkerVisualUpdateFrame = null;
+    let selectedVehicleId = null;
+    let nameBubbles = {};
+    let busBlocks = {};
+    let pendingMarkerScaleMetrics = null;
+    let markerScaleUpdateFrame = null;
+    let textMeasurementCanvas = null;
+
+    let timer = null;       // handle for scheduled frame advance
+    let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x, 1000x
+    let routeColors = {};
+    let allRoutes = {};
+    let routeSelections = {};
+    let activeRoutes = new Set();
+    let allBuses = {};
+    let busSelections = {};
+    let activeBuses = new Set();
+    let showSpeed = true;
+    let showBlockNumbers = false;
+    let showNameBubbles = true;
+    let currentFrameIndex = 0;
+    let lastFrameDisplayMs = null;
+    let lastFrameRealTime = null;
+    const outOfServiceRouteColor = '#000000';
+    let isPlaying = false;
+    const playBtn = document.getElementById('playBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const ff2Btn = document.getElementById('ff2Btn');
+    const ff4Btn = document.getElementById('ff4Btn');
+    const ff8Btn = document.getElementById('ff8Btn');
+    const ff10Btn = document.getElementById('ff10Btn');
+    const ff30Btn = document.getElementById('ff30Btn');
+    const ff100Btn = document.getElementById('ff100Btn');
+    const ff200Btn = document.getElementById('ff200Btn');
+    const ff500Btn = document.getElementById('ff500Btn');
+    const ff1000Btn = document.getElementById('ff1000Btn');
+    const controlsContainer = document.getElementById('controls');
+    const controlsToggleButton = document.getElementById('controlsToggle');
+    let controlsCollapsed = false;
+    const controlsViewportQuery = window.matchMedia ? window.matchMedia('(max-width: 720px)') : null;
+    let pendingControlsHeightRaf = null;
+    let activeRangeLoadCount = 0;
+    let lastRouteSelectorStateKey = null;
+    let lastBusSelectorStateKey = null;
+
+    function createSpatialIndex(options = {}) {
+      if (typeof rbush === 'function') {
+        try {
+          return rbush(options.maxEntries);
+        } catch (error) {
+          console.error('Failed to create rbush index via rbush()', error);
+        }
+      }
+      if (typeof RBush === 'function') {
+        try {
+          return new RBush(options.maxEntries);
+        } catch (error) {
+          console.error('Failed to create rbush index via new RBush()', error);
+        }
+      }
+      console.error('RBush spatial index library is not available. Route overlap rendering will be disabled.');
+      return null;
+    }
+
+      class OverlapRouteRenderer {
+        constructor(map, options = {}) {
+          this.map = map;
+          this.options = Object.assign({
+            sampleStepPx: 8,
+            dashLengthPx: 16,
+            minDashLengthPx: 0.5,
+            matchTolerancePx: 6,
+            headingToleranceDeg: 20,
+            simplifyTolerancePx: 0.75,
+            latLngEqualityMargin: 1e-9,
+            strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+            minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+            maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT
+          }, options);
+          this.layers = [];
+          this.routeGeometries = new Map();
+          this.selectedRoutes = [];
+          this.currentZoom = typeof map?.getZoom === 'function' ? map.getZoom() : null;
+          this.renderer = options.renderer || null;
+          this.routePaneName = typeof options.pane === 'string' && options.pane ? options.pane : routePaneName;
+        }
+
+        reset() {
+          this.clearLayers();
+          this.routeGeometries.clear();
+          this.selectedRoutes = [];
+        }
+
+        clearLayers() {
+          this.layers.forEach(layer => {
+            if (layer && this.map.hasLayer(layer)) {
+              this.map.removeLayer(layer);
+            }
+          });
+          this.layers = [];
+        }
+
+        updateRoutes(routeGeometryMap, selectedRouteIds) {
+          if (!Array.isArray(selectedRouteIds) || selectedRouteIds.length === 0) {
+            this.reset();
+            return this.getLayers();
+          }
+
+          const geometryEntries = routeGeometryMap instanceof Map
+            ? Array.from(routeGeometryMap.entries())
+            : Object.entries(routeGeometryMap || {});
+
+          const desiredIds = new Set(
+            selectedRouteIds
+              .map(id => Number(id))
+              .filter(id => !Number.isNaN(id))
+          );
+
+          const nextGeometries = new Map();
+          geometryEntries.forEach(([key, value]) => {
+            const numericKey = Number(key);
+            if (!Number.isNaN(numericKey) && desiredIds.has(numericKey) && Array.isArray(value)) {
+              nextGeometries.set(numericKey, value);
+            }
+          });
+
+          this.routeGeometries = nextGeometries;
+          this.selectedRoutes = Array.from(this.routeGeometries.keys()).sort((a, b) => a - b);
+
+          const mapZoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          if (Number.isFinite(mapZoom)) {
+            this.currentZoom = mapZoom;
+          }
+
+          this.render();
+          return this.getLayers();
+        }
+
+        handleZoomFrame(targetZoom) {
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            return this.getLayers();
+          }
+
+          const zoom = Number.isFinite(targetZoom)
+            ? targetZoom
+            : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+          if (!Number.isFinite(zoom)) {
+            return this.getLayers();
+          }
+
+          this.currentZoom = zoom;
+          this.render();
+          return this.getLayers();
+        }
+
+        handleZoomEnd() {
+          const zoom = typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null;
+          return this.handleZoomFrame(zoom);
+        }
+
+        getLayers() {
+          return this.layers.slice();
+        }
+
+        hasPersistentPixelCache() {
+          return false;
+        }
+
+        computeStrokeWeight(zoom = this.currentZoom) {
+          const minWeight = Number.isFinite(this.options.minStrokeWeight)
+            ? this.options.minStrokeWeight
+            : MIN_ROUTE_STROKE_WEIGHT;
+          const maxWeight = Number.isFinite(this.options.maxStrokeWeight)
+            ? this.options.maxStrokeWeight
+            : MAX_ROUTE_STROKE_WEIGHT;
+          const computed = computeRouteStrokeWeight(zoom);
+          if (!Number.isFinite(computed)) {
+            return Math.max(minWeight, Math.min(maxWeight, DEFAULT_ROUTE_STROKE_WEIGHT));
+          }
+          return Math.max(minWeight, Math.min(maxWeight, computed));
+        }
+
+        render() {
+          if (!this.map) return;
+          if (this.routeGeometries.size === 0 || this.selectedRoutes.length === 0) {
+            this.clearLayers();
+            return;
+          }
+
+          const zoom = Number.isFinite(this.currentZoom)
+            ? this.currentZoom
+            : (typeof this.map?.getZoom === 'function' ? this.map.getZoom() : null);
+          if (!Number.isFinite(zoom)) {
+            this.clearLayers();
+            return;
+          }
+
+          this.clearLayers();
+
+          const step = Number.isFinite(this.options.sampleStepPx) && this.options.sampleStepPx > 0
+            ? this.options.sampleStepPx
+            : 8;
+          const tolerance = Number.isFinite(this.options.matchTolerancePx)
+            ? this.options.matchTolerancePx
+            : 6;
+          const headingToleranceRad = (Number.isFinite(this.options.headingToleranceDeg)
+            ? this.options.headingToleranceDeg
+            : 20) * Math.PI / 180;
+
+          const segmentsByRoute = new Map();
+          const spatialItems = [];
+
+          this.routeGeometries.forEach((latlngs, routeId) => {
+            if (!Array.isArray(latlngs) || latlngs.length < 2) {
+              return;
+            }
+
+            const segments = this.resampleRoute(routeId, latlngs, zoom, step);
+            if (!Array.isArray(segments) || segments.length === 0) {
+              return;
+            }
+
+            segmentsByRoute.set(routeId, segments);
+
+            segments.forEach(segment => {
+              spatialItems.push({
+                minX: segment.bounds.minX - tolerance,
+                minY: segment.bounds.minY - tolerance,
+                maxX: segment.bounds.maxX + tolerance,
+                maxY: segment.bounds.maxY + tolerance,
+                segment
+              });
+            });
+          });
+
+          if (spatialItems.length === 0) {
+            this.clearLayers();
+            return;
+          }
+
+          const tree = createSpatialIndex({ maxEntries: this.options.maxEntries });
+          if (!tree || typeof tree.load !== 'function' || typeof tree.search !== 'function') {
+            console.error('RBush spatial index instance is invalid; skipping overlap rendering.');
+            this.clearLayers();
+            return;
+          }
+
+          tree.clear?.();
+          tree.load(spatialItems);
+          this.populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad);
+
+          const groups = this.buildGroups(segmentsByRoute, zoom);
+          this.drawGroups(groups);
+        }
+
+        populateSharedRoutes(spatialItems, tree, tolerance, headingToleranceRad) {
+          const processedPairs = new Set();
+
+          spatialItems.forEach(item => {
+            const segment = item.segment;
+            if (!segment) return;
+
+            const candidates = tree.search(item);
+            candidates.forEach(candidate => {
+              const other = candidate.segment;
+              if (!other || other === segment) return;
+              if (other.routeId === segment.routeId) return;
+
+              const pairKey = segment.routeId < other.routeId
+                ? `${segment.routeId}:${segment.index}|${other.routeId}:${other.index}`
+                : `${other.routeId}:${other.index}|${segment.routeId}:${segment.index}`;
+              if (processedPairs.has(pairKey)) return;
+
+              processedPairs.add(pairKey);
+              if (!this.segmentsOverlap(segment, other, tolerance, headingToleranceRad)) return;
+
+              segment.sharedRoutes.add(other.routeId);
+              other.sharedRoutes.add(segment.routeId);
+
+              this.applyRouteOffset(segment, other);
+              this.applyRouteOffset(other, segment);
+            });
+          });
+        }
+
+        applyRouteOffset(target, source) {
+          if (!target || !source) return;
+          if (!target.routeOffsets) {
+            target.routeOffsets = {};
+          }
+
+          const sourceOffset = this.extractRouteOffset(source, source.routeId);
+          if (!Number.isFinite(sourceOffset)) {
+            return;
+          }
+
+          const existing = target.routeOffsets[source.routeId];
+          const candidate = Number.isFinite(existing?.min) ? Math.min(existing.min, sourceOffset) : sourceOffset;
+          target.routeOffsets[source.routeId] = { min: candidate };
+        }
+
+        extractRouteOffset(segment, routeId) {
+          if (!segment) return null;
+          const offsets = segment.routeOffsets || {};
+          const direct = offsets[routeId];
+          if (direct && Number.isFinite(direct.min)) {
+            return direct.min;
+          }
+
+          const values = [];
+          const startVal = Number(segment.start?.cumulativeLength);
+          if (Number.isFinite(startVal)) values.push(startVal);
+          const endVal = Number(segment.end?.cumulativeLength);
+          if (Number.isFinite(endVal)) values.push(endVal);
+          return values.length > 0 ? Math.min(...values) : null;
+        }
+
+        buildGroups(segmentsByRoute, zoom) {
+          const groups = [];
+
+          segmentsByRoute.forEach((segments, routeId) => {
+            const ordered = segments.slice().sort((a, b) => {
+              const aOffset = Number(a.start?.cumulativeLength) || 0;
+              const bOffset = Number(b.start?.cumulativeLength) || 0;
+              return aOffset - bOffset;
+            });
+
+            let current = null;
+
+            ordered.forEach(segment => {
+              const sharedRoutes = Array.from(segment.sharedRoutes || []).sort((a, b) => a - b);
+              if (sharedRoutes.length === 0) return;
+
+              const primary = sharedRoutes[0];
+              if (primary !== routeId) {
+                return;
+              }
+
+              const needsNewGroup = !current
+                || !this.sameRouteSet(current.routes, sharedRoutes)
+                || !this.latLngsClose(current.lastLatLng, segment.start.latlng);
+
+              if (needsNewGroup) {
+                if (current) {
+                  const finalized = this.finalizeGroup(current, zoom);
+                  if (finalized) {
+                    groups.push(finalized);
+                  }
+                }
+
+                current = {
+                  routes: sharedRoutes,
+                  segments: [],
+                  points: [],
+                  offsets: new Map(),
+                  lastLatLng: null
+                };
+              }
+
+              current.segments.push(segment);
+
+              if (current.points.length === 0) {
+                current.points.push(segment.start.latlng);
+              } else if (!this.latLngsClose(current.points[current.points.length - 1], segment.start.latlng)) {
+                current.points.push(segment.start.latlng);
+              }
+              current.points.push(segment.end.latlng);
+              current.lastLatLng = segment.end.latlng;
+
+              const routeOffsets = segment.routeOffsets || {};
+              current.routes.forEach(routeKey => {
+                const candidate = Number(routeOffsets?.[routeKey]?.min ?? routeOffsets?.[routeKey]);
+                if (Number.isFinite(candidate)) {
+                  const existing = current.offsets.get(routeKey);
+                  if (!Number.isFinite(existing) || candidate < existing) {
+                    current.offsets.set(routeKey, candidate);
+                  }
+                }
+              });
+            });
+
+            if (current) {
+              const finalized = this.finalizeGroup(current, zoom);
+              if (finalized) {
+                groups.push(finalized);
+              }
+              current = null;
+            }
+          });
+
+          return groups;
+        }
+
+        finalizeGroup(group, zoom) {
+          const points = this.collapsePoints(group.points || []);
+          if (points.length < 2) {
+            return null;
+          }
+
+          const lengthPx = group.segments.reduce((sum, segment) => {
+            const value = Number(segment.lengthPx);
+            return sum + (Number.isFinite(value) ? value : 0);
+          }, 0);
+
+          const primaryRoute = group.routes[0];
+          const offsetCandidates = group.segments
+            .map(segment => Number(segment.routeOffsets?.[primaryRoute]?.min ?? segment.routeOffsets?.[primaryRoute]))
+            .filter(value => Number.isFinite(value));
+          const offsetPx = offsetCandidates.length > 0 ? Math.min(...offsetCandidates) : 0;
+
+          const offsetMap = new Map();
+          group.offsets.forEach((value, key) => {
+            if (Number.isFinite(value)) {
+              offsetMap.set(key, value);
+            }
+          });
+
+          return {
+            routes: group.routes.slice(),
+            points,
+            lengthPx,
+            offsetPx,
+            routeOffsets: offsetMap
+          };
+        }
+
+        collapsePoints(points) {
+          const collapsed = [];
+          points.forEach(point => {
+            if (collapsed.length === 0 || !this.latLngsClose(collapsed[collapsed.length - 1], point)) {
+              collapsed.push(point);
+            }
+          });
+          return collapsed;
+        }
+
+        sameRouteSet(a, b) {
+          if (!Array.isArray(a) || !Array.isArray(b)) return false;
+          if (a.length !== b.length) return false;
+          for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return false;
+          }
+          return true;
+        }
+
+        latLngsClose(a, b) {
+          if (!a || !b) return false;
+          const tolerance = this.options.latLngEqualityMargin || 1e-9;
+          const latA = a.lat ?? a?.latlng?.lat ?? 0;
+          const lngA = a.lng ?? a?.latlng?.lng ?? 0;
+          const latB = b.lat ?? b?.latlng?.lat ?? 0;
+          const lngB = b.lng ?? b?.latlng?.lng ?? 0;
+          return Math.abs(latA - latB) <= tolerance && Math.abs(lngA - lngB) <= tolerance;
+        }
+
+        drawGroups(groups) {
+          const newLayers = [];
+          const dashBase = this.options.dashLengthPx;
+          const minDash = this.options.minDashLengthPx;
+          const weight = this.computeStrokeWeight();
+
+          groups.forEach(group => {
+            if (!group || !Array.isArray(group.routes) || group.routes.length === 0) return;
+            if (!Array.isArray(group.points) || group.points.length < 2) return;
+
+            const coords = group.points.map(latlng => [latlng.lat, latlng.lng]);
+            const sortedRoutes = group.routes.slice().sort((a, b) => a - b);
+            const offsetsByRoute = new Map();
+
+            if (group.routeOffsets instanceof Map) {
+              group.routeOffsets.forEach((value, routeId) => {
+                const numericRoute = Number(routeId);
+                const numericValue = Number(value);
+                if (Number.isFinite(numericRoute) && Number.isFinite(numericValue)) {
+                  const existing = offsetsByRoute.get(numericRoute);
+                  if (!Number.isFinite(existing) || numericValue < existing) {
+                    offsetsByRoute.set(numericRoute, numericValue);
+                  }
+                }
+              });
+            } else if (group.routeOffsets && typeof group.routeOffsets === 'object') {
+              Object.entries(group.routeOffsets).forEach(([routeKey, info]) => {
+                const numericRoute = Number(routeKey);
+                const numericValue = Number(info?.min ?? info);
+                if (Number.isFinite(numericRoute) && Number.isFinite(numericValue)) {
+                  const existing = offsetsByRoute.get(numericRoute);
+                  if (!Number.isFinite(existing) || numericValue < existing) {
+                    offsetsByRoute.set(numericRoute, numericValue);
+                  }
+                }
+              });
+            }
+
+            if (sortedRoutes.length === 1) {
+              const routeId = sortedRoutes[0];
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
+                color: getRouteColor(routeId),
+                weight,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+              }, this.renderer, this.routePaneName)).addTo(this.map);
+              newLayers.push(layer);
+              return;
+            }
+
+            const groupLength = group.lengthPx || 0;
+            if (!(groupLength > 0)) return;
+            const stripeCount = sortedRoutes.length;
+            let dashLength = dashBase;
+            if (dashLength * stripeCount > groupLength) {
+              dashLength = groupLength / stripeCount;
+            }
+            if (!(dashLength > 0)) {
+              dashLength = minDash;
+            }
+
+            const gapLength = dashLength * (stripeCount - 1);
+            const patternLength = dashLength + gapLength;
+
+            let baseOffsetValue;
+            const tolerance = 1e-9;
+            let anchorRouteId = null;
+            let anchorOffset = -Infinity;
+
+            sortedRoutes.forEach(routeId => {
+              const offsetValue = offsetsByRoute.get(routeId);
+              if (Number.isFinite(offsetValue)) {
+                if (
+                  anchorRouteId === null ||
+                  offsetValue > anchorOffset + tolerance ||
+                  (Math.abs(offsetValue - anchorOffset) <= tolerance && routeId < anchorRouteId)
+                ) {
+                  anchorRouteId = routeId;
+                  anchorOffset = offsetValue;
+                }
+              }
+            });
+
+            if (anchorRouteId !== null && Number.isFinite(anchorOffset)) {
+              const anchorIndex = sortedRoutes.indexOf(anchorRouteId);
+              baseOffsetValue = anchorOffset - dashLength * anchorIndex;
+            } else {
+              const rawOffset = Number(group.offsetPx);
+              baseOffsetValue = Number.isFinite(rawOffset) ? rawOffset : 0;
+            }
+
+            sortedRoutes.forEach((routeId, index) => {
+              let dashOffsetValue = baseOffsetValue + dashLength * index;
+              if (patternLength > 0) {
+                const targetOffset = offsetsByRoute.get(routeId);
+                if (Number.isFinite(targetOffset)) {
+                  const diff = targetOffset - dashOffsetValue;
+                  const adjustment = Math.round(diff / patternLength);
+                  if (Number.isFinite(adjustment) && adjustment !== 0) {
+                    dashOffsetValue += adjustment * patternLength;
+                  }
+                }
+                dashOffsetValue = ((dashOffsetValue % patternLength) + patternLength) % patternLength;
+              }
+
+              const layer = L.polyline(coords, mergeRouteLayerOptions({
+                color: getRouteColor(routeId),
+                weight,
+                opacity: 1,
+                dashArray: `${dashLength} ${gapLength}`,
+                dashOffset: `${dashOffsetValue}`,
+                lineCap: 'butt',
+                lineJoin: 'round'
+              }, this.renderer, this.routePaneName)).addTo(this.map);
+              newLayers.push(layer);
+            });
+          });
+
+          this.layers = newLayers;
+        }
+
+        simplifyLatLngs(latlngs, zoom) {
+          if (!Array.isArray(latlngs) || latlngs.length === 0) {
+            return [];
+          }
+
+          const projected = latlngs.map(latlng => this.map.project(latlng, zoom));
+          let simplified = projected;
+          if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil && L.LineUtil.simplify) {
+            simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
+          }
+
+          return simplified.map(pt => ({
+            point: L.point(pt.x, pt.y),
+            latlng: this.map.unproject(pt, zoom)
+          }));
+        }
+
+        resampleRoute(routeId, latlngs, zoom, step) {
+          const simplified = this.simplifyLatLngs(latlngs, zoom);
+          if (simplified.length < 2) {
+            return [];
+          }
+
+          const samples = [];
+          const first = simplified[0];
+          samples.push({
+            latlng: first.latlng,
+            point: first.point,
+            cumulativeLength: 0
+          });
+
+          let traversed = 0;
+          let distanceSinceLast = 0;
+
+          for (let i = 1; i < simplified.length; i++) {
+            const prev = simplified[i - 1];
+            const curr = simplified[i];
+            const segmentLength = this.distance(prev.point, curr.point);
+            if (segmentLength === 0) {
+              continue;
+            }
+
+            let consumed = 0;
+            while (distanceSinceLast + (segmentLength - consumed) >= step) {
+              const remaining = step - distanceSinceLast;
+              consumed += remaining;
+              const ratio = consumed / segmentLength;
+              const samplePoint = this.interpolatePoint(prev.point, curr.point, ratio);
+              const sampleLatLng = this.map.unproject(samplePoint, zoom);
+              traversed += remaining;
+              samples.push({
+                latlng: sampleLatLng,
+                point: samplePoint,
+                cumulativeLength: traversed
+              });
+              distanceSinceLast = 0;
+            }
+
+            const leftover = segmentLength - consumed;
+            traversed += leftover;
+            distanceSinceLast += leftover;
+          }
+
+          const last = simplified[simplified.length - 1];
+          const lastSample = samples[samples.length - 1];
+          if (!this.latLngsClose(lastSample.latlng, last.latlng)) {
+            samples.push({
+              latlng: last.latlng,
+              point: last.point,
+              cumulativeLength: traversed
+            });
+          } else {
+            lastSample.cumulativeLength = traversed;
+          }
+
+          const segments = [];
+          for (let i = 0; i < samples.length - 1; i++) {
+            const start = samples[i];
+            const end = samples[i + 1];
+            const lengthPx = this.distance(start.point, end.point);
+            if (!(lengthPx > 0)) {
+              continue;
+            }
+
+            const bounds = {
+              minX: Math.min(start.point.x, end.point.x),
+              minY: Math.min(start.point.y, end.point.y),
+              maxX: Math.max(start.point.x, end.point.x),
+              maxY: Math.max(start.point.y, end.point.y)
+            };
+            const midpoint = L.point(
+              (start.point.x + end.point.x) / 2,
+              (start.point.y + end.point.y) / 2
+            );
+            const heading = Math.atan2(end.point.y - start.point.y, end.point.x - start.point.x);
+            const offsetValues = [];
+            const startOffset = Number(start.cumulativeLength);
+            if (Number.isFinite(startOffset)) offsetValues.push(startOffset);
+            const endOffset = Number(end.cumulativeLength);
+            if (Number.isFinite(endOffset)) offsetValues.push(endOffset);
+
+            const routeOffsets = {};
+            if (offsetValues.length > 0) {
+              routeOffsets[routeId] = { min: Math.min(...offsetValues) };
+            }
+
+            segments.push({
+              routeId,
+              index: segments.length,
+              start,
+              end,
+              lengthPx,
+              bounds,
+              midpoint,
+              heading,
+              routeOffsets,
+              sharedRoutes: new Set([routeId])
+            });
+          }
+
+          return segments;
+        }
+
+        interpolatePoint(a, b, t) {
+          return L.point(
+            a.x + (b.x - a.x) * t,
+            a.y + (b.y - a.y) * t
+          );
+        }
+
+        distance(a, b) {
+          const ax = a?.x ?? 0;
+          const ay = a?.y ?? 0;
+          const bx = b?.x ?? 0;
+          const by = b?.y ?? 0;
+          const dx = bx - ax;
+          const dy = by - ay;
+          return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        segmentsOverlap(a, b, tolerance, headingToleranceRad) {
+          const midpointDistance = this.distance(a.midpoint, b.midpoint);
+          if (midpointDistance > tolerance) {
+            return false;
+          }
+
+          const headingDiff = this.smallestHeadingDifference(a.heading, b.heading);
+          if (headingDiff > headingToleranceRad && Math.abs(Math.PI - headingDiff) > headingToleranceRad) {
+            return false;
+          }
+
+          const startDistance = this.distance(a.start.point, b.start.point);
+          const endDistance = this.distance(a.end.point, b.end.point);
+          const crossStart = this.distance(a.start.point, b.end.point);
+          const crossEnd = this.distance(a.end.point, b.start.point);
+          const closeEnough = Math.min(startDistance, endDistance, crossStart, crossEnd) <= tolerance * 2;
+
+          return closeEnough;
+        }
+
+        smallestHeadingDifference(a, b) {
+          let diff = Math.abs(a - b);
+          diff = diff % (Math.PI * 2);
+          if (diff > Math.PI) diff = (Math.PI * 2) - diff;
+          return diff;
+        }
+      }
+
+      function computeRelativeLuminance(r, g, b) {
+          const rLinear = srgbChannelToLinear(r);
+          const gLinear = srgbChannelToLinear(g);
+          const bLinear = srgbChannelToLinear(b);
+          return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
+      }
+
+      function srgbChannelToLinear(channelValue) {
+          const channel = Math.max(0, Math.min(255, channelValue)) / 255;
+          return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+      }
+
+      function clamp(value, min, max) {
+          return Math.min(Math.max(value, min), max);
+      }
+
+      function computeMarkerScale(zoom) {
+          return 1;
+      }
+
+      function computeBusMarkerMetrics(zoom) {
+          const scale = computeMarkerScale(zoom);
+          const width = BUS_MARKER_BASE_WIDTH_PX * scale;
+          const height = width * BUS_MARKER_ASPECT_RATIO;
+          return { scale, widthPx: width, heightPx: height };
+      }
+
+      function ensureBusMarkerState(vehicleID) {
+          if (!busMarkerStates[vehicleID]) {
+              const defaultRouteColor = BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              busMarkerStates[vehicleID] = {
+                  vehicleID,
+                  positionHistory: [],
+                  headingDeg: BUS_MARKER_DEFAULT_HEADING,
+                  fillColor: defaultRouteColor,
+                  glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
+                  rotationSmoothingMs: ROTATION_SMOOTHING_DEFAULT_MS,
+                  rotationPreviousHeadingDeg: BUS_MARKER_DEFAULT_HEADING,
+                  accessibleLabel: '',
+                  isStale: false,
+                  isStopped: false,
+                  isSelected: false,
+                  isHovered: false,
+                  lastUpdateTimestamp: 0,
+                  size: null,
+                  elements: null,
+                  marker: null,
+                  markerEventsBound: false
+              };
+          }
+          return busMarkerStates[vehicleID];
+      }
+
+      function setBusMarkerSize(state, metrics) {
+          if (!state || !metrics) {
+              return;
+          }
+          state.size = {
+              widthPx: metrics.widthPx,
+              heightPx: metrics.heightPx,
+              scale: metrics.scale
+          };
+      }
+ 
+      function computeBusMarkerGlyphColor(routeColor) {
+          if (typeof busMarkerContrastOverrideColor === 'string' && busMarkerContrastOverrideColor.trim().length > 0) {
+              return busMarkerContrastOverrideColor;
+          }
+          const fallback = BUS_MARKER_DEFAULT_CONTRAST_COLOR;
+          const candidate = typeof routeColor === 'string' && routeColor.trim().length > 0 ? routeColor : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const contrast = contrastBW(candidate);
+          return contrast || fallback;
+      }
+
+      function normalizeRouteColor(color) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
+              }
+          }
+          return BUS_MARKER_DEFAULT_ROUTE_COLOR;
+      }
+
+      function normalizeGlyphColor(color, routeColor) {
+          if (typeof color === 'string') {
+              const trimmed = color.trim();
+              if (trimmed.length > 0) {
+                  return trimmed;
+              }
+          } else if (color !== undefined && color !== null) {
+              const stringValue = `${color}`.trim();
+              if (stringValue.length > 0) {
+                  return stringValue;
+              }
+          }
+          const fallbackRouteColor = normalizeRouteColor(routeColor);
+          return computeBusMarkerGlyphColor(fallbackRouteColor);
+      }
+
+      function applyColorsToBusMarkerSvg(svgEl, routeColor, glyphColor) {
+          if (!svgEl) {
+              return;
+          }
+          const fillColor = normalizeRouteColor(routeColor);
+          const contrastColor = normalizeGlyphColor(glyphColor, fillColor);
+          const routeShape = svgEl.querySelector('#route_color');
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          const centerSquare = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
+          const heading = svgEl.querySelector('#heading');
+          if (routeShape) {
+              routeShape.setAttribute('fill', fillColor);
+              routeShape.style.fill = fillColor;
+          }
+          if (centerRing) {
+              centerRing.setAttribute('fill', contrastColor);
+              centerRing.style.fill = contrastColor;
+          }
+          if (centerSquare) {
+              centerSquare.setAttribute('fill', contrastColor);
+              centerSquare.style.fill = contrastColor;
+          }
+          if (heading) {
+              heading.setAttribute('fill', contrastColor);
+              heading.style.fill = contrastColor;
+          }
+      }
+
+      function updateBusMarkerColorElements(state) {
+          if (!state) {
+              return;
+          }
+          const normalizedFill = normalizeRouteColor(state.fillColor);
+          const normalizedGlyph = normalizeGlyphColor(state.glyphColor, normalizedFill);
+          state.fillColor = normalizedFill;
+          state.glyphColor = normalizedGlyph;
+          if (state.elements?.routeColor) {
+              state.elements.routeColor.setAttribute('fill', normalizedFill);
+              state.elements.routeColor.style.fill = normalizedFill;
+          }
+          if (state.elements?.centerRing) {
+              state.elements.centerRing.setAttribute('fill', normalizedGlyph);
+              state.elements.centerRing.style.fill = normalizedGlyph;
+          }
+          if (state.elements?.centerSquare) {
+              state.elements.centerSquare.setAttribute('fill', normalizedGlyph);
+              state.elements.centerSquare.style.fill = normalizedGlyph;
+          }
+          if (state.elements?.heading) {
+              state.elements.heading.setAttribute('fill', normalizedGlyph);
+              state.elements.heading.style.fill = normalizedGlyph;
+          }
+      }
+
+      function ensureCenterSquareElement(svgEl) {
+          if (!svgEl) {
+              return null;
+          }
+          let square = svgEl.querySelector(`#${BUS_MARKER_STOPPED_SQUARE_ID}`);
+          if (square) {
+              return square;
+          }
+          const namespace = 'http://www.w3.org/2000/svg';
+          square = document.createElementNS(namespace, 'rect');
+          square.setAttribute('id', BUS_MARKER_STOPPED_SQUARE_ID);
+          square.setAttribute('width', `${BUS_MARKER_STOPPED_SQUARE_SIZE_PX}`);
+          square.setAttribute('height', `${BUS_MARKER_STOPPED_SQUARE_SIZE_PX}`);
+          const halfSize = BUS_MARKER_STOPPED_SQUARE_SIZE_PX / 2;
+          const x = BUS_MARKER_CENTER_RING_CENTER_X - halfSize;
+          const y = BUS_MARKER_CENTER_RING_CENTER_Y - halfSize;
+          square.setAttribute('x', x.toFixed(2));
+          square.setAttribute('y', y.toFixed(2));
+          square.style.display = 'none';
+          square.style.pointerEvents = 'none';
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          const centerRingClass = centerRing?.getAttribute('class');
+          if (centerRingClass) {
+              square.setAttribute('class', centerRingClass);
+          }
+          const heading = svgEl.querySelector('#heading');
+          if (heading && heading.parentNode) {
+              heading.parentNode.insertBefore(square, heading);
+          } else if (centerRing && centerRing.parentNode) {
+              centerRing.parentNode.insertBefore(square, centerRing.nextSibling);
+          } else {
+              svgEl.appendChild(square);
+          }
+          return square;
+      }
+
+      function setCenterShapeDisplay(centerRing, centerSquare, isStopped) {
+          const showSquare = Boolean(isStopped);
+          if (centerRing) {
+              centerRing.style.display = showSquare ? 'none' : 'inline';
+          }
+          if (centerSquare) {
+              centerSquare.style.display = showSquare ? 'inline' : 'none';
+          }
+      }
+
+      function applyStoppedVisualStateToSvg(svgEl, isStopped) {
+          if (!svgEl) {
+              return;
+          }
+          const centerSquare = ensureCenterSquareElement(svgEl);
+          const centerRing = svgEl.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+          setCenterShapeDisplay(centerRing, centerSquare, isStopped);
+      }
+
+      function ensureBusMarkerStoppedElements(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          const square = ensureCenterSquareElement(state.elements.svg);
+          if (square) {
+              state.elements.centerSquare = square;
+          }
+          if (!state.elements.centerRing || !state.elements.centerRing.isConnected) {
+              const ring = state.elements.svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`);
+              if (ring) {
+                  state.elements.centerRing = ring;
+              }
+          }
+      }
+
+      function applyBusMarkerStoppedVisualState(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          ensureBusMarkerStoppedElements(state);
+          setCenterShapeDisplay(state.elements.centerRing, state.elements.centerSquare, state.isStopped);
+      }
+
+      function setBusMarkerContrastOverrideColor(color) {
+          if (typeof color === 'string' && color.trim().length > 0) {
+              busMarkerContrastOverrideColor = color.trim();
+          } else {
+              busMarkerContrastOverrideColor = null;
+          }
+          Object.keys(busMarkerStates).forEach(vehicleID => {
+              const state = busMarkerStates[vehicleID];
+              if (!state) {
+                  return;
+              }
+              const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
+              const glyphColor = computeBusMarkerGlyphColor(routeColor);
+              state.glyphColor = glyphColor;
+              queueBusMarkerVisualUpdate(vehicleID, { glyphColor });
+          });
+      }
+
+      if (typeof window !== 'undefined') {
+          window.setBusMarkerContrastOverrideColor = setBusMarkerContrastOverrideColor;
+      }
+
+      function getTextMeasurementContext() {
+          if (!textMeasurementCanvas && typeof document !== 'undefined') {
+              textMeasurementCanvas = document.createElement('canvas');
+          }
+          return textMeasurementCanvas ? textMeasurementCanvas.getContext('2d') : null;
+      }
+
+      function measureLabelTextWidth(text, fontSizePx, fontWeight = 'bold') {
+          const ctx = getTextMeasurementContext();
+          const normalizedFontSize = Math.max(1, Number(fontSizePx) || 0);
+          if (!ctx) {
+              return (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
+          }
+          ctx.font = `${fontWeight} ${normalizedFontSize}px ${BUS_MARKER_LABEL_FONT_FAMILY}`;
+          const metrics = ctx.measureText(text || '');
+          return metrics && Number.isFinite(metrics.width)
+              ? metrics.width
+              : (typeof text === 'string' ? text.length : 0) * normalizedFontSize * 0.6;
+      }
+
+      function roundToTwoDecimals(value) {
+          return Math.round((Number(value) || 0) * 100) / 100;
+      }
+
+      function getBusMarkerVisibleExtents() {
+          if (busMarkerVisibleExtents) {
+              return busMarkerVisibleExtents;
+          }
+
+          const fallbackExtents = {
+              top: BUS_MARKER_PIVOT_Y,
+              bottom: BUS_MARKER_VIEWBOX_HEIGHT - BUS_MARKER_PIVOT_Y,
+              left: BUS_MARKER_PIVOT_X,
+              right: BUS_MARKER_VIEWBOX_WIDTH - BUS_MARKER_PIVOT_X
+          };
+
+          if (!BUS_MARKER_SVG_TEXT || typeof document === 'undefined') {
+              return fallbackExtents;
+          }
+
+          try {
+              const template = document.createElement('template');
+              template.innerHTML = BUS_MARKER_SVG_TEXT.trim();
+              const svgEl = template.content.firstElementChild;
+              if (!svgEl) {
+                  throw new Error('Failed to parse bus marker SVG for bounds computation.');
+              }
+              const clone = svgEl.cloneNode(true);
+
+              clone.querySelectorAll('rect').forEach(rect => {
+                  const width = Number(rect.getAttribute('width'));
+                  const height = Number(rect.getAttribute('height'));
+                  if (width === 0 && height === 0) {
+                      rect.remove();
+                  }
+              });
+
+              clone.querySelectorAll('circle').forEach(circle => {
+                  const radius = Number(circle.getAttribute('r'));
+                  if (radius === 0) {
+                      circle.remove();
+                  }
+              });
+
+              clone.setAttribute('width', `${BUS_MARKER_VIEWBOX_WIDTH}`);
+              clone.setAttribute('height', `${BUS_MARKER_VIEWBOX_HEIGHT}`);
+              clone.style.position = 'absolute';
+              clone.style.visibility = 'hidden';
+              clone.style.pointerEvents = 'none';
+              clone.style.left = '-9999px';
+              clone.style.top = '-9999px';
+
+              const host = document.body || document.documentElement;
+              if (!host) {
+                  throw new Error('Document does not have an attachable host element for bounds computation.');
+              }
+
+              host.appendChild(clone);
+              let bbox = null;
+              try {
+                  bbox = clone.getBBox();
+              } finally {
+                  clone.remove();
+              }
+
+              if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height)) {
+                  busMarkerVisibleExtents = {
+                      top: BUS_MARKER_PIVOT_Y - bbox.y,
+                      bottom: (bbox.y + bbox.height) - BUS_MARKER_PIVOT_Y,
+                      left: BUS_MARKER_PIVOT_X - bbox.x,
+                      right: (bbox.x + bbox.width) - BUS_MARKER_PIVOT_X
+                  };
+                  return busMarkerVisibleExtents;
+              }
+          } catch (error) {
+              console.error('Failed to compute bus marker visible extents:', error);
+          }
+
+          busMarkerVisibleExtents = fallbackExtents;
+          return busMarkerVisibleExtents;
+      }
+
+      function computeBusMarkerVerticalExtentsForHeading(headingDeg) {
+          const extents = getBusMarkerVisibleExtents();
+          if (!extents) {
+              return null;
+          }
+
+          const normalizedHeading = normalizeHeadingDegrees(Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          const radians = normalizedHeading * Math.PI / 180;
+          const sin = Math.sin(radians);
+          const cos = Math.cos(radians);
+
+          const corners = [
+              { x: -extents.left, y: -extents.top },
+              { x: extents.right, y: -extents.top },
+              { x: extents.right, y: extents.bottom },
+              { x: -extents.left, y: extents.bottom }
+          ];
+
+          let minY = Infinity;
+          let maxY = -Infinity;
+          for (const corner of corners) {
+              const rotatedY = corner.x * sin + corner.y * cos;
+              if (rotatedY < minY) {
+                  minY = rotatedY;
+              }
+              if (rotatedY > maxY) {
+                  maxY = rotatedY;
+              }
+          }
+
+          if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+              return null;
+          }
+
+          return {
+              top: Math.abs(minY),
+              bottom: Math.abs(maxY)
+          };
+      }
+
+      function computeLabelLeaderOffset(scale, headingDeg, position = 'above') {
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const normalizedHeading = normalizeHeadingDegrees(
+              Number.isFinite(headingDeg) ? headingDeg : BUS_MARKER_DEFAULT_HEADING
+          );
+          const conversionFactor = (BUS_MARKER_BASE_WIDTH_PX * safeScale) / BUS_MARKER_VIEWBOX_WIDTH;
+          const fallbackWidth = BUS_MARKER_BASE_WIDTH_PX * safeScale;
+          const fallbackHeight = fallbackWidth * BUS_MARKER_ASPECT_RATIO;
+          const fallbackHalfDiagonal = Math.sqrt(fallbackWidth * fallbackWidth + fallbackHeight * fallbackHeight) / 2;
+          const clearance = LABEL_VERTICAL_CLEARANCE_PX * safeScale;
+
+          const headingRelativeToVertical = normalizedHeading % 180;
+          const deviationFromVertical = Math.min(headingRelativeToVertical, 180 - headingRelativeToVertical);
+          const verticality = Math.pow(
+              Math.max(0, Math.cos(deviationFromVertical * Math.PI / 180)),
+              LABEL_VERTICAL_ALIGNMENT_EXPONENT
+          );
+          const verticalAlignmentBonus = LABEL_VERTICAL_ALIGNMENT_BONUS_PX * safeScale * verticality;
+          const horizontalAlignmentBonus = LABEL_HORIZONTAL_ALIGNMENT_BONUS_PX * safeScale * (1 - verticality);
+
+          const verticalExtents = computeBusMarkerVerticalExtentsForHeading(normalizedHeading);
+          if (!verticalExtents) {
+              return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus + horizontalAlignmentBonus);
+          }
+
+          let extentSvgUnits;
+          if (position === 'below') {
+              extentSvgUnits = verticalExtents.bottom;
+          } else if (position === 'above') {
+              extentSvgUnits = verticalExtents.top;
+          } else {
+              extentSvgUnits = Math.max(verticalExtents.top, verticalExtents.bottom);
+          }
+
+          if (!Number.isFinite(extentSvgUnits)) {
+              return Math.max(0, fallbackHalfDiagonal + clearance + verticalAlignmentBonus + horizontalAlignmentBonus);
+          }
+
+          const extentPx = extentSvgUnits * conversionFactor;
+          const totalOffset = extentPx + clearance + verticalAlignmentBonus + horizontalAlignmentBonus;
+          return totalOffset > 0 ? totalOffset : 0;
+      }
+
+      function createSpeedBubbleDivIcon(routeColor, groundSpeed, scale, headingDeg) {
+          if (!Number.isFinite(groundSpeed)) {
+              return null;
+          }
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+              ? routeColor
+              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const textColor = computeBusMarkerGlyphColor(fillColor);
+          const normalizedSpeed = Math.max(0, Math.round(groundSpeed));
+          const label = `${normalizedSpeed} MPH`;
+          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, SPEED_BUBBLE_BASE_FONT_PX * safeScale);
+          const horizontalPadding = SPEED_BUBBLE_HORIZONTAL_PADDING * safeScale;
+          const verticalPadding = SPEED_BUBBLE_VERTICAL_PADDING * safeScale;
+          const textWidth = measureLabelTextWidth(label, fontSize);
+          const width = Math.max(SPEED_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const height = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const radius = SPEED_BUBBLE_CORNER_RADIUS * safeScale;
+          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          const svgWidth = roundToTwoDecimals(width);
+          const svgHeight = roundToTwoDecimals(height);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(svgHeight / 2 + baselineShift);
+          const anchorX = roundToTwoDecimals(svgWidth / 2);
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
+          const anchorY = -leaderOffset;
+          const svg = `
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+                  <g>
+                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(label)}</text>
+                  </g>
+              </svg>`;
+          return L.divIcon({
+              html: svg,
+              className: '',
+              iconSize: [svgWidth, svgHeight],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function createNameBubbleDivIcon(busName, routeColor, scale, headingDeg) {
+          if (typeof busName !== 'string' || busName.trim().length === 0) {
+              return null;
+          }
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const name = busName.trim();
+          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+              ? routeColor
+              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, NAME_BUBBLE_BASE_FONT_PX * safeScale);
+          const horizontalPadding = NAME_BUBBLE_HORIZONTAL_PADDING * safeScale;
+          const verticalPadding = NAME_BUBBLE_VERTICAL_PADDING * safeScale;
+          const frameInset = NAME_BUBBLE_FRAME_INSET * safeScale;
+          const textWidth = measureLabelTextWidth(name, fontSize);
+          const rectWidth = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const svgWidth = roundToTwoDecimals(rectWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+          const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
+          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectY = roundToTwoDecimals(frameInset);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
+          const anchorX = textX;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'above'));
+          const anchorY = svgHeight + leaderOffset;
+          const textColor = computeBusMarkerGlyphColor(fillColor);
+          const fontSizeRounded = roundToTwoDecimals(fontSize);
+          const svg = `
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+                  <g>
+                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                  </g>
+              </svg>`;
+          return L.divIcon({
+              html: svg,
+              className: '',
+              iconSize: [svgWidth, svgHeight],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function createBlockBubbleDivIcon(blockName, routeColor, scale, headingDeg) {
+          if (typeof blockName !== 'string' || blockName.trim() === '') {
+              return null;
+          }
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const name = blockName.trim();
+          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+              ? routeColor
+              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, BLOCK_BUBBLE_BASE_FONT_PX * safeScale);
+          const horizontalPadding = BLOCK_BUBBLE_HORIZONTAL_PADDING * safeScale;
+          const verticalPadding = BLOCK_BUBBLE_VERTICAL_PADDING * safeScale;
+          const frameInset = BLOCK_BUBBLE_FRAME_INSET * safeScale;
+          const textWidth = measureLabelTextWidth(name, fontSize);
+          const rectWidth = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const svgWidth = roundToTwoDecimals(rectWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+          const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
+          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectY = roundToTwoDecimals(frameInset);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
+          const textX = roundToTwoDecimals(svgWidth / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
+          const anchorX = textX;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'below'));
+          const anchorY = -leaderOffset;
+          const textColor = computeBusMarkerGlyphColor(fillColor);
+          const fontSizeRounded = roundToTwoDecimals(fontSize);
+          const svg = `
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
+                  <g>
+                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="FGDC">${escapeHtml(name)}</text>
+                  </g>
+              </svg>`;
+          return L.divIcon({
+              html: svg,
+              className: '',
+              iconSize: [svgWidth, svgHeight],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function updateBusMarkerHeading(state, newPosition, fallbackHeading, groundSpeedMph) {
+          if (!state) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const lat = Array.isArray(newPosition) ? Number(newPosition[0]) : Number(newPosition?.lat ?? newPosition?.Latitude);
+          const lng = Array.isArray(newPosition) ? Number(newPosition[1]) : Number(newPosition?.lng ?? newPosition?.Longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              return state.headingDeg ?? BUS_MARKER_DEFAULT_HEADING;
+          }
+          const current = L.latLng(lat, lng);
+          const history = Array.isArray(state.positionHistory) ? state.positionHistory : [];
+          const previous = history.length > 0 ? history[history.length - 1] : null;
+          let heading = Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
+          const sanitizedSpeedMph = Number.isFinite(groundSpeedMph) ? Math.max(0, groundSpeedMph) : null;
+          const speedMetersPerSecond = sanitizedSpeedMph === null ? null : sanitizedSpeedMph * METERS_PER_SECOND_PER_MPH;
+          const hasSufficientSpeed = speedMetersPerSecond === null || speedMetersPerSecond >= MIN_HEADING_SPEED_METERS_PER_SECOND;
+          if (previous) {
+              const distance = previous.distanceTo(current);
+              const shouldUpdateHeading = distance >= MIN_HEADING_DISTANCE_METERS && hasSufficientSpeed;
+              if (shouldUpdateHeading) {
+                  const computed = computeBearingDegrees(previous, current);
+                  if (Number.isFinite(computed)) {
+                      heading = computed;
+                  }
+              } else if (!Number.isFinite(heading)) {
+                  const fallback = Number.isFinite(fallbackHeading) ? fallbackHeading : BUS_MARKER_DEFAULT_HEADING;
+                  heading = fallback;
+              }
+              if (distance >= MIN_POSITION_UPDATE_METERS) {
+                  history.push(current);
+                  if (history.length > 2) {
+                      history.shift();
+                  }
+              } else {
+                  history[history.length - 1] = current;
+              }
+          } else {
+              const fallback = Number.isFinite(fallbackHeading) ? fallbackHeading : heading;
+              heading = Number.isFinite(fallback) ? fallback : BUS_MARKER_DEFAULT_HEADING;
+              history.push(current);
+          }
+          state.positionHistory = history;
+          state.headingDeg = normalizeHeadingDegrees(heading);
+          return state.headingDeg;
+      }
+
+      function computeBearingDegrees(fromLatLng, toLatLng) {
+          if (!fromLatLng || !toLatLng) {
+              return BUS_MARKER_DEFAULT_HEADING;
+          }
+          const lat1 = fromLatLng.lat * Math.PI / 180;
+          const lat2 = toLatLng.lat * Math.PI / 180;
+          const dLon = (toLatLng.lng - fromLatLng.lng) * Math.PI / 180;
+          const y = Math.sin(dLon) * Math.cos(lat2);
+          const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+          const theta = Math.atan2(y, x);
+          const bearing = theta * 180 / Math.PI;
+          return normalizeHeadingDegrees(bearing);
+      }
+
+      function normalizeHeadingDegrees(degrees) {
+          const normalized = Number.isFinite(degrees) ? degrees : BUS_MARKER_DEFAULT_HEADING;
+          return ((normalized % 360) + 360) % 360;
+      }
+
+      function buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed) {
+          const name = busName && `${busName}`.trim().length > 0 ? `${busName}`.trim() : 'Vehicle';
+          const direction = bearingToDirection(headingDeg);
+          const speedText = formatBusSpeed(groundSpeed);
+          return `${name} — ${direction} — ${speedText}`;
+      }
+
+      function isBusConsideredStopped(groundSpeed) {
+          if (!Number.isFinite(groundSpeed)) {
+              return false;
+          }
+          const speed = Math.max(0, Math.round(groundSpeed));
+          return speed <= 1;
+      }
+
+      function bearingToDirection(headingDeg) {
+          if (!Number.isFinite(headingDeg)) {
+              return 'Unknown direction';
+          }
+          const compass = [
+              'Northbound',
+              'Northeastbound',
+              'Eastbound',
+              'Southeastbound',
+              'Southbound',
+              'Southwestbound',
+              'Westbound',
+              'Northwestbound'
+          ];
+          const normalized = normalizeHeadingDegrees(headingDeg);
+          const index = Math.round(normalized / 45) % compass.length;
+          return compass[index];
+      }
+
+      function formatBusSpeed(groundSpeed) {
+          if (!Number.isFinite(groundSpeed)) {
+              return 'Speed unavailable';
+          }
+          const speed = Math.max(0, Math.round(groundSpeed));
+          if (speed <= 1) {
+              return 'Stopped';
+          }
+          return `${speed} mph`;
+      }
+
+      function escapeHtml(value) {
+          if (value === null || value === undefined) {
+              return '';
+          }
+          return `${value}`
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+      }
+
+      function contrastBW(hex) {
+          if (typeof hex !== 'string' || hex.trim().length === 0) {
+              return '#FFFFFF';
+          }
+          let normalized = hex.trim().replace(/^#/, '');
+          if (normalized.length === 3) {
+              normalized = normalized.split('').map(ch => ch + ch).join('');
+          }
+          if (normalized.length !== 6 || /[^0-9a-fA-F]/.test(normalized)) {
+              return '#FFFFFF';
+          }
+          const r = parseInt(normalized.substring(0, 2), 16) / 255;
+          const g = parseInt(normalized.substring(2, 4), 16) / 255;
+          const b = parseInt(normalized.substring(4, 6), 16) / 255;
+          const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          return L > 0.55 ? '#000000' : '#FFFFFF';
+      }
+
+      async function loadBusSVG() {
+          if (BUS_MARKER_SVG_TEXT) {
+              return BUS_MARKER_SVG_TEXT;
+          }
+          if (!BUS_MARKER_SVG_LOAD_PROMISE) {
+              BUS_MARKER_SVG_LOAD_PROMISE = fetch(BUS_MARKER_SVG_URL)
+                  .then(response => {
+                      if (!response.ok) {
+                          throw new Error(`Failed to load bus marker SVG: ${response.status} ${response.statusText}`);
+                      }
+                      return response.text();
+                  })
+                  .then(text => {
+                      const template = document.createElement('template');
+                      template.innerHTML = text.trim();
+                      const parsedSvg = template.content.firstElementChild;
+                      if (!parsedSvg || parsedSvg.tagName.toLowerCase() !== 'svg') {
+                          throw new Error('Loaded bus marker asset is not a valid SVG.');
+                      }
+                      BUS_MARKER_SVG_TEXT = parsedSvg.outerHTML;
+                      busMarkerVisibleExtents = null;
+                      BUS_MARKER_SVG_LOAD_PROMISE = null;
+                      return BUS_MARKER_SVG_TEXT;
+                  })
+                  .catch(error => {
+                      BUS_MARKER_SVG_LOAD_PROMISE = null;
+                      throw error;
+                  });
+          }
+          return BUS_MARKER_SVG_LOAD_PROMISE;
+      }
+
+      async function createBusMarkerDivIcon(vehicleID, state) {
+          if (!state) {
+              return null;
+          }
+          try {
+              await loadBusSVG();
+          } catch (error) {
+              console.error('Failed to load bus marker SVG:', error);
+              return null;
+          }
+          if (!BUS_MARKER_SVG_TEXT) {
+              return null;
+          }
+          if (!state.size) {
+              const zoom = map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+              setBusMarkerSize(state, computeBusMarkerMetrics(zoom));
+          }
+          const width = state.size?.widthPx ?? BUS_MARKER_BASE_WIDTH_PX;
+          const height = state.size?.heightPx ?? width * BUS_MARKER_ASPECT_RATIO;
+          const anchorX = width * BUS_MARKER_ICON_ANCHOR_X_RATIO;
+          const anchorY = height * BUS_MARKER_ICON_ANCHOR_Y_RATIO;
+          const headingDeg = Number.isFinite(state?.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING;
+          const normalizedHeading = normalizeHeadingDegrees(headingDeg);
+          const label = state?.accessibleLabel && state.accessibleLabel.trim().length > 0
+              ? state.accessibleLabel.trim()
+              : `Vehicle ${vehicleID}`;
+          const template = document.createElement('template');
+          template.innerHTML = BUS_MARKER_SVG_TEXT.trim();
+          const svgEl = template.content.firstElementChild;
+          if (!svgEl || svgEl.tagName.toLowerCase() !== 'svg') {
+              return null;
+          }
+          svgEl.classList.add('bus-marker__svg');
+          svgEl.setAttribute('viewBox', `0 0 ${BUS_MARKER_VIEWBOX_WIDTH} ${BUS_MARKER_VIEWBOX_HEIGHT}`);
+          svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          svgEl.setAttribute('focusable', 'false');
+          svgEl.setAttribute('role', 'img');
+          svgEl.setAttribute('aria-label', label);
+          svgEl.setAttribute('overflow', 'visible');
+          svgEl.style.width = '100%';
+          svgEl.style.height = '100%';
+          svgEl.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+          svgEl.style.transform = `rotate(${normalizedHeading.toFixed(2)}deg)`;
+          const initialRotationDuration = clampRotationSmoothingDuration(
+              Number.isFinite(state?.rotationSmoothingMs)
+                  ? state.rotationSmoothingMs
+                  : ROTATION_SMOOTHING_DEFAULT_MS
+          );
+          svgEl.style.setProperty('--rotation-smoothing-duration', `${initialRotationDuration}ms`);
+          if (state) {
+              state.rotationSmoothingMs = initialRotationDuration;
+              state.rotationPreviousHeadingDeg = normalizedHeading;
+          }
+
+          const routeFillColor = normalizeRouteColor(state.fillColor);
+          const glyphFillColor = normalizeGlyphColor(state.glyphColor, routeFillColor);
+          state.fillColor = routeFillColor;
+          state.glyphColor = glyphFillColor;
+          ensureCenterSquareElement(svgEl);
+          applyColorsToBusMarkerSvg(svgEl, routeFillColor, glyphFillColor);
+          applyStoppedVisualStateToSvg(svgEl, state.isStopped);
+
+          const existingTitle = svgEl.querySelector('title');
+          let title = existingTitle;
+          if (!title) {
+              title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+              svgEl.insertBefore(title, svgEl.firstChild);
+          }
+          title.textContent = label;
+
+          const rootClasses = ['bus-marker__root'];
+          if (state?.isStale) rootClasses.push('is-stale');
+          if (state?.isSelected) rootClasses.push('is-selected');
+          if (state?.isHovered) rootClasses.push('is-hover');
+          const root = document.createElement('div');
+          root.className = rootClasses.join(' ');
+          root.dataset.vehicleId = `${vehicleID}`;
+          root.setAttribute('tabindex', '0');
+          root.setAttribute('role', 'img');
+          root.setAttribute('aria-label', label);
+          root.appendChild(svgEl);
+
+          const wrapper = document.createElement('div');
+          wrapper.appendChild(root);
+
+          return L.divIcon({
+              html: wrapper.innerHTML,
+              className: 'leaflet-div-icon bus-marker',
+              iconSize: [width, height],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
+      function registerBusMarkerElements(vehicleID) {
+          const state = busMarkerStates[vehicleID];
+          const marker = markers[vehicleID];
+          if (!state || !marker) {
+              return null;
+          }
+          const iconElement = marker.getElement();
+          if (!iconElement) {
+              return null;
+          }
+          const root = iconElement.querySelector('.bus-marker__root');
+          const svg = root ? root.querySelector('.bus-marker__svg') : null;
+          const title = svg ? svg.querySelector('title') : null;
+          const routeShape = svg ? svg.querySelector('#route_color') : null;
+          const centerSquare = svg ? ensureCenterSquareElement(svg) : null;
+          const centerRing = svg ? svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`) : null;
+          const heading = svg ? svg.querySelector('#heading') : null;
+          state.elements = {
+              icon: iconElement,
+              root,
+              svg,
+              title,
+              routeColor: routeShape,
+              centerRing,
+              centerSquare,
+              heading
+          };
+          if (root) {
+              root.dataset.vehicleId = `${vehicleID}`;
+          }
+          if (svg) {
+              svg.style.pointerEvents = 'none';
+              svg.style.transformOrigin = BUS_MARKER_TRANSFORM_ORIGIN;
+              const rotationDuration = clampRotationSmoothingDuration(
+                  Number.isFinite(state?.rotationSmoothingMs)
+                      ? state.rotationSmoothingMs
+                      : ROTATION_SMOOTHING_DEFAULT_MS
+              );
+              svg.style.setProperty('--rotation-smoothing-duration', `${rotationDuration}ms`);
+          }
+          updateBusMarkerColorElements(state);
+          applyBusMarkerStoppedVisualState(state);
+          return state.elements;
+      }
+
+      function queueBusMarkerVisualUpdate(vehicleID, update = {}) {
+          if (!vehicleID) {
+              return;
+          }
+          const existing = pendingBusVisualUpdates.get(vehicleID) || {};
+          Object.assign(existing, update);
+          pendingBusVisualUpdates.set(vehicleID, existing);
+          if (busMarkerVisualUpdateFrame === null) {
+              busMarkerVisualUpdateFrame = requestAnimationFrame(flushBusMarkerVisualUpdates);
+          }
+      }
+
+      function flushBusMarkerVisualUpdates() {
+          busMarkerVisualUpdateFrame = null;
+          pendingBusVisualUpdates.forEach((update, vehicleID) => {
+              applyBusMarkerVisualUpdate(vehicleID, update);
+          });
+          pendingBusVisualUpdates.clear();
+      }
+
+      function applyBusMarkerVisualUpdate(vehicleID, update) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const elements = state.elements || registerBusMarkerElements(vehicleID);
+          if (!elements || !elements.root) {
+              return;
+          }
+          let previousHeading = null;
+          if (update && Object.prototype.hasOwnProperty.call(update, 'previousHeadingDeg')) {
+              const candidatePrev = Number(update.previousHeadingDeg);
+              if (Number.isFinite(candidatePrev)) {
+                  previousHeading = candidatePrev;
+              }
+          }
+          if (!Number.isFinite(previousHeading) && Number.isFinite(state.rotationPreviousHeadingDeg)) {
+              previousHeading = state.rotationPreviousHeadingDeg;
+          }
+          let rotationBaseDuration = null;
+          if (update && Object.prototype.hasOwnProperty.call(update, 'rotationDurationMs')) {
+              const candidateBase = Number(update.rotationDurationMs);
+              if (Number.isFinite(candidateBase) && candidateBase > 0) {
+                  rotationBaseDuration = candidateBase;
+              }
+          }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'fillColor')) {
+              state.fillColor = update.fillColor;
+          }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'glyphColor')) {
+              state.glyphColor = update.glyphColor;
+          }
+          updateBusMarkerColorElements(state);
+          if (update && typeof update.stale === 'boolean') {
+              state.isStale = update.stale;
+          }
+          if (update && typeof update.accessibleLabel === 'string') {
+              state.accessibleLabel = update.accessibleLabel;
+          }
+          if (update && Number.isFinite(update.headingDeg)) {
+              state.headingDeg = normalizeHeadingDegrees(update.headingDeg);
+          }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'stopped')) {
+              state.isStopped = Boolean(update.stopped);
+          }
+          applyBusMarkerStoppedVisualState(state);
+          const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
+          const rotationBase = Number.isFinite(rotationBaseDuration)
+              ? rotationBaseDuration
+              : (Number.isFinite(state.rotationSmoothingMs) && state.rotationSmoothingMs > 0
+                  ? state.rotationSmoothingMs
+                  : ROTATION_SMOOTHING_DEFAULT_MS);
+          const rotationDuration = computeRotationSmoothingDuration(rotationBase, previousHeading, rotationDeg);
+          state.rotationSmoothingMs = rotationDuration;
+          state.rotationPreviousHeadingDeg = rotationDeg;
+          if (elements.svg) {
+              elements.svg.style.setProperty('--rotation-smoothing-duration', `${rotationDuration}ms`);
+              elements.svg.style.transform = `rotate(${rotationDeg.toFixed(2)}deg)`;
+              if (state.accessibleLabel) {
+                  elements.svg.setAttribute('aria-label', state.accessibleLabel);
+              }
+          }
+          if (elements.root && state.accessibleLabel) {
+              elements.root.setAttribute('aria-label', state.accessibleLabel);
+          }
+          if (elements.title && state.accessibleLabel) {
+              elements.title.textContent = state.accessibleLabel;
+          }
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function applyBusMarkerOutlineWidth(state) {
+          if (!state?.elements?.svg) {
+              return;
+          }
+          state.elements.svg.style.opacity = state.isStale ? '0.6' : '1';
+      }
+
+      function updateBusMarkerRootClasses(state) {
+          if (!state?.elements?.root) {
+              return;
+          }
+          const root = state.elements.root;
+          root.classList.toggle('is-stale', Boolean(state.isStale));
+          root.classList.toggle('is-selected', Boolean(state.isSelected));
+          root.classList.toggle('is-hover', Boolean(state.isHovered));
+      }
+
+      function updateBusMarkerZIndex(state) {
+          if (!state?.marker) {
+              return;
+          }
+          let offset = 0;
+          if (state.isSelected) {
+              offset = 800;
+          }
+          if (state.isHovered) {
+              offset = Math.max(offset, 1000);
+          }
+          state.marker.setZIndexOffset(offset);
+      }
+
+      function setBusMarkerHovered(vehicleID, isHovered) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const next = Boolean(isHovered);
+          if (state.isHovered === next) {
+              return;
+          }
+          state.isHovered = next;
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function setBusMarkerSelected(vehicleID, isSelected) {
+          const state = busMarkerStates[vehicleID];
+          if (!state) {
+              return;
+          }
+          const next = Boolean(isSelected);
+          if (state.isSelected === next) {
+              return;
+          }
+          state.isSelected = next;
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+      }
+
+      function attachBusMarkerInteractions(vehicleID) {
+          const state = busMarkerStates[vehicleID];
+          const marker = markers[vehicleID];
+          if (!state || !marker) {
+              return;
+          }
+          if (!state.markerEventsBound) {
+              marker.on('mouseover', () => setBusMarkerHovered(vehicleID, true));
+              marker.on('mouseout', () => setBusMarkerHovered(vehicleID, false));
+              marker.on('click', () => {
+                  if (selectedVehicleId && selectedVehicleId !== vehicleID) {
+                      setBusMarkerSelected(selectedVehicleId, false);
+                  }
+                  const nextSelected = selectedVehicleId !== vehicleID;
+                  setBusMarkerSelected(vehicleID, nextSelected);
+                  selectedVehicleId = nextSelected ? vehicleID : null;
+              });
+              state.markerEventsBound = true;
+          }
+          const elements = state.elements || registerBusMarkerElements(vehicleID);
+          const root = elements?.root;
+          if (root && !root.dataset.busMarkerFocusBound) {
+              root.addEventListener('focus', () => setBusMarkerHovered(vehicleID, true));
+              root.addEventListener('blur', () => setBusMarkerHovered(vehicleID, false));
+              root.dataset.busMarkerFocusBound = 'true';
+          }
+      }
+
+      async function updateBusMarkerSizes(metricsOverride = null) {
+          if (!map) {
+              return;
+          }
+          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+          const metrics = metricsOverride || computeBusMarkerMetrics(zoom);
+          try {
+              await loadBusSVG();
+          } catch (error) {
+              console.error('Failed to load bus marker SVG while updating sizes:', error);
+          }
+          for (const vehicleID of Object.keys(markers)) {
+              const marker = markers[vehicleID];
+              const state = busMarkerStates[vehicleID];
+              if (!marker || !state) {
+                  continue;
+              }
+              const currentWidth = state.size?.widthPx;
+              if (currentWidth && Math.abs(currentWidth - metrics.widthPx) < 0.1) {
+                  continue;
+              }
+              setBusMarkerSize(state, metrics);
+              try {
+                  const icon = await createBusMarkerDivIcon(vehicleID, state);
+                  if (!icon) {
+                      continue;
+                  }
+                  marker.setIcon(icon);
+                  registerBusMarkerElements(vehicleID);
+                  attachBusMarkerInteractions(vehicleID);
+                  updateBusMarkerRootClasses(state);
+                  updateBusMarkerZIndex(state);
+                  applyBusMarkerOutlineWidth(state);
+              } catch (error) {
+                  console.error(`Failed to resize bus marker for vehicle ${vehicleID}:`, error);
+              }
+          }
+          updateLabelIconsForMetrics(metrics);
+      }
+
+      function updateLabelIconsForMetrics(metrics) {
+          if (!metrics || !Number.isFinite(metrics.scale) || !map) {
+              return;
+          }
+          const scale = metrics.scale;
+          Object.keys(nameBubbles).forEach(vehicleID => {
+              const bubble = nameBubbles[vehicleID];
+              const state = busMarkerStates[vehicleID];
+              const marker = markers[vehicleID];
+              if (!bubble || !state || !marker) {
+                  return;
+              }
+              const routeColor = state.fillColor || getRouteColor(state.routeID) || outOfServiceRouteColor;
+              const speedMarker = bubble.speedMarker;
+              const nameMarker = bubble.nameMarker;
+              const blockMarker = bubble.blockMarker;
+
+              if (speedMarker) {
+                  if (showSpeed && Number.isFinite(state.groundSpeed)) {
+                      const speedIcon = createSpeedBubbleDivIcon(routeColor, state.groundSpeed, scale, state.headingDeg);
+                      if (speedIcon) {
+                          speedMarker.setIcon(speedIcon);
+                      } else {
+                          map.removeLayer(speedMarker);
+                          delete bubble.speedMarker;
+                      }
+                  } else {
+                      map.removeLayer(speedMarker);
+                      delete bubble.speedMarker;
+                  }
+              }
+
+              if (nameMarker) {
+                  if (showNameBubbles && state.busName) {
+                      const nameIcon = createNameBubbleDivIcon(state.busName, routeColor, scale, state.headingDeg);
+                      if (nameIcon) {
+                          nameMarker.setIcon(nameIcon);
+                      } else {
+                          map.removeLayer(nameMarker);
+                          delete bubble.nameMarker;
+                      }
+                  } else {
+                      map.removeLayer(nameMarker);
+                      delete bubble.nameMarker;
+                  }
+              }
+
+              if (blockMarker) {
+                  const blockName = busBlocks[vehicleID];
+                  if (showBlockNumbers && blockName && blockName.includes('[')) {
+                      const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, scale, state.headingDeg);
+                      if (blockIcon) {
+                          blockMarker.setIcon(blockIcon);
+                      } else {
+                          map.removeLayer(blockMarker);
+                          delete bubble.blockMarker;
+                      }
+                  } else {
+                      map.removeLayer(blockMarker);
+                      delete bubble.blockMarker;
+                  }
+              }
+
+              const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker);
+              if (hasMarkers) {
+                  bubble.lastScale = scale;
+              } else {
+                  delete nameBubbles[vehicleID];
+              }
+          });
+      }
+
+      function scheduleMarkerScaleUpdate() {
+          if (!map) {
+              return;
+          }
+          const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+          const metrics = computeBusMarkerMetrics(zoom);
+          pendingMarkerScaleMetrics = Object.assign({}, metrics);
+          if (markerScaleUpdateFrame !== null) {
+              return;
+          }
+          markerScaleUpdateFrame = requestAnimationFrame(async () => {
+              markerScaleUpdateFrame = null;
+              const metricsToApply = pendingMarkerScaleMetrics;
+              pendingMarkerScaleMetrics = null;
+              if (!metricsToApply) {
+                  return;
+              }
+              try {
+                  await updateBusMarkerSizes(metricsToApply);
+              } catch (error) {
+                  console.error('Failed to update bus marker sizes:', error);
+              }
+          });
+      }
+
+      function clearBusMarkerState(vehicleID) {
+          pendingBusVisualUpdates.delete(vehicleID);
+          if (selectedVehicleId === vehicleID) {
+              selectedVehicleId = null;
+          }
+          if (busMarkerStates[vehicleID]) {
+              delete busMarkerStates[vehicleID];
+          }
+      }
+
+      function isVehicleGpsStale(vehicle) {
+          if (!vehicle) {
+              return false;
+          }
+          if (vehicle.IsStale === true || vehicle.Stale === true || vehicle.StaleGPS === true) {
+              return true;
+          }
+          if (vehicle.HasValidGps === false || vehicle.IsRealtime === false) {
+              return true;
+          }
+          const ageFields = [
+              vehicle.SecondsSinceReport,
+              vehicle.SecondsSinceLastReport,
+              vehicle.SecondsSinceLastUpdate,
+              vehicle.SecondsSinceUpdate,
+              vehicle.SecondsSinceLastGps,
+              vehicle.LastGpsAgeSeconds,
+              vehicle.LocationAge,
+              vehicle.GPSSignalAge,
+              vehicle.Age,
+              vehicle.AgeInSeconds
+          ];
+          for (let i = 0; i < ageFields.length; i += 1) {
+              const value = Number(ageFields[i]);
+              if (Number.isFinite(value) && value > GPS_STALE_THRESHOLD_SECONDS) {
+                  return true;
+              }
+          }
+          return false;
+      }
+
+      function computeMarkerAnimationDuration(displayDeltaMs, actualElapsedMs) {
+        if (!isPlaying) {
+          return 0;
+        }
+        const delta = Number(displayDeltaMs);
+        if (!Number.isFinite(delta) || delta <= 0) {
+          return 0;
+        }
+        if (delta > MARKER_ANIMATION_MAX_DATA_GAP_MS) {
+          return 0;
+        }
+        const playbackFactor = Math.max(1, Number(playbackSpeed) || 1);
+        let expectedDuration = delta / playbackFactor;
+        if (!Number.isFinite(expectedDuration) || expectedDuration <= 0) {
+          return 0;
+        }
+        expectedDuration = Math.min(expectedDuration, MARKER_ANIMATION_MAX_DURATION_MS);
+        const actual = Number(actualElapsedMs);
+        const cappedActual = Number.isFinite(actual) && actual > 0
+          ? Math.min(actual, MARKER_ANIMATION_MAX_DURATION_MS)
+          : expectedDuration;
+        let duration = Math.min(expectedDuration, cappedActual);
+        if (!Number.isFinite(duration) || duration <= 0) {
+          return 0;
+        }
+        duration *= 0.85;
+        if (duration < MARKER_ANIMATION_MIN_DURATION_MS) {
+          return 0;
+        }
+        return duration;
+      }
+
+      function clampRotationSmoothingDuration(durationMs) {
+        const value = Number(durationMs);
+        if (!Number.isFinite(value) || value <= 0) {
+          return ROTATION_SMOOTHING_MIN_DURATION_MS;
+        }
+        const clamped = Math.max(
+          ROTATION_SMOOTHING_MIN_DURATION_MS,
+          Math.min(ROTATION_SMOOTHING_MAX_DURATION_MS, value)
+        );
+        return Math.round(clamped);
+      }
+
+      function computeRotationSmoothingBaseDuration(displayDeltaMs, animationDurationMs, playbackFactor) {
+        const playback = Math.max(1, Number(playbackFactor) || 1);
+        const animation = Number(animationDurationMs);
+        if (Number.isFinite(animation) && animation > 0) {
+          return animation * ROTATION_SMOOTHING_DURATION_MULTIPLIER;
+        }
+        const delta = Number(displayDeltaMs);
+        if (Number.isFinite(delta) && delta > 0) {
+          const scaled = delta / playback;
+          if (Number.isFinite(scaled) && scaled > 0) {
+            return scaled * ROTATION_SMOOTHING_DURATION_MULTIPLIER;
+          }
+        }
+        return ROTATION_SMOOTHING_DEFAULT_MS * ROTATION_SMOOTHING_DURATION_MULTIPLIER;
+      }
+
+      function computeHeadingDeltaDegrees(fromDeg, toDeg) {
+        if (!Number.isFinite(fromDeg) || !Number.isFinite(toDeg)) {
+          return null;
+        }
+        const normalizedFrom = normalizeHeadingDegrees(fromDeg);
+        const normalizedTo = normalizeHeadingDegrees(toDeg);
+        const diff = Math.abs(normalizedFrom - normalizedTo) % 360;
+        return diff > 180 ? 360 - diff : diff;
+      }
+
+      function computeRotationSmoothingDuration(baseDurationMs, previousHeadingDeg, nextHeadingDeg) {
+        const base = Number(baseDurationMs);
+        let duration = Number.isFinite(base) && base > 0 ? base : ROTATION_SMOOTHING_DEFAULT_MS;
+        const headingDelta = computeHeadingDeltaDegrees(previousHeadingDeg, nextHeadingDeg);
+        if (Number.isFinite(headingDelta)) {
+          const normalizedDelta = Math.max(0, Math.min(180, headingDelta));
+          const deltaRatio = normalizedDelta / 180;
+          const scaledRatio = Math.pow(deltaRatio, ROTATION_SMOOTHING_HEADING_EXPONENT);
+          const reduction = 1 - scaledRatio * ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE;
+          duration *= Math.max(0.25, reduction);
+        }
+        return clampRotationSmoothingDuration(duration);
+      }
+
+      function easeInOutCubic(t) {
+        if (!Number.isFinite(t)) {
+          return 0;
+        }
+        const clamped = Math.max(0, Math.min(1, t));
+        return clamped < 0.5
+          ? 4 * clamped * clamped * clamped
+          : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
+      }
+
+      function stopMarkerAnimation(marker) {
+        if (!marker) {
+          return;
+        }
+        const handle = marker.__activeAnimationHandle;
+        if (typeof handle === 'number') {
+          cancelAnimationFrame(handle);
+        }
+        marker.__activeAnimationHandle = null;
+        marker.__animationState = null;
+      }
+
+      function animateMarkerTo(marker, newPosition, options = {}) {
+        if (!marker || !newPosition) {
+          return;
+        }
+        const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
+        const endPos = hasArrayPosition
+          ? L.latLng(newPosition)
+          : L.latLng(newPosition?.lat, newPosition?.lng);
+        if (!endPos || Number.isNaN(endPos.lat) || Number.isNaN(endPos.lng)) {
+          return;
+        }
+
+        stopMarkerAnimation(marker);
+
+        const durationRaw = Number(options?.durationMs);
+        const durationMs = Number.isFinite(durationRaw)
+          ? Math.min(Math.max(0, durationRaw), MARKER_ANIMATION_MAX_DURATION_MS)
+          : 0;
+
+        if (durationMs <= MARKER_ANIMATION_MIN_DURATION_MS || typeof requestAnimationFrame !== 'function') {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const startPos = marker.getLatLng();
+        if (!startPos || Number.isNaN(startPos.lat) || Number.isNaN(startPos.lng)) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const distanceMeters = typeof startPos.distanceTo === 'function'
+          ? startPos.distanceTo(endPos)
+          : null;
+        if (!Number.isFinite(distanceMeters) || distanceMeters < MIN_POSITION_UPDATE_METERS) {
+          marker.setLatLng(endPos);
+          return;
+        }
+
+        const animationState = {
+          startLatLng: startPos,
+          endLatLng: endPos,
+          durationMs,
+          startTime: null
+        };
+
+        const step = (timestamp) => {
+          if (marker.__animationState !== animationState) {
+            return;
+          }
+          const timeValue = Number(timestamp);
+          if (!Number.isFinite(timeValue)) {
+            marker.setLatLng(animationState.endLatLng);
+            marker.__animationState = null;
+            marker.__activeAnimationHandle = null;
+            return;
+          }
+          if (animationState.startTime === null) {
+            animationState.startTime = timeValue;
+          }
+          const elapsed = Math.max(0, timeValue - animationState.startTime);
+          const progressRaw = animationState.durationMs > 0
+            ? elapsed / animationState.durationMs
+            : 1;
+          const eased = easeInOutCubic(progressRaw);
+          const lat = animationState.startLatLng.lat + (animationState.endLatLng.lat - animationState.startLatLng.lat) * eased;
+          const lng = animationState.startLatLng.lng + (animationState.endLatLng.lng - animationState.startLatLng.lng) * eased;
+          marker.setLatLng([lat, lng]);
+          if (elapsed < animationState.durationMs) {
+            marker.__activeAnimationHandle = requestAnimationFrame(step);
+          } else {
+            marker.setLatLng(animationState.endLatLng);
+            marker.__animationState = null;
+            marker.__activeAnimationHandle = null;
+          }
+        };
+
+        marker.__animationState = animationState;
+        marker.__activeAnimationHandle = requestAnimationFrame(step);
+      }
+
+    function initializeMap() {
+      map = L.map('map', { zoomControl: false }).setView([38.03799212281404, -78.50981502838886], 15);
+      sharedRouteRenderer = L.svg({ padding: 0 });
+      if (sharedRouteRenderer) {
+        map.addLayer(sharedRouteRenderer);
+      }
+      map.createPane('stopsPane');
+      const stopsPane = map.getPane('stopsPane');
+      if (stopsPane) {
+        stopsPane.style.zIndex = 450;
+        stopsPane.style.pointerEvents = 'auto';
+      }
+      map.createPane('busesPane');
+      const busesPane = map.getPane('busesPane');
+      if (busesPane) {
+        busesPane.style.zIndex = 500;
+        busesPane.style.pointerEvents = 'auto';
+      }
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      if (enableOverlapDashRendering) {
+        overlapRenderer = new OverlapRouteRenderer(map, {
+          sampleStepPx: 8,
+          dashLengthPx: 16,
+          minDashLengthPx: 0.5,
+          matchTolerancePx: 6,
+          strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+          minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+          maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT,
+          renderer: sharedRouteRenderer,
+          pane: routePaneName
+        });
+        map.on('zoomend', () => {
+          if (overlapRenderer) {
+            overlapRenderer.handleZoomEnd();
+          }
+        });
+      }
+
+      map.on('zoom', () => {
+        scheduleMarkerScaleUpdate();
+      });
+      map.on('zoomend', () => {
+        scheduleMarkerScaleUpdate();
+      });
+    }
+
+    initializeMap();
+
+    flatpickr("#datePicker", {
+      dateFormat: "Y-m-d",
+      defaultDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    });
+    flatpickr("#startTime", {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      defaultDate: "00:00"
+    });
+    flatpickr("#endTime", {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: true,
+      defaultDate: "23:59"
+    });
+
+    scheduleMarkerScaleUpdate();
+
+    if (controlsContainer) {
+      controlsContainer.addEventListener('transitionend', (event) => {
+        if (!event) return;
+        if (event.target !== controlsContainer) return;
+        if (event.propertyName !== 'max-height') return;
+        updateControlsHeight(true);
+      });
+    }
+
+    function showLoadingOverlay() {
+      const overlay = document.getElementById('loadingOverlay');
+      if (!overlay) return;
+      overlay.classList.add('is-visible');
+      overlay.setAttribute('aria-busy', 'true');
+    }
+
+    function hideLoadingOverlay() {
+      const overlay = document.getElementById('loadingOverlay');
+      if (!overlay) return;
+      overlay.classList.remove('is-visible');
+      overlay.setAttribute('aria-busy', 'false');
+    }
+
+    function beginRangeLoad() {
+      activeRangeLoadCount += 1;
+      showLoadingOverlay();
+    }
+
+    function completeRangeLoad() {
+      activeRangeLoadCount = Math.max(0, activeRangeLoadCount - 1);
+      if (activeRangeLoadCount === 0) {
+        hideLoadingOverlay();
+      }
+    }
+
+    function positionPanelTab(panelId, tabId, side = 'right') {
+      const panel = document.getElementById(panelId);
+      const tab = document.getElementById(tabId);
+      if (!panel || !tab) return;
+
+      const panelRect = panel.getBoundingClientRect();
+      const tabRect = tab.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      const tabHeight = tabRect.height || tab.offsetHeight || parseFloat(window.getComputedStyle(tab).height) || 0;
+
+      if (Number.isFinite(panelRect?.top) && Number.isFinite(panelRect?.height)) {
+        const panelCenter = panelRect.top + panelRect.height / 2;
+        if (Number.isFinite(panelCenter)) {
+          const halfTab = Number.isFinite(tabHeight) ? tabHeight / 2 : 0;
+          let targetTop = panelCenter;
+          if (Number.isFinite(viewportHeight) && halfTab > 0) {
+            const minTop = halfTab + 8;
+            const maxTop = viewportHeight - halfTab - 8;
+            if (Number.isFinite(minTop) && Number.isFinite(maxTop)) {
+              targetTop = Math.min(Math.max(panelCenter, minTop), Math.max(minTop, maxTop));
+            }
+          }
+          if (Number.isFinite(targetTop)) {
+            tab.style.top = `${targetTop}px`;
+          }
+        }
+      }
+
+      const panelStyle = window.getComputedStyle(panel);
+      const gap = side === 'right'
+        ? (parseFloat(panelStyle.right) || 0)
+        : (parseFloat(panelStyle.left) || 0);
+      const offset = panel.offsetWidth + gap;
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+      const tabWidth = tabRect.width || tab.offsetWidth || parseFloat(window.getComputedStyle(tab).width) || 0;
+
+      if (side === 'right') {
+        if (panel.classList.contains('hidden')) {
+          tab.style.right = '0';
+        } else {
+          const maxRight = Math.max(0, viewportWidth - tabWidth);
+          const clampedOffset = Math.min(offset, maxRight);
+          tab.style.right = `${clampedOffset}px`;
+        }
+        tab.style.left = '';
+      } else {
+        if (panel.classList.contains('hidden')) {
+          tab.style.left = '0';
+        } else {
+          const maxLeft = Math.max(0, viewportWidth - tabWidth);
+          const clampedOffset = Math.min(offset, maxLeft);
+          tab.style.left = `${clampedOffset}px`;
+        }
+        tab.style.right = '';
+      }
+    }
+
+    function positionAllPanelTabs() {
+      positionPanelTab('busSelector', 'busSelectorTab', 'left');
+      positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
+    }
+
+    function setControlsCollapsed(collapsed) {
+      controlsCollapsed = collapsed;
+      document.body.classList.toggle('controls-collapsed', collapsed);
+      const isMobileView = controlsViewportQuery ? controlsViewportQuery.matches : window.innerWidth <= 720;
+      if (controlsContainer) {
+        controlsContainer.classList.toggle('is-collapsed', collapsed);
+        const shouldInert = collapsed && !isMobileView;
+        if (typeof controlsContainer.inert === 'boolean') {
+          controlsContainer.inert = shouldInert;
+        } else if (shouldInert) {
+          controlsContainer.setAttribute('inert', '');
+        } else {
+          controlsContainer.removeAttribute('inert');
+        }
+        if (shouldInert) {
+          controlsContainer.setAttribute('aria-hidden', 'true');
+        } else {
+          controlsContainer.removeAttribute('aria-hidden');
+        }
+      }
+      if (controlsToggleButton) {
+        controlsToggleButton.setAttribute('aria-expanded', String(!collapsed));
+        controlsToggleButton.textContent = collapsed ? 'Show Controls' : 'Hide Controls';
+      }
+      updateControlsHeight();
+    }
+
+    function updateControlsHeight(deferred = false) {
+      const controls = controlsContainer || document.getElementById('controls');
+      if (!controls) return;
+      const isMobileView = controlsViewportQuery ? controlsViewportQuery.matches : window.innerWidth <= 720;
+      if (controls.classList.contains('is-collapsed')) {
+        if (isMobileView) {
+          const peekHeight = controls.offsetHeight;
+          if (Number.isFinite(peekHeight) && peekHeight > 0) {
+            const peekValue = `${Math.round(peekHeight)}px`;
+            document.documentElement.style.setProperty('--mobile-controls-peek', peekValue);
+            document.documentElement.style.setProperty('--controls-height', peekValue);
+          } else {
+            const fallbackPeek = window.getComputedStyle(document.documentElement)
+              .getPropertyValue('--mobile-controls-peek')
+              .trim();
+            document.documentElement.style.setProperty('--controls-height', fallbackPeek || '0px');
+          }
+        } else {
+          document.documentElement.style.setProperty('--controls-height', '0px');
+        }
+      } else {
+        const height = controls.offsetHeight;
+        document.documentElement.style.setProperty('--controls-height', `${height}px`);
+      }
+      positionAllPanelTabs();
+
+      if (!deferred) {
+        const hasWindow = typeof window !== 'undefined';
+        const raf = hasWindow ? window.requestAnimationFrame : null;
+        if (typeof raf === 'function') {
+          if (pendingControlsHeightRaf !== null) {
+            window.cancelAnimationFrame(pendingControlsHeightRaf);
+          }
+          pendingControlsHeightRaf = raf(() => {
+            pendingControlsHeightRaf = null;
+            updateControlsHeight(true);
+          });
+        } else if (hasWindow && typeof window.setTimeout === 'function') {
+          window.setTimeout(() => updateControlsHeight(true), 0);
+        }
+      }
+    }
+
+    window.addEventListener('load', () => {
+      positionAllPanelTabs();
+      updateControlsHeight();
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(() => {
+          updateControlsHeight();
+          positionAllPanelTabs();
+        });
+      }
+    });
+    window.addEventListener('resize', () => {
+      positionAllPanelTabs();
+      updateControlsHeight();
+    });
+
+    if (controlsToggleButton) {
+      controlsToggleButton.addEventListener('click', () => {
+        setControlsCollapsed(!controlsCollapsed);
+      });
+
+      const syncControlsForViewport = (event) => {
+        const isMobile = event?.matches ?? (controlsViewportQuery ? controlsViewportQuery.matches : false);
+        if (!isMobile && controlsCollapsed) {
+          setControlsCollapsed(false);
+        } else {
+          setControlsCollapsed(controlsCollapsed);
+        }
+        if (controlsToggleButton) {
+          controlsToggleButton.setAttribute('aria-hidden', isMobile ? 'false' : 'true');
+          controlsToggleButton.tabIndex = isMobile ? 0 : -1;
+        }
+      };
+
+      if (controlsViewportQuery) {
+        syncControlsForViewport(controlsViewportQuery);
+        if (typeof controlsViewportQuery.addEventListener === 'function') {
+          controlsViewportQuery.addEventListener('change', syncControlsForViewport);
+        } else if (typeof controlsViewportQuery.addListener === 'function') {
+          controlsViewportQuery.addListener(syncControlsForViewport);
+        }
+      } else {
+        setControlsCollapsed(false);
+        controlsToggleButton.setAttribute('aria-hidden', 'true');
+        controlsToggleButton.tabIndex = -1;
+      }
+    }
+
+    function updateSpeedButtons() {
+      playBtn.classList.remove('is-active');
+      pauseBtn.classList.remove('is-active');
+      ff2Btn.classList.remove('is-active');
+      ff4Btn.classList.remove('is-active');
+      ff8Btn.classList.remove('is-active');
+      ff10Btn.classList.remove('is-active');
+      ff30Btn.classList.remove('is-active');
+      ff100Btn.classList.remove('is-active');
+      ff200Btn.classList.remove('is-active');
+      ff500Btn.classList.remove('is-active');
+      ff1000Btn.classList.remove('is-active');
+      if (!isPlaying) {
+        pauseBtn.classList.add('is-active');
+      } else if (playbackSpeed === 1) {
+        playBtn.classList.add('is-active');
+      } else if (playbackSpeed === 2) {
+        ff2Btn.classList.add('is-active');
+      } else if (playbackSpeed === 4) {
+        ff4Btn.classList.add('is-active');
+      } else if (playbackSpeed === 8) {
+        ff8Btn.classList.add('is-active');
+      } else if (playbackSpeed === 10) {
+        ff10Btn.classList.add('is-active');
+      } else if (playbackSpeed === 30) {
+        ff30Btn.classList.add('is-active');
+      } else if (playbackSpeed === 100) {
+        ff100Btn.classList.add('is-active');
+      } else if (playbackSpeed === 200) {
+        ff200Btn.classList.add('is-active');
+      } else if (playbackSpeed === 500) {
+        ff500Btn.classList.add('is-active');
+      } else if (playbackSpeed === 1000) {
+        ff1000Btn.classList.add('is-active');
+      }
+    }
+
+    async function fetchRoutes() {
+      try {
+        const response = await fetch('/v1/transloc/routes');
+        const data = await response.json();
+        if (!Array.isArray(data)) {
+          return;
+        }
+
+        data.forEach(route => {
+          if (!route) return;
+          const numericId = Number(route.RouteID);
+          if (!Number.isFinite(numericId)) return;
+
+          const merged = Object.assign({}, allRoutes[numericId] || {}, route);
+
+          const color = typeof route.MapLineColor === 'string' ? route.MapLineColor.trim() : '';
+          if (color) {
+            routeColors[numericId] = color;
+            merged.MapLineColor = color;
+          }
+
+          const encodedPolylineRaw = route.EncodedPolyline ?? route.encodedPolyline;
+          const encoded = typeof encodedPolylineRaw === 'string' ? encodedPolylineRaw.trim() : '';
+          if (encoded) {
+            merged.EncodedPolyline = encoded;
+          } else {
+            delete merged.EncodedPolyline;
+          }
+
+          allRoutes[numericId] = merged;
+        });
+      } catch (err) {
+        console.error('Error fetching routes', err);
+      }
+    }
+
+    function getContrastColor(hexColor) {
+      hexColor = hexColor.replace('#', '');
+      const r = parseInt(hexColor.substring(0,2), 16);
+      const g = parseInt(hexColor.substring(2,4), 16);
+      const b = parseInt(hexColor.substring(4,6), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.5 ? '#000000' : '#FFFFFF';
+    }
+
+    function getRouteColor(routeID) {
+      if (routeID === 0) return outOfServiceRouteColor;
+      return routeColors[routeID] || '#000000';
+    }
+
+    function isRouteSelected(routeID) {
+      if (routeSelections.hasOwnProperty(routeID)) return routeSelections[routeID];
+      return activeRoutes.has(Number(routeID));
+    }
+
+    function isBusSelected(busID) {
+      if (busSelections.hasOwnProperty(busID)) return busSelections[busID];
+      return activeBuses.has(Number(busID));
+    }
+
+    async function refreshReplay() {
+      const timeline = document.getElementById('timeline');
+      const ms = parseInt(timeline.value);
+      await showFrame(currentFrameIndex, isNaN(ms) ? undefined : ms);
+    }
+
+    async function setReplayDisplayMode(mode) {
+      if (mode === 'block') {
+        showSpeed = false;
+        showBlockNumbers = true;
+      } else if (mode === 'speed') {
+        showSpeed = true;
+        showBlockNumbers = false;
+      } else if (mode === 'none') {
+        showSpeed = false;
+        showBlockNumbers = false;
+      } else {
+        return;
+      }
+      updateRouteSelector(activeRoutes, { force: true });
+      await refreshReplay();
+    }
+
+    async function toggleSpeedOrBlock() {
+      if (showSpeed) {
+        await setReplayDisplayMode('block');
+      } else if (showBlockNumbers) {
+        await setReplayDisplayMode('none');
+      } else {
+        await setReplayDisplayMode('speed');
+      }
+    }
+
+    async function toggleNameBubbles() {
+      showNameBubbles = !showNameBubbles;
+      updateRouteSelector(activeRoutes, { force: true });
+      await refreshReplay();
+    }
+
+    function applyBusOptionState(inputElement) {
+      if (!inputElement || typeof inputElement.closest !== 'function') return;
+      const parentLabel = inputElement.closest('label.selector-option');
+      if (!parentLabel) return;
+      parentLabel.classList.toggle('is-active', inputElement.checked);
+    }
+
+    function updateBusSelector(activeBusesSet, options) {
+      const container = document.getElementById('busSelector');
+      if (!container) return;
+
+      options = options || {};
+      const forceUpdate = options.force === true;
+
+      const activeSet = activeBusesSet instanceof Set
+        ? activeBusesSet
+        : new Set(Array.isArray(activeBusesSet) ? activeBusesSet : []);
+
+      const busIDs = Object.keys(allBuses)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id));
+
+      busIDs.sort((a, b) => {
+        const nameA = (allBuses[a] || `${a}`).toUpperCase();
+        const nameB = (allBuses[b] || `${b}`).toUpperCase();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        return 0;
+      });
+
+      const activeSnapshot = Array.from(activeSet)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id))
+        .sort((a, b) => a - b);
+      const namesSnapshot = busIDs.map(id => allBuses[id] || '');
+      const nextStateKey = JSON.stringify({
+        ids: busIDs,
+        active: activeSnapshot,
+        names: namesSnapshot
+      });
+
+      if (!forceUpdate && nextStateKey === lastBusSelectorStateKey) {
+        return;
+      }
+
+      const previousContent = container.querySelector('.selector-content');
+      const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
+
+      let html = `
+        <div class="selector-header">
+          <div class="selector-title">Vehicle Filters</div>
+          <div class="selector-subtitle">Pick the vehicles to follow during playback.</div>
+        </div>
+        <div class="selector-content">
+          <div class="selector-section">
+            <div class="selector-group">
+              <div class="selector-label">Quick Select</div>
+              <div class="display-mode-group route-action-buttons">
+                <button type="button" class="pill-button" onclick="selectAllBuses()">Select All</button>
+                <button type="button" class="pill-button" onclick="selectActiveBuses()">Select Active</button>
+                <button type="button" class="pill-button" onclick="deselectAllBuses()">Deselect All</button>
+              </div>
+            </div>
+      `;
+
+      if (busIDs.length === 0) {
+        html += `
+            <div class="selector-group">
+              <div class="selector-label">Vehicles</div>
+              <div class="selector-option-detail">No vehicles detected in this frame.</div>
+            </div>
+          </div>
+        </div>
+        `;
+      } else {
+        html += `
+            <div class="selector-group">
+              <div class="selector-label">Vehicles</div>
+              <div class="selector-list">
+        `;
+        busIDs.forEach(id => {
+          const checked = Object.prototype.hasOwnProperty.call(busSelections, id)
+            ? busSelections[id]
+            : activeSet.has(id);
+          const name = allBuses[id] || `Vehicle ${id}`;
+          html += `
+                <label class="selector-option ${checked ? 'is-active' : ''}">
+                  <input type="checkbox" id="bus_${id}" value="${id}" ${checked ? 'checked' : ''}>
+                  <span class="selector-option-text">
+                    <span class="selector-option-name">${name}</span>
+                  </span>
+                </label>
+          `;
+        });
+        html += `
+              </div>
+            </div>
+          </div>
+        </div>
+        `;
+      }
+
+      container.innerHTML = html;
+
+      const newContent = container.querySelector('.selector-content');
+      if (newContent) {
+        newContent.scrollTop = previousScrollTop;
+      }
+
+      busIDs.forEach(id => {
+        const checkbox = document.getElementById(`bus_${id}`);
+        if (checkbox) {
+          checkbox.addEventListener('change', () => {
+            busSelections[id] = checkbox.checked;
+            applyBusOptionState(checkbox);
+            refreshReplay();
+          });
+          applyBusOptionState(checkbox);
+        }
+      });
+
+      lastBusSelectorStateKey = nextStateKey;
+      positionAllPanelTabs();
+    }
+
+    function selectAllBuses() {
+      Object.keys(allBuses).forEach(id => {
+        const numericId = Number(id);
+        if (Number.isNaN(numericId)) return;
+        const checkbox = document.getElementById(`bus_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = true;
+          applyBusOptionState(checkbox);
+        }
+        busSelections[numericId] = true;
+      });
+      refreshReplay();
+    }
+
+    function selectActiveBuses() {
+      const activeSet = activeBuses instanceof Set
+        ? activeBuses
+        : new Set(Array.isArray(activeBuses) ? activeBuses : []);
+
+      Object.keys(allBuses).forEach(id => {
+        const numericId = Number(id);
+        if (Number.isNaN(numericId)) return;
+        const checkbox = document.getElementById(`bus_${numericId}`);
+        const shouldSelect = activeSet.has(numericId);
+        if (checkbox) {
+          checkbox.checked = shouldSelect;
+          applyBusOptionState(checkbox);
+        }
+        busSelections[numericId] = shouldSelect;
+      });
+      refreshReplay();
+    }
+
+    function deselectAllBuses() {
+      Object.keys(allBuses).forEach(id => {
+        const numericId = Number(id);
+        if (Number.isNaN(numericId)) return;
+        const checkbox = document.getElementById(`bus_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = false;
+          applyBusOptionState(checkbox);
+        }
+        busSelections[numericId] = false;
+      });
+      refreshReplay();
+    }
+
+    function applyRouteOptionState(inputElement) {
+      if (!inputElement || typeof inputElement.closest !== 'function') return;
+      const parentLabel = inputElement.closest('label.route-option');
+      if (!parentLabel) return;
+      parentLabel.classList.toggle('is-active', inputElement.checked);
+    }
+
+    function updateRouteSelector(activeRoutesParam, options) {
+      const container = document.getElementById('routeSelector');
+      if (!container) return;
+
+      options = options || {};
+      const forceUpdate = options.force === true;
+
+      const activeRoutesSet = activeRoutesParam instanceof Set
+        ? activeRoutesParam
+        : new Set(Array.isArray(activeRoutesParam) ? activeRoutesParam : []);
+
+      const routeIDs = Object.keys(allRoutes)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id) && id !== 0);
+
+      routeIDs.sort((a, b) => {
+        const descA = (allRoutes[a]?.Description || `Route ${a}`).toUpperCase();
+        const descB = (allRoutes[b]?.Description || `Route ${b}`).toUpperCase();
+        if (descA < descB) return -1;
+        if (descA > descB) return 1;
+        return 0;
+      });
+
+      const routeInfoSnapshot = routeIDs.map(routeID => {
+        const route = allRoutes[routeID] || {};
+        return {
+          id: routeID,
+          description: route.Description || '',
+          infoText: route.InfoText || '',
+          color: route.MapLineColor || ''
+        };
+      });
+      const activeSnapshot = Array.from(activeRoutesSet)
+        .map(id => Number(id))
+        .filter(id => !Number.isNaN(id))
+        .sort((a, b) => a - b);
+      const nextStateKey = JSON.stringify({
+        routes: routeInfoSnapshot,
+        active: activeSnapshot,
+        showSpeed: !!showSpeed,
+        showBlockNumbers: !!showBlockNumbers,
+        showNameBubbles: !!showNameBubbles
+      });
+
+      if (!forceUpdate && nextStateKey === lastRouteSelectorStateKey) {
+        return;
+      }
+
+      const previousContent = container.querySelector('.selector-content');
+      const previousScrollTop = previousContent ? previousContent.scrollTop : 0;
+
+      let html = `
+        <div class="selector-header">
+          <div class="selector-title">Route Filters</div>
+          <div class="selector-subtitle">Choose which routes appear during playback.</div>
+        </div>
+        <div class="selector-content">
+          <div class="selector-section">
+            <div class="selector-group">
+              <div class="selector-label">Vehicle Labels</div>
+              <div class="display-mode-group">
+                <button type="button" class="pill-button ${showSpeed ? 'is-active' : ''}" onclick="setReplayDisplayMode('speed')">Show Speed</button>
+                <button type="button" class="pill-button ${showBlockNumbers ? 'is-active' : ''}" onclick="setReplayDisplayMode('block')">Show Blocks</button>
+                <button type="button" class="pill-button ${(!showSpeed && !showBlockNumbers) ? 'is-active' : ''}" onclick="setReplayDisplayMode('none')">Show None</button>
+              </div>
+            </div>
+            <div class="selector-group">
+              <div class="selector-label">Name Bubbles</div>
+              <button type="button" class="pill-button ${showNameBubbles ? 'is-active' : ''}" onclick="toggleNameBubbles()">${showNameBubbles ? 'Hide Name Bubbles' : 'Show Name Bubbles'}</button>
+            </div>
+            <div class="selector-group selector-group--route-actions">
+              <div class="selector-label">Route Shortcuts</div>
+              <div class="display-mode-group route-action-buttons">
+                <button type="button" class="pill-button" onclick="selectAllRoutes()">Select All</button>
+                <button type="button" class="pill-button" onclick="selectActiveRoutes()">Select Active</button>
+                <button type="button" class="pill-button" onclick="deselectAllRoutes()">Deselect All</button>
+              </div>
+            </div>
+            <div class="route-list">
+      `;
+
+      const outChecked = Object.prototype.hasOwnProperty.call(routeSelections, 0)
+        ? routeSelections[0]
+        : activeRoutesSet.has(0);
+
+      html += `
+              <label class="route-option route-option--out ${outChecked ? 'is-active' : ''}">
+                <input type="checkbox" id="route_0" value="0" ${outChecked ? 'checked' : ''}>
+                <span class="route-option-swatch" style="background:${outOfServiceRouteColor};"></span>
+                <span class="route-option-text">
+                  <span class="route-option-name">Out of Service</span>
+                  <span class="route-option-detail">Vehicles without an assigned route</span>
+                </span>
+              </label>
+      `;
+
+      if (routeIDs.length === 0) {
+        html += `
+              <div class="selector-option-detail">No routes available for this replay.</div>
+        `;
+      } else {
+        routeIDs.forEach(routeID => {
+          const route = allRoutes[routeID] || {};
+          const checked = Object.prototype.hasOwnProperty.call(routeSelections, routeID)
+            ? routeSelections[routeID]
+            : activeRoutesSet.has(routeID);
+          const color = route.MapLineColor || '#A0AEC0';
+          const description = route.Description || `Route ${routeID}`;
+          const infoText = route.InfoText && route.InfoText.trim() ? route.InfoText.trim() : '';
+          const detailParts = [];
+          if (infoText) detailParts.push(infoText);
+          if (activeRoutesSet.has(routeID)) detailParts.push('Active in frame');
+          const detailHtml = detailParts.map(text => `<span class="route-option-detail">${text}</span>`).join('');
+          html += `
+              <label class="route-option ${checked ? 'is-active' : ''}">
+                <input type="checkbox" id="route_${routeID}" value="${routeID}" ${checked ? 'checked' : ''}>
+                <span class="route-option-swatch" style="background:${color};"></span>
+                <span class="route-option-text">
+                  <span class="route-option-name">${description}</span>
+                  ${detailHtml}
+                </span>
+              </label>
+          `;
+        });
+      }
+
+      html += `
+            </div>
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = html;
+
+      const newContent = container.querySelector('.selector-content');
+      if (newContent) {
+        newContent.scrollTop = previousScrollTop;
+      }
+
+      const outChk = document.getElementById('route_0');
+      if (outChk) {
+        outChk.addEventListener('change', () => {
+          routeSelections[0] = outChk.checked;
+          applyRouteOptionState(outChk);
+          refreshReplay();
+        });
+        applyRouteOptionState(outChk);
+      }
+
+      routeIDs.forEach(routeID => {
+        const checkbox = document.getElementById(`route_${routeID}`);
+        if (checkbox) {
+          checkbox.addEventListener('change', () => {
+            routeSelections[routeID] = checkbox.checked;
+            applyRouteOptionState(checkbox);
+            refreshReplay();
+          });
+          applyRouteOptionState(checkbox);
+        }
+      });
+
+      lastRouteSelectorStateKey = nextStateKey;
+      positionAllPanelTabs();
+    }
+
+    function selectAllRoutes() {
+      const outChk = document.getElementById('route_0');
+      if (outChk) {
+        outChk.checked = true;
+        applyRouteOptionState(outChk);
+      }
+      routeSelections[0] = true;
+
+      Object.keys(allRoutes).forEach(routeID => {
+        const numericId = Number(routeID);
+        if (Number.isNaN(numericId) || numericId === 0) return;
+        const checkbox = document.getElementById(`route_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = true;
+          applyRouteOptionState(checkbox);
+        }
+        routeSelections[numericId] = true;
+      });
+      refreshReplay();
+    }
+
+    function selectActiveRoutes() {
+      const activeSet = activeRoutes instanceof Set
+        ? activeRoutes
+        : new Set(Array.isArray(activeRoutes) ? activeRoutes : []);
+
+      const outChk = document.getElementById('route_0');
+      const shouldSelectOut = activeSet.has(0);
+      if (outChk) {
+        outChk.checked = shouldSelectOut;
+        applyRouteOptionState(outChk);
+      }
+      routeSelections[0] = shouldSelectOut;
+
+      Object.keys(allRoutes).forEach(routeID => {
+        const numericId = Number(routeID);
+        if (Number.isNaN(numericId) || numericId === 0) return;
+        const checkbox = document.getElementById(`route_${numericId}`);
+        const shouldSelect = activeSet.has(numericId);
+        if (checkbox) {
+          checkbox.checked = shouldSelect;
+          applyRouteOptionState(checkbox);
+        }
+        routeSelections[numericId] = shouldSelect;
+      });
+      refreshReplay();
+    }
+
+    function deselectAllRoutes() {
+      const outChk = document.getElementById('route_0');
+      if (outChk) {
+        outChk.checked = false;
+        applyRouteOptionState(outChk);
+      }
+      routeSelections[0] = false;
+
+      Object.keys(allRoutes).forEach(routeID => {
+        const numericId = Number(routeID);
+        if (Number.isNaN(numericId) || numericId === 0) return;
+        const checkbox = document.getElementById(`route_${numericId}`);
+        if (checkbox) {
+          checkbox.checked = false;
+          applyRouteOptionState(checkbox);
+        }
+        routeSelections[numericId] = false;
+      });
+      refreshReplay();
+    }
+
+    function togglePanelVisibility(panelId, tabId, expandedArrow, collapsedArrow) {
+      const panel = document.getElementById(panelId);
+      const tab = document.getElementById(tabId);
+      if (!panel || !tab) return false;
+      const isHidden = panel.classList.toggle('hidden');
+      tab.innerHTML = isHidden ? collapsedArrow : expandedArrow;
+      positionAllPanelTabs();
+      return !isHidden;
+    }
+
+    function toggleRoutePanel() {
+      const opened = togglePanelVisibility('routeSelector', 'routeSelectorTab', '&#9664;', '&#9654;');
+      const busPanel = document.getElementById('busSelector');
+      const busTab = document.getElementById('busSelectorTab');
+      if (opened) {
+        if (busPanel && !busPanel.classList.contains('hidden')) {
+          busPanel.classList.add('hidden');
+          if (busTab) busTab.innerHTML = '&#9664;';
+        }
+        if (busTab) busTab.style.display = 'none';
+      } else if (busTab) {
+        busTab.style.display = '';
+      }
+      positionAllPanelTabs();
+    }
+
+    function toggleBusPanel() {
+      const opened = togglePanelVisibility('busSelector', 'busSelectorTab', '&#9654;', '&#9664;');
+      const routePanel = document.getElementById('routeSelector');
+      const routeTab = document.getElementById('routeSelectorTab');
+      if (opened) {
+        if (routePanel && !routePanel.classList.contains('hidden')) {
+          routePanel.classList.add('hidden');
+          if (routeTab) routeTab.innerHTML = '&#9654;';
+        }
+        if (routeTab) routeTab.style.display = 'none';
+      } else if (routeTab) {
+        routeTab.style.display = '';
+      }
+      positionAllPanelTabs();
+    }
+
+    function hourKey(ms) {
+      const d = new Date(ms);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const h = String(d.getHours()).padStart(2, '0');
+      return `${y}${m}${day}_${h}`;
+    }
+
+    async function loadHour(ms) {
+      const key = hourKey(ms);
+      if (loadedHours.has(key)) return;
+      beginRangeLoad();
+      try {
+        const resp = await fetch(`/vehicle_log/${key}.jsonl`, { cache: 'no-store' });
+        if (!resp.ok) { loadedHours.add(key); return; }
+        const text = await resp.text();
+        if (!text.trim()) { loadedHours.add(key); return; }
+        const entries = text
+          .split('\n')
+          .filter(l => l.trim())
+          .map(line => JSON.parse(line));
+        playbackData = playbackData.concat(entries);
+        playbackData.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+        playbackData = playbackData.filter(e => {
+          const t = new Date(e.ts);
+          return (!startTime || t >= startTime) && (!userEndTime || t <= userEndTime);
+        });
+        playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
+        loadedHours.add(key);
+        if (playbackTimes.length) {
+          const lastMs = playbackTimes[playbackTimes.length - 1];
+          const timeline = document.getElementById('timeline');
+          if (timeline) {
+            const currentMax = parseInt(timeline.max, 10) || 0;
+            if (lastMs > currentMax) {
+              timeline.max = lastMs;
+            }
+          }
+          if (lastMs > endTime.getTime()) {
+            endTime = new Date(lastMs);
+          }
+          if (lastMs > userEndTime.getTime()) {
+            userEndTime = new Date(lastMs);
+            const endInput = document.getElementById('endTime');
+            if (endInput && endInput._flatpickr) {
+              endInput._flatpickr.setDate(new Date(lastMs), true);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load log hour', err);
+        loadedHours.add(key);
+      } finally {
+        completeRangeLoad();
+      }
+    }
+
+    async function ensureLoaded(ms) {
+      const key = hourKey(ms);
+      if (!loadedHours.has(key)) {
+        await loadHour(ms);
+      }
+    }
+
+    function clearMarkers() {
+      Object.keys(markers).forEach(id => {
+        if (markers[id]) {
+          stopMarkerAnimation(markers[id]);
+          map.removeLayer(markers[id]);
+        }
+      });
+      markers = {};
+      Object.keys(nameBubbles).forEach(id => {
+        const bubble = nameBubbles[id];
+        if (!bubble) return;
+        if (bubble.speedMarker) {
+          stopMarkerAnimation(bubble.speedMarker);
+          map.removeLayer(bubble.speedMarker);
+        }
+        if (bubble.nameMarker) {
+          stopMarkerAnimation(bubble.nameMarker);
+          map.removeLayer(bubble.nameMarker);
+        }
+        if (bubble.blockMarker) {
+          stopMarkerAnimation(bubble.blockMarker);
+          map.removeLayer(bubble.blockMarker);
+        }
+      });
+      nameBubbles = {};
+      busMarkerStates = {};
+      pendingBusVisualUpdates.clear();
+      busBlocks = {};
+      lastFrameDisplayMs = null;
+      lastFrameRealTime = null;
+    }
+
+    function drawRoutes() {
+      const rendererGeometries = new Map();
+      const simpleGeometries = [];
+      const selectedRouteIds = [];
+      const seenRouteIds = new Set();
+      const previousSelectedIds = new Set(
+        (lastRouteRenderState.selectionKey || '')
+          .split('|')
+          .map(id => Number(id))
+          .filter(id => Number.isFinite(id))
+      );
+      let geometryChanged = false;
+      const useOverlapRenderer = enableOverlapDashRendering && overlapRenderer;
+
+      Object.keys(allRoutes).forEach(routeID => {
+        const route = allRoutes[routeID];
+        const numericId = Number(routeID);
+        if (!route || Number.isNaN(numericId)) return;
+
+        const color = typeof route.MapLineColor === 'string' ? route.MapLineColor.trim() : '';
+        if (color) {
+          routeColors[numericId] = color;
+        }
+
+        const encodedRaw = route.EncodedPolyline ?? route.encodedPolyline;
+        const encoded = typeof encodedRaw === 'string' ? encodedRaw.trim() : '';
+        if (encoded) {
+          seenRouteIds.add(numericId);
+          let cacheEntry = routePolylineCache.get(numericId);
+          if (!cacheEntry || cacheEntry.encoded !== encoded) {
+            try {
+              const decoded = polyline.decode(encoded);
+              const latLngPath = Array.isArray(decoded)
+                ? decoded.map(coords => L.latLng(coords[0], coords[1]))
+                : [];
+              if (latLngPath.length >= 2) {
+                routePolylineCache.set(numericId, { encoded, latLngPath });
+                cacheEntry = routePolylineCache.get(numericId);
+                if (isRouteSelected(numericId)) {
+                  geometryChanged = true;
+                }
+              } else {
+                routePolylineCache.delete(numericId);
+                cacheEntry = null;
+                if (isRouteSelected(numericId)) {
+                  geometryChanged = true;
+                }
+              }
+            } catch (error) {
+              console.error(`Failed to decode polyline for route ${numericId}:`, error);
+              routePolylineCache.delete(numericId);
+              if (isRouteSelected(numericId)) {
+                geometryChanged = true;
+              }
+              return;
+            }
+          }
+        } else {
+          if (routePolylineCache.has(numericId)) {
+            routePolylineCache.delete(numericId);
+            if (isRouteSelected(numericId)) {
+              geometryChanged = true;
+            }
+          }
+          return;
+        }
+
+        const cacheEntry = routePolylineCache.get(numericId);
+        if (!cacheEntry || !Array.isArray(cacheEntry.latLngPath) || cacheEntry.latLngPath.length < 2) {
+          return;
+        }
+
+        if (!isRouteSelected(numericId)) {
+          return;
+        }
+
+        selectedRouteIds.push(numericId);
+
+        if (useOverlapRenderer) {
+          rendererGeometries.set(numericId, cacheEntry.latLngPath);
+        } else {
+          simpleGeometries.push({
+            routeId: numericId,
+            latLngPath: cacheEntry.latLngPath,
+            routeColor: getRouteColor(numericId)
+          });
+        }
+      });
+
+      Array.from(routePolylineCache.keys()).forEach(routeId => {
+        if (!seenRouteIds.has(routeId)) {
+          if (previousSelectedIds.has(routeId)) {
+            geometryChanged = true;
+          }
+          routePolylineCache.delete(routeId);
+        }
+      });
+
+      const selectedRouteIdsSorted = selectedRouteIds.slice().sort((a, b) => a - b);
+      const selectionKey = selectedRouteIdsSorted.join('|');
+      const colorSignature = selectedRouteIdsSorted
+        .map(id => `${id}:${getRouteColor(id) || ''}`)
+        .join('|');
+      const geometrySignature = selectedRouteIdsSorted
+        .map(id => `${id}:${routePolylineCache.get(id)?.encoded || ''}`)
+        .join('|');
+      const rendererFlag = !!useOverlapRenderer;
+
+      const shouldRender =
+        routeLayers.length === 0 ||
+        rendererFlag !== lastRouteRenderState.useOverlapRenderer ||
+        selectionKey !== lastRouteRenderState.selectionKey ||
+        colorSignature !== lastRouteRenderState.colorSignature ||
+        geometrySignature !== lastRouteRenderState.geometrySignature ||
+        geometryChanged;
+
+      if (shouldRender) {
+        routeLayers.forEach(layer => map.removeLayer(layer));
+        routeLayers = [];
+        if (useOverlapRenderer) {
+          const layers = overlapRenderer.updateRoutes(rendererGeometries, selectedRouteIdsSorted) || [];
+          routeLayers = Array.isArray(layers) ? layers : [];
+        } else if (simpleGeometries.length > 0) {
+          const currentWeight = computeRouteStrokeWeight(
+            typeof map?.getZoom === 'function' ? map.getZoom() : null
+          );
+          simpleGeometries.forEach(({ routeId, latLngPath, routeColor }) => {
+            const layer = L.polyline(
+              latLngPath,
+              mergeRouteLayerOptions({
+                color: routeColor,
+                weight: currentWeight,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+              })
+            ).addTo(map);
+            routeLayers.push(layer);
+          });
+        }
+      }
+
+      lastRouteRenderState = {
+        selectionKey,
+        colorSignature,
+        geometrySignature,
+        useOverlapRenderer: rendererFlag
+      };
+    }
+
+
+    function findFrameIndex(ms) {
+      let idx = 0;
+      for (let i = 0; i < playbackTimes.length; i++) {
+        if (playbackTimes[i] <= ms) {
+          idx = i;
+        } else {
+          break;
+        }
+      }
+      return idx;
+    }
+
+
+    async function showFrame(i, displayMs) {
+      if (!playbackData[i]) return;
+      currentFrameIndex = i;
+      const entry = playbackData[i];
+      const timeline = document.getElementById('timeline');
+      const timeMs = (typeof displayMs !== 'undefined') ? displayMs : playbackTimes[i];
+      const formatted = new Date(timeMs).toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      timeline.value = timeMs;
+      timeline.title = formatted;
+      document.getElementById('timeLabel').textContent = `Showing: ${formatted}`;
+
+      const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const displayDeltaMs = Number.isFinite(lastFrameDisplayMs) ? Math.abs(timeMs - lastFrameDisplayMs) : 0;
+      const actualElapsedMs = Number.isFinite(lastFrameRealTime) ? Math.max(0, now - lastFrameRealTime) : 0;
+      const markerAnimationDuration = computeMarkerAnimationDuration(displayDeltaMs, actualElapsedMs);
+      const markerAnimationOptions = markerAnimationDuration > 0 ? { durationMs: markerAnimationDuration } : undefined;
+      const rotationSmoothingBase = computeRotationSmoothingBaseDuration(
+        displayDeltaMs,
+        markerAnimationDuration,
+        playbackSpeed
+      );
+
+      const activeRoutesSet = new Set();
+      const activeBusesSet = new Set();
+      entry.vehicles.forEach(v => {
+        activeRoutesSet.add(v.RouteID || 0);
+        activeBusesSet.add(v.VehicleID);
+        const busName = v.Name ? v.Name.slice(0, -2) : '';
+        if (busName) {
+          allBuses[v.VehicleID] = busName;
+        }
+      });
+      activeRoutes = activeRoutesSet;
+      activeBuses = activeBusesSet;
+      updateRouteSelector(activeRoutesSet);
+      updateBusSelector(activeBusesSet);
+
+      drawRoutes();
+
+      const blocks = entry.blocks || {};
+      const seen = new Set();
+      const markerMetricsForZoom = computeBusMarkerMetrics(typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+
+      for (const vehicle of entry.vehicles) {
+        const routeID = vehicle.RouteID || 0;
+        if (!isRouteSelected(routeID) || !isBusSelected(vehicle.VehicleID)) continue;
+        seen.add(vehicle.VehicleID);
+        const busName = vehicle.Name ? vehicle.Name.slice(0, -2) : '';
+        const pos = [vehicle.Latitude, vehicle.Longitude];
+        const state = ensureBusMarkerState(vehicle.VehicleID);
+        const routeColor = getRouteColor(routeID) || outOfServiceRouteColor;
+        const glyphColor = computeBusMarkerGlyphColor(routeColor);
+        const previousHeadingDeg = Number.isFinite(state.headingDeg) ? state.headingDeg : null;
+        const headingDeg = updateBusMarkerHeading(state, pos, vehicle.Heading, vehicle.GroundSpeed);
+        const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, vehicle.GroundSpeed);
+        const isStopped = isBusConsideredStopped(vehicle.GroundSpeed);
+
+        state.busName = busName;
+        state.routeID = routeID;
+        state.fillColor = routeColor;
+        state.glyphColor = glyphColor;
+        state.headingDeg = headingDeg;
+        state.accessibleLabel = accessibleLabel;
+        state.isStale = false;
+        state.isStopped = isStopped;
+        state.groundSpeed = vehicle.GroundSpeed;
+        state.lastUpdateTimestamp = Date.now();
+
+        if (!state.size) {
+          setBusMarkerSize(state, markerMetricsForZoom);
+        }
+
+        if (markers[vehicle.VehicleID]) {
+          animateMarkerTo(markers[vehicle.VehicleID], pos, markerAnimationOptions);
+          markers[vehicle.VehicleID].routeID = routeID;
+          queueBusMarkerVisualUpdate(vehicle.VehicleID, {
+            fillColor: routeColor,
+            glyphColor,
+            headingDeg,
+            previousHeadingDeg,
+            rotationDurationMs: rotationSmoothingBase,
+            stale: false,
+            accessibleLabel,
+            stopped: isStopped
+          });
+        } else {
+          const icon = await createBusMarkerDivIcon(vehicle.VehicleID, state);
+          if (!icon) {
+            continue;
+          }
+          const marker = L.marker(pos, { icon, pane: 'busesPane', interactive: true });
+          marker.routeID = routeID;
+          marker.addTo(map);
+          markers[vehicle.VehicleID] = marker;
+          state.marker = marker;
+          registerBusMarkerElements(vehicle.VehicleID);
+          attachBusMarkerInteractions(vehicle.VehicleID);
+          updateBusMarkerRootClasses(state);
+          updateBusMarkerZIndex(state);
+          applyBusMarkerOutlineWidth(state);
+        }
+
+        const bubble = nameBubbles[vehicle.VehicleID] || {};
+        const scale = markerMetricsForZoom.scale;
+
+        if (showSpeed) {
+          const speedIcon = createSpeedBubbleDivIcon(routeColor, vehicle.GroundSpeed, scale, state.headingDeg);
+          if (speedIcon) {
+            if (bubble.speedMarker) {
+              animateMarkerTo(bubble.speedMarker, pos, markerAnimationOptions);
+              bubble.speedMarker.setIcon(speedIcon);
+            } else {
+              bubble.speedMarker = L.marker(pos, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+            }
+          } else if (bubble.speedMarker) {
+            stopMarkerAnimation(bubble.speedMarker);
+            map.removeLayer(bubble.speedMarker);
+            delete bubble.speedMarker;
+          }
+        } else if (bubble.speedMarker) {
+          stopMarkerAnimation(bubble.speedMarker);
+          map.removeLayer(bubble.speedMarker);
+          delete bubble.speedMarker;
+        }
+
+        if (showNameBubbles && busName) {
+          const nameIcon = createNameBubbleDivIcon(busName, routeColor, scale, state.headingDeg);
+          if (nameIcon) {
+            if (bubble.nameMarker) {
+              animateMarkerTo(bubble.nameMarker, pos, markerAnimationOptions);
+              bubble.nameMarker.setIcon(nameIcon);
+            } else {
+              bubble.nameMarker = L.marker(pos, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+            }
+          } else if (bubble.nameMarker) {
+            stopMarkerAnimation(bubble.nameMarker);
+            map.removeLayer(bubble.nameMarker);
+            delete bubble.nameMarker;
+          }
+        } else if (bubble.nameMarker) {
+          stopMarkerAnimation(bubble.nameMarker);
+          map.removeLayer(bubble.nameMarker);
+          delete bubble.nameMarker;
+        }
+
+        if (showBlockNumbers) {
+          const blockName = blocks[vehicle.VehicleID];
+          if (blockName && blockName.includes('[')) {
+            const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, scale, state.headingDeg);
+            if (blockIcon) {
+              busBlocks[vehicle.VehicleID] = blockName;
+              if (bubble.blockMarker) {
+                animateMarkerTo(bubble.blockMarker, pos, markerAnimationOptions);
+                bubble.blockMarker.setIcon(blockIcon);
+              } else {
+                bubble.blockMarker = L.marker(pos, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+              }
+            } else if (bubble.blockMarker) {
+              stopMarkerAnimation(bubble.blockMarker);
+              map.removeLayer(bubble.blockMarker);
+              delete bubble.blockMarker;
+              delete busBlocks[vehicle.VehicleID];
+            }
+          } else {
+            if (bubble.blockMarker) {
+              stopMarkerAnimation(bubble.blockMarker);
+              map.removeLayer(bubble.blockMarker);
+              delete bubble.blockMarker;
+            }
+            delete busBlocks[vehicle.VehicleID];
+          }
+        } else {
+          if (bubble.blockMarker) {
+            stopMarkerAnimation(bubble.blockMarker);
+            map.removeLayer(bubble.blockMarker);
+            delete bubble.blockMarker;
+          }
+          delete busBlocks[vehicle.VehicleID];
+        }
+
+        if (bubble.speedMarker || bubble.nameMarker || bubble.blockMarker) {
+          bubble.lastScale = scale;
+          nameBubbles[vehicle.VehicleID] = bubble;
+        } else {
+          delete nameBubbles[vehicle.VehicleID];
+        }
+
+      }
+
+      Object.keys(markers).forEach(id => {
+        const numericId = Number(id);
+        if (!seen.has(numericId)) {
+          const marker = markers[id];
+          if (marker) {
+            stopMarkerAnimation(marker);
+            map.removeLayer(marker);
+          }
+          delete markers[id];
+          clearBusMarkerState(numericId);
+        }
+      });
+
+      Object.keys(nameBubbles).forEach(id => {
+        const numericId = Number(id);
+        if (!seen.has(numericId)) {
+          const bubble = nameBubbles[id];
+          if (bubble?.speedMarker) {
+            stopMarkerAnimation(bubble.speedMarker);
+            map.removeLayer(bubble.speedMarker);
+          }
+          if (bubble?.nameMarker) {
+            stopMarkerAnimation(bubble.nameMarker);
+            map.removeLayer(bubble.nameMarker);
+          }
+          if (bubble?.blockMarker) {
+            stopMarkerAnimation(bubble.blockMarker);
+            map.removeLayer(bubble.blockMarker);
+          }
+          delete nameBubbles[id];
+        }
+      });
+      lastFrameDisplayMs = timeMs;
+      lastFrameRealTime = now;
+      scheduleMarkerScaleUpdate();
+    }
+    async function scheduleNext() {
+      const current = currentFrameIndex;
+      let next = current + 1;
+      if (next >= playbackData.length) {
+        if (endTime) {
+          let ms = playbackTimes[playbackTimes.length - 1] + 1000;
+          const endMs = endTime.getTime();
+          while (ms <= endMs && next >= playbackData.length) {
+            await loadHour(ms);
+            next = current + 1;
+            ms += 3600 * 1000;
+          }
+          if (next >= playbackData.length) { pause(); return; }
+        } else { pause(); return; }
+      }
+      const rawDelta = playbackTimes[next] - playbackTimes[current];
+      const safeDelta = Math.max(rawDelta, 0);
+      const maxGap = 60 * 1000;
+      const wait = Math.min(safeDelta, maxGap) / playbackSpeed;
+      timer = setTimeout(async () => {
+        await showFrame(next);
+        scheduleNext();
+      }, wait);
+    }
+
+    function play() {
+      pause();
+      isPlaying = true;
+      updateSpeedButtons();
+      scheduleNext();
+    }
+
+    function pause() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      if (isPlaying) {
+        isPlaying = false;
+      }
+      updateSpeedButtons();
+    }
+
+    async function applyRange(initial = false) {
+      beginRangeLoad();
+      try {
+        const dateStr = document.getElementById('datePicker').value;
+        const startStr = document.getElementById('startTime').value || '00:00';
+        const endStr = document.getElementById('endTime').value || '23:59';
+        startTime = new Date(`${dateStr}T${startStr}:00`);
+        userEndTime = new Date(`${dateStr}T${endStr}:00`);
+
+        // If the selected date is today, don't try to load data beyond the current time
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        let lastHour = new Date(`${dateStr}T23:00:00`);
+        if (dateStr === todayStr) {
+          const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          if (userEndTime > now) {
+            userEndTime = now;
+          }
+          // For the current day only load up to the current hour
+          lastHour = new Date(`${dateStr}T${String(now.getHours()).padStart(2, '0')}:00:00`);
+        }
+
+        endTime = userEndTime;
+        playbackData = [];
+        playbackTimes = [];
+        loadedHours = new Set();
+        clearMarkers();
+        routeLayers.forEach(layer => map.removeLayer(layer));
+        routeLayers = [];
+        routePolylineCache.clear();
+        const timeline = document.getElementById('timeline');
+        timeline.min = startTime.getTime();
+        timeline.max = userEndTime.getTime();
+
+        let startHour = new Date(startTime);
+        startHour.setMinutes(0, 0, 0);
+        let endHour = initial ? lastHour : new Date(userEndTime);
+        endHour.setMinutes(0, 0, 0);
+
+        for (let ms = startHour.getTime(); ms <= endHour.getTime(); ms += 3600 * 1000) {
+          await loadHour(ms);
+        }
+
+        if (initial && playbackTimes.length) {
+          const lastMs = playbackTimes[playbackTimes.length - 1];
+          timeline.max = lastMs;
+          const endInput = document.getElementById('endTime');
+          if (endInput && endInput._flatpickr) {
+            endInput._flatpickr.setDate(new Date(lastMs), true);
+          }
+          endTime = new Date(lastMs);
+          userEndTime = new Date(lastMs);
+        }
+
+        if (playbackTimes.length) {
+          const ms = startTime.getTime();
+          const idx = findFrameIndex(ms);
+          await showFrame(idx, ms);
+        }
+      } finally {
+        completeRangeLoad();
+      }
+    }
+
+    // Periodically check for newly available data in the selected day
+    function startAutoRefresh() {
+      setInterval(async () => {
+        const dateStr = document.getElementById('datePicker').value;
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        if (dateStr !== todayStr) return;
+
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        if (now > userEndTime) {
+          userEndTime = now;
+          endTime = now;
+          const timeline = document.getElementById('timeline');
+          timeline.max = now.getTime();
+          await loadHour(now.getTime());
+        }
+      }, 60000);
+    }
+
+    const disclaimerOverlay = document.getElementById('disclaimerOverlay');
+    const disclaimerBtn = document.getElementById('disclaimerBtn');
+    disclaimerBtn.onclick = () => { disclaimerOverlay.style.display = 'none'; };
+
+    playBtn.onclick = () => { playbackSpeed = 1; play(); };
+    pauseBtn.onclick = pause;
+    ff2Btn.onclick = () => { playbackSpeed = 2; play(); };
+    ff4Btn.onclick = () => { playbackSpeed = 4; play(); };
+    ff8Btn.onclick = () => { playbackSpeed = 8; play(); };
+    ff10Btn.onclick = () => { playbackSpeed = 10; play(); };
+    ff30Btn.onclick = () => { playbackSpeed = 30; play(); };
+    ff100Btn.onclick = () => { playbackSpeed = 100; play(); };
+    ff200Btn.onclick = () => { playbackSpeed = 200; play(); };
+    ff500Btn.onclick = () => { playbackSpeed = 500; play(); };
+    ff1000Btn.onclick = () => { playbackSpeed = 1000; play(); };
+    document.getElementById('timeline').addEventListener('input', async e => {
+      pause();
+      const ms = parseInt(e.target.value);
+      await ensureLoaded(ms);
+      const idx = findFrameIndex(ms);
+      await showFrame(idx, ms);
+    });
+    document.getElementById('loadRangeBtn').onclick = async () => {
+      pause();
+      await applyRange(false);
+    };
+
+    (async () => {
+      pause();
+      await fetchRoutes();
+      await applyRange(true);
+      startAutoRefresh();
+    })();
+  </script>
+<script src="mobile-nav.js"></script>
+</body>
+</html>

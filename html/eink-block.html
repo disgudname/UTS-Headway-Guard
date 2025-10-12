@@ -1,0 +1,1931 @@
+<!doctype html>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+<meta charset="utf-8">
+<title>E-ink Block Display</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    color-scheme: only light;
+  }
+  *{box-sizing:border-box;}
+  @font-face{
+    font-family:'FGDC';
+    src:url('FGDC.ttf') format('truetype');
+    font-display:swap;
+  }
+  @font-face{
+    font-family:'CenturyGothic';
+    src:url('centurygothic.ttf') format('truetype');
+    font-display:swap;
+  }
+  body{
+    margin:0;
+    width:250px;
+    height:122px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#fff;
+    color:#000;
+    font-family:'FGDC',sans-serif;
+  }
+  body.grid-mode{
+    width:auto;
+    min-width:280px;
+    height:auto;
+    padding:0;
+    align-items:flex-start;
+    justify-content:flex-start;
+  }
+  main{
+    width:100%;
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:6px;
+  }
+  body.grid-mode main{
+    height:auto;
+    justify-content:flex-start;
+    align-items:flex-start;
+    padding:0;
+  }
+  [hidden]{
+    display:none !important;
+  }
+  #block-view{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:4px;
+  }
+  #block-number{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:22px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+  }
+  #bus{
+    font-size:62px;
+    font-weight:600;
+    letter-spacing:1px;
+    line-height:1;
+  }
+  #status{
+    font-size:14px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+  }
+  #driver-info{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:12px;
+    letter-spacing:0.02em;
+    text-transform:none;
+    text-align:center;
+    line-height:1.2;
+    display:none;
+    gap:2px;
+    margin-top:2px;
+  }
+  #driver-info .driver-line{
+    white-space:nowrap;
+  }
+  body.show-drivers #driver-info{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  #grid-view{
+    width:520px;
+    max-width:100%;
+    border:3px solid #000;
+    display:flex;
+    flex-direction:column;
+    font-weight:600;
+    font-size:18px;
+    background:#fff;
+    margin:0;
+  }
+  body.grid-mode #grid-view{
+    height:auto;
+  }
+  #grid-view .grid-controls{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    flex-wrap:wrap;
+    padding:8px 12px;
+    border-bottom:3px solid #000;
+    font-family:'CenturyGothic',sans-serif;
+    font-size:14px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+  }
+  #grid-view .grid-controls .grid-controls-status{
+    flex:1;
+  }
+  #grid-view .grid-controls .grid-controls-buttons{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  #grid-view .grid-controls button{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:12px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:6px 10px;
+    border:2px solid #000;
+    background:#fff;
+    cursor:pointer;
+  }
+  #grid-view .grid-controls button:active{
+    background:#000;
+    color:#fff;
+  }
+  #grid-view .grid-header{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:22px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    padding:12px 8px;
+    border-bottom:3px solid #000;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+  }
+  #grid-view .grid-header .grid-title{
+    flex:1;
+    text-align:center;
+  }
+  #grid-view .grid-header button{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:12px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:6px 10px;
+    border:2px solid #000;
+    background:#fff;
+    cursor:pointer;
+  }
+  #grid-view .grid-header button:active{
+    background:#000;
+    color:#fff;
+  }
+  #grid-view .grid-table{
+    --grid-columns:4;
+    display:grid;
+    grid-template-columns:repeat(var(--grid-columns),var(--grid-column-width,1fr));
+    grid-template-rows:repeat(9,minmax(48px,1fr));
+    width:100%;
+  }
+  #grid-view .cell{
+    padding:10px 6px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    min-height:40px;
+    gap:4px;
+  }
+  #grid-view .cell.editable{
+    cursor:pointer;
+    position:relative;
+  }
+  #grid-view .cell.editable::after{
+    content:'Edit';
+    position:absolute;
+    bottom:6px;
+    right:6px;
+    font-size:10px;
+    letter-spacing:0.08em;
+    color:#555;
+  }
+  #grid-view .cell{
+    border-top:2px solid #000;
+    border-left:2px solid #000;
+  }
+  #grid-view .cell[data-row="0"]{
+    border-top:none;
+  }
+  #grid-view .cell[data-col="0"]{
+    border-left:none;
+  }
+  #grid-view .cell .block-label{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:14px;
+    letter-spacing:0.06em;
+  }
+  #grid-view .cell .bus{
+    font-size:18px;
+  }
+  #grid-view .cell .drivers{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:11px;
+    letter-spacing:0.01em;
+    text-transform:none;
+    line-height:1.2;
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+  }
+  #grid-view .cell .drivers .driver-line{
+    white-space:nowrap;
+  }
+  body.show-drivers #grid-view .cell .drivers{
+    display:flex;
+  }
+</style>
+<main>
+  <div id="block-view">
+    <div id="block-number" hidden>Block --</div>
+    <div id="bus">--</div>
+    <div id="driver-info" hidden></div>
+    <div id="status"></div>
+  </div>
+  <div id="grid-view" hidden>
+    <div class="grid-header"><span class="grid-title">BLOCK ASSIGNMENTS</span><button type="button" id="layout-toggle">Switch Layout</button></div>
+    <div class="grid-table"></div>
+  </div>
+</main>
+<script>
+(function(){
+  const params=new URLSearchParams(location.search);
+  const enableColors=params.get('colors')==='true';
+  const showDrivers=params.get('showDrivers')==='true';
+  const editMode=params.get('edit')==='true';
+  let block=params.get('block');
+  const periodParam=(params.get('period')||'').trim().toLowerCase();
+  const layoutParam=(params.get('layout')||'').trim().toLowerCase();
+  const statusEl=document.getElementById('status');
+  const busEl=document.getElementById('bus');
+  const driverInfoEl=document.getElementById('driver-info');
+  const blockView=document.getElementById('block-view');
+  const gridView=document.getElementById('grid-view');
+  const layoutToggleButton=document.getElementById('layout-toggle');
+  const gridTitleEl=gridView?gridView.querySelector('.grid-title'):null;
+  const blockNumberEl=document.getElementById('block-number');
+  const isGridMode=!block;
+  if(showDrivers){
+    document.body.classList.add('show-drivers');
+  }else{
+    document.body.classList.remove('show-drivers');
+  }
+  let blockPeriod='';
+  let selectedBlockNumber='';
+  let selectedBlockId='';
+
+  const ROW_COUNT=9;
+  const REFRESH_INTERVAL_MS=60000;
+  let refreshTimer=null;
+  let refreshPromise=null;
+  let driverAssignmentsByBlock=Object.create(null);
+  let driverAssignmentsDisabled=false;
+
+  const normalizeIdentifier=value=>String(value||'').replace(/[^0-9a-z]/gi,'').toUpperCase();
+  const cleanBusIdentifier=value=>{
+    if(value==null) return '';
+    const text=String(value).trim();
+    if(!text) return '';
+    if(text==='—') return '';
+    if(/^0+$/.test(text)) return '';
+    return text;
+  };
+
+  const AM_PM_BLOCKS=new Set(['20','21','22','23','24','25','26']);
+
+  const defaultColumns=[
+    ['01','02','03','04','05','06','07','08','09'],
+    ['10','11','12','13','14','15','16AM','17','18AM'],
+    ['19','20AM','21AM','22AM','23AM','24AM','25AM','26AM','27'],
+    ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
+  ];
+  const footballLayoutColumns=[
+    ['01','04','07','10','13','16AM','19','22AM','25AM'],
+    ['02','05','08','11','14','17','20AM','23AM','26AM'],
+    ['03','06','09','12','15','18AM','21AM','24AM','27'],
+    ['','20PM','21PM','22PM','23PM','24PM','25PM','26PM','27PM']
+  ];
+  const DEFAULT_LAYOUT_NAME='default';
+  const FOOTBALL_LAYOUT_NAME='football-layout';
+  const LAYOUT_DISPLAY_NAMES={
+    [DEFAULT_LAYOUT_NAME]:'Standard Layout',
+    [FOOTBALL_LAYOUT_NAME]:'Football Layout'
+  };
+  const layoutPresets={
+    [DEFAULT_LAYOUT_NAME]:defaultColumns,
+    [FOOTBALL_LAYOUT_NAME]:footballLayoutColumns
+  };
+  const VALID_LAYOUT_NAMES=new Set(Object.keys(layoutPresets));
+  const LAYOUT_STORAGE_KEY='einkBlockLayout';
+  const ACTIVE_LAYOUT_STORAGE_KEY=`${LAYOUT_STORAGE_KEY}:active`;
+  const LAYOUT_ENDPOINT='/api/eink-block/layout';
+  const DEFAULT_STATUS_MESSAGE='Edit Mode — click a block to change it';
+  let gridStatusEl=null;
+  let gridStatusTimer=null;
+  let saveSequence=0;
+  let columnWidthSyncHandle=null;
+
+  const createEmptyCell=()=>({value:'',display:''});
+
+  const toCellString=value=>{
+    if(typeof value==='string') return value;
+    if(value==null) return '';
+    return String(value);
+  };
+
+  const normalizeCellValue=value=>{
+    if(value && typeof value==='object'){
+      const cell=createEmptyCell();
+      if('value' in value){
+        cell.value=toCellString(value.value);
+      }else if('label' in value){
+        cell.value=toCellString(value.label);
+      }else if('block' in value){
+        cell.value=toCellString(value.block);
+      }
+      if('display' in value){
+        cell.display=toCellString(value.display);
+      }else if('text' in value){
+        cell.display=toCellString(value.text);
+      }
+      return cell;
+    }
+    const cell=createEmptyCell();
+    cell.value=toCellString(value);
+    return cell;
+  };
+
+  const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>createEmptyCell());
+
+  function equalizeGridColumnWidths(){
+    if(!isGridMode){
+      return;
+    }
+    const gridTable=gridView.querySelector('.grid-table');
+    if(!gridTable){
+      gridView.style.removeProperty('width');
+      return;
+    }
+    const columnCount=Array.isArray(layout)?layout.length:0;
+    if(!columnCount){
+      gridView.style.removeProperty('width');
+      return;
+    }
+    const previousWidth=gridTable.style.getPropertyValue('--grid-column-width');
+    gridTable.style.setProperty('--grid-column-width','max-content');
+    gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
+    void gridTable.offsetWidth;
+    const columnWidths=new Array(columnCount).fill(0);
+    const cells=gridTable.querySelectorAll('.cell');
+    for(const cell of cells){
+      const col=Number(cell.dataset.col);
+      if(!Number.isFinite(col) || col<0 || col>=columnCount) continue;
+      const width=cell.getBoundingClientRect().width;
+      if(width>columnWidths[col]){
+        columnWidths[col]=width;
+      }
+    }
+    const widest=columnWidths.reduce((max,value)=>value>max?value:max,0);
+    if(widest>0){
+      const widthValue=`${Math.ceil(widest)}px`;
+      gridTable.style.setProperty('--grid-column-width',widthValue);
+      gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
+    }else{
+      if(previousWidth){
+        gridTable.style.setProperty('--grid-column-width',previousWidth);
+      }else{
+        gridTable.style.removeProperty('--grid-column-width');
+      }
+      gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width,1fr))`;
+    }
+    syncGridViewWidth();
+  }
+
+  function syncGridViewWidth(){
+    if(!isGridMode){
+      return;
+    }
+    const gridTable=gridView.querySelector('.grid-table');
+    if(!gridTable){
+      gridView.style.removeProperty('width');
+      return;
+    }
+    const previousWidth=gridView.style.width;
+    gridView.style.width='auto';
+    const width=Math.ceil(gridTable.scrollWidth);
+    if(width>0){
+      gridView.style.width=`${width}px`;
+    }else if(previousWidth){
+      gridView.style.width=previousWidth;
+    }else{
+      gridView.style.removeProperty('width');
+    }
+  }
+
+  function scheduleColumnWidthSync(){
+    if(!isGridMode) return;
+    if(columnWidthSyncHandle!=null){
+      cancelAnimationFrame(columnWidthSyncHandle);
+    }
+    columnWidthSyncHandle=requestAnimationFrame(()=>{
+      columnWidthSyncHandle=null;
+      equalizeGridColumnWidths();
+    });
+  }
+
+  const normalizeColumn=(column,fallback)=>{
+    const result=createBlankColumn();
+    const source=Array.isArray(column)?column:[];
+    const fallbackSource=Array.isArray(fallback)?fallback:[];
+    for(let i=0;i<ROW_COUNT;i++){
+      const value=source[i];
+      if(value!=null){
+        result[i]=normalizeCellValue(value);
+      }else{
+        const fallbackValue=fallbackSource[i];
+        if(fallbackValue!=null){
+          result[i]=normalizeCellValue(fallbackValue);
+        }
+      }
+    }
+    return result;
+  };
+
+  function formatDriverTimeParts(hourStr,minuteStr,meridiem){
+    let hour=Number(hourStr);
+    if(!Number.isFinite(hour)) return hourStr;
+    let minutes=Number(minuteStr);
+    if(!Number.isFinite(minutes)) minutes=0;
+    if(meridiem){
+      const marker=String(meridiem).toLowerCase();
+      if(marker.startsWith('p') && hour<12){
+        hour+=12;
+      }else if(marker.startsWith('a') && hour===12){
+        hour=0;
+      }
+    }
+    hour=(hour%24+24)%24;
+    const hourOut=String(hour).padStart(2,'0');
+    const minuteOut=String(Math.max(0,Math.min(59,Math.trunc(minutes)))).padStart(2,'0');
+    return `${hourOut}:${minuteOut}`;
+  }
+
+  function formatDriverTimeLabel(label,timestamp){
+    const raw=typeof label==='string'?label:'';
+    const trimmed=raw.trim();
+    if(trimmed){
+      const replaced=trimmed.replace(/\b(\d{1,2})(?::([0-5]\d))?\s*([AaPp])(?:[Mm]\.?|\.?)?\b/g,
+        (match,hour,minute,meridiem)=>formatDriverTimeParts(hour,minute,meridiem));
+      if(replaced!==trimmed){
+        return replaced;
+      }
+      const simpleMatch=trimmed.match(/^\s*(\d{1,2})(?::([0-5]\d))?\s*$/);
+      if(simpleMatch){
+        return formatDriverTimeParts(simpleMatch[1],simpleMatch[2],null);
+      }
+      return trimmed;
+    }
+    if(timestamp!=null){
+      let numericTs=Number(timestamp);
+      if(Number.isFinite(numericTs)){
+        if(Math.abs(numericTs)<1e12){
+          numericTs*=1000;
+        }
+        const date=new Date(numericTs);
+        if(!Number.isNaN(date.getTime())){
+          return `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+        }
+      }
+    }
+    return trimmed;
+  }
+
+  function normalizeDriverAssignmentsPayload(payload){
+    const result=Object.create(null);
+    if(!payload || typeof payload!=='object') return result;
+    const assignments=payload.assignments_by_block || payload.assignmentsByBlock;
+    if(!assignments || typeof assignments!=='object') return result;
+    for(const [blockKey, periods] of Object.entries(assignments)){
+      if(!periods || typeof periods!=='object') continue;
+      const blockMap=Object.create(null);
+      for(const [periodKey, drivers] of Object.entries(periods)){
+        if(!Array.isArray(drivers) || !drivers.length) continue;
+        const normalizedDrivers=[];
+        for(const driver of drivers){
+          if(!driver || typeof driver!=='object') continue;
+          const rawName=typeof driver.name==='string'?driver.name.trim():'';
+          if(!rawName) continue;
+          const rawColorId=('COLOR_ID' in driver)?driver.COLOR_ID:
+            (('color_id' in driver)?driver.color_id:
+              (('colorId' in driver)?driver.colorId:null));
+          let colorId=null;
+          if(typeof rawColorId==='number' && Number.isFinite(rawColorId)){
+            colorId=String(Math.trunc(rawColorId));
+          }else if(typeof rawColorId==='string'){
+            const trimmedColorId=rawColorId.trim();
+            if(trimmedColorId){
+              const numericColor=Number(trimmedColorId);
+              colorId=Number.isFinite(numericColor)?String(Math.trunc(numericColor)):trimmedColorId;
+            }
+          }
+          if(colorId==='9') continue;
+          const startLabel=typeof driver.start_label==='string'?driver.start_label.trim():
+            (typeof driver.startLabel==='string'?driver.startLabel.trim():'');
+          const endLabel=typeof driver.end_label==='string'?driver.end_label.trim():
+            (typeof driver.endLabel==='string'?driver.endLabel.trim():'');
+          let startTs=null;
+          const rawStartTs=('start_ts' in driver)?driver.start_ts:driver.startTs;
+          if(typeof rawStartTs==='number' && Number.isFinite(rawStartTs)){
+            startTs=rawStartTs;
+          }else if(typeof rawStartTs==='string'){
+            const trimmed=rawStartTs.trim();
+            if(trimmed){
+              const parsed=Number(trimmed);
+              if(Number.isFinite(parsed)) startTs=parsed;
+            }
+          }
+          let endTs=null;
+          const rawEndTs=('end_ts' in driver)?driver.end_ts:driver.endTs;
+          if(typeof rawEndTs==='number' && Number.isFinite(rawEndTs)){
+            endTs=rawEndTs;
+          }else if(typeof rawEndTs==='string'){
+            const trimmed=rawEndTs.trim();
+            if(trimmed){
+              const parsed=Number(trimmed);
+              if(Number.isFinite(parsed)) endTs=parsed;
+            }
+          }
+          normalizedDrivers.push({
+            name:rawName,
+            startLabel:formatDriverTimeLabel(startLabel,startTs),
+            endLabel:formatDriverTimeLabel(endLabel,endTs),
+            startTs:startTs,
+            endTs:endTs,
+            colorId:colorId
+          });
+        }
+        if(!normalizedDrivers.length) continue;
+        normalizedDrivers.sort((a,b)=>{
+          const aKey=a.startTs!=null?a.startTs:(a.endTs!=null?a.endTs:0);
+          const bKey=b.startTs!=null?b.startTs:(b.endTs!=null?b.endTs:0);
+          return aKey-bKey;
+        });
+        const periodKeyString=String(periodKey||'').toLowerCase();
+        blockMap[periodKeyString]=normalizedDrivers;
+      }
+      if(Object.keys(blockMap).length){
+        result[String(blockKey)]=blockMap;
+      }
+    }
+    return result;
+  }
+
+  const supportsAmPmBlock=blockNumber=>AM_PM_BLOCKS.has(String(blockNumber||'').padStart(2,'0'));
+
+  function selectDriversForBlock(blockNumber,periodSuffix){
+    if(!blockNumber) return [];
+    const normalizedBlock=String(blockNumber).padStart(2,'0');
+    const normalizedPeriod=supportsAmPmBlock(normalizedBlock)?String(periodSuffix||'').toLowerCase():'';
+    const entry=driverAssignmentsByBlock[normalizedBlock]
+      || driverAssignmentsByBlock[String(blockNumber)]
+      || null;
+    if(!entry || typeof entry!=='object') return [];
+    if(normalizedPeriod){
+      const specific=entry[normalizedPeriod];
+      if(Array.isArray(specific) && specific.length) return specific;
+    }
+    const fallbackKeys=['any',''];
+    for(const key of fallbackKeys){
+      const list=entry[key];
+      if(Array.isArray(list) && list.length) return list;
+    }
+    if(!normalizedPeriod){
+      for(const key of Object.keys(entry)){
+        const list=entry[key];
+        if(Array.isArray(list) && list.length) return list;
+      }
+    }
+    return [];
+  }
+
+  const DAY_IN_MS=24*60*60*1000;
+
+  function normalizeDriverTimestampToMs(value){
+    if(value==null) return null;
+    const numeric=Number(value);
+    if(!Number.isFinite(numeric)) return null;
+    if(Math.abs(numeric)<1e12){
+      return numeric*1000;
+    }
+    return numeric;
+  }
+
+  function isDriverActiveNow(driver,nowMs){
+    if(!driver) return false;
+    const startMs=normalizeDriverTimestampToMs(driver.startTs);
+    const endMs=normalizeDriverTimestampToMs(driver.endTs);
+    if(startMs==null && endMs==null){
+      return true;
+    }
+    let current=nowMs;
+    if(startMs!=null && endMs!=null){
+      let start=startMs;
+      let end=endMs;
+      if(end<start){
+        end+=DAY_IN_MS;
+        if(current<start){
+          current+=DAY_IN_MS;
+        }
+      }
+      return current>=start && current<=end;
+    }
+    if(startMs!=null){
+      return current>=startMs;
+    }
+    if(endMs!=null){
+      return current<=endMs;
+    }
+    return false;
+  }
+
+  function findNextDriver(drivers,nowMs){
+    let nextDriver=null;
+    let nextStartMs=null;
+    for(const driver of drivers){
+      const startMs=normalizeDriverTimestampToMs(driver.startTs);
+      if(startMs==null) continue;
+      if(startMs<nowMs) continue;
+      if(nextStartMs==null || startMs<nextStartMs){
+        nextDriver=driver;
+        nextStartMs=startMs;
+      }
+    }
+    return {driver:nextDriver,startMs:nextStartMs};
+  }
+
+  function getDriverStartLabel(driver){
+    if(!driver) return '';
+    const label=typeof driver.startLabel==='string'?driver.startLabel.trim():'';
+    if(label) return label;
+    return formatDriverTimeLabel('',driver.startTs);
+  }
+
+  function renderDriverLines(container,drivers){
+    if(!container) return;
+    if(!showDrivers || driverAssignmentsDisabled){
+      container.innerHTML='';
+      container.hidden=true;
+      return;
+    }
+    const items=Array.isArray(drivers)?drivers.filter(item=>{
+      if(!item || !item.name) return false;
+      if(item.colorId!=null){
+        const normalizedColor=typeof item.colorId==='number'?String(Math.trunc(item.colorId)):
+          (typeof item.colorId==='string'?item.colorId.trim():null);
+        if(normalizedColor==='9') return false;
+      }
+      return true;
+    }):[];
+    if(!items.length){
+      container.innerHTML='';
+      container.hidden=true;
+      return;
+    }
+    const nowMs=Date.now();
+    const hasActive=items.some(item=>isDriverActiveNow(item,nowMs));
+    if(!hasActive){
+      const {driver:nextDriver}=findNextDriver(items,nowMs);
+      if(nextDriver){
+        const lines=[];
+        const nextLabel=getDriverStartLabel(nextDriver);
+        lines.push(nextLabel
+          ? `${nextDriver.name} @ ${nextLabel}`
+          : nextDriver.name);
+        for(const driver of items){
+          if(driver===nextDriver) continue;
+          const startLabel=getDriverStartLabel(driver);
+          lines.push(startLabel
+            ? `${driver.name} @ ${startLabel}`
+            : driver.name);
+        }
+        container.innerHTML='';
+        for(const text of lines){
+          const line=document.createElement('div');
+          line.className='driver-line';
+          line.textContent=text;
+          container.appendChild(line);
+        }
+        container.hidden=false;
+        return;
+      }
+    }
+    container.innerHTML='';
+    const includeLabels=items.length>1;
+    for(let i=0;i<items.length;i++){
+      const driver=items[i];
+      const line=document.createElement('div');
+      line.className='driver-line';
+      let label='';
+      if(includeLabels){
+        const endLabelRaw=typeof driver.endLabel==='string'?driver.endLabel.trim():'';
+        const startLabelRaw=typeof driver.startLabel==='string'?driver.startLabel.trim():'';
+        if(i===0){
+          label=endLabelRaw || startLabelRaw;
+          line.textContent=label?`${driver.name} until ${label}`:driver.name;
+        }else{
+          label=startLabelRaw || endLabelRaw;
+          line.textContent=label?`${driver.name} @ ${label}`:driver.name;
+        }
+      }else{
+        line.textContent=driver.name;
+      }
+      container.appendChild(line);
+    }
+    container.hidden=false;
+  }
+
+  function getGridStatusEl(){
+    if(!isGridMode || !editMode) return null;
+    if(gridStatusEl && gridStatusEl.isConnected) return gridStatusEl;
+    gridStatusEl=gridView?gridView.querySelector('.grid-controls-status'):null;
+    return gridStatusEl;
+  }
+
+  function setGridStatus(message,{temporary=false}={}){
+    if(!editMode || !isGridMode) return;
+    const el=getGridStatusEl();
+    if(!el) return;
+    if(gridStatusTimer){
+      clearTimeout(gridStatusTimer);
+      gridStatusTimer=null;
+    }
+    el.textContent=message;
+    if(temporary){
+      gridStatusTimer=setTimeout(()=>{
+        const statusEl=getGridStatusEl();
+        if(statusEl && statusEl.textContent===message){
+          statusEl.textContent=DEFAULT_STATUS_MESSAGE;
+        }
+      },2000);
+    }
+  }
+
+  function resetGridStatus(){
+    if(gridStatusTimer){
+      clearTimeout(gridStatusTimer);
+      gridStatusTimer=null;
+    }
+    const el=getGridStatusEl();
+    if(el){
+      el.textContent=DEFAULT_STATUS_MESSAGE;
+    }
+  }
+
+  function getStorageKeyForLayout(name){
+    return name===DEFAULT_LAYOUT_NAME?LAYOUT_STORAGE_KEY:`${LAYOUT_STORAGE_KEY}:${name}`;
+  }
+
+  function readActiveLayoutName(){
+    try{
+      const stored=localStorage.getItem(ACTIVE_LAYOUT_STORAGE_KEY);
+      if(stored && VALID_LAYOUT_NAMES.has(stored)){
+        return stored;
+      }
+    }catch(err){
+      console.warn('Failed to read active layout',err);
+    }
+    return null;
+  }
+
+  function setActiveLayoutName(name){
+    layoutName=name;
+    try{
+      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,name);
+    }catch(err){
+      console.warn('Failed to store active layout',err);
+    }
+  }
+
+  function readLocalLayout(name){
+    const key=getStorageKeyForLayout(name);
+    try{
+      const stored=localStorage.getItem(key);
+      if(stored){
+        const parsed=JSON.parse(stored);
+        if(Array.isArray(parsed) && parsed.length){
+          return parsed.map(col=>normalizeColumn(col));
+        }
+        if(parsed && typeof parsed==='object'){
+          const source=Array.isArray(parsed.layout)?parsed.layout:Array.isArray(parsed.columns)?parsed.columns:null;
+          if(source && source.length){
+            return source.map(col=>normalizeColumn(col));
+          }
+        }
+      }
+    }catch(err){
+      console.warn('Failed to load saved layout',err);
+    }
+    return null;
+  }
+
+  function persistLocalLayout(columns,{name=layoutName}={}){
+    const key=getStorageKeyForLayout(name);
+    try{
+      localStorage.setItem(key,JSON.stringify(columns));
+      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,name);
+    }catch(err){
+      console.warn('Failed to store layout locally',err);
+    }
+  }
+
+  function getPresetLayout(name){
+    const preset=layoutPresets[name]||defaultColumns;
+    return preset.map(col=>normalizeColumn(col));
+  }
+
+  function determineInitialLayoutName(){
+    if(layoutParam && VALID_LAYOUT_NAMES.has(layoutParam)){
+      return layoutParam;
+    }
+    const stored=readActiveLayoutName();
+    if(stored && VALID_LAYOUT_NAMES.has(stored)){
+      return stored;
+    }
+    return DEFAULT_LAYOUT_NAME;
+  }
+
+  let layoutName=determineInitialLayoutName();
+  let layout=getPresetLayout(layoutName);
+  const localLayout=readLocalLayout(layoutName);
+  if(localLayout){
+    layout=localLayout;
+  }
+  setActiveLayoutName(layoutName);
+  updateLayoutToggleButton();
+
+  function getLayoutDisplayName(name){
+    return LAYOUT_DISPLAY_NAMES[name]||'Default Layout';
+  }
+
+  function updateLayoutToggleButton(){
+    if(layoutToggleButton){
+      const nextLayout=layoutName===FOOTBALL_LAYOUT_NAME?DEFAULT_LAYOUT_NAME:FOOTBALL_LAYOUT_NAME;
+      layoutToggleButton.textContent=`Switch to ${getLayoutDisplayName(nextLayout)}`;
+      layoutToggleButton.dataset.nextLayout=nextLayout;
+      layoutToggleButton.hidden=!isGridMode;
+    }
+    if(gridTitleEl){
+      gridTitleEl.textContent=layoutName===FOOTBALL_LAYOUT_NAME
+        ? 'BLOCK ASSIGNMENTS — FOOTBALL'
+        : 'BLOCK ASSIGNMENTS';
+    }
+    if(gridView){
+      gridView.dataset.layout=layoutName;
+    }
+  }
+
+  function serializeLayout(){
+    return layout.map(column=>{
+      return column.map(cell=>{
+        const normalized=normalizeCellValue(cell);
+        const value=(normalized.value||'').trim();
+        const display=(normalized.display||'').trim();
+        if(!value && !display) return null;
+        if(display){
+          return {value,display};
+        }
+        return value;
+      });
+    });
+  }
+
+  function setLayoutFromData(data,{persist=true,rebuild=true,name}={}){
+    if(!Array.isArray(data) || !data.length) return false;
+    const normalized=data.map(col=>normalizeColumn(col));
+    if(!normalized.length) return false;
+    if(typeof name==='string' && VALID_LAYOUT_NAMES.has(name)){
+      setActiveLayoutName(name);
+    }
+    layout=normalized;
+    if(persist){
+      persistLocalLayout(serializeLayout(),{name:layoutName});
+    }
+    if(rebuild && isGridMode){
+      buildGrid();
+    }else{
+      updateLayoutToggleButton();
+    }
+    return true;
+  }
+
+  function switchLayout(name){
+    if(!VALID_LAYOUT_NAMES.has(name) || name===layoutName) return;
+    let applied=false;
+    const stored=readLocalLayout(name);
+    if(stored && stored.length){
+      applied=setLayoutFromData(stored,{persist:true,rebuild:isGridMode,name});
+    }
+    if(!applied){
+      const preset=getPresetLayout(name);
+      applied=setLayoutFromData(preset,{persist:true,rebuild:isGridMode,name});
+    }
+    if(!applied) return;
+    if(isGridMode){
+      triggerRefresh();
+    }
+    if(typeof history!=='undefined' && history.replaceState){
+      const newParams=new URLSearchParams(location.search);
+      if(name===DEFAULT_LAYOUT_NAME){
+        newParams.delete('layout');
+      }else{
+        newParams.set('layout',name);
+      }
+      const newQuery=newParams.toString();
+      const newUrl=newQuery?`${location.pathname}?${newQuery}`:location.pathname;
+      history.replaceState(null,'',newUrl);
+    }
+    fetchLayoutFromServer({announce:true,name}).catch(()=>{});
+  }
+
+  if(layoutToggleButton){
+    layoutToggleButton.addEventListener('click',()=>{
+      const target=layoutToggleButton.dataset.nextLayout
+        || (layoutName===FOOTBALL_LAYOUT_NAME?DEFAULT_LAYOUT_NAME:FOOTBALL_LAYOUT_NAME);
+      switchLayout(target);
+    });
+  }
+
+  function saveLayout(){
+    const serialized=serializeLayout();
+    persistLocalLayout(serialized,{name:layoutName});
+    const current=++saveSequence;
+    setGridStatus('Saving…');
+    const url=layoutName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(layoutName)}`:LAYOUT_ENDPOINT;
+    fetch(url,{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({layout:serialized,layoutName})
+    }).then(res=>{
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return res.json();
+    }).then(data=>{
+      if(current!==saveSequence) return;
+      if(data && Array.isArray(data.layout)){
+        const responseName=typeof data.layoutName==='string' && VALID_LAYOUT_NAMES.has(data.layoutName)
+          ? data.layoutName
+          : layoutName;
+        setLayoutFromData(data.layout,{persist:true,rebuild:false,name:responseName});
+      }
+      setGridStatus('Saved',{temporary:true});
+    }).catch(err=>{
+      console.warn('Failed to save layout to server',err);
+      if(current!==saveSequence) return;
+      setGridStatus('Saved locally — server unavailable',{temporary:true});
+    });
+  }
+
+  function fetchLayoutFromServer({announce=false,name=layoutName}={}){
+    const targetName=VALID_LAYOUT_NAMES.has(name)?name:layoutName;
+    const url=targetName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(targetName)}`:LAYOUT_ENDPOINT;
+    return fetch(url,{cache:'no-store'}).then(res=>{
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return res.json();
+    }).then(data=>{
+      if(data && Array.isArray(data.layout) && data.layout.length){
+        const responseName=typeof data.layoutName==='string' && VALID_LAYOUT_NAMES.has(data.layoutName)
+          ? data.layoutName
+          : targetName;
+        const applied=setLayoutFromData(data.layout,{persist:true,rebuild:isGridMode,name:responseName});
+        if(applied && isGridMode){
+          triggerRefresh();
+        }
+        if(announce && applied){
+          setGridStatus('Loaded saved layout',{temporary:true});
+        }
+      }else if(announce){
+        setGridStatus('Using default layout',{temporary:true});
+      }
+      return data;
+    }).catch(err=>{
+      console.warn('Failed to fetch layout from server',err);
+      if(announce){
+        setGridStatus('Using local layout',{temporary:true});
+      }
+      throw err;
+    });
+  }
+
+  function resetLayout(){
+    const preset=getPresetLayout(layoutName);
+    setLayoutFromData(preset,{persist:false,rebuild:isGridMode,name:layoutName});
+    saveLayout();
+    if(isGridMode){
+      triggerRefresh();
+    }
+  }
+
+  function getCellColors(block,period,customId){
+    const blockId=(block||'').padStart(2,'0');
+    const periodId=(period||'').toLowerCase();
+    const normalizedCustom=(customId||'').toLowerCase();
+    if(!blockId) return null;
+
+    if(normalizedCustom.includes('charter')){
+      return {bg:'#FF69B4',text:'#000'};
+    }
+
+    if(normalizedCustom.includes('training')){
+      return {bg:'#92FB02',text:'#000'};
+    }
+
+    const numeric=parseInt(blockId,10);
+
+    if(['01','02'].includes(blockId)) return {bg:'#0C8103',text:'#fff'};
+    if(['03','04'].includes(blockId)) return {bg:'#232D48',text:'#fff'};
+    if(numeric>=5 && numeric<=8) return {bg:'#FF7300',text:'#111'};
+    if(numeric>=9 && numeric<=12) return {bg:'#FFDD00',text:'#000'};
+    if(numeric>=13 && numeric<=14) return {bg:'#C3C1C1',text:'#000'};
+    if(numeric>=15 && numeric<=18) return {bg:'#0072BC',text:'#fff'};
+
+    if(periodId==='am' && numeric>=20 && numeric<=26){
+      return {bg:'#F60303',text:'#fff'};
+    }
+
+    if(periodId==='pm' && blockId==='21'){
+      return {bg:'#A812C9',text:'#fff'};
+    }
+
+    if(periodId==='pm' && ['20','22','24','26'].includes(blockId)){
+      return {bg:'#F60303',text:'#fff'};
+    }
+
+    return null;
+  }
+
+  function applyCellColors(cell){
+    if(!enableColors || !cell || !cell.dataset) return;
+    const colors=getCellColors(cell.dataset.block,cell.dataset.period||'',cell.dataset.customBlockId||'');
+    if(colors){
+      cell.style.backgroundColor=colors.bg;
+      cell.style.color=colors.text;
+    }
+  }
+
+  function buildGrid(){
+    updateLayoutToggleButton();
+    const gridTable=gridView.querySelector('.grid-table');
+    if(!gridTable) return;
+    if(!Array.isArray(layout) || !layout.length){
+      layout=[createBlankColumn()];
+    }
+    layout=layout.map(col=>normalizeColumn(col));
+    gridTable.innerHTML='';
+    const rows=ROW_COUNT;
+    const columnCount=Math.max(layout.length,1);
+    gridTable.style.setProperty('--grid-columns',String(columnCount));
+    gridTable.style.setProperty('--grid-column-width','1fr');
+    gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
+    for(let row=0;row<rows;row++){
+      for(let col=0;col<layout.length;col++){
+        const column=layout[col]||[];
+        const cellData=normalizeCellValue(column[row]);
+        const label=cellData.value||'';
+        const displayOverride=(cellData.display||'').trim();
+        const trimmedLabel=label.trim();
+        const normalizedLabel=normalizeIdentifier(trimmedLabel);
+        const cell=document.createElement('div');
+        cell.className='cell';
+        cell.dataset.col=String(col);
+        cell.dataset.row=String(row);
+        if(editMode){
+          cell.classList.add('editable');
+        }
+        if(trimmedLabel){
+          const match=normalizedLabel.match(/^(\d{2})(AM|PM)?$/);
+          let blockMatch=match||null;
+          if(!blockMatch){
+            const bracketMatch=trimmedLabel.match(/^\[(\d{2})(AM|PM)?\]$/i) || trimmedLabel.match(/\[(\d{2})(AM|PM)?\]/i);
+            if(bracketMatch){
+              blockMatch=[bracketMatch[0],bracketMatch[1],bracketMatch[2]];
+            }
+          }
+          if(blockMatch){
+            cell.dataset.block=blockMatch[1];
+            const periodValue=(blockMatch[2]||'').toLowerCase();
+            if(periodValue){
+              cell.dataset.period=periodValue;
+            }else{
+              delete cell.dataset.period;
+            }
+          }else{
+            delete cell.dataset.block;
+            delete cell.dataset.period;
+          }
+          if(normalizedLabel){
+            cell.dataset.customBlockId=normalizedLabel;
+          }else{
+            delete cell.dataset.customBlockId;
+          }
+          const blockNumber=blockMatch?blockMatch[1]:trimmedLabel;
+          const periodSuffix=blockMatch && blockMatch[2]?blockMatch[2].toUpperCase():'';
+          const defaultLabel=blockMatch? (periodSuffix?`Block ${blockNumber} ${periodSuffix}`:`Block ${blockNumber}`) : trimmedLabel;
+          const displayLabel=displayOverride||defaultLabel;
+          cell.innerHTML=`<div class="block-label">${displayLabel}</div><div class="bus">—</div><div class="drivers" hidden></div>`;
+          applyCellColors(cell);
+        }else if(editMode){
+          delete cell.dataset.block;
+          delete cell.dataset.period;
+          delete cell.dataset.customBlockId;
+          cell.innerHTML='<div class="block-label">Empty</div><div class="bus">—</div><div class="drivers" hidden></div>';
+        }
+        gridTable.appendChild(cell);
+      }
+    }
+    scheduleColumnWidthSync();
+  }
+
+  if(isGridMode){
+    document.body.classList.add('grid-mode');
+    document.title='Block Grid';
+    blockView.hidden=true;
+    gridView.hidden=false;
+    if(blockNumberEl) blockNumberEl.hidden=true;
+    if(driverInfoEl) renderDriverLines(driverInfoEl,[]);
+    const controls=gridView.querySelector('.grid-controls');
+    if(editMode){
+      if(!controls){
+        const controlsEl=document.createElement('div');
+        controlsEl.className='grid-controls';
+        controlsEl.innerHTML=`<span class="grid-controls-status">${DEFAULT_STATUS_MESSAGE}</span><div class="grid-controls-buttons"><button type="button" id="add-column">Add Column</button><button type="button" id="remove-column">Remove Column</button><button type="button" id="reset-layout">Reset Layout</button></div>`;
+        gridView.insertBefore(controlsEl,gridView.firstChild);
+        gridStatusEl=controlsEl.querySelector('.grid-controls-status');
+      }else{
+        gridStatusEl=controls.querySelector('.grid-controls-status');
+      }
+      resetGridStatus();
+    }else if(controls){
+      controls.remove();
+      if(gridStatusTimer){
+        clearTimeout(gridStatusTimer);
+        gridStatusTimer=null;
+      }
+      gridStatusEl=null;
+    }
+    buildGrid();
+  }
+  if(!isGridMode){
+    document.body.classList.remove('grid-mode');
+    blockView.hidden=false;
+    gridView.hidden=true;
+    if(blockNumberEl) blockNumberEl.hidden=false;
+    gridStatusEl=null;
+    block=String(block).trim();
+    const normalizedBlock=normalizeIdentifier(block);
+    const blockMatch=normalizedBlock.match(/^(\d{2})(AM|PM)?$/);
+    if(blockMatch){
+      block=blockMatch[1];
+      const supportsPeriods=supportsAmPmBlock(block);
+      blockPeriod=(blockMatch[2] && supportsPeriods)?blockMatch[2].toLowerCase():'';
+      const urlPeriod=(periodParam==='am'||periodParam==='pm')?periodParam:'';
+      const periodSuffix=supportsPeriods?(blockPeriod||urlPeriod):'';
+      selectedBlockNumber=blockMatch[1];
+      selectedBlockId=normalizedBlock;
+      const blockLabel = periodSuffix ? `${block} ${periodSuffix.toUpperCase()}` : block;
+      document.title = `Block ${blockLabel}`;
+      if(blockNumberEl){
+        blockNumberEl.textContent = `Block ${blockLabel}`;
+      }
+    }else{
+      if(normalizedBlock && /^\d+$/.test(normalizedBlock)){
+        statusEl.textContent='Invalid block';
+        busEl.textContent='--';
+        if(blockNumberEl){
+          blockNumberEl.textContent='Block --';
+        }
+        return;
+      }
+      selectedBlockNumber='';
+      selectedBlockId=normalizedBlock||'';
+      document.title=block||'Block';
+      if(blockNumberEl){
+        blockNumberEl.textContent=block||'';
+      }
+    }
+  }
+
+  function parseTimeToMinutes(str){
+    if(!str) return null;
+    const value=String(str).trim();
+    if(!value) return null;
+
+    let match=value.match(/^PT(?:(\d+)H)?(?:(\d+)M)?$/i);
+    if(match){
+      const hours=parseInt(match[1]||'0',10);
+      const minutes=parseInt(match[2]||'0',10);
+      return hours*60+minutes;
+    }
+
+    match=value.match(/^\/Date\((\d+)\)\/$/);
+    if(match){
+      const date=new Date(Number(match[1]));
+      if(!isNaN(date.getTime())){
+        return date.getHours()*60+date.getMinutes();
+      }
+    }
+
+    match=value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if(match){
+      let hours=parseInt(match[1],10)%12;
+      const minutes=parseInt(match[2],10);
+      if(match[3].toUpperCase()==='PM') hours+=12;
+      return hours*60+minutes;
+    }
+
+    match=value.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if(match){
+      const hours=parseInt(match[1],10);
+      const minutes=parseInt(match[2],10);
+      return hours*60+minutes;
+    }
+
+    return null;
+  }
+
+  const MINUTES_PER_DAY=1440;
+  const NOON_MINUTES=12*60;
+
+  function collectRanges(block){
+    const ranges=[];
+    const consider=(startStr,endStr)=>{
+      const start=parseTimeToMinutes(startStr);
+      const end=parseTimeToMinutes(endStr);
+      if(start==null && end==null) return;
+      ranges.push({start,end});
+    };
+
+    consider(block.BlockStartTime,block.BlockEndTime);
+    consider(block.TripStartTime,block.TripEndTime);
+
+    const trips=Array.isArray(block.Trips)?block.Trips:[];
+    for(const trip of trips){
+      consider(trip.BlockStartTime,trip.BlockEndTime);
+      consider(trip.TripStartTime,trip.TripEndTime);
+      consider(trip.StartTime,trip.EndTime);
+      consider(trip.StartTimeDate,trip.EndTimeDate);
+    }
+
+    return ranges;
+  }
+
+  function calculatePeriodMinutes(start,end){
+    let am=0;
+    let pm=0;
+    if(start==null || end==null) return {am,pm};
+
+    let rangeStart=start;
+    let rangeEnd=end;
+    if(rangeEnd<rangeStart) rangeEnd+=MINUTES_PER_DAY;
+
+    while(rangeStart<rangeEnd){
+      const dayStart=Math.floor(rangeStart/MINUTES_PER_DAY)*MINUTES_PER_DAY;
+      const dayEnd=dayStart+MINUTES_PER_DAY;
+      const segmentEnd=Math.min(rangeEnd,dayEnd);
+      const segStartOfDay=rangeStart-dayStart;
+      const segEndOfDay=segmentEnd-dayStart;
+
+      const amStart=Math.max(segStartOfDay,0);
+      const amEnd=Math.min(segEndOfDay,NOON_MINUTES);
+      if(amEnd>amStart) am+=amEnd-amStart;
+
+      const pmStart=Math.max(segStartOfDay,NOON_MINUTES);
+      const pmEnd=Math.min(segEndOfDay,MINUTES_PER_DAY);
+      if(pmEnd>pmStart) pm+=pmEnd-pmStart;
+
+      rangeStart=segmentEnd;
+    }
+
+    return {am,pm};
+  }
+
+  function buildEntry(group){
+    const id=String(group.BlockGroupId||'').trim();
+    const blocks=Array.isArray(group.Blocks)?group.Blocks:[];
+    const blockNumbers=[];
+    const blockPeriods=Object.create(null);
+    const seenNumbers=new Set();
+    const matches=id.match(/\[(\d+)\]/g)||[];
+    for(const raw of matches){
+      const num=raw.replace(/[^0-9]/g,'');
+      if(!num) continue;
+      const parsed=parseInt(num,10);
+      if(Number.isNaN(parsed)) continue;
+      const normalized=String(parsed).padStart(2,'0');
+      if(!seenNumbers.has(normalized)){
+        seenNumbers.add(normalized);
+        blockNumbers.push(normalized);
+      }
+    }
+
+    const periodMatch=id.match(/\b(AM|PM)\b/i);
+    const periodLabel=periodMatch?periodMatch[1].toLowerCase():'';
+
+    if(periodLabel){
+      for(const num of blockNumbers){
+        if(supportsAmPmBlock(num)){
+          blockPeriods[num]=periodLabel;
+        }
+      }
+    }else if(blockNumbers.length===2){
+      const [first,second]=blockNumbers;
+      if(supportsAmPmBlock(first) && supportsAmPmBlock(second)){
+        blockPeriods[first]='am';
+        blockPeriods[second]='pm';
+      }
+    }
+
+    let bus='—';
+    for(const block of blocks){
+      const trips=Array.isArray(block.Trips)?block.Trips:[];
+      for(const trip of trips){
+        const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
+        if(tripBus){
+          bus=tripBus;
+          break;
+        }
+      }
+      if(bus!=='—') break;
+    }
+
+    let minStart=null;
+    let maxEnd=null;
+    let amMinutes=0;
+    let pmMinutes=0;
+    const blockPeriodMinutes=new Map();
+    const perNumberMinutes=new Map();
+    for(const block of blocks){
+      const ranges=collectRanges(block);
+      for(const range of ranges){
+        let {start,end}=range;
+        if(start==null && end==null) continue;
+        if(start!=null && end!=null){
+          const contribution=calculatePeriodMinutes(start,end);
+          amMinutes+=contribution.am;
+          pmMinutes+=contribution.pm;
+          let totals=blockPeriodMinutes.get(block);
+          if(!totals){
+            totals={am:0,pm:0};
+            blockPeriodMinutes.set(block,totals);
+          }
+          totals.am+=contribution.am;
+          totals.pm+=contribution.pm;
+        }
+        if(start!=null){
+          if(minStart==null || start<minStart) minStart=start;
+        }
+        if(start!=null && end!=null && end<start){
+          end+=1440;
+        }
+        if(end!=null){
+          if(minStart!=null && end<minStart){
+            while(end<minStart){
+              end+=1440;
+            }
+          }
+          if(maxEnd==null || end>maxEnd) maxEnd=end;
+        }
+      }
+    }
+
+    const coversAm=amMinutes>0;
+    const coversPm=pmMinutes>0;
+
+    let inferredPeriod='';
+    if(periodLabel){
+      inferredPeriod=periodLabel;
+    }else if(coversAm && !coversPm){
+      inferredPeriod='am';
+    }else if(coversPm && !coversAm){
+      inferredPeriod='pm';
+    }else if(coversAm && coversPm){
+      inferredPeriod='any';
+    }else if(minStart!=null && maxEnd!=null){
+      let start=minStart;
+      let end=maxEnd;
+      if(end<start) end+=MINUTES_PER_DAY;
+      const duration=end-start;
+      if(duration>0){
+        const midpoint=(start+duration/2)%MINUTES_PER_DAY;
+        inferredPeriod=midpoint>=NOON_MINUTES?'pm':'am';
+      }
+    }
+
+    const blockIdLookup=new Map();
+    const blockNumberSet=new Set(blockNumbers);
+    const hasAuthoritativeNumbers=blockNumbers.length>0;
+
+    const addNumber=(num,{allowFromBlockId=false}={})=>{
+      if(!num) return null;
+      const parsed=parseInt(num,10);
+      if(Number.isNaN(parsed)) return null;
+      const normalized=String(parsed).padStart(2,'0');
+      if(allowFromBlockId && hasAuthoritativeNumbers && !blockNumberSet.has(normalized)){
+        return null;
+      }
+      if(!blockNumberSet.has(normalized)){
+        blockNumberSet.add(normalized);
+        blockNumbers.push(normalized);
+      }
+      return normalized;
+    };
+
+    for(const block of blocks){
+      const blockInfoNumbers=[];
+      const blockIdRaw=String(block.BlockId||block.BlockID||block.Block||block.BlockNumber||block.Id||block.ID||'').trim();
+      const normalizedId=normalizeIdentifier(blockIdRaw);
+      if(normalizedId){
+        const numericIdMatch=normalizedId.match(/^(\d{2})(AM|PM)?$/);
+        const bracketMatches=blockIdRaw.match(/\[(\d{2})(AM|PM)?\]/gi)||[];
+        if(numericIdMatch){
+          const normalizedNum=addNumber(numericIdMatch[1],{allowFromBlockId:true});
+          if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
+            blockInfoNumbers.push(normalizedNum);
+          }
+        }
+        for(const raw of bracketMatches){
+          const bracketMatch=raw.match(/\[(\d{2})(AM|PM)?\]/i);
+          if(!bracketMatch) continue;
+          const normalizedNum=addNumber(bracketMatch[1],{allowFromBlockId:true});
+          if(normalizedNum && !blockInfoNumbers.includes(normalizedNum)){
+            blockInfoNumbers.push(normalizedNum);
+          }
+        }
+      }
+
+      const coverageNumbers=blockInfoNumbers.filter(num=>supportsAmPmBlock(num));
+      const blockTotals=blockPeriodMinutes.get(block);
+      if(blockTotals && coverageNumbers.length){
+        for(const num of coverageNumbers){
+          let totals=perNumberMinutes.get(num);
+          if(!totals){
+            totals={am:0,pm:0};
+            perNumberMinutes.set(num,totals);
+          }
+          totals.am+=blockTotals.am;
+          totals.pm+=blockTotals.pm;
+        }
+      }
+
+      let blockBus='—';
+      const blockVehicleName=cleanBusIdentifier(block.VehicleName);
+      if(blockVehicleName){
+        blockBus=blockVehicleName;
+      }
+      if(blockBus==='—' && block.VehicleId!=null){
+        const idString=cleanBusIdentifier(block.VehicleId);
+        if(idString){
+          blockBus=idString;
+        }
+      }
+      const trips=Array.isArray(block.Trips)?block.Trips:[];
+      for(const trip of trips){
+        const tripBus=trip?cleanBusIdentifier(trip.VehicleName):'';
+        if(tripBus){
+          blockBus=tripBus;
+          break;
+        }
+      }
+
+      if(normalizedId){
+        const periodsForBlock=Object.create(null);
+        const periodInId=normalizedId.match(/(AM|PM)$/);
+        if(periodInId){
+          const label=periodInId[1].toLowerCase();
+          for(const num of blockInfoNumbers){
+            if(!supportsAmPmBlock(num)) continue;
+            periodsForBlock[num]=label;
+            if(!blockPeriods[num]){
+              blockPeriods[num]=label;
+            }
+          }
+        }
+        blockIdLookup.set(normalizedId,{
+          bus:blockBus,
+          numbers:blockInfoNumbers.slice(),
+          periods:periodsForBlock
+        });
+      }
+
+      if(bus==='—' && blockBus && blockBus!=='—'){
+        bus=blockBus;
+      }
+    }
+
+    if(perNumberMinutes.size){
+      const applyCoverageLabel=(num,label)=>{
+        if(!label || !supportsAmPmBlock(num)) return;
+        const current=blockPeriods[num];
+        if(!current){
+          blockPeriods[num]=label;
+        }else if(current!==label && current!=='any'){
+          blockPeriods[num]='any';
+        }
+        if(!blockIdLookup.size) return;
+        for(const info of blockIdLookup.values()){
+          if(!info) continue;
+          const numbers=Array.isArray(info.numbers) && info.numbers.length?info.numbers:blockNumbers;
+          if(!numbers.includes(num)) continue;
+          const periods=info.periods || (info.periods=Object.create(null));
+          const assigned=periods[num];
+          if(!assigned){
+            periods[num]=label;
+          }else if(assigned!==label && assigned!=='any'){
+            periods[num]='any';
+          }
+        }
+      };
+
+      for(const [num,totals] of perNumberMinutes.entries()){
+        const am=totals.am||0;
+        const pm=totals.pm||0;
+        let label='';
+        if(am>0 && pm>0){
+          label='any';
+        }else if(am>0){
+          label='am';
+        }else if(pm>0){
+          label='pm';
+        }
+        if(label){
+          applyCoverageLabel(num,label);
+        }
+      }
+    }
+
+    return {id,blockNumbers,blockPeriods,period:periodLabel,inferredPeriod,bus,minStart,maxEnd,blockIdLookup};
+  }
+
+  function isActive(entry,nowMinutes){
+    if(entry.minStart==null || entry.maxEnd==null) return false;
+    let start=entry.minStart;
+    let end=entry.maxEnd;
+    let now=nowMinutes;
+    if(end<start){
+      end+=1440;
+      if(now<start) now+=1440;
+    }
+    return now>=start && now<=end;
+  }
+
+  function pickBest(entries,nowMinutes){
+    if(!entries.length) return null;
+    const active=entries.filter(e=>isActive(e,nowMinutes));
+    const activeWithBus=active.find(e=>e.bus && e.bus!=='—');
+    if(activeWithBus) return activeWithBus;
+    if(active.length) return active[0];
+
+    const withBus=entries.find(e=>e.bus && e.bus!=='—');
+    if(withBus) return withBus;
+
+    return entries[0];
+  }
+
+  function selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes){
+    if(!matches.length) return '—';
+    let filtered=matches;
+    let allowFallback=!normalizedPeriod;
+    if(blockNumber){
+      const exactMatches=matches.filter(entry=>{
+        const periods=entry.blockPeriods||null;
+        if(!periods) return false;
+        const assigned=periods[blockNumber];
+        if(!assigned) return false;
+        if(assigned==='any') return true;
+        return assigned===normalizedPeriod;
+      });
+      if(normalizedPeriod && exactMatches.length){
+        filtered=exactMatches;
+        allowFallback=false;
+      }else if(normalizedPeriod){
+        const unspecified=matches.filter(entry=>{
+          const periods=entry.blockPeriods||null;
+          const assigned=periods?periods[blockNumber]:'';
+          if(assigned){
+            if(assigned==='any') return true;
+            return false;
+          }
+          const explicit=(entry.period||'').toLowerCase();
+          if(explicit){
+            if(explicit==='any') return true;
+            if(explicit!==normalizedPeriod) return false;
+          }
+          const inferred=(entry.inferredPeriod||'').toLowerCase();
+          if(inferred){
+            if(inferred==='any') return true;
+            if(inferred!==normalizedPeriod) return false;
+          }
+          return true;
+        });
+        if(unspecified.length){
+          filtered=unspecified;
+          allowFallback=true;
+        }else if(!exactMatches.length){
+          filtered=[];
+          allowFallback=false;
+        }
+      }
+    }else if(normalizedPeriod){
+      const periodFiltered=matches.filter(entry=>{
+        const explicit=(entry.period||'').toLowerCase();
+        if(explicit){
+          if(explicit==='any') return true;
+          return explicit===normalizedPeriod;
+        }
+        const inferred=(entry.inferredPeriod||'').toLowerCase();
+        if(inferred){
+          if(inferred==='any') return true;
+          return inferred===normalizedPeriod;
+        }
+        return true;
+      });
+      if(periodFiltered.length){
+        filtered=periodFiltered;
+        const hasPeriodInfo=periodFiltered.some(entry=>{
+          const explicit=(entry.period||'').toLowerCase();
+          if(explicit && explicit!=='any') return true;
+          const inferred=(entry.inferredPeriod||'').toLowerCase();
+          if(inferred && inferred!=='any') return true;
+          return false;
+        });
+        allowFallback=!hasPeriodInfo;
+      }else{
+        filtered=[];
+        allowFallback=false;
+      }
+    }
+
+    const best=pickBest(filtered,nowMinutes);
+    if(best && best.bus) return best.bus;
+    if(filtered!==matches && allowFallback){
+      const fallback=pickBest(matches,nowMinutes);
+      if(fallback && fallback.bus) return fallback.bus;
+    }
+    return '—';
+  }
+
+  function findBestBus(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinutes){
+    const matches=blockNumber?entries.filter(e=>Array.isArray(e.blockNumbers)&&e.blockNumbers.includes(blockNumber)):[];
+    const normalizedPeriod=(periodSuffix||'').toLowerCase();
+
+    if(blockIdNormalized){
+      const idCandidates=[];
+      for(const entry of entries){
+        const lookup=entry.blockIdLookup;
+        if(lookup && lookup.has(blockIdNormalized)){
+          const info=lookup.get(blockIdNormalized);
+          const infoBusClean=cleanBusIdentifier(info.bus);
+          const candidate={
+            bus:infoBusClean||'—',
+            blockNumbers:Array.isArray(info.numbers)&&info.numbers.length?info.numbers.slice():entry.blockNumbers.slice(),
+            blockPeriods:(info.periods && Object.keys(info.periods).length)?info.periods:entry.blockPeriods,
+            period:entry.period,
+            inferredPeriod:entry.inferredPeriod,
+            minStart:entry.minStart,
+            maxEnd:entry.maxEnd
+          };
+          idCandidates.push(candidate);
+        }
+      }
+      if(idCandidates.length){
+        let targetNumber=blockNumber;
+        if(!targetNumber){
+          for(const candidate of idCandidates){
+            if(Array.isArray(candidate.blockNumbers) && candidate.blockNumbers.length){
+              targetNumber=candidate.blockNumbers[0];
+              break;
+            }
+          }
+        }
+        const busFromId=selectBestBus(idCandidates,targetNumber||'',normalizedPeriod,nowMinutes);
+        if(busFromId && busFromId!=='—') return busFromId;
+        if(busFromId) return busFromId;
+      }
+    }
+    if(!blockNumber){
+      return '—';
+    }
+    if(!matches.length) return '—';
+    return selectBestBus(matches,blockNumber,normalizedPeriod,nowMinutes);
+  }
+
+  function updateGrid(entries,nowMinutes){
+    const cells=gridView.querySelectorAll('.cell[data-block], .cell[data-custom-block-id]');
+    for(const cell of cells){
+      const blockNumber=cell.dataset.block||'';
+      const periodSuffix=cell.dataset.period||'';
+      const customId=cell.dataset.customBlockId||'';
+      const bus=findBestBus(blockNumber,periodSuffix,customId,entries,nowMinutes);
+      const busEl=cell.querySelector('.bus');
+      if(busEl){
+        busEl.textContent=bus||'—';
+      }
+      const driverContainer=cell.querySelector('.drivers');
+      if(driverContainer){
+        let driverBlock=blockNumber;
+        let driverPeriod=periodSuffix;
+        if(!driverBlock && customId){
+          const blockMatch=customId.match(/^(\d{2})/);
+          if(blockMatch){
+            driverBlock=blockMatch[1];
+          }
+          if(!driverPeriod){
+            const periodMatch=customId.match(/(AM|PM)$/);
+            if(periodMatch){
+              driverPeriod=periodMatch[1].toLowerCase();
+            }
+          }
+        }
+        const driverList=selectDriversForBlock(driverBlock,driverPeriod);
+        renderDriverLines(driverContainer,driverList);
+      }
+    }
+    scheduleColumnWidthSync();
+  }
+
+  async function refresh(){
+    try{
+      statusEl.textContent='';
+      const [blockRes,driverRes]=await Promise.all([
+        fetch('/v1/dispatch/blocks'),
+        showDrivers?fetch('/v1/dispatch/block-drivers', {cache:'no-store'}):Promise.resolve(null)
+      ]);
+      if(!blockRes.ok) throw new Error(blockRes.status+'');
+      const data=await blockRes.json();
+      if(showDrivers && driverRes){
+        if(driverRes.ok){
+          const driverData=await driverRes.json();
+          driverAssignmentsDisabled=!!(driverData && driverData.disabled);
+          driverAssignmentsByBlock=driverAssignmentsDisabled?Object.create(null):normalizeDriverAssignmentsPayload(driverData);
+        }else{
+          console.warn('Failed to fetch driver assignments',driverRes.status);
+        }
+      }else if(!showDrivers){
+        driverAssignmentsByBlock=Object.create(null);
+        driverAssignmentsDisabled=false;
+      }
+      const groups=Array.isArray(data.block_groups)?data.block_groups:[];
+      const entries=[];
+      for(const group of groups){
+        const entry=buildEntry(group);
+        const hasCustomIds=entry.blockIdLookup && entry.blockIdLookup.size;
+        if(entry.blockNumbers.length || hasCustomIds){
+          entries.push(entry);
+        }
+      }
+
+      const now=new Date();
+      const nowMinutes=now.getHours()*60+now.getMinutes();
+
+      if(isGridMode){
+        updateGrid(entries,nowMinutes);
+      }else{
+        const periodSuffix=blockPeriod||((periodParam==='am'||periodParam==='pm')?periodParam:'');
+        const bus=findBestBus(selectedBlockNumber||'',periodSuffix,selectedBlockId,entries,nowMinutes);
+        busEl.textContent=bus||'—';
+        statusEl.textContent='';
+        const driverList=selectDriversForBlock(selectedBlockNumber||'',periodSuffix);
+        renderDriverLines(driverInfoEl,driverList);
+      }
+    }catch(err){
+      console.error(err);
+      statusEl.textContent='Offline';
+      if(!isGridMode){
+        busEl.textContent='--';
+        renderDriverLines(driverInfoEl,[]);
+      }
+    }
+  }
+
+  function performRefresh(){
+    if(refreshPromise) return refreshPromise;
+    refreshPromise=refresh().finally(()=>{
+      refreshPromise=null;
+    });
+    return refreshPromise;
+  }
+
+  function scheduleNextRefresh(){
+    if(refreshTimer){
+      clearTimeout(refreshTimer);
+      refreshTimer=null;
+    }
+    if(document.hidden) return;
+    refreshTimer=setTimeout(()=>{
+      triggerRefresh();
+    },REFRESH_INTERVAL_MS);
+  }
+
+  function triggerRefresh(){
+    return performRefresh().finally(()=>{
+      scheduleNextRefresh();
+    });
+  }
+
+  if(editMode && isGridMode){
+    gridView.addEventListener('click',event=>{
+      const addButton=event.target.closest('#add-column');
+      if(addButton){
+        event.preventDefault();
+        event.stopPropagation();
+        layout.push(createBlankColumn());
+        saveLayout();
+        buildGrid();
+        triggerRefresh();
+        return;
+      }
+      const removeButton=event.target.closest('#remove-column');
+      if(removeButton){
+        event.preventDefault();
+        event.stopPropagation();
+        if(layout.length<=1){
+          alert('At least one column is required.');
+          return;
+        }
+        const input=prompt(`Enter column number to remove (1-${layout.length}):`,String(layout.length));
+        if(input===null) return;
+        const index=parseInt(input,10)-1;
+        if(!Number.isInteger(index) || index<0 || index>=layout.length){
+          alert('Invalid column number.');
+          return;
+        }
+        if(!confirm('Remove the selected column?')) return;
+        layout.splice(index,1);
+        saveLayout();
+        buildGrid();
+        triggerRefresh();
+        return;
+      }
+      const resetButton=event.target.closest('#reset-layout');
+      if(resetButton){
+        event.preventDefault();
+        event.stopPropagation();
+        if(confirm('Reset layout to defaults?')){
+          resetLayout();
+          triggerRefresh();
+        }
+        return;
+      }
+      const cell=event.target.closest('.cell');
+      if(!cell) return;
+      const col=parseInt(cell.dataset.col||'-1',10);
+      const row=parseInt(cell.dataset.row||'-1',10);
+      if(!Number.isInteger(col) || !Number.isInteger(row) || col<0 || row<0) return;
+      if(!layout[col]) layout[col]=createBlankColumn();
+      const currentCell=normalizeCellValue(layout[col][row]);
+      const input=prompt('Enter block label (e.g. "01", "20AM", or plain text; leave blank to clear):',currentCell.value);
+      if(input===null) return;
+      const rawValue=String(input);
+      const trimmed=rawValue.trim();
+      if(!trimmed){
+        layout[col][row]=createEmptyCell();
+      }else{
+        const normalized=normalizeIdentifier(trimmed);
+        const nextValue=/^(\d{2})(AM|PM)?$/.test(normalized)?normalized:trimmed;
+        const displayInput=prompt('Enter display text (leave blank to use the block label):',currentCell.display);
+        if(displayInput===null) return;
+        const displayValue=String(displayInput).trim();
+        layout[col][row]={value:nextValue,display:displayValue};
+      }
+      saveLayout();
+      buildGrid();
+      triggerRefresh();
+    });
+  }else if(isGridMode){
+    const controls=gridView.querySelector('.grid-controls');
+    if(controls) controls.remove();
+  }
+
+  fetchLayoutFromServer({announce:editMode&&isGridMode,name:layoutName}).catch(()=>{});
+
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){
+      if(refreshTimer){
+        clearTimeout(refreshTimer);
+        refreshTimer=null;
+      }
+    }else{
+      triggerRefresh();
+    }
+  });
+
+  if(document.hidden){
+    scheduleNextRefresh();
+  }else{
+    triggerRefresh();
+  }
+})();
+</script>

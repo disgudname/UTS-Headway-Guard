@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+    <meta charset="utf-8" />
+    <title>Headway Guard — Radar Sweep</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: radial-gradient(circle at center, #04101c 0%, #010409 100%);
+        font-family: "FGDC", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #d4fefb;
+      }
+      body {
+        position: relative;
+        overflow: hidden;
+        filter: saturate(1.05) contrast(1.06);
+      }
+      body::before,
+      body::after {
+        content: "";
+        position: fixed;
+        inset: -15%;
+        pointer-events: none;
+        z-index: 0;
+        mix-blend-mode: screen;
+      }
+      body::before {
+        background-image:
+          radial-gradient(2px 2px at 18% 22%, rgba(82, 210, 255, 0.6) 0 55%, transparent 60%),
+          radial-gradient(1.5px 1.5px at 72% 62%, rgba(98, 255, 209, 0.5) 0 45%, transparent 55%),
+          radial-gradient(2.5px 2.5px at 42% 78%, rgba(62, 180, 255, 0.45) 0 40%, transparent 55%),
+          radial-gradient(2px 2px at 88% 18%, rgba(74, 255, 237, 0.55) 0 50%, transparent 60%);
+        background-size: 220px 220px, 180px 180px, 260px 260px, 240px 240px;
+        opacity: 0.35;
+        animation: starDrift 42s linear infinite;
+      }
+      body::after {
+        background: repeating-linear-gradient(
+          180deg,
+          rgba(48, 140, 160, 0.08) 0px,
+          rgba(48, 140, 160, 0.08) 2px,
+          transparent 2px,
+          transparent 8px
+        );
+        opacity: 0.22;
+        animation: scanlines 14s linear infinite;
+      }
+      #map {
+        position: absolute;
+        inset: 0;
+        z-index: 120;
+        overflow: hidden;
+        filter: saturate(0.65) brightness(0.82) contrast(1.05);
+      }
+      .crt-overlay {
+        position: fixed;
+        inset: -2.5%;
+        pointer-events: none;
+        z-index: 980;
+        border-radius: 36px;
+        box-shadow:
+          0 40px 120px rgba(0, 12, 20, 0.66),
+          inset 0 40px 120px rgba(0, 0, 0, 0.55),
+          inset 0 -20px 80px rgba(0, 0, 0, 0.38);
+        overflow: hidden;
+        transform: translateZ(0);
+        mix-blend-mode: screen;
+        opacity: 0.92;
+        animation: crtFlicker 7s ease-in-out infinite;
+      }
+      .crt-overlay::before {
+        content: "";
+        position: absolute;
+        inset: -3%;
+        border-radius: 42px;
+        background:
+          radial-gradient(circle at center, rgba(186, 255, 236, 0.18) 0%, rgba(42, 255, 220, 0.04) 38%, rgba(0, 0, 0, 0.55) 100%),
+          radial-gradient(ellipse at top, rgba(120, 255, 230, 0.22) 0%, rgba(0, 0, 0, 0) 60%),
+          linear-gradient(120deg, rgba(18, 200, 210, 0.2), transparent 60%);
+        mix-blend-mode: screen;
+        opacity: 0.75;
+        filter: blur(0.4px);
+      }
+      .crt-overlay::after {
+        content: "";
+        position: absolute;
+        inset: -3%;
+        border-radius: 42px;
+        background:
+          repeating-linear-gradient(0deg, rgba(28, 255, 220, 0.08) 0px, rgba(28, 255, 220, 0.08) 1px, transparent 1px, transparent 3px),
+          repeating-linear-gradient(90deg, rgba(0, 16, 26, 0.16) 0px, rgba(0, 16, 26, 0.16) 1px, transparent 1px, transparent 5px);
+        mix-blend-mode: soft-light;
+        opacity: 0.24;
+        animation: crtRoll 12s linear infinite;
+      }
+      #map::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at center, rgba(76, 255, 240, 0.05) 0%, transparent 50%),
+          linear-gradient(120deg, rgba(4, 70, 92, 0.18), transparent 55%);
+        mix-blend-mode: screen;
+        z-index: 2;
+      }
+      #radarCanvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 450;
+        mix-blend-mode: screen;
+      }
+      .leaflet-container {
+        background: #010409;
+      }
+      .leaflet-control-zoom a {
+        background: rgba(3, 20, 32, 0.82);
+        border: 1px solid rgba(78, 230, 210, 0.45);
+        color: rgba(210, 255, 246, 0.9);
+        box-shadow: 0 8px 18px rgba(2, 8, 16, 0.55);
+        transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+      }
+      .leaflet-control-zoom a:hover,
+      .leaflet-control-zoom a:focus {
+        background: rgba(114, 255, 224, 0.9);
+        color: #021018;
+        border-color: rgba(114, 255, 224, 0.95);
+        outline: none;
+      }
+      .leaflet-control-attribution {
+        background: rgba(2, 16, 26, 0.78);
+        color: rgba(188, 240, 255, 0.78);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-radius: 10px 0 0 0;
+        padding: 6px 10px;
+        font-size: 10px;
+        backdrop-filter: blur(12px);
+      }
+      .radar-bus-marker-wrapper {
+        width: 36px;
+        height: 59px;
+        position: relative;
+        transform-origin: center;
+      }
+      .radar-bus-icon {
+        width: 36px;
+        height: 59px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        filter: drop-shadow(0 0 6px rgba(80, 255, 220, 0.35));
+      }
+      .radar-bus-icon__svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .radar-bus-icon__svg svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .radar-bus-fallback {
+        width: 16px !important;
+        height: 16px !important;
+        border-radius: 50%;
+        background: rgba(80, 255, 220, 0.85);
+        box-shadow: 0 0 12px rgba(80, 255, 220, 0.75);
+      }
+      .radar-status {
+        position: absolute;
+        top: 18px;
+        left: 20px;
+        padding: 12px 18px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, rgba(6, 32, 44, 0.86), rgba(4, 16, 28, 0.78));
+        color: rgba(220, 252, 244, 0.92);
+        font-size: 13px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        backdrop-filter: blur(18px);
+        box-shadow: 0 14px 36px rgba(3, 12, 22, 0.55);
+        z-index: 900;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid rgba(74, 244, 220, 0.28);
+        text-shadow: 0 0 12px rgba(60, 255, 220, 0.55);
+      }
+      .radar-status__pulse {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: rgba(80, 255, 220, 0.95);
+        box-shadow: 0 0 0 rgba(80, 255, 220, 0.5);
+        animation: radarPulse 2.2s infinite;
+        flex-shrink: 0;
+      }
+      .radar-status__text {
+        white-space: nowrap;
+      }
+      .radar-status--error {
+        background: linear-gradient(135deg, rgba(40, 6, 18, 0.9), rgba(20, 4, 10, 0.82));
+        border-color: rgba(255, 122, 168, 0.5);
+        color: #ffd7e5;
+        text-shadow: 0 0 12px rgba(255, 122, 168, 0.55);
+      }
+      .radar-status--error .radar-status__pulse {
+        background: rgba(255, 122, 168, 0.9);
+        animation-duration: 1.4s;
+      }
+      .radar-frame {
+        position: absolute;
+        inset: 3% 2.4%;
+        border-radius: 28px;
+        border: 1px solid rgba(62, 220, 210, 0.16);
+        pointer-events: none;
+        z-index: 180;
+        box-shadow: 0 0 40px rgba(60, 200, 210, 0.18);
+        mix-blend-mode: screen;
+      }
+      .radar-frame::before,
+      .radar-frame::after {
+        content: "";
+        position: absolute;
+        inset: 12px;
+        border-radius: 22px;
+        border: 1px dashed rgba(74, 255, 233, 0.12);
+        opacity: 0.7;
+        animation: rotateDash 28s linear infinite;
+      }
+      .radar-frame::after {
+        inset: 20px;
+        border-style: solid;
+        border-color: rgba(74, 255, 233, 0.08);
+        animation-direction: reverse;
+      }
+      .radar-core {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: clamp(240px, 32vw, 440px);
+        height: clamp(240px, 32vw, 440px);
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 460;
+        mix-blend-mode: screen;
+      }
+      .radar-core::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(60, 255, 230, 0.28) 0%, rgba(8, 32, 40, 0) 70%);
+        border: 1px solid rgba(72, 255, 233, 0.26);
+        box-shadow: 0 0 38px rgba(74, 255, 233, 0.35);
+        animation: corePulse 6s ease-in-out infinite;
+      }
+      .radar-core::after {
+        content: "";
+        position: absolute;
+        inset: 30%;
+        background:
+          linear-gradient(90deg, transparent calc(50% - 1px), rgba(120, 255, 235, 0.6) calc(50% - 1px), rgba(120, 255, 235, 0.6) calc(50% + 1px), transparent calc(50% + 1px)),
+          linear-gradient(0deg, transparent calc(50% - 1px), rgba(120, 255, 235, 0.6) calc(50% - 1px), rgba(120, 255, 235, 0.6) calc(50% + 1px), transparent calc(50% + 1px));
+        opacity: 0.6;
+        filter: drop-shadow(0 0 16px rgba(120, 255, 235, 0.4));
+      }
+      .radar-core__ring {
+        position: absolute;
+        inset: 18%;
+        border-radius: 50%;
+        border: 1px dashed rgba(102, 255, 235, 0.25);
+        animation: rotateDash 18s linear infinite;
+        filter: drop-shadow(0 0 20px rgba(74, 255, 233, 0.4));
+      }
+      .radar-core__ring::before {
+        content: "";
+        position: absolute;
+        inset: -22%;
+        border-radius: 50%;
+        border: 1px solid rgba(72, 255, 233, 0.18);
+      }
+      .radar-hud {
+        position: absolute;
+        right: clamp(12px, 4vw, 28px);
+        bottom: clamp(12px, 5vh, 28px);
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 14px;
+        z-index: 920;
+        color: #defef5;
+        text-shadow: 0 0 16px rgba(54, 230, 210, 0.35);
+        pointer-events: none;
+      }
+      .radar-hud__module {
+        background: linear-gradient(160deg, rgba(6, 26, 36, 0.78), rgba(4, 14, 22, 0.9));
+        border-radius: 16px;
+        padding: 16px 18px 18px;
+        border: 1px solid rgba(72, 235, 220, 0.32);
+        box-shadow: 0 14px 32px rgba(3, 10, 18, 0.6);
+        backdrop-filter: blur(16px);
+        position: relative;
+        overflow: hidden;
+        pointer-events: auto;
+      }
+      .radar-hud__module::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(74, 255, 233, 0.14), transparent 60%);
+        opacity: 0;
+        transition: opacity 0.6s ease;
+      }
+      .radar-hud__module:hover::after {
+        opacity: 1;
+      }
+      .radar-hud__title {
+        font-size: 11px;
+        letter-spacing: 0.38em;
+        text-transform: uppercase;
+        color: rgba(160, 245, 233, 0.95);
+        margin-bottom: 12px;
+      }
+      .radar-hud__stats {
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+      }
+      .radar-hud__stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-size: 13px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .radar-hud__label {
+        color: rgba(148, 228, 220, 0.82);
+      }
+      .radar-hud__value {
+        font-size: 16px;
+        font-variant-numeric: tabular-nums;
+        color: #e0fff8;
+      }
+      .radar-hud__value--large {
+        font-size: 20px;
+      }
+      @keyframes radarPulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(80, 255, 220, 0.65);
+        }
+        70% {
+          box-shadow: 0 0 0 14px rgba(80, 255, 220, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(80, 255, 220, 0);
+        }
+      }
+      @keyframes starDrift {
+        0% {
+          transform: translate3d(0, 0, 0) scale(1);
+        }
+        100% {
+          transform: translate3d(-4%, -6%, 0) scale(1.05);
+        }
+      }
+      @keyframes scanlines {
+        0% {
+          transform: translateY(0);
+        }
+        100% {
+          transform: translateY(8px);
+        }
+      }
+      @keyframes crtFlicker {
+        0%,
+        100% {
+          opacity: 0.92;
+          filter: hue-rotate(0deg) saturate(1.08);
+        }
+        38% {
+          opacity: 0.96;
+          filter: hue-rotate(-2deg) saturate(1.12);
+        }
+        62% {
+          opacity: 0.9;
+          filter: hue-rotate(2deg) saturate(1.06);
+        }
+      }
+      @keyframes crtRoll {
+        0% {
+          background-position: 0 0, 0 0;
+        }
+        100% {
+          background-position: 0 100px, 120px 0;
+        }
+      }
+      @keyframes corePulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.9;
+        }
+        50% {
+          transform: scale(1.04);
+          opacity: 1;
+        }
+      }
+      @keyframes rotateDash {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      @media (max-width: 720px) {
+        .radar-status {
+          left: 12px;
+          right: 12px;
+          font-size: 11px;
+          letter-spacing: 0.18em;
+          justify-content: center;
+        }
+        .radar-hud {
+          right: 12px;
+          left: 12px;
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+    <script defer src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script defer src="map_defaults.js"></script>
+  </head>
+  <body>
+    <div id="map" role="presentation" aria-hidden="true"></div>
+    <canvas id="radarCanvas" aria-hidden="true"></canvas>
+    <div class="radar-status" aria-live="polite">
+      <span class="radar-status__pulse"></span>
+      <span class="radar-status__text" data-radar-status>Initializing Sweep</span>
+    </div>
+    <div class="radar-frame" aria-hidden="true"></div>
+    <div class="radar-core" aria-hidden="true">
+      <span class="radar-core__ring"></span>
+    </div>
+    <div class="radar-hud" aria-live="polite">
+      <div class="radar-hud__module" data-radar-module="sweep">
+        <div class="radar-hud__title">Sweep Metrics</div>
+        <div class="radar-hud__stats">
+          <div class="radar-hud__stat">
+            <span class="radar-hud__label">Velocity</span>
+            <span class="radar-hud__value radar-hud__value--large" data-radar-sweep>—</span>
+          </div>
+          <div class="radar-hud__stat">
+            <span class="radar-hud__label">Vehicles</span>
+            <span class="radar-hud__value radar-hud__value--large" data-radar-vehicles>—</span>
+          </div>
+          <div class="radar-hud__stat">
+            <span class="radar-hud__label">Last Sync</span>
+            <span class="radar-hud__value" data-radar-updated>Initializing Sweep</span>
+          </div>
+        </div>
+      </div>
+      <div class="radar-hud__module" data-radar-module="center">
+        <div class="radar-hud__title">Map Center</div>
+        <div class="radar-hud__stats">
+          <div class="radar-hud__stat">
+            <span class="radar-hud__label">Latitude</span>
+            <span class="radar-hud__value" data-radar-lat>0.0000</span>
+          </div>
+          <div class="radar-hud__stat">
+            <span class="radar-hud__label">Longitude</span>
+            <span class="radar-hud__value" data-radar-lon>0.0000</span>
+          </div>
+          <div class="radar-hud__stat">
+            <span class="radar-hud__label">Zoom</span>
+            <span class="radar-hud__value" data-radar-zoom>0.0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="crt-overlay" aria-hidden="true"></div>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        'use strict';
+
+        const MAP_DEFAULTS = (typeof window !== 'undefined' && window.HeadwayMapDefaults) || { center: [38.0520183812322, -78.50408223428101], zoom: 14 };
+        const CENTER = Array.isArray(MAP_DEFAULTS.center) && MAP_DEFAULTS.center.length === 2
+          ? [Number(MAP_DEFAULTS.center[0]), Number(MAP_DEFAULTS.center[1])]
+          : [38.0520183812322, -78.50408223428101];
+        const ZOOM = Number.isFinite(Number(MAP_DEFAULTS.zoom)) ? Number(MAP_DEFAULTS.zoom) : 14;
+        const REFRESH_INTERVAL_MS = 5000;
+        const SWEEP_SPEED_DEG_PER_SEC = 60;
+        const RING_COUNT = 4;
+        const RING_ALPHA_BASE = 0.14;
+        const SWEEP_TAIL_DEG = 18;
+        const MARKER_PANE_NAME = 'radar-markers';
+        const BUS_MARKER_WIDTH = 36;
+        const BUS_MARKER_HEIGHT = 59;
+        const BUS_MARKER_ANCHOR = [BUS_MARKER_WIDTH / 2, BUS_MARKER_HEIGHT - 1];
+        const DEFAULT_ROUTE_COLOR = '#4bf5ce';
+        const RADAR_MARKER_SVG = `
+          <svg width="36" height="59" viewBox="0 0 36 59" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="radar-body-gradient" x1="18" y1="1" x2="18" y2="58" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#0B2B38" />
+                <stop offset="1" stop-color="#04131D" />
+              </linearGradient>
+              <radialGradient id="radar-core-gradient" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(18 18) scale(12)">
+                <stop stop-color="#0FFFD8" stop-opacity="0.8" />
+                <stop offset="1" stop-color="#0FFFD8" stop-opacity="0" />
+              </radialGradient>
+            </defs>
+            <path d="M18 1C9.16344 1 2 8.16344 2 17C2 25.5486 8.1288 32.7746 13.4227 38.5959C15.3978 40.7998 17.1742 42.8071 18 44.0403C18.8258 42.8071 20.6022 40.7998 22.5773 38.5959C27.8712 32.7746 34 25.5486 34 17C34 8.16344 26.8366 1 18 1Z" fill="url(#radar-body-gradient)" stroke="rgba(74, 244, 220, 0.38)" stroke-width="1.2" />
+            <path d="M18 44.0403L27.2 58H8.8L18 44.0403Z" fill="url(#radar-body-gradient)" stroke="rgba(74, 244, 220, 0.34)" stroke-width="1.2" />
+            <circle cx="18" cy="18" r="12" fill="url(#radar-core-gradient)" />
+            <path id="route_color" fill="#4bf5ce" fill-opacity="0.7" fill-rule="evenodd" d="M18 6C24.6274 6 30 11.3726 30 18C30 24.6274 24.6274 30 18 30C11.3726 30 6 24.6274 6 18C6 11.3726 11.3726 6 18 6ZM18 26C22.4183 26 26 22.4183 26 18C26 13.5817 22.4183 10 18 10C13.5817 10 10 13.5817 10 18C10 22.4183 13.5817 26 18 26Z" />
+            <path d="M18 8C23.5228 8 28 12.4772 28 18" stroke="rgba(79, 245, 206, 0.45)" stroke-width="1.1" stroke-linecap="round" />
+            <path d="M18 12C21.3137 12 24 14.6863 24 18" stroke="rgba(79, 245, 206, 0.3)" stroke-width="1.1" stroke-linecap="round" />
+            <circle cx="18" cy="18" r="3.2" fill="#0FFFD8" />
+            <circle cx="18" cy="18" r="1.2" fill="#021017" />
+            <path d="M17.2 3.4L18 1L18.8 3.4" stroke="rgba(79, 245, 206, 0.42)" stroke-width="1" stroke-linecap="round" />
+            <path d="M24.6 46.3L27.2 58" stroke="rgba(79, 245, 206, 0.35)" stroke-width="1" stroke-linecap="round" />
+            <path d="M11.4 46.3L8.8 58" stroke="rgba(79, 245, 206, 0.35)" stroke-width="1" stroke-linecap="round" />
+          </svg>
+        `;
+        const CROSSHAIR_DASH_PATTERN = [6, 16];
+        const DIAGONAL_DASH_PATTERN = [4, 20];
+        const CROSSHAIR_ALPHA = 0.22;
+        const CORE_DOT_RADIUS = 3.4;
+        const SOUND_THROTTLE_MS = 250;
+        const STATUS_ACTIVE_TEXT = 'Radar Sweep Active';
+        const STATUS_ERROR_TEXT = 'Signal Interrupted';
+        const STATUS_WAITING_TEXT = 'Initializing Sweep';
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDispatcherView = urlParams.get('dispatcher') === 'true';
+
+        const statusElement = document.querySelector('.radar-status');
+        const statusTextElement = document.querySelector('[data-radar-status]');
+        const hudElements = {
+          sweep: document.querySelector('[data-radar-sweep]'),
+          vehicles: document.querySelector('[data-radar-vehicles]'),
+          updated: document.querySelector('[data-radar-updated]'),
+          lat: document.querySelector('[data-radar-lat]'),
+          lon: document.querySelector('[data-radar-lon]'),
+          zoom: document.querySelector('[data-radar-zoom]'),
+        };
+
+        if (isDispatcherView) {
+          const modulesToHide = document.querySelectorAll('[data-radar-module="sweep"], [data-radar-module="center"]');
+          modulesToHide.forEach((module) => {
+            module.hidden = true;
+          });
+
+          const hudContainer = document.querySelector('.radar-hud');
+          if (hudContainer) {
+            const hasVisibleModules = Array.from(hudContainer.children).some((child) => !child.hidden);
+            if (!hasVisibleModules) {
+              hudContainer.hidden = true;
+            }
+          }
+        }
+
+        if (hudElements.sweep) {
+          hudElements.sweep.textContent = `${Math.round(SWEEP_SPEED_DEG_PER_SEC)}°/s`;
+        }
+
+        let lastVehicleCount = 0;
+        let lastSuccessfulFetch = null;
+
+        function setStatusErrorState(isError) {
+          if (!statusElement) {
+            return;
+          }
+          statusElement.classList.toggle('radar-status--error', Boolean(isError));
+        }
+
+        function setStatusText(text) {
+          if (statusTextElement) {
+            statusTextElement.textContent = text;
+          }
+        }
+
+        function updateHudMeta() {
+          if (hudElements.vehicles) {
+            if (lastSuccessfulFetch instanceof Date) {
+              hudElements.vehicles.textContent = Number.isFinite(lastVehicleCount) ? String(lastVehicleCount) : '—';
+            } else {
+              hudElements.vehicles.textContent = '—';
+            }
+          }
+          if (hudElements.updated) {
+            if (lastSuccessfulFetch instanceof Date) {
+              hudElements.updated.textContent = lastSuccessfulFetch.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+              });
+            } else {
+              hudElements.updated.textContent = STATUS_WAITING_TEXT;
+            }
+          }
+        }
+
+        const map = L.map('map', {
+          zoomControl: true,
+          attributionControl: true,
+          preferCanvas: false,
+          worldCopyJump: false,
+        }).setView(CENTER, ZOOM);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+          subdomains: 'abcd',
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        }).addTo(map);
+
+        function updateHudCenterDisplay() {
+          if (!map) {
+            return;
+          }
+          const currentCenter = map.getCenter();
+          if (hudElements.lat) {
+            hudElements.lat.textContent = Number.isFinite(currentCenter.lat) ? currentCenter.lat.toFixed(4) : '—';
+          }
+          if (hudElements.lon) {
+            hudElements.lon.textContent = Number.isFinite(currentCenter.lng) ? currentCenter.lng.toFixed(4) : '—';
+          }
+          if (hudElements.zoom) {
+            const currentZoom = map.getZoom();
+            hudElements.zoom.textContent = Number.isFinite(currentZoom) ? currentZoom.toFixed(1) : '—';
+          }
+        }
+
+        setStatusText(STATUS_WAITING_TEXT);
+        setStatusErrorState(false);
+        updateHudMeta();
+
+        map.createPane(MARKER_PANE_NAME);
+        const markerPane = map.getPane(MARKER_PANE_NAME);
+        if (markerPane) {
+          markerPane.style.zIndex = 480;
+        }
+
+        const canvas = document.getElementById('radarCanvas');
+        const ctx = canvas.getContext('2d');
+        const backgroundCanvas = document.createElement('canvas');
+        const backgroundCtx = backgroundCanvas.getContext('2d');
+        const radarAudio = new Audio('radar.wav');
+        radarAudio.preload = 'auto';
+        let audioUnlocked = false;
+        let backgroundNeedsRender = true;
+
+        const ensureAudioUnlocked = () => {
+          if (audioUnlocked) {
+            return;
+          }
+          const unlock = () => {
+            radarAudio.play().then(() => {
+              radarAudio.pause();
+              radarAudio.currentTime = 0;
+              audioUnlocked = true;
+            }).catch(() => {}).finally(() => {
+              document.removeEventListener('pointerdown', unlock);
+              document.removeEventListener('keydown', unlock);
+            });
+          };
+          document.addEventListener('pointerdown', unlock, { once: true });
+          document.addEventListener('keydown', unlock, { once: true });
+        };
+
+        ensureAudioUnlocked();
+
+        const iconCache = new Map();
+        const markerStates = new Map();
+        const pendingUpdates = new Map();
+        const latestFetchSeen = new Set();
+        const routeColors = new Map();
+        let busMarkerSvgText = RADAR_MARKER_SVG.trim();
+        let busMarkerSvgPromise = Promise.resolve(busMarkerSvgText);
+        let fetchTimeout = null;
+        let mapCenter = map.getCenter();
+        let centerPoint = map.latLngToContainerPoint(mapCenter);
+        let devicePixelRatioCache = window.devicePixelRatio || 1;
+        let lastSoundPlayedAt = 0;
+
+        const fallbackIcon = L.divIcon({
+          className: 'radar-bus-fallback',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+          popupAnchor: [0, -8],
+        });
+
+        function requestBusMarkerSvg() {
+          return busMarkerSvgPromise;
+        }
+
+        requestBusMarkerSvg().finally(() => {
+          // Once the SVG is ready, refresh existing icons.
+          if (busMarkerSvgText) {
+            iconCache.clear();
+            markerStates.forEach(state => {
+              state.marker.setIcon(getBusIcon(state.routeColor));
+            });
+          }
+        });
+
+        function normalizeColor(value) {
+          if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
+              return trimmed;
+            }
+            if (/^[0-9a-f]{6}$/i.test(trimmed)) {
+              return `#${trimmed}`;
+            }
+          }
+          return DEFAULT_ROUTE_COLOR;
+        }
+
+        function getBusIcon(routeColor) {
+          const normalized = normalizeColor(routeColor);
+          if (!busMarkerSvgText) {
+            return fallbackIcon;
+          }
+          const key = normalized.toLowerCase();
+          if (iconCache.has(key)) {
+            return iconCache.get(key);
+          }
+          const template = document.createElement('template');
+          template.innerHTML = busMarkerSvgText.trim();
+          const svg = template.content.firstElementChild;
+          if (!svg) {
+            return fallbackIcon;
+          }
+          const routeShape = svg.querySelector('#route_color');
+          if (routeShape) {
+            routeShape.setAttribute('fill', normalized);
+            if (routeShape.style && typeof routeShape.style.setProperty === 'function') {
+              routeShape.style.setProperty('fill', normalized);
+            }
+          }
+          svg.setAttribute('aria-hidden', 'true');
+          const container = document.createElement('div');
+          container.className = 'radar-bus-icon';
+          container.dataset.routeColor = normalized;
+          const svgWrapper = document.createElement('div');
+          svgWrapper.className = 'radar-bus-icon__svg';
+          svgWrapper.appendChild(svg);
+          container.appendChild(svgWrapper);
+          const icon = L.divIcon({
+            className: 'radar-bus-marker-wrapper',
+            html: container.outerHTML,
+            iconSize: [BUS_MARKER_WIDTH, BUS_MARKER_HEIGHT],
+            iconAnchor: BUS_MARKER_ANCHOR,
+            popupAnchor: [0, -BUS_MARKER_HEIGHT / 2],
+          });
+          iconCache.set(key, icon);
+          return icon;
+        }
+
+        function syncCanvasSize(targetCanvas, targetCtx, size, dpr) {
+          const width = size.x * dpr;
+          const height = size.y * dpr;
+          if (targetCanvas.width !== width || targetCanvas.height !== height) {
+            targetCanvas.width = width;
+            targetCanvas.height = height;
+            if (targetCtx) {
+              targetCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+            return true;
+          }
+          return false;
+        }
+
+        function resizeCanvas() {
+          const size = map.getSize();
+          const dpr = window.devicePixelRatio || 1;
+          canvas.style.width = `${size.x}px`;
+          canvas.style.height = `${size.y}px`;
+          const canvasResized = syncCanvasSize(canvas, ctx, size, dpr);
+          const backgroundResized = syncCanvasSize(backgroundCanvas, backgroundCtx, size, dpr);
+          devicePixelRatioCache = dpr;
+          centerPoint = map.latLngToContainerPoint(mapCenter);
+          if (canvasResized || backgroundResized) {
+            backgroundNeedsRender = true;
+          }
+        }
+
+        function clearCanvas(context, targetCanvas) {
+          if (!context || !targetCanvas) {
+            return;
+          }
+          context.save();
+          context.setTransform(1, 0, 0, 1, 0, 0);
+          context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+          context.restore();
+        }
+
+        function updateCenterPoint() {
+          mapCenter = map.getCenter();
+          centerPoint = map.latLngToContainerPoint(mapCenter);
+          backgroundNeedsRender = true;
+        }
+
+        function renderStaticBackground() {
+          if (!backgroundCtx) {
+            return;
+          }
+          const width = backgroundCanvas.width / devicePixelRatioCache;
+          const height = backgroundCanvas.height / devicePixelRatioCache;
+          clearCanvas(backgroundCtx, backgroundCanvas);
+          backgroundCtx.save();
+          backgroundCtx.setTransform(devicePixelRatioCache, 0, 0, devicePixelRatioCache, 0, 0);
+          backgroundCtx.translate(centerPoint.x, centerPoint.y);
+          const maxRadius = Math.min(width, height) * 0.48;
+          backgroundCtx.lineWidth = 1.2;
+          backgroundCtx.shadowColor = 'rgba(72, 255, 233, 0.35)';
+          backgroundCtx.shadowBlur = 18;
+          for (let i = 1; i <= RING_COUNT; i += 1) {
+            backgroundCtx.beginPath();
+            const ringRadius = maxRadius * (i / RING_COUNT);
+            backgroundCtx.strokeStyle = `rgba(80, 255, 220, ${(RING_ALPHA_BASE * i).toFixed(3)})`;
+            backgroundCtx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+            backgroundCtx.stroke();
+          }
+          backgroundCtx.shadowBlur = 0;
+          backgroundCtx.setLineDash(CROSSHAIR_DASH_PATTERN);
+          backgroundCtx.strokeStyle = `rgba(80, 255, 220, ${CROSSHAIR_ALPHA})`;
+          backgroundCtx.beginPath();
+          backgroundCtx.moveTo(-maxRadius, 0);
+          backgroundCtx.lineTo(maxRadius, 0);
+          backgroundCtx.moveTo(0, -maxRadius);
+          backgroundCtx.lineTo(0, maxRadius);
+          backgroundCtx.stroke();
+          backgroundCtx.save();
+          backgroundCtx.rotate(Math.PI / 4);
+          backgroundCtx.setLineDash(DIAGONAL_DASH_PATTERN);
+          backgroundCtx.beginPath();
+          backgroundCtx.moveTo(-maxRadius, 0);
+          backgroundCtx.lineTo(maxRadius, 0);
+          backgroundCtx.moveTo(0, -maxRadius);
+          backgroundCtx.lineTo(0, maxRadius);
+          backgroundCtx.stroke();
+          backgroundCtx.restore();
+          backgroundCtx.setLineDash([]);
+          backgroundCtx.beginPath();
+          backgroundCtx.lineWidth = 1;
+          backgroundCtx.strokeStyle = 'rgba(60, 180, 200, 0.18)';
+          backgroundCtx.arc(0, 0, maxRadius, 0, Math.PI * 2);
+          backgroundCtx.stroke();
+          backgroundCtx.beginPath();
+          backgroundCtx.setLineDash([2, 8]);
+          backgroundCtx.strokeStyle = 'rgba(94, 255, 233, 0.18)';
+          backgroundCtx.arc(0, 0, maxRadius * 0.6, 0, Math.PI * 2);
+          backgroundCtx.stroke();
+          backgroundCtx.restore();
+        }
+
+        resizeCanvas();
+        updateCenterPoint();
+        updateHudCenterDisplay();
+        window.addEventListener('resize', resizeCanvas);
+        map.on('resize', resizeCanvas);
+        map.on('move', () => {
+          updateCenterPoint();
+          pendingUpdates.forEach(update => {
+            update.bearing = computeBearing(update.lat, update.lon);
+          });
+          updateHudCenterDisplay();
+        });
+        map.on('zoom', () => {
+          resizeCanvas();
+          updateCenterPoint();
+          pendingUpdates.forEach(update => {
+            update.bearing = computeBearing(update.lat, update.lon);
+          });
+          updateHudCenterDisplay();
+        });
+
+        function toRadians(value) {
+          return value * Math.PI / 180;
+        }
+
+        function computeBearing(lat, lon) {
+          const lat1 = toRadians(mapCenter.lat);
+          const lat2 = toRadians(lat);
+          const dLon = toRadians(lon - mapCenter.lng);
+          const y = Math.sin(dLon) * Math.cos(lat2);
+          const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+          const brng = Math.atan2(y, x);
+          const deg = (brng * 180 / Math.PI + 360) % 360;
+          return deg;
+        }
+
+        function hasAngleCrossed(startAngle, endAngle, targetAngle) {
+          if (startAngle === endAngle) {
+            return false;
+          }
+          const normStart = (startAngle + 360) % 360;
+          const normEnd = (endAngle + 360) % 360;
+          const normTarget = (targetAngle + 360) % 360;
+          if (normStart < normEnd) {
+            return normTarget > normStart && normTarget <= normEnd;
+          }
+          return normTarget > normStart || normTarget <= normEnd;
+        }
+
+        function scheduleNextFetch() {
+          if (fetchTimeout) {
+            window.clearTimeout(fetchTimeout);
+          }
+          fetchTimeout = window.setTimeout(fetchVehicles, REFRESH_INTERVAL_MS);
+        }
+
+        async function fetchVehicles() {
+          const fetchStartedAt = Date.now();
+          try {
+            const response = await fetch('/v1/testmap/transloc', { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const payload = await response.json();
+            latestFetchSeen.clear();
+            routeColors.clear();
+            if (Array.isArray(payload?.routes)) {
+              payload.routes.forEach(route => {
+                const rid = route?.RouteID ?? route?.routeID ?? route?.RouteId ?? route?.id;
+                const color = normalizeColor(route?.Color ?? route?.color ?? route?.RouteColor);
+                if (rid !== undefined && rid !== null) {
+                  routeColors.set(String(rid), color);
+                }
+              });
+            }
+            if (Array.isArray(payload?.vehicles)) {
+              payload.vehicles.forEach(vehicle => {
+                const rawId = vehicle?.VehicleID ?? vehicle?.VehicleId ?? vehicle?.VehicleId ?? vehicle?.id;
+                if (rawId === null || rawId === undefined) {
+                  return;
+                }
+                const vehicleId = String(rawId);
+                const lat = Number(vehicle?.Latitude ?? vehicle?.Lat ?? vehicle?.latitude);
+                const lon = Number(vehicle?.Longitude ?? vehicle?.Lon ?? vehicle?.Lng ?? vehicle?.longitude);
+                if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                  return;
+                }
+                const routeId = vehicle?.RouteID ?? vehicle?.RouteId ?? vehicle?.routeID;
+                const color = routeId !== undefined && routeId !== null
+                  ? routeColors.get(String(routeId)) || DEFAULT_ROUTE_COLOR
+                  : DEFAULT_ROUTE_COLOR;
+                latestFetchSeen.add(vehicleId);
+                const pending = pendingUpdates.get(vehicleId);
+                const existingState = markerStates.get(vehicleId);
+                const bearing = computeBearing(lat, lon);
+                pendingUpdates.set(vehicleId, {
+                  id: vehicleId,
+                  lat,
+                  lon,
+                  routeColor: color,
+                  bearing,
+                  updatedAt: fetchStartedAt,
+                });
+              });
+            }
+            markerStates.forEach((state, id) => {
+              if (latestFetchSeen.has(id)) {
+                state.lastSeenAt = fetchStartedAt;
+              }
+            });
+            lastVehicleCount = latestFetchSeen.size;
+            lastSuccessfulFetch = new Date(fetchStartedAt);
+            setStatusErrorState(false);
+            setStatusText(STATUS_ACTIVE_TEXT);
+            updateHudMeta();
+          } catch (error) {
+            console.error('Radar page failed to fetch vehicle data:', error);
+            setStatusErrorState(true);
+            setStatusText(STATUS_ERROR_TEXT);
+            if (hudElements.updated) {
+              hudElements.updated.textContent = 'Signal Lost';
+            }
+          } finally {
+            scheduleNextFetch();
+          }
+        }
+
+        function playRadarSound() {
+          if (!audioUnlocked) {
+            return;
+          }
+          const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          if (now - lastSoundPlayedAt < SOUND_THROTTLE_MS) {
+            return;
+          }
+          lastSoundPlayedAt = now;
+          try {
+            const clone = radarAudio.cloneNode();
+            clone.volume = 0.9;
+            clone.play().catch(() => {});
+          } catch (error) {
+            console.warn('Radar audio playback failed:', error);
+          }
+        }
+
+        let absoluteSweepAngle = 0;
+        let lastFrameTime = null;
+
+        function applyPendingUpdates(startAngle, endAngle, deltaAngle) {
+          const passedFullRotation = deltaAngle >= 360;
+          pendingUpdates.forEach((update, id) => {
+            const bearing = Number.isFinite(update.bearing) ? update.bearing : computeBearing(update.lat, update.lon);
+            if (!passedFullRotation && !hasAngleCrossed(startAngle, endAngle, bearing)) {
+              return;
+            }
+            let state = markerStates.get(id);
+            if (!state) {
+              const marker = L.marker([update.lat, update.lon], {
+                icon: getBusIcon(update.routeColor),
+                pane: MARKER_PANE_NAME,
+                opacity: 0,
+              }).addTo(map);
+              state = {
+                marker,
+                lat: update.lat,
+                lon: update.lon,
+                routeColor: update.routeColor,
+                lastUpdateAbsAngle: absoluteSweepAngle,
+                lastSeenAt: update.updatedAt,
+              };
+              markerStates.set(id, state);
+            } else {
+              state.marker.setLatLng([update.lat, update.lon]);
+              state.lat = update.lat;
+              state.lon = update.lon;
+              if (update.routeColor !== state.routeColor) {
+                state.routeColor = update.routeColor;
+                state.marker.setIcon(getBusIcon(update.routeColor));
+              }
+            }
+            state.marker.setOpacity(1);
+            state.lastUpdateAbsAngle = absoluteSweepAngle;
+            state.lastSeenAt = update.updatedAt;
+            pendingUpdates.delete(id);
+            playRadarSound();
+          });
+        }
+
+        function updateMarkerOpacity() {
+          markerStates.forEach((state, id) => {
+            const delta = absoluteSweepAngle - state.lastUpdateAbsAngle;
+            if (!Number.isFinite(delta) || delta < 0) {
+              return;
+            }
+            const progress = Math.min(delta / 360, 1);
+            const opacity = Math.max(1 - progress, 0);
+            state.marker.setOpacity(opacity);
+            if (opacity <= 0 && !pendingUpdates.has(id)) {
+              const unseenFor = Date.now() - (state.lastSeenAt || 0);
+              if (!latestFetchSeen.has(id) && unseenFor > 60000) {
+                map.removeLayer(state.marker);
+                markerStates.delete(id);
+              }
+            }
+          });
+        }
+
+        function drawRadar(angle) {
+          if (!ctx) {
+            return;
+          }
+          const width = canvas.width / devicePixelRatioCache;
+          const height = canvas.height / devicePixelRatioCache;
+          clearCanvas(ctx, canvas);
+          if (backgroundNeedsRender) {
+            renderStaticBackground();
+            backgroundNeedsRender = false;
+          }
+          if (backgroundCtx) {
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(backgroundCanvas, 0, 0);
+            ctx.restore();
+          }
+          const maxRadius = Math.min(width, height) * 0.48;
+          ctx.save();
+          ctx.translate(centerPoint.x, centerPoint.y);
+          const sweepAngleRad = (angle - 90) * Math.PI / 180;
+          const tailRad = SWEEP_TAIL_DEG * Math.PI / 180;
+          const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, maxRadius);
+          gradient.addColorStop(0, 'rgba(80, 255, 220, 0.22)');
+          gradient.addColorStop(0.45, 'rgba(80, 255, 220, 0.08)');
+          gradient.addColorStop(1, 'rgba(80, 255, 220, 0)');
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, maxRadius, sweepAngleRad - tailRad, sweepAngleRad, false);
+          ctx.closePath();
+          ctx.fill();
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(120, 255, 220, 0.85)';
+          ctx.lineWidth = 2.2;
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(sweepAngleRad) * maxRadius, Math.sin(sweepAngleRad) * maxRadius);
+          ctx.stroke();
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.beginPath();
+          ctx.fillStyle = 'rgba(140, 255, 255, 0.9)';
+          ctx.arc(0, 0, CORE_DOT_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.lineWidth = 1.4;
+          ctx.strokeStyle = 'rgba(120, 255, 235, 0.35)';
+          ctx.arc(0, 0, CORE_DOT_RADIUS * 3.6, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function animationStep(timestamp) {
+          if (lastFrameTime === null) {
+            lastFrameTime = timestamp;
+          }
+          const deltaMs = Math.min(1000, Math.max(0, timestamp - lastFrameTime));
+          lastFrameTime = timestamp;
+          const deltaAngle = (deltaMs / 1000) * SWEEP_SPEED_DEG_PER_SEC;
+          const previousAngle = ((absoluteSweepAngle % 360) + 360) % 360;
+          absoluteSweepAngle += deltaAngle;
+          const currentAngle = ((absoluteSweepAngle % 360) + 360) % 360;
+          applyPendingUpdates(previousAngle, currentAngle, deltaAngle);
+          updateMarkerOpacity();
+          drawRadar(currentAngle);
+          window.requestAnimationFrame(animationStep);
+        }
+
+        fetchVehicles();
+        window.requestAnimationFrame(animationStep);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+  <head>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+    <title>Live Map - Headway Guard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="testmap.css" />
+    <script defer src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script defer src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+    <script defer src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
+    <script defer src="testmap.js"></script>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="kioskStatusMessage" class="kiosk-status-message" aria-live="polite" aria-hidden="true">
+      No active vehicles
+    </div>
+    <div id="routeLegend" aria-live="polite"></div>
+    <div id="controlPanel" class="selector-panel"></div>
+    <div id="routeSelector" class="selector-panel"></div>
+    <div id="controlPanelTab" class="panel-toggle panel-toggle--left" onclick="toggleControlPanel()" title="Toggle system controls">
+      <span class="panel-toggle__arrow" aria-hidden="true">&#9654;</span>
+    </div>
+    <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">
+      <span class="panel-toggle__arrow" aria-hidden="true">&#9664;</span>
+    </div>
+    <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS via Iowa Environmental Mesonet.</div>
+    <div id="mapToast" class="map-toast" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true"></div>
+    <div id="cookieBanner" class="cookie-banner" style="display:none;">
+      This site stores your selected transit agency on your device to remember your preference.
+      <button id="cookieAccept">OK</button>
+    </div>
+    <div id="adminAuthOverlay" class="admin-auth-overlay" aria-hidden="true">
+      <div class="admin-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="adminAuthTitle">
+        <button type="button" id="adminAuthClose" class="admin-auth-close" aria-label="Close admin authentication">&times;</button>
+        <h2 id="adminAuthTitle" class="admin-auth-title">Unlock Admin Mode</h2>
+        <p class="admin-auth-description">Enter your dispatch password to unlock admin tools.</p>
+        <p class="admin-auth-note">Need a password? Send Pat a Teams message.</p>
+        <form id="adminAuthForm" class="admin-auth-form">
+          <label class="admin-auth-label" for="adminAuthPassword">Password</label>
+          <input id="adminAuthPassword" type="password" autocomplete="current-password" placeholder="Password" required>
+          <div id="adminAuthStatus" class="admin-auth-status" role="status" aria-live="polite"></div>
+          <button type="submit" id="adminAuthSubmit" class="pill-button admin-auth-submit">Unlock Admin Mode</button>
+        </form>
+      </div>
+    </div>
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="false">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading agency data…</div>
+      </div>
+    </div>
+    <script src="mobile-nav.js"></script>
+  </body>
+</html>

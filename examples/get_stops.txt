@@ -1,0 +1,4554 @@
+{
+    "get_stops": [
+        {
+            "rid": 1,
+            "rsid": 83248,
+            "id": 17712,
+            "name": "Chesapeake St at 18th St NE",
+            "lat": 38.02523422241211,
+            "lng": -78.46121978759766,
+            "extID": "17712",
+            "shortName": "17712"
+        },
+        {
+            "rid": 1,
+            "rsid": 84623,
+            "id": 19087,
+            "name": "Chesapeake St at Meade Park",
+            "lat": 38.027137756347656,
+            "lng": -78.46600341796875,
+            "extID": "19087",
+            "shortName": "19087"
+        },
+        {
+            "rid": 1,
+            "rsid": 77948,
+            "id": 12412,
+            "name": "Chesapeake St at Riverview St",
+            "lat": 38.02422332763672,
+            "lng": -78.4587173461914,
+            "extID": "12412",
+            "shortName": "12412"
+        },
+        {
+            "rid": 1,
+            "rsid": 84596,
+            "id": 19060,
+            "name": "Chesapeake St at Riverview St",
+            "lat": 38.023948669433594,
+            "lng": -78.45824432373047,
+            "extID": "19060",
+            "shortName": "19060"
+        },
+        {
+            "rid": 1,
+            "rsid": 82869,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 1,
+            "rsid": 82048,
+            "id": 16512,
+            "name": "E High St at 9 1/2 St NE",
+            "lat": 38.03148651123047,
+            "lng": -78.47272491455078,
+            "extID": "16512",
+            "shortName": "16512"
+        },
+        {
+            "rid": 1,
+            "rsid": 82011,
+            "id": 16475,
+            "name": "E High St at Locust Ave",
+            "lat": 38.031639099121094,
+            "lng": -78.47234344482422,
+            "extID": "16475",
+            "shortName": "16475"
+        },
+        {
+            "rid": 1,
+            "rsid": 76857,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 1,
+            "rsid": 78116,
+            "id": 12580,
+            "name": "E Market St at 18th St NE",
+            "lat": 38.024314880371094,
+            "lng": -78.46246337890625,
+            "extID": "12580",
+            "shortName": "12580"
+        },
+        {
+            "rid": 1,
+            "rsid": 76835,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 1,
+            "rsid": 76845,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 1,
+            "rsid": 76551,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 1,
+            "rsid": 78184,
+            "id": 12648,
+            "name": "Fairway Ave at Arbor Cir",
+            "lat": 38.02908706665039,
+            "lng": -78.46350860595703,
+            "extID": "12648",
+            "shortName": "12648"
+        },
+        {
+            "rid": 1,
+            "rsid": 78001,
+            "id": 12465,
+            "name": "Fairway Ave at Meade Ave",
+            "lat": 38.030174255371094,
+            "lng": -78.46479034423828,
+            "extID": "12465",
+            "shortName": "12465"
+        },
+        {
+            "rid": 1,
+            "rsid": 78160,
+            "id": 12624,
+            "name": "Fairway Ave at Short 18th St",
+            "lat": 38.026729583740234,
+            "lng": -78.46240997314453,
+            "extID": "12624",
+            "shortName": "12624"
+        },
+        {
+            "rid": 1,
+            "rsid": 84651,
+            "id": 19115,
+            "name": "Little High St at 11th St Eastbound",
+            "lat": 38.03068923950195,
+            "lng": -78.47103881835938,
+            "extID": "19115",
+            "shortName": "19115"
+        },
+        {
+            "rid": 1,
+            "rsid": 84663,
+            "id": 19127,
+            "name": "Little High St at 11th St Westbound",
+            "lat": 38.03079605102539,
+            "lng": -78.47096252441406,
+            "extID": "19127",
+            "shortName": "19127"
+        },
+        {
+            "rid": 1,
+            "rsid": 84640,
+            "id": 19104,
+            "name": "Little High St at 12th St Eastbound",
+            "lat": 38.02960968017578,
+            "lng": -78.46794128417969,
+            "extID": "19104",
+            "shortName": "19104"
+        },
+        {
+            "rid": 1,
+            "rsid": 84630,
+            "id": 19094,
+            "name": "Little High St at 12th St Westbound",
+            "lat": 38.02971267700195,
+            "lng": -78.4679183959961,
+            "extID": "19094",
+            "shortName": "19094"
+        },
+        {
+            "rid": 1,
+            "rsid": 78019,
+            "id": 12483,
+            "name": "Meade Ave at Caroline Ave",
+            "lat": 38.029136657714844,
+            "lng": -78.46569061279297,
+            "extID": "12483",
+            "shortName": "12483"
+        },
+        {
+            "rid": 1,
+            "rsid": 79773,
+            "id": 14237,
+            "name": "Monticello Ave at 2nd St Eastbound",
+            "lat": 38.026607513427734,
+            "lng": -78.48211669921875,
+            "extID": "14237",
+            "shortName": "14237"
+        },
+        {
+            "rid": 1,
+            "rsid": 84745,
+            "id": 19209,
+            "name": "Monticello Ave at 2nd St Westbound",
+            "lat": 38.02729415893555,
+            "lng": -78.48247528076172,
+            "extID": "19209",
+            "shortName": "19209"
+        },
+        {
+            "rid": 1,
+            "rsid": 79764,
+            "id": 14228,
+            "name": "Monticello Ave at 6th St Eastbound",
+            "lat": 38.02522659301758,
+            "lng": -78.48092651367188,
+            "extID": "14228",
+            "shortName": "14228"
+        },
+        {
+            "rid": 1,
+            "rsid": 84727,
+            "id": 19191,
+            "name": "Monticello Ave at 6th St Westbound",
+            "lat": 38.025394439697266,
+            "lng": -78.4807357788086,
+            "extID": "19191",
+            "shortName": "19191"
+        },
+        {
+            "rid": 1,
+            "rsid": 84725,
+            "id": 19189,
+            "name": "Monticello Ave at Blenheim Ave",
+            "lat": 38.020023345947266,
+            "lng": -78.47406768798828,
+            "extID": "19189",
+            "shortName": "19189"
+        },
+        {
+            "rid": 1,
+            "rsid": 78212,
+            "id": 12676,
+            "name": "Monticello Ave at Elliott Ave",
+            "lat": 38.01857376098633,
+            "lng": -78.47504425048828,
+            "extID": "12676",
+            "shortName": "12676"
+        },
+        {
+            "rid": 1,
+            "rsid": 85356,
+            "id": 19820,
+            "name": "Monticello Ave at Rialto St",
+            "lat": 38.023521423339844,
+            "lng": -78.47747039794922,
+            "extID": "19820",
+            "shortName": "19820"
+        },
+        {
+            "rid": 1,
+            "rsid": 85367,
+            "id": 19831,
+            "name": "Monticello Ave at Rialto St",
+            "lat": 38.023685455322266,
+            "lng": -78.47761535644531,
+            "extID": "19831",
+            "shortName": "19831"
+        },
+        {
+            "rid": 1,
+            "rsid": 84768,
+            "id": 19232,
+            "name": "Monticello Ave at Ridge St Eastbound",
+            "lat": 38.028358459472656,
+            "lng": -78.4853286743164,
+            "extID": "19232",
+            "shortName": "19232"
+        },
+        {
+            "rid": 1,
+            "rsid": 84749,
+            "id": 19213,
+            "name": "Monticello Ave at Ridge St Westbound",
+            "lat": 38.02860641479492,
+            "lng": -78.48534393310547,
+            "extID": "19213",
+            "shortName": "19213"
+        },
+        {
+            "rid": 1,
+            "rsid": 77967,
+            "id": 12431,
+            "name": "Monticello Ave at Tufton Ave",
+            "lat": 38.021827697753906,
+            "lng": -78.47433471679688,
+            "extID": "12431",
+            "shortName": "12431"
+        },
+        {
+            "rid": 1,
+            "rsid": 78041,
+            "id": 12505,
+            "name": "Monticello Ave Castalia St",
+            "lat": 38.02165985107422,
+            "lng": -78.47443389892578,
+            "extID": "12505",
+            "shortName": "12505"
+        },
+        {
+            "rid": 1,
+            "rsid": 85390,
+            "id": 19854,
+            "name": "Monticello Rd at Carlton Rd",
+            "lat": 38.01976013183594,
+            "lng": -78.47285461425781,
+            "extID": "19854",
+            "shortName": "19854"
+        },
+        {
+            "rid": 1,
+            "rsid": 85419,
+            "id": 19883,
+            "name": "Monticello Rd at Druid Ave",
+            "lat": 38.01536560058594,
+            "lng": -78.4731674194336,
+            "extID": "19883",
+            "shortName": "19883"
+        },
+        {
+            "rid": 1,
+            "rsid": 85413,
+            "id": 19877,
+            "name": "Monticello Rd at Elliott Ave",
+            "lat": 38.0179557800293,
+            "lng": -78.47305297851562,
+            "extID": "19877",
+            "shortName": "19877"
+        },
+        {
+            "rid": 1,
+            "rsid": 80462,
+            "id": 14926,
+            "name": "PVCC at The Main Bldg",
+            "lat": 38.00746536254883,
+            "lng": -78.4837646484375,
+            "extID": "14926",
+            "shortName": "14926"
+        },
+        {
+            "rid": 1,
+            "rsid": 85385,
+            "id": 19849,
+            "name": "PVCC at The Stultz Ctr",
+            "lat": 38.00581359863281,
+            "lng": -78.48085021972656,
+            "extID": "19849",
+            "shortName": "19849"
+        },
+        {
+            "rid": 1,
+            "rsid": 78336,
+            "id": 12800,
+            "name": "PVCC Dickinson Building",
+            "lat": 38.00517654418945,
+            "lng": -78.4881362915039,
+            "extID": "12800",
+            "shortName": "12800"
+        },
+        {
+            "rid": 1,
+            "rsid": 76579,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 1,
+            "rsid": 84592,
+            "id": 19056,
+            "name": "Riverside Ave",
+            "lat": 38.024696350097656,
+            "lng": -78.45512390136719,
+            "extID": "19056",
+            "shortName": "19056"
+        },
+        {
+            "rid": 1,
+            "rsid": 84577,
+            "id": 19041,
+            "name": "Riverside Ave at Riverbluff Cir",
+            "lat": 38.02696990966797,
+            "lng": -78.45626068115234,
+            "extID": "19041",
+            "shortName": "19041"
+        },
+        {
+            "rid": 1,
+            "rsid": 84575,
+            "id": 19039,
+            "name": "Riverside Ave Northbound",
+            "lat": 38.02467727661133,
+            "lng": -78.45496368408203,
+            "extID": "19039",
+            "shortName": "19039"
+        },
+        {
+            "rid": 1,
+            "rsid": 77030,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 1,
+            "rsid": 76572,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 2,
+            "rsid": 144028,
+            "id": 12956,
+            "name": "5th St at Bailey Rd Southbound",
+            "lat": 38.020843505859375,
+            "lng": -78.49459838867188,
+            "extID": "12956",
+            "shortName": "12956"
+        },
+        {
+            "rid": 2,
+            "rsid": 151195,
+            "id": 20123,
+            "name": "5th St at Cleveland Ave",
+            "lat": 38.01731872558594,
+            "lng": -78.49736785888672,
+            "extID": "20123",
+            "shortName": "20123"
+        },
+        {
+            "rid": 2,
+            "rsid": 151126,
+            "id": 20054,
+            "name": "5th St Station",
+            "lat": 38.01011276245117,
+            "lng": -78.4983901977539,
+            "extID": "20054",
+            "shortName": "20054"
+        },
+        {
+            "rid": 2,
+            "rsid": 151137,
+            "id": 20065,
+            "name": "5th St Station Pkwy at Avon St Ext",
+            "lat": 38.008792877197266,
+            "lng": -78.49248504638672,
+            "extID": "20065",
+            "shortName": "20065"
+        },
+        {
+            "rid": 2,
+            "rsid": 151155,
+            "id": 20083,
+            "name": "Avon St at Belmont Cottages",
+            "lat": 38.016395568847656,
+            "lng": -78.48493957519531,
+            "extID": "20083",
+            "shortName": "20083"
+        },
+        {
+            "rid": 2,
+            "rsid": 143119,
+            "id": 12047,
+            "name": "Avon St at Blenheim Ave",
+            "lat": 38.02295684814453,
+            "lng": -78.4801025390625,
+            "extID": "12047",
+            "shortName": "12047"
+        },
+        {
+            "rid": 2,
+            "rsid": 146999,
+            "id": 15927,
+            "name": "Avon St at Druid Ave",
+            "lat": 38.01980209350586,
+            "lng": -78.48239135742188,
+            "extID": "15927",
+            "shortName": "15927"
+        },
+        {
+            "rid": 2,
+            "rsid": 143147,
+            "id": 12075,
+            "name": "Avon St at Hinton Ave",
+            "lat": 38.026161193847656,
+            "lng": -78.47783660888672,
+            "extID": "12075",
+            "shortName": "12075"
+        },
+        {
+            "rid": 2,
+            "rsid": 143124,
+            "id": 12052,
+            "name": "Avon St at Montrose Ave",
+            "lat": 38.02187728881836,
+            "lng": -78.48087310791016,
+            "extID": "12052",
+            "shortName": "12052"
+        },
+        {
+            "rid": 2,
+            "rsid": 151149,
+            "id": 20077,
+            "name": "Avon St Ext Park and Ride",
+            "lat": 38.01382064819336,
+            "lng": -78.48678588867188,
+            "extID": "20077",
+            "shortName": "20077"
+        },
+        {
+            "rid": 2,
+            "rsid": 151182,
+            "id": 20110,
+            "name": "Bent Creek Rd at Exxon Station",
+            "lat": 38.01179885864258,
+            "lng": -78.50201416015625,
+            "extID": "20110",
+            "shortName": "20110"
+        },
+        {
+            "rid": 2,
+            "rsid": 148405,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 2,
+            "rsid": 142393,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 2,
+            "rsid": 142087,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 2,
+            "rsid": 144059,
+            "id": 12987,
+            "name": "Ridge St at Cherry Ave",
+            "lat": 38.02619934082031,
+            "lng": -78.48857879638672,
+            "extID": "12987",
+            "shortName": "12987"
+        },
+        {
+            "rid": 2,
+            "rsid": 144066,
+            "id": 12994,
+            "name": "Ridge St at Dice St Southbound",
+            "lat": 38.02806854248047,
+            "lng": -78.4864501953125,
+            "extID": "12994",
+            "shortName": "12994"
+        },
+        {
+            "rid": 2,
+            "rsid": 142108,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 2,
+            "rsid": 150396,
+            "id": 19324,
+            "name": "Willoughby Square Shopping",
+            "lat": 38.01356887817383,
+            "lng": -78.5023422241211,
+            "extID": "19324",
+            "shortName": "19324"
+        },
+        {
+            "rid": 3,
+            "rsid": 212400,
+            "id": 15792,
+            "name": "5th St at Bailey Rd Northbound",
+            "lat": 38.02104187011719,
+            "lng": -78.49408721923828,
+            "extID": "15792",
+            "shortName": "15792"
+        },
+        {
+            "rid": 3,
+            "rsid": 209564,
+            "id": 12956,
+            "name": "5th St at Bailey Rd Southbound",
+            "lat": 38.020843505859375,
+            "lng": -78.49459838867188,
+            "extID": "12956",
+            "shortName": "12956"
+        },
+        {
+            "rid": 3,
+            "rsid": 212393,
+            "id": 15785,
+            "name": "5th St at Bent Creed Rd",
+            "lat": 38.012454986572266,
+            "lng": -78.50211334228516,
+            "extID": "15785",
+            "shortName": "15785"
+        },
+        {
+            "rid": 3,
+            "rsid": 216731,
+            "id": 20123,
+            "name": "5th St at Cleveland Ave",
+            "lat": 38.01731872558594,
+            "lng": -78.49736785888672,
+            "extID": "20123",
+            "shortName": "20123"
+        },
+        {
+            "rid": 3,
+            "rsid": 212449,
+            "id": 15841,
+            "name": "5th St at County Office",
+            "lat": 38.00552749633789,
+            "lng": -78.5190200805664,
+            "extID": "15841",
+            "shortName": "15841"
+        },
+        {
+            "rid": 3,
+            "rsid": 211854,
+            "id": 15246,
+            "name": "5th St at Holiday Inn",
+            "lat": 38.009788513183594,
+            "lng": -78.50634002685547,
+            "extID": "15246",
+            "shortName": "15246"
+        },
+        {
+            "rid": 3,
+            "rsid": 214827,
+            "id": 18219,
+            "name": "5th St at Old Lynchburg Rd",
+            "lat": 38.00547409057617,
+            "lng": -78.51988220214844,
+            "extID": "18219",
+            "shortName": "18219"
+        },
+        {
+            "rid": 3,
+            "rsid": 211863,
+            "id": 15255,
+            "name": "5th St at Sleep Inn",
+            "lat": 38.01084518432617,
+            "lng": -78.5049057006836,
+            "extID": "15255",
+            "shortName": "15255"
+        },
+        {
+            "rid": 3,
+            "rsid": 216542,
+            "id": 19934,
+            "name": "5th St at Wahoo Way",
+            "lat": 38.00641632080078,
+            "lng": -78.51727294921875,
+            "extID": "19934",
+            "shortName": "19934"
+        },
+        {
+            "rid": 3,
+            "rsid": 212468,
+            "id": 15860,
+            "name": "Altavista Ave",
+            "lat": 38.018341064453125,
+            "lng": -78.47711944580078,
+            "extID": "15860",
+            "shortName": "15860"
+        },
+        {
+            "rid": 3,
+            "rsid": 212481,
+            "id": 15873,
+            "name": "Altavista Ave at Rialto St",
+            "lat": 38.0197868347168,
+            "lng": -78.48027801513672,
+            "extID": "15873",
+            "shortName": "15873"
+        },
+        {
+            "rid": 3,
+            "rsid": 208655,
+            "id": 12047,
+            "name": "Avon St at Blenheim Ave",
+            "lat": 38.02295684814453,
+            "lng": -78.4801025390625,
+            "extID": "12047",
+            "shortName": "12047"
+        },
+        {
+            "rid": 3,
+            "rsid": 212535,
+            "id": 15927,
+            "name": "Avon St at Druid Ave",
+            "lat": 38.01980209350586,
+            "lng": -78.48239135742188,
+            "extID": "15927",
+            "shortName": "15927"
+        },
+        {
+            "rid": 3,
+            "rsid": 208108,
+            "id": 11500,
+            "name": "Avon St at Garrett St",
+            "lat": 38.026405334472656,
+            "lng": -78.47792053222656,
+            "extID": "11500",
+            "shortName": "11500"
+        },
+        {
+            "rid": 3,
+            "rsid": 208683,
+            "id": 12075,
+            "name": "Avon St at Hinton Ave",
+            "lat": 38.026161193847656,
+            "lng": -78.47783660888672,
+            "extID": "12075",
+            "shortName": "12075"
+        },
+        {
+            "rid": 3,
+            "rsid": 208660,
+            "id": 12052,
+            "name": "Avon St at Montrose Ave",
+            "lat": 38.02187728881836,
+            "lng": -78.48087310791016,
+            "extID": "12052",
+            "shortName": "12052"
+        },
+        {
+            "rid": 3,
+            "rsid": 211869,
+            "id": 15261,
+            "name": "Bainbridge St at Monticello Rd",
+            "lat": 38.02302551269531,
+            "lng": -78.47309112548828,
+            "extID": "15261",
+            "shortName": "15261"
+        },
+        {
+            "rid": 3,
+            "rsid": 212495,
+            "id": 15887,
+            "name": "Belmont Park",
+            "lat": 38.01834487915039,
+            "lng": -78.48163604736328,
+            "extID": "15887",
+            "shortName": "15887"
+        },
+        {
+            "rid": 3,
+            "rsid": 212345,
+            "id": 15737,
+            "name": "Carlton Ave at Carlton Rd",
+            "lat": 38.02275085449219,
+            "lng": -78.47021484375,
+            "extID": "15737",
+            "shortName": "15737"
+        },
+        {
+            "rid": 3,
+            "rsid": 213941,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 3,
+            "rsid": 207929,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 3,
+            "rsid": 207907,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 3,
+            "rsid": 207917,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 3,
+            "rsid": 207623,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 3,
+            "rsid": 212367,
+            "id": 15759,
+            "name": "Hinton Ave at Meridian St",
+            "lat": 38.02426528930664,
+            "lng": -78.47481536865234,
+            "extID": "15759",
+            "shortName": "15759"
+        },
+        {
+            "rid": 3,
+            "rsid": 215770,
+            "id": 19162,
+            "name": "Monticello Rd at Linden Ave Southbound",
+            "lat": 38.01518630981445,
+            "lng": -78.47322082519531,
+            "extID": "19162",
+            "shortName": "19162"
+        },
+        {
+            "rid": 3,
+            "rsid": 207651,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 3,
+            "rsid": 209595,
+            "id": 12987,
+            "name": "Ridge St at Cherry Ave",
+            "lat": 38.02619934082031,
+            "lng": -78.48857879638672,
+            "extID": "12987",
+            "shortName": "12987"
+        },
+        {
+            "rid": 3,
+            "rsid": 212426,
+            "id": 15818,
+            "name": "Ridge St at Dice St Northbound",
+            "lat": 38.028076171875,
+            "lng": -78.48632049560547,
+            "extID": "15818",
+            "shortName": "15818"
+        },
+        {
+            "rid": 3,
+            "rsid": 209602,
+            "id": 12994,
+            "name": "Ridge St at Dice St Southbound",
+            "lat": 38.02806854248047,
+            "lng": -78.4864501953125,
+            "extID": "12994",
+            "shortName": "12994"
+        },
+        {
+            "rid": 3,
+            "rsid": 212410,
+            "id": 15802,
+            "name": "Ridge St at Elliott Ave",
+            "lat": 38.026031494140625,
+            "lng": -78.48845672607422,
+            "extID": "15802",
+            "shortName": "15802"
+        },
+        {
+            "rid": 3,
+            "rsid": 215744,
+            "id": 19136,
+            "name": "Rives St at Carlton Ave",
+            "lat": 38.021297454833984,
+            "lng": -78.46766662597656,
+            "extID": "19136",
+            "shortName": "19136"
+        },
+        {
+            "rid": 3,
+            "rsid": 215751,
+            "id": 19143,
+            "name": "Rives St at Hampton St",
+            "lat": 38.0192985534668,
+            "lng": -78.4691390991211,
+            "extID": "19143",
+            "shortName": "19143"
+        },
+        {
+            "rid": 3,
+            "rsid": 215766,
+            "id": 19158,
+            "name": "Rives St at Rives Park",
+            "lat": 38.01743698120117,
+            "lng": -78.47146606445312,
+            "extID": "19158",
+            "shortName": "19158"
+        },
+        {
+            "rid": 3,
+            "rsid": 209547,
+            "id": 12939,
+            "name": "Southwood",
+            "lat": 37.99909210205078,
+            "lng": -78.52404022216797,
+            "extID": "12939",
+            "shortName": "12939"
+        },
+        {
+            "rid": 3,
+            "rsid": 208102,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 3,
+            "rsid": 207644,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 3,
+            "rsid": 215932,
+            "id": 19324,
+            "name": "Willoughby Square Shopping",
+            "lat": 38.01356887817383,
+            "lng": -78.5023422241211,
+            "extID": "19324",
+            "shortName": "19324"
+        },
+        {
+            "rid": 4,
+            "rsid": 277929,
+            "id": 15785,
+            "name": "5th St at Bent Creed Rd",
+            "lat": 38.012454986572266,
+            "lng": -78.50211334228516,
+            "extID": "15785",
+            "shortName": "15785"
+        },
+        {
+            "rid": 4,
+            "rsid": 276691,
+            "id": 14547,
+            "name": "Cherry Ave at 10th St Eastbound",
+            "lat": 38.02845764160156,
+            "lng": -78.49683380126953,
+            "extID": "14547",
+            "shortName": "14547"
+        },
+        {
+            "rid": 4,
+            "rsid": 281572,
+            "id": 19428,
+            "name": "Cherry Ave at 10th St Westbound",
+            "lat": 38.028541564941406,
+            "lng": -78.49715423583984,
+            "extID": "19428",
+            "shortName": "19428"
+        },
+        {
+            "rid": 4,
+            "rsid": 274257,
+            "id": 12113,
+            "name": "Cherry Ave at 6th St Eastbound",
+            "lat": 38.027442932128906,
+            "lng": -78.49129486083984,
+            "extID": "12113",
+            "shortName": "12113"
+        },
+        {
+            "rid": 4,
+            "rsid": 278038,
+            "id": 15894,
+            "name": "Cherry Ave at 6th St Westbound",
+            "lat": 38.027381896972656,
+            "lng": -78.49101257324219,
+            "extID": "15894",
+            "shortName": "15894"
+        },
+        {
+            "rid": 4,
+            "rsid": 273729,
+            "id": 11585,
+            "name": "Cherry Ave at Cherry Ave Shopping",
+            "lat": 38.02867889404297,
+            "lng": -78.49415588378906,
+            "extID": "11585",
+            "shortName": "11585"
+        },
+        {
+            "rid": 4,
+            "rsid": 276678,
+            "id": 14534,
+            "name": "Cherry Ave at Hanover St Northbound",
+            "lat": 38.02583312988281,
+            "lng": -78.50101470947266,
+            "extID": "14534",
+            "shortName": "14534"
+        },
+        {
+            "rid": 4,
+            "rsid": 279780,
+            "id": 17636,
+            "name": "Cherry Ave at Hanover St Southbound",
+            "lat": 38.02619934082031,
+            "lng": -78.50090026855469,
+            "extID": "17636",
+            "shortName": "17636"
+        },
+        {
+            "rid": 4,
+            "rsid": 277408,
+            "id": 15264,
+            "name": "Cherry Ave at Highland Ave",
+            "lat": 38.021549224853516,
+            "lng": -78.50978088378906,
+            "extID": "15264",
+            "shortName": "15264"
+        },
+        {
+            "rid": 4,
+            "rsid": 278048,
+            "id": 15904,
+            "name": "Cherry Ave at IRC",
+            "lat": 38.028709411621094,
+            "lng": -78.4938735961914,
+            "extID": "15904",
+            "shortName": "15904"
+        },
+        {
+            "rid": 4,
+            "rsid": 279833,
+            "id": 17689,
+            "name": "Cherry Ave at Rainier Rd",
+            "lat": 38.021907806396484,
+            "lng": -78.50907135009766,
+            "extID": "17689",
+            "shortName": "17689"
+        },
+        {
+            "rid": 4,
+            "rsid": 276667,
+            "id": 14523,
+            "name": "Cherry Ave at Rockcreek Rd",
+            "lat": 38.02434158325195,
+            "lng": -78.50273895263672,
+            "extID": "14523",
+            "shortName": "14523"
+        },
+        {
+            "rid": 4,
+            "rsid": 280195,
+            "id": 18051,
+            "name": "Cherry Ave at Shamrock Rd Eastbound",
+            "lat": 38.0235481262207,
+            "lng": -78.50679779052734,
+            "extID": "18051",
+            "shortName": "18051"
+        },
+        {
+            "rid": 4,
+            "rsid": 277416,
+            "id": 15272,
+            "name": "Cherry Ave at Shamrock Rd Westbound",
+            "lat": 38.02371597290039,
+            "lng": -78.50682067871094,
+            "extID": "15272",
+            "shortName": "15272"
+        },
+        {
+            "rid": 4,
+            "rsid": 281560,
+            "id": 19416,
+            "name": "Cherry Ave at Valley Rd",
+            "lat": 38.024314880371094,
+            "lng": -78.50341033935547,
+            "extID": "19416",
+            "shortName": "19416"
+        },
+        {
+            "rid": 4,
+            "rsid": 281526,
+            "id": 19382,
+            "name": "Cleveland Ave at Hammond St",
+            "lat": 38.020450592041016,
+            "lng": -78.51376342773438,
+            "extID": "19382",
+            "shortName": "19382"
+        },
+        {
+            "rid": 4,
+            "rsid": 273583,
+            "id": 11439,
+            "name": "Cleveland Ave at JPA",
+            "lat": 38.02070999145508,
+            "lng": -78.5145263671875,
+            "extID": "11439",
+            "shortName": "11439"
+        },
+        {
+            "rid": 4,
+            "rsid": 281544,
+            "id": 19400,
+            "name": "Cleveland Ave at Woodland Dr Eastbound",
+            "lat": 38.020015716552734,
+            "lng": -78.51187133789062,
+            "extID": "19400",
+            "shortName": "19400"
+        },
+        {
+            "rid": 4,
+            "rsid": 281539,
+            "id": 19395,
+            "name": "Cleveland Ave at Woodland Dr Westbound",
+            "lat": 38.020118713378906,
+            "lng": -78.51190185546875,
+            "extID": "19395",
+            "shortName": "19395"
+        },
+        {
+            "rid": 4,
+            "rsid": 279477,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 4,
+            "rsid": 273465,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 4,
+            "rsid": 273443,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 4,
+            "rsid": 273453,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 4,
+            "rsid": 273159,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 4,
+            "rsid": 281492,
+            "id": 19348,
+            "name": "Harris Rd at Lodge Creek Cir",
+            "lat": 38.01533889770508,
+            "lng": -78.50418090820312,
+            "extID": "19348",
+            "shortName": "19348"
+        },
+        {
+            "rid": 4,
+            "rsid": 281474,
+            "id": 19330,
+            "name": "Harris Rd at Longwood Dr",
+            "lat": 38.015480041503906,
+            "lng": -78.50466918945312,
+            "extID": "19330",
+            "shortName": "19330"
+        },
+        {
+            "rid": 4,
+            "rsid": 273541,
+            "id": 11397,
+            "name": "Harris Rd at Willard Dr Eastbound",
+            "lat": 38.01580047607422,
+            "lng": -78.50786590576172,
+            "extID": "11397",
+            "shortName": "11397"
+        },
+        {
+            "rid": 4,
+            "rsid": 281497,
+            "id": 19353,
+            "name": "Harris Rd at Willard Dr Westbound",
+            "lat": 38.015830993652344,
+            "lng": -78.50811767578125,
+            "extID": "19353",
+            "shortName": "19353"
+        },
+        {
+            "rid": 4,
+            "rsid": 273522,
+            "id": 11378,
+            "name": "JPA at Azalea Dr",
+            "lat": 38.01591873168945,
+            "lng": -78.51141357421875,
+            "extID": "11378",
+            "shortName": "11378"
+        },
+        {
+            "rid": 4,
+            "rsid": 273510,
+            "id": 11366,
+            "name": "JPA at Monte Vista Ave",
+            "lat": 38.0175895690918,
+            "lng": -78.51270294189453,
+            "extID": "11366",
+            "shortName": "11366"
+        },
+        {
+            "rid": 4,
+            "rsid": 281520,
+            "id": 19376,
+            "name": "JPA at Old Lynchburg Rd Northbound",
+            "lat": 38.0189323425293,
+            "lng": -78.51363372802734,
+            "extID": "19376",
+            "shortName": "19376"
+        },
+        {
+            "rid": 4,
+            "rsid": 273494,
+            "id": 11350,
+            "name": "JPA at Old Lynchburg Rd Southbound",
+            "lat": 38.01872253417969,
+            "lng": -78.5135498046875,
+            "extID": "11350",
+            "shortName": "11350"
+        },
+        {
+            "rid": 4,
+            "rsid": 279172,
+            "id": 17028,
+            "name": "JPA at Pinn Hall",
+            "lat": 38.032291412353516,
+            "lng": -78.50086212158203,
+            "extID": "17028",
+            "shortName": "17028"
+        },
+        {
+            "rid": 4,
+            "rsid": 281513,
+            "id": 19369,
+            "name": "JPA at Porter Ave",
+            "lat": 38.01597213745117,
+            "lng": -78.5113296508789,
+            "extID": "19369",
+            "shortName": "19369"
+        },
+        {
+            "rid": 4,
+            "rsid": 273337,
+            "id": 11193,
+            "name": "JPA at UVA Hospital",
+            "lat": 38.03258514404297,
+            "lng": -78.50045776367188,
+            "extID": "11193",
+            "shortName": "11193"
+        },
+        {
+            "rid": 4,
+            "rsid": 273187,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 4,
+            "rsid": 275131,
+            "id": 12987,
+            "name": "Ridge St at Cherry Ave",
+            "lat": 38.02619934082031,
+            "lng": -78.48857879638672,
+            "extID": "12987",
+            "shortName": "12987"
+        },
+        {
+            "rid": 4,
+            "rsid": 277962,
+            "id": 15818,
+            "name": "Ridge St at Dice St Northbound",
+            "lat": 38.028076171875,
+            "lng": -78.48632049560547,
+            "extID": "15818",
+            "shortName": "15818"
+        },
+        {
+            "rid": 4,
+            "rsid": 275138,
+            "id": 12994,
+            "name": "Ridge St at Dice St Southbound",
+            "lat": 38.02806854248047,
+            "lng": -78.4864501953125,
+            "extID": "12994",
+            "shortName": "12994"
+        },
+        {
+            "rid": 4,
+            "rsid": 277946,
+            "id": 15802,
+            "name": "Ridge St at Elliott Ave",
+            "lat": 38.026031494140625,
+            "lng": -78.48845672607422,
+            "extID": "15802",
+            "shortName": "15802"
+        },
+        {
+            "rid": 4,
+            "rsid": 281588,
+            "id": 19444,
+            "name": "Roosevelt Brown Blvd at Grove St",
+            "lat": 38.03003692626953,
+            "lng": -78.49559020996094,
+            "extID": "19444",
+            "shortName": "19444"
+        },
+        {
+            "rid": 4,
+            "rsid": 281581,
+            "id": 19437,
+            "name": "Roosevelt Brown Blvd at King St",
+            "lat": 38.02972412109375,
+            "lng": -78.49562072753906,
+            "extID": "19437",
+            "shortName": "19437"
+        },
+        {
+            "rid": 4,
+            "rsid": 273282,
+            "id": 11138,
+            "name": "W Main St at 11th St Eastbound",
+            "lat": 38.03273391723633,
+            "lng": -78.49568176269531,
+            "extID": "11138",
+            "shortName": "11138"
+        },
+        {
+            "rid": 4,
+            "rsid": 273273,
+            "id": 11129,
+            "name": "W Main St at 11th St Westbound",
+            "lat": 38.03289031982422,
+            "lng": -78.49574279785156,
+            "extID": "11129",
+            "shortName": "11129"
+        },
+        {
+            "rid": 4,
+            "rsid": 273638,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 4,
+            "rsid": 273180,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 4,
+            "rsid": 281468,
+            "id": 19324,
+            "name": "Willoughby Square Shopping",
+            "lat": 38.01356887817383,
+            "lng": -78.5023422241211,
+            "extID": "19324",
+            "shortName": "19324"
+        },
+        {
+            "rid": 5,
+            "rsid": 340900,
+            "id": 13220,
+            "name": "Barracks Rd at Bennington Rd",
+            "lat": 38.058563232421875,
+            "lng": -78.50567626953125,
+            "extID": "13220",
+            "shortName": "13220"
+        },
+        {
+            "rid": 5,
+            "rsid": 340841,
+            "id": 13161,
+            "name": "Barracks Rd at Cedars Ct Northbound",
+            "lat": 38.0552864074707,
+            "lng": -78.5013198852539,
+            "extID": "13161",
+            "shortName": "13161"
+        },
+        {
+            "rid": 5,
+            "rsid": 342067,
+            "id": 14387,
+            "name": "Barracks Rd at Cedars Ct Southbound",
+            "lat": 38.05514144897461,
+            "lng": -78.50153350830078,
+            "extID": "14387",
+            "shortName": "14387"
+        },
+        {
+            "rid": 5,
+            "rsid": 342093,
+            "id": 14413,
+            "name": "Barracks Rd at Surrey Rd",
+            "lat": 38.05901336669922,
+            "lng": -78.50660705566406,
+            "extID": "14413",
+            "shortName": "14413"
+        },
+        {
+            "rid": 5,
+            "rsid": 342292,
+            "id": 14612,
+            "name": "Berkmar Dr at Barry Ter",
+            "lat": 38.09174346923828,
+            "lng": -78.47332763671875,
+            "extID": "14612",
+            "shortName": "14612"
+        },
+        {
+            "rid": 5,
+            "rsid": 340957,
+            "id": 13277,
+            "name": "Berkmar Dr at SPCA Northbound",
+            "lat": 38.092838287353516,
+            "lng": -78.47230529785156,
+            "extID": "13277",
+            "shortName": "13277"
+        },
+        {
+            "rid": 5,
+            "rsid": 340888,
+            "id": 13208,
+            "name": "Berkmar Dr at SPCA Southbound",
+            "lat": 38.092952728271484,
+            "lng": -78.47251892089844,
+            "extID": "13208",
+            "shortName": "13208"
+        },
+        {
+            "rid": 5,
+            "rsid": 340911,
+            "id": 13231,
+            "name": "Berkmar Dr at UVA Credit Union",
+            "lat": 38.09105682373047,
+            "lng": -78.4735107421875,
+            "extID": "13231",
+            "shortName": "13231"
+        },
+        {
+            "rid": 5,
+            "rsid": 347729,
+            "id": 20049,
+            "name": "Berkmar Dr at Woodbrook",
+            "lat": 38.08918380737305,
+            "lng": -78.47527313232422,
+            "extID": "20049",
+            "shortName": "20049"
+        },
+        {
+            "rid": 5,
+            "rsid": 348691,
+            "id": 21011,
+            "name": "Berkmar Dr at Woodbrook Dr Southbound",
+            "lat": 38.089717864990234,
+            "lng": -78.47494506835938,
+            "extID": "21011",
+            "shortName": "21011"
+        },
+        {
+            "rid": 5,
+            "rsid": 340945,
+            "id": 13265,
+            "name": "BRSC at Arlington Southbound",
+            "lat": 38.048763275146484,
+            "lng": -78.50462341308594,
+            "extID": "13265",
+            "shortName": "13265"
+        },
+        {
+            "rid": 5,
+            "rsid": 342190,
+            "id": 14510,
+            "name": "Commonwealth Dr at Commonwealth Cir",
+            "lat": 38.0765266418457,
+            "lng": -78.4827651977539,
+            "extID": "14510",
+            "shortName": "14510"
+        },
+        {
+            "rid": 5,
+            "rsid": 340744,
+            "id": 13064,
+            "name": "Commonwealth Dr at Commonwealth Ct Northbound",
+            "lat": 38.072479248046875,
+            "lng": -78.48960876464844,
+            "extID": "13064",
+            "shortName": "13064"
+        },
+        {
+            "rid": 5,
+            "rsid": 342177,
+            "id": 14497,
+            "name": "Commonwealth Dr at Commonwealth Ct Westbound",
+            "lat": 38.07253646850586,
+            "lng": -78.48976135253906,
+            "extID": "14497",
+            "shortName": "14497"
+        },
+        {
+            "rid": 5,
+            "rsid": 340854,
+            "id": 13174,
+            "name": "Commonwealth Dr at Hydraulic Rd Northbound",
+            "lat": 38.06764221191406,
+            "lng": -78.49527740478516,
+            "extID": "13174",
+            "shortName": "13174"
+        },
+        {
+            "rid": 5,
+            "rsid": 342146,
+            "id": 14466,
+            "name": "Commonwealth Dr at Hydraulic Rd Southbound",
+            "lat": 38.06770324707031,
+            "lng": -78.49539947509766,
+            "extID": "14466",
+            "shortName": "14466"
+        },
+        {
+            "rid": 5,
+            "rsid": 340806,
+            "id": 13126,
+            "name": "Commonwealth Dr at Northwest Dr Northbound",
+            "lat": 38.06914138793945,
+            "lng": -78.49360656738281,
+            "extID": "13126",
+            "shortName": "13126"
+        },
+        {
+            "rid": 5,
+            "rsid": 342458,
+            "id": 14778,
+            "name": "Commonwealth Dr at Northwest Dr Southbound",
+            "lat": 38.06925582885742,
+            "lng": -78.4936752319336,
+            "extID": "14778",
+            "shortName": "14778"
+        },
+        {
+            "rid": 5,
+            "rsid": 340752,
+            "id": 13072,
+            "name": "Commonwealth Dr at Peyton Dr",
+            "lat": 38.07143020629883,
+            "lng": -78.49070739746094,
+            "extID": "13072",
+            "shortName": "13072"
+        },
+        {
+            "rid": 5,
+            "rsid": 342164,
+            "id": 14484,
+            "name": "Commonwealth Dr at Trophy Chase",
+            "lat": 38.07069396972656,
+            "lng": -78.49178314208984,
+            "extID": "14484",
+            "shortName": "14484"
+        },
+        {
+            "rid": 5,
+            "rsid": 340735,
+            "id": 13055,
+            "name": "Commonwealth Dr at Westfield Rd Eastbound",
+            "lat": 38.07374572753906,
+            "lng": -78.48587799072266,
+            "extID": "13055",
+            "shortName": "13055"
+        },
+        {
+            "rid": 5,
+            "rsid": 342186,
+            "id": 14506,
+            "name": "Commonwealth Dr at Westfield Rd Westbound",
+            "lat": 38.07386779785156,
+            "lng": -78.48597717285156,
+            "extID": "14506",
+            "shortName": "14506"
+        },
+        {
+            "rid": 5,
+            "rsid": 340697,
+            "id": 13017,
+            "name": "Four Seasons Dr at ACAC",
+            "lat": 38.07966613769531,
+            "lng": -78.486572265625,
+            "extID": "13017",
+            "shortName": "13017"
+        },
+        {
+            "rid": 5,
+            "rsid": 342248,
+            "id": 14568,
+            "name": "Four Seasons Dr at ACAC Southbound",
+            "lat": 38.079566955566406,
+            "lng": -78.48663330078125,
+            "extID": "14568",
+            "shortName": "14568"
+        },
+        {
+            "rid": 5,
+            "rsid": 340773,
+            "id": 13093,
+            "name": "Four Seasons Dr at Tennis Dr Northbound",
+            "lat": 38.08253860473633,
+            "lng": -78.4874267578125,
+            "extID": "13093",
+            "shortName": "13093"
+        },
+        {
+            "rid": 5,
+            "rsid": 342357,
+            "id": 14677,
+            "name": "Four Seasons Dr at Tennis Dr Southbound",
+            "lat": 38.082550048828125,
+            "lng": -78.4875717163086,
+            "extID": "14677",
+            "shortName": "14677"
+        },
+        {
+            "rid": 5,
+            "rsid": 340766,
+            "id": 13086,
+            "name": "Four Seasons Dr at Woodlake Dr Northbound",
+            "lat": 38.07768630981445,
+            "lng": -78.4834976196289,
+            "extID": "13086",
+            "shortName": "13086"
+        },
+        {
+            "rid": 5,
+            "rsid": 342255,
+            "id": 14575,
+            "name": "Four Seasons Dr at Woodlake Dr Southbound",
+            "lat": 38.078006744384766,
+            "lng": -78.48431396484375,
+            "extID": "14575",
+            "shortName": "14575"
+        },
+        {
+            "rid": 5,
+            "rsid": 342832,
+            "id": 15152,
+            "name": "Georgetown Rd at Barracks Rd",
+            "lat": 38.06186294555664,
+            "lng": -78.50798797607422,
+            "extID": "15152",
+            "shortName": "15152"
+        },
+        {
+            "rid": 5,
+            "rsid": 340868,
+            "id": 13188,
+            "name": "Georgetown Rd at Court Pl",
+            "lat": 38.068199157714844,
+            "lng": -78.50235748291016,
+            "extID": "13188",
+            "shortName": "13188"
+        },
+        {
+            "rid": 5,
+            "rsid": 340822,
+            "id": 13142,
+            "name": "Georgetown Rd at Hessian Hills Way",
+            "lat": 38.062984466552734,
+            "lng": -78.50643157958984,
+            "extID": "13142",
+            "shortName": "13142"
+        },
+        {
+            "rid": 5,
+            "rsid": 340799,
+            "id": 13119,
+            "name": "Georgetown Rd at Hydraulic Rd Northbound",
+            "lat": 38.070953369140625,
+            "lng": -78.49935150146484,
+            "extID": "13119",
+            "shortName": "13119"
+        },
+        {
+            "rid": 5,
+            "rsid": 342130,
+            "id": 14450,
+            "name": "Georgetown Rd at Hydraulic Rd Southbound",
+            "lat": 38.070682525634766,
+            "lng": -78.49981689453125,
+            "extID": "14450",
+            "shortName": "14450"
+        },
+        {
+            "rid": 5,
+            "rsid": 340870,
+            "id": 13190,
+            "name": "Georgetown Rd at Inglewood Dr Northbound",
+            "lat": 38.0650634765625,
+            "lng": -78.50425720214844,
+            "extID": "13190",
+            "shortName": "13190"
+        },
+        {
+            "rid": 5,
+            "rsid": 347426,
+            "id": 19746,
+            "name": "Georgetown Rd at Inglewood Dr Southbound",
+            "lat": 38.065242767333984,
+            "lng": -78.50440979003906,
+            "extID": "19746",
+            "shortName": "19746"
+        },
+        {
+            "rid": 5,
+            "rsid": 342334,
+            "id": 14654,
+            "name": "Georgetown Rd at Terrell Rd",
+            "lat": 38.06787109375,
+            "lng": -78.50312805175781,
+            "extID": "14654",
+            "shortName": "14654"
+        },
+        {
+            "rid": 5,
+            "rsid": 343701,
+            "id": 16021,
+            "name": "Hillsdale Dr at Walden Ct",
+            "lat": 38.073917388916016,
+            "lng": -78.47029876708984,
+            "extID": "16021",
+            "shortName": "16021"
+        },
+        {
+            "rid": 5,
+            "rsid": 342125,
+            "id": 14445,
+            "name": "Hydraulic Rd at Turtle Creek Rd Northbound",
+            "lat": 38.06794738769531,
+            "lng": -78.49687194824219,
+            "extID": "14445",
+            "shortName": "14445"
+        },
+        {
+            "rid": 5,
+            "rsid": 347413,
+            "id": 19733,
+            "name": "Hydraulic Rd at Turtle Creek Rd Southbound",
+            "lat": 38.06853103637695,
+            "lng": -78.49748229980469,
+            "extID": "19733",
+            "shortName": "19733"
+        },
+        {
+            "rid": 5,
+            "rsid": 344263,
+            "id": 16583,
+            "name": "Mall Dr at Hillsdale Dr",
+            "lat": 38.07479476928711,
+            "lng": -78.47335052490234,
+            "extID": "16583",
+            "shortName": "16583"
+        },
+        {
+            "rid": 5,
+            "rsid": 339858,
+            "id": 12178,
+            "name": "Millmont  St at USPS",
+            "lat": 38.050994873046875,
+            "lng": -78.50421142578125,
+            "extID": "12178",
+            "shortName": "12178"
+        },
+        {
+            "rid": 5,
+            "rsid": 339864,
+            "id": 12184,
+            "name": "Millmont St at Kroger",
+            "lat": 38.05336380004883,
+            "lng": -78.5016860961914,
+            "extID": "12184",
+            "shortName": "12184"
+        },
+        {
+            "rid": 5,
+            "rsid": 340990,
+            "id": 13310,
+            "name": "Rio Rd at Berkmar Cir",
+            "lat": 38.08537673950195,
+            "lng": -78.47799682617188,
+            "extID": "13310",
+            "shortName": "13310"
+        },
+        {
+            "rid": 5,
+            "rsid": 345589,
+            "id": 17909,
+            "name": "Rio Rd at Berkmar Dr",
+            "lat": 38.08489990234375,
+            "lng": -78.47703552246094,
+            "extID": "17909",
+            "shortName": "17909"
+        },
+        {
+            "rid": 5,
+            "rsid": 340720,
+            "id": 13040,
+            "name": "Rio Rd at Charlottesville Rehab Eastbound",
+            "lat": 38.086692810058594,
+            "lng": -78.482666015625,
+            "extID": "13040",
+            "shortName": "13040"
+        },
+        {
+            "rid": 5,
+            "rsid": 347488,
+            "id": 19808,
+            "name": "Rio Rd at Charlottesville Rehab Westbound",
+            "lat": 38.08693313598633,
+            "lng": -78.48259735107422,
+            "extID": "19808",
+            "shortName": "19808"
+        },
+        {
+            "rid": 5,
+            "rsid": 340986,
+            "id": 13306,
+            "name": "Rio Rd at Northside Library",
+            "lat": 38.083248138427734,
+            "lng": -78.47525787353516,
+            "extID": "13306",
+            "shortName": "13306"
+        },
+        {
+            "rid": 5,
+            "rsid": 347492,
+            "id": 19812,
+            "name": "Rio Rd at Northside Library Northbound",
+            "lat": 38.083335876464844,
+            "lng": -78.47500610351562,
+            "extID": "19812",
+            "shortName": "19812"
+        },
+        {
+            "rid": 5,
+            "rsid": 343689,
+            "id": 16009,
+            "name": "Rio Rd at Putt Putt",
+            "lat": 38.07771682739258,
+            "lng": -78.47042083740234,
+            "extID": "16009",
+            "shortName": "16009"
+        },
+        {
+            "rid": 5,
+            "rsid": 340963,
+            "id": 13283,
+            "name": "Sam's Club",
+            "lat": 38.098838806152344,
+            "lng": -78.46710205078125,
+            "extID": "13283",
+            "shortName": "13283"
+        },
+        {
+            "rid": 5,
+            "rsid": 340976,
+            "id": 13296,
+            "name": "Walmart",
+            "lat": 38.09650421142578,
+            "lng": -78.4670639038086,
+            "extID": "13296",
+            "shortName": "13296"
+        },
+        {
+            "rid": 6,
+            "rsid": 405284,
+            "id": 12068,
+            "name": "1st St at Elliott Ave Northbound",
+            "lat": 38.02364730834961,
+            "lng": -78.48546600341797,
+            "extID": "12068",
+            "shortName": "12068"
+        },
+        {
+            "rid": 6,
+            "rsid": 407508,
+            "id": 14292,
+            "name": "1st St at Elliott Ave Southbound",
+            "lat": 38.02351760864258,
+            "lng": -78.48565673828125,
+            "extID": "14292",
+            "shortName": "14292"
+        },
+        {
+            "rid": 6,
+            "rsid": 409001,
+            "id": 15785,
+            "name": "5th St at Bent Creed Rd",
+            "lat": 38.012454986572266,
+            "lng": -78.50211334228516,
+            "extID": "15785",
+            "shortName": "15785"
+        },
+        {
+            "rid": 6,
+            "rsid": 413339,
+            "id": 20123,
+            "name": "5th St at Cleveland Ave",
+            "lat": 38.01731872558594,
+            "lng": -78.49736785888672,
+            "extID": "20123",
+            "shortName": "20123"
+        },
+        {
+            "rid": 6,
+            "rsid": 410642,
+            "id": 17426,
+            "name": "9th St at Buford Southbound",
+            "lat": 38.02589797973633,
+            "lng": -78.49546813964844,
+            "extID": "17426",
+            "shortName": "17426"
+        },
+        {
+            "rid": 6,
+            "rsid": 412482,
+            "id": 19266,
+            "name": "9th St Buford Northbound",
+            "lat": 38.02590560913086,
+            "lng": -78.49529266357422,
+            "extID": "19266",
+            "shortName": "19266"
+        },
+        {
+            "rid": 6,
+            "rsid": 404779,
+            "id": 11563,
+            "name": "Bailey Rd at Prospect Ave Westbound",
+            "lat": 38.021339416503906,
+            "lng": -78.49662780761719,
+            "extID": "11563",
+            "shortName": "11563"
+        },
+        {
+            "rid": 6,
+            "rsid": 412500,
+            "id": 19284,
+            "name": "Bailey Rd at Prospect Eastbound",
+            "lat": 38.02116394042969,
+            "lng": -78.49651336669922,
+            "extID": "19284",
+            "shortName": "19284"
+        },
+        {
+            "rid": 6,
+            "rsid": 412527,
+            "id": 19311,
+            "name": "Brookwood Dr at 5th St Northbound",
+            "lat": 38.01860046386719,
+            "lng": -78.49580383300781,
+            "extID": "19311",
+            "shortName": "19311"
+        },
+        {
+            "rid": 6,
+            "rsid": 412523,
+            "id": 19307,
+            "name": "Brookwood Dr at 5th St Southbound",
+            "lat": 38.01829147338867,
+            "lng": -78.4959945678711,
+            "extID": "19307",
+            "shortName": "19307"
+        },
+        {
+            "rid": 6,
+            "rsid": 407292,
+            "id": 14076,
+            "name": "Brookwood Dr at Ridge St Northbound",
+            "lat": 38.01944351196289,
+            "lng": -78.49388122558594,
+            "extID": "14076",
+            "shortName": "14076"
+        },
+        {
+            "rid": 6,
+            "rsid": 409229,
+            "id": 16013,
+            "name": "Crescent Hall",
+            "lat": 38.02692794799805,
+            "lng": -78.48311614990234,
+            "extID": "16013",
+            "shortName": "16013"
+        },
+        {
+            "rid": 6,
+            "rsid": 410549,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 6,
+            "rsid": 404537,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 6,
+            "rsid": 404515,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 6,
+            "rsid": 404525,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 6,
+            "rsid": 404231,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 6,
+            "rsid": 405297,
+            "id": 12081,
+            "name": "Elliott Ave at Burnet St",
+            "lat": 38.02465057373047,
+            "lng": -78.48759460449219,
+            "extID": "12081",
+            "shortName": "12081"
+        },
+        {
+            "rid": 6,
+            "rsid": 410244,
+            "id": 17028,
+            "name": "JPA at Pinn Hall",
+            "lat": 38.032291412353516,
+            "lng": -78.50086212158203,
+            "extID": "17028",
+            "shortName": "17028"
+        },
+        {
+            "rid": 6,
+            "rsid": 412425,
+            "id": 19209,
+            "name": "Monticello Ave at 2nd St Westbound",
+            "lat": 38.02729415893555,
+            "lng": -78.48247528076172,
+            "extID": "19209",
+            "shortName": "19209"
+        },
+        {
+            "rid": 6,
+            "rsid": 412448,
+            "id": 19232,
+            "name": "Monticello Ave at Ridge St Eastbound",
+            "lat": 38.028358459472656,
+            "lng": -78.4853286743164,
+            "extID": "19232",
+            "shortName": "19232"
+        },
+        {
+            "rid": 6,
+            "rsid": 412429,
+            "id": 19213,
+            "name": "Monticello Ave at Ridge St Westbound",
+            "lat": 38.02860641479492,
+            "lng": -78.48534393310547,
+            "extID": "19213",
+            "shortName": "19213"
+        },
+        {
+            "rid": 6,
+            "rsid": 404787,
+            "id": 11571,
+            "name": "Prospect Ave at Greenstone Northbound",
+            "lat": 38.0239372253418,
+            "lng": -78.49481964111328,
+            "extID": "11571",
+            "shortName": "11571"
+        },
+        {
+            "rid": 6,
+            "rsid": 412494,
+            "id": 19278,
+            "name": "Prospect Ave at Greenstone Southbound",
+            "lat": 38.0239143371582,
+            "lng": -78.49498748779297,
+            "extID": "19278",
+            "shortName": "19278"
+        },
+        {
+            "rid": 6,
+            "rsid": 404259,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 6,
+            "rsid": 407432,
+            "id": 14216,
+            "name": "Ridge St at Barksdale St Northbound",
+            "lat": 38.02432632446289,
+            "lng": -78.48987579345703,
+            "extID": "14216",
+            "shortName": "14216"
+        },
+        {
+            "rid": 6,
+            "rsid": 412466,
+            "id": 19250,
+            "name": "Ridge St at Barksdale St Southbound",
+            "lat": 38.024227142333984,
+            "lng": -78.49008178710938,
+            "extID": "19250",
+            "shortName": "19250"
+        },
+        {
+            "rid": 6,
+            "rsid": 412513,
+            "id": 19297,
+            "name": "Ridge St at Brookwood Dr Southbound",
+            "lat": 38.01979064941406,
+            "lng": -78.49378967285156,
+            "extID": "19297",
+            "shortName": "19297"
+        },
+        {
+            "rid": 6,
+            "rsid": 412461,
+            "id": 19245,
+            "name": "Ridge St at Hartman's Mill Rd Northbound",
+            "lat": 38.02235412597656,
+            "lng": -78.49142456054688,
+            "extID": "19245",
+            "shortName": "19245"
+        },
+        {
+            "rid": 6,
+            "rsid": 407223,
+            "id": 14007,
+            "name": "Ridge St at Hartman's Mill Rd Southbound",
+            "lat": 38.02234649658203,
+            "lng": -78.49154663085938,
+            "extID": "14007",
+            "shortName": "14007"
+        },
+        {
+            "rid": 6,
+            "rsid": 412660,
+            "id": 19444,
+            "name": "Roosevelt Brown Blvd at Grove St",
+            "lat": 38.03003692626953,
+            "lng": -78.49559020996094,
+            "extID": "19444",
+            "shortName": "19444"
+        },
+        {
+            "rid": 6,
+            "rsid": 412653,
+            "id": 19437,
+            "name": "Roosevelt Brown Blvd at King St",
+            "lat": 38.02972412109375,
+            "lng": -78.49562072753906,
+            "extID": "19437",
+            "shortName": "19437"
+        },
+        {
+            "rid": 6,
+            "rsid": 404354,
+            "id": 11138,
+            "name": "W Main St at 11th St Eastbound",
+            "lat": 38.03273391723633,
+            "lng": -78.49568176269531,
+            "extID": "11138",
+            "shortName": "11138"
+        },
+        {
+            "rid": 6,
+            "rsid": 404710,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 6,
+            "rsid": 404252,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 6,
+            "rsid": 412540,
+            "id": 19324,
+            "name": "Willoughby Square Shopping",
+            "lat": 38.01356887817383,
+            "lng": -78.5023422241211,
+            "extID": "19324",
+            "shortName": "19324"
+        },
+        {
+            "rid": 7,
+            "rsid": 471909,
+            "id": 13157,
+            "name": "BRSC at Arlington Northbound",
+            "lat": 38.04875183105469,
+            "lng": -78.50444030761719,
+            "extID": "13157",
+            "shortName": "13157"
+        },
+        {
+            "rid": 7,
+            "rsid": 472017,
+            "id": 13265,
+            "name": "BRSC at Arlington Southbound",
+            "lat": 38.048763275146484,
+            "lng": -78.50462341308594,
+            "extID": "13265",
+            "shortName": "13265"
+        },
+        {
+            "rid": 7,
+            "rsid": 475432,
+            "id": 16680,
+            "name": "BRSC Kroger",
+            "lat": 38.05267333984375,
+            "lng": -78.50106048583984,
+            "extID": "16680",
+            "shortName": "16680"
+        },
+        {
+            "rid": 7,
+            "rsid": 478783,
+            "id": 20031,
+            "name": "COSTCO",
+            "lat": 38.06818389892578,
+            "lng": -78.49034881591797,
+            "extID": "20031",
+            "shortName": "20031"
+        },
+        {
+            "rid": 7,
+            "rsid": 476085,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 7,
+            "rsid": 470073,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 7,
+            "rsid": 470051,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 7,
+            "rsid": 470061,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 7,
+            "rsid": 469767,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 7,
+            "rsid": 475306,
+            "id": 16554,
+            "name": "Emmet St at Angus Rd",
+            "lat": 38.05845260620117,
+            "lng": -78.49420166015625,
+            "extID": "16554",
+            "shortName": "16554"
+        },
+        {
+            "rid": 7,
+            "rsid": 469224,
+            "id": 10472,
+            "name": "Emmet St at Central Grounds Garage",
+            "lat": 38.036293029785156,
+            "lng": -78.50785827636719,
+            "extID": "10472",
+            "shortName": "10472"
+        },
+        {
+            "rid": 7,
+            "rsid": 478503,
+            "id": 19751,
+            "name": "Emmet St at Earhart St",
+            "lat": 38.05562210083008,
+            "lng": -78.49691009521484,
+            "extID": "19751",
+            "shortName": "19751"
+        },
+        {
+            "rid": 7,
+            "rsid": 475122,
+            "id": 16370,
+            "name": "Emmet St at Lambeth Northbound",
+            "lat": 38.04324722290039,
+            "lng": -78.50535583496094,
+            "extID": "16370",
+            "shortName": "16370"
+        },
+        {
+            "rid": 7,
+            "rsid": 475141,
+            "id": 16389,
+            "name": "Emmet St at Massie Rd",
+            "lat": 38.04328536987305,
+            "lng": -78.50557708740234,
+            "extID": "16389",
+            "shortName": "16389"
+        },
+        {
+            "rid": 7,
+            "rsid": 475143,
+            "id": 16391,
+            "name": "Emmet St at Morton Dr",
+            "lat": 38.055789947509766,
+            "lng": -78.49641418457031,
+            "extID": "16391",
+            "shortName": "16391"
+        },
+        {
+            "rid": 7,
+            "rsid": 475114,
+            "id": 16362,
+            "name": "Emmet St at Rothery Rd",
+            "lat": 38.041107177734375,
+            "lng": -78.5061264038086,
+            "extID": "16362",
+            "shortName": "16362"
+        },
+        {
+            "rid": 7,
+            "rsid": 475571,
+            "id": 16819,
+            "name": "Emmet St at Ruffner Hall",
+            "lat": 38.03554153442383,
+            "lng": -78.50831604003906,
+            "extID": "16819",
+            "shortName": "16819"
+        },
+        {
+            "rid": 7,
+            "rsid": 469412,
+            "id": 10660,
+            "name": "Emmet St at Snyder Tennis Courts",
+            "lat": 38.03831481933594,
+            "lng": -78.5070571899414,
+            "extID": "10660",
+            "shortName": "10660"
+        },
+        {
+            "rid": 7,
+            "rsid": 475854,
+            "id": 17102,
+            "name": "Emmet St at Sprigg Ln",
+            "lat": 38.03834533691406,
+            "lng": -78.50727844238281,
+            "extID": "17102",
+            "shortName": "17102"
+        },
+        {
+            "rid": 7,
+            "rsid": 475403,
+            "id": 16651,
+            "name": "Hillsdale Dr at Branchlands Northbound",
+            "lat": 38.07200622558594,
+            "lng": -78.47945404052734,
+            "extID": "16651",
+            "shortName": "16651"
+        },
+        {
+            "rid": 7,
+            "rsid": 475398,
+            "id": 16646,
+            "name": "Hillsdale Dr at Branchlands Southbound",
+            "lat": 38.07206726074219,
+            "lng": -78.47962951660156,
+            "extID": "16646",
+            "shortName": "16646"
+        },
+        {
+            "rid": 7,
+            "rsid": 475877,
+            "id": 17125,
+            "name": "Hillsdale Dr at Exeter Ct",
+            "lat": 38.073978424072266,
+            "lng": -78.47059631347656,
+            "extID": "17125",
+            "shortName": "17125"
+        },
+        {
+            "rid": 7,
+            "rsid": 475419,
+            "id": 16667,
+            "name": "Hillsdale Dr at Greenbrier Northbound",
+            "lat": 38.06858825683594,
+            "lng": -78.4814453125,
+            "extID": "16667",
+            "shortName": "16667"
+        },
+        {
+            "rid": 7,
+            "rsid": 475329,
+            "id": 16577,
+            "name": "Hillsdale Dr at Greenbrier Southbound",
+            "lat": 38.06929016113281,
+            "lng": -78.48094177246094,
+            "extID": "16577",
+            "shortName": "16577"
+        },
+        {
+            "rid": 7,
+            "rsid": 478899,
+            "id": 20147,
+            "name": "Hillsdale Dr at India Rd",
+            "lat": 38.062618255615234,
+            "lng": -78.48783874511719,
+            "extID": "20147",
+            "shortName": "20147"
+        },
+        {
+            "rid": 7,
+            "rsid": 478457,
+            "id": 19705,
+            "name": "Hillsdale Dr at JABA Northbound",
+            "lat": 38.073936462402344,
+            "lng": -78.47647094726562,
+            "extID": "19705",
+            "shortName": "19705"
+        },
+        {
+            "rid": 7,
+            "rsid": 475366,
+            "id": 16614,
+            "name": "Hillsdale DR at JABA Southbound",
+            "lat": 38.074127197265625,
+            "lng": -78.476318359375,
+            "extID": "16614",
+            "shortName": "16614"
+        },
+        {
+            "rid": 7,
+            "rsid": 478904,
+            "id": 20152,
+            "name": "Hillsdale Dr at Post Office",
+            "lat": 38.067317962646484,
+            "lng": -78.4834976196289,
+            "extID": "20152",
+            "shortName": "20152"
+        },
+        {
+            "rid": 7,
+            "rsid": 473125,
+            "id": 14373,
+            "name": "Hillsdale Dr at Seminole Square",
+            "lat": 38.06450653076172,
+            "lng": -78.48665618896484,
+            "extID": "14373",
+            "shortName": "14373"
+        },
+        {
+            "rid": 7,
+            "rsid": 478886,
+            "id": 20134,
+            "name": "Hillsdale Dr at Whole Foods",
+            "lat": 38.06045150756836,
+            "lng": -78.4891357421875,
+            "extID": "20134",
+            "shortName": "20134"
+        },
+        {
+            "rid": 7,
+            "rsid": 475272,
+            "id": 16520,
+            "name": "Hydraulic Rd at Emmet St",
+            "lat": 38.06278991699219,
+            "lng": -78.49212646484375,
+            "extID": "16520",
+            "shortName": "16520"
+        },
+        {
+            "rid": 7,
+            "rsid": 478474,
+            "id": 19722,
+            "name": "Hydraulic Rd at Swanson Dr",
+            "lat": 38.063968658447266,
+            "lng": -78.49322509765625,
+            "extID": "19722",
+            "shortName": "19722"
+        },
+        {
+            "rid": 7,
+            "rsid": 470442,
+            "id": 11690,
+            "name": "JPA at Brandon Ave",
+            "lat": 38.03200149536133,
+            "lng": -78.50336456298828,
+            "extID": "11690",
+            "shortName": "11690"
+        },
+        {
+            "rid": 7,
+            "rsid": 469907,
+            "id": 11155,
+            "name": "JPA at Cabell Hall",
+            "lat": 38.032161712646484,
+            "lng": -78.50408935546875,
+            "extID": "11155",
+            "shortName": "11155"
+        },
+        {
+            "rid": 7,
+            "rsid": 475780,
+            "id": 17028,
+            "name": "JPA at Pinn Hall",
+            "lat": 38.032291412353516,
+            "lng": -78.50086212158203,
+            "extID": "17028",
+            "shortName": "17028"
+        },
+        {
+            "rid": 7,
+            "rsid": 469945,
+            "id": 11193,
+            "name": "JPA at UVA Hospital",
+            "lat": 38.03258514404297,
+            "lng": -78.50045776367188,
+            "extID": "11193",
+            "shortName": "11193"
+        },
+        {
+            "rid": 7,
+            "rsid": 475283,
+            "id": 16531,
+            "name": "Kroger at Hydraulic Rd",
+            "lat": 38.059967041015625,
+            "lng": -78.49107360839844,
+            "extID": "16531",
+            "shortName": "16531"
+        },
+        {
+            "rid": 7,
+            "rsid": 475870,
+            "id": 17118,
+            "name": "Mall Dr at Royal Ct",
+            "lat": 38.07489776611328,
+            "lng": -78.47317504882812,
+            "extID": "17118",
+            "shortName": "17118"
+        },
+        {
+            "rid": 7,
+            "rsid": 469795,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 7,
+            "rsid": 478933,
+            "id": 20181,
+            "name": "Rio Rd at Glen Wood Station",
+            "lat": 38.07711410522461,
+            "lng": -78.46980285644531,
+            "extID": "20181",
+            "shortName": "20181"
+        },
+        {
+            "rid": 7,
+            "rsid": 478466,
+            "id": 19714,
+            "name": "Stonefield Shopping",
+            "lat": 38.06687927246094,
+            "lng": -78.49263763427734,
+            "extID": "19714",
+            "shortName": "19714"
+        },
+        {
+            "rid": 7,
+            "rsid": 469890,
+            "id": 11138,
+            "name": "W Main St at 11th St Eastbound",
+            "lat": 38.03273391723633,
+            "lng": -78.49568176269531,
+            "extID": "11138",
+            "shortName": "11138"
+        },
+        {
+            "rid": 7,
+            "rsid": 469881,
+            "id": 11129,
+            "name": "W Main St at 11th St Westbound",
+            "lat": 38.03289031982422,
+            "lng": -78.49574279785156,
+            "extID": "11129",
+            "shortName": "11129"
+        },
+        {
+            "rid": 7,
+            "rsid": 469814,
+            "id": 11062,
+            "name": "W Main St at 4th St NW",
+            "lat": 38.0306282043457,
+            "lng": -78.48680877685547,
+            "extID": "11062",
+            "shortName": "11062"
+        },
+        {
+            "rid": 7,
+            "rsid": 469810,
+            "id": 11058,
+            "name": "W Main St at 5th St SW",
+            "lat": 38.03086853027344,
+            "lng": -78.48722839355469,
+            "extID": "11058",
+            "shortName": "11058"
+        },
+        {
+            "rid": 7,
+            "rsid": 469843,
+            "id": 11091,
+            "name": "W Main St at 8th St NW",
+            "lat": 38.03170394897461,
+            "lng": -78.49053192138672,
+            "extID": "11091",
+            "shortName": "11091"
+        },
+        {
+            "rid": 7,
+            "rsid": 469853,
+            "id": 11101,
+            "name": "W Main St at The Flats",
+            "lat": 38.03201675415039,
+            "lng": -78.49238586425781,
+            "extID": "11101",
+            "shortName": "11101"
+        },
+        {
+            "rid": 7,
+            "rsid": 469938,
+            "id": 11186,
+            "name": "W Main St at The Standard",
+            "lat": 38.032169342041016,
+            "lng": -78.49250030517578,
+            "extID": "11186",
+            "shortName": "11186"
+        },
+        {
+            "rid": 7,
+            "rsid": 470246,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 7,
+            "rsid": 469788,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 8,
+            "rsid": 538468,
+            "id": 14180,
+            "name": "Barracks Rd at CVS",
+            "lat": 38.051673889160156,
+            "lng": -78.49813842773438,
+            "extID": "14180",
+            "shortName": "14180"
+        },
+        {
+            "rid": 8,
+            "rsid": 538318,
+            "id": 14030,
+            "name": "Barracks Rd at Howard Dr",
+            "lat": 38.0485954284668,
+            "lng": -78.49412536621094,
+            "extID": "14030",
+            "shortName": "14030"
+        },
+        {
+            "rid": 8,
+            "rsid": 544055,
+            "id": 19767,
+            "name": "Barracks Rd At Meadowbrook Rd",
+            "lat": 38.05228042602539,
+            "lng": -78.49850463867188,
+            "extID": "19767",
+            "shortName": "19767"
+        },
+        {
+            "rid": 8,
+            "rsid": 540968,
+            "id": 16680,
+            "name": "BRSC Kroger",
+            "lat": 38.05267333984375,
+            "lng": -78.50106048583984,
+            "extID": "16680",
+            "shortName": "16680"
+        },
+        {
+            "rid": 8,
+            "rsid": 544319,
+            "id": 20031,
+            "name": "COSTCO",
+            "lat": 38.06818389892578,
+            "lng": -78.49034881591797,
+            "extID": "20031",
+            "shortName": "20031"
+        },
+        {
+            "rid": 8,
+            "rsid": 541621,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 8,
+            "rsid": 535609,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 8,
+            "rsid": 535587,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 8,
+            "rsid": 535597,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 8,
+            "rsid": 535303,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 8,
+            "rsid": 540842,
+            "id": 16554,
+            "name": "Emmet St at Angus Rd",
+            "lat": 38.05845260620117,
+            "lng": -78.49420166015625,
+            "extID": "16554",
+            "shortName": "16554"
+        },
+        {
+            "rid": 8,
+            "rsid": 544039,
+            "id": 19751,
+            "name": "Emmet St at Earhart St",
+            "lat": 38.05562210083008,
+            "lng": -78.49691009521484,
+            "extID": "19751",
+            "shortName": "19751"
+        },
+        {
+            "rid": 8,
+            "rsid": 540679,
+            "id": 16391,
+            "name": "Emmet St at Morton Dr",
+            "lat": 38.055789947509766,
+            "lng": -78.49641418457031,
+            "extID": "16391",
+            "shortName": "16391"
+        },
+        {
+            "rid": 8,
+            "rsid": 544435,
+            "id": 20147,
+            "name": "Hillsdale Dr at India Rd",
+            "lat": 38.062618255615234,
+            "lng": -78.48783874511719,
+            "extID": "20147",
+            "shortName": "20147"
+        },
+        {
+            "rid": 8,
+            "rsid": 538661,
+            "id": 14373,
+            "name": "Hillsdale Dr at Seminole Square",
+            "lat": 38.06450653076172,
+            "lng": -78.48665618896484,
+            "extID": "14373",
+            "shortName": "14373"
+        },
+        {
+            "rid": 8,
+            "rsid": 544422,
+            "id": 20134,
+            "name": "Hillsdale Dr at Whole Foods",
+            "lat": 38.06045150756836,
+            "lng": -78.4891357421875,
+            "extID": "20134",
+            "shortName": "20134"
+        },
+        {
+            "rid": 8,
+            "rsid": 540808,
+            "id": 16520,
+            "name": "Hydraulic Rd at Emmet St",
+            "lat": 38.06278991699219,
+            "lng": -78.49212646484375,
+            "extID": "16520",
+            "shortName": "16520"
+        },
+        {
+            "rid": 8,
+            "rsid": 544010,
+            "id": 19722,
+            "name": "Hydraulic Rd at Swanson Dr",
+            "lat": 38.063968658447266,
+            "lng": -78.49322509765625,
+            "extID": "19722",
+            "shortName": "19722"
+        },
+        {
+            "rid": 8,
+            "rsid": 540819,
+            "id": 16531,
+            "name": "Kroger at Hydraulic Rd",
+            "lat": 38.059967041015625,
+            "lng": -78.49107360839844,
+            "extID": "16531",
+            "shortName": "16531"
+        },
+        {
+            "rid": 8,
+            "rsid": 537289,
+            "id": 13001,
+            "name": "Preston Ave at Booker St",
+            "lat": 38.03782653808594,
+            "lng": -78.4892807006836,
+            "extID": "13001",
+            "shortName": "13001"
+        },
+        {
+            "rid": 8,
+            "rsid": 539507,
+            "id": 15219,
+            "name": "Preston Ave at Cabell Ave Northbound",
+            "lat": 38.043582916259766,
+            "lng": -78.49282836914062,
+            "extID": "15219",
+            "shortName": "15219"
+        },
+        {
+            "rid": 8,
+            "rsid": 539505,
+            "id": 15217,
+            "name": "Preston Ave at Cabell Ave Southbound",
+            "lat": 38.043941497802734,
+            "lng": -78.4930648803711,
+            "extID": "15217",
+            "shortName": "15217"
+        },
+        {
+            "rid": 8,
+            "rsid": 538613,
+            "id": 14325,
+            "name": "Preston Ave at Harris St Eastbound",
+            "lat": 38.03517150878906,
+            "lng": -78.48609924316406,
+            "extID": "14325",
+            "shortName": "14325"
+        },
+        {
+            "rid": 8,
+            "rsid": 538512,
+            "id": 14224,
+            "name": "Preston Ave at Harris St Westbound",
+            "lat": 38.0350456237793,
+            "lng": -78.48536682128906,
+            "extID": "14224",
+            "shortName": "14224"
+        },
+        {
+            "rid": 8,
+            "rsid": 538312,
+            "id": 14024,
+            "name": "Preston Ave at Madison Ave Northbound",
+            "lat": 38.04167938232422,
+            "lng": -78.49208068847656,
+            "extID": "14024",
+            "shortName": "14024"
+        },
+        {
+            "rid": 8,
+            "rsid": 536121,
+            "id": 11833,
+            "name": "Preston Ave at Madison Ave Southbound",
+            "lat": 38.04132080078125,
+            "lng": -78.49224853515625,
+            "extID": "11833",
+            "shortName": "11833"
+        },
+        {
+            "rid": 8,
+            "rsid": 538559,
+            "id": 14271,
+            "name": "Preston Ave at Region 10",
+            "lat": 38.036766052246094,
+            "lng": -78.4884262084961,
+            "extID": "14271",
+            "shortName": "14271"
+        },
+        {
+            "rid": 8,
+            "rsid": 544067,
+            "id": 19779,
+            "name": "Preston Ave at Rigby Ave Northbound",
+            "lat": 38.04677963256836,
+            "lng": -78.4930419921875,
+            "extID": "19779",
+            "shortName": "19779"
+        },
+        {
+            "rid": 8,
+            "rsid": 538627,
+            "id": 14339,
+            "name": "Preston Ave at Rosser Ave",
+            "lat": 38.03956985473633,
+            "lng": -78.49165344238281,
+            "extID": "14339",
+            "shortName": "14339"
+        },
+        {
+            "rid": 8,
+            "rsid": 538682,
+            "id": 14394,
+            "name": "Preston Ave at Rugby Ave Southbound",
+            "lat": 38.04671096801758,
+            "lng": -78.49320220947266,
+            "extID": "14394",
+            "shortName": "14394"
+        },
+        {
+            "rid": 8,
+            "rsid": 538421,
+            "id": 14133,
+            "name": "Preston Ave at Washington Park",
+            "lat": 38.0396842956543,
+            "lng": -78.49154663085938,
+            "extID": "14133",
+            "shortName": "14133"
+        },
+        {
+            "rid": 8,
+            "rsid": 535331,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 8,
+            "rsid": 544456,
+            "id": 20168,
+            "name": "Seminole Ct at 29",
+            "lat": 38.065704345703125,
+            "lng": -78.48786926269531,
+            "extID": "20168",
+            "shortName": "20168"
+        },
+        {
+            "rid": 8,
+            "rsid": 544002,
+            "id": 19714,
+            "name": "Stonefield Shopping",
+            "lat": 38.06687927246094,
+            "lng": -78.49263763427734,
+            "extID": "19714",
+            "shortName": "19714"
+        },
+        {
+            "rid": 8,
+            "rsid": 535782,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 8,
+            "rsid": 535324,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 9,
+            "rsid": 609287,
+            "id": 19463,
+            "name": "10th St at Grady Ave Northbound",
+            "lat": 38.0382194519043,
+            "lng": -78.49173736572266,
+            "extID": "19463",
+            "shortName": "19463"
+        },
+        {
+            "rid": 9,
+            "rsid": 603822,
+            "id": 13998,
+            "name": "10th St at Grady Ave Southbound",
+            "lat": 38.03812789916992,
+            "lng": -78.49192810058594,
+            "extID": "13998",
+            "shortName": "13998"
+        },
+        {
+            "rid": 9,
+            "rsid": 609283,
+            "id": 19459,
+            "name": "10th St at Page St Northbound",
+            "lat": 38.035335540771484,
+            "lng": -78.49320220947266,
+            "extID": "19459",
+            "shortName": "19459"
+        },
+        {
+            "rid": 9,
+            "rsid": 605794,
+            "id": 15970,
+            "name": "10th St at Page St Southbound",
+            "lat": 38.03531265258789,
+            "lng": -78.49344635009766,
+            "extID": "15970",
+            "shortName": "15970"
+        },
+        {
+            "rid": 9,
+            "rsid": 603757,
+            "id": 13933,
+            "name": "Del Mar Dr at Oakleaf Ln Westbound",
+            "lat": 38.05106735229492,
+            "lng": -78.4844970703125,
+            "extID": "13933",
+            "shortName": "13933"
+        },
+        {
+            "rid": 9,
+            "rsid": 607157,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 9,
+            "rsid": 601145,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 9,
+            "rsid": 601123,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 9,
+            "rsid": 601133,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 9,
+            "rsid": 600839,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 9,
+            "rsid": 607846,
+            "id": 18022,
+            "name": "Gentry Ln at Walker Upper Northbound",
+            "lat": 38.05480194091797,
+            "lng": -78.48405456542969,
+            "extID": "18022",
+            "shortName": "18022"
+        },
+        {
+            "rid": 9,
+            "rsid": 607857,
+            "id": 18033,
+            "name": "Gentry Ln at Walker Upper Southbound",
+            "lat": 38.05485153198242,
+            "lng": -78.48433685302734,
+            "extID": "18033",
+            "shortName": "18033"
+        },
+        {
+            "rid": 9,
+            "rsid": 609350,
+            "id": 19526,
+            "name": "Grove Rd at CHS",
+            "lat": 38.0540885925293,
+            "lng": -78.47917938232422,
+            "extID": "19526",
+            "shortName": "19526"
+        },
+        {
+            "rid": 9,
+            "rsid": 604873,
+            "id": 15049,
+            "name": "Grove Rd at Meadowbrook Heights Eastbound",
+            "lat": 38.05584716796875,
+            "lng": -78.48336029052734,
+            "extID": "15049",
+            "shortName": "15049"
+        },
+        {
+            "rid": 9,
+            "rsid": 606852,
+            "id": 17028,
+            "name": "JPA at Pinn Hall",
+            "lat": 38.032291412353516,
+            "lng": -78.50086212158203,
+            "extID": "17028",
+            "shortName": "17028"
+        },
+        {
+            "rid": 9,
+            "rsid": 601017,
+            "id": 11193,
+            "name": "JPA at UVA Hospital",
+            "lat": 38.03258514404297,
+            "lng": -78.50045776367188,
+            "extID": "11193",
+            "shortName": "11193"
+        },
+        {
+            "rid": 9,
+            "rsid": 609366,
+            "id": 19542,
+            "name": "Kenwood Ln at Yorktown Dr",
+            "lat": 38.057193756103516,
+            "lng": -78.47789764404297,
+            "extID": "19542",
+            "shortName": "19542"
+        },
+        {
+            "rid": 9,
+            "rsid": 600867,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 9,
+            "rsid": 603803,
+            "id": 13979,
+            "name": "Rose Hill Dr at Dale Ave Northbound",
+            "lat": 38.037498474121094,
+            "lng": -78.48799133300781,
+            "extID": "13979",
+            "shortName": "13979"
+        },
+        {
+            "rid": 9,
+            "rsid": 609327,
+            "id": 19503,
+            "name": "Rose Hill Dr at Greenleaf Ln",
+            "lat": 38.04946517944336,
+            "lng": -78.4831771850586,
+            "extID": "19503",
+            "shortName": "19503"
+        },
+        {
+            "rid": 9,
+            "rsid": 609316,
+            "id": 19492,
+            "name": "Rose Hill Dr at Greenleaf Park",
+            "lat": 38.049312591552734,
+            "lng": -78.48297119140625,
+            "extID": "19492",
+            "shortName": "19492"
+        },
+        {
+            "rid": 9,
+            "rsid": 603791,
+            "id": 13967,
+            "name": "Rose Hill Dr at Health Department Northbound",
+            "lat": 38.04276657104492,
+            "lng": -78.4839096069336,
+            "extID": "13967",
+            "shortName": "13967"
+        },
+        {
+            "rid": 9,
+            "rsid": 603706,
+            "id": 13882,
+            "name": "Rose Hill Dr at Health Department Southbound",
+            "lat": 38.04276657104492,
+            "lng": -78.48410034179688,
+            "extID": "13882",
+            "shortName": "13882"
+        },
+        {
+            "rid": 9,
+            "rsid": 603631,
+            "id": 13807,
+            "name": "Rose Hill Dr at Henry Ave Northbound",
+            "lat": 38.038841247558594,
+            "lng": -78.48651885986328,
+            "extID": "13807",
+            "shortName": "13807"
+        },
+        {
+            "rid": 9,
+            "rsid": 603635,
+            "id": 13811,
+            "name": "Rose Hill Dr at Henry Ave Southbound",
+            "lat": 38.039154052734375,
+            "lng": -78.4864730834961,
+            "extID": "13811",
+            "shortName": "13811"
+        },
+        {
+            "rid": 9,
+            "rsid": 609295,
+            "id": 19471,
+            "name": "Rose Hill Dr at Madison Ave",
+            "lat": 38.04145050048828,
+            "lng": -78.48414611816406,
+            "extID": "19471",
+            "shortName": "19471"
+        },
+        {
+            "rid": 9,
+            "rsid": 603804,
+            "id": 13980,
+            "name": "Rose Hill Dr at Rivanna Ave",
+            "lat": 38.04129409790039,
+            "lng": -78.4840087890625,
+            "extID": "13980",
+            "shortName": "13980"
+        },
+        {
+            "rid": 9,
+            "rsid": 609730,
+            "id": 19906,
+            "name": "Rugby Ave at Rose Hill Dr",
+            "lat": 38.04521560668945,
+            "lng": -78.48328399658203,
+            "extID": "19906",
+            "shortName": "19906"
+        },
+        {
+            "rid": 9,
+            "rsid": 600962,
+            "id": 11138,
+            "name": "W Main St at 11th St Eastbound",
+            "lat": 38.03273391723633,
+            "lng": -78.49568176269531,
+            "extID": "11138",
+            "shortName": "11138"
+        },
+        {
+            "rid": 9,
+            "rsid": 600953,
+            "id": 11129,
+            "name": "W Main St at 11th St Westbound",
+            "lat": 38.03289031982422,
+            "lng": -78.49574279785156,
+            "extID": "11129",
+            "shortName": "11129"
+        },
+        {
+            "rid": 9,
+            "rsid": 600886,
+            "id": 11062,
+            "name": "W Main St at 4th St NW",
+            "lat": 38.0306282043457,
+            "lng": -78.48680877685547,
+            "extID": "11062",
+            "shortName": "11062"
+        },
+        {
+            "rid": 9,
+            "rsid": 600882,
+            "id": 11058,
+            "name": "W Main St at 5th St SW",
+            "lat": 38.03086853027344,
+            "lng": -78.48722839355469,
+            "extID": "11058",
+            "shortName": "11058"
+        },
+        {
+            "rid": 9,
+            "rsid": 600915,
+            "id": 11091,
+            "name": "W Main St at 8th St NW",
+            "lat": 38.03170394897461,
+            "lng": -78.49053192138672,
+            "extID": "11091",
+            "shortName": "11091"
+        },
+        {
+            "rid": 9,
+            "rsid": 600925,
+            "id": 11101,
+            "name": "W Main St at The Flats",
+            "lat": 38.03201675415039,
+            "lng": -78.49238586425781,
+            "extID": "11101",
+            "shortName": "11101"
+        },
+        {
+            "rid": 9,
+            "rsid": 601010,
+            "id": 11186,
+            "name": "W Main St at The Standard",
+            "lat": 38.032169342041016,
+            "lng": -78.49250030517578,
+            "extID": "11186",
+            "shortName": "11186"
+        },
+        {
+            "rid": 9,
+            "rsid": 601318,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 9,
+            "rsid": 600860,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 9,
+            "rsid": 609920,
+            "id": 20096,
+            "name": "YMCA",
+            "lat": 38.049190521240234,
+            "lng": -78.47803497314453,
+            "extID": "20096",
+            "shortName": "20096"
+        },
+        {
+            "rid": 10,
+            "rsid": 673586,
+            "id": 18226,
+            "name": "Avemore Apartments",
+            "lat": 38.038204193115234,
+            "lng": -78.44611358642578,
+            "extID": "18226",
+            "shortName": "18226"
+        },
+        {
+            "rid": 10,
+            "rsid": 674378,
+            "id": 19018,
+            "name": "DMV",
+            "lat": 38.028564453125,
+            "lng": -78.44280242919922,
+            "extID": "19018",
+            "shortName": "19018"
+        },
+        {
+            "rid": 10,
+            "rsid": 672693,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 10,
+            "rsid": 671872,
+            "id": 16512,
+            "name": "E High St at 9 1/2 St NE",
+            "lat": 38.03148651123047,
+            "lng": -78.47272491455078,
+            "extID": "16512",
+            "shortName": "16512"
+        },
+        {
+            "rid": 10,
+            "rsid": 669081,
+            "id": 13721,
+            "name": "E High St at Grove Ave Eastbound",
+            "lat": 38.031776428222656,
+            "lng": -78.46936798095703,
+            "extID": "13721",
+            "shortName": "13721"
+        },
+        {
+            "rid": 10,
+            "rsid": 669045,
+            "id": 13685,
+            "name": "E High St at Grove Ave Westbound",
+            "lat": 38.03190231323242,
+            "lng": -78.46949768066406,
+            "extID": "13685",
+            "shortName": "13685"
+        },
+        {
+            "rid": 10,
+            "rsid": 669645,
+            "id": 14285,
+            "name": "E High St at Hazel St Westbound",
+            "lat": 38.03291320800781,
+            "lng": -78.462646484375,
+            "extID": "14285",
+            "shortName": "14285"
+        },
+        {
+            "rid": 10,
+            "rsid": 671835,
+            "id": 16475,
+            "name": "E High St at Locust Ave",
+            "lat": 38.031639099121094,
+            "lng": -78.47234344482422,
+            "extID": "16475",
+            "shortName": "16475"
+        },
+        {
+            "rid": 10,
+            "rsid": 669052,
+            "id": 13692,
+            "name": "E High St at Meade Ave",
+            "lat": 38.03200149536133,
+            "lng": -78.46434783935547,
+            "extID": "13692",
+            "shortName": "13692"
+        },
+        {
+            "rid": 10,
+            "rsid": 669527,
+            "id": 14167,
+            "name": "E High St at Stewart St",
+            "lat": 38.031951904296875,
+            "lng": -78.46533966064453,
+            "extID": "14167",
+            "shortName": "14167"
+        },
+        {
+            "rid": 10,
+            "rsid": 666681,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 10,
+            "rsid": 666659,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 10,
+            "rsid": 666669,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 10,
+            "rsid": 666375,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 10,
+            "rsid": 674362,
+            "id": 19002,
+            "name": "Martha Jefferson Dr at State Farm Blvd",
+            "lat": 38.02489471435547,
+            "lng": -78.44465637207031,
+            "extID": "19002",
+            "shortName": "19002"
+        },
+        {
+            "rid": 10,
+            "rsid": 669274,
+            "id": 13914,
+            "name": "Martha Jefferson Outpatient",
+            "lat": 38.02284240722656,
+            "lng": -78.44062042236328,
+            "extID": "13914",
+            "shortName": "13914"
+        },
+        {
+            "rid": 10,
+            "rsid": 669455,
+            "id": 14095,
+            "name": "Pantops Food Lion",
+            "lat": 38.03178024291992,
+            "lng": -78.45663452148438,
+            "extID": "14095",
+            "shortName": "14095"
+        },
+        {
+            "rid": 10,
+            "rsid": 674379,
+            "id": 19019,
+            "name": "Pantops Giant",
+            "lat": 38.03053283691406,
+            "lng": -78.4459457397461,
+            "extID": "19019",
+            "shortName": "19019"
+        },
+        {
+            "rid": 10,
+            "rsid": 675535,
+            "id": 20175,
+            "name": "Pantops Mountain Rd",
+            "lat": 38.02682113647461,
+            "lng": -78.43753814697266,
+            "extID": "20175",
+            "shortName": "20175"
+        },
+        {
+            "rid": 10,
+            "rsid": 675466,
+            "id": 20106,
+            "name": "Pantops Roses",
+            "lat": 38.0315055847168,
+            "lng": -78.45877075195312,
+            "extID": "20106",
+            "shortName": "20106"
+        },
+        {
+            "rid": 10,
+            "rsid": 666403,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 10,
+            "rsid": 672590,
+            "id": 17230,
+            "name": "Sentara Martha Jefferson Hospital",
+            "lat": 38.02275085449219,
+            "lng": -78.44261169433594,
+            "extID": "17230",
+            "shortName": "17230"
+        },
+        {
+            "rid": 10,
+            "rsid": 669255,
+            "id": 13895,
+            "name": "Social Security Administration",
+            "lat": 38.02797317504883,
+            "lng": -78.43941497802734,
+            "extID": "13895",
+            "shortName": "13895"
+        },
+        {
+            "rid": 10,
+            "rsid": 673080,
+            "id": 17720,
+            "name": "Stony Point Rd at Winding River Ln",
+            "lat": 38.035953521728516,
+            "lng": -78.45378875732422,
+            "extID": "17720",
+            "shortName": "17720"
+        },
+        {
+            "rid": 10,
+            "rsid": 676384,
+            "id": 21024,
+            "name": "Temp E High at Hazel St",
+            "lat": 38.03300476074219,
+            "lng": -78.46212768554688,
+            "extID": "21024",
+            "shortName": "21024"
+        },
+        {
+            "rid": 10,
+            "rsid": 670414,
+            "id": 15054,
+            "name": "Veterans Administration",
+            "lat": 38.02163314819336,
+            "lng": -78.43997192382812,
+            "extID": "15054",
+            "shortName": "15054"
+        },
+        {
+            "rid": 10,
+            "rsid": 666854,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 10,
+            "rsid": 666396,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 10,
+            "rsid": 672642,
+            "id": 17282,
+            "name": "Wilton Farms",
+            "lat": 38.03794479370117,
+            "lng": -78.4496841430664,
+            "extID": "17282",
+            "shortName": "17282"
+        },
+        {
+            "rid": 11,
+            "rsid": 733814,
+            "id": 12918,
+            "name": "Calhoun St at Locust Ave",
+            "lat": 38.04048156738281,
+            "lng": -78.46350860595703,
+            "extID": "12918",
+            "shortName": "12918"
+        },
+        {
+            "rid": 11,
+            "rsid": 741966,
+            "id": 21070,
+            "name": "Center at Belvedere",
+            "lat": 38.06758117675781,
+            "lng": -78.46308898925781,
+            "extID": "21070",
+            "shortName": "21070"
+        },
+        {
+            "rid": 11,
+            "rsid": 738229,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 11,
+            "rsid": 737408,
+            "id": 16512,
+            "name": "E High St at 9 1/2 St NE",
+            "lat": 38.03148651123047,
+            "lng": -78.47272491455078,
+            "extID": "16512",
+            "shortName": "16512"
+        },
+        {
+            "rid": 11,
+            "rsid": 737371,
+            "id": 16475,
+            "name": "E High St at Locust Ave",
+            "lat": 38.031639099121094,
+            "lng": -78.47234344482422,
+            "extID": "16475",
+            "shortName": "16475"
+        },
+        {
+            "rid": 11,
+            "rsid": 732217,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 11,
+            "rsid": 732195,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 11,
+            "rsid": 732205,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 11,
+            "rsid": 731911,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 11,
+            "rsid": 738021,
+            "id": 17125,
+            "name": "Hillsdale Dr at Exeter Ct",
+            "lat": 38.073978424072266,
+            "lng": -78.47059631347656,
+            "extID": "17125",
+            "shortName": "17125"
+        },
+        {
+            "rid": 11,
+            "rsid": 741976,
+            "id": 21080,
+            "name": "Locust Ave at Calhoun St",
+            "lat": 38.04037857055664,
+            "lng": -78.4634017944336,
+            "extID": "21080",
+            "shortName": "21080"
+        },
+        {
+            "rid": 11,
+            "rsid": 738083,
+            "id": 17187,
+            "name": "Locust Ave at Hazel St Northbound",
+            "lat": 38.035438537597656,
+            "lng": -78.4686508178711,
+            "extID": "17187",
+            "shortName": "17187"
+        },
+        {
+            "rid": 11,
+            "rsid": 733670,
+            "id": 12774,
+            "name": "Locust Ave at Hazel St Southbound",
+            "lat": 38.035526275634766,
+            "lng": -78.46878814697266,
+            "extID": "12774",
+            "shortName": "12774"
+        },
+        {
+            "rid": 11,
+            "rsid": 738275,
+            "id": 17379,
+            "name": "Locust Ave at Long St",
+            "lat": 38.038002014160156,
+            "lng": -78.46619415283203,
+            "extID": "17379",
+            "shortName": "17379"
+        },
+        {
+            "rid": 11,
+            "rsid": 738338,
+            "id": 17442,
+            "name": "Locust Ave at Sycamore St Northbound",
+            "lat": 38.033267974853516,
+            "lng": -78.47015380859375,
+            "extID": "17442",
+            "shortName": "17442"
+        },
+        {
+            "rid": 11,
+            "rsid": 733657,
+            "id": 12761,
+            "name": "Locust Ave at Sycamore St Southbound",
+            "lat": 38.03295135498047,
+            "lng": -78.47055053710938,
+            "extID": "12761",
+            "shortName": "12761"
+        },
+        {
+            "rid": 11,
+            "rsid": 737988,
+            "id": 17092,
+            "name": "Locust Ave at Watson Ave",
+            "lat": 38.03853225708008,
+            "lng": -78.4657211303711,
+            "extID": "17092",
+            "shortName": "17092"
+        },
+        {
+            "rid": 11,
+            "rsid": 738014,
+            "id": 17118,
+            "name": "Mall Dr at Royal Ct",
+            "lat": 38.07489776611328,
+            "lng": -78.47317504882812,
+            "extID": "17118",
+            "shortName": "17118"
+        },
+        {
+            "rid": 11,
+            "rsid": 733622,
+            "id": 12726,
+            "name": "North Ave at Cottonwood Rd",
+            "lat": 38.042911529541016,
+            "lng": -78.46712493896484,
+            "extID": "12726",
+            "shortName": "12726"
+        },
+        {
+            "rid": 11,
+            "rsid": 738069,
+            "id": 17173,
+            "name": "North Ave at Glendale Rd",
+            "lat": 38.0429573059082,
+            "lng": -78.46578216552734,
+            "extID": "17173",
+            "shortName": "17173"
+        },
+        {
+            "rid": 11,
+            "rsid": 733781,
+            "id": 12885,
+            "name": "North Ave at Holmes Ave",
+            "lat": 38.04275894165039,
+            "lng": -78.46498107910156,
+            "extID": "12885",
+            "shortName": "12885"
+        },
+        {
+            "rid": 11,
+            "rsid": 733767,
+            "id": 12871,
+            "name": "North Ave at Wilder Dr Eastbound",
+            "lat": 38.043758392333984,
+            "lng": -78.46971893310547,
+            "extID": "12871",
+            "shortName": "12871"
+        },
+        {
+            "rid": 11,
+            "rsid": 739138,
+            "id": 18242,
+            "name": "North Ave at Wilder Dr Westbound",
+            "lat": 38.04372787475586,
+            "lng": -78.4692153930664,
+            "extID": "18242",
+            "shortName": "18242"
+        },
+        {
+            "rid": 11,
+            "rsid": 739099,
+            "id": 18203,
+            "name": "Northeast Park Northbound",
+            "lat": 38.042179107666016,
+            "lng": -78.46491241455078,
+            "extID": "18203",
+            "shortName": "18203"
+        },
+        {
+            "rid": 11,
+            "rsid": 733798,
+            "id": 12902,
+            "name": "Northeast Park Southbound",
+            "lat": 38.04206466674805,
+            "lng": -78.46520233154297,
+            "extID": "12902",
+            "shortName": "12902"
+        },
+        {
+            "rid": 11,
+            "rsid": 739153,
+            "id": 18257,
+            "name": "Park St at Beechwood Garden",
+            "lat": 38.04545974731445,
+            "lng": -78.47100067138672,
+            "extID": "18257",
+            "shortName": "18257"
+        },
+        {
+            "rid": 11,
+            "rsid": 731939,
+            "id": 11043,
+            "name": "Ridge McIntire at Omni",
+            "lat": 38.03163146972656,
+            "lng": -78.48487091064453,
+            "extID": "11043",
+            "shortName": "11043"
+        },
+        {
+            "rid": 11,
+            "rsid": 738103,
+            "id": 17207,
+            "name": "Rio Rd at CATEC",
+            "lat": 38.06344985961914,
+            "lng": -78.4629898071289,
+            "extID": "17207",
+            "shortName": "17207"
+        },
+        {
+            "rid": 11,
+            "rsid": 740536,
+            "id": 19640,
+            "name": "Rio Rd at Dunlora Forest Dr",
+            "lat": 38.05730438232422,
+            "lng": -78.46086883544922,
+            "extID": "19640",
+            "shortName": "19640"
+        },
+        {
+            "rid": 11,
+            "rsid": 741077,
+            "id": 20181,
+            "name": "Rio Rd at Glen Wood Station",
+            "lat": 38.07711410522461,
+            "lng": -78.46980285644531,
+            "extID": "20181",
+            "shortName": "20181"
+        },
+        {
+            "rid": 11,
+            "rsid": 738037,
+            "id": 17141,
+            "name": "Rio Rd at Greenbrier Dr Northbound",
+            "lat": 38.067237854003906,
+            "lng": -78.46632385253906,
+            "extID": "17141",
+            "shortName": "17141"
+        },
+        {
+            "rid": 11,
+            "rsid": 738035,
+            "id": 17139,
+            "name": "Rio Rd at Greenbrier Dr Southbound",
+            "lat": 38.06725311279297,
+            "lng": -78.46663665771484,
+            "extID": "17139",
+            "shortName": "17139"
+        },
+        {
+            "rid": 11,
+            "rsid": 738090,
+            "id": 17194,
+            "name": "Rio Rd at John Warner Pkwy",
+            "lat": 38.061275482177734,
+            "lng": -78.46255493164062,
+            "extID": "17194",
+            "shortName": "17194"
+        },
+        {
+            "rid": 11,
+            "rsid": 739196,
+            "id": 18300,
+            "name": "Rio Rd at Pen Park Ln",
+            "lat": 38.05308151245117,
+            "lng": -78.46138000488281,
+            "extID": "18300",
+            "shortName": "18300"
+        },
+        {
+            "rid": 11,
+            "rsid": 738056,
+            "id": 17160,
+            "name": "Rio Rd at Treesdale Apt",
+            "lat": 38.053016662597656,
+            "lng": -78.4616470336914,
+            "extID": "17160",
+            "shortName": "17160"
+        },
+        {
+            "rid": 11,
+            "rsid": 740582,
+            "id": 19686,
+            "name": "Rio Rd at Wakefield Rd Northbound",
+            "lat": 38.070247650146484,
+            "lng": -78.46814727783203,
+            "extID": "19686",
+            "shortName": "19686"
+        },
+        {
+            "rid": 11,
+            "rsid": 740589,
+            "id": 19693,
+            "name": "Rio Rd at Wakefield Rd Southbound",
+            "lat": 38.06980895996094,
+            "lng": -78.46829986572266,
+            "extID": "19693",
+            "shortName": "19693"
+        },
+        {
+            "rid": 11,
+            "rsid": 740551,
+            "id": 19655,
+            "name": "Rio Rd at Waldorf School",
+            "lat": 38.056114196777344,
+            "lng": -78.46054077148438,
+            "extID": "19655",
+            "shortName": "19655"
+        },
+        {
+            "rid": 11,
+            "rsid": 732390,
+            "id": 11494,
+            "name": "W Market St at Old Preston Ave",
+            "lat": 38.0327033996582,
+            "lng": -78.48336791992188,
+            "extID": "11494",
+            "shortName": "11494"
+        },
+        {
+            "rid": 11,
+            "rsid": 731932,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        },
+        {
+            "rid": 12,
+            "rsid": 797666,
+            "id": 11234,
+            "name": "Alderman Rd at AFC",
+            "lat": 38.033843994140625,
+            "lng": -78.5140609741211,
+            "extID": "11234",
+            "shortName": "11234"
+        },
+        {
+            "rid": 12,
+            "rsid": 797119,
+            "id": 10687,
+            "name": "Alderman Rd at Stadium Rd",
+            "lat": 38.029052734375,
+            "lng": -78.51639556884766,
+            "extID": "10687",
+            "shortName": "10687"
+        },
+        {
+            "rid": 12,
+            "rsid": 803765,
+            "id": 17333,
+            "name": "Downtown Transit Station",
+            "lat": 38.028987884521484,
+            "lng": -78.47733306884766,
+            "extID": "17333",
+            "shortName": "17333"
+        },
+        {
+            "rid": 12,
+            "rsid": 797753,
+            "id": 11321,
+            "name": "E Market St at 10th St NE",
+            "lat": 38.029022216796875,
+            "lng": -78.47403717041016,
+            "extID": "11321",
+            "shortName": "11321"
+        },
+        {
+            "rid": 12,
+            "rsid": 797731,
+            "id": 11299,
+            "name": "E Market St at 2nd St NE",
+            "lat": 38.03129959106445,
+            "lng": -78.48054504394531,
+            "extID": "11299",
+            "shortName": "11299"
+        },
+        {
+            "rid": 12,
+            "rsid": 797741,
+            "id": 11309,
+            "name": "E Market St at 5th St NE",
+            "lat": 38.03049087524414,
+            "lng": -78.47795867919922,
+            "extID": "11309",
+            "shortName": "11309"
+        },
+        {
+            "rid": 12,
+            "rsid": 797447,
+            "id": 11015,
+            "name": "E Water St at 3rd St",
+            "lat": 38.02956008911133,
+            "lng": -78.48014068603516,
+            "extID": "11015",
+            "shortName": "11015"
+        },
+        {
+            "rid": 12,
+            "rsid": 797587,
+            "id": 11155,
+            "name": "JPA at Cabell Hall",
+            "lat": 38.032161712646484,
+            "lng": -78.50408935546875,
+            "extID": "11155",
+            "shortName": "11155"
+        },
+        {
+            "rid": 12,
+            "rsid": 797642,
+            "id": 11210,
+            "name": "JPA at Maury Ave",
+            "lat": 38.026123046875,
+            "lng": -78.51456451416016,
+            "extID": "11210",
+            "shortName": "11210"
+        },
+        {
+            "rid": 12,
+            "rsid": 797596,
+            "id": 11164,
+            "name": "JPA at Montebello Cir",
+            "lat": 38.0288200378418,
+            "lng": -78.50981903076172,
+            "extID": "11164",
+            "shortName": "11164"
+        },
+        {
+            "rid": 12,
+            "rsid": 797604,
+            "id": 11172,
+            "name": "JPA at Shamrock Rd",
+            "lat": 38.02763366699219,
+            "lng": -78.5115966796875,
+            "extID": "11172",
+            "shortName": "11172"
+        },
+        {
+            "rid": 12,
+            "rsid": 797625,
+            "id": 11193,
+            "name": "JPA at UVA Hospital",
+            "lat": 38.03258514404297,
+            "lng": -78.50045776367188,
+            "extID": "11193",
+            "shortName": "11193"
+        },
+        {
+            "rid": 12,
+            "rsid": 798278,
+            "id": 11846,
+            "name": "JPA at Woodrow St",
+            "lat": 38.03104782104492,
+            "lng": -78.50836944580078,
+            "extID": "11846",
+            "shortName": "11846"
+        },
+        {
+            "rid": 12,
+            "rsid": 797655,
+            "id": 11223,
+            "name": "Maury Ave at Clark Ct",
+            "lat": 38.02705001831055,
+            "lng": -78.51588439941406,
+            "extID": "11223",
+            "shortName": "11223"
+        },
+        {
+            "rid": 12,
+            "rsid": 798214,
+            "id": 11782,
+            "name": "McCormick Rd at Chemistry Building",
+            "lat": 38.03416442871094,
+            "lng": -78.51168823242188,
+            "extID": "11782",
+            "shortName": "11782"
+        },
+        {
+            "rid": 12,
+            "rsid": 798234,
+            "id": 11802,
+            "name": "McCormick Rd at Garret Hall",
+            "lat": 38.034324645996094,
+            "lng": -78.50601959228516,
+            "extID": "11802",
+            "shortName": "11802"
+        },
+        {
+            "rid": 12,
+            "rsid": 798340,
+            "id": 11908,
+            "name": "McCormick Rd at UVA Chapel",
+            "lat": 38.036197662353516,
+            "lng": -78.50466918945312,
+            "extID": "11908",
+            "shortName": "11908"
+        },
+        {
+            "rid": 12,
+            "rsid": 806631,
+            "id": 20199,
+            "name": "Midway Manor",
+            "lat": 38.0301399230957,
+            "lng": -78.48426818847656,
+            "extID": "20199",
+            "shortName": "20199"
+        },
+        {
+            "rid": 12,
+            "rsid": 803737,
+            "id": 17305,
+            "name": "The Downtown Mall",
+            "lat": 38.030906677246094,
+            "lng": -78.48226165771484,
+            "extID": "17305",
+            "shortName": "17305"
+        },
+        {
+            "rid": 12,
+            "rsid": 797679,
+            "id": 11247,
+            "name": "University Ave at The Women's Center",
+            "lat": 38.0340690612793,
+            "lng": -78.49983978271484,
+            "extID": "11247",
+            "shortName": "11247"
+        },
+        {
+            "rid": 12,
+            "rsid": 797570,
+            "id": 11138,
+            "name": "W Main St at 11th St Eastbound",
+            "lat": 38.03273391723633,
+            "lng": -78.49568176269531,
+            "extID": "11138",
+            "shortName": "11138"
+        },
+        {
+            "rid": 12,
+            "rsid": 797561,
+            "id": 11129,
+            "name": "W Main St at 11th St Westbound",
+            "lat": 38.03289031982422,
+            "lng": -78.49574279785156,
+            "extID": "11129",
+            "shortName": "11129"
+        },
+        {
+            "rid": 12,
+            "rsid": 797494,
+            "id": 11062,
+            "name": "W Main St at 4th St NW",
+            "lat": 38.0306282043457,
+            "lng": -78.48680877685547,
+            "extID": "11062",
+            "shortName": "11062"
+        },
+        {
+            "rid": 12,
+            "rsid": 797490,
+            "id": 11058,
+            "name": "W Main St at 5th St SW",
+            "lat": 38.03086853027344,
+            "lng": -78.48722839355469,
+            "extID": "11058",
+            "shortName": "11058"
+        },
+        {
+            "rid": 12,
+            "rsid": 797523,
+            "id": 11091,
+            "name": "W Main St at 8th St NW",
+            "lat": 38.03170394897461,
+            "lng": -78.49053192138672,
+            "extID": "11091",
+            "shortName": "11091"
+        },
+        {
+            "rid": 12,
+            "rsid": 797533,
+            "id": 11101,
+            "name": "W Main St at The Flats",
+            "lat": 38.03201675415039,
+            "lng": -78.49238586425781,
+            "extID": "11101",
+            "shortName": "11101"
+        },
+        {
+            "rid": 12,
+            "rsid": 797618,
+            "id": 11186,
+            "name": "W Main St at The Standard",
+            "lat": 38.032169342041016,
+            "lng": -78.49250030517578,
+            "extID": "11186",
+            "shortName": "11186"
+        },
+        {
+            "rid": 12,
+            "rsid": 797468,
+            "id": 11036,
+            "name": "Water St at Omni",
+            "lat": 38.03084182739258,
+            "lng": -78.48445892333984,
+            "extID": "11036",
+            "shortName": "11036"
+        }
+    ]
+}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+<link rel="icon" type="image/png" href="headwayguardicon.png" />
+    <meta charset="utf-8" />
+    <title>Headway Guard – UVA Kiosk Map</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="kioskmap.css" />
+    <script defer src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script defer src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
+    <script defer src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
+    <script defer src="map_defaults.js"></script>
+    <script defer src="kioskmap.js"></script>
+  </head>
+  <body class="kioskmap">
+    <div id="map" class="map" role="presentation"></div>
+    <aside id="routeLegend" class="route-legend" aria-live="polite"></aside>
+    <div class="credit" aria-hidden="true">
+      proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS via Iowa Environmental Mesonet.
+    </div>
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="true">
+      <div class="loading-overlay__inner">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <div class="loading-overlay__text">Loading UVA buses…</div>
+      </div>
+    </div>
+  </body>
+</html>
