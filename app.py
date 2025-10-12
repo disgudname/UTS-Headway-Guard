@@ -3523,6 +3523,30 @@ async def headwayguard_icon():
     return FileResponse(MEDIA_DIR / "headwayguardicon.png", media_type="image/png")
 
 
+_MEDIA_ASSETS: dict[str, str] = {
+    "home.svg": "image/svg+xml",
+    "driver.svg": "image/svg+xml",
+    "dispatcher.svg": "image/svg+xml",
+    "servicecrew.svg": "image/svg+xml",
+    "map.svg": "image/svg+xml",
+    "ridership.svg": "image/svg+xml",
+    "replay.svg": "image/svg+xml",
+    "downed.svg": "image/svg+xml",
+    "testmap.svg": "image/svg+xml",
+}
+
+
+@app.get("/media/{asset_name}", include_in_schema=False)
+async def media_asset(asset_name: str):
+    media_type = _MEDIA_ASSETS.get(asset_name)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    path = MEDIA_DIR / asset_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return FileResponse(path, media_type=media_type)
+
+
 @app.get("/map_defaults.js", include_in_schema=False)
 async def map_defaults_js():
     return _serve_js_asset("map_defaults.js")
