@@ -161,9 +161,14 @@ def _refresh_dispatch_passwords(force: bool = False) -> None:
             continue
         if not value:
             continue
-        label = key[:-5]
-        normalized = label.lower()
-        secrets_list.append((normalized, value, label))
+        raw_label = key[:-5]
+        normalized = raw_label.strip().lower()
+        if not normalized:
+            continue
+        display_label = raw_label.strip()
+        if display_label.isupper():
+            display_label = display_label.lower()
+        secrets_list.append((normalized, value, display_label))
 
     secrets_list.sort()
     cache_state = tuple(secrets_list)
@@ -3702,9 +3707,7 @@ def _normalize_dispatch_password(password: Optional[str]) -> Optional[str]:
     _refresh_dispatch_passwords()
     for normalized_label, secret in DISPATCH_PASSWORDS.items():
         if secrets.compare_digest(password, secret):
-            return DISPATCH_PASSWORD_LABELS.get(
-                normalized_label, normalized_label.upper()
-            )
+            return DISPATCH_PASSWORD_LABELS.get(normalized_label, normalized_label)
     return None
 
 
