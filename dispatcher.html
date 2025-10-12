@@ -2553,8 +2553,14 @@ function matchSpecialAssignmentColor(value){
   if(value==null) return null;
   const text=String(value).trim();
   if(!text) return null;
+  const upper=text.toUpperCase();
+  const normalized=upper.replace(/[^0-9A-Z]/g,'');
   for(const entry of BLOCK_ASSIGNMENT_PREFIX_COLORS){
     if(text.startsWith(entry.prefix)) return entry.color;
+    const prefixUpper=entry.prefix.toUpperCase();
+    if(upper.startsWith(prefixUpper)) return entry.color;
+    const prefixNormalized=prefixUpper.replace(/[^0-9A-Z]/g,'');
+    if(prefixNormalized && normalized.startsWith(prefixNormalized)) return entry.color;
   }
   return null;
 }
