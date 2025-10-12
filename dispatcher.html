@@ -63,7 +63,15 @@ body.resizing{cursor:col-resize;user-select:none}
 body.resizing iframe#map-frame{pointer-events:none}
 header{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid #1f2630;flex-wrap:wrap}
 header h1{flex-basis:100%}
- #controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
+#controls{display:flex;gap:10px;align-items:center;position:relative;padding-right:200px}
+#controls label.control-field{display:flex;align-items:center;gap:8px;font-size:15px;color:#cfe1ff}
+#controls label.control-field span{font-size:14px;opacity:.82}
+#controls label.control-field select{min-width:160px}
+body.kiosk-mode #controls label.control-field{flex:0 0 auto}
+body.lcars #controls label.control-field{display:flex;flex-direction:column;align-items:flex-start;gap:6px;font-size:12px;color:#FFCC66}
+body.lcars #controls label.control-field span{text-transform:uppercase;letter-spacing:.08em;font-size:12px}
+body.lcars #controls label.control-field select{width:180px;max-width:100%}
+body.cyberpunk #controls label.control-field span{color:#7fffd4}
 select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
 button{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 12px;font-family:inherit;font-size:15px;cursor:pointer;transition:background-color .2s ease,border-color .2s ease}
 button:hover{background:#15202b;border-color:#334355}
@@ -530,6 +538,12 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 <div id="left" style="flex:1;position:relative">
 <header>
   <div id="controls">
+    <label for="block-layout-select" class="control-field">
+      <span>Layout</span>
+      <select id="block-layout-select" aria-label="Block layout" disabled>
+        <option value="">Loading layouts…</option>
+      </select>
+    </label>
     <button id="center-map-button" type="button">Center Map</button>
     <div id="banner" class="banner info"></div>
   </div>
@@ -821,6 +835,25 @@ if (mapFrame) {
     mapFrame.dataset.loaded = 'true';
   });
 }
+function readCookieValue(name){
+  if(!name) return '';
+  const raw=document.cookie.split(';').map(part=>part.trim()).find(part=>part.startsWith(`${name}=`));
+  if(!raw) return '';
+  const value=raw.split('=').slice(1).join('=');
+  return value?decodeURIComponent(value):'';
+}
+function writeCookieValue(name,value,{maxAge}={}){
+  if(!name) return;
+  let cookie=`${name}=${encodeURIComponent(value||'')}; path=/`;
+  if(typeof maxAge==='number' && Number.isFinite(maxAge)){
+    cookie+=`; max-age=${maxAge}`;
+  }
+  document.cookie=cookie;
+}
+function deleteCookieValue(name){
+  if(!name) return;
+  document.cookie=`${name}=; max-age=0; path=/`;
+}
 const splitter = document.getElementById('splitter');
 if(leftPane && mapFrame && splitter){
   let isResizing=false;
@@ -929,6 +962,8 @@ if (KIOSK_MODE) {
 const blocksGridEl = document.getElementById('blocks-grid');
 const blocksGridTable = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-table') : null;
 const blocksGridStatus = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-status') : null;
+const blockLayoutSelect = document.getElementById('block-layout-select');
+const blockLayoutSelectContainer = blockLayoutSelect ? blockLayoutSelect.closest('label') : null;
 const centerMapButton = document.getElementById('center-map-button');
 
 const MAP_MESSAGE_SOURCE = 'dispatcher';
@@ -943,6 +978,100 @@ const MAP_RESPONSE_TYPES = Object.freeze({
 let mapBannerRestoreTimeoutId = null;
 let mapBannerBaseState = null;
 let mapBannerActiveMessage = null;
+
+const BLOCK_LAYOUT_COOKIE_NAME = 'dispatcherBlockLayout';
+const BLOCK_LAYOUT_COOKIE_MAX_AGE = 60*60*24*90;
+let blockGridLayoutMap = new Map();
+let blockGridAvailableLayouts = [];
+let currentBlockGridLayoutId = '';
+let latestBlockGridEntries = [];
+let latestBlockGridNowMinutes = null;
+let latestBlockGridColorMap = null;
+let latestBlockGridMessage = null;
+
+function getSavedBlockLayoutPreference(){
+  return readCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
+}
+
+function saveBlockLayoutPreference(value){
+  if(value){
+    writeCookieValue(BLOCK_LAYOUT_COOKIE_NAME,value,{maxAge:BLOCK_LAYOUT_COOKIE_MAX_AGE});
+  }else{
+    deleteCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
+  }
+}
+
+function determineRequestedBlockLayout(preferredLayoutId){
+  const direct=String(preferredLayoutId||'').trim();
+  if(direct) return direct;
+  const saved=String(getSavedBlockLayoutPreference()||'').trim();
+  if(saved) return saved;
+  if(isHowellSecret(dispatcherSecretLabel)){
+    return HOWELL_BLOCK_LAYOUT_NAME;
+  }
+  return '';
+}
+
+function formatLayoutOptionLabel(layoutId){
+  const raw=String(layoutId||'').trim();
+  if(!raw || raw.toLowerCase()==='default') return 'Default';
+  return raw
+    .replace(/[-_]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .replace(/\b\w/g,char=>char.toUpperCase());
+}
+
+function updateLayoutSelectOptions(layoutIds,selectedId){
+  if(!blockLayoutSelect) return;
+  const unique=[];
+  const seen=new Set();
+  const pushId=id=>{
+    const value=String(id||'').trim()||'default';
+    if(seen.has(value)) return;
+    seen.add(value);
+    unique.push(value);
+  };
+  if(Array.isArray(layoutIds)){
+    layoutIds.forEach(id=>pushId(id));
+  }
+  const selectedValueRaw=String(selectedId||'').trim();
+  if(selectedValueRaw){
+    pushId(selectedValueRaw);
+  }
+  if(!unique.length){
+    unique.push('default');
+  }
+  const previousValue=String(blockLayoutSelect.value||'').trim();
+  blockLayoutSelect.innerHTML='';
+  unique.forEach(id=>{
+    const option=document.createElement('option');
+    option.value=id;
+    option.textContent=formatLayoutOptionLabel(id);
+    blockLayoutSelect.appendChild(option);
+  });
+  const selectedValue=selectedValueRaw&&seen.has(selectedValueRaw)?selectedValueRaw:'';
+  const desiredValue=selectedValue || (previousValue && seen.has(previousValue) ? previousValue : '');
+  blockLayoutSelect.value=desiredValue || unique[0];
+  blockLayoutSelect.disabled=unique.length<=1;
+  if(blockLayoutSelectContainer){
+    blockLayoutSelectContainer.hidden=false;
+  }
+  blockLayoutSelect.title = blockLayoutSelect.value ? `Layout: ${blockLayoutSelect.value}` : 'Layout';
+}
+
+function reapplyLatestBlockAssignments(){
+  if(!blocksGridTable) return;
+  if(Array.isArray(latestBlockGridEntries) && latestBlockGridEntries.length){
+    updateBlockGrid(latestBlockGridEntries,latestBlockGridNowMinutes||0,{busColorMap:latestBlockGridColorMap});
+    latestBlockGridMessage=blocksGridStatus && !blocksGridStatus.hidden?(blocksGridStatus.textContent||''):null;
+  }else if(typeof latestBlockGridMessage==='string' && latestBlockGridMessage){
+    clearBlockGrid({message:latestBlockGridMessage});
+  }else{
+    clearBlockGrid({});
+    latestBlockGridMessage=null;
+  }
+}
 
 function showMapTransientBanner(message, kind = 'info', duration = 6000) {
   const bannerEl = document.getElementById('banner');
@@ -1155,37 +1284,170 @@ function normalizeLayout(layoutData){
   return layoutArray.map(col=>normalizeColumn(col));
 }
 
-async function fetchBlockGridLayout(){
+function applyLayoutById(layoutId){
+  const key=String(layoutId||'').trim();
+  if(!key || !blockGridLayoutMap.has(key)) return false;
+  const layoutData=blockGridLayoutMap.get(key);
+  blockGridLayout=normalizeLayout(layoutData);
+  currentBlockGridLayoutId=key;
+  if(blockLayoutSelect && blockLayoutSelect.value!==key){
+    blockLayoutSelect.value=key;
+  }
+  if(blocksGridTable){
+    buildBlockGrid();
+    blockGridInitialized=true;
+    reapplyLatestBlockAssignments();
+  }
+  return true;
+}
+
+function applyBlockGridLayoutData(data){
+  const layoutMap=data && data.layouts instanceof Map?data.layouts:new Map();
+  const resolvedId=String(data && data.layoutId?data.layoutId:'').trim();
+  const nextMap=new Map();
+  layoutMap.forEach((value,key)=>{
+    const id=String(key||'').trim();
+    if(!id) return;
+    nextMap.set(id,Array.isArray(value)?value:[]);
+  });
+  if(resolvedId && data && Array.isArray(data.layout) && !nextMap.has(resolvedId)){
+    nextMap.set(resolvedId,data.layout);
+  }
+  if(!nextMap.size){
+    nextMap.set('default',BLOCK_GRID_DEFAULT_LAYOUT_DATA);
+  }
+  blockGridLayoutMap=nextMap;
+  const availableLayoutsRaw=Array.isArray(data?.availableLayouts)?data.availableLayouts:[];
+  const available=availableLayoutsRaw.map(id=>String(id||'').trim()).filter(id=>id);
+  for(const key of blockGridLayoutMap.keys()){
+    if(!available.includes(key)){
+      available.push(key);
+    }
+  }
+  if(!available.length){
+    available.push('default');
+  }
+  blockGridAvailableLayouts=available;
+  let targetLayoutId=resolvedId && blockGridLayoutMap.has(resolvedId)?resolvedId:'';
+  if(!targetLayoutId){
+    const savedPref=String(getSavedBlockLayoutPreference()||'').trim();
+    if(savedPref && blockGridLayoutMap.has(savedPref)){
+      targetLayoutId=savedPref;
+    }
+  }
+  if(!targetLayoutId){
+    targetLayoutId=available.find(id=>blockGridLayoutMap.has(id))||available[0];
+  }
+  updateLayoutSelectOptions(available,targetLayoutId);
+  if(!applyLayoutById(targetLayoutId)){
+    const fallbackId=available.find(id=>blockGridLayoutMap.has(id));
+    if(fallbackId){
+      applyLayoutById(fallbackId);
+      targetLayoutId=fallbackId;
+    }
+  }
+  const savedPreference=String(getSavedBlockLayoutPreference()||'').trim();
+  if(savedPreference && savedPreference!==targetLayoutId){
+    saveBlockLayoutPreference(targetLayoutId);
+  }
+  return targetLayoutId;
+}
+
+async function fetchBlockGridLayout(preferredLayoutId){
+  const requestedLayout=determineRequestedBlockLayout(preferredLayoutId);
   try{
     const params=new URLSearchParams();
-    if(isHowellSecret(dispatcherSecretLabel)){
-      params.set('name',HOWELL_BLOCK_LAYOUT_NAME);
+    if(requestedLayout){
+      params.set('name',requestedLayout);
     }
+    params.set('all','true');
     const queryString=params.toString();
     const url=queryString?`${BLOCK_GRID_LAYOUT_ENDPOINT}?${queryString}`:BLOCK_GRID_LAYOUT_ENDPOINT;
     const res=await fetch(url,{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data=await res.json();
-    if(data && Array.isArray(data.layout) && data.layout.length){
-      return data.layout;
+    const resolvedIdRaw=typeof data?.layout_id==='string'?data.layout_id:'';
+    const resolvedId=resolvedIdRaw?resolvedIdRaw.trim():'';
+    const layoutEntries=new Map();
+    if(data && data.layouts && typeof data.layouts==='object'){
+      for(const [key,value] of Object.entries(data.layouts)){
+        const id=String(key||'').trim();
+        if(!id) continue;
+        if(Array.isArray(value)){
+          layoutEntries.set(id,value);
+        }
+      }
     }
+    if(Array.isArray(data?.layout)){
+      const id=resolvedId || requestedLayout || 'default';
+      layoutEntries.set(id,data.layout);
+    }
+    const availableLayouts=Array.isArray(data?.available_layouts)
+      ? data.available_layouts.map(id=>String(id||'').trim()).filter(id=>id)
+      : [];
+    return {
+      layoutId: resolvedId || requestedLayout || 'default',
+      layout: Array.isArray(data?.layout)?data.layout:[],
+      layouts: layoutEntries,
+      availableLayouts
+    };
   }catch(err){
     console.warn('Failed to load block grid layout',err);
   }
-  return BLOCK_GRID_DEFAULT_LAYOUT_DATA;
+  return {
+    layoutId: requestedLayout || 'default',
+    layout: BLOCK_GRID_DEFAULT_LAYOUT_DATA,
+    layouts: new Map(),
+    availableLayouts: ['default']
+  };
+}
+
+async function loadBlockGridLayout(preferredLayoutId,{force=false}={}){
+  if(blockGridLayoutPromise && !force){
+    return blockGridLayoutPromise;
+  }
+  const requestPromise=(async()=>{
+    try{
+      const data=await fetchBlockGridLayout(preferredLayoutId);
+      applyBlockGridLayoutData(data);
+      return data;
+    }catch(err){
+      console.warn('Failed to prepare block grid layout',err);
+      const fallback={
+        layoutId:'default',
+        layout:BLOCK_GRID_DEFAULT_LAYOUT_DATA,
+        layouts:new Map(),
+        availableLayouts:['default']
+      };
+      applyBlockGridLayoutData(fallback);
+      return fallback;
+    }
+  })();
+  blockGridLayoutPromise=requestPromise;
+  try{
+    return await requestPromise;
+  }finally{
+    if(blockGridLayoutPromise===requestPromise){
+      blockGridLayoutPromise=null;
+    }
+  }
 }
 
 async function ensureBlockGridReady(){
   if(blockGridInitialized) return true;
   if(!blocksGridTable) return false;
-  if(!blockGridLayoutPromise){
-    blockGridLayoutPromise=fetchBlockGridLayout();
-  }
-  const layoutData=await blockGridLayoutPromise;
-  blockGridLayout=normalizeLayout(layoutData);
-  buildBlockGrid();
-  blockGridInitialized=true;
-  return true;
+  await loadBlockGridLayout();
+  return blockGridInitialized;
+}
+
+if(blockLayoutSelect){
+  blockLayoutSelect.addEventListener('change',event=>{
+    const selected=String(event.target.value||'').trim();
+    if(!selected) return;
+    saveBlockLayoutPreference(selected);
+    applyLayoutById(selected);
+    loadBlockGridLayout(selected,{force:true}).catch(()=>{});
+  });
 }
 
 function buildBlockGrid(){
@@ -3719,6 +3981,7 @@ async function loadBlocks(){
   try{
     await ensureBlockGridReady();
     setBlocksGridMessage('Loading…');
+    latestBlockGridMessage='Loading…';
     const blockPromise=j('/v1/dispatch/blocks');
     const driverPromise=fetch('/v1/dispatch/block-drivers',{cache:'no-store'}).catch(()=>null);
     const [res,driverRes]=await Promise.all([blockPromise,driverPromise]);
@@ -3762,7 +4025,11 @@ async function loadBlocks(){
     }
 
     if(!groups.length){
-      clearBlockGrid({message:'No block assignments available.'});
+      latestBlockGridEntries=[];
+      latestBlockGridNowMinutes=null;
+      latestBlockGridColorMap=null;
+      latestBlockGridMessage='No block assignments available.';
+      clearBlockGrid({message:latestBlockGridMessage});
       blockByBus=new Map();
       allBlockByBus=new Map();
       plainLanguageVehicleNames=new Map();
@@ -3810,10 +4077,18 @@ async function loadBlocks(){
     blockByBus=activeAssignments;
     assignedVehicleNamesNormalized=assignedNames;
     updateExtraBuses();
+    latestBlockGridEntries=gridEntries;
+    latestBlockGridNowMinutes=nowMinutes;
+    latestBlockGridColorMap=busColorMap;
     updateBlockGrid(gridEntries,nowMinutes,{busColorMap});
+    latestBlockGridMessage=blocksGridStatus && !blocksGridStatus.hidden?(blocksGridStatus.textContent||''):null;
   }catch(e){
     console.error('Failed to load block assignments',e);
-    clearBlockGrid({message:'Error loading blocks.'});
+    latestBlockGridEntries=[];
+    latestBlockGridNowMinutes=null;
+    latestBlockGridColorMap=null;
+    latestBlockGridMessage='Error loading blocks.';
+    clearBlockGrid({message:latestBlockGridMessage});
     blockByBus=new Map();
     allBlockByBus=new Map();
     plainLanguageVehicleNames=new Map();
