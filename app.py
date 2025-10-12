@@ -3848,6 +3848,12 @@ async def dispatcher_auth(
     raise HTTPException(status_code=401, detail="Incorrect password.")
 
 
+@app.post("/api/dispatcher/logout")
+async def dispatcher_logout(response: Response):
+    response.delete_cookie(DISPATCH_COOKIE_NAME)
+    return {"ok": True}
+
+
 @app.get("/dispatcher")
 async def dispatcher_page(request: Request):
     _refresh_dispatch_passwords()
