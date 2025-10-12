@@ -592,10 +592,14 @@ const LCARS_ENABLED = urlParams.get('lcars') === 'true';
 const CYBERPUNK_ENABLED = !LCARS_ENABLED && urlParams.get('cyberpunk') === 'true';
 const KIOSK_MODE = urlParams.has('kioskMode');
 let dispatcherSecretLabel = null;
+
+function isHowellSecret(label){
+  return typeof label==='string' && label.trim().toLowerCase()==='howell';
+}
 let howellBootHasShown = false;
 
 function applyDispatcherSecretMode(){
-  if(dispatcherSecretLabel === 'HOWELL'){
+  if(isHowellSecret(dispatcherSecretLabel)){
     applyHowellMode();
   }
 }
@@ -1122,7 +1126,7 @@ function normalizeLayout(layoutData){
 async function fetchBlockGridLayout(){
   try{
     const params=new URLSearchParams();
-    if(dispatcherSecretLabel==='HOWELL'){
+    if(isHowellSecret(dispatcherSecretLabel)){
       params.set('name',HOWELL_BLOCK_LAYOUT_NAME);
     }
     const queryString=params.toString();
