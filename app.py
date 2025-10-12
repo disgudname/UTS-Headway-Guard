@@ -2282,6 +2282,18 @@ async def get_eink_block_layout(
     layout_query: Optional[str] = Query(None, alias="layout"),
     include_all: bool = Query(False, alias="all"),
 ):
+    user_specified = False
+    for value in (layout_id, layout_name, layout_key, layout_query):
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip():
+                user_specified = True
+                break
+        else:
+            user_specified = True
+            break
+    include_all = bool(include_all or not user_specified)
     requested_id = _determine_layout_identifier(
         None, layout_id, layout_name, layout_key, layout_query
     )
