@@ -856,6 +856,7 @@ function deleteCookieValue(name){
   if(!name) return;
   document.cookie=`${name}=; max-age=0; path=/`;
 }
+const LEFT_PANE_WIDTH_COOKIE_NAME = 'dispatcherLeftWidth';
 const splitter = document.getElementById('splitter');
 if(leftPane && mapFrame && splitter){
   let isResizing=false;
@@ -864,7 +865,6 @@ if(leftPane && mapFrame && splitter){
   let activePointerId=null;
   const LEFT_MIN_WIDTH=260;
   const RIGHT_MIN_WIDTH=320;
-  const COOKIE_NAME='dispatcherLeftWidth';
   const COOKIE_MAX_AGE=60*60*24*90;
   const getCookie=name=>{
     const raw=document.cookie.split(';').map(part=>part.trim()).find(part=>part.startsWith(`${name}=`))?.split('=')[1]||'';
@@ -878,13 +878,13 @@ if(leftPane && mapFrame && splitter){
     const maxWidth=Math.max(LEFT_MIN_WIDTH,bodyWidth-RIGHT_MIN_WIDTH);
     return Math.min(Math.max(width,LEFT_MIN_WIDTH),maxWidth);
   };
-  const savedWidth=parseFloat(getCookie(COOKIE_NAME));
+  const savedWidth=parseFloat(getCookie(LEFT_PANE_WIDTH_COOKIE_NAME));
   if(!Number.isNaN(savedWidth)){
     const clampedWidth=clampWidth(savedWidth);
     leftPane.style.flex='0 0 auto';
     leftPane.style.width=`${clampedWidth}px`;
     if(clampedWidth!==savedWidth){
-      setCookie(COOKIE_NAME,clampedWidth);
+      setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampedWidth);
     }
   }
   const onPointerMove=event=>{
@@ -905,7 +905,7 @@ if(leftPane && mapFrame && splitter){
     document.body.classList.remove('resizing');
     const currentWidth=parseFloat(leftPane.style.width);
     if(!Number.isNaN(currentWidth)){
-      setCookie(COOKIE_NAME,clampWidth(currentWidth));
+      setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampWidth(currentWidth));
     }
   };
   splitter.addEventListener('pointerdown',event=>{
@@ -930,7 +930,7 @@ if(leftPane && mapFrame && splitter){
     if(clampedWidth!==currentWidth){
       leftPane.style.width=`${clampedWidth}px`;
     }
-    setCookie(COOKIE_NAME,clampedWidth);
+    setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampedWidth);
   });
 }
 const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
@@ -4121,6 +4121,7 @@ if(logoutButton){
       const resp=await fetch('/api/dispatcher/logout',{method:'POST'});
       if(!resp.ok) throw new Error('logout failed');
       deleteCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
+      deleteCookieValue(LEFT_PANE_WIDTH_COOKIE_NAME);
       window.location.reload();
     }catch(err){
       logoutButton.disabled=false;
