@@ -2559,15 +2559,21 @@ function matchSpecialAssignmentColor(value){
   return null;
 }
 
-function resolveAssignmentColor(bus,displayBus,vehicleId,colorLookup){
-  const specialColor=
-    matchSpecialAssignmentColor(bus) ||
-    matchSpecialAssignmentColor(displayBus) ||
-    matchSpecialAssignmentColor(vehicleId);
-  if(specialColor) return {color:specialColor,override:true};
+function resolveAssignmentColor({bus,displayBus,vehicleId,colorLookup,additionalKeys}={}){
+  const keys=[bus,displayBus,vehicleId];
+  if(Array.isArray(additionalKeys) && additionalKeys.length){
+    for(const key of additionalKeys){
+      keys.push(key);
+    }
+  }
+  for(const key of keys){
+    const specialColor=matchSpecialAssignmentColor(key);
+    if(specialColor){
+      return {color:specialColor,override:true};
+    }
+  }
   if(!colorLookup) return {color:null,override:false};
-  const lookupKeys=[bus,displayBus,vehicleId];
-  for(const key of lookupKeys){
+  for(const key of keys){
     if(!key) continue;
     const color=colorLookup.get(key);
     if(color) return {color,override:false};
@@ -2630,28 +2636,33 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
       const driverList=selectDriversForBlock(driverBlock,driverPeriod);
       renderDriverLines(driverContainer,driverList);
     }
-    if((displayBus && displayBus!=='—') || (bus && bus!=='—')){
+    const hasAssignedBus=(displayBus && displayBus!=='—') || (bus && bus!=='—');
+    if(hasAssignedBus){
       hasAny=true;
-      const {color:resolvedColor,override}=resolveAssignmentColor(bus,displayBus,assignment.vehicleId,colorLookup);
-      let colorValue=resolvedColor;
-      if(colorValue && !String(colorValue).startsWith('#')){
-        colorValue='#'+String(colorValue);
-      }
-      const hasDefaultColors=Boolean(
-        (cell.dataset && (cell.dataset.defaultCellBg || cell.dataset.defaultCellText))
-      );
-      if(colorValue && (!hasDefaultColors || override)){
-        const textColor=contrastColor(colorValue);
-        cell.style.setProperty('--cell-bg',colorValue);
-        cell.style.setProperty('--cell-border',colorValue);
-        cell.style.setProperty('--route-color',colorValue);
-        cell.style.setProperty('--cell-text',textColor);
-        cell.style.setProperty('--driver-color',textColor);
-        cell.style.setProperty('--label-color',textColor);
-        cell.style.setProperty('--text-color',textColor);
-      }else{
-        applyDefaultBlockCellColors(cell);
-      }
+    }
+    const {color:resolvedColor,override}=resolveAssignmentColor({
+      bus,
+      displayBus,
+      vehicleId:assignment.vehicleId,
+      colorLookup,
+      additionalKeys:[customId]
+    });
+    let colorValue=resolvedColor;
+    if(colorValue && !String(colorValue).startsWith('#')){
+      colorValue='#'+String(colorValue);
+    }
+    const hasDefaultColors=Boolean(
+      (cell.dataset && (cell.dataset.defaultCellBg || cell.dataset.defaultCellText))
+    );
+    if(colorValue && (!hasDefaultColors || override)){
+      const textColor=contrastColor(colorValue);
+      cell.style.setProperty('--cell-bg',colorValue);
+      cell.style.setProperty('--cell-border',colorValue);
+      cell.style.setProperty('--route-color',colorValue);
+      cell.style.setProperty('--cell-text',textColor);
+      cell.style.setProperty('--driver-color',textColor);
+      cell.style.setProperty('--label-color',textColor);
+      cell.style.setProperty('--text-color',textColor);
     }else{
       applyDefaultBlockCellColors(cell);
     }
