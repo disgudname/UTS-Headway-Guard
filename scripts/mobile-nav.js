@@ -9,106 +9,47 @@
     {
       href: '/',
       label: 'Home',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linejoin="round" stroke-linecap="round">
-          <path d="M12 28 L32 12 52 28" />
-          <path d="M20 28 V50 H44 V28" />
-        </svg>
-      `
+      icon: '/media/home.svg'
     },
     {
       href: '/driver',
       label: 'Driver',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linejoin="round">
-          <rect x="8" y="16" width="48" height="28" rx="4" />
-          <line x1="8" y1="30" x2="56" y2="30" />
-          <rect x="16" y="20" width="12" height="8" />
-          <rect x="36" y="20" width="12" height="8" />
-          <circle cx="20" cy="46" r="4" fill="currentColor" stroke="none" />
-          <circle cx="44" cy="46" r="4" fill="currentColor" stroke="none" />
-        </svg>
-      `
+      icon: '/media/driver.svg'
     },
     {
       href: '/dispatcher',
       label: 'Dispatch',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M32 12 L22 52 h20 L32 12 z" />
-          <line x1="24" y1="52" x2="40" y2="52" />
-          <path d="M24 28c4-4 8-4 12 0" />
-          <path d="M20 20c8-8 16-8 24 0" />
-        </svg>
-      `
+      icon: '/media/dispatcher.svg'
     },
     {
       href: '/servicecrew',
       label: 'Service Crew',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linejoin="round">
-          <rect x="16" y="20" width="20" height="28" rx="2" />
-          <rect x="16" y="12" width="20" height="8" rx="2" />
-          <path d="M36 24h8v20a4 4 0 0 1-4 4h-4" />
-          <path d="M44 44h4a4 4 0 0 0 4-4V24" />
-          <circle cx="24" cy="48" r="4" fill="currentColor" stroke="none" />
-        </svg>
-      `
+      icon: '/media/servicecrew.svg'
     },
     {
       href: '/map',
       label: 'Live Map',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="8 20 24 12 40 20 56 12 56 44 40 52 24 44 8 52 8 20" />
-          <line x1="24" y1="12" x2="24" y2="44" />
-          <line x1="40" y1="20" x2="40" y2="52" />
-        </svg>
-      `
+      icon: '/media/map.svg'
     },
     {
       href: '/ridership',
       label: 'Ridership',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="8" y1="52" x2="56" y2="52" />
-          <rect x="12" y="32" width="8" height="20" stroke="none" fill="currentColor" />
-          <rect x="28" y="24" width="8" height="28" stroke="none" fill="currentColor" />
-          <rect x="44" y="16" width="8" height="36" stroke="none" fill="currentColor" />
-        </svg>
-      `
+      icon: '/media/ridership.svg'
     },
     {
       href: '/replay',
       label: 'Replay',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M32 12a20 20 0 1 1-20 20" />
-          <polyline points="12 24 12 12 24 12" />
-        </svg>
-      `
+      icon: '/media/replay.svg'
     },
     {
       href: '/downed',
       label: 'Downed Vehicles',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M32 12 L12 52h40L32 12z" />
-          <line x1="32" y1="26" x2="32" y2="38" />
-          <circle cx="32" cy="46" r="2.5" fill="currentColor" stroke="none" />
-        </svg>
-      `
+      icon: '/media/downed.svg'
     },
     {
       href: '/testmap',
       label: 'Test Map',
-      icon: `
-        <svg viewBox="0 0 64 64" stroke="currentColor" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 18l16-6 16 6 16-6v34l-16 6-16-6-16 6V18z" />
-          <line x1="28" y1="12" x2="28" y2="46" />
-          <line x1="44" y1="18" x2="44" y2="52" />
-        </svg>
-      `
+      icon: '/media/testmap.svg'
     }
   ];
 
@@ -174,9 +115,10 @@
       justify-content:center;
       color:inherit;
     }
-    #${NAV_ID} svg{
+    #${NAV_ID} .hg-mobile-nav__icon-img{
       width:32px;
       height:32px;
+      display:block;
     }
     #${NAV_ID} .hg-mobile-nav__label{
       display:block;
@@ -207,8 +149,14 @@
 
     const icon = document.createElement('span');
     icon.className = 'hg-mobile-nav__icon';
-    icon.innerHTML = link.icon;
-    icon.setAttribute('aria-hidden', 'true');
+
+    const img = document.createElement('img');
+    img.src = link.icon;
+    img.alt = '';
+    img.className = 'hg-mobile-nav__icon-img';
+    img.setAttribute('aria-hidden', 'true');
+
+    icon.appendChild(img);
 
     const label = document.createElement('span');
     label.className = 'hg-mobile-nav__label';
