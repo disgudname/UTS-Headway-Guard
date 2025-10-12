@@ -879,6 +879,52 @@
         flex-direction: column;
         gap: 10px;
       }
+      .selector-panel .admin-auth-control {
+        margin-top: 8px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(35, 45, 75, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .selector-panel .admin-auth-link {
+        background: none;
+        border: none;
+        border-radius: 0;
+        padding: 0;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(35, 45, 75, 0.58);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        text-decoration: none;
+        transition: color 0.2s ease;
+        box-shadow: none;
+        transform: none;
+      }
+      .selector-panel .admin-auth-link:hover,
+      .selector-panel .admin-auth-link:focus-visible {
+        color: rgba(35, 45, 75, 0.85);
+        transform: none;
+        box-shadow: none;
+        background: none;
+        text-decoration: underline;
+        outline: none;
+      }
+      .selector-panel .admin-auth-link:disabled {
+        cursor: default;
+        color: rgba(35, 45, 75, 0.35);
+        text-decoration: none;
+      }
+      .selector-panel .admin-auth-note {
+        font-size: 12px;
+        color: rgba(35, 45, 75, 0.55);
+        line-height: 1.4;
+      }
       .selector-panel .radar-control-group .radar-control {
         display: flex;
         flex-direction: column;
@@ -1780,6 +1826,36 @@
         min-height: 18px;
         font-size: 14px;
         color: #b91c1c;
+      }
+
+      .admin-auth-dialog .pill-button {
+        border: 1px solid rgba(229, 114, 0, 0.35);
+        border-radius: 999px;
+        padding: 12px 20px;
+        font-family: var(--app-font-family);
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+      }
+
+      .admin-auth-dialog .pill-button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
+        background: linear-gradient(135deg, #f4841a, #ffad55);
+      }
+
+      .admin-auth-dialog .pill-button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.45);
+      }
+
+      .admin-auth-dialog .pill-button:active {
+        transform: translateY(0);
       }
 
       .admin-auth-submit {

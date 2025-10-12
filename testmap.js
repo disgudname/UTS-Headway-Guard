@@ -6371,14 +6371,16 @@ ${trainPlaneMarkup}
             </button>
           </div>
         ` : '';
-        const adminButtonHtml = `
-          <div class="selector-group admin-auth-control">
-            <div class="selector-label">Admin Mode</div>
-            <button type="button" class="pill-button admin-auth-button${adminMode ? ' is-active' : ''}" aria-pressed="${adminMode ? 'true' : 'false'}" onclick="openAdminPasswordPrompt()">
-              Admin Mode<span class="toggle-indicator">${adminMode ? 'On' : 'Off'}</span>
-            </button>
-          </div>
-        `;
+        const adminAccessHtml = allowAdminFeatures
+          ? `
+            <div class="admin-auth-control">
+              <button type="button" class="admin-auth-link"${adminMode ? ' disabled aria-disabled="true"' : ' onclick="openAdminPasswordPrompt()"'}>
+                ${adminMode ? 'Admin tools unlocked' : 'Unlock admin tools'}
+              </button>
+              <div class="admin-auth-note">${adminMode ? 'Admin tools stay on until you close this tab.' : 'Dispatch password required.'}</div>
+            </div>
+          `
+          : '';
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -6406,8 +6408,8 @@ ${trainPlaneMarkup}
               </button>
             </div>
         `;
-        html += adminButtonHtml;
         html += serviceAlertsSectionHtml;
+        html += adminAccessHtml;
         html += incidentAlertsHtml;
 
         if (adminMode) {
