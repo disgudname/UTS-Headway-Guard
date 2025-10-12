@@ -1795,6 +1795,7 @@ schedulePlaneStyleOverride();
         ? markerCentroidOverride.xFactor
         : 0;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
+      const CAT_ALLOWED_AGENCY_NAMES = INCIDENTS_ALLOWED_AGENCY_NAMES;
       const TRAINS_ENDPOINT = '/v1/testmap/trains';
       const TRAIN_POLL_INTERVAL_MS = 30000;
       const TRAIN_TARGET_STATION_CODE = '';
@@ -3102,6 +3103,31 @@ schedulePlaneStyleOverride();
 
       let demoIncidentCsvRow = null;
 
+      function getSelectedAgencyRecord() {
+        if (!Array.isArray(agencies) || agencies.length === 0) {
+          return null;
+        }
+        const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
+        const match = agencies.find(agency => {
+          if (!agency || typeof agency.url !== 'string') return false;
+          const candidateUrl = agency.url.trim().replace(/\/+$/, '');
+          return candidateUrl === sanitizedBaseURL;
+        });
+        return match && typeof match === 'object' ? match : null;
+      }
+
+      function doesSelectedAgencyMatchNames(allowedNames) {
+        if (!Array.isArray(allowedNames) || allowedNames.length === 0) {
+          return false;
+        }
+        const selectedAgency = getSelectedAgencyRecord();
+        if (!selectedAgency || typeof selectedAgency.name !== 'string') {
+          return false;
+        }
+        const normalizedName = selectedAgency.name.trim().toLowerCase();
+        return allowedNames.some(name => typeof name === 'string' && name.trim().toLowerCase() === normalizedName);
+      }
+
       function incidentsAreAvailable() {
         if (!adminFeaturesAllowed()) {
           return false;
@@ -3109,19 +3135,14 @@ schedulePlaneStyleOverride();
         if (!Array.isArray(agencies) || agencies.length === 0) {
           return true;
         }
-        const sanitizedBaseURL = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : '';
-        const selectedAgency = agencies.find(agency => {
-          if (!agency || typeof agency.url !== 'string') return false;
-          const candidateUrl = agency.url.trim().replace(/\/+$/, '');
-          return candidateUrl === sanitizedBaseURL;
-        });
-        if (!selectedAgency || typeof selectedAgency.name !== 'string') {
+        return doesSelectedAgencyMatchNames(INCIDENTS_ALLOWED_AGENCY_NAMES);
+      }
+
+      function catOverlayIsAvailable() {
+        if (!Array.isArray(agencies) || agencies.length === 0) {
           return false;
         }
-        const normalizedName = selectedAgency.name.trim().toLowerCase();
-        return INCIDENTS_ALLOWED_AGENCY_NAMES.some(name => {
-          return typeof name === 'string' && name.trim().toLowerCase() === normalizedName;
-        });
+        return doesSelectedAgencyMatchNames(CAT_ALLOWED_AGENCY_NAMES);
       }
 
       if (!incidentsAreAvailable()) {
@@ -6268,6 +6289,7 @@ schedulePlaneStyleOverride();
         const allowAdminFeatures = adminFeaturesAllowed();
         const allowTrainControls = trainsFeatureAllowed();
         const allowRadarControls = radarFeaturesAllowed();
+        const catOverlayAvailable = catOverlayIsAvailable();
         if (!allowAdminFeatures && planesFeature.visible) {
           setPlanesVisibility(false);
         }
@@ -6402,12 +6424,16 @@ ${trainPlaneMarkup}
                 </select>
               </div>
             </div>
+        `;
+        if (catOverlayAvailable) {
+          html += `
             <div class="selector-group">
               <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
                 Show CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
               </button>
             </div>
-        `;
+          `;
+        }
         html += serviceAlertsSectionHtml;
         html += adminAccessHtml;
         html += incidentAlertsHtml;
@@ -7526,6 +7552,9 @@ ${trainPlaneMarkup}
         resetTranslocSnapshotCache();
         const previousBaseURL = baseURL;
         baseURL = url;
+        if (catOverlayEnabled && !catOverlayIsAvailable()) {
+          disableCatOverlay();
+        }
         if (previousBaseURL !== baseURL) {
           busLocationsFetchPromise = null;
           busLocationsFetchBaseURL = null;
