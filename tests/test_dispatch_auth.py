@@ -14,6 +14,7 @@ if str(ROOT_DIR) not in sys.path:
 
 
 DISPATCH_PREFIXES = ("DISPATCH", "HOWELL")
+PASS_SUFFIXES = ("_PASS", "_PASS_FILE")
 
 
 @contextmanager
@@ -23,7 +24,8 @@ def dispatch_env(**env_vars: str):
     preserved: dict[str, str] = {}
     # Remove any existing dispatcher-related variables so they don't bleed into tests.
     for key in list(os.environ):
-        if key.upper().startswith(DISPATCH_PREFIXES):
+        key_upper = key.upper()
+        if key_upper.startswith(DISPATCH_PREFIXES) or key_upper.endswith(PASS_SUFFIXES):
             preserved[key] = os.environ.pop(key)
 
     original_values: dict[str, Optional[str]] = {
@@ -98,3 +100,15 @@ def test_new_dispatch_password_detected_without_reload():
             assert refreshed.json().get("secret") == "HOWELL"
         finally:
             os.environ.pop("HOWELL_PASS", None)
+
+
+def test_generic_pass_secret_is_accepted():
+    with dispatch_env(ENGINEERING_PASS="dilithium"):
+        app_module = reload_app()
+        client = TestClient(app_module.app)
+
+        response = client.post(
+            "/api/dispatcher/auth", json={"password": "dilithium"}
+        )
+        assert response.status_code == 200
+        assert response.json().get("secret") == "ENGINEERING"
