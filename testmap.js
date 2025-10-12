@@ -256,6 +256,9 @@ schedulePlaneStyleOverride();
       const ADMIN_AUTH_ENDPOINT = '/api/dispatcher/auth';
       let adminAuthCheckPromise = null;
       let adminAuthInitialized = false;
+      let urlAdminPassword = '';
+      let urlAdminAuthAttempted = false;
+      let urlAdminAuthSucceeded = false;
 
       function setAdminModeEnabled(enabled, options = {}) {
         const normalized = Boolean(enabled);
@@ -349,6 +352,59 @@ schedulePlaneStyleOverride();
         return checkPromise;
       }
 
+      async function submitAdminPassword(password, options = {}) {
+        const { silent = false, enableAdminMode = true } = options || {};
+        if (typeof password !== 'string') {
+          return { ok: false, error: new Error('Invalid password value') };
+        }
+        const trimmed = password.trim();
+        if (!trimmed) {
+          return { ok: false, error: new Error('Password is empty') };
+        }
+        try {
+          const response = await fetch(ADMIN_AUTH_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ password: trimmed })
+          });
+          let data = null;
+          try {
+            data = await response.json();
+          } catch (_error) {
+            data = null;
+          }
+          if (response.ok) {
+            if (enableAdminMode) {
+              setAdminModeEnabled(true, { clearExplicitFlag: true });
+            }
+            return { ok: true, data };
+          }
+          return { ok: false, data };
+        } catch (error) {
+          if (!silent) {
+            console.error('Password verification failed', error);
+          }
+          return { ok: false, error };
+        }
+      }
+
+      async function attemptAdminAuthorizationFromUrl() {
+        if (urlAdminAuthAttempted) {
+          return urlAdminAuthSucceeded;
+        }
+        urlAdminAuthAttempted = true;
+        if (!urlAdminPassword) {
+          urlAdminAuthSucceeded = false;
+          return false;
+        }
+        const result = await submitAdminPassword(urlAdminPassword, { silent: true });
+        urlAdminAuthSucceeded = Boolean(result && result.ok);
+        return urlAdminAuthSucceeded;
+      }
+
       function initializeAdminAuthUI() {
         if (adminAuthInitialized) {
           return;
@@ -379,34 +435,25 @@ schedulePlaneStyleOverride();
             status.textContent = '';
           }
           try {
-            const response = await fetch(ADMIN_AUTH_ENDPOINT, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ password })
-            });
-            if (response.ok) {
-              setAdminModeEnabled(true, { clearExplicitFlag: true });
+            const result = await submitAdminPassword(password, { silent: true });
+            if (result.ok) {
               closeAdminPasswordPrompt();
+              await checkAdminAuthorization({ silent: true, forceEnable: true, forceRefresh: true });
+              return;
+            }
+            if (result && result.error) {
+              console.error('Password verification failed', result.error);
+              if (status) {
+                status.textContent = 'Unable to verify password. Try again.';
+              }
               return;
             }
             let detail = 'Incorrect password.';
-            try {
-              const data = await response.json();
-              if (data && typeof data.detail === 'string' && data.detail.trim() !== '') {
-                detail = data.detail.trim();
-              }
-            } catch (error) {
-              // Ignore JSON parsing errors.
+            if (result && result.data && typeof result.data.detail === 'string' && result.data.detail.trim() !== '') {
+              detail = result.data.detail.trim();
             }
             if (status) {
               status.textContent = detail;
-            }
-          } catch (error) {
-            console.error('Password verification failed', error);
-            if (status) {
-              status.textContent = 'Unable to verify password. Try again.';
             }
           } finally {
             if (submitButton) {
@@ -1673,6 +1720,10 @@ schedulePlaneStyleOverride();
       if (adminParam !== null) {
         adminModeExplicitlySet = true;
         adminMode = adminParam.toLowerCase() === 'true';
+      }
+      const passParam = params.get('pass');
+      if (typeof passParam === 'string') {
+        urlAdminPassword = passParam.trim();
       }
 
       const showRadarParam = params.get('showRadar');
@@ -14615,9 +14666,14 @@ ${trainPlaneMarkup}
         requestAnimationFrame(animate);
       }
 
-      document.addEventListener("DOMContentLoaded", () => {
+      document.addEventListener("DOMContentLoaded", async () => {
         initializeAdminAuthUI();
-        checkAdminAuthorization({ silent: true });
+        const authorizedViaUrl = await attemptAdminAuthorizationFromUrl();
+        if (authorizedViaUrl) {
+          await checkAdminAuthorization({ silent: true, forceEnable: true, forceRefresh: true });
+        } else {
+          await checkAdminAuthorization({ silent: true });
+        }
         ensurePanelsHiddenForKioskExperience();
         initializePanelStateForViewport();
         beginAgencyLoad();
