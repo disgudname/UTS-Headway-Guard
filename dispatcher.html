@@ -2542,6 +2542,39 @@ function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,n
   return normalizeAssignmentResult(assignment);
 }
 
+const BLOCK_ASSIGNMENT_PREFIX_COLORS=[
+  {prefix:'JPJFan_',color:'#25E011'},
+  {prefix:'NGFan_',color:'#0072BC'},
+  {prefix:'FRPFan_',color:'#F60C02'},
+  {prefix:'PGFan_',color:'#232D80'}
+];
+
+function matchSpecialAssignmentColor(value){
+  if(value==null) return null;
+  const text=String(value).trim();
+  if(!text) return null;
+  for(const entry of BLOCK_ASSIGNMENT_PREFIX_COLORS){
+    if(text.startsWith(entry.prefix)) return entry.color;
+  }
+  return null;
+}
+
+function resolveAssignmentColor(bus,displayBus,vehicleId,colorLookup){
+  const specialColor=
+    matchSpecialAssignmentColor(bus) ||
+    matchSpecialAssignmentColor(displayBus) ||
+    matchSpecialAssignmentColor(vehicleId);
+  if(specialColor) return {color:specialColor,override:true};
+  if(!colorLookup) return {color:null,override:false};
+  const lookupKeys=[bus,displayBus,vehicleId];
+  for(const key of lookupKeys){
+    if(!key) continue;
+    const color=colorLookup.get(key);
+    if(color) return {color,override:false};
+  }
+  return {color:null,override:false};
+}
+
 function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
   if(!blocksGridTable) return;
   if(!Array.isArray(entries) || !entries.length){
@@ -2599,14 +2632,15 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
     }
     if((displayBus && displayBus!=='—') || (bus && bus!=='—')){
       hasAny=true;
-      let colorValue=colorLookup?colorLookup.get(bus):null;
+      const {color:resolvedColor,override}=resolveAssignmentColor(bus,displayBus,assignment.vehicleId,colorLookup);
+      let colorValue=resolvedColor;
       if(colorValue && !String(colorValue).startsWith('#')){
         colorValue='#'+String(colorValue);
       }
       const hasDefaultColors=Boolean(
         (cell.dataset && (cell.dataset.defaultCellBg || cell.dataset.defaultCellText))
       );
-      if(colorValue && !hasDefaultColors){
+      if(colorValue && (!hasDefaultColors || override)){
         const textColor=contrastColor(colorValue);
         cell.style.setProperty('--cell-bg',colorValue);
         cell.style.setProperty('--cell-border',colorValue);
