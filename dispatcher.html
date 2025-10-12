@@ -999,6 +999,7 @@ if(blocksGridTable){
 
 const BLOCK_GRID_ROW_COUNT = 9;
 const BLOCK_GRID_LAYOUT_ENDPOINT = '/api/eink-block/layout';
+const HOWELL_BLOCK_LAYOUT_NAME = 'football-layout';
 const BLOCK_GRID_DEFAULT_LAYOUT_DATA = [
   ['01','02','03','04','05','06','07','08','09'],
   ['10','11','12','13','14','15','16AM','17','18AM'],
@@ -1093,7 +1094,13 @@ function normalizeLayout(layoutData){
 
 async function fetchBlockGridLayout(){
   try{
-    const res=await fetch(BLOCK_GRID_LAYOUT_ENDPOINT,{cache:'no-store'});
+    const params=new URLSearchParams();
+    if(dispatcherSecretLabel==='HOWELL'){
+      params.set('name',HOWELL_BLOCK_LAYOUT_NAME);
+    }
+    const queryString=params.toString();
+    const url=queryString?`${BLOCK_GRID_LAYOUT_ENDPOINT}?${queryString}`:BLOCK_GRID_LAYOUT_ENDPOINT;
+    const res=await fetch(url,{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data=await res.json();
     if(data && Array.isArray(data.layout) && data.layout.length){
