@@ -11,14 +11,15 @@ body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;col
 #howell-boot-screen{position:fixed;inset:0;z-index:12000;display:flex;align-items:center;justify-content:center;padding:42px;background:radial-gradient(circle at 20% 20%,rgba(255,204,102,.12)0,transparent 52%),radial-gradient(circle at 82% 78%,rgba(102,204,204,.16)0,transparent 58%),linear-gradient(135deg,#02040b 0,#090d1c 48%,#05070f 100%);font-family:'Antonio','FGDC','Century Gothic',sans-serif;color:#f5f6ff;opacity:0;pointer-events:auto;transition:opacity .8s ease}
 #howell-boot-screen.visible{opacity:1}
 #howell-boot-screen.fade-out{opacity:0;pointer-events:none}
-#howell-boot-screen .howell-lcars-frame{position:relative;display:flex;gap:28px;background:#0b1021;border-radius:48px;border:4px solid #ff9966;padding:42px 52px;box-shadow:0 32px 90px rgba(255,153,102,.28);max-width:min(960px,92vw);width:100%;overflow:hidden}
+#howell-boot-screen .howell-lcars-frame{position:relative;display:flex;gap:28px;background:#0b1021;border-radius:48px;border:4px solid #ff9966;padding:42px 52px;box-shadow:0 32px 90px rgba(255,153,102,.28);width:min(960px,92vw);height:min(620px,92vh);max-height:92vh;box-sizing:border-box;overflow:hidden}
 #howell-boot-screen .howell-lcars-frame::before{content:"";position:absolute;inset:18px;border:2px solid rgba(102,204,204,.4);border-radius:40px;pointer-events:none}
 #howell-boot-screen .howell-lcars-frame::after{content:"";position:absolute;right:-120px;top:-90px;width:360px;height:360px;background:#cc6699;border-radius:170px 0 0 170px;transform:rotate(-18deg);opacity:.55;pointer-events:none}
 #howell-boot-screen .howell-lcars-column{display:flex;flex-direction:column;align-items:flex-start;width:146px;gap:18px;position:relative;z-index:1}
 #howell-boot-screen .howell-bar{display:block;width:100%;height:64px;border-radius:0 44px 44px 0;background:var(--howell-bar-color,#ff9966);box-shadow:0 0 0 4px rgba(0,0,0,.24) inset;animation:howellBarPulse 4.4s ease-in-out infinite}
 #howell-boot-screen .howell-bar.secondary{--howell-bar-color:#cc6699;height:86px}
 #howell-boot-screen .howell-bar.tertiary{--howell-bar-color:#66cccc;height:52px;margin-top:auto}
-#howell-boot-screen .howell-core{flex:1;display:flex;flex-direction:column;gap:18px;position:relative;z-index:2}
+#howell-boot-screen .howell-core{flex:1;display:flex;flex-direction:column;gap:18px;position:relative;z-index:2;min-height:0}
+#howell-boot-screen .howell-core-main{flex:1;min-height:0;display:flex;flex-direction:column;gap:18px;overflow:auto;padding-right:6px}
 #howell-boot-screen .howell-title{font-size:14px;letter-spacing:.32em;text-transform:uppercase;color:#66cccc}
 #howell-boot-screen .howell-welcome{font-size:clamp(26px,4vw,46px);letter-spacing:.22em;text-transform:uppercase;color:#ffcc66;text-shadow:0 0 18px rgba(255,204,102,.55);animation:howellGlint 3.6s ease-in-out infinite}
 #howell-boot-screen .howell-subtitle{font-size:16px;letter-spacing:.2em;text-transform:uppercase;color:#f4f0ff;opacity:.82}
@@ -34,13 +35,13 @@ body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;col
 #howell-boot-screen .howell-status-detail{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:#f6f6ff;opacity:.78}
 #howell-boot-screen .howell-ticker{display:flex;align-items:center;gap:16px;background:rgba(255,153,102,.18);border-radius:40px;padding:12px 20px;font-size:14px;letter-spacing:.24em;text-transform:uppercase;color:#ffcc66}
 #howell-boot-screen .howell-ticker::before{content:"LCARS";font-size:12px;background:#ff9966;color:#05060f;padding:6px 14px;border-radius:999px;letter-spacing:.32em}
-#howell-boot-screen .howell-log{margin-top:10px;padding:16px 20px;border-radius:26px;background:rgba(102,204,204,.14);font-family:'Courier Prime','IBM Plex Mono','Fira Code',monospace;font-size:13px;line-height:1.6;letter-spacing:.12em;color:#8feff3;max-height:190px;overflow:hidden;display:flex;flex-direction:column;gap:6px}
+#howell-boot-screen .howell-log{margin-top:10px;padding:16px 20px;border-radius:26px;background:rgba(102,204,204,.14);font-family:'Courier Prime','IBM Plex Mono','Fira Code',monospace;font-size:13px;line-height:1.6;letter-spacing:.12em;color:#8feff3;max-height:190px;overflow:auto;display:flex;flex-direction:column;gap:6px}
 #howell-boot-screen .howell-log-line{opacity:0;transform:translateX(-24px);transition:opacity .4s ease,transform .4s ease}
 #howell-boot-screen .howell-log-line.visible{opacity:1;transform:translateX(0)}
 @keyframes howellGlint{0%,100%{text-shadow:0 0 12px rgba(255,204,102,.35)}50%{text-shadow:0 0 24px rgba(255,204,102,.75)}}
 @keyframes howellBarPulse{0%,100%{filter:brightness(1)}40%{filter:brightness(1.35)}60%{filter:brightness(.82)}}
 @keyframes howellStripSweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
-@media(max-width:780px){#howell-boot-screen{padding:24px}#howell-boot-screen .howell-lcars-frame{flex-direction:column;align-items:flex-start;padding:28px 30px;border-radius:36px}#howell-boot-screen .howell-lcars-column{flex-direction:row;width:100%;gap:12px}#howell-boot-screen .howell-bar{height:48px;border-radius:44px}#howell-boot-screen .howell-bar.secondary{height:58px}}
+@media(max-width:780px){#howell-boot-screen{padding:24px}#howell-boot-screen .howell-lcars-frame{flex-direction:column;align-items:flex-start;padding:28px 30px;border-radius:36px;height:min(640px,94vh)}#howell-boot-screen .howell-core-main{padding-right:0}#howell-boot-screen .howell-lcars-column{flex-direction:row;width:100%;gap:12px}#howell-boot-screen .howell-bar{height:48px;border-radius:44px}#howell-boot-screen .howell-bar.secondary{height:58px}}
 body.howell-mode{background:radial-gradient(circle at 12% 18%,rgba(255,153,102,.12)0,transparent 54%),radial-gradient(circle at 86% 84%,rgba(102,204,204,.1)0,transparent 60%),linear-gradient(130deg,#070b1a 0,#04060f 42%,#070b1a 100%)}
 body.howell-mode header h1{letter-spacing:.14em}
 body.locked{overflow:hidden}
@@ -647,25 +648,27 @@ function showHowellBootScreen(){
           <span class="howell-strip accent"></span>
           <span class="howell-strip danger"></span>
         </div>
-        <div class="howell-status-grid">
-          <div class="howell-status-card" data-status="fleet">
-            <span>Fleet Sync</span>
-            <strong data-value>000%</strong>
-            <div class="howell-status-detail" data-detail>VECTOR HOLD</div>
+        <div class="howell-core-main">
+          <div class="howell-status-grid">
+            <div class="howell-status-card" data-status="fleet">
+              <span>Fleet Sync</span>
+              <strong data-value>000%</strong>
+              <div class="howell-status-detail" data-detail>VECTOR HOLD</div>
+            </div>
+            <div class="howell-status-card" data-status="transport">
+              <span>Transport Buffers</span>
+              <strong data-value>0.0 MJ</strong>
+              <div class="howell-status-detail" data-detail>BUFFER READY</div>
+            </div>
+            <div class="howell-status-card" data-status="defense">
+              <span>Shield Envelope</span>
+              <strong data-value>000%</strong>
+              <div class="howell-status-detail" data-detail>STANDBY</div>
+            </div>
           </div>
-          <div class="howell-status-card" data-status="transport">
-            <span>Transport Buffers</span>
-            <strong data-value>0.0 MJ</strong>
-            <div class="howell-status-detail" data-detail>BUFFER READY</div>
-          </div>
-          <div class="howell-status-card" data-status="defense">
-            <span>Shield Envelope</span>
-            <strong data-value>000%</strong>
-            <div class="howell-status-detail" data-detail>STANDBY</div>
-          </div>
+          <div class="howell-ticker"><span data-ticker>SD 00000.0 • WARP CORE NOMINAL</span></div>
+          <div class="howell-log" aria-live="polite"></div>
         </div>
-        <div class="howell-ticker"><span data-ticker>SD 00000.0 • WARP CORE NOMINAL</span></div>
-        <div class="howell-log" aria-live="polite"></div>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -692,7 +695,10 @@ function showHowellBootScreen(){
         line.className='howell-log-line';
         line.textContent=text;
         logContainer.appendChild(line);
-        requestAnimationFrame(()=>line.classList.add('visible'));
+        requestAnimationFrame(()=>{
+          line.classList.add('visible');
+          logContainer.scrollTop=logContainer.scrollHeight;
+        });
         if(idx===logMessages.length-1 && welcomeEl){
           window.setTimeout(()=>{
             welcomeEl.textContent='Authorization Accepted. Welcome, Vice Admiral Howell';
