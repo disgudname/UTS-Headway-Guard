@@ -254,11 +254,13 @@ schedulePlaneStyleOverride();
       }
 
       const ADMIN_AUTH_ENDPOINT = '/api/dispatcher/auth';
+      const ADMIN_LOGOUT_ENDPOINT = '/api/dispatcher/logout';
       let adminAuthCheckPromise = null;
       let adminAuthInitialized = false;
       let urlAdminPassword = '';
       let urlAdminAuthAttempted = false;
       let urlAdminAuthSucceeded = false;
+      let adminLogoutInProgress = false;
 
       function setAdminModeEnabled(enabled, options = {}) {
         const normalized = Boolean(enabled);
@@ -388,6 +390,45 @@ schedulePlaneStyleOverride();
             console.error('Password verification failed', error);
           }
           return { ok: false, error };
+        }
+      }
+
+      async function logoutAdminTools(event) {
+        if (event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        if (adminLogoutInProgress) {
+          return false;
+        }
+        adminLogoutInProgress = true;
+        const trigger = event && event.currentTarget && typeof event.currentTarget === 'object'
+          ? event.currentTarget
+          : null;
+        if (trigger && typeof trigger.disabled === 'boolean') {
+          trigger.disabled = true;
+        }
+        try {
+          const response = await fetch(ADMIN_LOGOUT_ENDPOINT, {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          if (!response.ok) {
+            throw new Error(`Logout request failed with status ${response.status}`);
+          }
+          urlAdminPassword = '';
+          urlAdminAuthSucceeded = false;
+          urlAdminAuthAttempted = false;
+          adminModeExplicitlySet = true;
+          setAdminModeEnabled(false);
+          return true;
+        } catch (error) {
+          console.error('Failed to log out of admin tools', error);
+          if (trigger && typeof trigger.disabled === 'boolean') {
+            trigger.disabled = false;
+          }
+          return false;
+        } finally {
+          adminLogoutInProgress = false;
         }
       }
 
@@ -521,6 +562,7 @@ schedulePlaneStyleOverride();
       if (typeof window !== 'undefined') {
         window.openAdminPasswordPrompt = openAdminPasswordPrompt;
         window.closeAdminPasswordPrompt = closeAdminPasswordPrompt;
+        window.logoutAdminTools = logoutAdminTools;
       }
 
       function suppressAdminKioskPanels() {
@@ -6395,10 +6437,13 @@ ${trainPlaneMarkup}
         ` : '';
         const adminAccessHtml = `
           <div class="admin-auth-control">
-            <button type="button" class="admin-auth-link"${adminMode ? ' disabled aria-disabled="true"' : ' onclick="openAdminPasswordPrompt()"'}>
-              ${adminMode ? 'Admin tools unlocked' : 'Unlock admin tools'}
-            </button>
-            <div class="admin-auth-note">${adminMode ? 'Admin tools stay on until you clear your cookies.' : 'Dispatch password required.'}</div>
+            <div class="admin-auth-actions">
+              <button type="button" class="admin-auth-link"${adminMode ? ' disabled aria-disabled="true"' : ' onclick="openAdminPasswordPrompt()"'}>
+                ${adminMode ? 'Admin tools unlocked' : 'Unlock admin tools'}
+              </button>
+              ${adminMode ? '<button type="button" class="pill-button admin-auth-logout" onclick="logoutAdminTools(event)">Log out</button>' : ''}
+            </div>
+            <div class="admin-auth-note">${adminMode ? 'Admin tools stay on until you log out or clear your cookies.' : 'Dispatch password required.'}</div>
           </div>
         `;
         let html = `

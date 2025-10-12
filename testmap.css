@@ -887,6 +887,12 @@
         flex-direction: column;
         gap: 6px;
       }
+      .selector-panel .admin-auth-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
       .selector-panel .admin-auth-link {
         background: none;
         border: none;
@@ -919,6 +925,18 @@
         cursor: default;
         color: rgba(35, 45, 75, 0.35);
         text-decoration: none;
+      }
+      .selector-panel .admin-auth-logout {
+        font-size: 13px;
+        padding: 8px 16px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .selector-panel .admin-auth-logout:disabled {
+        cursor: default;
+        opacity: 0.65;
+        box-shadow: none;
+        transform: none;
       }
       .selector-panel .admin-auth-note {
         font-size: 12px;
