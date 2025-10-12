@@ -131,7 +131,7 @@
       right:0;
       bottom:0;
       background:#232D4B;
-      color:#E57200;
+      color:#FFFFFF;
       border-top:1px solid rgba(255,255,255,0.08);
       box-shadow:0 -6px 18px rgba(0,0,0,0.25);
       z-index:1100;
@@ -165,7 +165,7 @@
       padding:10px 6px;
     }
     #${NAV_ID} a:focus-visible{
-      outline:2px solid #E57200;
+      outline:2px solid #FFFFFF;
       outline-offset:2px;
     }
     #${NAV_ID} .hg-mobile-nav__icon{
