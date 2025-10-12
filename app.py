@@ -147,6 +147,26 @@ DISPATCH_PASSWORDS: Dict[str, str] = {}
 DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
 _DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str, str], ...]] = None
 
+_NON_SECRET_ENV_KEYS = {
+    "PATH",
+    "PWD",
+    "HOME",
+    "HOSTNAME",
+    "TERM",
+    "SHLVL",
+    "PORT",
+    "LOGNAME",
+    "USER",
+    "TZ",
+    "SHELL",
+}
+_NON_SECRET_ENV_PREFIXES = (
+    "PYTHON",
+    "LC_",
+    "CAAS_",
+    "GPG_",
+)
+
 
 def _refresh_dispatch_passwords(force: bool = False) -> None:
     """Load dispatcher passwords from environment secrets."""
@@ -182,6 +202,25 @@ def _refresh_dispatch_passwords(force: bool = False) -> None:
         normalized: label for normalized, _secret, label in secrets_list
     }
     _DISPATCH_PASSWORD_CACHE = cache_state
+
+
+def _iter_loaded_secrets() -> Iterable[Tuple[str, str]]:
+    """Yield Fly.io-provided environment secrets in sorted order."""
+
+    items: list[Tuple[str, str]] = []
+    for key, value in os.environ.items():
+        if not key or not value:
+            continue
+        if key in _NON_SECRET_ENV_KEYS:
+            continue
+        if any(key.startswith(prefix) for prefix in _NON_SECRET_ENV_PREFIXES):
+            continue
+        if key != key.upper():
+            continue
+        items.append((key, value))
+
+    items.sort(key=lambda item: item[0])
+    return items
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
@@ -3629,6 +3668,14 @@ async def set_config(payload: Dict[str, Any]):
                     globals()[k] = v
     save_config()
     return {k: globals().get(k) for k in CONFIG_KEYS}
+
+
+@app.get("/v1/secrets")
+async def get_secrets():
+    secrets_payload = [
+        {"name": key, "value": value} for key, value in _iter_loaded_secrets()
+    ]
+    return {"secrets": secrets_payload}
 
 # ---------------------------
 # SERVICE CREW API
