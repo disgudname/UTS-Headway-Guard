@@ -490,6 +490,34 @@
         margin: 0;
         padding: 0;
       }
+      .kiosk-status-message {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: clamp(1rem, 5vw, 3rem);
+        text-align: center;
+        font-family: var(--app-font-family);
+        font-weight: 700;
+        font-size: clamp(1.5rem, 8vw, 4.5rem);
+        line-height: 1.2;
+        color: #f8fafc;
+        background: rgba(35, 45, 75, 0.82);
+        backdrop-filter: blur(3px);
+        border-radius: clamp(0.5rem, 3vw, 2.5rem);
+        margin: clamp(0.5rem, 3vw, 2.5rem);
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+        pointer-events: none;
+        z-index: 2400;
+      }
+      .kiosk-status-message.is-visible {
+        opacity: 1;
+        visibility: visible;
+      }
       .loading-overlay {
         position: fixed;
         inset: 0;

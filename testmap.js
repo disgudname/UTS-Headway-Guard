@@ -1758,6 +1758,7 @@ schedulePlaneStyleOverride();
       }
       updateKioskExperienceState();
       ensurePanelsHiddenForKioskExperience();
+      updateKioskStatusMessage({ known: false, hasActiveVehicles: false });
       const adminParam = params.get('adminMode');
       if (adminParam !== null) {
         adminModeExplicitlySet = true;
@@ -5226,6 +5227,7 @@ schedulePlaneStyleOverride();
       let routeSelections = {};
       // Tracks routes that currently have at least one vehicle assigned.
       let activeRoutes = new Set();
+      let kioskVehicleStatusKnown = false;
       // Tracks which routes the API designates as public-facing.
       let routeVisibility = {};
       // Routes that should be forced visible in kiosk mode when they have vehicles.
@@ -5270,6 +5272,56 @@ schedulePlaneStyleOverride();
           const normalizedActive = normalizeRouteIdForComparison(activeRouteId);
           return normalizedActive !== null && normalizedActive === normalizedRouteId;
         });
+      }
+
+      function getKioskStatusMessageElement() {
+        return getCachedElementById('kioskStatusMessage');
+      }
+
+      function setKioskStatusMessageVisibility(visible) {
+        const element = getKioskStatusMessageElement();
+        if (!element) return;
+        if (visible) {
+          element.classList.add('is-visible');
+          element.setAttribute('aria-hidden', 'false');
+        } else {
+          element.classList.remove('is-visible');
+          element.setAttribute('aria-hidden', 'true');
+        }
+      }
+
+      function hasAnyActiveRoutes(collection = activeRoutes) {
+        if (collection instanceof Set) {
+          return collection.size > 0;
+        }
+        if (Array.isArray(collection)) {
+          return collection.length > 0;
+        }
+        return false;
+      }
+
+      function updateKioskStatusMessage(options = {}) {
+        if (!kioskMode && !adminKioskMode) {
+          kioskVehicleStatusKnown = false;
+          setKioskStatusMessageVisibility(false);
+          return;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(options, 'known')) {
+          kioskVehicleStatusKnown = Boolean(options.known);
+        }
+
+        const known = kioskVehicleStatusKnown;
+        const hasActiveVehicles = Object.prototype.hasOwnProperty.call(options, 'hasActiveVehicles')
+          ? Boolean(options.hasActiveVehicles)
+          : hasAnyActiveRoutes();
+
+        if (!known) {
+          setKioskStatusMessageVisibility(false);
+          return;
+        }
+
+        setKioskStatusMessageVisibility(!hasActiveVehicles);
       }
 
       function setRouteVisibility(route) {
@@ -7648,6 +7700,8 @@ ${trainPlaneMarkup}
         routeStopAddressMap = {};
         routeStopRouteMap = {};
         activeRoutes = new Set();
+        kioskVehicleStatusKnown = false;
+        updateKioskStatusMessage({ known: false, hasActiveVehicles: false });
         routeColors = {};
         routeVisibility = {};
         allRouteBounds = null;
@@ -10839,6 +10893,7 @@ ${trainPlaneMarkup}
 
               activeRoutes = activeRoutesSet;
               updateRouteSelector(activeRoutesSet);
+              updateKioskStatusMessage({ known: true, hasActiveVehicles: activeRoutesSet.size > 0 });
 
               const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
 
