@@ -9,16 +9,28 @@ body{font:16px 'FGDC',system-ui;background:#0b0e11;color:#e8eef5;margin:0;paddin
 label{display:block;margin:8px 0;}
 input,textarea{width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;}
 button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3442;background:#15202b;color:#e8eef5;cursor:pointer;}
+.panel{margin-top:24px;padding:16px;border:1px solid #2a3442;border-radius:8px;background:#10151c;}
+.panel h2{margin-top:0;margin-bottom:12px;font-size:18px;}
+.secret{display:flex;flex-direction:column;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #202a36;}
+.secret:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+.secret code{word-break:break-all;background:#15202b;padding:6px;border-radius:6px;margin-top:6px;display:block;}
 .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 </style>
 <h1>Headway Guard Admin</h1>
 <form id="cfg"></form>
 <button id="save">Save</button>
 <button id="forceRefresh">Force Refresh</button>
+<div class="panel" id="secretPanel">
+  <h2>Loaded Environment Secrets</h2>
+  <div id="secrets"></div>
+</div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
 async function load(){
-  const cfg = await fetch('/v1/config',{cache:'no-store'}).then(r=>r.json());
+  const [cfg,secretPayload] = await Promise.all([
+    fetch('/v1/config',{cache:'no-store'}).then(r=>r.json()),
+    fetch('/v1/secrets',{cache:'no-store'}).then(r=>r.json()).catch(()=>({secrets:[]}))
+  ]);
   const form=document.getElementById('cfg');
   for(const [k,v] of Object.entries(cfg)){
     const label=document.createElement('label');
@@ -35,6 +47,26 @@ async function load(){
     inp.name=k;
     label.appendChild(inp);
     form.appendChild(label);
+  }
+  const secretRoot=document.getElementById('secrets');
+  secretRoot.innerHTML='';
+  const secrets=Array.isArray(secretPayload?.secrets)?secretPayload.secrets:[];
+  if(!secrets.length){
+    const empty=document.createElement('div');
+    empty.textContent='No Fly.io secrets detected.';
+    secretRoot.appendChild(empty);
+  }else{
+    for(const item of secrets){
+      const wrap=document.createElement('div');
+      wrap.className='secret';
+      const title=document.createElement('strong');
+      title.textContent=item.name;
+      const value=document.createElement('code');
+      value.textContent=item.value;
+      wrap.appendChild(title);
+      wrap.appendChild(value);
+      secretRoot.appendChild(wrap);
+    }
   }
 }
 async function save(){
