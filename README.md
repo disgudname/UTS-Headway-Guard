@@ -10,8 +10,8 @@ UTS Headway Guard powers day-to-day transit operations for the University Transi
 
 ## Components
 - `app.py` – FastAPI application with background updaters, Server-Sent Events, configuration persistence, and mileage tracking.
-- HTML dashboards (`*.html`) – Leaflet-based clients rendered directly by the backend for each audience (drivers, dispatchers, service crews, riders, admins, and replay analysts).
-- Static assets – CSS, JavaScript, fonts, and sample API payloads that allow offline UI development and regression testing.
+- HTML dashboards (`html/*.html`) – Leaflet-based clients rendered directly by the backend for each audience (drivers, dispatchers, service crews, riders, admins, and replay analysts).
+- Static assets – Stylesheets in `css/`, JavaScript in `scripts/`, fonts in `fonts/`, media in `media/`, and sample API payloads in `examples/` to support offline UI development and regression testing.
 
 ## Getting started
 1. Install dependencies:
