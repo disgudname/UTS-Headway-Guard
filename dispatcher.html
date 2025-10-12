@@ -568,7 +568,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 </div>
 <div id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize panels"></div>
-<iframe src="/testmap?dispatcher=true" id="map-frame" style="flex:1;height:100%"></iframe>
+<iframe id="map-frame" data-src="/testmap?dispatcher=true" style="flex:1;height:100%"></iframe>
 <script>
 const $ = s => document.querySelector(s);
 const DOWNED_ENDPOINT = '/v1/dispatcher/downed_buses';
@@ -782,6 +782,35 @@ function showHowellBootScreen(){
 }
 const leftPane = document.getElementById('left');
 const mapFrame = document.getElementById('map-frame');
+const DEFAULT_MAP_FRAME_SRC = '/testmap?dispatcher=true';
+let mapFramePendingSrc = DEFAULT_MAP_FRAME_SRC;
+
+function setMapFramePendingSource(nextSrc) {
+  mapFramePendingSrc = nextSrc || DEFAULT_MAP_FRAME_SRC;
+  if (mapFrame) {
+    mapFrame.dataset.src = mapFramePendingSrc;
+    if (mapFrame.dataset.loaded === 'true' && mapFrame.src !== mapFramePendingSrc) {
+      mapFrame.src = mapFramePendingSrc;
+    }
+  }
+}
+
+function loadMapFrameIfNeeded() {
+  if (!mapFrame) return;
+  if (mapFrame.dataset.loaded === 'true' && mapFrame.src === mapFramePendingSrc) return;
+  mapFrame.src = mapFramePendingSrc;
+}
+
+if (mapFrame) {
+  const initialSrc = mapFrame.dataset.src || mapFrame.getAttribute('src');
+  if (initialSrc) {
+    mapFramePendingSrc = initialSrc;
+  }
+  setMapFramePendingSource(mapFramePendingSrc);
+  mapFrame.addEventListener('load', () => {
+    mapFrame.dataset.loaded = 'true';
+  });
+}
 const splitter = document.getElementById('splitter');
 if(leftPane && mapFrame && splitter){
   let isResizing=false;
@@ -840,11 +869,9 @@ if (KIOSK_MODE) {
 if (LCARS_ENABLED) {
   activateLcarsMode();
 } else if (CYBERPUNK_ENABLED) {
-  if (mapFrame) {
-    const url = new URL(mapFrame.getAttribute('src'), window.location.origin);
-    url.pathname = '/radar';
-    mapFrame.src = url.pathname + url.search;
-  }
+  const url = new URL(mapFramePendingSrc, window.location.origin);
+  url.pathname = '/radar';
+  setMapFramePendingSource(url.pathname + url.search);
   activateCyberpunkMode();
 }
 
@@ -3810,6 +3837,7 @@ async function requireDispatcherPassword(){
 document.addEventListener('DOMContentLoaded', async ()=>{
   await requireDispatcherPassword();
   applyDispatcherSecretMode();
+  loadMapFrameIfNeeded();
   await loadConfig();
   pollHealth();
   loadBlocks();
