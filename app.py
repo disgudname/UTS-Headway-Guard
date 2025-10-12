@@ -786,29 +786,40 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 app = FastAPI(title="Headway Guard")
 
 BASE_DIR = Path(__file__).resolve().parent
-DRIVER_HTML = (BASE_DIR / "driver.html").read_text(encoding="utf-8")
-DISPATCHER_HTML = (BASE_DIR / "dispatcher.html").read_text(encoding="utf-8")
-MAP_HTML = (BASE_DIR / "map.html").read_text(encoding="utf-8")
-TESTMAP_HTML = (BASE_DIR / "testmap.html").read_text(encoding="utf-8")
-KIOSKMAP_HTML = (BASE_DIR / "kioskmap.html").read_text(encoding="utf-8")
-CATTESTMAP_HTML = (BASE_DIR / "cattestmap.html").read_text(encoding="utf-8")
-MADMAP_HTML = (BASE_DIR / "madmap.html").read_text(encoding="utf-8")
-METROMAP_HTML = (BASE_DIR / "metromap.html").read_text(encoding="utf-8")
-ADMIN_HTML = (BASE_DIR / "admin.html").read_text(encoding="utf-8")
-SERVICECREW_HTML = (BASE_DIR / "servicecrew.html").read_text(encoding="utf-8")
-LANDING_HTML = (BASE_DIR / "index.html").read_text(encoding="utf-8")
-APICALLS_HTML = (BASE_DIR / "apicalls.html").read_text(encoding="utf-8")
-DEBUG_HTML = (BASE_DIR / "debug.html").read_text(encoding="utf-8")
-REPLAY_HTML = (BASE_DIR / "replay.html").read_text(encoding="utf-8")
-RIDERSHIP_HTML = (BASE_DIR / "ridership.html").read_text(encoding="utf-8")
-TRANSLOC_TICKER_HTML = (BASE_DIR / "transloc_ticker.html").read_text(encoding="utf-8")
-ARRIVALSDISPLAY_HTML = (BASE_DIR / "arrivalsdisplay.html").read_text(encoding="utf-8")
-BUS_TABLE_HTML = (BASE_DIR / "buses.html").read_text(encoding="utf-8")
-NOT_FOUND_HTML = (BASE_DIR / "404.html").read_text(encoding="utf-8")
-RADAR_HTML = (BASE_DIR / "radar.html").read_text(encoding="utf-8")
-EINK_BLOCK_HTML = (BASE_DIR / "eink-block.html").read_text(encoding="utf-8")
-DOWNED_HTML = (BASE_DIR / "downed.html").read_text(encoding="utf-8")
-IPS_HTML = (BASE_DIR / "ips.html").read_text(encoding="utf-8")
+HTML_DIR = BASE_DIR / "html"
+CSS_DIR = BASE_DIR / "css"
+SCRIPT_DIR = BASE_DIR / "scripts"
+FONT_DIR = BASE_DIR / "fonts"
+MEDIA_DIR = BASE_DIR / "media"
+
+
+def _load_html(name: str) -> str:
+    return (HTML_DIR / name).read_text(encoding="utf-8")
+
+
+DRIVER_HTML = _load_html("driver.html")
+DISPATCHER_HTML = _load_html("dispatcher.html")
+MAP_HTML = _load_html("map.html")
+TESTMAP_HTML = _load_html("testmap.html")
+KIOSKMAP_HTML = _load_html("kioskmap.html")
+CATTESTMAP_HTML = _load_html("cattestmap.html")
+MADMAP_HTML = _load_html("madmap.html")
+METROMAP_HTML = _load_html("metromap.html")
+ADMIN_HTML = _load_html("admin.html")
+SERVICECREW_HTML = _load_html("servicecrew.html")
+LANDING_HTML = _load_html("index.html")
+APICALLS_HTML = _load_html("apicalls.html")
+DEBUG_HTML = _load_html("debug.html")
+REPLAY_HTML = _load_html("replay.html")
+RIDERSHIP_HTML = _load_html("ridership.html")
+TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
+ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
+BUS_TABLE_HTML = _load_html("buses.html")
+NOT_FOUND_HTML = _load_html("404.html")
+RADAR_HTML = _load_html("radar.html")
+EINK_BLOCK_HTML = _load_html("eink-block.html")
+DOWNED_HTML = _load_html("downed.html")
+IPS_HTML = _load_html("ips.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -3475,36 +3486,41 @@ async def stream_api_calls():
 # ---------------------------
 
 def _serve_js_asset(name: str) -> FileResponse:
-    return FileResponse(BASE_DIR / name, media_type="application/javascript")
+    return FileResponse(SCRIPT_DIR / name, media_type="application/javascript")
 
 
 def _serve_css_asset(name: str) -> FileResponse:
-    return FileResponse(BASE_DIR / name, media_type="text/css")
+    return FileResponse(CSS_DIR / name, media_type="text/css")
 
 
 @app.get("/FGDC.ttf", include_in_schema=False)
 async def fgdc_font():
-    return FileResponse(BASE_DIR / "FGDC.ttf", media_type="font/ttf")
+    return FileResponse(FONT_DIR / "FGDC.ttf", media_type="font/ttf")
+
+
+@app.get("/ANTONIO.ttf", include_in_schema=False)
+async def antonio_font():
+    return FileResponse(FONT_DIR / "ANTONIO.ttf", media_type="font/ttf")
 
 
 @app.get("/centurygothic.ttf", include_in_schema=False)
 async def centurygothic_font():
-    return FileResponse(BASE_DIR / "centurygothic.ttf", media_type="font/ttf")
+    return FileResponse(FONT_DIR / "centurygothic.ttf", media_type="font/ttf")
 
 
 @app.get("/busmarker.svg", include_in_schema=False)
 async def busmarker_svg():
-    return FileResponse(BASE_DIR / "busmarker.svg", media_type="image/svg+xml")
+    return FileResponse(MEDIA_DIR / "busmarker.svg", media_type="image/svg+xml")
 
 
 @app.get("/radar.wav", include_in_schema=False)
 async def radar_wav():
-    return FileResponse(BASE_DIR / "radar.wav", media_type="audio/wav")
+    return FileResponse(MEDIA_DIR / "radar.wav", media_type="audio/wav")
 
 
 @app.get("/headwayguardicon.png", include_in_schema=False)
 async def headwayguard_icon():
-    return FileResponse(BASE_DIR / "headwayguardicon.png", media_type="image/png")
+    return FileResponse(MEDIA_DIR / "headwayguardicon.png", media_type="image/png")
 
 
 @app.get("/map_defaults.js", include_in_schema=False)
