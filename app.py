@@ -31,7 +31,7 @@ import asyncio, time, math, os, json, re, base64, hashlib, secrets
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import httpx
-from collections import deque, defaultdict, OrderedDict
+from collections import deque, defaultdict
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
@@ -142,214 +142,13 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
-def _get_env_value_casefold(name: str) -> tuple[Optional[str], Optional[str]]:
-    """Return ``(value, actual_key)`` for an env var, ignoring case differences.
-
-    Some deployment platforms normalize secret names to unexpected casings. Rather
-    than assume a specific style (all upper or all lower case), we scan the current
-    environment for any key whose lowercase form matches the requested name. The
-    helper returns both the value and the actual key that was found so that callers
-    can avoid re-processing the same environment variable multiple times.
-    """
-
-    if not name:
-        return None, None
-    if name in os.environ:
-        return os.environ[name], name
-    name_lower = name.lower()
-    for key, value in os.environ.items():
-        if key.lower() == name_lower:
-            return value, key
-    return None, None
-
-
-def _load_dispatch_secret(env_name: str) -> Optional[str]:
-    """Return a stripped secret value for the given base env name.
-
-    The helper looks for the variable regardless of how the environment key is
-    cased. When ``*_FILE`` variants are present (for Docker/OCI secret mounts), the
-    file contents are also read. Any trailing newline is stripped so that secrets
-    set via ``fly secrets set HOWELL_PASS=@secret.txt`` continue to work.
-    """
-
-    if not env_name:
-        return None
-
-    env_lower = env_name.lower()
-    candidate_names: list[str] = []
-    seen_names: set[str] = set()
-    for candidate in (env_name, env_lower):
-        if candidate and candidate not in seen_names:
-            candidate_names.append(candidate)
-            seen_names.add(candidate)
-    for key in os.environ:
-        if key.lower() == env_lower and key not in seen_names:
-            candidate_names.append(key)
-            seen_names.add(key)
-
-    processed_keys: set[str] = set()
-    for candidate in candidate_names:
-        raw_value, actual_key = _get_env_value_casefold(candidate)
-        if actual_key and actual_key in processed_keys:
-            raw_value = None
-        elif actual_key:
-            processed_keys.add(actual_key)
-
-        if raw_value is not None:
-            value = raw_value.strip()
-            if value:
-                return value
-
-        file_env = f"{candidate}_FILE"
-        file_path, file_key = _get_env_value_casefold(file_env)
-        if file_key and file_key in processed_keys:
-            file_path = None
-        elif file_key:
-            processed_keys.add(file_key)
-        if not file_path:
-            continue
-        try:
-            value = Path(file_path).read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            display_key = file_key or file_env
-            print(
-                f"[auth] Failed to read secret from {display_key}={file_path!r}: {exc}",
-                flush=True,
-            )
-            continue
-        if value:
-            return value
-
-
-def _discover_dispatch_passwords() -> "OrderedDict[str, str]":
-    discovered: "OrderedDict[str, str]" = OrderedDict()
-
-    def register(label: str, env_name: str) -> bool:
-        secret_value = _load_dispatch_secret(env_name)
-        if not secret_value:
-            return False
-        if label not in discovered:
-            discovered[label] = secret_value
-        return True
-
-    canonical_sources: dict[str, tuple[str, ...]] = {
-        "DISPATCHER": (
-            "DISPATCHER_PASS",
-            "DISPATCHER_PASSWORD",
-            "DISPATCHER_SECRET",
-            "DISPATCH_PASS",
-            "DISPATCH_PASSWORD",
-            "DISPATCH_SECRET",
-        ),
-        "HOWELL": (
-            "HOWELL_PASS",
-            "HOWELL_PASSWORD",
-            "HOWELL_SECRET",
-        ),
-    }
-
-    for label, env_names in canonical_sources.items():
-        for env_name in env_names:
-            if register(label, env_name):
-                break
-
-    for env_name in sorted(os.environ):
-        if not env_name:
-            continue
-        env_name_upper = env_name.upper()
-        base_env_name: Optional[str] = None
-        if env_name_upper.endswith("_PASS_FILE"):
-            base_env_name = env_name[: -len("_FILE")]
-        elif env_name_upper.endswith("_PASS"):
-            base_env_name = env_name
-        if not base_env_name:
-            continue
-        label_prefix = base_env_name[:-5]
-        if not label_prefix:
-            continue
-        label = label_prefix.upper()
-        if label in discovered:
-            continue
-        register(label, base_env_name)
-
-    return discovered
-
-
-_dispatch_passwords = _discover_dispatch_passwords()
-
-DISPATCH_PASSWORD_BY_LABEL: Dict[str, str] = {}
-DISPATCH_PASSWORDS: Tuple[str, ...] = ()
-DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
-DISPATCH_PASSWORD_BYTES: Dict[str, bytes] = {}
-DISPATCH_PASS: Optional[str] = None
-
-
-def _dispatch_env_snapshot() -> Tuple[Tuple[str, str], ...]:
-    """Return a sorted snapshot of dispatcher-related environment variables."""
-
-    relevant: list[Tuple[str, str]] = []
-    pass_suffixes = ("_PASS", "_PASS_FILE")
-
-    for key, value in os.environ.items():
-        key_upper = key.upper()
-        if key_upper.startswith("DISPATCH") or key_upper.startswith("HOWELL"):
-            relevant.append((key, value))
-            continue
-
-        if key_upper.endswith(pass_suffixes):
-            relevant.append((key, value))
-    relevant.sort(key=lambda item: item[0])
-    return tuple(relevant)
-
-
-_dispatch_snapshot: Optional[Tuple[Tuple[str, str], ...]] = None
-_dispatch_logged_labels: Optional[Tuple[str, ...]] = None
+# Dispatcher authentication helpers
 
 
 def _refresh_dispatch_passwords(force: bool = False) -> None:
-    """Refresh cached dispatcher passwords if the environment changed."""
+    """Dispatcher passwords are now dynamic; refresh is a no-op."""
 
-    global _dispatch_snapshot
-    snapshot = _dispatch_env_snapshot()
-    if not force and snapshot == _dispatch_snapshot:
-        return
-
-    _dispatch_snapshot = snapshot
-    discovered = _discover_dispatch_passwords()
-
-    global DISPATCH_PASSWORD_BY_LABEL
-    global DISPATCH_PASSWORDS
-    global DISPATCH_PASSWORD_LABELS
-    global DISPATCH_PASSWORD_BYTES
-    global DISPATCH_PASS
-
-    DISPATCH_PASSWORD_BY_LABEL = dict(discovered)
-    DISPATCH_PASSWORDS = tuple(discovered.values())
-    DISPATCH_PASSWORD_LABELS = {value: label for label, value in discovered.items()}
-    DISPATCH_PASSWORD_BYTES = {
-        password: password.encode("utf-8", errors="surrogatepass")
-        for password in DISPATCH_PASSWORDS
-    }
-    DISPATCH_PASS = DISPATCH_PASSWORDS[0] if DISPATCH_PASSWORDS else None
-
-    global _dispatch_logged_labels
-    configured_labels = tuple(sorted(DISPATCH_PASSWORD_BY_LABEL.keys()))
-    if configured_labels != _dispatch_logged_labels:
-        _dispatch_logged_labels = configured_labels
-        if DISPATCH_PASSWORDS:
-            configured = ", ".join(configured_labels)
-            print(
-                f"[auth] Dispatcher passwords configured for: {configured}",
-                flush=True,
-            )
-        else:
-            print(
-                "[auth] Dispatcher password not configured; access is open.",
-                flush=True,
-            )
-
-
-_refresh_dispatch_passwords(force=True)
+    return
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
@@ -3869,33 +3668,33 @@ async def driver_page():
 # ---------------------------
 # DISPATCHER PAGE
 # ---------------------------
-def _dispatcher_cookie_value(password: Optional[str] = None) -> Optional[str]:
-    _refresh_dispatch_passwords()
-    if not DISPATCH_PASSWORDS:
+def _normalize_dispatch_password(password: Optional[str]) -> Optional[str]:
+    if not isinstance(password, str):
         return None
-    if password is None:
-        password = DISPATCH_PASSWORDS[0]
-    label = DISPATCH_PASSWORD_LABELS.get(password)
-    if not label:
+    if not password.endswith("_PASS"):
         return None
+    return password
+
+
+def _password_to_label(password: str) -> str:
+    return password[:-5]
+
+
+def _dispatcher_cookie_value_for_label(label: str) -> str:
+    password = f"{label}_PASS"
     digest = hashlib.sha256(f"dispatcher::{password}".encode("utf-8")).hexdigest()
     return f"{label}:{digest}"
 
 
 def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
     _refresh_dispatch_passwords()
-    if not DISPATCH_PASSWORDS:
-        return None
     provided = request.cookies.get(DISPATCH_COOKIE_NAME)
     if not provided:
         return None
     label, sep, _hash = provided.partition(":")
     if not sep:
         return None
-    password = DISPATCH_PASSWORD_BY_LABEL.get(label)
-    if not password:
-        return None
-    expected = _dispatcher_cookie_value(password)
+    expected = _dispatcher_cookie_value_for_label(label)
     if expected and secrets.compare_digest(provided, expected):
         return label
     return None
@@ -3903,8 +3702,6 @@ def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
 
 def _has_dispatcher_access(request: Request) -> bool:
     _refresh_dispatch_passwords()
-    if not DISPATCH_PASSWORDS:
-        return True
     return _get_dispatcher_secret_label(request) is not None
 
 
@@ -3919,8 +3716,8 @@ async def dispatcher_auth_status(request: Request):
     _refresh_dispatch_passwords()
     secret_label = _get_dispatcher_secret_label(request)
     return {
-        "required": bool(DISPATCH_PASSWORDS),
-        "authorized": bool(secret_label) if DISPATCH_PASSWORDS else True,
+        "required": True,
+        "authorized": bool(secret_label),
         "secret": secret_label,
     }
 
@@ -3930,32 +3727,26 @@ async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)
 ):
     _refresh_dispatch_passwords()
-    if not DISPATCH_PASSWORDS:
-        return {"ok": True, "secret": None}
-    password = payload.get("password")
-    if isinstance(password, str):
-        password_bytes = password.encode("utf-8", errors="surrogatepass")
-        for valid_password, valid_bytes in DISPATCH_PASSWORD_BYTES.items():
-            if secrets.compare_digest(password_bytes, valid_bytes):
-                label = DISPATCH_PASSWORD_LABELS.get(valid_password)
-                cookie_value = _dispatcher_cookie_value(valid_password)
-                if cookie_value:
-                    response.set_cookie(
-                        DISPATCH_COOKIE_NAME,
-                        cookie_value,
-                        max_age=DISPATCH_COOKIE_MAX_AGE,
-                        httponly=True,
-                        secure=DISPATCH_COOKIE_SECURE,
-                        samesite="lax",
-                    )
-                return {"ok": True, "secret": label}
+    password = _normalize_dispatch_password(payload.get("password"))
+    if password is not None:
+        label = _password_to_label(password)
+        cookie_value = _dispatcher_cookie_value_for_label(label)
+        response.set_cookie(
+            DISPATCH_COOKIE_NAME,
+            cookie_value,
+            max_age=DISPATCH_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=DISPATCH_COOKIE_SECURE,
+            samesite="lax",
+        )
+        return {"ok": True, "secret": label}
     raise HTTPException(status_code=401, detail="Incorrect password.")
 
 
 @app.get("/dispatcher")
 async def dispatcher_page(request: Request):
     _refresh_dispatch_passwords()
-    if not DISPATCH_PASSWORDS or _has_dispatcher_access(request):
+    if _has_dispatcher_access(request):
         return HTMLResponse(DISPATCHER_HTML)
     response = HTMLResponse(DISPATCHER_HTML, status_code=401)
     response.headers["Cache-Control"] = "no-store"
