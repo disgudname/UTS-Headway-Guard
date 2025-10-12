@@ -55,6 +55,7 @@ body.locked{overflow:hidden}
 #password-overlay button{align-self:center;min-width:140px}
 #password-overlay .status{min-height:20px;font-size:14px;color:#ff8686}
 #password-overlay.fade-out{opacity:0;pointer-events:none}
+.logout-button{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;border:1px solid #2a3442;background:#182330;color:#e8eef5;cursor:pointer;z-index:10001}
 #left{overflow:auto;flex:1 1 50%;min-width:260px;max-width:100%}
 #splitter{flex:0 0 8px;cursor:col-resize;background:linear-gradient(180deg,rgba(31,38,48,.8),rgba(21,27,36,.8));border-left:1px solid rgba(61,74,92,.65);border-right:1px solid rgba(8,10,14,.85);position:relative;z-index:3}
 #splitter::after{content:"";position:absolute;top:50%;left:50%;width:2px;height:40px;background:rgba(143,163,193,.55);border-radius:999px;transform:translate(-50%,-50%)}
@@ -535,6 +536,7 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
     <p style="font-size:13px;color:#cfe1ff">Need a password? Send Pat a Teams message.</p>
   </div>
 </div>
+<button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
 <div id="left" style="flex:1;position:relative">
 <header>
   <div id="controls">
@@ -4109,6 +4111,10 @@ const passwordForm=document.getElementById('password-form');
 const passwordInput=document.getElementById('dispatch-password');
 const passwordStatus=document.getElementById('password-status');
 const passwordButton=passwordForm?passwordForm.querySelector('button'):null;
+const logoutButton=document.getElementById('logoutButton');
+if(logoutButton){
+  logoutButton.addEventListener('click',()=>{ window.location.reload(); });
+}
 let dispatcherAuthPromise=null;
 
 async function requireDispatcherPassword(){
@@ -4144,6 +4150,7 @@ async function requireDispatcherPassword(){
       document.body.classList.remove('locked');
       passwordOverlay.classList.add('fade-out');
       setTimeout(()=>passwordOverlay.remove(),250);
+      if(logoutButton) logoutButton.hidden=false;
       return;
     }
     return await new Promise((resolve)=>{
@@ -4171,6 +4178,7 @@ async function requireDispatcherPassword(){
             passwordOverlay.classList.add('fade-out');
             setTimeout(()=>passwordOverlay.remove(),250);
             document.body.classList.remove('locked');
+            if(logoutButton) logoutButton.hidden=false;
             resolve();
             return;
           }

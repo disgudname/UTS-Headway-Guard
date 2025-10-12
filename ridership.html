@@ -73,6 +73,7 @@
   #password-overlay button{align-self:center;min-width:140px;}
   #password-overlay .status{min-height:20px;font-size:14px;color:#ff8686;}
   #password-overlay.fade-out{opacity:0;pointer-events:none;}
+  .logout-button{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;border:1px solid #2a3442;background:#182330;color:#e8eef5;cursor:pointer;z-index:10001;}
   .export-status{color:var(--muted);}
   .export-status.error{color:var(--danger);}
 </style>
@@ -91,6 +92,7 @@
   </div>
 </div>
 <div id="ridership-app" hidden>
+<button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
 <h1>Ridership Counts</h1>
 <div class="controls">
   <label>Date: <input type="date" id="datePicker"></label>
@@ -1527,9 +1529,16 @@ function escapeCsv(text){
   const passwordInput=document.getElementById('dispatch-password');
   const passwordStatus=document.getElementById('password-status');
   const passwordButton=passwordForm?passwordForm.querySelector('button'):null;
+  const logoutButton=document.getElementById('logoutButton');
+  if(logoutButton){
+    logoutButton.addEventListener('click',()=>{ window.location.reload(); });
+  }
   let authPromise=null;
 
-  const showApp=()=>{ if(appContainer) appContainer.hidden=false; };
+  const showApp=()=>{
+    if(appContainer) appContainer.hidden=false;
+    if(logoutButton) logoutButton.hidden=false;
+  };
   const removeOverlay=()=>{
     if(passwordOverlay){
       passwordOverlay.classList.add('fade-out');
