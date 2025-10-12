@@ -4113,7 +4113,20 @@ const passwordStatus=document.getElementById('password-status');
 const passwordButton=passwordForm?passwordForm.querySelector('button'):null;
 const logoutButton=document.getElementById('logoutButton');
 if(logoutButton){
-  logoutButton.addEventListener('click',()=>{ window.location.reload(); });
+  const defaultLabel=logoutButton.textContent;
+  logoutButton.addEventListener('click',async ()=>{
+    logoutButton.disabled=true;
+    logoutButton.textContent='Logging out...';
+    try{
+      const resp=await fetch('/api/dispatcher/logout',{method:'POST'});
+      if(!resp.ok) throw new Error('logout failed');
+      window.location.reload();
+    }catch(err){
+      logoutButton.disabled=false;
+      logoutButton.textContent=defaultLabel;
+      alert('Unable to log out. Please try again.');
+    }
+  });
 }
 let dispatcherAuthPromise=null;
 
