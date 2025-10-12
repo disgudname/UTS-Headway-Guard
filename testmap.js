@@ -226,6 +226,7 @@ schedulePlaneStyleOverride();
       let kioskExperienceActive = false;
       let adminKioskUiSuppressed = false;
       let kioskUiSuppressed = false;
+      let kioskVehicleStatusKnown = false;
       let displayMode = DISPLAY_MODES.BLOCK;
 
       const PANEL_COLLAPSE_BREAKPOINT = 600;
@@ -5227,7 +5228,6 @@ schedulePlaneStyleOverride();
       let routeSelections = {};
       // Tracks routes that currently have at least one vehicle assigned.
       let activeRoutes = new Set();
-      let kioskVehicleStatusKnown = false;
       // Tracks which routes the API designates as public-facing.
       let routeVisibility = {};
       // Routes that should be forced visible in kiosk mode when they have vehicles.
