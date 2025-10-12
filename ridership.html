@@ -18,6 +18,8 @@
   button:disabled{opacity:0.6;cursor:not-allowed;}
   #loadBtn.needs-action{animation:loadBtnPulse 0.9s ease-in-out infinite alternate;box-shadow:0 0 0 rgba(75,133,242,0.6);position:relative;}
   #loadBtn.needs-action::after{content:'';position:absolute;inset:-4px;border-radius:inherit;border:2px solid rgba(255,255,255,0.4);opacity:0.6;animation:loadBtnRing 1.4s ease-out infinite;}
+  label.needs-action{animation:loadBtnPulse 0.9s ease-in-out infinite alternate;box-shadow:0 0 0 rgba(75,133,242,0.6);position:relative;border-radius:10px;padding:4px 8px;margin:-4px -8px;}
+  label.needs-action::after{content:'';position:absolute;inset:-6px;border-radius:inherit;border:2px solid rgba(255,255,255,0.4);opacity:0.6;animation:loadBtnRing 1.4s ease-out infinite;pointer-events:none;}
   @keyframes loadBtnPulse{from{transform:scale(1);box-shadow:0 0 0 rgba(75,133,242,0.45);}to{transform:scale(1.06);box-shadow:0 0 18px rgba(75,133,242,0.7);}}
   @keyframes loadBtnRing{0%{transform:scale(0.9);opacity:0.55;}70%{opacity:0;}100%{transform:scale(1.25);opacity:0;}}
   input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:6px;background:var(--panel);color:var(--ink);}
@@ -141,6 +143,7 @@ let brokenChartGrowthFrame=null;
 let brokenChartChaosFrame=null;
 
 const dateInput=document.getElementById('datePicker');
+const dateLabel=dateInput?dateInput.closest('label'):null;
 const loadBtn=document.getElementById('loadBtn');
 const exportBtn=document.getElementById('exportBtn');
 const emailExportBtn=document.getElementById('emailExportBtn');
@@ -318,6 +321,15 @@ function updateDataDependentControls(){
 function updateLoadAvailability(){
   loadBtn.disabled=!dateInput.value||isLoading;
   updateLoadButtonAttention();
+  if(dateLabel){
+    const needsDateAttention=!dateInput.value;
+    dateLabel.classList.toggle('needs-action',needsDateAttention);
+    if(needsDateAttention){
+      dateInput.setAttribute('title','Select a date to load ridership data');
+    }else{
+      dateInput.removeAttribute('title');
+    }
+  }
 }
 
 dateInput.addEventListener('change',updateLoadAvailability);
