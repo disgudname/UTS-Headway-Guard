@@ -4120,6 +4120,7 @@ if(logoutButton){
     try{
       const resp=await fetch('/api/dispatcher/logout',{method:'POST'});
       if(!resp.ok) throw new Error('logout failed');
+      deleteCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
       window.location.reload();
     }catch(err){
       logoutButton.disabled=false;
