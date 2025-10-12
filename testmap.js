@@ -6393,16 +6393,14 @@ ${trainPlaneMarkup}
             </button>
           </div>
         ` : '';
-        const adminAccessHtml = allowAdminFeatures
-          ? `
-            <div class="admin-auth-control">
-              <button type="button" class="admin-auth-link"${adminMode ? ' disabled aria-disabled="true"' : ' onclick="openAdminPasswordPrompt()"'}>
-                ${adminMode ? 'Admin tools unlocked' : 'Unlock admin tools'}
-              </button>
-              <div class="admin-auth-note">${adminMode ? 'Admin tools stay on until you close this tab.' : 'Dispatch password required.'}</div>
-            </div>
-          `
-          : '';
+        const adminAccessHtml = `
+          <div class="admin-auth-control">
+            <button type="button" class="admin-auth-link"${adminMode ? ' disabled aria-disabled="true"' : ' onclick="openAdminPasswordPrompt()"'}>
+              ${adminMode ? 'Admin tools unlocked' : 'Unlock admin tools'}
+            </button>
+            <div class="admin-auth-note">${adminMode ? 'Admin tools stay on until you clear your cookies.' : 'Dispatch password required.'}</div>
+          </div>
+        `;
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -6435,7 +6433,6 @@ ${trainPlaneMarkup}
           `;
         }
         html += serviceAlertsSectionHtml;
-        html += adminAccessHtml;
         html += incidentAlertsHtml;
 
         if (adminMode) {
@@ -6461,6 +6458,7 @@ ${trainPlaneMarkup}
         html += radarControlsHtml;
         html += trainToggleHtml;
         html += demoButtonHtml;
+        html += adminAccessHtml;
 
         html += `
           </div>
