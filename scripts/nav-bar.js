@@ -104,6 +104,7 @@
       gap:8px;
       text-align:center;
       padding:10px 6px;
+      box-sizing:border-box;
     }
     #${NAV_ID} a:focus-visible{
       outline:2px solid #FFFFFF;
