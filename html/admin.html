@@ -45,16 +45,13 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 <button id="save">Save</button>
 <button id="forceRefresh">Force Refresh</button>
 <div class="panel" id="secretPanel">
-  <h2>Loaded Environment Secrets</h2>
+  <h2>Environment Secrets</h2>
   <div id="secrets"></div>
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
 async function load(){
-  const [cfg,secretPayload] = await Promise.all([
-    fetch('/v1/config',{cache:'no-store'}).then(r=>r.json()),
-    fetch('/v1/secrets',{cache:'no-store'}).then(r=>r.json()).catch(()=>({secrets:[]}))
-  ]);
+  const cfg = await fetch('/v1/config',{cache:'no-store'}).then(r=>r.json());
   const form=document.getElementById('cfg');
   for(const [k,v] of Object.entries(cfg)){
     const label=document.createElement('label');
@@ -73,24 +70,11 @@ async function load(){
     form.appendChild(label);
   }
   const secretRoot=document.getElementById('secrets');
-  secretRoot.innerHTML='';
-  const secrets=Array.isArray(secretPayload?.secrets)?secretPayload.secrets:[];
-  if(!secrets.length){
-    const empty=document.createElement('div');
-    empty.textContent='No Fly.io secrets detected.';
-    secretRoot.appendChild(empty);
-  }else{
-    for(const item of secrets){
-      const wrap=document.createElement('div');
-      wrap.className='secret';
-      const title=document.createElement('strong');
-      title.textContent=item.name;
-      const value=document.createElement('code');
-      value.textContent=item.value;
-      wrap.appendChild(title);
-      wrap.appendChild(value);
-      secretRoot.appendChild(wrap);
-    }
+  if(secretRoot){
+    secretRoot.innerHTML='';
+    const notice=document.createElement('div');
+    notice.textContent='Environment secrets are hidden for security reasons.';
+    secretRoot.appendChild(notice);
   }
 }
 async function save(){
