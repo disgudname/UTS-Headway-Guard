@@ -524,7 +524,7 @@
         right: 10px;
       }
       #controlPanel {
-        left: 10px;
+        left: calc(var(--hg-nav-left-offset, 0px) + 10px);
       }
       #routeSelector.hidden {
         transform: translateX(calc(100% + 24px));
@@ -1378,7 +1378,7 @@
         border-bottom-left-radius: 14px;
       }
       .panel-toggle--left {
-        left: 0;
+        left: var(--hg-nav-left-offset, 0px);
         border-top-right-radius: 14px;
         border-bottom-right-radius: 14px;
       }
@@ -1400,7 +1400,7 @@
       #routeLegend {
         position: fixed;
         top: 10px;
-        left: 10px;
+        left: calc(var(--hg-nav-left-offset, 0px) + 10px);
         z-index: 1100;
         background: var(--panel-surface);
         padding: 12px 14px 16px;
@@ -1490,7 +1490,7 @@
           right: 16px;
         }
         #controlPanel {
-          left: 16px;
+          left: calc(var(--hg-nav-left-offset, 0px) + 16px);
         }
         #routeSelector.hidden {
           transform: translateX(calc(100% + 20px));
@@ -1535,7 +1535,7 @@
           font-size: 28px;
         }
         #routeLegend {
-          left: 16px;
+          left: calc(var(--hg-nav-left-offset, 0px) + 16px);
           right: 16px;
           top: auto;
           bottom: 88px;
@@ -1573,7 +1573,7 @@
       .cookie-banner {
         position: fixed;
         bottom: 0;
-        left: 0;
+        left: var(--hg-nav-left-offset, 0px);
         right: 0;
         background: linear-gradient(135deg, rgba(35, 45, 75, 0.95), rgba(27, 39, 74, 0.95));
         color: #f8fafc;
@@ -13447,6 +13447,6 @@
         <div class="loading-overlay__text">Loading agency data…</div>
       </div>
     </div>
-    <script src="mobile-nav.js"></script>
+    <script src="nav-bar.js"></script>
   </body>
 </html>
