@@ -162,7 +162,7 @@
     #controls.playback-controls {
       position: fixed;
       left: 50%;
-      bottom: calc(var(--hg-mobile-nav-offset, 0px) + 16px);
+      bottom: calc(var(--hg-nav-bottom-offset, 0px) + 16px);
       transform: translateX(-50%);
       width: min(1120px, calc(100% - 32px));
       background: var(--panel-surface);
@@ -314,7 +314,7 @@
       color: var(--panel-text-color);
     }
     #busSelector {
-      left: 16px;
+      left: calc(var(--hg-nav-left-offset, 0px) + 16px);
     }
     #routeSelector {
       right: 16px;
@@ -500,7 +500,7 @@
       backdrop-filter: blur(10px);
     }
     .panel-toggle--left {
-      left: 0;
+      left: var(--hg-nav-left-offset, 0px);
       border-top-right-radius: 14px;
       border-bottom-right-radius: 14px;
     }
@@ -722,7 +722,7 @@
       #controlsToggle {
         position: fixed;
         left: 50%;
-        bottom: calc(var(--controls-height) + var(--hg-mobile-nav-offset, 0px) + 24px);
+        bottom: calc(var(--controls-height) + var(--hg-nav-bottom-offset, 0px) + 24px);
         transform: translateX(-50%);
         display: inline-flex;
         align-items: center;
@@ -749,7 +749,7 @@
         box-shadow: 0 0 0 3px var(--accent-soft), 0 16px 30px rgba(15, 23, 42, 0.3);
       }
       body.controls-collapsed #controlsToggle {
-        bottom: calc(var(--controls-height) + var(--hg-mobile-nav-offset, 0px) + 16px);
+        bottom: calc(var(--controls-height) + var(--hg-nav-bottom-offset, 0px) + 16px);
         color: #1f1300;
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));
         box-shadow: 0 12px 24px rgba(229, 114, 0, 0.35);
@@ -771,12 +771,12 @@
       }
       .selector-panel {
         width: calc(100% - 32px);
-        left: 16px;
+        left: calc(var(--hg-nav-left-offset, 0px) + 16px);
         right: 16px;
       }
       #busSelector,
       #routeSelector {
-        left: 16px;
+        left: calc(var(--hg-nav-left-offset, 0px) + 16px);
         right: 16px;
       }
       #busSelector.hidden {
@@ -4710,6 +4710,6 @@
       startAutoRefresh();
     })();
   </script>
-<script src="mobile-nav.js"></script>
+<script src="nav-bar.js"></script>
 </body>
 </html>

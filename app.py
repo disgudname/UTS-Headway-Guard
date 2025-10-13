@@ -3602,9 +3602,9 @@ async def kioskmap_js():
     return _serve_js_asset("kioskmap.js")
 
 
-@app.get("/mobile-nav.js", include_in_schema=False)
-async def mobile_nav_js():
-    return _serve_js_asset("mobile-nav.js")
+@app.get("/nav-bar.js", include_in_schema=False)
+async def nav_bar_js():
+    return _serve_js_asset("nav-bar.js")
 
 
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
