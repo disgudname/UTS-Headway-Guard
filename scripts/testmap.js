@@ -5132,6 +5132,24 @@ schedulePlaneStyleOverride();
         const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
         const tabWidth = tabRect.width || tab.offsetWidth || parseFloat(window.getComputedStyle(tab).width) || 0;
 
+        let navOffset = 0;
+        try {
+          const root = document.documentElement;
+          if (root && typeof window.getComputedStyle === 'function') {
+            const rootStyle = window.getComputedStyle(root);
+            if (rootStyle) {
+              const rawOffset = parseFloat(rootStyle.getPropertyValue('--hg-nav-left-offset'));
+              if (Number.isFinite(rawOffset)) {
+                navOffset = Math.max(0, rawOffset);
+              }
+            }
+          }
+        } catch (error) {
+          navOffset = 0;
+        }
+
+        const hiddenLeftPosition = navOffset > 0 ? navOffset + 8 : 0;
+
         if (side === 'right') {
           if (panel.classList.contains('hidden')) {
             tab.style.right = '0';
@@ -5143,7 +5161,11 @@ schedulePlaneStyleOverride();
           tab.style.left = '';
         } else {
           if (panel.classList.contains('hidden')) {
-            tab.style.left = '0';
+            if (Number.isFinite(hiddenLeftPosition)) {
+              tab.style.left = `${hiddenLeftPosition}px`;
+            } else {
+              tab.style.left = '0';
+            }
           } else {
             const maxLeft = Math.max(0, viewportWidth - tabWidth);
             const clampedOffset = Math.min(offset, maxLeft);
