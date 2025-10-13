@@ -1515,7 +1515,7 @@
         border-bottom-left-radius: 14px;
       }
       .panel-toggle--left {
-        left: var(--hg-nav-left-offset, 0px);
+        left: calc(var(--hg-nav-left-offset, 0px) + 8px);
         border-top-right-radius: 14px;
         border-bottom-right-radius: 14px;
       }

@@ -67,7 +67,6 @@
     }
     body.hg-nav-active .hg-nav-scroll{
       padding-bottom:var(--hg-nav-bottom-offset);
-      padding-left:var(--hg-nav-left-offset);
       box-sizing:border-box;
     }
     body.hg-nav-active .leaflet-bottom{
