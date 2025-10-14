@@ -3966,8 +3966,11 @@ async def arrivalsdisplay_page():
 # REPLAY PAGE
 # ---------------------------
 @app.get("/replay")
-async def replay_page():
-    return HTMLResponse(REPLAY_HTML)
+async def replay_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(REPLAY_HTML)
+    return _login_redirect(request)
 
 
 @app.get("/ips")
