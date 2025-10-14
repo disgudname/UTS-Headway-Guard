@@ -16,8 +16,20 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 .secret code{word-break:break-all;background:#15202b;padding:6px;border-radius:6px;margin-top:6px;display:block;}
 .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 .logout-button{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;border:1px solid #2a3442;background:#182330;color:#e8eef5;cursor:pointer;z-index:10001}
+.modal-overlay{position:fixed;inset:0;background:rgba(11,14,17,.92);display:flex;align-items:center;justify-content:center;z-index:10002;padding:20px;}
+.modal{max-width:420px;background:#10151c;border:1px solid #2a3442;border-radius:10px;padding:24px;box-shadow:0 12px 32px rgba(0,0,0,.5);text-align:center;}
+.modal h2{margin:0 0 12px;font-size:20px;}
+.modal p{margin:0 0 20px;line-height:1.4;}
+.modal button{margin-top:0;width:100%;}
 </style>
 <button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
+<div class="modal-overlay" id="adminWarning">
+  <div class="modal">
+    <h2>Heads Up!</h2>
+    <p>Hey! There are a lot of delicate settings here! Are you certain whatever you're doing is worth it?</p>
+    <button type="button" id="adminWarningAck">Yep, I'm prepared to break things</button>
+  </div>
+</div>
 <h1>UTS Operations Dashboard Admin</h1>
 <form id="cfg"></form>
 <button id="save">Save</button>
@@ -112,6 +124,15 @@ if(logoutButton){
       logoutButton.disabled=false;
       logoutButton.textContent=defaultLabel;
       alert('Unable to log out. Please try again.');
+    }
+  });
+}
+const warningModal=document.getElementById('adminWarning');
+const warningButton=document.getElementById('adminWarningAck');
+if(warningButton){
+  warningButton.addEventListener('click',()=>{
+    if(warningModal){
+      warningModal.style.display='none';
     }
   });
 }
