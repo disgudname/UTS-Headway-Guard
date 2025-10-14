@@ -15,30 +15,8 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 .secret:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
 .secret code{word-break:break-all;background:#15202b;padding:6px;border-radius:6px;margin-top:6px;display:block;}
 .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
-#password-overlay{position:fixed;inset:0;background:rgba(7,10,14,.92);display:flex;align-items:center;justify-content:center;z-index:10000;opacity:1;transition:opacity .25s ease}
-#password-overlay .overlay-card{background:#10151c;border:1px solid #2a3442;border-radius:18px;padding:28px;box-shadow:0 18px 32px rgba(6,11,28,.6);max-width:360px;width:90%;display:flex;flex-direction:column;gap:16px;text-align:center}
-#password-overlay h2{margin:0;font-size:22px;letter-spacing:.08em;text-transform:uppercase;color:#cfe1ff}
-#password-overlay p{margin:0;color:#9fb0c9;font-size:15px}
-#password-overlay form{display:flex;flex-direction:column;gap:12px}
-#password-overlay input{background:#0b1119;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:10px 12px;font-family:inherit;font-size:16px}
-#password-overlay input:focus{outline:2px solid #3a83f5;outline-offset:2px}
-#password-overlay button{align-self:center;min-width:140px}
-#password-overlay .status{min-height:20px;font-size:14px;color:#ff8686}
-#password-overlay.fade-out{opacity:0;pointer-events:none}
 .logout-button{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;border:1px solid #2a3442;background:#182330;color:#e8eef5;cursor:pointer;z-index:10001}
 </style>
-<div id="password-overlay">
-  <div class="overlay-card">
-    <h2>Admin Access</h2>
-    <p>Enter the dispatch password to continue.</p>
-    <form id="password-form">
-      <input id="dispatch-password" type="password" autocomplete="current-password" placeholder="Password" required>
-      <div class="status" id="password-status"></div>
-      <button type="submit">Unlock</button>
-    </form>
-    <p style="font-size:13px;color:#cfe1ff">Need a password? Send Pat a Teams message.</p>
-  </div>
-</div>
 <button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
 <h1>Headway Guard Admin</h1>
 <form id="cfg"></form>
@@ -51,8 +29,22 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
 async function load(){
-  const cfg = await fetch('/v1/config',{cache:'no-store'}).then(r=>r.json());
+  let resp;
+  try{
+    resp=await fetch('/v1/config',{cache:'no-store'});
+  }catch(err){
+    const error=new Error('Failed to load configuration');
+    error.cause=err;
+    throw error;
+  }
+  if(!resp.ok){
+    const error=new Error('Failed to load configuration');
+    error.status=resp.status;
+    throw error;
+  }
+  const cfg=await resp.json();
   const form=document.getElementById('cfg');
+  form.innerHTML='';
   for(const [k,v] of Object.entries(cfg)){
     const label=document.createElement('label');
     label.textContent=k;
@@ -92,18 +84,21 @@ async function save(){
   await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   alert('Saved!');
 }
+function buildReturnTarget(){
+  const path=window.location.pathname||'/';
+  const search=window.location.search||'';
+  const hash=window.location.hash||'';
+  return `${path}${search}${hash}`;
+}
+function redirectToLogin(){
+  const target=buildReturnTarget();
+  window.location.href=`/login?return=${encodeURIComponent(target)}`;
+}
 document.getElementById('save').onclick=save;
 document.getElementById('forceRefresh').onclick=()=>{
   fetch('/v1/servicecrew/refresh',{method:'POST'});
 };
-
-const passwordOverlay=document.getElementById('password-overlay');
-const passwordForm=document.getElementById('password-form');
-const passwordInput=document.getElementById('dispatch-password');
-const passwordStatus=document.getElementById('password-status');
-const passwordButton=passwordForm?passwordForm.querySelector('button'):null;
 const logoutButton=document.getElementById('logoutButton');
-
 if(logoutButton){
   const defaultLabel=logoutButton.textContent;
   logoutButton.addEventListener('click',async ()=>{
@@ -112,7 +107,7 @@ if(logoutButton){
     try{
       const resp=await fetch('/api/dispatcher/logout',{method:'POST'});
       if(!resp.ok) throw new Error('logout failed');
-      window.location.reload();
+      window.location.href=`/login?return=${encodeURIComponent(buildReturnTarget())}`;
     }catch(err){
       logoutButton.disabled=false;
       logoutButton.textContent=defaultLabel;
@@ -120,46 +115,22 @@ if(logoutButton){
     }
   });
 }
-
-function unlock(){
-  if(passwordOverlay){
-    passwordOverlay.classList.add('fade-out');
-    setTimeout(()=>passwordOverlay.remove(),250);
-  }
-  if(logoutButton) logoutButton.hidden=false;
-  load();
-}
-
-if(passwordForm&&passwordInput){
-  const submitHandler=async evt=>{
-    evt.preventDefault();
-    if(!passwordInput.value.trim()){
-      if(passwordStatus) passwordStatus.textContent='Please enter the password.';
+async function bootstrap(){
+  try{
+    await load();
+    if(logoutButton) logoutButton.hidden=false;
+  }catch(err){
+    if(err && err.status===401){
+      redirectToLogin();
       return;
     }
-    if(passwordButton) passwordButton.disabled=true;
-    try{
-      const resp=await fetch('/api/dispatcher/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:passwordInput.value.trim()})});
-      if(resp.ok){
-        passwordForm.removeEventListener('submit',submitHandler);
-        unlock();
-        return;
-      }
-      let detail='Incorrect password.';
-      try{
-        const data=await resp.json();
-        if(data?.detail) detail=data.detail;
-      }catch(e){/* ignore */}
-      if(passwordStatus) passwordStatus.textContent=detail;
-    }catch(err){
-      if(passwordStatus) passwordStatus.textContent='Unable to verify password. Try again.';
-    }finally{
-      if(passwordButton) passwordButton.disabled=false;
-      passwordInput.value='';
-      passwordInput.focus();
-    }
-  };
-  passwordForm.addEventListener('submit',submitHandler);
-  passwordInput.focus();
+    console.error('Failed to load admin panel',err);
+    alert('Unable to load admin panel. Please refresh.');
+  }
+}
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',bootstrap,{once:true});
+}else{
+  bootstrap();
 }
 </script>

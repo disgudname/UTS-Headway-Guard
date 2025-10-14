@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Headway Guard – Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="headwayguardicon.png" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: 'FGDC', system-ui, sans-serif;
+        background: radial-gradient(circle at top, #15202b 0%, #080b10 60%);
+        color: #e8eef5;
+        padding: 24px;
+      }
+      @font-face {
+        font-family: 'FGDC';
+        src: url('FGDC.ttf') format('truetype');
+        font-display: swap;
+      }
+      main {
+        width: min(420px, 100%);
+        background: rgba(10, 14, 20, 0.85);
+        border: 1px solid #243040;
+        border-radius: 18px;
+        padding: 28px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #cfe1ff;
+      }
+      p {
+        margin: 0;
+        color: #9fb0c9;
+        line-height: 1.5;
+      }
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      label {
+        font-size: 15px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      input[type="password"] {
+        border-radius: 10px;
+        border: 1px solid #2a3442;
+        background: #0b1119;
+        color: inherit;
+        padding: 12px;
+        font: inherit;
+      }
+      input[type="password"]:focus {
+        outline: 2px solid #3a83f5;
+        outline-offset: 2px;
+      }
+      button {
+        border-radius: 999px;
+        border: none;
+        padding: 12px 18px;
+        font: inherit;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #3a83f5, #6d9dff);
+        color: #0b0e11;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .status {
+        min-height: 20px;
+        font-size: 14px;
+        color: #ff8686;
+      }
+      .aux {
+        font-size: 13px;
+        color: #7f90ad;
+      }
+      a {
+        color: #9fbfff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div>
+        <h1>Headway Guard</h1>
+        <p>Enter the dispatch password to continue.</p>
+      </div>
+      <form id="loginForm">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+        <button id="submitButton" type="submit">Sign In</button>
+      </form>
+      <p class="aux">Need a password? Send Pat a Teams message.</p>
+    </main>
+    <script>
+      (function() {
+        const form = document.getElementById('loginForm');
+        const passwordInput = document.getElementById('password');
+        const statusEl = document.getElementById('status');
+        const submitButton = document.getElementById('submitButton');
+
+        const params = new URLSearchParams(window.location.search);
+        const rawReturn = params.get('return') || '';
+
+        function normalizeReturnTarget(value) {
+          if (typeof value !== 'string') {
+            return '/';
+          }
+          const trimmed = value.trim();
+          if (!trimmed) {
+            return '/';
+          }
+          if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('//')) {
+            return '/';
+          }
+          if (trimmed.startsWith('/')) {
+            return trimmed;
+          }
+          return '/' + trimmed;
+        }
+
+        const returnTarget = normalizeReturnTarget(rawReturn || document.referrer.replace(window.location.origin, ''));
+
+        function redirectToTarget() {
+          window.location.href = returnTarget || '/';
+        }
+
+        async function checkExistingSession() {
+          try {
+            const response = await fetch('/api/dispatcher/auth', { cache: 'no-store' });
+            if (!response.ok) {
+              return;
+            }
+            const data = await response.json();
+            if (data && data.authorized === true) {
+              redirectToTarget();
+            }
+          } catch (error) {
+            // Ignore network errors; user can still submit the form.
+          }
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => passwordInput.focus(), { once: true });
+        } else {
+          passwordInput.focus();
+        }
+
+        checkExistingSession();
+
+        form.addEventListener('submit', async event => {
+          event.preventDefault();
+          const password = passwordInput.value.trim();
+          if (!password) {
+            statusEl.textContent = 'Please enter the password.';
+            passwordInput.focus();
+            return;
+          }
+          statusEl.textContent = '';
+          submitButton.disabled = true;
+          try {
+            const response = await fetch('/api/dispatcher/auth', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password })
+            });
+            if (response.ok) {
+              redirectToTarget();
+              return;
+            }
+            let detail = 'Incorrect password.';
+            try {
+              const data = await response.json();
+              if (data && typeof data.detail === 'string' && data.detail.trim() !== '') {
+                detail = data.detail;
+              }
+            } catch (err) {
+              // ignore
+            }
+            statusEl.textContent = detail;
+          } catch (error) {
+            statusEl.textContent = 'Unable to verify password. Try again.';
+          } finally {
+            submitButton.disabled = false;
+            passwordInput.value = '';
+            passwordInput.focus();
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -37,7 +37,13 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
-from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
+from fastapi.responses import (
+    JSONResponse,
+    StreamingResponse,
+    HTMLResponse,
+    FileResponse,
+    RedirectResponse,
+)
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 
@@ -820,6 +826,7 @@ RADAR_HTML = _load_html("radar.html")
 EINK_BLOCK_HTML = _load_html("eink-block.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
+LOGIN_HTML = _load_html("login.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -3628,6 +3635,13 @@ async def vehicle_log_file(log_name: str):
 async def landing_page():
     return HTMLResponse(LANDING_HTML)
 
+@app.get("/login")
+async def login_page():
+    _refresh_dispatch_passwords()
+    response = HTMLResponse(LOGIN_HTML)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 # ---------------------------
 # MAP PAGE
 # ---------------------------
@@ -3687,8 +3701,11 @@ async def debug_page():
 # ADMIN PAGE
 # ---------------------------
 @app.get("/admin")
-async def admin_page():
-    return HTMLResponse(ADMIN_HTML)
+async def admin_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(ADMIN_HTML)
+    return _login_redirect(request)
 
 # ---------------------------
 # BUSES PAGE
@@ -3855,6 +3872,14 @@ def _require_dispatcher_access(request: Request) -> None:
         raise HTTPException(status_code=401, detail="dispatcher auth required")
 
 
+def _login_redirect(request: Request) -> RedirectResponse:
+    target = request.url.path
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    encoded_target = quote(target, safe="/")
+    return RedirectResponse(f"/login?return={encoded_target}", status_code=302)
+
+
 @app.get("/api/dispatcher/auth")
 async def dispatcher_auth_status(request: Request):
     _refresh_dispatch_passwords()
@@ -3899,9 +3924,7 @@ async def dispatcher_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(DISPATCHER_HTML)
-    response = HTMLResponse(DISPATCHER_HTML, status_code=401)
-    response.headers["Cache-Control"] = "no-store"
-    return response
+    return _login_redirect(request)
 
 
 @app.get("/downed")
@@ -3919,8 +3942,11 @@ async def apicalls_page():
 # RIDERSHIP PAGE
 # ---------------------------
 @app.get("/ridership")
-async def ridership_page():
-    return HTMLResponse(RIDERSHIP_HTML)
+async def ridership_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(RIDERSHIP_HTML)
+    return _login_redirect(request)
 
 # ---------------------------
 # TRANSLOC TICKER PAGE
