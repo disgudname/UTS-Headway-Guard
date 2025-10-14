@@ -14,19 +14,9 @@
       icon: '/media/home.svg'
     },
     {
-      href: '/driver',
-      label: 'Driver',
-      icon: '/media/driver.svg'
-    },
-    {
       href: '/dispatcher',
       label: 'Dispatch',
       icon: '/media/dispatcher.svg'
-    },
-    {
-      href: '/servicecrew',
-      label: 'Service Crew',
-      icon: '/media/servicecrew.svg'
     },
     {
       href: '/map',
@@ -47,6 +37,11 @@
       href: '/downed',
       label: 'Downed Vehicles',
       icon: '/media/downed.svg'
+    },
+    {
+      href: '/driver',
+      label: 'Driver',
+      icon: '/media/driver.svg'
     }
   ];
 
