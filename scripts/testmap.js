@@ -5136,7 +5136,7 @@ schedulePlaneStyleOverride();
           navOffset = 0;
         }
 
-        const hiddenLeftPosition = navOffset > 0 ? navOffset + 8 : 0;
+        const hiddenLeftPosition = navOffset > 0 ? navOffset : 0;
 
         if (side === 'right') {
           if (panel.classList.contains('hidden')) {
