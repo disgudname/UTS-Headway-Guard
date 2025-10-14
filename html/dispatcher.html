@@ -311,6 +311,24 @@ body.cyberpunk.kiosk-mode #layout aside .panel h2{color:#ff80ff}
   #layout{flex-direction:column}
   #layout aside{border-left:none !important;border-top:1px solid #1f2630}
 }
+@media(max-width:768px){
+  body{flex-direction:column;align-items:stretch;height:auto;min-height:100vh}
+  #splitter{display:none}
+  #left{order:1;flex:1 1 auto;min-height:0;width:100%}
+  iframe#map-frame{
+    order:0;
+    width:100%;
+    flex:none;
+    min-width:0;
+    height:320px!important;
+    min-height:320px;
+    max-height:360px;
+    border-left:none;
+    border-bottom:1px solid #1f2630;
+  }
+  #layout{flex-direction:column}
+  #layout aside{border-left:none !important;border-top:1px solid #1f2630;padding:12px 12px 24px !important}
+}
 .credit{position:absolute;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9)}
 
 body.lcars{background:#0C0C12;color:#E0E0E0;font-family:'Antonio','FGDC',system-ui;letter-spacing:.08em;text-transform:uppercase;gap:32px;padding:32px;align-items:stretch;transition:background-color .5s ease,color .5s ease}
