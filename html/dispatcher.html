@@ -314,7 +314,13 @@ body.cyberpunk.kiosk-mode #layout aside .panel h2{color:#ff80ff}
 @media(max-width:768px){
   body{flex-direction:column;align-items:stretch;height:auto;min-height:100vh}
   #splitter{display:none}
-  #left{order:1;flex:1 1 auto;min-height:0;width:100%}
+  #left{
+    order:1;
+    flex:1 1 auto!important;
+    min-height:0;
+    width:100%!important;
+    max-width:none!important;
+  }
   iframe#map-frame{
     order:0;
     width:100%;
@@ -803,6 +809,8 @@ function showHowellBootScreen(){
 }
 const leftPane = document.getElementById('left');
 const mapFrame = document.getElementById('map-frame');
+const mobileLayoutQuery = window.matchMedia('(max-width: 768px)');
+const isMobileLayout = () => mobileLayoutQuery.matches;
 const DEFAULT_MAP_FRAME_SRC = '/testmap?dispatcher=true';
 let mapFramePendingSrc = DEFAULT_MAP_FRAME_SRC;
 
@@ -873,17 +881,52 @@ if(leftPane && mapFrame && splitter){
     const maxWidth=Math.max(LEFT_MIN_WIDTH,bodyWidth-RIGHT_MIN_WIDTH);
     return Math.min(Math.max(width,LEFT_MIN_WIDTH),maxWidth);
   };
-  const savedWidth=parseFloat(getCookie(LEFT_PANE_WIDTH_COOKIE_NAME));
-  if(!Number.isNaN(savedWidth)){
-    const clampedWidth=clampWidth(savedWidth);
-    leftPane.style.flex='0 0 auto';
-    leftPane.style.width=`${clampedWidth}px`;
-    if(clampedWidth!==savedWidth){
-      setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampedWidth);
+  const applyLeftPaneWidth=({fromResize=false}={})=>{
+    if(isMobileLayout()){
+      leftPane.style.flex='';
+      leftPane.style.width='';
+      return;
     }
+    if(fromResize){
+      const currentWidth=parseFloat(leftPane.style.width);
+      if(Number.isNaN(currentWidth)){
+        const saved=parseFloat(getCookie(LEFT_PANE_WIDTH_COOKIE_NAME));
+        if(Number.isNaN(saved)) return;
+        const clampedSaved=clampWidth(saved);
+        leftPane.style.flex='0 0 auto';
+        leftPane.style.width=`${clampedSaved}px`;
+        if(clampedSaved!==saved){
+          setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampedSaved);
+        }
+        return;
+      }
+      const clampedWidth=clampWidth(currentWidth);
+      leftPane.style.flex='0 0 auto';
+      leftPane.style.width=`${clampedWidth}px`;
+      setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampedWidth);
+      return;
+    }
+    const savedWidth=parseFloat(getCookie(LEFT_PANE_WIDTH_COOKIE_NAME));
+    if(!Number.isNaN(savedWidth)){
+      const clampedWidth=clampWidth(savedWidth);
+      leftPane.style.flex='0 0 auto';
+      leftPane.style.width=`${clampedWidth}px`;
+      if(clampedWidth!==savedWidth){
+        setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampedWidth);
+      }
+    }else{
+      leftPane.style.flex='';
+      leftPane.style.width='';
+    }
+  };
+  applyLeftPaneWidth();
+  if(typeof mobileLayoutQuery.addEventListener==='function'){
+    mobileLayoutQuery.addEventListener('change',()=>applyLeftPaneWidth());
+  }else if(typeof mobileLayoutQuery.addListener==='function'){
+    mobileLayoutQuery.addListener(()=>applyLeftPaneWidth());
   }
   const onPointerMove=event=>{
-    if(!isResizing || event.pointerId!==activePointerId) return;
+    if(!isResizing || event.pointerId!==activePointerId || isMobileLayout()) return;
     const delta=event.clientX-startX;
     let newWidth=startWidth+delta;
     newWidth=clampWidth(newWidth);
@@ -899,12 +942,12 @@ if(leftPane && mapFrame && splitter){
     activePointerId=null;
     document.body.classList.remove('resizing');
     const currentWidth=parseFloat(leftPane.style.width);
-    if(!Number.isNaN(currentWidth)){
+    if(!Number.isNaN(currentWidth) && !isMobileLayout()){
       setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampWidth(currentWidth));
     }
   };
   splitter.addEventListener('pointerdown',event=>{
-    if(event.button!==0) return;
+    if(event.button!==0 || isMobileLayout()) return;
     isResizing=true;
     activePointerId=event.pointerId;
     startX=event.clientX;
@@ -918,14 +961,7 @@ if(leftPane && mapFrame && splitter){
   splitter.addEventListener('pointercancel',stopResizing);
   window.addEventListener('pointerup',stopResizing);
   window.addEventListener('resize',()=>{
-    if(!leftPane.style.width) return;
-    const currentWidth=parseFloat(leftPane.style.width);
-    if(Number.isNaN(currentWidth)) return;
-    const clampedWidth=clampWidth(currentWidth);
-    if(clampedWidth!==currentWidth){
-      leftPane.style.width=`${clampedWidth}px`;
-    }
-    setCookie(LEFT_PANE_WIDTH_COOKIE_NAME,clampedWidth);
+    applyLeftPaneWidth({fromResize:true});
   });
 }
 const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
