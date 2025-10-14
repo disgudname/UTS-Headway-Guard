@@ -32,20 +32,6 @@
       This site stores your selected transit agency on your device to remember your preference.
       <button id="cookieAccept">OK</button>
     </div>
-    <div id="adminAuthOverlay" class="admin-auth-overlay" aria-hidden="true">
-      <div class="admin-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="adminAuthTitle">
-        <button type="button" id="adminAuthClose" class="admin-auth-close" aria-label="Close admin authentication">&times;</button>
-        <h2 id="adminAuthTitle" class="admin-auth-title">Unlock Admin Mode</h2>
-        <p class="admin-auth-description">Enter your dispatch password to unlock admin tools.</p>
-        <p class="admin-auth-note">Need a password? Send Pat a Teams message.</p>
-        <form id="adminAuthForm" class="admin-auth-form">
-          <label class="admin-auth-label" for="adminAuthPassword">Password</label>
-          <input id="adminAuthPassword" type="password" autocomplete="current-password" placeholder="Password" required>
-          <div id="adminAuthStatus" class="admin-auth-status" role="status" aria-live="polite"></div>
-          <button type="submit" id="adminAuthSubmit" class="pill-button admin-auth-submit">Unlock Admin Mode</button>
-        </form>
-      </div>
-    </div>
     <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="false">
       <div class="loading-overlay__inner">
         <div class="loading-overlay__spinner" aria-hidden="true"></div>

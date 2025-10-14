@@ -533,31 +533,19 @@ schedulePlaneStyleOverride();
       }
 
       async function openAdminPasswordPrompt() {
-        initializeAdminAuthUI();
         const alreadyAuthorized = await checkAdminAuthorization({ silent: true, forceEnable: true });
-        if (alreadyAuthorized && adminMode) {
+        if (alreadyAuthorized) {
           return;
         }
-        const { overlay, passwordInput, status, submitButton } = getAdminAuthElements();
-        if (!overlay || !passwordInput) {
+        if (typeof window === 'undefined' || typeof window.location === 'undefined') {
           return;
         }
-        if (status) {
-          status.textContent = '';
-        }
-        if (submitButton) {
-          submitButton.disabled = false;
-        }
-        overlay.classList.add('is-visible');
-        overlay.setAttribute('aria-hidden', 'false');
-        document.body.classList.add('admin-auth-open');
-        requestAnimationFrame(() => {
-          try {
-            passwordInput.focus();
-          } catch (error) {
-            // Ignore focus errors.
-          }
-        });
+        const path = typeof window.location.pathname === 'string' ? window.location.pathname : '/';
+        const search = typeof window.location.search === 'string' ? window.location.search : '';
+        const hash = typeof window.location.hash === 'string' ? window.location.hash : '';
+        const target = `${path}${search}${hash}`;
+        const loginUrl = `/login?return=${encodeURIComponent(target)}`;
+        window.location.href = loginUrl;
       }
 
       if (typeof window !== 'undefined') {
