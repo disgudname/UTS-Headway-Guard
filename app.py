@@ -3633,7 +3633,7 @@ async def landing_page():
 # ---------------------------
 @app.get("/map")
 async def map_page():
-    return HTMLResponse(MAP_HTML)
+    return HTMLResponse(TESTMAP_HTML)
 
 
 @app.get("/radar")
