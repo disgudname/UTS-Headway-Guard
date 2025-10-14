@@ -4700,7 +4700,30 @@
 
     const disclaimerOverlay = document.getElementById('disclaimerOverlay');
     const disclaimerBtn = document.getElementById('disclaimerBtn');
-    disclaimerBtn.onclick = () => { disclaimerOverlay.style.display = 'none'; };
+
+    let replayInitialized = false;
+    async function initializeReplay() {
+      if (replayInitialized) return;
+      replayInitialized = true;
+      try {
+        pause();
+        await fetchRoutes();
+        await applyRange(true);
+        startAutoRefresh();
+      } catch (err) {
+        replayInitialized = false;
+        console.error('Failed to initialize replay', err);
+      }
+    }
+
+    if (disclaimerOverlay && disclaimerBtn) {
+      disclaimerBtn.onclick = async () => {
+        disclaimerOverlay.style.display = 'none';
+        await initializeReplay();
+      };
+    } else {
+      initializeReplay();
+    }
 
     playBtn.onclick = () => { playbackSpeed = 1; play(); };
     pauseBtn.onclick = pause;
@@ -4725,12 +4748,12 @@
       await applyRange(false);
     };
 
-    (async () => {
-      pause();
-      await fetchRoutes();
-      await applyRange(true);
-      startAutoRefresh();
-    })();
+    if (disclaimerOverlay) {
+      const overlayDisplay = window.getComputedStyle(disclaimerOverlay).display;
+      if (overlayDisplay === 'none') {
+        initializeReplay();
+      }
+    }
   </script>
 <script src="nav-bar.js"></script>
 </body>
