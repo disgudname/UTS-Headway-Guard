@@ -47,6 +47,11 @@
 
   const style = document.createElement('style');
   style.textContent = `
+    @font-face{
+      font-family:'FGDC';
+      src:url('/fonts/FGDC.ttf') format('truetype');
+      font-display:swap;
+    }
     :root{
       --hg-nav-bottom-offset:0px;
       --hg-nav-left-offset:0px;
@@ -70,6 +75,12 @@
       display:flex;
       border-radius:0;
       box-sizing:border-box;
+      font-family:'FGDC' !important;
+    }
+    #${NAV_ID} *,
+    #${NAV_ID} *::before,
+    #${NAV_ID} *::after{
+      font-family:'FGDC' !important;
     }
     #${NAV_ID} .hg-nav__inner{
       display:flex;
@@ -83,7 +94,7 @@
       flex:0 0 auto;
       color:inherit;
       text-decoration:none;
-      font:12px/1.1 'FGDC',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      font:normal 12px/1.1 'FGDC';
       border-radius:18px;
       background:rgba(0,0,0,0.22);
       border:1px solid rgba(255,255,255,0.12);
