@@ -47,11 +47,6 @@
       href: '/downed',
       label: 'Downed Vehicles',
       icon: '/media/downed.svg'
-    },
-    {
-      href: '/testmap',
-      label: 'Test Map',
-      icon: '/media/testmap.svg'
     }
   ];
 
