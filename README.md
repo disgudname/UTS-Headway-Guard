@@ -1,6 +1,6 @@
-# UTS Headway Guard
+# UTS Operations Dashboard
 
-UTS Headway Guard powers day-to-day transit operations for the University Transit Service. A FastAPI backend polls live vehicle and schedule data, while lightweight HTML dashboards help drivers, dispatchers, service crews, and signage stay aligned in real time.
+UTS Operations Dashboard powers day-to-day transit operations for the University Transit Service. A FastAPI backend polls live vehicle and schedule data, while lightweight HTML dashboards help drivers, dispatchers, service crews, and signage stay aligned in real time.
 
 ## Quick overview
 - **Live headway monitoring** – Combines TransLoc feeds with cached schedule data to flag bunching risks and highlight over-height vehicles approaching low-clearance zones.

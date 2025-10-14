@@ -1,5 +1,5 @@
 """
-Headway Guard Service — Dispatcher API (FastAPI skeleton)
+UTS Operations Dashboard Service — Dispatcher API (FastAPI skeleton)
 
 Purpose
 =======
@@ -789,7 +789,7 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # ---------------------------
 # App & state
 # ---------------------------
-app = FastAPI(title="Headway Guard")
+app = FastAPI(title="UTS Operations Dashboard")
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_DIR = BASE_DIR / "html"
