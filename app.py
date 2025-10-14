@@ -3525,9 +3525,9 @@ async def radar_wav():
     return FileResponse(MEDIA_DIR / "radar.wav", media_type="audio/wav")
 
 
-@app.get("/headwayguardicon.png", include_in_schema=False)
+@app.get("/UTSShield.png", include_in_schema=False)
 async def headwayguard_icon():
-    return FileResponse(MEDIA_DIR / "headwayguardicon.png", media_type="image/png")
+    return FileResponse(MEDIA_DIR / "UTSShield.png", media_type="image/png")
 
 
 _MEDIA_ASSETS: dict[str, str] = {
