@@ -5438,6 +5438,10 @@ schedulePlaneStyleOverride();
         Object.keys(nameBubbles).forEach(vehicleID => {
           const bubble = nameBubbles[vehicleID];
           if (!bubble) return;
+          if (displayMode === DISPLAY_MODES.NONE) {
+            removeNameBubbleForKey(vehicleID);
+            return;
+          }
           if (bubble.speedMarker && displayMode !== DISPLAY_MODES.SPEED) {
             map.removeLayer(bubble.speedMarker);
             delete bubble.speedMarker;
@@ -5451,6 +5455,28 @@ schedulePlaneStyleOverride();
             delete bubble.routeMarker;
           }
         });
+        if (displayMode === DISPLAY_MODES.NONE) {
+          if (trainsFeature?.module && typeof trainsFeature.module.clearAllTrainNameBubbles === 'function') {
+            trainsFeature.module.clearAllTrainNameBubbles();
+          } else if (trainsFeature && trainsFeature.nameBubbles) {
+            Object.keys(trainsFeature.nameBubbles).forEach(key => {
+              const bubble = trainsFeature.nameBubbles[key];
+              if (!bubble) {
+                delete trainsFeature.nameBubbles[key];
+                return;
+              }
+              if (bubble.nameMarker) {
+                if (typeof map.hasLayer === 'function' && map.hasLayer(bubble.nameMarker)) {
+                  map.removeLayer(bubble.nameMarker);
+                } else if (typeof bubble.nameMarker.remove === 'function') {
+                  bubble.nameMarker.remove();
+                }
+                delete bubble.nameMarker;
+              }
+              delete trainsFeature.nameBubbles[key];
+            });
+          }
+        }
       }
 
       function removeNameBubbleForKey(key) {
@@ -10987,7 +11013,7 @@ ${trainPlaneMarkup}
                       delete nameBubbles[vehicleID].speedMarker;
                   }
 
-                  if (adminMode && !kioskMode) {
+                  if (adminMode && !kioskMode && displayMode !== DISPLAY_MODES.NONE) {
                       const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
                       if (nameIcon) {
                           nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
@@ -12875,7 +12901,7 @@ ${trainPlaneMarkup}
                   delete nameBubbles[bubbleKey].speedMarker;
               }
 
-              if (adminMode && !kioskMode) {
+              if (adminMode && !kioskMode && displayMode !== DISPLAY_MODES.NONE) {
                   const labelText = toNonEmptyString(vehicle.equipmentId)
                       || toNonEmptyString(vehicle.displayName)
                       || toNonEmptyString(vehicle.id);
@@ -14398,7 +14424,7 @@ ${trainPlaneMarkup}
               }
 
               if (nameMarker) {
-                  if (adminMode && !kioskMode) {
+                  if (adminMode && !kioskMode && displayMode !== DISPLAY_MODES.NONE) {
                       const nameIcon = createNameBubbleDivIcon(state.busName, routeColor, scale, state.headingDeg);
                       if (nameIcon) {
                           nameMarker.setIcon(nameIcon);
@@ -14508,7 +14534,7 @@ ${trainPlaneMarkup}
                   return;
               }
               const labelText = typeof state.routeName === 'string' ? state.routeName.trim() : '';
-              if (!(adminMode && !kioskMode && labelText)) {
+              if (!(adminMode && !kioskMode && displayMode !== DISPLAY_MODES.NONE && labelText)) {
                   if (trainsFeature.module && typeof trainsFeature.module.removeTrainNameBubble === 'function') {
                       trainsFeature.module.removeTrainNameBubble(trainID ?? key);
                   }
