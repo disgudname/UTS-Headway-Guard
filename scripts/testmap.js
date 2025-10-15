@@ -5492,6 +5492,39 @@ schedulePlaneStyleOverride();
         });
       }
 
+      function removeDuplicateBusMarkerLayers(vehicleID, keepLayer = null) {
+        if (!map || typeof map.eachLayer !== 'function') {
+          return;
+        }
+        const normalizedId = `${vehicleID}`;
+        map.eachLayer(layer => {
+          if (!layer || layer === keepLayer || typeof layer.getElement !== 'function') {
+            return;
+          }
+          const element = layer.getElement();
+          if (!element || !element.classList || !element.classList.contains('bus-marker')) {
+            return;
+          }
+          const root = element.querySelector('.bus-marker__root');
+          const datasetId = root && root.dataset ? root.dataset.vehicleId : undefined;
+          const layerVehicleId = typeof datasetId === 'string' ? datasetId : '';
+          if (layerVehicleId !== normalizedId) {
+            return;
+          }
+          if (markers && typeof markers === 'object') {
+            const trackedMarker = markers[normalizedId];
+            if (trackedMarker && trackedMarker === layer) {
+              return;
+            }
+          }
+          try {
+            map.removeLayer(layer);
+          } catch (error) {
+            console.warn('Failed to remove duplicate bus marker layer:', error);
+          }
+        });
+      }
+
       function removeNameBubbleForKey(key) {
         if (!key || !Object.prototype.hasOwnProperty.call(nameBubbles, key)) return;
         const bubble = nameBubbles[key];
@@ -10998,6 +11031,7 @@ ${trainPlaneMarkup}
                           marker.addTo(map);
                           markers[vehicleID] = marker;
                           state.marker = marker;
+                          removeDuplicateBusMarkerLayers(vehicleID, marker);
                           registerBusMarkerElements(vehicleID);
                           attachBusMarkerInteractions(vehicleID);
                           updateBusMarkerRootClasses(state);
@@ -14145,6 +14179,7 @@ ${trainPlaneMarkup}
           if (!state || !marker) {
               return null;
           }
+          removeDuplicateBusMarkerLayers(vehicleID, marker);
           const iconElement = marker.getElement();
           if (!iconElement) {
               return null;
