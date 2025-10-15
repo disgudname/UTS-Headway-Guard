@@ -5451,6 +5451,45 @@ schedulePlaneStyleOverride();
             delete bubble.routeMarker;
           }
         });
+        purgeOrphanedBusMarkers();
+      }
+
+      function purgeOrphanedBusMarkers() {
+        if (!map || typeof map.eachLayer !== 'function') {
+          return;
+        }
+        const trackedIds = new Set();
+        if (markers && typeof markers === 'object') {
+          Object.keys(markers).forEach(id => {
+            trackedIds.add(`${id}`);
+          });
+        }
+        map.eachLayer(layer => {
+          if (!layer || typeof layer.getElement !== 'function') {
+            return;
+          }
+          const element = layer.getElement();
+          if (!element || !element.classList || !element.classList.contains('bus-marker')) {
+            return;
+          }
+          const root = element.querySelector('.bus-marker__root');
+          const datasetId = root && root.dataset ? root.dataset.vehicleId : undefined;
+          const normalizedId = typeof datasetId === 'string' ? datasetId : '';
+          if (normalizedId && trackedIds.has(normalizedId)) {
+            return;
+          }
+          if (!normalizedId && markers && typeof markers === 'object') {
+            const isTracked = Object.values(markers).some(trackedLayer => trackedLayer === layer);
+            if (isTracked) {
+              return;
+            }
+          }
+          try {
+            map.removeLayer(layer);
+          } catch (error) {
+            console.warn('Failed to remove orphaned bus marker layer:', error);
+          }
+        });
       }
 
       function removeNameBubbleForKey(key) {
@@ -5494,6 +5533,7 @@ schedulePlaneStyleOverride();
           }
         }
         delete nameBubbles[key];
+        purgeOrphanedBusMarkers();
       }
 
       function applyRouteOptionState(inputElement) {
@@ -11071,6 +11111,7 @@ ${trainPlaneMarkup}
                       }
                   }
               });
+              purgeOrphanedBusMarkers();
               if (vehicleFollowState.active) {
                   const followedVehicleId = vehicleFollowState.vehicleId;
                   if (followedVehicleId) {
