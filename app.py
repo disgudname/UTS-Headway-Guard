@@ -25,7 +25,7 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Any, Iterable, Union
+from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets
 from datetime import datetime, timedelta
@@ -975,6 +975,67 @@ def _normalize_layout_cell(cell: Any) -> Any:
     return None
 
 
+def _is_layout_cell_empty(cell: Any) -> bool:
+    if cell is None:
+        return True
+    if isinstance(cell, str):
+        return not cell.strip()
+    if isinstance(cell, dict):
+        return not any(str(value).strip() for value in cell.values())
+    return True
+
+
+def _column_has_content(column: Sequence[Any]) -> bool:
+    return any(not _is_layout_cell_empty(cell) for cell in column)
+
+
+def _row_has_content(columns: Sequence[Sequence[Any]], row_index: int) -> bool:
+    for column in columns:
+        if row_index < len(column) and not _is_layout_cell_empty(column[row_index]):
+            return True
+    return False
+
+
+def _trim_layout_edges(layout: List[List[Any]]) -> List[List[Any]]:
+    if not layout:
+        return []
+
+    start = 0
+    end = len(layout)
+
+    while start < end and not _column_has_content(layout[start]):
+        start += 1
+    while end > start and not _column_has_content(layout[end - 1]):
+        end -= 1
+
+    trimmed_columns = [list(column) for column in layout[start:end]]
+    if not trimmed_columns:
+        return []
+
+    max_rows = max(len(column) for column in trimmed_columns)
+    if max_rows == 0:
+        return trimmed_columns
+
+    top = 0
+    bottom = max_rows - 1
+
+    while top <= bottom and not _row_has_content(trimmed_columns, top):
+        top += 1
+    while bottom >= top and not _row_has_content(trimmed_columns, bottom):
+        bottom -= 1
+
+    if top == 0 and bottom == max_rows - 1:
+        return trimmed_columns
+
+    result: List[List[Any]] = []
+    for column in trimmed_columns:
+        if bottom < top:
+            result.append([])
+        else:
+            result.append(column[top : bottom + 1])
+    return result
+
+
 def _normalize_layout_column(column: Any) -> List[Any]:
     if not isinstance(column, list):
         return []
@@ -990,7 +1051,7 @@ def _normalize_layout(layout: Any) -> List[List[Any]]:
     normalized: List[List[Any]] = []
     for column in layout:
         normalized.append(_normalize_layout_column(column))
-    return normalized
+    return _trim_layout_edges(normalized)
 
 
 def _decode_layout_payload(payload: Any) -> Tuple[List[List[Any]], Optional[int]]:
