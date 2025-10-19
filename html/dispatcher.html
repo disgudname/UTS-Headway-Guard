@@ -1491,11 +1491,32 @@ function buildBlockGrid(){
     return;
   }
   const columnCount=blockGridLayout.length;
-  blocksGridTable.style.setProperty('--grid-columns',String(columnCount));
-  for(let row=0;row<BLOCK_GRID_ROW_COUNT;row++){
-    for(let col=0;col<columnCount;col++){
-      const column=blockGridLayout[col]||[];
+  const normalizedColumns=[];
+  let lastNonEmptyRow=-1;
+  for(let col=0;col<columnCount;col++){
+    const column=blockGridLayout[col]||[];
+    const normalizedColumn=[];
+    for(let row=0;row<BLOCK_GRID_ROW_COUNT;row++){
       const cellData=normalizeCellValue(column[row]);
+      normalizedColumn[row]=cellData;
+      const trimmedLabel=(cellData.value||'').trim();
+      const trimmedDisplay=(cellData.display||'').trim();
+      if((trimmedLabel||trimmedDisplay) && row>lastNonEmptyRow){
+        lastNonEmptyRow=row;
+      }
+    }
+    normalizedColumns[col]=normalizedColumn;
+  }
+  const rowCount=lastNonEmptyRow+1;
+  if(rowCount<=0){
+    setBlocksGridMessage('Layout unavailable.');
+    return;
+  }
+  blocksGridTable.style.setProperty('--grid-columns',String(columnCount));
+  for(let row=0;row<rowCount;row++){
+    for(let col=0;col<columnCount;col++){
+      const column=normalizedColumns[col]||[];
+      const cellData=column[row]||createEmptyCell();
       const cell=document.createElement('div');
       cell.className='cell';
       cell.dataset.col=String(col);
