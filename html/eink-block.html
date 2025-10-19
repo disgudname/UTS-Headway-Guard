@@ -131,6 +131,11 @@
     flex-wrap:wrap;
     gap:6px;
   }
+  #grid-view .grid-controls .layout-selector{
+    display:flex;
+    align-items:center;
+    gap:4px;
+  }
   #grid-view .grid-controls button{
     font-family:'CenturyGothic',sans-serif;
     font-size:12px;
@@ -140,6 +145,15 @@
     border:2px solid #000;
     background:#fff;
     cursor:pointer;
+  }
+  #grid-view .grid-controls select{
+    font-family:'CenturyGothic',sans-serif;
+    font-size:12px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:4px 6px;
+    border:2px solid #000;
+    background:#fff;
   }
   #grid-view .grid-controls button:active{
     background:#000;
@@ -312,23 +326,31 @@
   ];
   const DEFAULT_LAYOUT_NAME='default';
   const FOOTBALL_LAYOUT_NAME='football-layout';
-  const LAYOUT_DISPLAY_NAMES={
+  const BASE_LAYOUT_DISPLAY_NAMES={
     [DEFAULT_LAYOUT_NAME]:'Standard Layout',
     [FOOTBALL_LAYOUT_NAME]:'Football Layout'
   };
+  const layoutDisplayNames=Object.assign({},BASE_LAYOUT_DISPLAY_NAMES);
   const layoutPresets={
     [DEFAULT_LAYOUT_NAME]:defaultColumns,
     [FOOTBALL_LAYOUT_NAME]:footballLayoutColumns
   };
   const VALID_LAYOUT_NAMES=new Set(Object.keys(layoutPresets));
+  const PROTECTED_LAYOUT_NAMES=new Set([DEFAULT_LAYOUT_NAME,FOOTBALL_LAYOUT_NAME]);
   const LAYOUT_STORAGE_KEY='einkBlockLayout';
   const ACTIVE_LAYOUT_STORAGE_KEY=`${LAYOUT_STORAGE_KEY}:active`;
+  const LAYOUT_NAMES_STORAGE_KEY=`${LAYOUT_STORAGE_KEY}:names`;
   const LAYOUT_ENDPOINT='/api/eink-block/layout';
   const DEFAULT_STATUS_MESSAGE='Edit Mode — click a block to change it';
+  const SAVE_REPEAT_COUNT=5;
+  const SAVE_REPEAT_INTERVAL_MS=3000;
   let gridStatusEl=null;
   let gridStatusTimer=null;
   let saveSequence=0;
   let columnWidthSyncHandle=null;
+  let activeSaveJob=null;
+  let layoutSelectorEl=null;
+  let deleteLayoutButton=null;
 
   const createEmptyCell=()=>({value:'',display:''});
 
@@ -361,6 +383,140 @@
   };
 
   const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>createEmptyCell());
+
+  function normalizeLayoutIdentifier(name){
+    if(name==null) return 'default';
+    if(typeof name==='number' && Number.isFinite(name)){
+      return normalizeLayoutIdentifier(String(name));
+    }
+    const text=String(name).trim();
+    if(!text) return 'default';
+    const sanitized=text.replace(/[^A-Za-z0-9_.-]+/g,'_').replace(/^_+|_+$/g,'');
+    if(!sanitized) return 'default';
+    return sanitized.slice(0,64);
+  }
+
+  function deriveLayoutDisplayName(name){
+    if(BASE_LAYOUT_DISPLAY_NAMES[name]){
+      return BASE_LAYOUT_DISPLAY_NAMES[name];
+    }
+    const spaced=String(name||'').replace(/[_-]+/g,' ').trim();
+    if(!spaced){
+      return 'Custom Layout';
+    }
+    return spaced.replace(/\b\w/g,char=>char.toUpperCase());
+  }
+
+  function persistLayoutDisplayNames(){
+    const entries={};
+    for(const [key,value] of Object.entries(layoutDisplayNames)){
+      if(!value) continue;
+      if(BASE_LAYOUT_DISPLAY_NAMES[key] && BASE_LAYOUT_DISPLAY_NAMES[key]===value){
+        continue;
+      }
+      entries[key]=value;
+    }
+    try{
+      localStorage.setItem(LAYOUT_NAMES_STORAGE_KEY,JSON.stringify(entries));
+    }catch(err){
+      console.warn('Failed to store layout names',err);
+    }
+  }
+
+  function registerLayoutName(name,{displayName,persist=false}={}){
+    const normalized=normalizeLayoutIdentifier(name);
+    if(!normalized) return '';
+    VALID_LAYOUT_NAMES.add(normalized);
+    if(typeof displayName==='string'){
+      const trimmed=displayName.trim();
+      if(trimmed){
+        layoutDisplayNames[normalized]=trimmed;
+      }
+    }
+    if(!(normalized in layoutDisplayNames)){
+      layoutDisplayNames[normalized]=deriveLayoutDisplayName(normalized);
+    }
+    if(persist){
+      persistLayoutDisplayNames();
+    }
+    return normalized;
+  }
+
+  function removeLayoutName(name,{persist=true}={}){
+    if(!name || PROTECTED_LAYOUT_NAMES.has(name)) return;
+    VALID_LAYOUT_NAMES.delete(name);
+    if(!BASE_LAYOUT_DISPLAY_NAMES[name]){
+      delete layoutDisplayNames[name];
+    }
+    if(persist){
+      persistLayoutDisplayNames();
+    }
+  }
+
+  function loadStoredLayoutDisplayNames(){
+    try{
+      const raw=localStorage.getItem(LAYOUT_NAMES_STORAGE_KEY);
+      if(!raw) return;
+      const parsed=JSON.parse(raw);
+      if(parsed && typeof parsed==='object'){
+        for(const [key,value] of Object.entries(parsed)){
+          if(typeof value==='string' && value.trim()){
+            registerLayoutName(key,{displayName:value.trim(),persist:false});
+          }
+        }
+      }
+    }catch(err){
+      console.warn('Failed to read layout names',err);
+    }
+  }
+
+  function getAllLayoutNames(){
+    return Array.from(VALID_LAYOUT_NAMES);
+  }
+
+  function refreshLayoutSelector(){
+    if(!layoutSelectorEl) return;
+    const names=getAllLayoutNames();
+    const previous=layoutSelectorEl.value;
+    layoutSelectorEl.innerHTML='';
+    for(const name of names){
+      const option=document.createElement('option');
+      option.value=name;
+      option.textContent=getLayoutDisplayName(name);
+      layoutSelectorEl.appendChild(option);
+    }
+    if(layoutName && names.includes(layoutName)){
+      layoutSelectorEl.value=layoutName;
+    }else if(previous && names.includes(previous)){
+      layoutSelectorEl.value=previous;
+    }
+  }
+
+  function updateLayoutControlStates(){
+    if(layoutSelectorEl && layoutName && layoutSelectorEl.value!==layoutName){
+      layoutSelectorEl.value=layoutName;
+    }
+    if(deleteLayoutButton){
+      deleteLayoutButton.disabled=!layoutName || PROTECTED_LAYOUT_NAMES.has(layoutName) || VALID_LAYOUT_NAMES.size<=1;
+    }
+  }
+
+  function incorporateAvailableLayouts(list){
+    if(!Array.isArray(list)) return;
+    let updated=false;
+    for(const raw of list){
+      if(typeof raw!=='string') continue;
+      const normalized=registerLayoutName(raw);
+      if(normalized){
+        updated=true;
+      }
+    }
+    if(updated){
+      refreshLayoutSelector();
+      updateLayoutControlStates();
+      updateLayoutToggleButton();
+    }
+  }
 
   function equalizeGridColumnWidths(){
     if(!isGridMode){
@@ -793,7 +949,7 @@
   function readActiveLayoutName(){
     try{
       const stored=localStorage.getItem(ACTIVE_LAYOUT_STORAGE_KEY);
-      if(stored && VALID_LAYOUT_NAMES.has(stored)){
+      if(stored){
         return stored;
       }
     }catch(err){
@@ -803,12 +959,17 @@
   }
 
   function setActiveLayoutName(name){
-    layoutName=name;
+    const normalized=registerLayoutName(name);
+    if(!normalized) return;
+    layoutName=normalized;
     try{
-      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,name);
+      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,normalized);
     }catch(err){
       console.warn('Failed to store active layout',err);
     }
+    refreshLayoutSelector();
+    updateLayoutControlStates();
+    updateLayoutToggleButton();
   }
 
   function readLocalLayout(name){
@@ -834,12 +995,24 @@
   }
 
   function persistLocalLayout(columns,{name=layoutName}={}){
-    const key=getStorageKeyForLayout(name);
+    const normalized=registerLayoutName(name);
+    const targetName=normalized||DEFAULT_LAYOUT_NAME;
+    const key=getStorageKeyForLayout(targetName);
     try{
       localStorage.setItem(key,JSON.stringify(columns));
-      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,name);
+      localStorage.setItem(ACTIVE_LAYOUT_STORAGE_KEY,targetName);
     }catch(err){
       console.warn('Failed to store layout locally',err);
+    }
+  }
+
+  function removeLocalLayout(name){
+    if(!name) return;
+    const key=getStorageKeyForLayout(name);
+    try{
+      localStorage.removeItem(key);
+    }catch(err){
+      console.warn('Failed to remove saved layout',err);
     }
   }
 
@@ -849,16 +1022,23 @@
   }
 
   function determineInitialLayoutName(){
-    if(layoutParam && VALID_LAYOUT_NAMES.has(layoutParam)){
-      return layoutParam;
+    if(layoutParam){
+      const normalized=registerLayoutName(layoutParam);
+      if(normalized){
+        return normalized;
+      }
     }
     const stored=readActiveLayoutName();
-    if(stored && VALID_LAYOUT_NAMES.has(stored)){
-      return stored;
+    if(stored){
+      const normalized=registerLayoutName(stored);
+      if(normalized){
+        return normalized;
+      }
     }
     return DEFAULT_LAYOUT_NAME;
   }
 
+  loadStoredLayoutDisplayNames();
   let layoutName=determineInitialLayoutName();
   let layout=getPresetLayout(layoutName);
   const localLayout=readLocalLayout(layoutName);
@@ -866,23 +1046,38 @@
     layout=localLayout;
   }
   setActiveLayoutName(layoutName);
-  updateLayoutToggleButton();
 
   function getLayoutDisplayName(name){
-    return LAYOUT_DISPLAY_NAMES[name]||'Default Layout';
+    const key=name||DEFAULT_LAYOUT_NAME;
+    if(layoutDisplayNames[key]){
+      return layoutDisplayNames[key];
+    }
+    const derived=deriveLayoutDisplayName(key);
+    layoutDisplayNames[key]=derived;
+    return derived;
   }
 
   function updateLayoutToggleButton(){
     if(layoutToggleButton){
-      const nextLayout=layoutName===FOOTBALL_LAYOUT_NAME?DEFAULT_LAYOUT_NAME:FOOTBALL_LAYOUT_NAME;
-      layoutToggleButton.textContent=`Switch to ${getLayoutDisplayName(nextLayout)}`;
-      layoutToggleButton.dataset.nextLayout=nextLayout;
-      layoutToggleButton.hidden=!isGridMode;
+      const names=getAllLayoutNames();
+      const nextLayout=names.find(name=>name!==layoutName)||'';
+      if(nextLayout){
+        layoutToggleButton.textContent=`Switch to ${getLayoutDisplayName(nextLayout)}`;
+        layoutToggleButton.dataset.nextLayout=nextLayout;
+        layoutToggleButton.hidden=!isGridMode || names.length<=1;
+      }else{
+        layoutToggleButton.textContent='Switch Layout';
+        layoutToggleButton.hidden=true;
+        delete layoutToggleButton.dataset.nextLayout;
+      }
     }
     if(gridTitleEl){
-      gridTitleEl.textContent=layoutName===FOOTBALL_LAYOUT_NAME
-        ? 'BLOCK ASSIGNMENTS — FOOTBALL'
-        : 'BLOCK ASSIGNMENTS';
+      if(layoutName===DEFAULT_LAYOUT_NAME){
+        gridTitleEl.textContent='BLOCK ASSIGNMENTS';
+      }else{
+        const displayName=getLayoutDisplayName(layoutName).toUpperCase();
+        gridTitleEl.textContent=`BLOCK ASSIGNMENTS — ${displayName}`;
+      }
     }
     if(gridView){
       gridView.dataset.layout=layoutName;
@@ -908,7 +1103,7 @@
     if(!Array.isArray(data) || !data.length) return false;
     const normalized=data.map(col=>normalizeColumn(col));
     if(!normalized.length) return false;
-    if(typeof name==='string' && VALID_LAYOUT_NAMES.has(name)){
+    if(typeof name==='string' && name){
       setActiveLayoutName(name);
     }
     layout=normalized;
@@ -924,15 +1119,16 @@
   }
 
   function switchLayout(name){
-    if(!VALID_LAYOUT_NAMES.has(name) || name===layoutName) return;
+    const normalized=registerLayoutName(name);
+    if(!normalized || normalized===layoutName) return;
     let applied=false;
-    const stored=readLocalLayout(name);
+    const stored=readLocalLayout(normalized);
     if(stored && stored.length){
-      applied=setLayoutFromData(stored,{persist:true,rebuild:isGridMode,name});
+      applied=setLayoutFromData(stored,{persist:true,rebuild:isGridMode,name:normalized});
     }
     if(!applied){
-      const preset=getPresetLayout(name);
-      applied=setLayoutFromData(preset,{persist:true,rebuild:isGridMode,name});
+      const preset=getPresetLayout(normalized);
+      applied=setLayoutFromData(preset,{persist:true,rebuild:isGridMode,name:normalized});
     }
     if(!applied) return;
     if(isGridMode){
@@ -940,66 +1136,242 @@
     }
     if(typeof history!=='undefined' && history.replaceState){
       const newParams=new URLSearchParams(location.search);
-      if(name===DEFAULT_LAYOUT_NAME){
+      if(normalized===DEFAULT_LAYOUT_NAME){
         newParams.delete('layout');
       }else{
-        newParams.set('layout',name);
+        newParams.set('layout',normalized);
       }
       const newQuery=newParams.toString();
       const newUrl=newQuery?`${location.pathname}?${newQuery}`:location.pathname;
       history.replaceState(null,'',newUrl);
     }
-    fetchLayoutFromServer({announce:true,name}).catch(()=>{});
+    fetchLayoutFromServer({announce:true,name:normalized}).catch(()=>{});
   }
 
   if(layoutToggleButton){
     layoutToggleButton.addEventListener('click',()=>{
       const target=layoutToggleButton.dataset.nextLayout
-        || (layoutName===FOOTBALL_LAYOUT_NAME?DEFAULT_LAYOUT_NAME:FOOTBALL_LAYOUT_NAME);
-      switchLayout(target);
+        || getAllLayoutNames().find(name=>name!==layoutName)
+        || '';
+      if(target && target!==layoutName){
+        switchLayout(target);
+      }
     });
   }
 
   function saveLayout(){
     const serialized=serializeLayout();
     persistLocalLayout(serialized,{name:layoutName});
+    startSaveSequence(serialized);
+  }
+
+  function startSaveSequence(serialized){
+    if(activeSaveJob){
+      activeSaveJob.abort();
+    }
     const current=++saveSequence;
-    setGridStatus('Saving…');
-    const url=layoutName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(layoutName)}`:LAYOUT_ENDPOINT;
-    fetch(url,{
-      method:'POST',
-      headers:{'content-type':'application/json'},
-      body:JSON.stringify({layout:serialized,layoutName})
-    }).then(res=>{
+    let attempt=0;
+    let controller=null;
+    let timer=null;
+    let aborted=false;
+    let currentName=layoutName || DEFAULT_LAYOUT_NAME;
+    const job={
+      abort(){
+        if(aborted) return;
+        aborted=true;
+        if(controller){
+          controller.abort();
+          controller=null;
+        }
+        if(timer){
+          clearTimeout(timer);
+          timer=null;
+        }
+        if(activeSaveJob===job){
+          activeSaveJob=null;
+        }
+      }
+    };
+
+    const performAttempt=()=>{
+      if(aborted || current!==saveSequence) return;
+      attempt+=1;
+      const targetName=currentName||layoutName||DEFAULT_LAYOUT_NAME;
+      const url=targetName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(targetName)}`:LAYOUT_ENDPOINT;
+      controller=new AbortController();
+      setGridStatus(`Saving (${attempt}/${SAVE_REPEAT_COUNT})…`);
+      fetch(url,{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({layout:serialized,layoutName:targetName}),
+        signal:controller.signal
+      }).then(res=>{
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        return res.json();
+      }).then(data=>{
+        if(aborted || current!==saveSequence) return;
+        if(data && Array.isArray(data.available_layouts)){
+          incorporateAvailableLayouts(data.available_layouts);
+        }
+        const responseNameRaw=typeof data?.layoutName==='string' && data.layoutName.trim()
+          ? data.layoutName
+          : typeof data?.layout_id==='string' && data.layout_id.trim()
+            ? data.layout_id
+            : typeof data?.layoutId==='string' && data.layoutId.trim()
+              ? data.layoutId
+              : '';
+        const responseName=responseNameRaw?registerLayoutName(responseNameRaw):targetName;
+        if(data && Array.isArray(data.layout)){
+          setLayoutFromData(data.layout,{persist:true,rebuild:false,name:responseName});
+        }
+        currentName=layoutName;
+        if(attempt>=SAVE_REPEAT_COUNT){
+          setGridStatus('Saved',{temporary:true});
+          if(activeSaveJob===job){
+            activeSaveJob=null;
+          }
+        }
+      }).catch(err=>{
+        if(aborted || current!==saveSequence){
+          return;
+        }
+        if(err && err.name==='AbortError'){
+          return;
+        }
+        console.warn('Failed to save layout to server',err);
+        if(attempt>=SAVE_REPEAT_COUNT){
+          setGridStatus('Saved locally — server unavailable',{temporary:true});
+          if(activeSaveJob===job){
+            activeSaveJob=null;
+          }
+        }
+      }).finally(()=>{
+        if(aborted || current!==saveSequence){
+          return;
+        }
+        controller=null;
+        if(attempt<SAVE_REPEAT_COUNT){
+          timer=setTimeout(()=>{
+            performAttempt();
+          },SAVE_REPEAT_INTERVAL_MS);
+        }else if(activeSaveJob===job){
+          activeSaveJob=null;
+        }
+      });
+    };
+
+    performAttempt();
+    activeSaveJob=job;
+  }
+
+  function handleCreateNewLayout(){
+    const input=prompt('Enter a name for the new layout:','');
+    if(input===null) return;
+    const trimmed=String(input).trim();
+    if(!trimmed){
+      alert('Layout name is required.');
+      return;
+    }
+    const normalizedId=normalizeLayoutIdentifier(trimmed);
+    if(!normalizedId){
+      alert('Layout name must include letters or numbers.');
+      return;
+    }
+    if(PROTECTED_LAYOUT_NAMES.has(normalizedId)){
+      alert('That layout name is reserved.');
+      return;
+    }
+    if(VALID_LAYOUT_NAMES.has(normalizedId) && normalizedId!==layoutName){
+      if(!confirm('A layout with that name already exists. Replace it with the current layout?')){
+        return;
+      }
+    }
+    registerLayoutName(normalizedId,{displayName:trimmed,persist:true});
+    const sourceLayout=Array.isArray(layout) && layout.length?layout:[createBlankColumn()];
+    layout=sourceLayout.map(column=>normalizeColumn(column));
+    setActiveLayoutName(normalizedId);
+    persistLocalLayout(serializeLayout(),{name:normalizedId});
+    if(isGridMode){
+      buildGrid();
+      triggerRefresh();
+    }
+    saveLayout();
+  }
+
+  function handleDeleteLayout(){
+    if(!layoutName){
+      alert('No layout selected.');
+      return;
+    }
+    if(PROTECTED_LAYOUT_NAMES.has(layoutName)){
+      alert('The selected layout cannot be deleted.');
+      return;
+    }
+    const displayName=getLayoutDisplayName(layoutName);
+    if(!confirm(`Delete layout "${displayName}"? This cannot be undone.`)){
+      return;
+    }
+    const nameToDelete=layoutName;
+    const remainingNames=getAllLayoutNames().filter(name=>name!==nameToDelete);
+    let fallback=remainingNames.find(name=>!PROTECTED_LAYOUT_NAMES.has(name))
+      || remainingNames[0]
+      || DEFAULT_LAYOUT_NAME;
+    if(!fallback || fallback===nameToDelete){
+      fallback=DEFAULT_LAYOUT_NAME;
+    }
+    removeLocalLayout(nameToDelete);
+    removeLayoutName(nameToDelete,{persist:true});
+    refreshLayoutSelector();
+    updateLayoutControlStates();
+    if(fallback && fallback!==nameToDelete){
+      switchLayout(fallback);
+    }else{
+      setLayoutFromData(getPresetLayout(DEFAULT_LAYOUT_NAME),{persist:true,rebuild:isGridMode,name:DEFAULT_LAYOUT_NAME});
+    }
+    setGridStatus('Deleting…');
+    deleteLayoutOnServer(nameToDelete).then(data=>{
+      if(data && Array.isArray(data.available_layouts)){
+        incorporateAvailableLayouts(data.available_layouts);
+      }
+      setGridStatus('Layout deleted',{temporary:true});
+    }).catch(err=>{
+      console.warn('Failed to delete layout from server',err);
+      setGridStatus('Deleted locally — server unavailable',{temporary:true});
+    });
+  }
+
+  function deleteLayoutOnServer(name){
+    const normalized=normalizeLayoutIdentifier(name);
+    const url=normalized?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(normalized)}`:LAYOUT_ENDPOINT;
+    return fetch(url,{method:'DELETE'}).then(res=>{
       if(!res.ok) throw new Error('HTTP '+res.status);
       return res.json();
-    }).then(data=>{
-      if(current!==saveSequence) return;
-      if(data && Array.isArray(data.layout)){
-        const responseName=typeof data.layoutName==='string' && VALID_LAYOUT_NAMES.has(data.layoutName)
-          ? data.layoutName
-          : layoutName;
-        setLayoutFromData(data.layout,{persist:true,rebuild:false,name:responseName});
-      }
-      setGridStatus('Saved',{temporary:true});
-    }).catch(err=>{
-      console.warn('Failed to save layout to server',err);
-      if(current!==saveSequence) return;
-      setGridStatus('Saved locally — server unavailable',{temporary:true});
     });
   }
 
   function fetchLayoutFromServer({announce=false,name=layoutName}={}){
-    const targetName=VALID_LAYOUT_NAMES.has(name)?name:layoutName;
+    const normalizedRequest=typeof name==='string' && name?normalizeLayoutIdentifier(name):'';
+    const targetName=normalizedRequest || layoutName;
+    if(targetName){
+      registerLayoutName(targetName);
+    }
     const url=targetName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(targetName)}`:LAYOUT_ENDPOINT;
     return fetch(url,{cache:'no-store'}).then(res=>{
       if(!res.ok) throw new Error('HTTP '+res.status);
       return res.json();
     }).then(data=>{
+      if(data && Array.isArray(data.available_layouts)){
+        incorporateAvailableLayouts(data.available_layouts);
+      }
+      const responseNameRaw=typeof data?.layoutName==='string' && data.layoutName.trim()
+        ? data.layoutName
+        : typeof data?.layout_id==='string' && data.layout_id.trim()
+          ? data.layout_id
+          : typeof data?.layoutId==='string' && data.layoutId.trim()
+            ? data.layoutId
+            : '';
+      const responseName=responseNameRaw?registerLayoutName(responseNameRaw):targetName;
       if(data && Array.isArray(data.layout) && data.layout.length){
-        const responseName=typeof data.layoutName==='string' && VALID_LAYOUT_NAMES.has(data.layoutName)
-          ? data.layoutName
-          : targetName;
         const applied=setLayoutFromData(data.layout,{persist:true,rebuild:isGridMode,name:responseName});
         if(applied && isGridMode){
           triggerRefresh();
@@ -1161,12 +1533,26 @@
       if(!controls){
         const controlsEl=document.createElement('div');
         controlsEl.className='grid-controls';
-        controlsEl.innerHTML=`<span class="grid-controls-status">${DEFAULT_STATUS_MESSAGE}</span><div class="grid-controls-buttons"><button type="button" id="add-column">Add Column</button><button type="button" id="remove-column">Remove Column</button><button type="button" id="reset-layout">Reset Layout</button></div>`;
+        controlsEl.innerHTML=`<span class="grid-controls-status">${DEFAULT_STATUS_MESSAGE}</span><div class="grid-controls-buttons"><label class="layout-selector">Layout: <select id="layout-selector"></select></label><button type="button" id="new-layout">New Layout</button><button type="button" id="delete-layout">Delete Layout</button><button type="button" id="add-column">Add Column</button><button type="button" id="remove-column">Remove Column</button><button type="button" id="reset-layout">Reset Layout</button></div>`;
         gridView.insertBefore(controlsEl,gridView.firstChild);
         gridStatusEl=controlsEl.querySelector('.grid-controls-status');
+        layoutSelectorEl=controlsEl.querySelector('#layout-selector');
+        deleteLayoutButton=controlsEl.querySelector('#delete-layout');
+        if(layoutSelectorEl){
+          layoutSelectorEl.addEventListener('change',event=>{
+            const selected=String(event.target.value||'').trim();
+            if(selected && selected!==layoutName){
+              switchLayout(selected);
+            }
+          });
+        }
       }else{
         gridStatusEl=controls.querySelector('.grid-controls-status');
+        layoutSelectorEl=controls.querySelector('#layout-selector');
+        deleteLayoutButton=controls.querySelector('#delete-layout');
       }
+      refreshLayoutSelector();
+      updateLayoutControlStates();
       resetGridStatus();
     }else if(controls){
       controls.remove();
@@ -1175,6 +1561,8 @@
         gridStatusTimer=null;
       }
       gridStatusEl=null;
+      layoutSelectorEl=null;
+      deleteLayoutButton=null;
     }
     buildGrid();
   }
@@ -1837,6 +2225,20 @@
 
   if(editMode && isGridMode){
     gridView.addEventListener('click',event=>{
+      const newLayoutButton=event.target.closest('#new-layout');
+      if(newLayoutButton){
+        event.preventDefault();
+        event.stopPropagation();
+        handleCreateNewLayout();
+        return;
+      }
+      const deleteLayoutTrigger=event.target.closest('#delete-layout');
+      if(deleteLayoutTrigger){
+        event.preventDefault();
+        event.stopPropagation();
+        handleDeleteLayout();
+        return;
+      }
       const addButton=event.target.closest('#add-column');
       if(addButton){
         event.preventDefault();
