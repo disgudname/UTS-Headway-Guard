@@ -2929,6 +2929,21 @@ function updateBlockGrid(entries,nowMinutes,{busColorMap}={}){
   const cells=blocksGridTable.querySelectorAll('.cell');
   let hasAny=false;
   cells.forEach(cell=>{
+    if(cell.dataset.empty==='true'){
+      const busEl=cell.querySelector('.bus');
+      if(busEl){
+        busEl.textContent='—';
+      }
+      const driverContainer=cell.querySelector('.drivers');
+      if(driverContainer){
+        driverContainer.innerHTML='';
+        driverContainer.hidden=true;
+      }
+      delete cell.dataset.bus;
+      delete cell.dataset.vehicleId;
+      applyDefaultBlockCellColors(cell);
+      return;
+    }
     const blockNumber=cell.dataset.block||'';
     const periodSuffix=cell.dataset.period||'';
     const customId=cell.dataset.customBlockId||'';
