@@ -112,10 +112,9 @@
   }
   #grid-view .grid-controls{
     display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:8px;
-    flex-wrap:wrap;
+    flex-direction:column;
+    align-items:stretch;
+    gap:10px;
     padding:8px 12px;
     border-bottom:3px solid #000;
     font-family:'CenturyGothic',sans-serif;
@@ -126,10 +125,28 @@
   #grid-view .grid-controls .grid-controls-status{
     flex:1;
   }
-  #grid-view .grid-controls .grid-controls-buttons{
+  #grid-view .grid-controls .grid-controls-row{
     display:flex;
+    align-items:center;
+    gap:8px;
     flex-wrap:wrap;
+    width:100%;
+  }
+  #grid-view .grid-controls .grid-controls-row.grid-controls-row--editor{
+    justify-content:flex-start;
+  }
+  #grid-view .grid-controls .grid-controls-group{
+    display:flex;
+    align-items:center;
     gap:6px;
+    flex-wrap:wrap;
+  }
+  #grid-view .grid-controls .grid-controls-group-label{
+    font-size:12px;
+    letter-spacing:0.04em;
+  }
+  #grid-view .grid-controls .grid-controls-group.grid-controls-group--reset{
+    margin-left:auto;
   }
   #grid-view .grid-controls .layout-selector{
     display:flex;
@@ -193,7 +210,7 @@
     --grid-columns:4;
     display:grid;
     grid-template-columns:repeat(var(--grid-columns),var(--grid-column-width,1fr));
-    grid-template-rows:repeat(9,minmax(48px,1fr));
+    grid-template-rows:repeat(var(--grid-rows,9),minmax(48px,1fr));
     width:100%;
   }
   #grid-view .cell{
@@ -293,7 +310,8 @@
   let selectedBlockNumber='';
   let selectedBlockId='';
 
-  const ROW_COUNT=9;
+  const DEFAULT_ROW_COUNT=9;
+  let rowCount=DEFAULT_ROW_COUNT;
   const REFRESH_INTERVAL_MS=60000;
   let refreshTimer=null;
   let refreshPromise=null;
@@ -382,7 +400,37 @@
     return cell;
   };
 
-  const createBlankColumn=()=>Array.from({length:ROW_COUNT},()=>createEmptyCell());
+  const sanitizeRowCount=(value,fallback=DEFAULT_ROW_COUNT)=>{
+    const numeric=Math.trunc(Number(value));
+    if(Number.isFinite(numeric) && numeric>=1){
+      return numeric;
+    }
+    const fallbackNumeric=Math.trunc(Number(fallback));
+    if(Number.isFinite(fallbackNumeric) && fallbackNumeric>=1){
+      return fallbackNumeric;
+    }
+    return 1;
+  };
+
+  const determineRowCount=(columns,fallback=rowCount||DEFAULT_ROW_COUNT)=>{
+    let maxLength=0;
+    if(Array.isArray(columns)){
+      for(const column of columns){
+        if(Array.isArray(column) && column.length>maxLength){
+          maxLength=column.length;
+        }
+      }
+    }
+    if(maxLength>0){
+      return sanitizeRowCount(maxLength,maxLength);
+    }
+    return sanitizeRowCount(fallback,DEFAULT_ROW_COUNT);
+  };
+
+  const createBlankColumn=(count=rowCount)=>{
+    const length=sanitizeRowCount(count,rowCount||DEFAULT_ROW_COUNT);
+    return Array.from({length},()=>createEmptyCell());
+  };
 
   function normalizeLayoutIdentifier(name){
     if(name==null) return 'default';
@@ -499,6 +547,14 @@
     if(deleteLayoutButton){
       deleteLayoutButton.disabled=!layoutName || PROTECTED_LAYOUT_NAMES.has(layoutName) || VALID_LAYOUT_NAMES.size<=1;
     }
+    const removeColumnControl=document.getElementById('remove-column');
+    if(removeColumnControl){
+      removeColumnControl.disabled=!Array.isArray(layout) || layout.length<=1;
+    }
+    const removeRowControl=document.getElementById('remove-row');
+    if(removeRowControl){
+      removeRowControl.disabled=rowCount<=1;
+    }
   }
 
   function incorporateAvailableLayouts(list){
@@ -594,19 +650,17 @@
     });
   }
 
-  const normalizeColumn=(column,fallback)=>{
-    const result=createBlankColumn();
+  const normalizeColumn=(column,fallback,targetRowCount=rowCount)=>{
     const source=Array.isArray(column)?column:[];
     const fallbackSource=Array.isArray(fallback)?fallback:[];
-    for(let i=0;i<ROW_COUNT;i++){
-      const value=source[i];
-      if(value!=null){
-        result[i]=normalizeCellValue(value);
-      }else{
-        const fallbackValue=fallbackSource[i];
-        if(fallbackValue!=null){
-          result[i]=normalizeCellValue(fallbackValue);
-        }
+    const desiredLength=sanitizeRowCount(targetRowCount,rowCount||DEFAULT_ROW_COUNT);
+    const length=Math.max(desiredLength,source.length,fallbackSource.length,1);
+    const result=createBlankColumn(length);
+    for(let i=0;i<length;i++){
+      if(source[i]!=null){
+        result[i]=normalizeCellValue(source[i]);
+      }else if(fallbackSource[i]!=null){
+        result[i]=normalizeCellValue(fallbackSource[i]);
       }
     }
     return result;
@@ -979,12 +1033,14 @@
       if(stored){
         const parsed=JSON.parse(stored);
         if(Array.isArray(parsed) && parsed.length){
-          return parsed.map(col=>normalizeColumn(col));
+          const targetRowCount=determineRowCount(parsed,rowCount||DEFAULT_ROW_COUNT);
+          return parsed.map(col=>normalizeColumn(col,null,targetRowCount));
         }
         if(parsed && typeof parsed==='object'){
           const source=Array.isArray(parsed.layout)?parsed.layout:Array.isArray(parsed.columns)?parsed.columns:null;
           if(source && source.length){
-            return source.map(col=>normalizeColumn(col));
+            const targetRowCount=determineRowCount(source,rowCount||DEFAULT_ROW_COUNT);
+            return source.map(col=>normalizeColumn(col,null,targetRowCount));
           }
         }
       }
@@ -1018,7 +1074,8 @@
 
   function getPresetLayout(name){
     const preset=layoutPresets[name]||defaultColumns;
-    return preset.map(col=>normalizeColumn(col));
+    const targetRowCount=determineRowCount(preset,DEFAULT_ROW_COUNT);
+    return preset.map(col=>normalizeColumn(col,null,targetRowCount));
   }
 
   function determineInitialLayoutName(){
@@ -1041,9 +1098,13 @@
   loadStoredLayoutDisplayNames();
   let layoutName=determineInitialLayoutName();
   let layout=getPresetLayout(layoutName);
+  rowCount=determineRowCount(layout,rowCount);
+  layout=layout.map(col=>normalizeColumn(col,null,rowCount));
   const localLayout=readLocalLayout(layoutName);
   if(localLayout){
     layout=localLayout;
+    rowCount=determineRowCount(layout,rowCount);
+    layout=layout.map(col=>normalizeColumn(col,null,rowCount));
   }
   setActiveLayoutName(layoutName);
 
@@ -1101,8 +1162,10 @@
 
   function setLayoutFromData(data,{persist=true,rebuild=true,name}={}){
     if(!Array.isArray(data) || !data.length) return false;
-    const normalized=data.map(col=>normalizeColumn(col));
+    const targetRowCount=determineRowCount(data,rowCount);
+    const normalized=data.map(col=>normalizeColumn(col,null,targetRowCount));
     if(!normalized.length) return false;
+    rowCount=targetRowCount;
     if(typeof name==='string' && name){
       setActiveLayoutName(name);
     }
@@ -1116,6 +1179,17 @@
       updateLayoutToggleButton();
     }
     return true;
+  }
+
+  function setRowCount(nextCount){
+    const previous=rowCount;
+    rowCount=sanitizeRowCount(nextCount,previous||DEFAULT_ROW_COUNT);
+    if(Array.isArray(layout) && layout.length){
+      layout=layout.map(column=>normalizeColumn(column,null,rowCount));
+    }else{
+      layout=[createBlankColumn(rowCount)];
+    }
+    return rowCount!==previous;
   }
 
   function switchLayout(name){
@@ -1288,7 +1362,7 @@
     }
     registerLayoutName(normalizedId,{displayName:trimmed,persist:true});
     const sourceLayout=Array.isArray(layout) && layout.length?layout:[createBlankColumn()];
-    layout=sourceLayout.map(column=>normalizeColumn(column));
+    layout=sourceLayout.map(column=>normalizeColumn(column,null,rowCount));
     setActiveLayoutName(normalizedId);
     persistLocalLayout(serializeLayout(),{name:normalizedId});
     if(isGridMode){
@@ -1456,16 +1530,16 @@
     updateLayoutToggleButton();
     const gridTable=gridView.querySelector('.grid-table');
     if(!gridTable) return;
-    if(!Array.isArray(layout) || !layout.length){
-      layout=[createBlankColumn()];
-    }
-    layout=layout.map(col=>normalizeColumn(col));
+    const desiredRowCount=determineRowCount(layout,rowCount);
+    setRowCount(desiredRowCount);
     gridTable.innerHTML='';
-    const rows=ROW_COUNT;
+    const rows=rowCount;
     const columnCount=Math.max(layout.length,1);
     gridTable.style.setProperty('--grid-columns',String(columnCount));
     gridTable.style.setProperty('--grid-column-width','1fr');
     gridTable.style.gridTemplateColumns=`repeat(${columnCount},var(--grid-column-width))`;
+    gridTable.style.setProperty('--grid-rows',String(rows));
+    gridTable.style.gridTemplateRows=`repeat(${rows},minmax(48px,1fr))`;
     for(let row=0;row<rows;row++){
       for(let col=0;col<layout.length;col++){
         const column=layout[col]||[];
@@ -1523,6 +1597,7 @@
       }
     }
     scheduleColumnWidthSync();
+    updateLayoutControlStates();
   }
 
   if(isGridMode){
@@ -1537,7 +1612,31 @@
       if(!controls){
         const controlsEl=document.createElement('div');
         controlsEl.className='grid-controls';
-        controlsEl.innerHTML=`<span class="grid-controls-status">${DEFAULT_STATUS_MESSAGE}</span><div class="grid-controls-buttons"><label class="layout-selector">Layout: <select id="layout-selector"></select></label><button type="button" id="new-layout">New Layout</button><button type="button" id="delete-layout">Delete Layout</button><button type="button" id="add-column">Add Column</button><button type="button" id="remove-column">Remove Column</button><button type="button" id="reset-layout">Reset Layout</button></div>`;
+        controlsEl.innerHTML=`
+          <div class="grid-controls-row">
+            <span class="grid-controls-status">${DEFAULT_STATUS_MESSAGE}</span>
+            <div class="grid-controls-group layout-controls">
+              <label class="layout-selector">Layout: <select id="layout-selector"></select></label>
+              <button type="button" id="new-layout">New Layout</button>
+              <button type="button" id="delete-layout">Delete Layout</button>
+            </div>
+          </div>
+          <div class="grid-controls-row grid-controls-row--editor">
+            <div class="grid-controls-group">
+              <span class="grid-controls-group-label">Rows</span>
+              <button type="button" id="add-row">Add Row</button>
+              <button type="button" id="remove-row">Remove Row</button>
+            </div>
+            <div class="grid-controls-group">
+              <span class="grid-controls-group-label">Columns</span>
+              <button type="button" id="add-column">Add Column</button>
+              <button type="button" id="remove-column">Remove Column</button>
+            </div>
+            <div class="grid-controls-group grid-controls-group--reset">
+              <button type="button" id="reset-layout">Reset Layout</button>
+            </div>
+          </div>
+        `;
         gridView.insertBefore(controlsEl,gridView.firstChild);
         gridStatusEl=controlsEl.querySelector('.grid-controls-status');
         layoutSelectorEl=controlsEl.querySelector('#layout-selector');
@@ -2253,6 +2352,18 @@
         triggerRefresh();
         return;
       }
+      const addRowButton=event.target.closest('#add-row');
+      if(addRowButton){
+        event.preventDefault();
+        event.stopPropagation();
+        const changed=setRowCount(rowCount+1);
+        if(changed){
+          saveLayout();
+          buildGrid();
+          triggerRefresh();
+        }
+        return;
+      }
       const removeButton=event.target.closest('#remove-column');
       if(removeButton){
         event.preventDefault();
@@ -2270,6 +2381,33 @@
         }
         if(!confirm('Remove the selected column?')) return;
         layout.splice(index,1);
+        saveLayout();
+        buildGrid();
+        triggerRefresh();
+        return;
+      }
+      const removeRowButton=event.target.closest('#remove-row');
+      if(removeRowButton){
+        event.preventDefault();
+        event.stopPropagation();
+        if(rowCount<=1){
+          alert('At least one row is required.');
+          return;
+        }
+        const input=prompt(`Enter row number to remove (1-${rowCount}):`,String(rowCount));
+        if(input===null) return;
+        const index=parseInt(input,10)-1;
+        if(!Number.isInteger(index) || index<0 || index>=rowCount){
+          alert('Invalid row number.');
+          return;
+        }
+        if(!confirm('Remove the selected row?')) return;
+        for(const column of layout){
+          if(Array.isArray(column) && index<column.length){
+            column.splice(index,1);
+          }
+        }
+        setRowCount(rowCount-1);
         saveLayout();
         buildGrid();
         triggerRefresh();
