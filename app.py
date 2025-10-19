@@ -1109,6 +1109,33 @@ def save_eink_block_layout(layout_payload: Any, layout_id: Optional[str] = None)
     propagate_file(EINK_BLOCK_LAYOUT_NAME, encoded)
     return layout, timestamp, identifier, store
 
+
+def remove_eink_block_layout(layout_id: Optional[str] = None) -> Tuple[bool, Dict[str, Dict[str, Any]]]:
+    store = _read_eink_layout_store()
+    identifier = _normalize_layout_identifier(layout_id)
+    if identifier == "default":
+        raise ValueError("default layout cannot be deleted")
+    existing = store.pop(identifier, None)
+    if existing is None:
+        return False, store
+    timestamp = int(time.time())
+    serialized_layouts = {
+        key: {"layout": value["layout"], "updated_at": value.get("updated_at")}
+        for key, value in store.items()
+    }
+    payload = {"layouts": serialized_layouts, "updated_at": timestamp}
+    encoded = json.dumps(payload)
+    for base in DATA_DIRS:
+        path = base / EINK_BLOCK_LAYOUT_NAME
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(encoded)
+        except Exception as exc:
+            print(f"[eink_layout] error writing {path}: {exc}")
+    propagate_file(EINK_BLOCK_LAYOUT_NAME, encoded)
+    return True, store
+
+
 class State:
     def __init__(self):
         self.routes: Dict[int, Route] = {}
@@ -2360,6 +2387,30 @@ async def update_eink_block_layout(
         "layout": layout,
         "updated_at": updated_at,
         "layout_id": resolved_id,
+        "available_layouts": sorted(store.keys()),
+    }
+
+
+@app.delete("/api/eink-block/layout")
+async def delete_eink_block_layout_endpoint(
+    layout_id: Optional[str] = Query(None),
+    layout_name: Optional[str] = Query(None, alias="name"),
+    layout_key: Optional[str] = Query(None, alias="layoutKey"),
+    layout_query: Optional[str] = Query(None, alias="layout"),
+):
+    try:
+        identifier = _determine_layout_identifier(
+            None, layout_id, layout_name, layout_key, layout_query
+        )
+        deleted, store = remove_eink_block_layout(identifier)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"[eink_layout] error deleting layout: {exc}")
+        raise HTTPException(status_code=500, detail="failed to delete layout") from exc
+    return {
+        "ok": True,
+        "deleted": deleted,
         "available_layouts": sorted(store.keys()),
     }
 
