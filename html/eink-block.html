@@ -1312,6 +1312,10 @@
       return;
     }
     const nameToDelete=layoutName;
+    if(activeSaveJob){
+      activeSaveJob.abort();
+    }
+    saveSequence++;
     const remainingNames=getAllLayoutNames().filter(name=>name!==nameToDelete);
     let fallback=remainingNames.find(name=>!PROTECTED_LAYOUT_NAMES.has(name))
       || remainingNames[0]
