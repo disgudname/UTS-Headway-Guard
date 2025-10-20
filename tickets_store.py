@@ -107,25 +107,34 @@ class TicketStore:
         if not vehicle_label:
             raise ValueError("vehicle identifier required")
 
-        ticket_id = str(uuid.uuid4())
-        now = _now_iso()
-        ticket = Ticket(
-            id=ticket_id,
-            vehicle_label=vehicle_label,
-            vehicle_type=_clean_field(payload.get("vehicle_type")),
-            reported_at=_clean_field(payload.get("reported_at")),
-            reported_by=_clean_field(payload.get("reported_by")),
-            ops_status=_clean_field(payload.get("ops_status")),
-            ops_description=_clean_field(payload.get("ops_description")),
-            shop_status=_clean_field(payload.get("shop_status")),
-            mechanic=_clean_field(payload.get("mechanic")),
-            diagnosis_text=_clean_field(payload.get("diagnosis_text")),
-            started_at=_clean_field(payload.get("started_at")),
-            completed_at=_clean_field(payload.get("completed_at")),
-            created_at=now,
-            updated_at=now,
-        )
         async with self._lock:
+            requested_id = payload.get("ticket_id") or payload.get("id")
+            if requested_id:
+                ticket_id = str(requested_id)
+            else:
+                ticket_id = str(uuid.uuid4())
+
+            existing = self._tickets.get(ticket_id)
+            if existing:
+                return existing.to_dict()
+
+            now = _now_iso()
+            ticket = Ticket(
+                id=ticket_id,
+                vehicle_label=vehicle_label,
+                vehicle_type=_clean_field(payload.get("vehicle_type")),
+                reported_at=_clean_field(payload.get("reported_at")),
+                reported_by=_clean_field(payload.get("reported_by")),
+                ops_status=_clean_field(payload.get("ops_status")),
+                ops_description=_clean_field(payload.get("ops_description")),
+                shop_status=_clean_field(payload.get("shop_status")),
+                mechanic=_clean_field(payload.get("mechanic")),
+                diagnosis_text=_clean_field(payload.get("diagnosis_text")),
+                started_at=_clean_field(payload.get("started_at")),
+                completed_at=_clean_field(payload.get("completed_at")),
+                created_at=now,
+                updated_at=now,
+            )
             self._tickets[ticket_id] = ticket
             await self._persist()
         return ticket.to_dict()

@@ -526,14 +526,19 @@
       const machineIds = new Set();
       const maxAttempts = 10;
       let lastResponse = null;
+      let ticketId = null;
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const requestPayload =
+          ticketId && method === 'POST'
+            ? { ...payload, ticket_id: ticketId, id: ticketId }
+            : payload;
         const res = await fetch(url, {
           method,
           headers: {
             'Content-Type': 'application/json',
             ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(requestPayload)
         });
         if (!res.ok) {
           const errorText = await res.text();
@@ -551,6 +556,18 @@
           lastResponse?.ticket?.machineId;
         if (machineId) {
           machineIds.add(machineId);
+        }
+        const responseTicket =
+          lastResponse?.ticket ||
+          (lastResponse && lastResponse.ticket === undefined ? lastResponse : null);
+        const responseTicketId =
+          responseTicket?.id ||
+          lastResponse?.id ||
+          lastResponse?.ticket_id ||
+          lastResponse?.ticketId ||
+          null;
+        if (responseTicketId) {
+          ticketId = responseTicketId;
         }
         if (machineIds.size >= 2) {
           break;
