@@ -368,6 +368,7 @@
   let columnWidthSyncHandle=null;
   let activeSaveJob=null;
   let layoutSelectorEl=null;
+  let renameLayoutButton=null;
   let deleteLayoutButton=null;
 
   const createEmptyCell=()=>({value:'',display:''});
@@ -543,6 +544,9 @@
   function updateLayoutControlStates(){
     if(layoutSelectorEl && layoutName && layoutSelectorEl.value!==layoutName){
       layoutSelectorEl.value=layoutName;
+    }
+    if(renameLayoutButton){
+      renameLayoutButton.disabled=!layoutName || PROTECTED_LAYOUT_NAMES.has(layoutName);
     }
     if(deleteLayoutButton){
       deleteLayoutButton.disabled=!layoutName || PROTECTED_LAYOUT_NAMES.has(layoutName) || VALID_LAYOUT_NAMES.size<=1;
@@ -1408,6 +1412,75 @@
     saveLayout();
   }
 
+  function handleRenameLayout(){
+    if(!layoutName){
+      alert('No layout selected.');
+      return;
+    }
+    if(PROTECTED_LAYOUT_NAMES.has(layoutName)){
+      alert('The selected layout cannot be renamed.');
+      return;
+    }
+    const currentDisplay=getLayoutDisplayName(layoutName);
+    const input=prompt('Enter a new name for the layout:',currentDisplay);
+    if(input===null) return;
+    const trimmed=String(input).trim();
+    if(!trimmed){
+      alert('Layout name is required.');
+      return;
+    }
+    const normalized=normalizeLayoutIdentifier(trimmed);
+    if(!normalized){
+      alert('Layout name must include letters or numbers.');
+      return;
+    }
+    if(PROTECTED_LAYOUT_NAMES.has(normalized) && normalized!==layoutName){
+      alert('That layout name is reserved.');
+      return;
+    }
+    const previousName=layoutName;
+    if(normalized===previousName){
+      registerLayoutName(previousName,{displayName:trimmed,persist:true});
+      refreshLayoutSelector();
+      updateLayoutControlStates();
+      setGridStatus('Layout renamed',{temporary:true});
+      return;
+    }
+    if(VALID_LAYOUT_NAMES.has(normalized)){
+      if(!confirm('A layout with that name already exists. Replace it with the current layout?')){
+        return;
+      }
+    }
+    registerLayoutName(normalized,{displayName:trimmed,persist:true});
+    setActiveLayoutName(normalized);
+    persistLocalLayout(serializeLayout(),{name:normalized});
+    removeLocalLayout(previousName);
+    removeLayoutName(previousName,{persist:true});
+    refreshLayoutSelector();
+    updateLayoutControlStates();
+    if(typeof history!=='undefined' && history.replaceState){
+      const newParams=new URLSearchParams(location.search);
+      if(normalized===DEFAULT_LAYOUT_NAME){
+        newParams.delete('layout');
+      }else{
+        newParams.set('layout',normalized);
+      }
+      const newQuery=newParams.toString();
+      const newUrl=newQuery?`${location.pathname}?${newQuery}`:location.pathname;
+      history.replaceState(null,'',newUrl);
+    }
+    saveLayout();
+    deleteLayoutOnServer(previousName).then(data=>{
+      if(data && Array.isArray(data.available_layouts)){
+        incorporateAvailableLayouts(data.available_layouts);
+      }
+      setGridStatus('Layout renamed',{temporary:true});
+    }).catch(err=>{
+      console.warn('Failed to delete old layout during rename',err);
+      setGridStatus('Renamed locally — server unavailable',{temporary:true});
+    });
+  }
+
   function handleDeleteLayout(){
     if(!layoutName){
       alert('No layout selected.');
@@ -1654,6 +1727,7 @@
             <div class="grid-controls-group layout-controls">
               <label class="layout-selector">Layout: <select id="layout-selector"></select></label>
               <button type="button" id="new-layout">New Layout</button>
+              <button type="button" id="rename-layout">Rename Layout</button>
               <button type="button" id="delete-layout">Delete Layout</button>
             </div>
           </div>
@@ -1676,6 +1750,7 @@
         gridView.insertBefore(controlsEl,gridView.firstChild);
         gridStatusEl=controlsEl.querySelector('.grid-controls-status');
         layoutSelectorEl=controlsEl.querySelector('#layout-selector');
+        renameLayoutButton=controlsEl.querySelector('#rename-layout');
         deleteLayoutButton=controlsEl.querySelector('#delete-layout');
         if(layoutSelectorEl){
           layoutSelectorEl.addEventListener('change',event=>{
@@ -1688,6 +1763,7 @@
       }else{
         gridStatusEl=controls.querySelector('.grid-controls-status');
         layoutSelectorEl=controls.querySelector('#layout-selector');
+        renameLayoutButton=controls.querySelector('#rename-layout');
         deleteLayoutButton=controls.querySelector('#delete-layout');
       }
       refreshLayoutSelector();
@@ -1701,6 +1777,7 @@
       }
       gridStatusEl=null;
       layoutSelectorEl=null;
+      renameLayoutButton=null;
       deleteLayoutButton=null;
     }
     buildGrid();
@@ -2376,6 +2453,13 @@
         event.preventDefault();
         event.stopPropagation();
         handleDeleteLayout();
+        return;
+      }
+      const renameLayoutTrigger=event.target.closest('#rename-layout');
+      if(renameLayoutTrigger){
+        event.preventDefault();
+        event.stopPropagation();
+        handleRenameLayout();
         return;
       }
       const addButton=event.target.closest('#add-column');
