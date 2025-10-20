@@ -360,8 +360,8 @@
   const LAYOUT_NAMES_STORAGE_KEY=`${LAYOUT_STORAGE_KEY}:names`;
   const LAYOUT_ENDPOINT='/api/eink-block/layout';
   const DEFAULT_STATUS_MESSAGE='Edit Mode — click a block to change it';
-  const SAVE_REPEAT_COUNT=5;
-  const SAVE_REPEAT_INTERVAL_MS=3000;
+  const SAVE_RETRY_INTERVAL_MS=3000;
+  const REQUIRED_REMOTE_SAVE_MACHINES=2;
   let gridStatusEl=null;
   let gridStatusTimer=null;
   let saveSequence=0;
@@ -1249,6 +1249,7 @@
     let timer=null;
     let aborted=false;
     let currentName=layoutName || DEFAULT_LAYOUT_NAME;
+    const machinesSeen=new Set();
     const job={
       abort(){
         if(aborted) return;
@@ -1267,13 +1268,53 @@
       }
     };
 
+    const updateStatus=(finalSuccess=false)=>{
+      if(finalSuccess){
+        setGridStatus('Saved',{temporary:true});
+        return;
+      }
+      const machineCount=machinesSeen.size;
+      const statusParts=[`Saving (attempt ${attempt})`];
+      statusParts.push(`machines ${machineCount}/${REQUIRED_REMOTE_SAVE_MACHINES}`);
+      setGridStatus(statusParts.join(' — '));
+    };
+
+    const recordMachineIds=(response,data)=>{
+      if(!response) return;
+      const headerId=response.headers && response.headers.get ? response.headers.get('x-machine-id') : null;
+      if(headerId){
+        const trimmed=String(headerId).trim();
+        if(trimmed){
+          machinesSeen.add(trimmed);
+        }
+      }
+      const savedBy=data && typeof data==='object' ? data.saved_by || data.savedBy : null;
+      const machineId=savedBy && typeof savedBy==='object' ? savedBy.machine_id || savedBy.machineId : null;
+      if(machineId){
+        const trimmed=String(machineId).trim();
+        if(trimmed){
+          machinesSeen.add(trimmed);
+        }
+      }
+      const servedBy=data && typeof data==='object' ? data._served_by || data._servedBy : null;
+      const servedMachine=servedBy && typeof servedBy==='object' ? servedBy.machine_id || servedBy.machineId : null;
+      if(servedMachine){
+        const trimmed=String(servedMachine).trim();
+        if(trimmed){
+          machinesSeen.add(trimmed);
+        }
+      }
+    };
+
+    const shouldContinue=()=>machinesSeen.size<REQUIRED_REMOTE_SAVE_MACHINES;
+
     const performAttempt=()=>{
       if(aborted || current!==saveSequence) return;
       attempt+=1;
       const targetName=currentName||layoutName||DEFAULT_LAYOUT_NAME;
       const url=targetName?`${LAYOUT_ENDPOINT}?layout=${encodeURIComponent(targetName)}`:LAYOUT_ENDPOINT;
       controller=new AbortController();
-      setGridStatus(`Saving (${attempt}/${SAVE_REPEAT_COUNT})…`);
+      updateStatus();
       fetch(url,{
         method:'POST',
         headers:{'content-type':'application/json'},
@@ -1281,9 +1322,10 @@
         signal:controller.signal
       }).then(res=>{
         if(!res.ok) throw new Error('HTTP '+res.status);
-        return res.json();
-      }).then(data=>{
+        return res.json().then(data=>({res,data})).catch(()=>({res,data:null}));
+      }).then(({res,data})=>{
         if(aborted || current!==saveSequence) return;
+        recordMachineIds(res,data);
         if(data && Array.isArray(data.available_layouts)){
           incorporateAvailableLayouts(data.available_layouts);
         }
@@ -1299,8 +1341,8 @@
           setLayoutFromData(data.layout,{persist:true,rebuild:false,name:responseName});
         }
         currentName=layoutName;
-        if(attempt>=SAVE_REPEAT_COUNT){
-          setGridStatus('Saved',{temporary:true});
+        if(!shouldContinue()){
+          updateStatus(true);
           if(activeSaveJob===job){
             activeSaveJob=null;
           }
@@ -1313,21 +1355,15 @@
           return;
         }
         console.warn('Failed to save layout to server',err);
-        if(attempt>=SAVE_REPEAT_COUNT){
-          setGridStatus('Saved locally — server unavailable',{temporary:true});
-          if(activeSaveJob===job){
-            activeSaveJob=null;
-          }
-        }
       }).finally(()=>{
         if(aborted || current!==saveSequence){
           return;
         }
         controller=null;
-        if(attempt<SAVE_REPEAT_COUNT){
+        if(shouldContinue()){
           timer=setTimeout(()=>{
             performAttempt();
-          },SAVE_REPEAT_INTERVAL_MS);
+          },SAVE_RETRY_INTERVAL_MS);
         }else if(activeSaveJob===job){
           activeSaveJob=null;
         }
