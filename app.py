@@ -47,6 +47,8 @@ from fastapi.responses import (
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 
+from tickets_store import TicketStore
+
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
 if hasattr(time, "tzset"):
@@ -142,6 +144,9 @@ VEH_LOG_DIRS = [
     ).split(":")
 ]
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
+
+TICKETS_PATH = Path(os.getenv("TICKETS_PATH", str(PRIMARY_DATA_DIR / "tickets.json")))
+tickets_store = TicketStore(TICKETS_PATH)
 
 # Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
 SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
@@ -4142,6 +4147,30 @@ async def dispatcher_auth(
 async def dispatcher_logout(response: Response):
     response.delete_cookie(DISPATCH_COOKIE_NAME)
     return {"ok": True}
+
+
+@app.get("/api/tickets")
+async def list_tickets(includeClosed: bool = Query(False, alias="includeClosed")):
+    tickets = await tickets_store.list_tickets(include_closed=includeClosed)
+    return tickets
+
+
+@app.post("/api/tickets")
+async def create_ticket(payload: Dict[str, Any] = Body(...)):
+    try:
+        ticket = await tickets_store.create_ticket(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ticket
+
+
+@app.put("/api/tickets/{ticket_id}")
+async def update_ticket(ticket_id: str, payload: Dict[str, Any] = Body(...)):
+    try:
+        ticket = await tickets_store.update_ticket(ticket_id, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="ticket not found") from exc
+    return ticket
 
 
 @app.get("/dispatcher")
