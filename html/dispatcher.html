@@ -112,54 +112,25 @@ body:not(.lcars):not(.cyberpunk) .panel.downed-panel .panel-body{
   flex-direction:column;
   gap:16px;
 }
-.downed-table-wrapper{
+.downed-embed-wrapper{
   width:100%;
-  overflow-x:auto;
-}
-body:not(.lcars):not(.cyberpunk) #downed-table{
-  width:100%;
-  border-collapse:collapse;
-  margin-top:0;
+  border-radius:16px;
+  overflow:hidden;
   background:var(--downed-bg);
-  min-width:100%;
+  border:1px solid var(--downed-line);
+  box-shadow:0 18px 32px rgba(6,11,28,0.35);
 }
-body:not(.lcars):not(.cyberpunk) #downed-table thead th{
-  font-size:clamp(13px,0.95vw,15px);
-  color:var(--downed-muted);
-  text-transform:uppercase;
-  letter-spacing:.05em;
-  padding:12px 8px 10px;
-  border-bottom:1px solid var(--downed-line);
-  text-align:center;
-  white-space:nowrap;
+.downed-embed-frame{
+  display:block;
+  width:100%;
+  border:0;
+  height:600px;
+  background:transparent;
 }
-body:not(.lcars):not(.cyberpunk) #downed-table tbody td{
-  padding:10px 8px;
-  border-top:1px solid rgba(159,176,201,0.12);
-  vertical-align:top;
-  font-size:clamp(14px,1vw,17px);
-  line-height:1.45;
-  text-align:center;
-  white-space:nowrap;
+.downed-embed-frame:focus{
+  outline:2px solid #3a83f5;
+  outline-offset:2px;
 }
-body:not(.lcars):not(.cyberpunk) #downed-table tbody tr:nth-child(even){background:var(--downed-alt)}
-body:not(.lcars):not(.cyberpunk) #downed-table tbody tr:hover{background:var(--downed-soft)}
-body:not(.lcars):not(.cyberpunk) #downed-table tbody td.wrap-allowed{
-  white-space:normal;
-  word-break:break-word;
-  text-align:left;
-}
-body:not(.lcars):not(.cyberpunk) #downed-table tbody td.wrap-allowed>div+div{margin-top:6px}
-body:not(.lcars):not(.cyberpunk) #downed-table tbody td.vehicle-column{
-  font-size:clamp(18px,1.4vw,24px);
-  font-weight:700;
-  letter-spacing:.08em;
-  text-transform:uppercase;
-  white-space:nowrap;
-  word-break:normal;
-}
-body:not(.lcars):not(.cyberpunk) #downed-table tbody td strong{color:var(--downed-ink);font-weight:700}
-body:not(.lcars):not(.cyberpunk) #downed-table tbody td .hint{color:var(--downed-muted)}
 .ops-status{margin-bottom:8px}
 .ops-status:last-child{margin-bottom:0}
 body:not(.lcars):not(.cyberpunk) .status-pill{
@@ -239,13 +210,8 @@ body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel .panel-body{
   padding:0;
   gap:8px;
 }
-body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel .downed-table-wrapper{
+body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel .downed-embed-wrapper{
   flex:1;
-}
-body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel #downed-table thead th,
-body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel #downed-table tbody td{
-  font-size:14px;
-  padding:var(--kiosk-entry-padding) calc(var(--kiosk-entry-padding)*1.5);
 }
 #blocks-table{width:auto;table-layout:fixed}
 #blocks td{border:none;padding:2px 4px;text-align:center;width:12ch}
@@ -299,7 +265,7 @@ body.kiosk-mode #layout aside .panel h2{margin:0 0 8px;font-size:16px}
 body.kiosk-mode #layout aside .panel .panel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 body.kiosk-mode #layout aside .panel .panel-body table{flex:1;overflow:auto;width:100%}
 body.kiosk-mode #layout aside .panel .panel-body ul{flex:1;overflow:auto;margin:0;width:100%}
-body.kiosk-mode #blocks-table,body.kiosk-mode #downed-table{width:100%;table-layout:fixed}
+body.kiosk-mode #blocks-table{width:100%;table-layout:fixed}
 body.kiosk-mode #blocks td{width:clamp(11ch,25%,14ch)}
 body.kiosk-mode #blocks td .cell{min-height:var(--kiosk-block-height);max-height:var(--kiosk-block-height);padding:var(--kiosk-entry-padding) 0;gap:2px}
 body.kiosk-mode #blocks-grid .blocks-grid-table{gap:10px}
@@ -308,9 +274,7 @@ body.kiosk-mode #blocks-grid .cell .bus{font-size:20px}
 body.kiosk-mode #blocks-grid .cell .drivers{font-size:11px}
 body.kiosk-mode #extra-buses{grid-template-columns:repeat(auto-fill,minmax(11ch,1fr));grid-auto-rows:auto;gap:6px}
 body.kiosk-mode #extra-buses li{display:flex;align-items:center;justify-content:center;min-height:calc(1.2em + 2*var(--kiosk-entry-padding));padding:var(--kiosk-entry-padding) calc(var(--kiosk-entry-padding)*1.5)}
-body.kiosk-mode #downed-table th,body.kiosk-mode #downed-table td{width:50%}
-body.kiosk-mode #downed-table tbody tr{height:auto}
-body.kiosk-mode #downed-table tbody td{padding:var(--kiosk-entry-padding) calc(var(--kiosk-entry-padding)*1.5);line-height:1.1}
+body.kiosk-mode .downed-embed-frame{height:70vh}
 body.kiosk-mode iframe#map-frame{flex:1;border-left:1px solid #1f2630}
 body.kiosk-mode .credit{margin-top:auto;padding:8px 12px}
 body.cyberpunk.kiosk-mode #layout aside .panel{background:rgba(3,18,28,.92);border-color:rgba(117,247,255,.35);box-shadow:0 0 18px rgba(0,255,255,.18)}
@@ -589,13 +553,13 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
     <section class="panel downed-panel">
       <h2>Downed Buses</h2>
       <div class="panel-body">
-        <div class="downed-table-wrapper">
-          <table id="downed-table">
-            <thead>
-              <tr><th>Vehicle</th><th>Ops</th><th>Notes</th><th>Shop</th></tr>
-            </thead>
-            <tbody id="downed-rows"><tr><td class="hint" colspan="4">Loading…</td></tr></tbody>
-          </table>
+        <div class="downed-embed-wrapper">
+          <iframe
+            title="Downed buses overview"
+            src="/downed"
+            loading="lazy"
+            class="downed-embed-frame"
+          ></iframe>
         </div>
       </div>
     </section>
@@ -982,7 +946,6 @@ if(leftPane && mapFrame && splitter){
     applyLeftPaneWidth({fromResize:true});
   });
 }
-const DOWNED_TABLE_COLSPAN = KIOSK_MODE ? 2 : 4;
 if (KIOSK_MODE) {
   document.body.classList.add('kiosk-mode');
 }
@@ -993,21 +956,6 @@ if (LCARS_ENABLED) {
   url.pathname = '/radar';
   setMapFramePendingSource(url.pathname + url.search);
   activateCyberpunkMode();
-}
-
-if (KIOSK_MODE) {
-  const downedTable = document.getElementById('downed-table');
-  if (downedTable) {
-    const headers = downedTable.querySelectorAll('thead th');
-    headers.forEach((th, index) => {
-      if (index > 1) {
-        th.remove();
-      }
-    });
-    downedTable.querySelectorAll('tbody td[colspan]').forEach(cell => {
-      cell.colSpan = DOWNED_TABLE_COLSPAN;
-    });
-  }
 }
 
 const blocksGridEl = document.getElementById('blocks-grid');
@@ -3921,58 +3869,12 @@ function isBusDowned(busId){
 }
 
 function renderDownedVehicles(rows){
-  const tbody=$('#downed-rows');
-  if(!tbody) return;
   lastDownedRows=rows.slice();
   refreshDownedBusSets(rows);
   updateExtraBuses();
-  if(!rows.length){
-    tbody.innerHTML=`<tr><td class="hint" colspan="${DOWNED_TABLE_COLSPAN}">All buses available.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML=rows.map(row=>{
-    const opsStatusClass=statusClass(row.opsStatus);
-    const shouldPulse=row.opsStatus==='DOWNED';
-    const opsStatusClasses=['pill','status-pill'];
-    if(opsStatusClass) opsStatusClasses.push(opsStatusClass);
-    if(shouldPulse) opsStatusClasses.push('pulse-alert');
-    const statusChip=row.opsStatus
-      ? `<div class="ops-status"><span class="${opsStatusClasses.join(' ')}">${htmlEscape(statusLabel(row.opsStatus))}</span></div>`
-      : '';
-    const opsParts=[
-      statusChip,
-      row.opsDateText?`<div><strong>Reported:</strong> ${htmlEscape(row.opsDateText)}</div>`:'',
-      row.opsSupervisor?`<div class="hint">${htmlEscape(row.opsSupervisor)}</div>`:''
-    ].filter(Boolean).join('');
-    const notes=row.opsNotes?htmlEscapeMultiline(row.opsNotes):'<span class="hint">None</span>';
-    const shopStatusClass=statusClass(row.shopStatus);
-    const shopStatusClasses=['pill','status-pill'];
-    if(shopStatusClass) shopStatusClasses.push(shopStatusClass);
-    const shopParts=[
-      row.shopStatus?`<div class="shop-status"><strong>Status:</strong> <span class="${shopStatusClasses.join(' ')}">${htmlEscape(statusLabel(row.shopStatus))}</span></div>`:'',
-      row.shopDiagDateText||row.shopMechanic
-        ? `<div><strong>Diag:</strong> ${htmlEscape(row.shopDiagDateText||'—')}${row.shopMechanic?` <span class="hint">${htmlEscape(row.shopMechanic)}</span>`:''}</div>`
-        : '',
-      row.shopDiagNotes?`<div>${htmlEscapeMultiline(row.shopDiagNotes)}</div>`:'',
-      row.shopETA?`<div><strong>ETA:</strong> ${htmlEscape(row.shopETA)}</div>`:'',
-      row.shopActualDeliveryText?`<div><strong>Delivery:</strong> ${htmlEscape(row.shopActualDeliveryText)}</div>`:''
-    ].filter(Boolean);
-    if(!shopParts.length) shopParts.push('<div class="hint">No shop updates yet.</div>');
-    const cells=[
-      `<td class="vehicle-column">${htmlEscape(row.vehicleId)}</td>`,
-      `<td class="wrap-allowed">${opsParts||'<span class="hint">—</span>'}</td>`
-    ];
-    if(!KIOSK_MODE){
-      cells.push(`<td class="wrap-allowed">${notes}</td>`);
-      cells.push(`<td class="wrap-allowed">${shopParts.join('')}</td>`);
-    }
-    return `<tr>${cells.join('')}</tr>`;
-  }).join('');
 }
 
 async function loadDownedBuses(){
-  const tbody=$('#downed-rows');
-  if(!tbody) return;
   try{
     const res=await fetch(DOWNED_ENDPOINT,{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
@@ -3985,9 +3887,6 @@ async function loadDownedBuses(){
     const downed=records.filter(r=>r.isDown);
     renderDownedVehicles(downed);
   }catch(err){
-    if(!lastDownedRows.length){
-      tbody.innerHTML=`<tr><td class="hint" colspan="${DOWNED_TABLE_COLSPAN}">Unable to load.</td></tr>`;
-    }
     console.error('Failed to load downed buses sheet', err);
   }
 }
