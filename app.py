@@ -818,7 +818,6 @@ APICALLS_HTML = _load_html("apicalls.html")
 DEBUG_HTML = _load_html("debug.html")
 REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
-TRANSLOC_HTML = _load_html("transloc.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 BUS_TABLE_HTML = _load_html("buses.html")
@@ -4166,11 +4165,6 @@ async def ridership_page(request: Request):
 # ---------------------------
 # TRANSLOC TICKER PAGE
 # ---------------------------
-@app.get("/transloc")
-async def transloc_page():
-    return HTMLResponse(TRANSLOC_HTML)
-
-
 @app.get("/transloc_ticker")
 async def transloc_ticker_page():
     return HTMLResponse(TRANSLOC_TICKER_HTML)
