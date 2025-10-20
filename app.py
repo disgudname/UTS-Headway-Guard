@@ -2304,6 +2304,11 @@ def _build_driver_assignments(
             continue
         if end_dt <= start_dt:
             end_dt += timedelta(days=1)
+        # Hide shifts that have already concluded so dispatcher only sees
+        # current or upcoming assignments even when we query the previous
+        # service day overnight.
+        if end_dt <= now:
+            continue
         period = explicit_period or ("am" if start_dt.hour < 12 else "pm")
         if period == "any":
             pass
