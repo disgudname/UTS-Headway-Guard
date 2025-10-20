@@ -27,6 +27,11 @@
       icon: '/media/dispatcher.svg'
     },
     {
+      href: 'https://uva-uts.transloc.com/secure/dispatch/',
+      label: 'TransLoc',
+      icon: '/media/transloc.svg'
+    },
+    {
       href: '/map',
       label: 'Live Map',
       icon: '/media/map.svg'
