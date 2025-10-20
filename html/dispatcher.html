@@ -650,9 +650,19 @@ function applyHowellFontOverride(){
   if(applyHowellFontOverride.done) return;
   const styleEl=document.getElementById('dispatcher-style');
   if(styleEl){
-    const text=styleEl.textContent||'';
+    let text=styleEl.textContent||'';
+    let updated=false;
     if(text.includes('FGDC.ttf')){
-      styleEl.textContent=text.replace(/FGDC\.ttf/g,'centurygothic.ttf');
+      text=text.replace(/FGDC\.ttf/g,'centurygothic.ttf');
+      updated=true;
+    }
+    if(!text.includes('FGDC-Nav')){
+      const navFontCss=`\n@font-face{font-family:'FGDC-Nav';src:url('FGDC.ttf') format('truetype');font-display:swap;}\nbody.howell-mode #hg-nav,body.howell-mode #hg-nav *,body.howell-mode #hg-nav *::before,body.howell-mode #hg-nav *::after{font-family:'FGDC-Nav' !important;}`;
+      text+=navFontCss;
+      updated=true;
+    }
+    if(updated){
+      styleEl.textContent=text;
     }
   }
   applyHowellFontOverride.done=true;
