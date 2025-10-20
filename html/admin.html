@@ -21,6 +21,8 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 .modal h2{margin:0 0 12px;font-size:20px;}
 .modal p{margin:0 0 20px;line-height:1.4;}
 .modal button{margin-top:0;width:100%;}
+.progress{width:100%;height:12px;border-radius:6px;background:#15202b;overflow:hidden;margin-top:16px;}
+.progress-bar{height:100%;width:0;background:#3a8ef6;transition:width .3s ease;}
 </style>
 <button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
 <div class="modal-overlay" id="adminWarning">
@@ -28,6 +30,14 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
     <h2>Heads Up!</h2>
     <p>Hey! There are a lot of delicate settings here! Are you certain whatever you're doing is worth it?</p>
     <button type="button" id="adminWarningAck">Yep, I'm prepared to break things</button>
+  </div>
+</div>
+<div class="modal-overlay" id="savingModal" style="display:none;">
+  <div class="modal">
+    <h2>Saving, please do not close this page</h2>
+    <div class="progress">
+      <div class="progress-bar" id="savingProgress"></div>
+    </div>
   </div>
 </div>
 <h1>UTS Operations Dashboard Admin</h1>
@@ -81,6 +91,7 @@ async function load(){
     secretRoot.appendChild(notice);
   }
 }
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function save(){
   const form=document.getElementById('cfg');
   const data={};
@@ -93,8 +104,32 @@ async function save(){
       data[el.name]=isNaN(num)?el.value:num;
     }
   }
-  await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-  alert('Saved!');
+  if(saveButton) saveButton.disabled=true;
+  if(savingProgress) savingProgress.style.width='0%';
+  if(savingModal) savingModal.style.display='flex';
+  try{
+    for(let attempt=0;attempt<5;attempt++){
+      const resp=await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      if(!resp.ok){
+        throw new Error('Failed to save configuration');
+      }
+      if(savingProgress){
+        const pct=Math.round(((attempt+1)/5)*100);
+        savingProgress.style.width=`${pct}%`;
+      }
+      if(attempt<4){
+        await delay(3000);
+      }
+    }
+    alert('Saved!');
+  }catch(err){
+    console.error('Failed to save configuration',err);
+    alert('Unable to save configuration. Please try again.');
+  }finally{
+    if(savingModal) savingModal.style.display='none';
+    if(savingProgress) savingProgress.style.width='0%';
+    if(saveButton) saveButton.disabled=false;
+  }
 }
 function buildReturnTarget(){
   const path=window.location.pathname||'/';
@@ -106,7 +141,15 @@ function redirectToLogin(){
   const target=buildReturnTarget();
   window.location.href=`/login?return=${encodeURIComponent(target)}`;
 }
-document.getElementById('save').onclick=save;
+const saveButton=document.getElementById('save');
+const savingModal=document.getElementById('savingModal');
+const savingProgress=document.getElementById('savingProgress');
+if(saveButton){
+  saveButton.addEventListener('click',evt=>{
+    evt.preventDefault();
+    save();
+  });
+}
 document.getElementById('forceRefresh').onclick=()=>{
   fetch('/v1/servicecrew/refresh',{method:'POST'});
 };
