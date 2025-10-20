@@ -108,18 +108,32 @@ async function save(){
   if(savingProgress) savingProgress.style.width='0%';
   if(savingModal) savingModal.style.display='flex';
   try{
+    let success=false;
+    let lastError=null;
     for(let attempt=0;attempt<5;attempt++){
-      const resp=await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-      if(!resp.ok){
-        throw new Error('Failed to save configuration');
+      try{
+        const resp=await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+        if(!resp.ok){
+          throw new Error('Failed to save configuration');
+        }
+        success=true;
+        lastError=null;
+      }catch(err){
+        lastError=err;
       }
       if(savingProgress){
         const pct=Math.round(((attempt+1)/5)*100);
-        savingProgress.style.width=`${pct}%`;
+        savingProgress.style.width=`${success?100:pct}%`;
+      }
+      if(success){
+        break;
       }
       if(attempt<4){
         await delay(3000);
       }
+    }
+    if(!success){
+      throw lastError||new Error('Failed to save configuration');
     }
     alert('Saved!');
   }catch(err){
