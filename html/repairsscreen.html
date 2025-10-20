@@ -361,8 +361,11 @@
           throw new Error(`Request failed: ${res.status}`);
         }
         const data = await res.json();
+        const tickets = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.tickets) ? data.tickets : []);
         errorEl.style.display = 'none';
-        renderTickets(Array.isArray(data) ? data : []);
+        renderTickets(tickets);
       } catch (err) {
         errorEl.style.display = 'block';
         errorEl.textContent = 'Unable to load ticket data right now.';
