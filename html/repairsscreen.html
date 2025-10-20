@@ -354,7 +354,7 @@
     async function loadTickets() {
       const errorEl = document.getElementById('error');
       try {
-        const res = await fetch('/api/signage', { cache: 'no-store' });
+        const res = await fetch('/tickets', { cache: 'no-store' });
         if (!res.ok) {
           throw new Error(`Request failed: ${res.status}`);
         }
