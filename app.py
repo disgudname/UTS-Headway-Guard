@@ -870,6 +870,26 @@ CONFIG_KEYS = [
 CONFIG_NAME = "config.json"
 CONFIG_FILE = PRIMARY_DATA_DIR / CONFIG_NAME
 
+CONFIG_METADATA: Dict[str, Any] = {}
+
+def _current_machine_info() -> Dict[str, str]:
+    machine_id = os.getenv("FLY_MACHINE_ID") or os.getenv("FLY_ALLOC_ID") or "unknown"
+    region = os.getenv("FLY_REGION") or "unknown"
+    return {"machine_id": machine_id, "region": region}
+
+
+def _provenance_headers(info: Dict[str, str]) -> Dict[str, str]:
+    return {"X-Machine-Id": info["machine_id"], "X-Region": info["region"]}
+
+
+def _base_response_fields(ok: bool, saved: bool, info: Dict[str, str]) -> Dict[str, Any]:
+    return {
+        "ok": ok,
+        "saved": saved,
+        "saved_by": info,
+        "_served_by": info,
+    }
+
 EINK_BLOCK_LAYOUT_NAME = "eink_block_layout.json"
 
 class TTLCache:
@@ -907,6 +927,7 @@ class PerKeyTTLCache:
 
 
 def load_config() -> None:
+    global CONFIG_METADATA
     for base in DATA_DIRS:
         path = base / CONFIG_NAME
         if not path.exists():
@@ -916,7 +937,16 @@ def load_config() -> None:
         except Exception as e:
             print(f"[load_config] error: {e}")
             continue
-        for k, v in data.items():
+        metadata: Dict[str, Any] = {}
+        if isinstance(data, dict):
+            candidate = data.get("_metadata") or data.get("metadata")
+            if isinstance(candidate, dict):
+                metadata = candidate
+            config_source = data.get("config") if isinstance(data.get("config"), dict) else data
+        else:
+            config_source = {}
+        CONFIG_METADATA = metadata
+        for k, v in config_source.items():
             if k in CONFIG_KEYS:
                 cur = globals().get(k)
                 if isinstance(cur, list):
@@ -928,12 +958,24 @@ def load_config() -> None:
                         globals()[k] = v
         return
 
-def save_config() -> None:
+
+def save_config(provenance: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, Any], bool]:
+    global CONFIG_METADATA
+    info = provenance or _current_machine_info()
+    metadata = {
+        "saved_at": int(time.time()),
+        "machine_id": info.get("machine_id", "unknown"),
+        "region": info.get("region", "unknown"),
+    }
+    CONFIG_METADATA = metadata
+    payload_map = {k: globals().get(k) for k in CONFIG_KEYS}
+    payload_map["_metadata"] = metadata
     try:
-        payload = json.dumps({k: globals().get(k) for k in CONFIG_KEYS})
+        payload = json.dumps(payload_map)
     except Exception as e:
         print(f"[save_config] encode error: {e}")
-        return
+        return metadata, False
+    success = True
     for base in DATA_DIRS:
         path = base / CONFIG_NAME
         try:
@@ -941,7 +983,10 @@ def save_config() -> None:
             path.write_text(payload)
         except Exception as e:
             print(f"[save_config] error writing {path}: {e}")
-    propagate_file(CONFIG_NAME, payload)
+            success = False
+    if success:
+        propagate_file(CONFIG_NAME, payload)
+    return metadata, success
 
 
 load_config()
@@ -1055,18 +1100,25 @@ def _normalize_layout(layout: Any) -> List[List[Any]]:
     return _trim_layout_edges(normalized)
 
 
-def _decode_layout_payload(payload: Any) -> Tuple[List[List[Any]], Optional[int]]:
+def _decode_layout_payload(payload: Any) -> Tuple[List[List[Any]], Optional[int], Optional[Dict[str, Any]]]:
     layout_data: Any
     updated_at: Optional[int] = None
+    saved_by: Optional[Dict[str, Any]] = None
     if isinstance(payload, dict):
         layout_data = payload.get("layout")
         ts = payload.get("updated_at")
         if isinstance(ts, (int, float)):
             updated_at = int(ts)
+        sb = payload.get("saved_by")
+        if isinstance(sb, dict):
+            saved_by = {
+                "machine_id": sb.get("machine_id"),
+                "region": sb.get("region"),
+            }
     else:
         layout_data = payload
     layout = _normalize_layout(layout_data)
-    return layout, updated_at
+    return layout, updated_at, saved_by
 
 
 def _normalize_layout_identifier(layout_id: Any) -> str:
@@ -1088,15 +1140,21 @@ def _decode_layout_collection(raw: Any) -> Dict[str, Dict[str, Any]]:
     layouts: Dict[str, Dict[str, Any]] = {}
     if isinstance(raw, dict) and isinstance(raw.get("layouts"), dict):
         for key, value in raw["layouts"].items():
-            layout, updated_at = _decode_layout_payload(value)
+            layout, updated_at, saved_by = _decode_layout_payload(value)
             if not layout:
                 continue
             identifier = _normalize_layout_identifier(key)
-            layouts[identifier] = {"layout": layout, "updated_at": updated_at}
+            entry: Dict[str, Any] = {"layout": layout, "updated_at": updated_at}
+            if saved_by:
+                entry["saved_by"] = saved_by
+            layouts[identifier] = entry
     else:
-        layout, updated_at = _decode_layout_payload(raw)
+        layout, updated_at, saved_by = _decode_layout_payload(raw)
         if layout:
-            layouts["default"] = {"layout": layout, "updated_at": updated_at}
+            entry = {"layout": layout, "updated_at": updated_at}
+            if saved_by:
+                entry["saved_by"] = saved_by
+            layouts["default"] = entry
     return layouts
 
 
@@ -1144,18 +1202,34 @@ def load_eink_block_layout(layout_id: Optional[str] = None) -> Tuple[List[List[A
     return layout, updated_at, requested_id, store
 
 
-def save_eink_block_layout(layout_payload: Any, layout_id: Optional[str] = None) -> Tuple[List[List[Any]], int, str, Dict[str, Dict[str, Any]]]:
+def save_eink_block_layout(
+    layout_payload: Any,
+    layout_id: Optional[str] = None,
+    provenance: Optional[Dict[str, str]] = None,
+) -> Tuple[List[List[Any]], int, str, Dict[str, Dict[str, Any]]]:
     layout = _normalize_layout(layout_payload)
     if not layout:
         raise ValueError("layout must contain at least one column")
     store = _read_eink_layout_store()
     identifier = _normalize_layout_identifier(layout_id)
     timestamp = int(time.time())
-    store[identifier] = {"layout": layout, "updated_at": timestamp}
-    serialized_layouts = {
-        key: {"layout": value["layout"], "updated_at": value.get("updated_at")}
-        for key, value in store.items()
-    }
+    entry: Dict[str, Any] = {"layout": layout, "updated_at": timestamp}
+    info = provenance or _current_machine_info()
+    if info:
+        entry["saved_by"] = {
+            "machine_id": info.get("machine_id", "unknown"),
+            "region": info.get("region", "unknown"),
+        }
+    store[identifier] = entry
+    serialized_layouts: Dict[str, Dict[str, Any]] = {}
+    for key, value in store.items():
+        item: Dict[str, Any] = {
+            "layout": value["layout"],
+            "updated_at": value.get("updated_at"),
+        }
+        if value.get("saved_by"):
+            item["saved_by"] = value.get("saved_by")
+        serialized_layouts[key] = item
     payload = {
         "layouts": serialized_layouts,
         "updated_at": timestamp,
@@ -2429,28 +2503,39 @@ async def update_eink_block_layout(
     layout_key: Optional[str] = Query(None, alias="layoutKey"),
     layout_query: Optional[str] = Query(None, alias="layout"),
 ):
+    machine_info = _current_machine_info()
+    headers = _provenance_headers(machine_info)
     layout_payload = payload.get("layout") if isinstance(payload, dict) else payload
     if layout_payload is None:
-        raise HTTPException(status_code=400, detail="layout is required")
+        body = _base_response_fields(False, False, machine_info)
+        body["error"] = "layout is required"
+        return JSONResponse(body, status_code=400, headers=headers)
     try:
         identifier = _determine_layout_identifier(
             payload, layout_id, layout_name, layout_key, layout_query
         )
         layout, updated_at, resolved_id, store = save_eink_block_layout(
-            layout_payload, identifier
+            layout_payload, identifier, machine_info
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        body = _base_response_fields(False, False, machine_info)
+        body["error"] = str(exc)
+        return JSONResponse(body, status_code=400, headers=headers)
     except Exception as exc:
         print(f"[eink_layout] error saving layout: {exc}")
-        raise HTTPException(status_code=500, detail="failed to save layout") from exc
-    return {
-        "ok": True,
-        "layout": layout,
-        "updated_at": updated_at,
-        "layout_id": resolved_id,
-        "available_layouts": sorted(store.keys()),
-    }
+        body = _base_response_fields(False, False, machine_info)
+        body["error"] = "failed to save layout"
+        return JSONResponse(body, status_code=500, headers=headers)
+    response_body = _base_response_fields(True, True, machine_info)
+    response_body.update(
+        {
+            "layout": layout,
+            "updated_at": updated_at,
+            "layout_id": resolved_id,
+            "available_layouts": sorted(store.keys()),
+        }
+    )
+    return JSONResponse(response_body, headers=headers)
 
 
 @app.delete("/api/eink-block/layout")
@@ -3837,20 +3922,36 @@ async def get_config():
 
 @app.post("/v1/config")
 async def set_config(payload: Dict[str, Any]):
-    for k, v in payload.items():
-        if k in CONFIG_KEYS:
-            cur = globals().get(k)
-            if isinstance(cur, list):
-                if not isinstance(v, list):
-                    v = [x.strip() for x in str(v).split(',') if x.strip()]
-                globals()[k] = v
-            else:
-                try:
-                    globals()[k] = type(cur)(v)
-                except Exception:
+    machine_info = _current_machine_info()
+    headers = _provenance_headers(machine_info)
+    try:
+        for k, v in payload.items():
+            if k in CONFIG_KEYS:
+                cur = globals().get(k)
+                if isinstance(cur, list):
+                    if not isinstance(v, list):
+                        v = [x.strip() for x in str(v).split(',') if x.strip()]
                     globals()[k] = v
-    save_config()
-    return {k: globals().get(k) for k in CONFIG_KEYS}
+                else:
+                    try:
+                        globals()[k] = type(cur)(v)
+                    except Exception:
+                        globals()[k] = v
+        metadata, success = save_config(machine_info)
+    except Exception as exc:
+        print(f"[config] error updating config: {exc}")
+        body = _base_response_fields(False, False, machine_info)
+        body["error"] = "failed to update config"
+        return JSONResponse(body, status_code=500, headers=headers)
+    if not success:
+        body = _base_response_fields(False, False, machine_info)
+        body["error"] = "failed to persist config"
+        return JSONResponse(body, status_code=500, headers=headers)
+    config_snapshot = {k: globals().get(k) for k in CONFIG_KEYS}
+    response_body = _base_response_fields(True, True, machine_info)
+    response_body.update(config_snapshot)
+    response_body["saved_at"] = metadata.get("saved_at") if metadata else None
+    return JSONResponse(response_body, headers=headers)
 
 
 @app.get("/v1/secrets")
