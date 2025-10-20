@@ -161,24 +161,6 @@
   .pill span+span{
     margin-left:6px;
   }
-  .pill.pulse-alert::after{
-    content:'';
-    position:absolute;
-    inset:0;
-    border-radius:inherit;
-    background:none;
-    color:var(--pill-bg);
-    opacity:0.6;
-    box-shadow:0 0 0 0 currentColor;
-    z-index:-1;
-    animation:statusPulse 1.8s ease-out infinite;
-    pointer-events:none;
-  }
-  @keyframes statusPulse{
-    0%{opacity:0.6; box-shadow:0 0 0 0 currentColor;}
-    70%{opacity:0.15; box-shadow:0 0 0 18px currentColor;}
-    100%{opacity:0; box-shadow:0 0 0 18px currentColor;}
-  }
   .pill.down,
   .pill.downed{
     --pill-bg:var(--pill-down);
@@ -754,10 +736,6 @@ function renderSection(section){
         if(text && cls){
           const pill=document.createElement('span');
           pill.classList.add('pill', cls);
-          if(!hasDiagnosticDate){
-            pill.classList.add('pulse-alert');
-          }
-
           const label=document.createElement('span');
           label.textContent=text;
           pill.appendChild(label);
@@ -793,9 +771,6 @@ function renderSection(section){
       const pill=document.createElement('span');
       pill.className='pill';
       if(statusCls) pill.classList.add(statusCls);
-      if(!hasDiagnosticDate){
-        pill.classList.add('pulse-alert');
-      }
       const label=document.createElement('span');
       label.textContent=statusText;
       pill.appendChild(label);
@@ -830,9 +805,6 @@ function renderSection(section){
           const pill=document.createElement('span');
           pill.className='pill';
           pill.classList.add(cls);
-          if(!hasDiagnosticDate){
-            pill.classList.add('pulse-alert');
-          }
           const label=document.createElement('span');
           label.textContent=value;
           pill.appendChild(label);
