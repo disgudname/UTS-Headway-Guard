@@ -27,7 +27,7 @@
       icon: '/media/dispatcher.svg'
     },
     {
-      href: 'https://uva-uts.transloc.com/secure/dispatch/',
+      href: '/transloc',
       label: 'TransLoc',
       icon: '/media/transloc.svg'
     },
