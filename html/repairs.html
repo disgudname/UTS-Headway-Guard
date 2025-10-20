@@ -416,17 +416,61 @@
       ticketsBody.innerHTML = '';
       tickets.forEach((ticket) => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${ticket.vehicle_label || ''}</td>
-          <td>${formatDate(ticket.reported_at)}</td>
-          <td>${ticket.ops_status ? `<span class="pill ${OPS_CLASS[ticket.ops_status] || ''}">${ticket.ops_status}</span>` : ''}</td>
-          <td>${ticket.shop_status ? `<span class="pill ${SHOP_CLASS[ticket.shop_status] || ''}">${ticket.shop_status}</span>` : ''}</td>
-          <td>${ticket.mechanic || ''}</td>
-          <td>${formatDate(ticket.started_at)}</td>
-          <td>${formatDate(ticket.completed_at)}</td>
-          <td>${[ticket.ops_description, ticket.diagnosis_text].filter(Boolean).join('<br><br>')}</td>
-          <td></td>
-        `;
+
+        const vehicleCell = document.createElement('td');
+        vehicleCell.textContent = ticket.vehicle_label || '';
+        tr.appendChild(vehicleCell);
+
+        const reportedCell = document.createElement('td');
+        reportedCell.textContent = formatDate(ticket.reported_at);
+        tr.appendChild(reportedCell);
+
+        const opsStatusCell = document.createElement('td');
+        if (ticket.ops_status) {
+          const span = document.createElement('span');
+          span.className = `pill ${OPS_CLASS[ticket.ops_status] || ''}`.trim();
+          span.textContent = ticket.ops_status;
+          opsStatusCell.appendChild(span);
+        }
+        tr.appendChild(opsStatusCell);
+
+        const shopStatusCell = document.createElement('td');
+        if (ticket.shop_status) {
+          const span = document.createElement('span');
+          span.className = `pill ${SHOP_CLASS[ticket.shop_status] || ''}`.trim();
+          span.textContent = ticket.shop_status;
+          shopStatusCell.appendChild(span);
+        }
+        tr.appendChild(shopStatusCell);
+
+        const mechanicCell = document.createElement('td');
+        mechanicCell.textContent = ticket.mechanic || '';
+        tr.appendChild(mechanicCell);
+
+        const startedCell = document.createElement('td');
+        startedCell.textContent = formatDate(ticket.started_at);
+        tr.appendChild(startedCell);
+
+        const completedCell = document.createElement('td');
+        completedCell.textContent = formatDate(ticket.completed_at);
+        tr.appendChild(completedCell);
+
+        const descriptionCell = document.createElement('td');
+        const descriptions = [ticket.ops_description, ticket.diagnosis_text].filter(Boolean);
+        descriptions.forEach((desc, index) => {
+          const span = document.createElement('span');
+          span.textContent = desc;
+          descriptionCell.appendChild(span);
+          if (index < descriptions.length - 1) {
+            descriptionCell.appendChild(document.createElement('br'));
+            descriptionCell.appendChild(document.createElement('br'));
+          }
+        });
+        tr.appendChild(descriptionCell);
+
+        const actionsCell = document.createElement('td');
+        tr.appendChild(actionsCell);
+
         const actions = document.createElement('div');
         actions.className = 'row-actions';
         const editBtn = document.createElement('button');
@@ -467,7 +511,7 @@
         });
         actions.appendChild(completeBtn);
 
-        tr.lastElementChild.appendChild(actions);
+        actionsCell.appendChild(actions);
         ticketsBody.appendChild(tr);
       });
     }
