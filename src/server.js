@@ -158,7 +158,7 @@ async function bootstrap() {
     }
   };
 
-  app.get('/api/tickets', listTicketsHandler(false));
+  app.get('/api/tickets', listTicketsHandler(true));
   app.get('/tickets', listTicketsHandler(true));
 
   const createTicketHandler = (includeMachineInfo = false) => async (req, res) => {
@@ -267,7 +267,7 @@ async function bootstrap() {
     }
   };
 
-  app.post('/api/tickets', createTicketHandler(false));
+  app.post('/api/tickets', createTicketHandler(true));
   app.post('/tickets', createTicketHandler(true));
 
   const updateTicketHandler = (includeMachineInfo = false) => async (req, res) => {
@@ -312,7 +312,7 @@ async function bootstrap() {
     }
   };
 
-  app.put('/api/tickets/:id', updateTicketHandler(false));
+  app.put('/api/tickets/:id', updateTicketHandler(true));
   app.put('/tickets/:id', updateTicketHandler(true));
 
   app.get('/api/export.csv', (req, res) => {

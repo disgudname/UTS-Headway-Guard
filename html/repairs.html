@@ -544,11 +544,13 @@
         } catch (jsonErr) {
           throw new Error('Invalid server response');
         }
-        const machineId = lastResponse?.machine_id || lastResponse?.machineId;
+        const machineId =
+          lastResponse?.machine_id ||
+          lastResponse?.machineId ||
+          lastResponse?.ticket?.machine_id ||
+          lastResponse?.ticket?.machineId;
         if (machineId) {
           machineIds.add(machineId);
-        } else {
-          break;
         }
         if (machineIds.size >= 2) {
           break;
