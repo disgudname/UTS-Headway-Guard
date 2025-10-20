@@ -3652,6 +3652,7 @@ _MEDIA_ASSETS: dict[str, str] = {
     "replay.svg": "image/svg+xml",
     "downed.svg": "image/svg+xml",
     "testmap.svg": "image/svg+xml",
+    "transloc.svg": "image/svg+xml",
 }
 
 
