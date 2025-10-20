@@ -92,6 +92,8 @@ async function load(){
   }
 }
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const REQUIRED_CONFIG_SAVE_MACHINES=2;
+const CONFIG_SAVE_RETRY_DELAY_MS=3000;
 async function save(){
   const form=document.getElementById('cfg');
   const data={};
@@ -108,31 +110,64 @@ async function save(){
   if(savingProgress) savingProgress.style.width='0%';
   if(savingModal) savingModal.style.display='flex';
   try{
-    let success=false;
     let lastError=null;
-    for(let attempt=0;attempt<5;attempt++){
+    let attempt=0;
+    const machinesSeen=new Set();
+    const recordMachine=(resp,data)=>{
+      if(!resp) return;
+      const headerMachine=resp.headers && resp.headers.get ? resp.headers.get('x-machine-id') : null;
+      if(headerMachine){
+        const trimmed=String(headerMachine).trim();
+        if(trimmed){
+          machinesSeen.add(trimmed);
+        }
+      }
+      const savedBy=data && typeof data==='object' ? data.saved_by || data.savedBy : null;
+      const savedMachine=savedBy && typeof savedBy==='object' ? savedBy.machine_id || savedBy.machineId : null;
+      if(savedMachine){
+        const trimmed=String(savedMachine).trim();
+        if(trimmed){
+          machinesSeen.add(trimmed);
+        }
+      }
+      const servedBy=data && typeof data==='object' ? data._served_by || data._servedBy : null;
+      const servedMachine=servedBy && typeof servedBy==='object' ? servedBy.machine_id || servedBy.machineId : null;
+      if(servedMachine){
+        const trimmed=String(servedMachine).trim();
+        if(trimmed){
+          machinesSeen.add(trimmed);
+        }
+      }
+    };
+    while(machinesSeen.size<REQUIRED_CONFIG_SAVE_MACHINES){
+      attempt+=1;
       try{
         const resp=await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
         if(!resp.ok){
           throw new Error('Failed to save configuration');
         }
-        success=true;
+        let payload=null;
+        try{
+          payload=await resp.json();
+        }catch(_err){
+          payload=null;
+        }
+        recordMachine(resp,payload);
         lastError=null;
       }catch(err){
         lastError=err;
       }
       if(savingProgress){
-        const pct=Math.round(((attempt+1)/5)*100);
-        savingProgress.style.width=`${success?100:pct}%`;
+        const pct=machinesSeen.size>=REQUIRED_CONFIG_SAVE_MACHINES
+          ? 100
+          : Math.max(10, Math.round((machinesSeen.size/REQUIRED_CONFIG_SAVE_MACHINES)*100));
+        savingProgress.style.width=`${pct}%`;
       }
-      if(success){
-        break;
-      }
-      if(attempt<4){
-        await delay(3000);
+      if(machinesSeen.size<REQUIRED_CONFIG_SAVE_MACHINES){
+        await delay(CONFIG_SAVE_RETRY_DELAY_MS);
       }
     }
-    if(!success){
+    if(machinesSeen.size<REQUIRED_CONFIG_SAVE_MACHINES){
       throw lastError||new Error('Failed to save configuration');
     }
     alert('Saved!');
