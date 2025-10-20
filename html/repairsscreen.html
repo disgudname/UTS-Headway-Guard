@@ -276,7 +276,7 @@
           const tr = document.createElement('tr');
 
           const vehicleCell = document.createElement('td');
-          vehicleCell.textContent = ticket.vehicle || 'Unknown';
+          vehicleCell.textContent = ticket.vehicle_label || ticket.vehicle || 'Unknown';
           vehicleCell.className = 'vehicle';
           tr.appendChild(vehicleCell);
 
