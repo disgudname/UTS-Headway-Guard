@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 import httpx
 from collections import deque, defaultdict
@@ -2345,6 +2345,9 @@ def _redact_w2w_error(message: str) -> str:
 async def _fetch_w2w_assignments():
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
+    service_day = now
+    if now.time() < dtime(hour=2, minute=30):
+        service_day = now - timedelta(days=1)
     if not W2W_KEY:
         return {
             "disabled": True,
@@ -2352,8 +2355,8 @@ async def _fetch_w2w_assignments():
             "assignments_by_block": {},
         }
     params = {
-        "start_date": f"{now.month}/{now.day}/{now.year}",
-        "end_date": f"{now.month}/{now.day}/{now.year}",
+        "start_date": f"{service_day.month}/{service_day.day}/{service_day.year}",
+        "end_date": f"{service_day.month}/{service_day.day}/{service_day.year}",
         "key": W2W_KEY,
     }
     url = httpx.URL(W2W_ASSIGNED_SHIFT_URL)
