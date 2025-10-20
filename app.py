@@ -827,6 +827,9 @@ EINK_BLOCK_HTML = _load_html("eink-block.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
 LOGIN_HTML = _load_html("login.html")
+REPAIRS_HTML = _load_html("repairs.html")
+REPAIRS_SCREEN_HTML = _load_html("repairsscreen.html")
+REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -4153,12 +4156,33 @@ async def dispatcher_page(request: Request):
 async def downed_page():
     return HTMLResponse(DOWNED_HTML)
 
+
+@app.get("/repairsscreen")
+async def repairs_screen_page():
+    return HTMLResponse(REPAIRS_SCREEN_HTML)
+
 # ---------------------------
 # API CALLS PAGE
 # ---------------------------
 @app.get("/apicalls")
 async def apicalls_page():
     return HTMLResponse(APICALLS_HTML)
+
+
+@app.get("/repairs")
+async def repairs_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(REPAIRS_HTML)
+    return _login_redirect(request)
+
+
+@app.get("/repairsexport")
+async def repairs_export_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(REPAIRS_EXPORT_HTML)
+    return _login_redirect(request)
 
 # ---------------------------
 # RIDERSHIP PAGE
