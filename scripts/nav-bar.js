@@ -115,6 +115,55 @@
       padding:10px 6px;
       box-sizing:border-box;
     }
+    #${NAV_ID} .hg-nav__auth{
+      flex:0 0 auto;
+      color:inherit;
+      border-radius:18px;
+      background:rgba(0,0,0,0.22);
+      border:1px solid rgba(255,255,255,0.12);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      text-align:center;
+      padding:14px 12px;
+      box-sizing:border-box;
+    }
+    #${NAV_ID} .hg-nav__auth-info{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      align-items:center;
+      font-size:12px;
+      color:rgba(255,255,255,0.82);
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+    }
+    #${NAV_ID} .hg-nav__auth-secret{
+      display:block;
+      font-size:15px;
+      letter-spacing:0.12em;
+      color:#FFFFFF;
+    }
+    #${NAV_ID} .hg-nav__auth-logout{
+      background:rgba(0,0,0,0.25);
+      border:1px solid rgba(255,255,255,0.2);
+      border-radius:999px;
+      color:inherit;
+      font:inherit;
+      padding:8px 18px;
+      cursor:pointer;
+      transition:background-color 0.2s ease,border-color 0.2s ease;
+    }
+    #${NAV_ID} .hg-nav__auth-logout:hover{
+      background:rgba(0,0,0,0.32);
+      border-color:rgba(255,255,255,0.28);
+    }
+    #${NAV_ID} .hg-nav__auth-logout:disabled{
+      opacity:0.6;
+      cursor:not-allowed;
+    }
     #${NAV_ID} a:focus-visible{
       outline:2px solid #FFFFFF;
       outline-offset:2px;
@@ -156,6 +205,18 @@
         width:76px;
         aspect-ratio:1/1;
       }
+      #${NAV_ID} .hg-nav__auth{
+        flex-direction:row;
+        gap:12px;
+        padding:14px 18px;
+        width:auto;
+        min-width:200px;
+        margin:8px 4px 4px;
+      }
+      #${NAV_ID} .hg-nav__auth-info{
+        align-items:flex-start;
+        text-align:left;
+      }
       .hg-nav-spacer-bottom{display:block;}
     }
     @media (min-width: 769px){
@@ -178,6 +239,10 @@
       #${NAV_ID} a{
         width:100%;
         padding:16px 12px;
+      }
+      #${NAV_ID} .hg-nav__auth{
+        width:100%;
+        margin-top:12px;
       }
     }
   `;
@@ -221,6 +286,127 @@
   const spacer = document.createElement('div');
   spacer.className = 'hg-nav-spacer-bottom';
   document.body.appendChild(spacer);
+
+  let authSection = null;
+  let authSecret = null;
+  let logoutButton = null;
+
+  const buildReturnTarget = () => {
+    const path = window.location.pathname || '/';
+    const search = window.location.search || '';
+    const hash = window.location.hash || '';
+    return `${path}${search}${hash}`;
+  };
+
+  const redirectToLogin = () => {
+    const target = buildReturnTarget();
+    window.location.href = `/login?return=${encodeURIComponent(target)}`;
+  };
+
+  const removeAuthSection = () => {
+    if (logoutButton) {
+      logoutButton.disabled = false;
+      logoutButton.textContent = 'Log out';
+    }
+    if (authSection && authSection.parentNode) {
+      authSection.parentNode.removeChild(authSection);
+    }
+    authSection = null;
+    authSecret = null;
+    logoutButton = null;
+  };
+
+  const ensureAuthSection = (secretLabel) => {
+    if (!authSection) {
+      authSection = document.createElement('div');
+      authSection.className = 'hg-nav__auth';
+
+      const info = document.createElement('div');
+      info.className = 'hg-nav__auth-info';
+
+      const label = document.createElement('span');
+      label.textContent = 'Logged in as';
+
+      authSecret = document.createElement('span');
+      authSecret.className = 'hg-nav__auth-secret';
+
+      info.appendChild(label);
+      info.appendChild(authSecret);
+
+      logoutButton = document.createElement('button');
+      logoutButton.type = 'button';
+      logoutButton.className = 'hg-nav__auth-logout';
+      logoutButton.textContent = 'Log out';
+      logoutButton.addEventListener('click', async () => {
+        if (!logoutButton || logoutButton.disabled) return;
+        const defaultLabel = logoutButton.textContent;
+        logoutButton.disabled = true;
+        logoutButton.textContent = 'Logging out...';
+        try {
+          const resp = await fetch('/api/dispatcher/logout', {
+            method: 'POST',
+            credentials: 'include',
+          });
+          if (!resp.ok) throw new Error('logout failed');
+          if (typeof window.deleteCookieValue === 'function') {
+            if (typeof window.BLOCK_LAYOUT_COOKIE_NAME === 'string') {
+              try { window.deleteCookieValue(window.BLOCK_LAYOUT_COOKIE_NAME); } catch (err) {}
+            }
+            if (typeof window.LEFT_PANE_WIDTH_COOKIE_NAME === 'string') {
+              try { window.deleteCookieValue(window.LEFT_PANE_WIDTH_COOKIE_NAME); } catch (err) {}
+            }
+          }
+          removeAuthSection();
+          redirectToLogin();
+        } catch (err) {
+          console.warn('Failed to log out', err);
+          logoutButton.disabled = false;
+          logoutButton.textContent = defaultLabel;
+          alert('Unable to log out. Please try again.');
+        }
+      });
+
+      authSection.appendChild(info);
+      authSection.appendChild(logoutButton);
+      inner.appendChild(authSection);
+    }
+
+    if (authSecret) {
+      authSecret.textContent = secretLabel || 'Unknown';
+    }
+  };
+
+  const updateAuthSection = async () => {
+    let data = null;
+    try {
+      const resp = await fetch('/api/dispatcher/auth', {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      if (resp.ok) {
+        data = await resp.json();
+      }
+    } catch (err) {
+      console.warn('Failed to check dispatcher auth', err);
+    }
+
+    const authorized = data && data.authorized === true;
+    const secretLabel = data && typeof data.secret === 'string' && data.secret.trim()
+      ? data.secret.trim()
+      : null;
+
+    if (authorized) {
+      ensureAuthSection(secretLabel || 'Unknown');
+      if (typeof updateSpacerHeight === 'function') {
+        updateSpacerHeight();
+      }
+    } else {
+      removeAuthSection();
+      if (typeof updateSpacerHeight === 'function') {
+        updateSpacerHeight();
+      }
+    }
+  };
 
   const markScrollableContainers = () => {
     const all = document.querySelectorAll('*');
@@ -281,6 +467,7 @@
   }
 
   updateSpacerHeight();
+  updateAuthSection();
   markScrollableContainers();
   setTimeout(markScrollableContainers, 500);
   setTimeout(markScrollableContainers, 1500);

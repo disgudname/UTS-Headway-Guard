@@ -66,14 +66,12 @@
   #routeTotalsChartWrapper{margin-top:12px;display:none;background:var(--panel);padding:12px;border-radius:12px;border:1px solid var(--line);position:relative;max-height:420px;}
   #routeTotalsChartWrapper .route-totals-title{font-weight:bold;margin-bottom:8px;}
   #routeTotalsChart{width:100%;height:min(320px,40vh);max-height:360px;}
-  .logout-button{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;border:1px solid #2a3442;background:#182330;color:#e8eef5;cursor:pointer;z-index:10001;}
   .export-status{color:var(--muted);}
   .export-status.error{color:var(--danger);}
 </style>
 </head>
 <body>
 <div id="ridership-app" hidden>
-<button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
 <h1>Ridership Counts</h1>
 <div class="controls">
   <label>Date: <input type="date" id="datePicker"></label>
@@ -1515,7 +1513,6 @@ function escapeCsv(text){
 <script>
 (function(){
   const appContainer=document.getElementById('ridership-app');
-  const logoutButton=document.getElementById('logoutButton');
 
   function buildReturnTarget(){
     const path=window.location.pathname||'/';
@@ -1527,23 +1524,6 @@ function escapeCsv(text){
   function redirectToLogin(){
     const target=buildReturnTarget();
     window.location.href=`/login?return=${encodeURIComponent(target)}`;
-  }
-
-  if(logoutButton){
-    const defaultLabel=logoutButton.textContent;
-    logoutButton.addEventListener('click',async ()=>{
-      logoutButton.disabled=true;
-      logoutButton.textContent='Logging out...';
-      try{
-        const resp=await fetch('/api/dispatcher/logout',{method:'POST'});
-        if(!resp.ok) throw new Error('logout failed');
-        window.location.href=`/login?return=${encodeURIComponent(buildReturnTarget())}`;
-      }catch(err){
-        logoutButton.disabled=false;
-        logoutButton.textContent=defaultLabel;
-        alert('Unable to log out. Please try again.');
-      }
-    });
   }
 
   async function ensureAuthorized(){
@@ -1568,7 +1548,6 @@ function escapeCsv(text){
       return;
     }
     if(appContainer) appContainer.hidden=false;
-    if(logoutButton) logoutButton.hidden=false;
     try{
       if(typeof initializeRidershipApp==='function'){
         initializeRidershipApp();

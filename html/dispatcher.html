@@ -45,7 +45,6 @@ body{font-family:'FGDC',system-ui;font-size:17px;margin:0;background:#0b0e11;col
 body.howell-mode{background:radial-gradient(circle at 12% 18%,rgba(255,153,102,.12)0,transparent 54%),radial-gradient(circle at 86% 84%,rgba(102,204,204,.1)0,transparent 60%),linear-gradient(130deg,#070b1a 0,#04060f 42%,#070b1a 100%)}
 body.howell-mode header h1{letter-spacing:.14em}
 
-.logout-button{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:6px;border:1px solid #2a3442;background:#182330;color:#e8eef5;cursor:pointer;z-index:10001}
 #left{overflow:auto;flex:1 1 50%;min-width:260px;max-width:100%}
 #splitter{flex:0 0 8px;cursor:col-resize;background:linear-gradient(180deg,rgba(31,38,48,.8),rgba(21,27,36,.8));border-left:1px solid rgba(61,74,92,.65);border-right:1px solid rgba(8,10,14,.85);position:relative;z-index:3}
 #splitter::after{content:"";position:absolute;top:50%;left:50%;width:2px;height:40px;background:rgba(143,163,193,.55);border-radius:999px;transform:translate(-50%,-50%)}
@@ -538,7 +537,6 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
 @keyframes fadeInUp{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
  </style>
 <body>
-<button id="logoutButton" type="button" class="logout-button" hidden>Log Out</button>
 <div id="left" style="flex:1;position:relative">
 <header>
   <div id="controls">
@@ -860,6 +858,7 @@ function deleteCookieValue(name){
   document.cookie=`${name}=; max-age=0; path=/`;
 }
 const LEFT_PANE_WIDTH_COOKIE_NAME = 'dispatcherLeftWidth';
+window.LEFT_PANE_WIDTH_COOKIE_NAME = LEFT_PANE_WIDTH_COOKIE_NAME;
 const splitter = document.getElementById('splitter');
 if(leftPane && mapFrame && splitter){
   let isResizing=false;
@@ -1013,6 +1012,7 @@ let mapBannerBaseState = null;
 let mapBannerActiveMessage = null;
 
 const BLOCK_LAYOUT_COOKIE_NAME = 'dispatcherBlockLayout';
+window.BLOCK_LAYOUT_COOKIE_NAME = BLOCK_LAYOUT_COOKIE_NAME;
 const BLOCK_LAYOUT_COOKIE_MAX_AGE = 60*60*24*90;
 let blockGridLayoutMap = new Map();
 let blockGridAvailableLayouts = [];
@@ -4173,7 +4173,6 @@ async function pollHealth(){
   setTimeout(pollHealth, 15000);
 }
 
-const logoutButton=document.getElementById('logoutButton');
 function buildReturnTarget(){
   const path=window.location.pathname||'/';
   const search=window.location.search||'';
@@ -4183,24 +4182,6 @@ function buildReturnTarget(){
 function redirectToLogin(){
   const target=buildReturnTarget();
   window.location.href=`/login?return=${encodeURIComponent(target)}`;
-}
-if(logoutButton){
-  const defaultLabel=logoutButton.textContent;
-  logoutButton.addEventListener('click',async ()=>{
-    logoutButton.disabled=true;
-    logoutButton.textContent='Logging out...';
-    try{
-      const resp=await fetch('/api/dispatcher/logout',{method:'POST'});
-      if(!resp.ok) throw new Error('logout failed');
-      deleteCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
-      deleteCookieValue(LEFT_PANE_WIDTH_COOKIE_NAME);
-      window.location.href=`/login?return=${encodeURIComponent(buildReturnTarget())}`;
-    }catch(err){
-      logoutButton.disabled=false;
-      logoutButton.textContent=defaultLabel;
-      alert('Unable to log out. Please try again.');
-    }
-  });
 }
 let dispatcherAuthPromise=null;
 
@@ -4218,7 +4199,6 @@ async function requireDispatcherPassword(){
         const authorized=data&&data.authorized===true;
         const requiresPassword = data&&typeof data.required==='boolean' ? data.required : true;
         if(authorized||requiresPassword===false){
-          if(logoutButton) logoutButton.hidden=false;
           return true;
         }
       }
