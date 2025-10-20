@@ -123,7 +123,20 @@ async function bootstrap() {
     res.json(tickets);
   });
 
-  const listTicketsHandler = (req, res) => {
+  const sendTicketResponse = (res, ticket, includeMachineInfo, status = 200) => {
+    if (!ticket) {
+      res.status(500).json({ error: 'ticket_state_unavailable' });
+      return;
+    }
+    const decorated = storage.state.decorateTicket(ticket);
+    if (includeMachineInfo) {
+      res.status(status).json({ machine_id: config.machineId, ticket: decorated });
+    } else {
+      res.status(status).json(decorated);
+    }
+  };
+
+  const listTicketsHandler = (includeMachineInfo = false) => (req, res) => {
     const includeClosed = parseBoolean(req.query.includeClosed, false);
     const vehicle = req.query.vehicle;
     const opsStatus = req.query.opsStatus;
@@ -138,13 +151,17 @@ async function bootstrap() {
       includeClosed,
       filters: { vehicle, opsStatus, shopStatus }
     });
-    res.json(tickets);
+    if (includeMachineInfo) {
+      res.json({ machine_id: config.machineId, tickets });
+    } else {
+      res.json(tickets);
+    }
   };
 
-  app.get('/api/tickets', listTicketsHandler);
-  app.get('/tickets', listTicketsHandler);
+  app.get('/api/tickets', listTicketsHandler(false));
+  app.get('/tickets', listTicketsHandler(true));
 
-  const createTicketHandler = async (req, res) => {
+  const createTicketHandler = (includeMachineInfo = false) => async (req, res) => {
     try {
       const body = req.body || {};
       const idempotencyKey = req.get('Idempotency-Key');
@@ -152,7 +169,9 @@ async function bootstrap() {
         const existing = storage.state.getDedupeValue(`ticket:create:${idempotencyKey}`);
         if (existing?.value?.ticket_id) {
           const ticket = storage.state.getTicket(existing.value.ticket_id);
-          return res.json(storage.state.decorateTicket(ticket));
+          if (ticket) {
+            return sendTicketResponse(res, ticket, includeMachineInfo);
+          }
         }
       }
       const {
@@ -184,11 +203,15 @@ async function bootstrap() {
       }
 
       const now = new Date().toISOString();
-      const vehicle = findOrCreateVehicle(storage, {
-        fleet_no: fleet_no || null,
-        name: vehicle_name || null,
-        vehicle_type: vehicle_type || null
-      }, now);
+      const vehicle = findOrCreateVehicle(
+        storage,
+        {
+          fleet_no: fleet_no || null,
+          name: vehicle_name || null,
+          vehicle_type: vehicle_type || null
+        },
+        now
+      );
 
       if (!vehicle) {
         return res.status(400).json({ error: 'vehicle information required' });
@@ -215,26 +238,39 @@ async function bootstrap() {
 
       const events = [];
       if (vehicle._emitEvent) {
-        events.push(createEvent('vehicle.upserted', { vehicle: vehicle.record }, idempotencyKey ? `vehicle:${idempotencyKey}` : undefined));
+        events.push(
+          createEvent(
+            'vehicle.upserted',
+            { vehicle: vehicle.record },
+            idempotencyKey ? `vehicle:${idempotencyKey}` : undefined
+          )
+        );
       }
-      events.push(createEvent('ticket.created', { ticket }, idempotencyKey ? `ticket:create:${idempotencyKey}` : undefined));
+      events.push(
+        createEvent(
+          'ticket.created',
+          { ticket },
+          idempotencyKey ? `ticket:create:${idempotencyKey}` : undefined
+        )
+      );
 
       for (const event of events) {
         await storage.appendEvent(event);
       }
 
       logger.info('ticket created', { ticket_id: ticketId });
-      res.status(201).json(storage.state.decorateTicket(storage.state.getTicket(ticketId)));
+      const created = storage.state.getTicket(ticketId);
+      sendTicketResponse(res, created, includeMachineInfo, 201);
     } catch (err) {
       logger.error('failed to create ticket', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
     }
   };
 
-  app.post('/api/tickets', createTicketHandler);
-  app.post('/tickets', createTicketHandler);
+  app.post('/api/tickets', createTicketHandler(false));
+  app.post('/tickets', createTicketHandler(true));
 
-  const updateTicketHandler = async (req, res) => {
+  const updateTicketHandler = (includeMachineInfo = false) => async (req, res) => {
     const ticketId = req.params.id;
     const existing = storage.state.getTicket(ticketId);
     if (!existing) {
@@ -245,7 +281,7 @@ async function bootstrap() {
     if (idempotencyKey) {
       const dedupe = storage.state.getDedupeValue(`ticket:update:${ticketId}:${idempotencyKey}`);
       if (dedupe?.value?.ticket_id === ticketId) {
-        return res.json(storage.state.decorateTicket(existing));
+        return sendTicketResponse(res, existing, includeMachineInfo);
       }
     }
     if (body.ops_status && !OPS_STATUSES.has(body.ops_status)) {
@@ -261,19 +297,23 @@ async function bootstrap() {
       updated_at: now
     };
     const eventType = body.completed_at ? 'ticket.closed' : 'ticket.updated';
-    const event = createEvent(eventType, { ticket: updated }, idempotencyKey ? `ticket:update:${ticketId}:${idempotencyKey}` : undefined);
+    const event = createEvent(
+      eventType,
+      { ticket: updated },
+      idempotencyKey ? `ticket:update:${ticketId}:${idempotencyKey}` : undefined
+    );
     try {
       await storage.appendEvent(event);
       const fresh = storage.state.getTicket(ticketId);
-      res.json(storage.state.decorateTicket(fresh));
+      sendTicketResponse(res, fresh, includeMachineInfo);
     } catch (err) {
       logger.error('failed to update ticket', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
     }
   };
 
-  app.put('/api/tickets/:id', updateTicketHandler);
-  app.put('/tickets/:id', updateTicketHandler);
+  app.put('/api/tickets/:id', updateTicketHandler(false));
+  app.put('/tickets/:id', updateTicketHandler(true));
 
   app.get('/api/export.csv', (req, res) => {
     const start = parseDate(req.query.start);

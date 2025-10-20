@@ -117,6 +117,10 @@
       background: var(--danger);
       color: #fff;
     }
+    .required-marker {
+      color: var(--danger);
+      margin-left: 4px;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -198,23 +202,17 @@
       <form id="ticket-form">
         <input type="hidden" id="ticket-id" />
         <div class="grid">
-          <label>Fleet #
-            <input id="fleet-no" name="fleet_no" autocomplete="off" />
+          <label>Fleet # <span class="required-marker">*</span>
+            <input id="fleet-no" name="fleet_no" autocomplete="off" required />
           </label>
-          <label>Vehicle Name
-            <input id="vehicle-name" name="vehicle_name" autocomplete="off" />
+          <label>Reported At <span class="required-marker">*</span>
+            <input id="reported-at" type="datetime-local" required />
           </label>
-          <label>Vehicle Type
-            <input id="vehicle-type" name="vehicle_type" autocomplete="off" />
+          <label>Reported By <span class="required-marker">*</span>
+            <input id="reported-by" autocomplete="off" required />
           </label>
-          <label>Reported At
-            <input id="reported-at" type="datetime-local" />
-          </label>
-          <label>Reported By
-            <input id="reported-by" autocomplete="off" />
-          </label>
-          <label>OPS Status
-            <select id="ops-status">
+          <label>OPS Status <span class="required-marker">*</span>
+            <select id="ops-status" required>
               <option value="">--</option>
               <option value="DOWNED">Downed</option>
               <option value="HOLD">Hold</option>
@@ -236,16 +234,13 @@
           <label>Mechanic
             <input id="mechanic" autocomplete="off" />
           </label>
-          <label>Started At
-            <input id="started-at" type="datetime-local" />
-          </label>
-          <label>Completed At
-            <input id="completed-at" type="datetime-local" />
+          <label>Completed Date
+            <input id="completed-at" type="date" />
           </label>
         </div>
         <div class="grid">
-          <label>OPS Notes
-            <textarea id="ops-description"></textarea>
+          <label>OPS Notes <span class="required-marker">*</span>
+            <textarea id="ops-description" required></textarea>
           </label>
           <label>Diagnosis / Notes
             <textarea id="diagnosis-text"></textarea>
@@ -276,7 +271,6 @@
               <th>OPS</th>
               <th>Shop</th>
               <th>Mechanic</th>
-              <th>Started</th>
               <th>Completed</th>
               <th>Notes</th>
               <th></th>
@@ -314,19 +308,16 @@
     const formTitle = document.getElementById('form-title');
     const ticketIdEl = document.getElementById('ticket-id');
     const fleetInput = document.getElementById('fleet-no');
-    const vehicleNameInput = document.getElementById('vehicle-name');
-    const vehicleTypeInput = document.getElementById('vehicle-type');
     const reportedAtInput = document.getElementById('reported-at');
     const reportedByInput = document.getElementById('reported-by');
     const opsStatusInput = document.getElementById('ops-status');
     const shopStatusInput = document.getElementById('shop-status');
     const mechanicInput = document.getElementById('mechanic');
-    const startedAtInput = document.getElementById('started-at');
     const completedAtInput = document.getElementById('completed-at');
     const opsDescriptionInput = document.getElementById('ops-description');
     const diagnosisInput = document.getElementById('diagnosis-text');
 
-    function formatDate(value) {
+    function formatDateTime(value) {
       if (!value) return '';
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) {
@@ -335,7 +326,19 @@
       return date.toLocaleString();
     }
 
-    function isoToLocalInput(value) {
+    function formatDateOnly(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          return value;
+        }
+        return value;
+      }
+      return date.toLocaleDateString();
+    }
+
+    function isoToLocalDateTimeInput(value) {
       if (!value) return '';
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return '';
@@ -344,13 +347,27 @@
       return local.toISOString().slice(0, 16);
     }
 
-    function localInputToIso(value) {
+    function localDateTimeInputToIso(value) {
       if (!value) return null;
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) {
         return value;
       }
       return date.toISOString();
+    }
+
+    function isoToDateInput(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return typeof value === 'string' ? value : '';
+      }
+      return date.toISOString().slice(0, 10);
+    }
+
+    function dateInputToValue(value) {
+      if (!value) return null;
+      return value;
     }
 
     function showMessage(text, isError = false) {
@@ -368,8 +385,6 @@
       formTitle.textContent = 'Create Ticket';
       submitBtn.textContent = 'Create Ticket';
       fleetInput.removeAttribute('disabled');
-      vehicleNameInput.removeAttribute('disabled');
-      vehicleTypeInput.removeAttribute('disabled');
     }
 
     function populateForm(ticket) {
@@ -378,39 +393,37 @@
       submitBtn.textContent = 'Update Ticket';
       fleetInput.value = ticket.vehicle_label || '';
       fleetInput.setAttribute('disabled', 'true');
-      vehicleNameInput.value = '';
-      vehicleNameInput.setAttribute('disabled', 'true');
-      vehicleTypeInput.value = '';
-      vehicleTypeInput.setAttribute('disabled', 'true');
-      reportedAtInput.value = isoToLocalInput(ticket.reported_at);
+      reportedAtInput.value = isoToLocalDateTimeInput(ticket.reported_at);
       reportedByInput.value = ticket.reported_by || '';
       opsStatusInput.value = ticket.ops_status || '';
       shopStatusInput.value = ticket.shop_status || '';
       mechanicInput.value = ticket.mechanic || '';
-      startedAtInput.value = isoToLocalInput(ticket.started_at);
-      completedAtInput.value = isoToLocalInput(ticket.completed_at);
+      completedAtInput.value = isoToDateInput(ticket.completed_at);
       opsDescriptionInput.value = ticket.ops_description || '';
       diagnosisInput.value = ticket.diagnosis_text || '';
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     async function fetchTickets() {
-      ticketsBody.innerHTML = '<tr><td colspan="9">Loading…</td></tr>';
+      ticketsBody.innerHTML = '<tr><td colspan="8">Loading…</td></tr>';
       try {
         const params = new URLSearchParams();
         if (includeClosedEl.checked) params.set('includeClosed', 'true');
-        const res = await fetch(`/api/tickets?${params.toString()}`);
+        const res = await fetch(`/tickets?${params.toString()}`);
         if (!res.ok) throw new Error('Request failed');
-        const tickets = await res.json();
-        renderTickets(Array.isArray(tickets) ? tickets : []);
+        const body = await res.json();
+        const tickets = Array.isArray(body)
+          ? body
+          : (Array.isArray(body?.tickets) ? body.tickets : []);
+        renderTickets(tickets);
       } catch (err) {
-        ticketsBody.innerHTML = '<tr><td colspan="9">Unable to load tickets.</td></tr>';
+        ticketsBody.innerHTML = '<tr><td colspan="8">Unable to load tickets.</td></tr>';
       }
     }
 
     function renderTickets(tickets) {
       if (!tickets.length) {
-        ticketsBody.innerHTML = '<tr><td colspan="9">No tickets found.</td></tr>';
+        ticketsBody.innerHTML = '<tr><td colspan="8">No tickets found.</td></tr>';
         return;
       }
       ticketsBody.innerHTML = '';
@@ -422,7 +435,7 @@
         tr.appendChild(vehicleCell);
 
         const reportedCell = document.createElement('td');
-        reportedCell.textContent = formatDate(ticket.reported_at);
+        reportedCell.textContent = formatDateTime(ticket.reported_at);
         tr.appendChild(reportedCell);
 
         const opsStatusCell = document.createElement('td');
@@ -447,12 +460,8 @@
         mechanicCell.textContent = ticket.mechanic || '';
         tr.appendChild(mechanicCell);
 
-        const startedCell = document.createElement('td');
-        startedCell.textContent = formatDate(ticket.started_at);
-        tr.appendChild(startedCell);
-
         const completedCell = document.createElement('td');
-        completedCell.textContent = formatDate(ticket.completed_at);
+        completedCell.textContent = formatDateOnly(ticket.completed_at);
         tr.appendChild(completedCell);
 
         const descriptionCell = document.createElement('td');
@@ -491,20 +500,14 @@
           if (ticket.completed_at) {
             payload.completed_at = null;
           } else {
-            payload.completed_at = new Date().toISOString();
-            if (!ticket.started_at) {
-              payload.started_at = payload.completed_at;
-            }
+            payload.completed_at = new Date().toISOString().slice(0, 10);
           }
           try {
-            const res = await fetch(`/api/tickets/${ticket.id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error('Failed to update');
+            const idempotencyKey = `complete-${ticket.id}-${crypto.randomUUID()}`;
+            const { machineIds } = await syncTicketRequest(`/tickets/${ticket.id}`, 'PUT', payload, idempotencyKey);
             await fetchTickets();
-            showMessage(ticket.completed_at ? 'Ticket reopened.' : 'Ticket marked complete.');
+            const baseMessage = ticket.completed_at ? 'Ticket reopened.' : 'Ticket marked complete.';
+            showMessage(machineIds.size >= 2 ? baseMessage : `${baseMessage} (sync pending).`);
           } catch (err) {
             showMessage('Unable to update ticket.', true);
           }
@@ -516,48 +519,91 @@
       });
     }
 
+    async function syncTicketRequest(url, method, payload, idempotencyKey) {
+      const machineIds = new Set();
+      const maxAttempts = 10;
+      let lastResponse = null;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const res = await fetch(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
+          },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(errorText || 'Request failed');
+        }
+        try {
+          lastResponse = await res.json();
+        } catch (jsonErr) {
+          throw new Error('Invalid server response');
+        }
+        const machineId = lastResponse?.machine_id || lastResponse?.machineId;
+        if (machineId) {
+          machineIds.add(machineId);
+        } else {
+          break;
+        }
+        if (machineIds.size >= 2) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      return { body: lastResponse, machineIds };
+    }
+
     async function submitForm(event) {
       event.preventDefault();
+      if (!form.reportValidity()) {
+        return;
+      }
       const ticketId = ticketIdEl.value;
+      const fleetValue = fleetInput.value.trim();
+      const reportedBy = reportedByInput.value.trim();
+      const opsNotes = opsDescriptionInput.value.trim();
+      if (!reportedBy) {
+        showMessage('Reported By is required.', true);
+        reportedByInput.focus();
+        return;
+      }
+      if (!opsNotes) {
+        showMessage('OPS Notes are required.', true);
+        opsDescriptionInput.focus();
+        return;
+      }
+      if (!ticketId && !fleetValue) {
+        showMessage('Fleet # is required.', true);
+        fleetInput.focus();
+        return;
+      }
       const payload = {
-        reported_at: localInputToIso(reportedAtInput.value),
-        reported_by: reportedByInput.value || null,
+        reported_at: localDateTimeInputToIso(reportedAtInput.value),
+        reported_by: reportedBy,
         ops_status: opsStatusInput.value || null,
-        ops_description: opsDescriptionInput.value || null,
+        ops_description: opsNotes,
         shop_status: shopStatusInput.value || null,
-        mechanic: mechanicInput.value || null,
-        diagnosis_text: diagnosisInput.value || null,
-        started_at: localInputToIso(startedAtInput.value),
-        completed_at: localInputToIso(completedAtInput.value)
+        mechanic: mechanicInput.value.trim() || null,
+        diagnosis_text: diagnosisInput.value.trim() || null,
+        completed_at: dateInputToValue(completedAtInput.value)
       };
       if (!payload.completed_at) delete payload.completed_at;
-      if (!payload.started_at) delete payload.started_at;
       if (!payload.reported_at) delete payload.reported_at;
 
       try {
         if (ticketId) {
-          const res = await fetch(`/api/tickets/${ticketId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) throw new Error('Update failed');
-          showMessage('Ticket updated.');
+          const idempotencyKey = `update-${ticketId}-${crypto.randomUUID()}`;
+          const { machineIds } = await syncTicketRequest(`/tickets/${ticketId}`, 'PUT', payload, idempotencyKey);
+          const syncComplete = machineIds.size >= 2;
+          showMessage(syncComplete ? 'Ticket updated.' : 'Ticket updated (sync pending).');
         } else {
-          payload.fleet_no = fleetInput.value || null;
-          payload.vehicle_name = vehicleNameInput.value || null;
-          payload.vehicle_type = vehicleTypeInput.value || null;
-          if (!payload.fleet_no && !payload.vehicle_name) {
-            showMessage('Provide a fleet # or vehicle name.', true);
-            return;
-          }
-          const res = await fetch('/api/tickets', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) throw new Error('Create failed');
-          showMessage('Ticket created.');
+          payload.fleet_no = fleetValue;
+          const idempotencyKey = `create-${crypto.randomUUID()}`;
+          const { machineIds } = await syncTicketRequest('/tickets', 'POST', payload, idempotencyKey);
+          const syncComplete = machineIds.size >= 2;
+          showMessage(syncComplete ? 'Ticket created.' : 'Ticket created (sync pending).');
         }
         clearForm();
         await fetchTickets();
