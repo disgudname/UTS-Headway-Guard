@@ -57,10 +57,19 @@ header h1{flex-basis:100%}
 #controls label.control-field{display:flex;align-items:center;gap:8px;font-size:15px;color:#cfe1ff}
 #controls label.control-field span{font-size:14px;opacity:.82}
 #controls label.control-field select{min-width:160px}
+#duty-roster{display:flex;flex-direction:column;gap:4px;margin-left:12px;font-size:14px;color:#e8eef5}
+#duty-roster .duty-line{display:flex;align-items:baseline;gap:6px}
+#duty-roster .duty-title{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#9fb0c9}
+#duty-roster .duty-name{font-weight:600}
+#duty-roster .duty-line.duty-empty .duty-name{font-weight:400;color:#6b778a}
 body.kiosk-mode #controls label.control-field{flex:0 0 auto}
 body.lcars #controls label.control-field{display:flex;flex-direction:column;align-items:flex-start;gap:6px;font-size:12px;color:#FFCC66}
 body.lcars #controls label.control-field span{text-transform:uppercase;letter-spacing:.08em;font-size:12px}
 body.lcars #controls label.control-field select{width:180px;max-width:100%}
+body.lcars #duty-roster{margin-left:auto;align-items:flex-end;color:#FFCC66}
+body.lcars #duty-roster .duty-title{color:#FFCC66;font-size:11px}
+body.cyberpunk #duty-roster{color:#d9fbff}
+body.cyberpunk #duty-roster .duty-title{color:#7fffd4}
 body.cyberpunk #controls label.control-field span{color:#7fffd4}
 select{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 10px}
 button{background:#10151c;color:#e8eef5;border:1px solid #2a3442;border-radius:10px;padding:8px 12px;font-family:inherit;font-size:15px;cursor:pointer;transition:background-color .2s ease,border-color .2s ease}
@@ -547,6 +556,16 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
       </select>
     </label>
     <button id="center-map-button" type="button">Center Map</button>
+    <div id="duty-roster" aria-live="polite">
+      <div class="duty-line duty-empty" id="sup-duty-line">
+        <span class="duty-title">SUP ON DUTY</span>
+        <span class="duty-name" id="sup-duty-name">—</span>
+      </div>
+      <div class="duty-line duty-empty" id="dispatch-duty-line">
+        <span class="duty-title">DISPATCHER ON DUTY</span>
+        <span class="duty-name" id="dispatch-duty-name">—</span>
+      </div>
+    </div>
     <div id="banner" class="banner info"></div>
   </div>
 </header>
@@ -1239,6 +1258,10 @@ let plainLanguageVehicleNames = new Map();
 let configuredVehicleNames = new Map();
 
 const DRIVER_DISPLAY_ENABLED = true;
+const DUTY_ROSTER_POSITIONS = [
+  {blockKey:'Sup', lineId:'sup-duty-line', nameId:'sup-duty-name'},
+  {blockKey:'OnDemand Dispatch', lineId:'dispatch-duty-line', nameId:'dispatch-duty-name'}
+];
 let driverAssignmentsByBlock = Object.create(null);
 let driverAssignmentsDisabled = false;
 
@@ -2017,13 +2040,8 @@ function getDriverStartLabel(driver){
   return formatDriverTimeLabel('',driver.startTs);
 }
 
-function renderDriverLines(container,drivers){
-  if(!container) return;
-  if(!DRIVER_DISPLAY_ENABLED || driverAssignmentsDisabled){
-    container.innerHTML='';
-    container.hidden=true;
-    return;
-  }
+function buildDriverLineTexts(drivers){
+  if(!DRIVER_DISPLAY_ENABLED || driverAssignmentsDisabled) return [];
   const items=Array.isArray(drivers)?drivers.filter(item=>{
     if(!item || !item.name) return false;
     if(item.colorId!=null){
@@ -2032,27 +2050,19 @@ function renderDriverLines(container,drivers){
     }
     return true;
   }):[];
-  if(!items.length){
-    container.innerHTML='';
-    container.hidden=true;
-    return;
-  }
+  if(!items.length) return [];
   const now=new Date();
   const nowMs=now.getTime();
   const nowMinutes=now.getHours()*60+now.getMinutes();
   const visibleEntries=items.map((driver,index)=>({driver,index}))
     .filter(entry=>shouldDisplayDriver(entry.driver,nowMs,nowMinutes));
   const visibleDrivers=visibleEntries.map(entry=>entry.driver);
-  if(!visibleDrivers.length){
-    container.innerHTML='';
-    container.hidden=true;
-    return;
-  }
+  if(!visibleDrivers.length) return [];
+  const lines=[];
   const hasActive=visibleDrivers.some(item=>isDriverActiveNow(item,nowMs));
   const firstVisibleIndex=visibleEntries[0].index;
   const precedingDriver=firstVisibleIndex>0?items[firstVisibleIndex-1]:null;
   if(!hasActive){
-    const lines=[];
     if(precedingDriver && !shouldDisplayDriver(precedingDriver,nowMs,nowMinutes)){
       const gapLabel=buildOpenGapLabel(precedingDriver,visibleDrivers[0]);
       if(gapLabel){
@@ -2067,24 +2077,12 @@ function renderDriverLines(container,drivers){
       const startLabel=getDriverStartLabel(driver);
       lines.push(startLabel ? `${driver.name} @ ${startLabel}` : driver.name);
     }
-    container.innerHTML='';
-    for(const text of lines){
-      const line=document.createElement('div');
-      line.className='driver-line';
-      line.textContent=text;
-      container.appendChild(line);
-    }
-    container.hidden=false;
-    return;
+    return lines;
   }
-  container.innerHTML='';
   if(precedingDriver && !shouldDisplayDriver(precedingDriver,nowMs,nowMinutes)){
     const gapLabel=buildOpenGapLabel(precedingDriver,visibleDrivers[0]);
     if(gapLabel){
-      const gapLine=document.createElement('div');
-      gapLine.className='driver-line';
-      gapLine.textContent=gapLabel;
-      container.appendChild(gapLine);
+      lines.push(gapLabel);
     }
   }
   const includeLabels=visibleDrivers.length>1;
@@ -2094,31 +2092,65 @@ function renderDriverLines(container,drivers){
     if(previousDriver){
       const gapLabel=buildOpenGapLabel(previousDriver,driver);
       if(gapLabel){
-        const gapLine=document.createElement('div');
-        gapLine.className='driver-line';
-        gapLine.textContent=gapLabel;
-        container.appendChild(gapLine);
+        lines.push(gapLabel);
       }
     }
-    const line=document.createElement('div');
-    line.className='driver-line';
     if(includeLabels){
       const endLabelRaw=typeof driver.endLabel==='string'?driver.endLabel.trim():'';
       const startLabelRaw=typeof driver.startLabel==='string'?driver.startLabel.trim():'';
       if(i===0){
         const label=endLabelRaw || startLabelRaw;
-        line.textContent=label?`${driver.name} until ${label}`:driver.name;
+        lines.push(label?`${driver.name} until ${label}`:driver.name);
       }else{
         const label=startLabelRaw || endLabelRaw;
-        line.textContent=label?`${driver.name} @ ${label}`:driver.name;
+        lines.push(label?`${driver.name} @ ${label}`:driver.name);
       }
     }else{
-      line.textContent=driver.name;
+      lines.push(driver.name);
     }
-    container.appendChild(line);
     previousDriver=driver;
   }
+  return lines;
+}
+
+function renderDriverLines(container,drivers){
+  if(!container) return;
+  if(!DRIVER_DISPLAY_ENABLED || driverAssignmentsDisabled){
+    container.innerHTML='';
+    container.hidden=true;
+    return;
+  }
+  const lines=buildDriverLineTexts(drivers);
+  if(!lines.length){
+    container.innerHTML='';
+    container.hidden=true;
+    return;
+  }
+  container.innerHTML='';
+  for(const text of lines){
+    const line=document.createElement('div');
+    line.className='driver-line';
+    line.textContent=text;
+    container.appendChild(line);
+  }
   container.hidden=false;
+}
+
+function updateDutyRoster(){
+  for(const duty of DUTY_ROSTER_POSITIONS){
+    if(!duty || !duty.nameId || !duty.lineId) continue;
+    const nameEl=document.getElementById(duty.nameId);
+    const lineEl=document.getElementById(duty.lineId);
+    if(!nameEl || !lineEl) continue;
+    const drivers=selectDriversForBlock(duty.blockKey,'');
+    const lines=buildDriverLineTexts(drivers);
+    const displayLine=Array.isArray(lines)
+      ? lines.find(text=>typeof text==='string' && text.trim() && !/^OPEN\b/i.test(text)) || ''
+      : '';
+    const hasLine=Boolean(displayLine);
+    nameEl.textContent=hasLine?displayLine:'—';
+    lineEl.classList.toggle('duty-empty',!hasLine);
+  }
 }
 
 function buildOpenGapLabel(previousDriver,nextDriver){
@@ -4093,6 +4125,8 @@ async function loadBlocks(){
       }
     }
 
+    updateDutyRoster();
+
     if(!groups.length){
       latestBlockGridEntries=[];
       latestBlockGridNowMinutes=null;
@@ -4163,6 +4197,7 @@ async function loadBlocks(){
     plainLanguageVehicleNames=new Map();
     assignedVehicleNamesNormalized=new Set();
     updateExtraBuses();
+    updateDutyRoster();
   }
 }
 
