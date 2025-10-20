@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Repairs Export - UTS Operations Dashboard</title>
+  <link rel="icon" type="image/png" href="UTSShield.png" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#0c1426;
+      --panel:#141f36;
+      --panel-alt:#1b2b4a;
+      --line:rgba(120,160,220,0.35);
+      --ink:#f4f8ff;
+      --muted:#9cb0d4;
+      --accent:#8dd5ff;
+      --danger:#ff6b88;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at top,#1a2f58 0%,#0c1426 55%,#050910 100%);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 28px;
+    }
+    main {
+      width: min(960px, 100%);
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    section {
+      background: linear-gradient(160deg,rgba(20,31,54,0.95),rgba(20,31,54,0.78));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 20px 26px 28px;
+      box-shadow: 0 18px 40px rgba(6,12,28,0.45);
+    }
+    h1, h2 {
+      margin: 0 0 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    p {
+      margin: 0 0 16px;
+      color: var(--muted);
+    }
+    form {
+      display: grid;
+      gap: 18px;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.95rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    input, select, textarea {
+      font: inherit;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(120,160,220,0.35);
+      background: rgba(7,14,28,0.6);
+      color: var(--ink);
+      min-height: 44px;
+      resize: vertical;
+    }
+    textarea { min-height: 90px; }
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(141,213,255,0.25);
+    }
+    button {
+      font: inherit;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 12px 18px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      background: var(--accent);
+      color: #041020;
+      font-weight: 600;
+    }
+    button.danger { background: var(--danger); color: #fff; }
+    button.secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    #status {
+      margin-top: 12px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: rgba(141,213,255,0.14);
+      color: var(--accent);
+      display: none;
+    }
+    #status.error {
+      background: rgba(255,107,136,0.2);
+      color: var(--danger);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Repairs Export</h1>
+      <p>Download a CSV snapshot of tickets for a date range.</p>
+      <form id="export-form">
+        <div class="grid">
+          <label>Start
+            <input type="datetime-local" id="export-start" required />
+          </label>
+          <label>End
+            <input type="datetime-local" id="export-end" required />
+          </label>
+          <label>Date Field
+            <select id="export-field">
+              <option value="reported_at">Reported</option>
+              <option value="started_at">Started</option>
+              <option value="completed_at">Completed</option>
+              <option value="updated_at">Updated</option>
+            </select>
+          </label>
+          <label style="flex-direction:row;align-items:center;gap:8px;">
+            <input type="checkbox" id="export-include-closed" checked /> Include closed tickets
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit">Download CSV</button>
+        </div>
+      </form>
+    </section>
+
+    <section>
+      <h2>Delete Tickets</h2>
+      <p>Remove tickets within a date range. This action cannot be undone.</p>
+      <form id="purge-form">
+        <div class="grid">
+          <label>Start
+            <input type="datetime-local" id="purge-start" required />
+          </label>
+          <label>End
+            <input type="datetime-local" id="purge-end" required />
+          </label>
+          <label>Date Field
+            <select id="purge-field">
+              <option value="reported_at">Reported</option>
+              <option value="started_at">Started</option>
+              <option value="completed_at">Completed</option>
+              <option value="updated_at">Updated</option>
+            </select>
+          </label>
+        </div>
+        <label>Limit to Vehicles (optional, comma separated)
+          <textarea id="purge-vehicles" placeholder="e.g. 25131, 17132"></textarea>
+        </label>
+        <label style="flex-direction:row;align-items:center;gap:8px;">
+          <input type="checkbox" id="purge-hard" checked /> Permanently delete matching tickets
+        </label>
+        <div class="actions">
+          <button type="submit" class="danger">Delete Tickets</button>
+          <button type="button" class="secondary" id="purge-soft-btn">Soft Hide Range</button>
+        </div>
+      </form>
+      <div id="status"></div>
+    </section>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById('status');
+
+    function showStatus(message, isError = false) {
+      statusEl.textContent = message;
+      statusEl.style.display = 'block';
+      statusEl.classList.toggle('error', isError);
+    }
+
+    function localInputToIso(value) {
+      const date = new Date(value);
+      if (!value || Number.isNaN(date.getTime())) {
+        return null;
+      }
+      return date.toISOString();
+    }
+
+    document.getElementById('export-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const start = localInputToIso(document.getElementById('export-start').value);
+      const end = localInputToIso(document.getElementById('export-end').value);
+      const field = document.getElementById('export-field').value;
+      const includeClosed = document.getElementById('export-include-closed').checked;
+      if (!start || !end) {
+        showStatus('Provide a start and end time for export.', true);
+        return;
+      }
+      try {
+        const params = new URLSearchParams({ start, end, dateField: field });
+        if (includeClosed) params.set('includeClosed', 'true');
+        const res = await fetch(`/api/export.csv?${params.toString()}`);
+        if (!res.ok) throw new Error('Export failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'repairs-export.csv';
+        document.body.appendChild(a);
+        a.click();
+        URL.revokeObjectURL(url);
+        a.remove();
+        showStatus('Export started. Check your downloads.');
+      } catch (err) {
+        showStatus(err.message || 'Unable to export.', true);
+      }
+    });
+
+    async function sendPurge({ hard }) {
+      const startIso = localInputToIso(document.getElementById('purge-start').value);
+      const endIso = localInputToIso(document.getElementById('purge-end').value);
+      const field = document.getElementById('purge-field').value;
+      if (!startIso || !endIso) {
+        showStatus('Provide a start and end time for deletion.', true);
+        return;
+      }
+      const vehicleText = document.getElementById('purge-vehicles').value;
+      const vehicles = vehicleText
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const payload = {
+        start: startIso,
+        end: endIso,
+        dateField: field,
+        vehicles,
+        hard: Boolean(hard)
+      };
+      const confirmMessage = hard
+        ? 'Permanently delete tickets in this range? This cannot be undone.'
+        : 'Soft hide tickets in this range? They will no longer show on screens.';
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/purge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Request failed');
+        const data = await res.json();
+        const mode = data.mode === 'hard' ? 'Deleted' : 'Hidden';
+        showStatus(`${mode} ${data.purged_count ?? 0} tickets.`);
+      } catch (err) {
+        showStatus(err.message || 'Unable to process purge.', true);
+      }
+    }
+
+    document.getElementById('purge-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const hard = document.getElementById('purge-hard').checked;
+      sendPurge({ hard });
+    });
+
+    document.getElementById('purge-soft-btn').addEventListener('click', (event) => {
+      event.preventDefault();
+      sendPurge({ hard: false });
+    });
+  </script>
+</body>
+</html>

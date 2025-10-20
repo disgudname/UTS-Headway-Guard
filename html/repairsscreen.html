@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Repairs Status - UTS Operations Dashboard</title>
+  <link rel="icon" type="image/png" href="UTSShield.png" />
+  <link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+  <style>
+    @font-face {
+      font-family: 'FGDC';
+      src: url('FGDC.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+    :root {
+      --bg:#24234B;
+      --panel:#101935;
+      --row-alt:#152349;
+      --panel-soft:#142040;
+      --ink:#f0f4ff;
+      --muted:#9fb0c9;
+      --line:rgba(159,176,201,0.25);
+      --accent:#ffb347;
+      --pill-down:#ff4d6d;
+      --pill-hold:#ffe29a;
+      --pill-up:#6be39a;
+      --pill-usable:#6b7bff;
+      --pill-cosmetic:#7fb2ff;
+      --pill-comfort:#ffb347;
+      --pill-limited:#ffb347;
+      --base-font-size:clamp(24px,calc(1.45vw + 0.85vh),38px);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'FGDC', sans-serif;
+      font-size: var(--dynamic-base-font-size, var(--base-font-size));
+      line-height: 1.45;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: geometricPrecision;
+    }
+    @media (max-width: 1400px) {
+      :root {
+        --dynamic-base-font-size: clamp(22px, calc(1.2vw + 0.9vh), 30px);
+      }
+    }
+    main {
+      width: 100%;
+      padding: 0 0 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-height: 100vh;
+    }
+    header {
+      padding: 18px 24px 0;
+    }
+    h1 {
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: clamp(1.55rem, 1.35rem + 0.35vw, 1.9rem);
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 18px 32px rgba(6,11,28,0.35);
+      display: flex;
+      flex-direction: column;
+      margin: 0 24px;
+    }
+    section header h2 {
+      margin: 0;
+      font-size: clamp(1.2rem,1.1rem + 0.3vw,1.6rem);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .table-wrapper {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+    }
+    thead th {
+      font-size: clamp(0.9rem,0.82rem + 0.2vw,1.05rem);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 4px 6px 2px;
+      border-bottom: 1px solid var(--line);
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 3px 6px;
+      border-top: 1px solid rgba(159,176,201,0.08);
+      vertical-align: middle;
+      font-size: clamp(1rem,0.95rem + 0.22vw,1.25rem);
+      line-height: 1.2;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody td.wrap {
+      white-space: normal;
+      word-break: break-word;
+      text-align: left;
+    }
+    tbody td.vehicle {
+      font-size: clamp(2.1rem,1.8rem + 0.6vw,2.85rem);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    tbody tr:nth-child(even) {
+      background: var(--row-alt);
+    }
+    tbody tr:hover {
+      background: var(--panel-soft);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 12px;
+      border-radius: 999px;
+      font-size: clamp(1.1rem,1rem + 0.25vw,1.4rem);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: rgba(255,255,255,0.08);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
+    }
+    .pill.downed { background: var(--pill-down); color:#fff; }
+    .pill.hold { background: var(--pill-hold); color:#222; }
+    .pill.limited { background: var(--pill-limited); color:#222; }
+    .pill.cosmetic { background: var(--pill-cosmetic); color:#000; }
+    .pill.comfort { background: var(--pill-comfort); color:#000; }
+    .pill.pm { background: var(--pill-comfort); color:#000; }
+    .pill.vsi { background: var(--pill-usable); color:#fff; }
+    .pill.down { background: var(--pill-down); color:#fff; }
+    .pill.up { background: var(--pill-up); color:#000; }
+    .pill.usable { background: var(--pill-usable); color:#fff; }
+    footer {
+      padding: 12px 24px 18px;
+      color: var(--muted);
+      font-size: clamp(0.85rem,0.8rem + 0.2vw,1rem);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    footer .counts {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    footer .counts span {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    #error {
+      padding: 12px 24px;
+      color: #fff1f3;
+      background: rgba(255,77,109,0.2);
+      border-top: 1px solid rgba(255,77,109,0.4);
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <header>
+        <h1>Repairs Status</h1>
+        <p id="subtitle">Live view of active maintenance tickets</p>
+      </header>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Vehicle</th>
+              <th>OPS Status</th>
+              <th>Shop Status</th>
+              <th>Reported</th>
+              <th>Reported By</th>
+              <th class="wrap">OPS Notes</th>
+              <th>Mechanic</th>
+              <th class="wrap">Diagnosis</th>
+              <th>Started</th>
+              <th>Completed</th>
+            </tr>
+          </thead>
+          <tbody id="repairs-body"></tbody>
+        </table>
+      </div>
+      <div id="error"></div>
+      <footer>
+        <div class="counts" id="counts"></div>
+        <div id="updated"></div>
+      </footer>
+    </section>
+  </main>
+  <script>
+    const OPS_LABELS = {
+      DOWNED: 'Downed',
+      HOLD: 'Hold',
+      LIMITED: 'Limited',
+      COMFORT: 'Comfort',
+      COSMETIC: 'Cosmetic',
+      PM: 'PM',
+      VSI: 'VSI'
+    };
+    const OPS_CLASS = {
+      DOWNED: 'downed',
+      HOLD: 'hold',
+      LIMITED: 'limited',
+      COMFORT: 'comfort',
+      COSMETIC: 'cosmetic',
+      PM: 'pm',
+      VSI: 'vsi'
+    };
+    const SHOP_LABELS = {
+      DOWN: 'Down',
+      UP: 'Up',
+      USABLE: 'Usable'
+    };
+    const SHOP_CLASS = {
+      DOWN: 'down',
+      UP: 'up',
+      USABLE: 'usable'
+    };
+    const OPS_ORDER = ['DOWNED','HOLD','LIMITED','COMFORT','COSMETIC','PM','VSI',null];
+
+    function formatDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return value;
+      }
+      return date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function renderTickets(tickets) {
+      const body = document.getElementById('repairs-body');
+      body.innerHTML = '';
+      const counts = new Map();
+      tickets
+        .slice()
+        .sort((a, b) => {
+          const orderA = OPS_ORDER.indexOf(a.ops_status ?? null);
+          const orderB = OPS_ORDER.indexOf(b.ops_status ?? null);
+          const idxA = orderA === -1 ? OPS_ORDER.length : orderA;
+          const idxB = orderB === -1 ? OPS_ORDER.length : orderB;
+          if (idxA !== idxB) return idxA - idxB;
+          const timeA = a.reported_at ? new Date(a.reported_at).getTime() : 0;
+          const timeB = b.reported_at ? new Date(b.reported_at).getTime() : 0;
+          return timeA - timeB;
+        })
+        .forEach((ticket) => {
+          const tr = document.createElement('tr');
+
+          const vehicleCell = document.createElement('td');
+          vehicleCell.textContent = ticket.vehicle || 'Unknown';
+          vehicleCell.className = 'vehicle';
+          tr.appendChild(vehicleCell);
+
+          const opsCell = document.createElement('td');
+          const ops = ticket.ops_status || '';
+          opsCell.className = 'status';
+          if (ops) {
+            const pill = document.createElement('span');
+            pill.className = `pill ${OPS_CLASS[ops] || ''}`.trim();
+            pill.textContent = OPS_LABELS[ops] || ops;
+            opsCell.appendChild(pill);
+            counts.set(ops, (counts.get(ops) || 0) + 1);
+          }
+          tr.appendChild(opsCell);
+
+          const shopCell = document.createElement('td');
+          const shop = ticket.shop_status || '';
+          if (shop) {
+            const pill = document.createElement('span');
+            pill.className = `pill ${SHOP_CLASS[shop] || ''}`.trim();
+            pill.textContent = SHOP_LABELS[shop] || shop;
+            shopCell.appendChild(pill);
+          }
+          tr.appendChild(shopCell);
+
+          const reportedCell = document.createElement('td');
+          reportedCell.textContent = formatDate(ticket.reported_at);
+          tr.appendChild(reportedCell);
+
+          const reportedByCell = document.createElement('td');
+          reportedByCell.textContent = ticket.reported_by || '';
+          tr.appendChild(reportedByCell);
+
+          const opsNotesCell = document.createElement('td');
+          opsNotesCell.className = 'wrap';
+          opsNotesCell.textContent = ticket.ops_description || '';
+          tr.appendChild(opsNotesCell);
+
+          const mechanicCell = document.createElement('td');
+          mechanicCell.textContent = ticket.mechanic || '';
+          tr.appendChild(mechanicCell);
+
+          const diagnosisCell = document.createElement('td');
+          diagnosisCell.className = 'wrap';
+          diagnosisCell.textContent = ticket.diagnosis_text || '';
+          tr.appendChild(diagnosisCell);
+
+          const startedCell = document.createElement('td');
+          startedCell.textContent = formatDate(ticket.first_diagnosis_at || ticket.started_at);
+          tr.appendChild(startedCell);
+
+          const completedCell = document.createElement('td');
+          completedCell.textContent = formatDate(ticket.completed_at);
+          tr.appendChild(completedCell);
+
+          body.appendChild(tr);
+        });
+
+      const countsEl = document.getElementById('counts');
+      if (counts.size === 0) {
+        countsEl.textContent = 'No active tickets';
+      } else {
+        countsEl.innerHTML = '';
+        OPS_ORDER.forEach((status) => {
+          if (!status) return;
+          if (!counts.has(status)) return;
+          const span = document.createElement('span');
+          span.textContent = `${OPS_LABELS[status] || status}: ${counts.get(status)}`;
+          countsEl.appendChild(span);
+        });
+      }
+      document.getElementById('updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    }
+
+    async function loadTickets() {
+      const errorEl = document.getElementById('error');
+      try {
+        const res = await fetch('/api/signage', { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error(`Request failed: ${res.status}`);
+        }
+        const data = await res.json();
+        errorEl.style.display = 'none';
+        renderTickets(Array.isArray(data) ? data : []);
+      } catch (err) {
+        errorEl.style.display = 'block';
+        errorEl.textContent = 'Unable to load ticket data right now.';
+      }
+    }
+
+    loadTickets();
+    setInterval(loadTickets, 15000);
+  </script>
+</body>
+</html>

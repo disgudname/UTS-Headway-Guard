@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Maintenance Tickets - UTS Operations Dashboard</title>
+  <link rel="icon" type="image/png" href="UTSShield.png" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#0b1628;
+      --panel:#121f38;
+      --panel-alt:#182848;
+      --line:rgba(124,158,213,0.4);
+      --ink:#f7fbff;
+      --muted:#9cb5d6;
+      --accent:#7cc9ff;
+      --danger:#ff6488;
+      --success:#3dd68c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at top,#13264a 0%,#0b1628 55%,#050912 100%);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 24px;
+    }
+    main {
+      width: min(1400px, 100%);
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    header h1 {
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    header p {
+      margin: 6px 0 0;
+      color: var(--muted);
+    }
+    section {
+      background: linear-gradient(160deg,rgba(18,31,56,0.95),rgba(18,31,56,0.75));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 24px 24px;
+      box-shadow: 0 18px 40px rgba(5,11,28,0.45);
+    }
+    h2 {
+      margin: 0 0 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: clamp(1.2rem,1.1rem + 0.3vw,1.6rem);
+    }
+    form {
+      display: grid;
+      gap: 16px;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.95rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    input, select, textarea {
+      font: inherit;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(124,158,213,0.35);
+      background: rgba(7,14,28,0.6);
+      color: var(--ink);
+      resize: vertical;
+      min-height: 44px;
+    }
+    textarea { min-height: 110px; }
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(124,201,255,0.25);
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    button {
+      font: inherit;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 12px 18px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      background: var(--accent);
+      color: #041120;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    button.danger {
+      background: var(--danger);
+      color: #fff;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    thead th {
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(124,158,213,0.35);
+      text-align: left;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(124,158,213,0.2);
+      vertical-align: top;
+      font-size: 0.95rem;
+    }
+    tbody tr:hover {
+      background: rgba(20,36,68,0.65);
+    }
+    tbody td .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-right: 6px;
+      color: #071226;
+    }
+    .pill.downed { background: #ff4d6d; color: #fff; }
+    .pill.hold { background: #ffe29a; color: #161616; }
+    .pill.limited { background: #ffb347; }
+    .pill.comfort { background: #ffb347; }
+    .pill.cosmetic { background: #7fb2ff; }
+    .pill.pm { background: #7fb2ff; }
+    .pill.vsi { background: #6b7bff; color: #fff; }
+    .pill.down { background: #ff4d6d; color: #fff; }
+    .pill.up { background: #6be39a; }
+    .pill.usable { background: #6b7bff; color: #fff; }
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .row-actions button {
+      padding: 6px 12px;
+      font-size: 0.75rem;
+    }
+    #message {
+      margin-top: 12px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: rgba(124,201,255,0.14);
+      color: var(--accent);
+      display: none;
+    }
+    #message.error {
+      background: rgba(255,100,136,0.18);
+      color: var(--danger);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Maintenance Tickets</h1>
+      <p>Create, update, and track maintenance tickets synced from the shop.</p>
+    </header>
+
+    <section>
+      <h2 id="form-title">Create Ticket</h2>
+      <form id="ticket-form">
+        <input type="hidden" id="ticket-id" />
+        <div class="grid">
+          <label>Fleet #
+            <input id="fleet-no" name="fleet_no" autocomplete="off" />
+          </label>
+          <label>Vehicle Name
+            <input id="vehicle-name" name="vehicle_name" autocomplete="off" />
+          </label>
+          <label>Vehicle Type
+            <input id="vehicle-type" name="vehicle_type" autocomplete="off" />
+          </label>
+          <label>Reported At
+            <input id="reported-at" type="datetime-local" />
+          </label>
+          <label>Reported By
+            <input id="reported-by" autocomplete="off" />
+          </label>
+          <label>OPS Status
+            <select id="ops-status">
+              <option value="">--</option>
+              <option value="DOWNED">Downed</option>
+              <option value="HOLD">Hold</option>
+              <option value="LIMITED">Limited</option>
+              <option value="COMFORT">Comfort</option>
+              <option value="COSMETIC">Cosmetic</option>
+              <option value="PM">PM</option>
+              <option value="VSI">VSI</option>
+            </select>
+          </label>
+          <label>Shop Status
+            <select id="shop-status">
+              <option value="">--</option>
+              <option value="DOWN">Down</option>
+              <option value="UP">Up</option>
+              <option value="USABLE">Usable</option>
+            </select>
+          </label>
+          <label>Mechanic
+            <input id="mechanic" autocomplete="off" />
+          </label>
+          <label>Started At
+            <input id="started-at" type="datetime-local" />
+          </label>
+          <label>Completed At
+            <input id="completed-at" type="datetime-local" />
+          </label>
+        </div>
+        <div class="grid">
+          <label>OPS Notes
+            <textarea id="ops-description"></textarea>
+          </label>
+          <label>Diagnosis / Notes
+            <textarea id="diagnosis-text"></textarea>
+          </label>
+        </div>
+        <div class="actions">
+          <button type="submit" id="submit-btn">Create Ticket</button>
+          <button type="button" class="secondary" id="reset-btn">New Ticket</button>
+          <button type="button" class="secondary" id="refresh-btn">Refresh List</button>
+        </div>
+        <div id="message"></div>
+      </form>
+    </section>
+
+    <section>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <h2>Tickets</h2>
+        <label style="flex-direction:row;align-items:center;gap:8px;">
+          <input type="checkbox" id="include-closed" /> Include closed
+        </label>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Vehicle</th>
+              <th>Reported</th>
+              <th>OPS</th>
+              <th>Shop</th>
+              <th>Mechanic</th>
+              <th>Started</th>
+              <th>Completed</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tickets-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const OPS_CLASS = {
+      DOWNED: 'downed',
+      HOLD: 'hold',
+      LIMITED: 'limited',
+      COMFORT: 'comfort',
+      COSMETIC: 'cosmetic',
+      PM: 'pm',
+      VSI: 'vsi'
+    };
+    const SHOP_CLASS = {
+      DOWN: 'down',
+      UP: 'up',
+      USABLE: 'usable'
+    };
+
+    const messageEl = document.getElementById('message');
+    const includeClosedEl = document.getElementById('include-closed');
+    const ticketsBody = document.getElementById('tickets-body');
+    const form = document.getElementById('ticket-form');
+    const resetBtn = document.getElementById('reset-btn');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const submitBtn = document.getElementById('submit-btn');
+    const formTitle = document.getElementById('form-title');
+    const ticketIdEl = document.getElementById('ticket-id');
+    const fleetInput = document.getElementById('fleet-no');
+    const vehicleNameInput = document.getElementById('vehicle-name');
+    const vehicleTypeInput = document.getElementById('vehicle-type');
+    const reportedAtInput = document.getElementById('reported-at');
+    const reportedByInput = document.getElementById('reported-by');
+    const opsStatusInput = document.getElementById('ops-status');
+    const shopStatusInput = document.getElementById('shop-status');
+    const mechanicInput = document.getElementById('mechanic');
+    const startedAtInput = document.getElementById('started-at');
+    const completedAtInput = document.getElementById('completed-at');
+    const opsDescriptionInput = document.getElementById('ops-description');
+    const diagnosisInput = document.getElementById('diagnosis-text');
+
+    function formatDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return value;
+      }
+      return date.toLocaleString();
+    }
+
+    function isoToLocalInput(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+      const offset = date.getTimezoneOffset();
+      const local = new Date(date.getTime() - offset * 60000);
+      return local.toISOString().slice(0, 16);
+    }
+
+    function localInputToIso(value) {
+      if (!value) return null;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return value;
+      }
+      return date.toISOString();
+    }
+
+    function showMessage(text, isError = false) {
+      messageEl.textContent = text;
+      messageEl.style.display = 'block';
+      messageEl.classList.toggle('error', isError);
+      if (!isError) {
+        setTimeout(() => { messageEl.style.display = 'none'; }, 4000);
+      }
+    }
+
+    function clearForm() {
+      form.reset();
+      ticketIdEl.value = '';
+      formTitle.textContent = 'Create Ticket';
+      submitBtn.textContent = 'Create Ticket';
+      fleetInput.removeAttribute('disabled');
+      vehicleNameInput.removeAttribute('disabled');
+      vehicleTypeInput.removeAttribute('disabled');
+    }
+
+    function populateForm(ticket) {
+      ticketIdEl.value = ticket.id;
+      formTitle.textContent = `Update Ticket ${ticket.id.slice(0, 8)}`;
+      submitBtn.textContent = 'Update Ticket';
+      fleetInput.value = ticket.vehicle_label || '';
+      fleetInput.setAttribute('disabled', 'true');
+      vehicleNameInput.value = '';
+      vehicleNameInput.setAttribute('disabled', 'true');
+      vehicleTypeInput.value = '';
+      vehicleTypeInput.setAttribute('disabled', 'true');
+      reportedAtInput.value = isoToLocalInput(ticket.reported_at);
+      reportedByInput.value = ticket.reported_by || '';
+      opsStatusInput.value = ticket.ops_status || '';
+      shopStatusInput.value = ticket.shop_status || '';
+      mechanicInput.value = ticket.mechanic || '';
+      startedAtInput.value = isoToLocalInput(ticket.started_at);
+      completedAtInput.value = isoToLocalInput(ticket.completed_at);
+      opsDescriptionInput.value = ticket.ops_description || '';
+      diagnosisInput.value = ticket.diagnosis_text || '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function fetchTickets() {
+      ticketsBody.innerHTML = '<tr><td colspan="9">Loading…</td></tr>';
+      try {
+        const params = new URLSearchParams();
+        if (includeClosedEl.checked) params.set('includeClosed', 'true');
+        const res = await fetch(`/api/tickets?${params.toString()}`);
+        if (!res.ok) throw new Error('Request failed');
+        const tickets = await res.json();
+        renderTickets(Array.isArray(tickets) ? tickets : []);
+      } catch (err) {
+        ticketsBody.innerHTML = '<tr><td colspan="9">Unable to load tickets.</td></tr>';
+      }
+    }
+
+    function renderTickets(tickets) {
+      if (!tickets.length) {
+        ticketsBody.innerHTML = '<tr><td colspan="9">No tickets found.</td></tr>';
+        return;
+      }
+      ticketsBody.innerHTML = '';
+      tickets.forEach((ticket) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${ticket.vehicle_label || ''}</td>
+          <td>${formatDate(ticket.reported_at)}</td>
+          <td>${ticket.ops_status ? `<span class="pill ${OPS_CLASS[ticket.ops_status] || ''}">${ticket.ops_status}</span>` : ''}</td>
+          <td>${ticket.shop_status ? `<span class="pill ${SHOP_CLASS[ticket.shop_status] || ''}">${ticket.shop_status}</span>` : ''}</td>
+          <td>${ticket.mechanic || ''}</td>
+          <td>${formatDate(ticket.started_at)}</td>
+          <td>${formatDate(ticket.completed_at)}</td>
+          <td>${[ticket.ops_description, ticket.diagnosis_text].filter(Boolean).join('<br><br>')}</td>
+          <td></td>
+        `;
+        const actions = document.createElement('div');
+        actions.className = 'row-actions';
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'secondary';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', () => populateForm(ticket));
+        actions.appendChild(editBtn);
+
+        const completeBtn = document.createElement('button');
+        completeBtn.type = 'button';
+        completeBtn.textContent = ticket.completed_at ? 'Reopen' : 'Complete';
+        if (ticket.completed_at) {
+          completeBtn.className = 'secondary';
+        }
+        completeBtn.addEventListener('click', async () => {
+          const payload = {};
+          if (ticket.completed_at) {
+            payload.completed_at = null;
+          } else {
+            payload.completed_at = new Date().toISOString();
+            if (!ticket.started_at) {
+              payload.started_at = payload.completed_at;
+            }
+          }
+          try {
+            const res = await fetch(`/api/tickets/${ticket.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('Failed to update');
+            await fetchTickets();
+            showMessage(ticket.completed_at ? 'Ticket reopened.' : 'Ticket marked complete.');
+          } catch (err) {
+            showMessage('Unable to update ticket.', true);
+          }
+        });
+        actions.appendChild(completeBtn);
+
+        tr.lastElementChild.appendChild(actions);
+        ticketsBody.appendChild(tr);
+      });
+    }
+
+    async function submitForm(event) {
+      event.preventDefault();
+      const ticketId = ticketIdEl.value;
+      const payload = {
+        reported_at: localInputToIso(reportedAtInput.value),
+        reported_by: reportedByInput.value || null,
+        ops_status: opsStatusInput.value || null,
+        ops_description: opsDescriptionInput.value || null,
+        shop_status: shopStatusInput.value || null,
+        mechanic: mechanicInput.value || null,
+        diagnosis_text: diagnosisInput.value || null,
+        started_at: localInputToIso(startedAtInput.value),
+        completed_at: localInputToIso(completedAtInput.value)
+      };
+      if (!payload.completed_at) delete payload.completed_at;
+      if (!payload.started_at) delete payload.started_at;
+      if (!payload.reported_at) delete payload.reported_at;
+
+      try {
+        if (ticketId) {
+          const res = await fetch(`/api/tickets/${ticketId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) throw new Error('Update failed');
+          showMessage('Ticket updated.');
+        } else {
+          payload.fleet_no = fleetInput.value || null;
+          payload.vehicle_name = vehicleNameInput.value || null;
+          payload.vehicle_type = vehicleTypeInput.value || null;
+          if (!payload.fleet_no && !payload.vehicle_name) {
+            showMessage('Provide a fleet # or vehicle name.', true);
+            return;
+          }
+          const res = await fetch('/api/tickets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) throw new Error('Create failed');
+          showMessage('Ticket created.');
+        }
+        clearForm();
+        await fetchTickets();
+      } catch (err) {
+        showMessage(err.message || 'Request failed.', true);
+      }
+    }
+
+    includeClosedEl.addEventListener('change', fetchTickets);
+    form.addEventListener('submit', submitForm);
+    resetBtn.addEventListener('click', () => {
+      clearForm();
+      messageEl.style.display = 'none';
+    });
+    refreshBtn.addEventListener('click', fetchTickets);
+
+    clearForm();
+    fetchTickets();
+  </script>
+</body>
+</html>
