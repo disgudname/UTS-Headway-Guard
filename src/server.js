@@ -123,7 +123,7 @@ async function bootstrap() {
     res.json(tickets);
   });
 
-  app.get('/api/tickets', (req, res) => {
+  const listTicketsHandler = (req, res) => {
     const includeClosed = parseBoolean(req.query.includeClosed, false);
     const vehicle = req.query.vehicle;
     const opsStatus = req.query.opsStatus;
@@ -139,9 +139,12 @@ async function bootstrap() {
       filters: { vehicle, opsStatus, shopStatus }
     });
     res.json(tickets);
-  });
+  };
 
-  app.post('/api/tickets', async (req, res) => {
+  app.get('/api/tickets', listTicketsHandler);
+  app.get('/tickets', listTicketsHandler);
+
+  const createTicketHandler = async (req, res) => {
     try {
       const body = req.body || {};
       const idempotencyKey = req.get('Idempotency-Key');
@@ -226,9 +229,12 @@ async function bootstrap() {
       logger.error('failed to create ticket', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
     }
-  });
+  };
 
-  app.put('/api/tickets/:id', async (req, res) => {
+  app.post('/api/tickets', createTicketHandler);
+  app.post('/tickets', createTicketHandler);
+
+  const updateTicketHandler = async (req, res) => {
     const ticketId = req.params.id;
     const existing = storage.state.getTicket(ticketId);
     if (!existing) {
@@ -264,7 +270,10 @@ async function bootstrap() {
       logger.error('failed to update ticket', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
     }
-  });
+  };
+
+  app.put('/api/tickets/:id', updateTicketHandler);
+  app.put('/tickets/:id', updateTicketHandler);
 
   app.get('/api/export.csv', (req, res) => {
     const start = parseDate(req.query.start);
