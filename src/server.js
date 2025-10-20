@@ -315,7 +315,7 @@ async function bootstrap() {
   app.put('/api/tickets/:id', updateTicketHandler(true));
   app.put('/tickets/:id', updateTicketHandler(true));
 
-  app.get('/api/export.csv', (req, res) => {
+  const handleExportCsv = (req, res) => {
     const start = parseDate(req.query.start);
     const end = parseDate(req.query.end);
     if (!start || !end) {
@@ -356,9 +356,12 @@ async function bootstrap() {
       res.write(`${line}\n`);
     }
     res.end();
-  });
+  };
 
-  app.post('/api/purge', async (req, res) => {
+  app.get('/api/export.csv', handleExportCsv);
+  app.get('/api/tickets/export.csv', handleExportCsv);
+
+  const handlePurge = async (req, res) => {
     const body = req.body || {};
     const startDate = parseDate(body.start);
     const endDate = parseDate(body.end);
@@ -396,7 +399,10 @@ async function bootstrap() {
       logger.error('purge failed', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
     }
-  });
+  };
+
+  app.post('/api/purge', handlePurge);
+  app.post('/api/tickets/purge', handlePurge);
 
   app.post('/internal/replicate', async (req, res) => {
     const body = req.body || {};
