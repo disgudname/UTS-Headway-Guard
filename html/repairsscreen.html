@@ -351,10 +351,12 @@
       document.getElementById('updated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
     }
 
+    const TICKETS_API_BASE = '/api/tickets';
+
     async function loadTickets() {
       const errorEl = document.getElementById('error');
       try {
-        const res = await fetch('/tickets', { cache: 'no-store' });
+        const res = await fetch(TICKETS_API_BASE, { cache: 'no-store' });
         if (!res.ok) {
           throw new Error(`Request failed: ${res.status}`);
         }

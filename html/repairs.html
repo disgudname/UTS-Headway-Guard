@@ -298,6 +298,8 @@
       USABLE: 'usable'
     };
 
+    const TICKETS_API_BASE = '/api/tickets';
+
     const messageEl = document.getElementById('message');
     const includeClosedEl = document.getElementById('include-closed');
     const ticketsBody = document.getElementById('tickets-body');
@@ -409,7 +411,8 @@
       try {
         const params = new URLSearchParams();
         if (includeClosedEl.checked) params.set('includeClosed', 'true');
-        const res = await fetch(`/tickets?${params.toString()}`);
+        const query = params.toString();
+        const res = await fetch(`${TICKETS_API_BASE}${query ? `?${query}` : ''}`);
         if (!res.ok) throw new Error('Request failed');
         const body = await res.json();
         const tickets = Array.isArray(body)
@@ -504,7 +507,7 @@
           }
           try {
             const idempotencyKey = `complete-${ticket.id}-${crypto.randomUUID()}`;
-            const { machineIds } = await syncTicketRequest(`/tickets/${ticket.id}`, 'PUT', payload, idempotencyKey);
+            const { machineIds } = await syncTicketRequest(`${TICKETS_API_BASE}/${ticket.id}`, 'PUT', payload, idempotencyKey);
             await fetchTickets();
             const baseMessage = ticket.completed_at ? 'Ticket reopened.' : 'Ticket marked complete.';
             showMessage(machineIds.size >= 2 ? baseMessage : `${baseMessage} (sync pending).`);
@@ -595,13 +598,13 @@
       try {
         if (ticketId) {
           const idempotencyKey = `update-${ticketId}-${crypto.randomUUID()}`;
-          const { machineIds } = await syncTicketRequest(`/tickets/${ticketId}`, 'PUT', payload, idempotencyKey);
+          const { machineIds } = await syncTicketRequest(`${TICKETS_API_BASE}/${ticketId}`, 'PUT', payload, idempotencyKey);
           const syncComplete = machineIds.size >= 2;
           showMessage(syncComplete ? 'Ticket updated.' : 'Ticket updated (sync pending).');
         } else {
           payload.fleet_no = fleetValue;
           const idempotencyKey = `create-${crypto.randomUUID()}`;
-          const { machineIds } = await syncTicketRequest('/tickets', 'POST', payload, idempotencyKey);
+          const { machineIds } = await syncTicketRequest(TICKETS_API_BASE, 'POST', payload, idempotencyKey);
           const syncComplete = machineIds.size >= 2;
           showMessage(syncComplete ? 'Ticket created.' : 'Ticket created (sync pending).');
         }
