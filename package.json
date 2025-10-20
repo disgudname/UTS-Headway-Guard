@@ -1,0 +1,13 @@
+{
+  "name": "maint-ticketing",
+  "version": "1.0.0",
+  "description": "Maintenance ticketing system for Fly.io machines",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
