@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="UTSShield.png" />
+<meta charset="utf-8" />
+<title>TransLoc - UTS Operations Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{--bg:#232D4B;--panel:#0F172A;}
+  body{margin:0;background:var(--bg);color:#fff;font:16px/1.45 'FGDC',sans-serif;height:100vh;display:flex;flex-direction:column;}
+  .embed-wrapper{flex:1;display:flex;padding:12px;box-sizing:border-box;}
+  iframe{flex:1;border:0;border-radius:12px;background:#fff;box-shadow:0 12px 32px rgba(15,23,42,0.35);}
+</style>
+</head>
+<body>
+  <div class="embed-wrapper">
+    <iframe src="https://uva-uts.transloc.com/secure/dispatch/" title="TransLoc Dispatch" allow="clipboard-read; clipboard-write"></iframe>
+  </div>
+  <script src="nav-bar.js"></script>
+</body>
+</html>
