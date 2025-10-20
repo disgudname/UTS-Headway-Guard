@@ -5,6 +5,8 @@
   const params = new URLSearchParams(window.location.search);
   if (params.get('dispatcher') === 'true') return;
 
+  if ((params.get('embedded') || '').toLowerCase() === 'true') return;
+
   const kioskModeEnabled = (params.get('kioskMode') || '').toLowerCase() === 'true';
   const adminKioskModeEnabled = (params.get('adminKioskMode') || '').toLowerCase() === 'true';
 
