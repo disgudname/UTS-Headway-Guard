@@ -5,12 +5,14 @@
   const params = new URLSearchParams(window.location.search);
   if (params.get('dispatcher') === 'true') return;
 
+  const kioskModeEnabled = (params.get('kioskMode') || '').toLowerCase() === 'true';
+  const adminKioskModeEnabled = (params.get('adminKioskMode') || '').toLowerCase() === 'true';
+
   const path = window.location.pathname.replace(/\/+$/, '');
   const isMapLikePage = path === '/map' || path === '/testmap';
-  if (isMapLikePage) {
-    const kioskModeEnabled = (params.get('kioskMode') || '').toLowerCase() === 'true';
-    const adminKioskModeEnabled = (params.get('adminKioskMode') || '').toLowerCase() === 'true';
-    if (kioskModeEnabled || adminKioskModeEnabled) return;
+  const isDownedPage = path === '/downed';
+  if ((isMapLikePage && (kioskModeEnabled || adminKioskModeEnabled)) || (isDownedPage && kioskModeEnabled)) {
+    return;
   }
 
   const mobileQuery = window.matchMedia('(max-width: 768px)');
