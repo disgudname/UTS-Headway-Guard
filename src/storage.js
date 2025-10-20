@@ -342,7 +342,7 @@ class Storage {
       if (!line.trim()) continue;
       try {
         const event = JSON.parse(line);
-        if (!ts || event.ts > ts) {
+        if (!ts || event.ts >= ts) {
           results.push(event);
         }
       } catch (err) {
