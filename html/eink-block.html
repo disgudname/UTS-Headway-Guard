@@ -360,7 +360,6 @@
   const LAYOUT_NAMES_STORAGE_KEY=`${LAYOUT_STORAGE_KEY}:names`;
   const LAYOUT_ENDPOINT='/api/eink-block/layout';
   const DEFAULT_STATUS_MESSAGE='Edit Mode — click a block to change it';
-  const REQUIRED_REMOTE_SAVE_MACHINES=2;
   let gridStatusEl=null;
   let gridStatusTimer=null;
   let saveSequence=0;
@@ -1271,18 +1270,6 @@
       if(!res.ok){
         const message=data && data.error ? data.error : `HTTP ${res.status}`;
         throw new Error(message);
-      }
-      const machines=new Set();
-      const header=res.headers && res.headers.get ? res.headers.get('x-commit-machines') : null;
-      if(header){
-        header.split(',').map(s=>s.trim()).filter(Boolean).forEach(id=>machines.add(id));
-      }
-      const committed=data && typeof data==='object' ? data.committed_machine_ids || data.committedMachineIds : null;
-      if(Array.isArray(committed)){
-        committed.map(id=>String(id).trim()).filter(Boolean).forEach(id=>machines.add(id));
-      }
-      if(machines.size<REQUIRED_REMOTE_SAVE_MACHINES){
-        throw new Error('Commit confirmation missing required machines');
       }
       if(data && Array.isArray(data.available_layouts)){
         incorporateAvailableLayouts(data.available_layouts);

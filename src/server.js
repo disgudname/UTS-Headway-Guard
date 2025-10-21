@@ -3,20 +3,8 @@ const crypto = require('crypto');
 
 const config = require('./config');
 const { Storage } = require('./storage');
-const { Replicator } = require('./replication');
-const { TwoPhaseCoordinator } = require('./two_phase_commit');
 const { OPS_STATUSES, SHOP_STATUSES, ticketMatchesPurge } = require('./state');
 const logger = require('./logger');
-
-function applyCommitInfo(res, info) {
-  if (!info) return;
-  if (info.transactionId) {
-    res.set('X-Commit-Transaction', info.transactionId);
-  }
-  if (Array.isArray(info.machineIds)) {
-    res.set('X-Commit-Machines', info.machineIds.join(','));
-  }
-}
 
 function createEvent(type, payload, dedupeKey) {
   return {
@@ -119,13 +107,8 @@ async function bootstrap() {
 
   const storage = new Storage(config);
   await storage.init();
-  const replicator = new Replicator(storage, config);
-  await replicator.start();
-  const coordinator = new TwoPhaseCoordinator(storage, config);
 
   app.locals.storage = storage;
-  app.locals.replicator = replicator;
-  app.locals.coordinator = coordinator;
 
   app.get('/health', (req, res) => {
     res.json({ ok: true });
@@ -136,23 +119,14 @@ async function bootstrap() {
     res.json(tickets);
   });
 
-  const sendTicketResponse = (res, ticket, includeMachineInfo, status = 200, commitInfo = null) => {
+  const sendTicketResponse = (res, ticket, includeMachineInfo, status = 200) => {
     if (!ticket) {
       res.status(500).json({ error: 'ticket_state_unavailable' });
       return;
     }
     const decorated = storage.state.decorateTicket(ticket);
-    if (commitInfo) {
-      applyCommitInfo(res, commitInfo);
-    }
     if (includeMachineInfo) {
       const body = { machine_id: config.machineId, ticket: decorated };
-      if (commitInfo?.machineIds) {
-        body.committed_machine_ids = commitInfo.machineIds;
-      }
-      if (commitInfo?.transactionId) {
-        body.transaction_id = commitInfo.transactionId;
-      }
       res.status(status).json(body);
     } else {
       res.status(status).json(decorated);
@@ -277,12 +251,13 @@ async function bootstrap() {
         )
       );
 
-      const actions = events.map((event) => ({ type: 'append_event', event }));
-      const commitInfo = await coordinator.commit(actions);
+      for (const event of events) {
+        await storage.appendEvent(event);
+      }
 
       logger.info('ticket created', { ticket_id: ticketId });
       const created = storage.state.getTicket(ticketId);
-      sendTicketResponse(res, created, includeMachineInfo, 201, commitInfo);
+      sendTicketResponse(res, created, includeMachineInfo, 201);
     } catch (err) {
       logger.error('failed to create ticket', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
@@ -325,9 +300,9 @@ async function bootstrap() {
       idempotencyKey ? `ticket:update:${ticketId}:${idempotencyKey}` : undefined
     );
     try {
-      const commitInfo = await coordinator.commit([{ type: 'append_event', event }]);
+      await storage.appendEvent(event);
       const fresh = storage.state.getTicket(ticketId);
-      sendTicketResponse(res, fresh, includeMachineInfo, 200, commitInfo);
+      sendTicketResponse(res, fresh, includeMachineInfo, 200);
     } catch (err) {
       logger.error('failed to update ticket', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
@@ -412,24 +387,16 @@ async function bootstrap() {
     }
     const event = createEvent('purge.requested', purgeSpec);
     try {
-      const actions = [{ type: 'append_event', event }];
+      await storage.appendEvent(event);
       if (purgeSpec.mode === 'hard') {
-        actions.push({ type: 'hard_purge', spec: purgeSpec });
+        await storage.performHardPurge(purgeSpec);
       }
-      const commitInfo = await coordinator.commit(actions);
-      applyCommitInfo(res, commitInfo);
       const body = {
         machine_id: config.machineId,
         purged_count: purgedTickets.length,
         mode: purgeSpec.mode,
         purge_id: purgeId
       };
-      if (commitInfo?.machineIds) {
-        body.committed_machine_ids = commitInfo.machineIds;
-      }
-      if (commitInfo?.transactionId) {
-        body.transaction_id = commitInfo.transactionId;
-      }
       res.json(body);
     } catch (err) {
       logger.error('purge failed', { err: err.stack });
@@ -439,74 +406,6 @@ async function bootstrap() {
 
   app.post('/api/purge', handlePurge);
   app.post('/api/tickets/purge', handlePurge);
-
-  app.post('/internal/2pc/begin', async (req, res) => {
-    const body = req.body || {};
-    const txId = body.transaction_id;
-    const actions = body.actions;
-    if (!txId || typeof txId !== 'string' || !Array.isArray(actions) || !actions.length) {
-      return res.status(400).json({ error: 'invalid_payload' });
-    }
-    try {
-      await storage.prepareTransaction(txId, actions);
-      res.json({ ok: true, machine_id: config.machineId });
-    } catch (err) {
-      logger.error('2pc begin failed', { err: err.message });
-      res.status(500).json({ error: 'internal_error' });
-    }
-  });
-
-  app.post('/internal/2pc/commit', async (req, res) => {
-    const txId = req.body?.transaction_id;
-    if (!txId || typeof txId !== 'string') {
-      return res.status(400).json({ error: 'invalid_payload' });
-    }
-    try {
-      await storage.commitPreparedTransaction(txId);
-      res.json({ ok: true, machine_id: config.machineId });
-    } catch (err) {
-      logger.error('2pc commit failed', { err: err.message });
-      res.status(500).json({ error: 'internal_error' });
-    }
-  });
-
-  app.post('/internal/2pc/rollback', async (req, res) => {
-    const txId = req.body?.transaction_id;
-    if (!txId || typeof txId !== 'string') {
-      return res.status(400).json({ error: 'invalid_payload' });
-    }
-    try {
-      await storage.rollbackPreparedTransaction(txId);
-      res.json({ ok: true, machine_id: config.machineId });
-    } catch (err) {
-      logger.error('2pc rollback failed', { err: err.message });
-      res.status(500).json({ error: 'internal_error' });
-    }
-  });
-
-  app.post('/internal/replicate', async (req, res) => {
-    const body = req.body || {};
-    if (!Array.isArray(body.events)) {
-      return res.status(400).json({ error: 'events array required' });
-    }
-    const applied = [];
-    for (const event of body.events) {
-      const result = await storage.persistIncomingEvent(event);
-      if (result.applied) {
-        applied.push(event.event_id);
-        if (event.type === 'purge.requested' && event.payload?.mode === 'hard') {
-          await storage.performHardPurge(event.payload);
-        }
-      }
-    }
-    res.json({ ack: true, machine_id: config.machineId, applied_event_ids: applied });
-  });
-
-  app.get('/internal/export', async (req, res) => {
-    const since = req.query.since_ts || null;
-    const events = await storage.eventsSince(since);
-    res.json(events);
-  });
 
   app.get('/signage', (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -524,7 +423,6 @@ async function bootstrap() {
 
   const shutdown = async () => {
     logger.info('shutting down');
-    replicator.stop();
     clearInterval(storage.snapshotTimer);
     if (storage.eventHandle) {
       await storage.eventHandle.close().catch(() => {});
