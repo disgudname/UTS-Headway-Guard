@@ -11,10 +11,10 @@ const logger = require('./logger');
 function applyCommitInfo(res, info) {
   if (!info) return;
   if (info.transactionId) {
-    res.set('x-commit-transaction', info.transactionId);
+    res.set('X-Commit-Transaction', info.transactionId);
   }
   if (Array.isArray(info.machineIds)) {
-    res.set('x-commit-machines', info.machineIds.join(','));
+    res.set('X-Commit-Machines', info.machineIds.join(','));
   }
 }
 

@@ -155,6 +155,7 @@ VEH_LOG_DIRS = [
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
 
 TICKETS_PATH = Path(os.getenv("TICKETS_PATH", str(PRIMARY_DATA_DIR / "tickets.json")))
+TICKETS_NAME = TICKETS_PATH.name
 tickets_store = TicketStore(TICKETS_PATH)
 
 # Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
@@ -474,6 +475,9 @@ def _two_phase_write(name: str, data: str) -> Dict[str, Any]:
         {"type": "write_file", "name": name, "data": data}
     ])
     return {"transaction_id": tx_id, "machine_ids": machine_ids}
+
+
+tickets_store.set_commit_handler(lambda payload: _two_phase_write(TICKETS_NAME, payload))
 
 # ---------------------------
 # Geometry helpers
@@ -4468,21 +4472,29 @@ async def get_ticket(ticket_id: str):
 @app.post("/api/tickets")
 async def create_ticket(payload: Dict[str, Any] = Body(...)):
     try:
-        ticket = await tickets_store.create_ticket(payload)
+        ticket, commit_info = await tickets_store.create_ticket(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     info = _current_machine_info()
-    return {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
+    body = {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
+    _inject_commit_fields(body, commit_info)
+    headers = _provenance_headers(info)
+    _attach_commit_headers(headers, commit_info)
+    return JSONResponse(body, headers=headers)
 
 
 @app.put("/api/tickets/{ticket_id}")
 async def update_ticket(ticket_id: str, payload: Dict[str, Any] = Body(...)):
     try:
-        ticket = await tickets_store.update_ticket(ticket_id, payload)
+        ticket, commit_info = await tickets_store.update_ticket(ticket_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="ticket not found") from exc
     info = _current_machine_info()
-    return {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
+    body = {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
+    _inject_commit_fields(body, commit_info)
+    headers = _provenance_headers(info)
+    _attach_commit_headers(headers, commit_info)
+    return JSONResponse(body, headers=headers)
 
 
 @app.post("/api/tickets/purge")
@@ -4493,7 +4505,7 @@ async def purge_tickets(payload: Dict[str, Any] = Body(...)):
         vehicles = []
     hard = bool(payload.get("hard"))
     try:
-        result = await tickets_store.purge_tickets(
+        result, commit_info = await tickets_store.purge_tickets(
             start=payload.get("start"),
             end=payload.get("end"),
             date_field=date_field,
@@ -4503,7 +4515,11 @@ async def purge_tickets(payload: Dict[str, Any] = Body(...)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     info = _current_machine_info()
-    return {"machine_id": info.get("machine_id", "unknown"), **result}
+    body = {"machine_id": info.get("machine_id", "unknown"), **result}
+    _inject_commit_fields(body, commit_info)
+    headers = _provenance_headers(info)
+    _attach_commit_headers(headers, commit_info)
+    return JSONResponse(body, headers=headers)
 
 
 @app.get("/dispatcher")

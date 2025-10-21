@@ -1,10 +1,10 @@
 import asyncio
 import json
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 @dataclass
@@ -41,12 +41,16 @@ def _clean_field(value: Any) -> Optional[str]:
 
 
 class TicketStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, commit_handler: Optional[Callable[[str], Dict[str, Any]]] = None):
         self._path = path
         self._lock = asyncio.Lock()
         self._tickets: Dict[str, Ticket] = {}
         self._soft_purges: List[Dict[str, Any]] = []
+        self._commit_handler = commit_handler
         self._load_sync()
+
+    def set_commit_handler(self, handler: Optional[Callable[[str], Dict[str, Any]]]) -> None:
+        self._commit_handler = handler
 
     def _load_sync(self) -> None:
         self._tickets.clear()
@@ -93,15 +97,26 @@ class TicketStore:
             if record is not None:
                 self._soft_purges.append(record)
 
-    async def _persist(self) -> None:
+    def _serialise_state(
+        self,
+        tickets: Dict[str, Ticket],
+        soft_purges: Iterable[Dict[str, Any]],
+    ) -> str:
         data = {
-            "tickets": [ticket.to_dict() for ticket in self._tickets.values()],
-            "soft_purges": self._soft_purges,
+            "tickets": [ticket.to_dict() for ticket in tickets.values()],
+            "soft_purges": list(soft_purges),
         }
+        return json.dumps(data, indent=2, sort_keys=True)
+
+    async def _persist_serialised(self, payload: str) -> Optional[Dict[str, Any]]:
+        if self._commit_handler:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self._commit_handler, payload)
         tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True))
+        tmp_path.write_text(payload)
         tmp_path.replace(self._path)
+        return None
 
     async def list_tickets(self, include_closed: bool) -> List[Dict[str, Any]]:
         async with self._lock:
@@ -124,7 +139,7 @@ class TicketStore:
                 return None
             return ticket.to_dict()
 
-    async def create_ticket(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_ticket(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         vehicle_label = _clean_field(payload.get("fleet_no"))
         if not vehicle_label:
             vehicle_label = _clean_field(payload.get("vehicle_name"))
@@ -140,7 +155,7 @@ class TicketStore:
 
             existing = self._tickets.get(ticket_id)
             if existing:
-                return existing.to_dict()
+                return existing.to_dict(), None
 
             now = _now_iso()
             ticket = Ticket(
@@ -159,16 +174,20 @@ class TicketStore:
                 created_at=now,
                 updated_at=now,
             )
-            self._tickets[ticket_id] = ticket
-            await self._persist()
-        return ticket.to_dict()
+            next_tickets = dict(self._tickets)
+            next_tickets[ticket_id] = ticket
+            payload_json = self._serialise_state(next_tickets, self._soft_purges)
+            commit_info = await self._persist_serialised(payload_json)
+            self._tickets = next_tickets
+        return ticket.to_dict(), commit_info
 
-    async def update_ticket(self, ticket_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def update_ticket(self, ticket_id: str, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         async with self._lock:
             ticket = self._tickets.get(ticket_id)
             if not ticket:
                 raise KeyError(ticket_id)
             updated = False
+            updates: Dict[str, Any] = {}
             for key in (
                 "reported_at",
                 "reported_by",
@@ -182,12 +201,19 @@ class TicketStore:
             ):
                 if key in payload:
                     value = _clean_field(payload.get(key))
-                    setattr(ticket, key, value)
-                    updated = True
-            if updated:
-                ticket.updated_at = _now_iso()
-                await self._persist()
-            return ticket.to_dict()
+                    if getattr(ticket, key) != value:
+                        updates[key] = value
+                        updated = True
+            if not updated:
+                return ticket.to_dict(), None
+            updates["updated_at"] = _now_iso()
+            updated_ticket = replace(ticket, **updates)
+            next_tickets = dict(self._tickets)
+            next_tickets[ticket_id] = updated_ticket
+            payload_json = self._serialise_state(next_tickets, self._soft_purges)
+            commit_info = await self._persist_serialised(payload_json)
+            self._tickets = next_tickets
+            return updated_ticket.to_dict(), commit_info
 
     async def export_tickets(
         self,
@@ -242,7 +268,7 @@ class TicketStore:
         date_field: str,
         vehicles: Sequence[Any],
         hard: bool,
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         start_dt = _parse_iso_datetime(start)
         end_dt = _parse_iso_datetime(end)
         if not start_dt or not end_dt:
@@ -257,13 +283,15 @@ class TicketStore:
         purge_id = str(uuid.uuid4())
         purged_ids: List[str] = []
         async with self._lock:
+            next_tickets = dict(self._tickets)
+            next_soft_purges = list(self._soft_purges)
             for ticket_id, ticket in list(self._tickets.items()):
                 if _matches_purge(ticket, date_field, start_dt, end_dt, vehicle_set):
                     purged_ids.append(ticket_id)
             persist_needed = False
             if hard:
                 for ticket_id in purged_ids:
-                    if self._tickets.pop(ticket_id, None) is not None:
+                    if next_tickets.pop(ticket_id, None) is not None:
                         persist_needed = True
             else:
                 record = {
@@ -275,12 +303,16 @@ class TicketStore:
                     "mode": "soft",
                     "created_at": _now_iso(),
                 }
-                self._soft_purges.append(record)
+                next_soft_purges.append(record)
                 persist_needed = True
+            commit_info: Optional[Dict[str, Any]] = None
             if persist_needed:
-                await self._persist()
+                payload_json = self._serialise_state(next_tickets, next_soft_purges)
+                commit_info = await self._persist_serialised(payload_json)
+                self._tickets = next_tickets
+                self._soft_purges = next_soft_purges
         mode = "hard" if hard else "soft"
-        return {"purge_id": purge_id, "purged_count": len(purged_ids), "mode": mode}
+        return {"purge_id": purge_id, "purged_count": len(purged_ids), "mode": mode}, commit_info
 
     def _is_soft_purged(self, ticket: Ticket) -> bool:
         return _is_soft_purged_by_records(ticket, self._soft_purges)
