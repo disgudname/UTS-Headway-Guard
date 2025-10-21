@@ -27,7 +27,7 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re, base64, hashlib, secrets
+import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io
 from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 import httpx
@@ -4154,6 +4154,68 @@ async def list_tickets(includeClosed: bool = Query(False, alias="includeClosed")
     tickets = await tickets_store.list_tickets(include_closed=includeClosed)
     info = _current_machine_info()
     return {"machine_id": info.get("machine_id", "unknown"), "tickets": tickets}
+
+
+@app.get("/api/tickets/export.csv")
+async def export_tickets_csv(
+    start: str = Query(...),
+    end: str = Query(...),
+    date_field: str = Query("reported_at", alias="dateField"),
+    include_closed: bool = Query(True, alias="includeClosed"),
+):
+    try:
+        tickets = await tickets_store.export_tickets(
+            start=start,
+            end=end,
+            date_field=date_field,
+            include_closed=include_closed,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(
+        [
+            "vehicle",
+            "ticket_id",
+            "reported_at",
+            "reported_by",
+            "ops_status",
+            "ops_description",
+            "shop_status",
+            "mechanic",
+            "diagnosis_text",
+            "started_at",
+            "completed_at",
+            "legacy_row_index",
+            "legacy_source",
+            "created_at",
+            "updated_at",
+        ]
+    )
+    for ticket in tickets:
+        writer.writerow(
+            [
+                ticket.get("vehicle_label") or "",
+                ticket.get("id") or "",
+                ticket.get("reported_at") or "",
+                ticket.get("reported_by") or "",
+                ticket.get("ops_status") or "",
+                ticket.get("ops_description") or "",
+                ticket.get("shop_status") or "",
+                ticket.get("mechanic") or "",
+                ticket.get("diagnosis_text") or "",
+                ticket.get("started_at") or "",
+                ticket.get("completed_at") or "",
+                "" if ticket.get("legacy_row_index") is None else ticket.get("legacy_row_index"),
+                ticket.get("legacy_source") or "",
+                ticket.get("created_at") or "",
+                ticket.get("updated_at") or "",
+            ]
+        )
+    content = buffer.getvalue()
+    headers = {"Content-Disposition": 'attachment; filename="export.csv"'}
+    return Response(content, media_type="text/csv; charset=utf-8", headers=headers)
 
 
 @app.get("/api/tickets/{ticket_id}")
