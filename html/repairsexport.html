@@ -269,33 +269,9 @@
         });
         if (!res.ok) throw new Error('Request failed');
         const data = await res.json();
-        const machineIds = new Set();
-        const header = res.headers && res.headers.get ? res.headers.get('x-commit-machines') : null;
-        if (header) {
-          header
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .forEach((id) => machineIds.add(id));
-        }
-        const inlineIds = data?.committed_machine_ids || data?.committedMachineIds;
-        if (Array.isArray(inlineIds)) {
-          inlineIds
-            .map((id) => String(id).trim())
-            .filter(Boolean)
-            .forEach((id) => machineIds.add(id));
-        }
-        if (data?.machine_id) {
-          machineIds.add(String(data.machine_id).trim());
-        }
-        if (machineIds.size < 2) {
-          throw new Error('Purge not confirmed by two machines.');
-        }
-
         const mode = data?.mode === 'hard' ? 'Deleted' : 'Hidden';
         const count = data?.purged_count ?? 0;
-        const machines = Array.from(machineIds).join(', ');
-        showStatus(`${mode} ${count} tickets. Confirmed on machines: ${machines}.`);
+        showStatus(`${mode} ${count} tickets.`);
       } catch (err) {
         showStatus(err.message || 'Unable to process purge.', true);
       }

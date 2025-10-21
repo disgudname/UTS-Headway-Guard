@@ -27,7 +27,7 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid, threading
+import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
 from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 import httpx
@@ -136,15 +136,6 @@ ALL_BUSES = [
 DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 PRIMARY_DATA_DIR = DATA_DIRS[0]
 
-REQUIRED_MACHINE_IDS = [
-    mid.strip()
-    for mid in os.getenv("REQUIRED_MACHINE_IDS", "6e82745df6e3e8,d8967e6a673ed8").split(",")
-    if mid.strip()
-]
-TWO_PC_DIR = PRIMARY_DATA_DIR / "2pc"
-TWO_PC_DIR.mkdir(parents=True, exist_ok=True)
-TWO_PC_LOCK = threading.Lock()
-
 VEH_LOG_DIRS = [
     Path(p)
     for p in os.getenv(
@@ -164,29 +155,8 @@ else:
     _tickets_commit_name = str(TICKETS_PATH)
 tickets_store = TicketStore(TICKETS_PATH)
 
-# Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
-# Maintain compatibility with legacy configuration that used the ``PEERS``
-# environment variable (Node.js service). ``SYNC_PEERS`` takes precedence but
-# we fall back to ``PEERS`` when it isn't provided.
-def _parse_sync_peers() -> List[str]:
-    raw = os.getenv("SYNC_PEERS")
-    if raw is None or raw.strip() == "":
-        raw = os.getenv("PEERS", "")
-    peers: List[str] = []
-    for part in raw.split(","):
-        entry = part.strip()
-        if not entry:
-            continue
-        peers.append(entry.rstrip("/"))
-    return peers
-
-
-SYNC_PEERS = _parse_sync_peers()
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
-
-TWO_PC_COMMIT_RETRY_LIMIT = 5
-TWO_PC_COMMIT_RETRY_DELAY = 0.5
 
 # Dispatcher authentication helpers
 DISPATCH_PASSWORDS: Dict[str, str] = {}
@@ -322,209 +292,16 @@ def _atomic_write(path: Path, data: str) -> None:
     tmp.replace(path)
 
 
-def _two_pc_transaction_path(tx_id: str) -> Path:
-    return TWO_PC_DIR / f"{tx_id}.json"
-
-
-def _normalise_two_pc_action(action: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(action, dict):
-        raise ValueError("invalid action")
-    action_type = action.get("type")
-    if action_type == "write_file":
-        name = action.get("name")
-        data = action.get("data")
-        if not isinstance(name, str) or not isinstance(data, str):
-            raise ValueError("write_file action requires name and data")
-        return {"type": "write_file", "name": name, "data": data}
-    raise ValueError(f"unsupported action type {action_type}")
-
-
-def _two_pc_prepare(tx_id: str, actions: List[Dict[str, Any]]) -> None:
-    if not tx_id or not isinstance(tx_id, str):
-        raise ValueError("transaction_id required")
-    if not actions:
-        raise ValueError("actions required")
-    payload = {
-        "transaction_id": tx_id,
-        "actions": [_normalise_two_pc_action(action) for action in actions],
-    }
-    path = _two_pc_transaction_path(tx_id)
-    if path.exists():
+def _write_data_file(name: str, data: str) -> None:
+    path_obj = Path(name)
+    if path_obj.is_absolute():
+        _atomic_write(path_obj, data)
         return
-    _atomic_write(path, json.dumps(payload))
+    for base in DATA_DIRS:
+        _atomic_write(base / path_obj, data)
 
 
-def _two_pc_apply_action(action: Dict[str, Any]) -> None:
-    action_type = action.get("type")
-    if action_type == "write_file":
-        name = action.get("name")
-        data = action.get("data")
-        if not isinstance(name, str) or not isinstance(data, str):
-            raise ValueError("invalid write_file action")
-        for base in DATA_DIRS:
-            path = base / name
-            _atomic_write(path, data)
-        return
-    raise ValueError(f"unsupported action type {action_type}")
-
-
-def _two_pc_commit_local(tx_id: str) -> bool:
-    path = _two_pc_transaction_path(tx_id)
-    if not path.exists():
-        return False
-    data = json.loads(path.read_text())
-    actions = data.get("actions")
-    if not isinstance(actions, list):
-        actions = []
-    for action in actions:
-        _two_pc_apply_action(action)
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-
-    return True
-
-
-def _summarise_two_pc_action(action: Dict[str, Any]) -> Dict[str, Any]:
-    summary: Dict[str, Any] = {"type": action.get("type")}
-    action_type = action.get("type")
-    if action_type == "write_file":
-        name = action.get("name")
-        if isinstance(name, str):
-            summary["name"] = name
-        data = action.get("data")
-        if isinstance(data, str):
-            encoded = data.encode("utf-8")
-            summary["bytes"] = len(encoded)
-            summary["sha256"] = hashlib.sha256(encoded).hexdigest()
-            preview = data[:120]
-            summary["preview"] = preview
-            summary["preview_truncated"] = len(data) > len(preview)
-    return summary
-
-
-def _two_pc_rollback_local(tx_id: str) -> None:
-    path = _two_pc_transaction_path(tx_id)
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-
-
-def _two_pc_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    result = dict(payload)
-    if SYNC_SECRET:
-        result["secret"] = SYNC_SECRET
-    return result
-
-
-def _two_pc_send(peer: str, phase: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    base = peer.strip().rstrip("/")
-    if not base:
-        raise RuntimeError("invalid peer")
-    if "://" in base:
-        url = f"{base}/sync/2pc/{phase}"
-    else:
-        url = f"http://{base}/sync/2pc/{phase}"
-    try:
-        resp = httpx.post(url, json=_two_pc_payload(payload), timeout=10)
-        resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"{phase} request to {peer} failed: {exc}") from exc
-    try:
-        return resp.json()
-    except ValueError:
-        return {}
-
-
-def _resolve_required_ids(local_id: str, participants: Dict[str, str]) -> set[str]:
-    if not SYNC_PEERS:
-        return {local_id}
-    required = {mid for mid in REQUIRED_MACHINE_IDS if mid}
-    if required:
-        return required
-    return set(participants.keys())
-
-
-def _two_phase_commit(actions: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
-    if not actions:
-        raise ValueError("actions required")
-    tx_id = f"tx-{uuid.uuid4()}"
-    local_info = _current_machine_info()
-    local_id = local_info.get("machine_id", "unknown")
-    participants: Dict[str, str] = {local_id: "local"}
-    prepared_peers: List[Tuple[str, str]] = []
-    try:
-        with TWO_PC_LOCK:
-            _two_pc_prepare(tx_id, actions)
-        for peer in SYNC_PEERS:
-            data = _two_pc_send(peer, "begin", {"transaction_id": tx_id, "actions": actions})
-            machine_id = data.get("machine_id")
-            if not machine_id:
-                raise RuntimeError(f"peer {peer} missing machine_id")
-            participants[machine_id] = peer
-            prepared_peers.append((peer, machine_id))
-        required = _resolve_required_ids(local_id, participants)
-        missing = [mid for mid in required if mid not in participants]
-        if missing:
-            raise RuntimeError(f"missing prepare from machines: {', '.join(missing)}")
-    except Exception as exc:
-        print(f"[2pc] commit error: {exc}")
-        with TWO_PC_LOCK:
-            try:
-                _two_pc_rollback_local(tx_id)
-            except Exception:
-                pass
-        for peer, _machine_id in prepared_peers:
-            try:
-                _two_pc_send(peer, "rollback", {"transaction_id": tx_id})
-            except Exception:
-                pass
-        raise
-
-    commit_errors: List[Tuple[str, Exception]] = []
-    pending_commits: List[Tuple[str, str]] = list(prepared_peers)
-    commit_attempts: Dict[str, int] = defaultdict(int)
-    while pending_commits:
-        peer, _machine_id = pending_commits.pop(0)
-        try:
-            _two_pc_send(peer, "commit", {"transaction_id": tx_id})
-        except Exception as err:  # noqa: PERF203 - bounded retries
-            commit_attempts[peer] += 1
-            if commit_attempts[peer] >= TWO_PC_COMMIT_RETRY_LIMIT:
-                commit_errors.append((peer, err))
-            else:
-                time.sleep(TWO_PC_COMMIT_RETRY_DELAY)
-                pending_commits.append((peer, _machine_id))
-
-    local_attempts = 0
-    while True:
-        try:
-            with TWO_PC_LOCK:
-                _two_pc_commit_local(tx_id)
-            break
-        except Exception as err:  # noqa: PERF203 - bounded retries
-            local_attempts += 1
-            if local_attempts >= TWO_PC_COMMIT_RETRY_LIMIT:
-                commit_errors.append(("local", err))
-                break
-            time.sleep(TWO_PC_COMMIT_RETRY_DELAY)
-    if commit_errors:
-        detail = ", ".join(f"{peer}: {error}" for peer, error in commit_errors)
-        print(f"[2pc] commit decision recorded with errors: {detail}")
-        raise RuntimeError(f"commit issued but not confirmed everywhere: {detail}")
-    return tx_id, list(participants.keys())
-
-
-def _two_phase_write(name: str, data: str) -> Dict[str, Any]:
-    tx_id, machine_ids = _two_phase_commit([
-        {"type": "write_file", "name": name, "data": data}
-    ])
-    return {"transaction_id": tx_id, "machine_ids": machine_ids}
-
-
-tickets_store.set_commit_handler(lambda payload: _two_phase_write(_tickets_commit_name, payload))
+tickets_store.set_commit_handler(lambda payload: _write_data_file(_tickets_commit_name, payload))
 
 # ---------------------------
 # Geometry helpers
@@ -1054,7 +831,6 @@ SERVICECREW_HTML = _load_html("servicecrew.html")
 LANDING_HTML = _load_html("index.html")
 APICALLS_HTML = _load_html("apicalls.html")
 DEBUG_HTML = _load_html("debug.html")
-TWO_PC_DEBUG_HTML = _load_html("two-pc-debug.html")
 REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
@@ -1121,28 +897,6 @@ def _current_machine_info() -> Dict[str, str]:
 
 def _provenance_headers(info: Dict[str, str]) -> Dict[str, str]:
     return {"X-Machine-Id": info["machine_id"], "X-Region": info["region"]}
-
-
-def _attach_commit_headers(headers: Dict[str, str], commit_info: Optional[Dict[str, Any]]) -> None:
-    if not commit_info:
-        return
-    tx_id = commit_info.get("transaction_id")
-    machines = commit_info.get("machine_ids")
-    if tx_id:
-        headers["X-Commit-Transaction"] = str(tx_id)
-    if machines:
-        headers["X-Commit-Machines"] = ",".join(str(mid) for mid in machines)
-
-
-def _inject_commit_fields(body: Dict[str, Any], commit_info: Optional[Dict[str, Any]]) -> None:
-    if not commit_info:
-        return
-    machines = commit_info.get("machine_ids")
-    tx_id = commit_info.get("transaction_id")
-    if machines:
-        body["committed_machine_ids"] = machines
-    if tx_id:
-        body["transaction_id"] = tx_id
 
 
 def _base_response_fields(ok: bool, saved: bool, info: Dict[str, str]) -> Dict[str, Any]:
@@ -1241,11 +995,11 @@ def save_config(
         print(f"[save_config] encode error: {e}")
         return metadata, False, None
     try:
-        commit_info = _two_phase_write(CONFIG_NAME, payload)
+        _write_data_file(CONFIG_NAME, payload)
     except Exception as e:
         print(f"[save_config] error persisting config: {e}")
         return metadata, False, None
-    return metadata, True, commit_info
+    return metadata, True, None
 
 
 load_config()
@@ -1494,8 +1248,8 @@ def save_eink_block_layout(
         "updated_at": timestamp,
     }
     encoded = json.dumps(payload)
-    commit_info = _two_phase_write(EINK_BLOCK_LAYOUT_NAME, encoded)
-    return layout, timestamp, identifier, store, commit_info
+    _write_data_file(EINK_BLOCK_LAYOUT_NAME, encoded)
+    return layout, timestamp, identifier, store, None
 
 
 def remove_eink_block_layout(
@@ -1515,8 +1269,8 @@ def remove_eink_block_layout(
     }
     payload = {"layouts": serialized_layouts, "updated_at": timestamp}
     encoded = json.dumps(payload)
-    commit_info = _two_phase_write(EINK_BLOCK_LAYOUT_NAME, encoded)
-    return True, store, commit_info
+    _write_data_file(EINK_BLOCK_LAYOUT_NAME, encoded)
+    return True, store, None
 
 
 class State:
@@ -1651,7 +1405,7 @@ def save_vehicle_headings() -> None:
         print(f"[vehicle_headings] encode error: {e}")
         return
     try:
-        _two_phase_write(VEHICLE_HEADINGS_NAME, payload_json)
+        _write_data_file(VEHICLE_HEADINGS_NAME, payload_json)
     except Exception as e:
         print(f"[vehicle_headings] commit error: {e}")
 
@@ -1701,7 +1455,7 @@ def save_bus_days() -> None:
         print(f"[save_bus_days] encode error: {e}")
         return
     try:
-        _two_phase_write(MILEAGE_NAME, payload_json)
+        _write_data_file(MILEAGE_NAME, payload_json)
     except Exception as e:
         print(f"[save_bus_days] commit error: {e}")
 
@@ -1791,95 +1545,6 @@ def _require_sync_secret(payload: Dict[str, Any]) -> None:
     if payload.get("secret") != SYNC_SECRET:
         raise HTTPException(status_code=403, detail="forbidden")
 
-
-@app.post("/sync/2pc/begin")
-async def sync_two_pc_begin(payload: Dict[str, Any]):
-    _require_sync_secret(payload)
-    tx_id = payload.get("transaction_id")
-    actions = payload.get("actions")
-    if not isinstance(tx_id, str) or not tx_id or not isinstance(actions, list) or not actions:
-        raise HTTPException(status_code=400, detail="invalid payload")
-    try:
-        with TWO_PC_LOCK:
-            _two_pc_prepare(tx_id, actions)
-    except Exception as exc:
-        print(f"[2pc] prepare error: {exc}")
-        raise HTTPException(status_code=500, detail="prepare_failed") from exc
-    return {"ok": True, "machine_id": _current_machine_info().get("machine_id", "unknown")}
-
-
-@app.post("/sync/2pc/commit")
-async def sync_two_pc_commit(payload: Dict[str, Any]):
-    _require_sync_secret(payload)
-    tx_id = payload.get("transaction_id")
-    if not isinstance(tx_id, str) or not tx_id:
-        raise HTTPException(status_code=400, detail="invalid payload")
-    try:
-        with TWO_PC_LOCK:
-            _two_pc_commit_local(tx_id)
-    except Exception as exc:
-        print(f"[2pc] commit error: {exc}")
-        raise HTTPException(status_code=500, detail="commit_failed") from exc
-    return {"ok": True, "machine_id": _current_machine_info().get("machine_id", "unknown")}
-
-
-@app.post("/sync/2pc/rollback")
-async def sync_two_pc_rollback(payload: Dict[str, Any]):
-    _require_sync_secret(payload)
-    tx_id = payload.get("transaction_id")
-    if not isinstance(tx_id, str) or not tx_id:
-        raise HTTPException(status_code=400, detail="invalid payload")
-    with TWO_PC_LOCK:
-        _two_pc_rollback_local(tx_id)
-    return {"ok": True, "machine_id": _current_machine_info().get("machine_id", "unknown")}
-
-
-@app.get("/v1/debug/2pc")
-async def two_pc_debug_state():
-    now = datetime.now().astimezone()
-    now_ts = time.time()
-    transactions: List[Dict[str, Any]] = []
-    with TWO_PC_LOCK:
-        for path in sorted(TWO_PC_DIR.glob("*.json")):
-            stat = path.stat()
-            entry: Dict[str, Any] = {
-                "transaction_id": path.stem,
-                "filename": path.name,
-                "size_bytes": stat.st_size,
-                "updated_at": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(),
-                "age_seconds": max(0.0, now_ts - stat.st_mtime),
-            }
-            try:
-                raw = path.read_text()
-                payload = json.loads(raw)
-            except Exception as exc:
-                entry["error"] = str(exc)
-            else:
-                tx_id = payload.get("transaction_id")
-                if isinstance(tx_id, str) and tx_id:
-                    entry["transaction_id"] = tx_id
-                actions = payload.get("actions")
-                if isinstance(actions, list):
-                    entry["action_count"] = len(actions)
-                    entry["actions"] = [_summarise_two_pc_action(action) for action in actions]
-                else:
-                    entry["action_count"] = 0
-                    entry["actions"] = []
-                entry["payload_keys"] = sorted(payload.keys())
-            transactions.append(entry)
-    return {
-        "generated_at": now.isoformat(),
-        "machine": _current_machine_info(),
-        "two_pc_directory": str(TWO_PC_DIR),
-        "data_directories": [str(path) for path in DATA_DIRS],
-        "sync_peers": SYNC_PEERS,
-        "required_machine_ids": REQUIRED_MACHINE_IDS,
-        "sync_secret_configured": SYNC_SECRET is not None,
-        "commit_retry_limit": TWO_PC_COMMIT_RETRY_LIMIT,
-        "commit_retry_delay": TWO_PC_COMMIT_RETRY_DELAY,
-        "pending_count": len(transactions),
-        "pending_transactions": transactions,
-    }
 
 # ---------------------------
 # Health
@@ -2858,7 +2523,7 @@ async def update_eink_block_layout(
         identifier = _determine_layout_identifier(
             payload, layout_id, layout_name, layout_key, layout_query
         )
-        layout, updated_at, resolved_id, store, commit_info = save_eink_block_layout(
+        layout, updated_at, resolved_id, store, _commit_info_unused = save_eink_block_layout(
             layout_payload, identifier, machine_info
         )
     except ValueError as exc:
@@ -2879,8 +2544,6 @@ async def update_eink_block_layout(
             "available_layouts": sorted(store.keys()),
         }
     )
-    _inject_commit_fields(response_body, commit_info)
-    _attach_commit_headers(headers, commit_info)
     return JSONResponse(response_body, headers=headers)
 
 
@@ -2897,7 +2560,7 @@ async def delete_eink_block_layout_endpoint(
         identifier = _determine_layout_identifier(
             None, layout_id, layout_name, layout_key, layout_query
         )
-        deleted, store, commit_info = remove_eink_block_layout(identifier)
+        deleted, store, _commit_info_unused = remove_eink_block_layout(identifier)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -2908,8 +2571,6 @@ async def delete_eink_block_layout_endpoint(
         "deleted": deleted,
         "available_layouts": sorted(store.keys()),
     }
-    _inject_commit_fields(response, commit_info)
-    _attach_commit_headers(headers, commit_info)
     return JSONResponse(response, headers=headers)
 
 
@@ -4248,10 +3909,6 @@ async def debug_page():
     return HTMLResponse(DEBUG_HTML)
 
 
-@app.get("/debug/2pc")
-async def two_pc_debug_page():
-    return HTMLResponse(TWO_PC_DEBUG_HTML)
-
 # ---------------------------
 # ADMIN PAGE
 # ---------------------------
@@ -4293,7 +3950,7 @@ async def set_config(payload: Dict[str, Any]):
                         globals()[k] = type(cur)(v)
                     except Exception:
                         globals()[k] = v
-        metadata, success, commit_info = save_config(machine_info)
+        metadata, success, _commit_info_unused = save_config(machine_info)
     except Exception as exc:
         print(f"[config] error updating config: {exc}")
         body = _base_response_fields(False, False, machine_info)
@@ -4307,8 +3964,6 @@ async def set_config(payload: Dict[str, Any]):
     response_body = _base_response_fields(True, True, machine_info)
     response_body.update(config_snapshot)
     response_body["saved_at"] = metadata.get("saved_at") if metadata else None
-    _inject_commit_fields(response_body, commit_info)
-    _attach_commit_headers(headers, commit_info)
     return JSONResponse(response_body, headers=headers)
 
 
@@ -4573,28 +4228,24 @@ async def get_ticket(ticket_id: str):
 @app.post("/api/tickets")
 async def create_ticket(payload: Dict[str, Any] = Body(...)):
     try:
-        ticket, commit_info = await tickets_store.create_ticket(payload)
+        ticket, _commit_info_unused = await tickets_store.create_ticket(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     info = _current_machine_info()
     body = {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
-    _inject_commit_fields(body, commit_info)
     headers = _provenance_headers(info)
-    _attach_commit_headers(headers, commit_info)
     return JSONResponse(body, headers=headers)
 
 
 @app.put("/api/tickets/{ticket_id}")
 async def update_ticket(ticket_id: str, payload: Dict[str, Any] = Body(...)):
     try:
-        ticket, commit_info = await tickets_store.update_ticket(ticket_id, payload)
+        ticket, _commit_info_unused = await tickets_store.update_ticket(ticket_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="ticket not found") from exc
     info = _current_machine_info()
     body = {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
-    _inject_commit_fields(body, commit_info)
     headers = _provenance_headers(info)
-    _attach_commit_headers(headers, commit_info)
     return JSONResponse(body, headers=headers)
 
 
@@ -4606,7 +4257,7 @@ async def purge_tickets(payload: Dict[str, Any] = Body(...)):
         vehicles = []
     hard = bool(payload.get("hard"))
     try:
-        result, commit_info = await tickets_store.purge_tickets(
+        result, _commit_info_unused = await tickets_store.purge_tickets(
             start=payload.get("start"),
             end=payload.get("end"),
             date_field=date_field,
@@ -4617,9 +4268,7 @@ async def purge_tickets(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     info = _current_machine_info()
     body = {"machine_id": info.get("machine_id", "unknown"), **result}
-    _inject_commit_fields(body, commit_info)
     headers = _provenance_headers(info)
-    _attach_commit_headers(headers, commit_info)
     return JSONResponse(body, headers=headers)
 
 

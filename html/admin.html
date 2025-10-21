@@ -91,7 +91,6 @@ async function load(){
     secretRoot.appendChild(notice);
   }
 }
-const REQUIRED_CONFIG_SAVE_MACHINES=2;
 async function save(){
   const form=document.getElementById('cfg');
   const data={};
@@ -111,24 +110,6 @@ async function save(){
     const resp=await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     if(!resp.ok){
       throw new Error('Failed to save configuration');
-    }
-    let payload=null;
-    try{
-      payload=await resp.json();
-    }catch(_err){
-      payload=null;
-    }
-    const machines=new Set();
-    const headerMachines=resp.headers && resp.headers.get ? resp.headers.get('x-commit-machines') : null;
-    if(headerMachines){
-      headerMachines.split(',').map(s=>s.trim()).filter(Boolean).forEach(id=>machines.add(id));
-    }
-    const committed=payload && typeof payload==='object' ? payload.committed_machine_ids || payload.committedMachineIds : null;
-    if(Array.isArray(committed)){
-      committed.map(id=>String(id).trim()).filter(Boolean).forEach(id=>machines.add(id));
-    }
-    if(machines.size<REQUIRED_CONFIG_SAVE_MACHINES){
-      throw new Error('Commit confirmation missing required machines');
     }
     if(savingProgress){
       savingProgress.style.width='100%';
