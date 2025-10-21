@@ -4152,7 +4152,8 @@ async def dispatcher_logout(response: Response):
 @app.get("/api/tickets")
 async def list_tickets(includeClosed: bool = Query(False, alias="includeClosed")):
     tickets = await tickets_store.list_tickets(include_closed=includeClosed)
-    return tickets
+    info = _current_machine_info()
+    return {"machine_id": info.get("machine_id", "unknown"), "tickets": tickets}
 
 
 @app.post("/api/tickets")
@@ -4161,7 +4162,8 @@ async def create_ticket(payload: Dict[str, Any] = Body(...)):
         ticket = await tickets_store.create_ticket(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return ticket
+    info = _current_machine_info()
+    return {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
 
 
 @app.put("/api/tickets/{ticket_id}")
@@ -4170,7 +4172,8 @@ async def update_ticket(ticket_id: str, payload: Dict[str, Any] = Body(...)):
         ticket = await tickets_store.update_ticket(ticket_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="ticket not found") from exc
-    return ticket
+    info = _current_machine_info()
+    return {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
 
 
 @app.post("/api/tickets/purge")
