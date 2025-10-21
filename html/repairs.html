@@ -61,10 +61,33 @@
       display: grid;
       gap: 16px;
     }
+    .form-sections {
+      display: grid;
+      gap: 16px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 18px 20px;
+      border-radius: 16px;
+      border: 1px solid rgba(124,158,213,0.25);
+      background: rgba(10,18,36,0.6);
+    }
+    .form-group h3 {
+      margin: 0;
+      font-size: 0.9rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
     .grid {
       display: grid;
       gap: 16px;
       grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+    }
+    .grid .full-span {
+      grid-column: 1 / -1;
     }
     label {
       display: flex;
@@ -201,53 +224,61 @@
       <h2 id="form-title">Create Ticket</h2>
       <form id="ticket-form">
         <input type="hidden" id="ticket-id" />
-        <div class="grid">
-          <label>Fleet # <span class="required-marker">*</span>
-            <input id="fleet-no" name="fleet_no" autocomplete="off" required />
-          </label>
-          <label>Reported At <span class="required-marker">*</span>
-            <input id="reported-at" type="datetime-local" required />
-          </label>
-          <label>Reported By <span class="required-marker">*</span>
-            <input id="reported-by" autocomplete="off" required />
-          </label>
-          <label>OPS Status <span class="required-marker">*</span>
-            <select id="ops-status" required>
-              <option value="">--</option>
-              <option value="DOWNED">Downed</option>
-              <option value="HOLD">Hold</option>
-              <option value="LIMITED">Limited</option>
-              <option value="COMFORT">Comfort</option>
-              <option value="COSMETIC">Cosmetic</option>
-              <option value="PM">PM</option>
-              <option value="VSI">VSI</option>
-            </select>
-          </label>
-          <label>Shop Status
-            <select id="shop-status">
-              <option value="">--</option>
-              <option value="DOWN">Down</option>
-              <option value="UP">Up</option>
-              <option value="USABLE">Usable</option>
-            </select>
-          </label>
-          <label>Mechanic
-            <input id="mechanic" autocomplete="off" />
-          </label>
-          <label>Diag Date
-            <input id="diag-date" type="date" />
-          </label>
-          <label>Completed Date
-            <input id="completed-at" type="date" />
-          </label>
-        </div>
-        <div class="grid">
-          <label>OPS Notes <span class="required-marker">*</span>
-            <textarea id="ops-description" required></textarea>
-          </label>
-          <label>Diagnosis / Notes
-            <textarea id="diagnosis-text"></textarea>
-          </label>
+        <div class="form-sections">
+          <div class="form-group">
+            <h3>Operations</h3>
+            <div class="grid">
+              <label>Fleet # <span class="required-marker">*</span>
+                <input id="fleet-no" name="fleet_no" autocomplete="off" required />
+              </label>
+              <label>Reported At <span class="required-marker">*</span>
+                <input id="reported-at" type="datetime-local" required />
+              </label>
+              <label>Reported By <span class="required-marker">*</span>
+                <input id="reported-by" autocomplete="off" required />
+              </label>
+              <label>OPS Status <span class="required-marker">*</span>
+                <select id="ops-status" required>
+                  <option value="">--</option>
+                  <option value="DOWNED">Downed</option>
+                  <option value="HOLD">Hold</option>
+                  <option value="LIMITED">Limited</option>
+                  <option value="COMFORT">Comfort</option>
+                  <option value="COSMETIC">Cosmetic</option>
+                  <option value="PM">PM</option>
+                  <option value="VSI">VSI</option>
+                </select>
+              </label>
+              <label class="full-span">OPS Notes <span class="required-marker">*</span>
+                <textarea id="ops-description" required></textarea>
+              </label>
+            </div>
+          </div>
+          <div class="form-group">
+            <h3>Shop</h3>
+            <div class="grid">
+              <label>Shop Status
+                <select id="shop-status">
+                  <option value="">--</option>
+                  <option value="DOWN">Down</option>
+                  <option value="UP">Up</option>
+                  <option value="USABLE">Usable</option>
+                </select>
+              </label>
+              <label>Mechanic
+                <input id="mechanic" autocomplete="off" />
+              </label>
+              <label>Diag Date
+                <input id="diag-date" type="date" />
+              </label>
+              <label>Completed Date
+                <input id="completed-at" type="date" />
+              </label>
+              <label class="full-span">Diagnosis / Notes
+                <textarea id="diagnosis-text"></textarea>
+              </label>
+            </div>
+          </div>
         </div>
         <div class="actions">
           <button type="submit" id="submit-btn">Create Ticket</button>
