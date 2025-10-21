@@ -1,5 +1,6 @@
 import csv
 import io
+import itertools
 import sys
 from pathlib import Path
 
@@ -19,16 +20,23 @@ from tickets_store import TicketStore  # noqa: E402
 def ticket_client(tmp_path, monkeypatch):
     data_path = tmp_path / "tickets.json"
     store = TicketStore(data_path)
+    machine_ids = ["machine-local", "machine-peer"]
+    counter = itertools.count(1)
+
+    def fake_commit(payload: str):
+        return {"transaction_id": f"tx-{next(counter)}", "machine_ids": machine_ids}
+
+    store.set_commit_handler(fake_commit)
     monkeypatch.setattr(app_module, "tickets_store", store, raising=False)
     client = TestClient(app_module.app)
     try:
-        yield client, store
+        yield client, store, machine_ids
     finally:
         client.close()
 
 
 def test_export_csv_filters_closed_and_soft_hidden(ticket_client):
-    client, _ = ticket_client
+    client, _, _ = ticket_client
     open_ticket = client.post(
         "/api/tickets",
         json={
@@ -96,7 +104,7 @@ def test_export_csv_filters_closed_and_soft_hidden(ticket_client):
 
 
 def test_export_csv_requires_valid_range(ticket_client):
-    client, _ = ticket_client
+    client, _, _ = ticket_client
     response = client.get(
         "/api/tickets/export.csv",
         params={"start": "not-a-date", "end": "2024-10-10T00:00:00Z"},
