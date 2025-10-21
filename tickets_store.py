@@ -19,6 +19,7 @@ class Ticket:
     shop_status: Optional[str] = None
     mechanic: Optional[str] = None
     diagnosis_text: Optional[str] = None
+    diag_date: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -87,6 +88,7 @@ class TicketStore:
                 shop_status=data.get("shop_status"),
                 mechanic=data.get("mechanic"),
                 diagnosis_text=data.get("diagnosis_text"),
+                diag_date=data.get("diag_date"),
                 started_at=data.get("started_at"),
                 completed_at=data.get("completed_at"),
                 created_at=data.get("created_at", _now_iso()),
@@ -169,6 +171,7 @@ class TicketStore:
                 shop_status=_clean_field(payload.get("shop_status")),
                 mechanic=_clean_field(payload.get("mechanic")),
                 diagnosis_text=_clean_field(payload.get("diagnosis_text")),
+                diag_date=_clean_field(payload.get("diag_date")),
                 started_at=_clean_field(payload.get("started_at")),
                 completed_at=_clean_field(payload.get("completed_at")),
                 created_at=now,
@@ -196,6 +199,7 @@ class TicketStore:
                 "shop_status",
                 "mechanic",
                 "diagnosis_text",
+                "diag_date",
                 "started_at",
                 "completed_at",
             ):
@@ -228,7 +232,7 @@ class TicketStore:
             raise ValueError("invalid start or end")
         if start_dt > end_dt:
             raise ValueError("start must be before end")
-        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at"}
+        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at", "diag_date"}
         if date_field not in allowed_fields:
             raise ValueError("invalid dateField")
         async with self._lock:
@@ -275,7 +279,7 @@ class TicketStore:
             raise ValueError("invalid start or end")
         if start_dt > end_dt:
             raise ValueError("start must be before end")
-        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at"}
+        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at", "diag_date"}
         if date_field not in allowed_fields:
             raise ValueError("invalid dateField")
         normalized_vehicles = _normalize_vehicle_list(vehicles)
@@ -374,7 +378,7 @@ def _normalize_purge_record(raw: Any) -> Optional[Dict[str, Any]]:
         "purge_id": str(raw.get("purge_id") or uuid.uuid4()),
         "start": start.isoformat(),
         "end": end.isoformat(),
-        "date_field": date_field if date_field in {"reported_at", "started_at", "completed_at", "updated_at"} else "reported_at",
+        "date_field": date_field if date_field in {"reported_at", "started_at", "completed_at", "updated_at", "diag_date"} else "reported_at",
         "vehicles": _normalize_vehicle_list(list(vehicles_raw)),
         "mode": "soft",
         "created_at": raw.get("created_at", _now_iso()),

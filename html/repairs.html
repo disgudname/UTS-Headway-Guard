@@ -234,6 +234,9 @@
           <label>Mechanic
             <input id="mechanic" autocomplete="off" />
           </label>
+          <label>Diag Date
+            <input id="diag-date" type="date" />
+          </label>
           <label>Completed Date
             <input id="completed-at" type="date" />
           </label>
@@ -271,6 +274,7 @@
               <th>OPS</th>
               <th>Shop</th>
               <th>Mechanic</th>
+              <th>Diag Date</th>
               <th>Completed</th>
               <th>Notes</th>
               <th></th>
@@ -315,6 +319,7 @@
     const opsStatusInput = document.getElementById('ops-status');
     const shopStatusInput = document.getElementById('shop-status');
     const mechanicInput = document.getElementById('mechanic');
+    const diagDateInput = document.getElementById('diag-date');
     const completedAtInput = document.getElementById('completed-at');
     const opsDescriptionInput = document.getElementById('ops-description');
     const diagnosisInput = document.getElementById('diagnosis-text');
@@ -400,6 +405,7 @@
       opsStatusInput.value = ticket.ops_status || '';
       shopStatusInput.value = ticket.shop_status || '';
       mechanicInput.value = ticket.mechanic || '';
+      diagDateInput.value = isoToDateInput(ticket.diag_date);
       completedAtInput.value = isoToDateInput(ticket.completed_at);
       opsDescriptionInput.value = ticket.ops_description || '';
       diagnosisInput.value = ticket.diagnosis_text || '';
@@ -407,7 +413,7 @@
     }
 
     async function fetchTickets() {
-      ticketsBody.innerHTML = '<tr><td colspan="8">Loading…</td></tr>';
+      ticketsBody.innerHTML = '<tr><td colspan="9">Loading…</td></tr>';
       try {
         const params = new URLSearchParams();
         if (includeClosedEl.checked) params.set('includeClosed', 'true');
@@ -420,13 +426,13 @@
           : (Array.isArray(body?.tickets) ? body.tickets : []);
         renderTickets(tickets);
       } catch (err) {
-        ticketsBody.innerHTML = '<tr><td colspan="8">Unable to load tickets.</td></tr>';
+        ticketsBody.innerHTML = '<tr><td colspan="9">Unable to load tickets.</td></tr>';
       }
     }
 
     function renderTickets(tickets) {
       if (!tickets.length) {
-        ticketsBody.innerHTML = '<tr><td colspan="8">No tickets found.</td></tr>';
+        ticketsBody.innerHTML = '<tr><td colspan="9">No tickets found.</td></tr>';
         return;
       }
       ticketsBody.innerHTML = '';
@@ -462,6 +468,11 @@
         const mechanicCell = document.createElement('td');
         mechanicCell.textContent = ticket.mechanic || '';
         tr.appendChild(mechanicCell);
+
+        const diagDateCell = document.createElement('td');
+        const diagValue = ticket.diag_date || ticket.started_at;
+        diagDateCell.textContent = formatDateOnly(diagValue);
+        tr.appendChild(diagDateCell);
 
         const completedCell = document.createElement('td');
         completedCell.textContent = formatDateOnly(ticket.completed_at);
@@ -575,6 +586,7 @@
         ops_description: opsNotes,
         shop_status: shopStatusInput.value || null,
         mechanic: mechanicInput.value.trim() || null,
+        diag_date: dateInputToValue(diagDateInput.value),
         diagnosis_text: diagnosisInput.value.trim() || null,
         completed_at: dateInputToValue(completedAtInput.value)
       };
