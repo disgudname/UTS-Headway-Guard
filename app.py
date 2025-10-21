@@ -4173,6 +4173,26 @@ async def update_ticket(ticket_id: str, payload: Dict[str, Any] = Body(...)):
     return ticket
 
 
+@app.post("/api/tickets/purge")
+async def purge_tickets(payload: Dict[str, Any] = Body(...)):
+    date_field = payload.get("dateField") or payload.get("date_field") or "reported_at"
+    vehicles = payload.get("vehicles")
+    if not isinstance(vehicles, list):
+        vehicles = []
+    hard = bool(payload.get("hard"))
+    try:
+        result = await tickets_store.purge_tickets(
+            start=payload.get("start"),
+            end=payload.get("end"),
+            date_field=date_field,
+            vehicles=vehicles,
+            hard=hard,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
 @app.get("/dispatcher")
 async def dispatcher_page(request: Request):
     _refresh_dispatch_passwords()

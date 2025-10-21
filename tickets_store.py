@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
 @dataclass
@@ -45,9 +45,12 @@ class TicketStore:
         self._path = path
         self._lock = asyncio.Lock()
         self._tickets: Dict[str, Ticket] = {}
+        self._soft_purges: List[Dict[str, Any]] = []
         self._load_sync()
 
     def _load_sync(self) -> None:
+        self._tickets.clear()
+        self._soft_purges = []
         if not self._path.exists():
             self._path.parent.mkdir(parents=True, exist_ok=True)
             return
@@ -55,9 +58,13 @@ class TicketStore:
             raw = json.loads(self._path.read_text())
         except json.JSONDecodeError:
             return
-        if not isinstance(raw, list):
-            return
-        for entry in raw:
+        if isinstance(raw, dict):
+            entries = raw.get("tickets", [])
+            purges = raw.get("soft_purges", [])
+        else:
+            entries = raw if isinstance(raw, list) else []
+            purges = []
+        for entry in entries:
             if not isinstance(entry, dict):
                 continue
             ticket_id = entry.get("id")
@@ -81,9 +88,16 @@ class TicketStore:
                 created_at=data.get("created_at", _now_iso()),
                 updated_at=data.get("updated_at", _now_iso()),
             )
+        for purge in purges:
+            record = _normalize_purge_record(purge)
+            if record is not None:
+                self._soft_purges.append(record)
 
     async def _persist(self) -> None:
-        data = [ticket.to_dict() for ticket in self._tickets.values()]
+        data = {
+            "tickets": [ticket.to_dict() for ticket in self._tickets.values()],
+            "soft_purges": self._soft_purges,
+        }
         tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path.write_text(json.dumps(data, indent=2, sort_keys=True))
@@ -95,6 +109,8 @@ class TicketStore:
         filtered: List[Ticket] = []
         for ticket in items:
             if not include_closed and ticket.completed_at:
+                continue
+            if self._is_soft_purged(ticket):
                 continue
             filtered.append(ticket)
         filtered.sort(key=lambda t: _sort_key(t.reported_at, t.created_at), reverse=True)
@@ -165,6 +181,67 @@ class TicketStore:
                 await self._persist()
             return ticket.to_dict()
 
+    async def purge_tickets(
+        self,
+        start: Any,
+        end: Any,
+        date_field: str,
+        vehicles: Sequence[Any],
+        hard: bool,
+    ) -> Dict[str, Any]:
+        start_dt = _parse_iso_datetime(start)
+        end_dt = _parse_iso_datetime(end)
+        if not start_dt or not end_dt:
+            raise ValueError("invalid start or end")
+        if start_dt > end_dt:
+            raise ValueError("start must be before end")
+        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at"}
+        if date_field not in allowed_fields:
+            raise ValueError("invalid dateField")
+        normalized_vehicles = _normalize_vehicle_list(vehicles)
+        vehicle_set = set(normalized_vehicles)
+        purge_id = str(uuid.uuid4())
+        purged_ids: List[str] = []
+        async with self._lock:
+            for ticket_id, ticket in list(self._tickets.items()):
+                if _matches_purge(ticket, date_field, start_dt, end_dt, vehicle_set):
+                    purged_ids.append(ticket_id)
+            persist_needed = False
+            if hard:
+                for ticket_id in purged_ids:
+                    if self._tickets.pop(ticket_id, None) is not None:
+                        persist_needed = True
+            else:
+                record = {
+                    "purge_id": purge_id,
+                    "start": start_dt.isoformat(),
+                    "end": end_dt.isoformat(),
+                    "date_field": date_field,
+                    "vehicles": normalized_vehicles,
+                    "mode": "soft",
+                    "created_at": _now_iso(),
+                }
+                self._soft_purges.append(record)
+                persist_needed = True
+            if persist_needed:
+                await self._persist()
+        mode = "hard" if hard else "soft"
+        return {"purge_id": purge_id, "purged_count": len(purged_ids), "mode": mode}
+
+    def _is_soft_purged(self, ticket: Ticket) -> bool:
+        if not self._soft_purges:
+            return False
+        for record in self._soft_purges:
+            start_dt = _parse_iso_datetime(record.get("start"))
+            end_dt = _parse_iso_datetime(record.get("end"))
+            if not start_dt or not end_dt:
+                continue
+            date_field = record.get("date_field", "reported_at")
+            vehicles = record.get("vehicles") or []
+            if _matches_purge(ticket, date_field, start_dt, end_dt, set(vehicles)):
+                return True
+        return False
+
 
 def _sort_key(primary: Optional[str], secondary: Optional[str]) -> float:
     for value in (primary, secondary):
@@ -175,6 +252,77 @@ def _sort_key(primary: Optional[str], secondary: Optional[str]) -> float:
         except ValueError:
             continue
     return 0.0
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _normalize_vehicle_list(values: Sequence[Any]) -> List[str]:
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        cleaned = _clean_field(value)
+        if cleaned is None:
+            continue
+        text = str(cleaned)
+        if text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+    return normalized
+
+
+def _normalize_purge_record(raw: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    start = _parse_iso_datetime(raw.get("start"))
+    end = _parse_iso_datetime(raw.get("end"))
+    if not start or not end:
+        return None
+    date_field = raw.get("date_field") or raw.get("dateField") or "reported_at"
+    vehicles_raw: Iterable[Any] = raw.get("vehicles") or []
+    record = {
+        "purge_id": str(raw.get("purge_id") or uuid.uuid4()),
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "date_field": date_field if date_field in {"reported_at", "started_at", "completed_at", "updated_at"} else "reported_at",
+        "vehicles": _normalize_vehicle_list(list(vehicles_raw)),
+        "mode": "soft",
+        "created_at": raw.get("created_at", _now_iso()),
+    }
+    return record
+
+
+def _matches_purge(
+    ticket: Ticket,
+    date_field: str,
+    start: datetime,
+    end: datetime,
+    vehicles: set[str],
+) -> bool:
+    if vehicles and ticket.vehicle_label not in vehicles:
+        return False
+    value = getattr(ticket, date_field, None)
+    if not value and date_field == "updated_at":
+        value = ticket.updated_at
+    ts = _parse_iso_datetime(value)
+    if not ts:
+        return False
+    return start <= ts <= end
 
 
 __all__ = ["TicketStore"]
