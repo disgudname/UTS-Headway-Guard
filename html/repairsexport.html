@@ -262,15 +262,40 @@
         return;
       }
       try {
-        const res = await fetch(`${TICKETS_API_BASE}/purge`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Request failed');
-        const data = await res.json();
-        const mode = data.mode === 'hard' ? 'Deleted' : 'Hidden';
-        showStatus(`${mode} ${data.purged_count ?? 0} tickets.`);
+        const machineIds = new Set();
+        let firstResult = null;
+        let attempts = 0;
+        const maxAttempts = 5;
+
+        while (machineIds.size < 2 && attempts < maxAttempts) {
+          attempts += 1;
+          const res = await fetch(`${TICKETS_API_BASE}/purge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) throw new Error('Request failed');
+          const data = await res.json();
+          if (!firstResult) {
+            firstResult = data;
+          }
+          if (data.machine_id) {
+            machineIds.add(data.machine_id);
+          }
+          if (machineIds.size < 2 && attempts < maxAttempts) {
+            showStatus(`Awaiting confirmation from another machine… (seen ${machineIds.size} of 2)`);
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+
+        if (machineIds.size < 2) {
+          throw new Error('Purge not confirmed by two machines.');
+        }
+
+        const mode = firstResult?.mode === 'hard' ? 'Deleted' : 'Hidden';
+        const count = firstResult?.purged_count ?? 0;
+        const machines = Array.from(machineIds).join(', ');
+        showStatus(`${mode} ${count} tickets. Confirmed on machines: ${machines}.`);
       } catch (err) {
         showStatus(err.message || 'Unable to process purge.', true);
       }

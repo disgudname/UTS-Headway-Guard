@@ -394,7 +394,12 @@ async function bootstrap() {
       if (purgeSpec.mode === 'hard') {
         await storage.performHardPurge(purgeSpec);
       }
-      res.json({ purged_count: purgedTickets.length, mode: purgeSpec.mode, purge_id: purgeId });
+      res.json({
+        machine_id: config.machineId,
+        purged_count: purgedTickets.length,
+        mode: purgeSpec.mode,
+        purge_id: purgeId
+      });
     } catch (err) {
       logger.error('purge failed', { err: err.stack });
       res.status(500).json({ error: 'internal_error' });
