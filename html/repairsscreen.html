@@ -189,16 +189,16 @@
         <table>
           <thead>
             <tr>
-              <th>Vehicle</th>
-              <th>OPS Status</th>
-              <th>Shop Status</th>
-              <th>Reported</th>
-              <th>Reported By</th>
-              <th class="wrap">OPS Notes</th>
-              <th>Mechanic</th>
-              <th class="wrap">Diagnosis</th>
-              <th>Diag Date</th>
-              <th>Completed</th>
+              <th>VEHICLE</th>
+              <th>OPS STATUS</th>
+              <th>REPORTED</th>
+              <th>REPORTED BY</th>
+              <th class="wrap">OPS NOTES</th>
+              <th>DIAG DATE</th>
+              <th>MECHANIC</th>
+              <th class="wrap">DIAGNOSIS</th>
+              <th>COMPLETED</th>
+              <th>SHOP STATUS</th>
             </tr>
           </thead>
           <tbody id="repairs-body"></tbody>
@@ -304,16 +304,6 @@
           }
           tr.appendChild(opsCell);
 
-          const shopCell = document.createElement('td');
-          const shop = ticket.shop_status || '';
-          if (shop) {
-            const pill = document.createElement('span');
-            pill.className = `pill ${SHOP_CLASS[shop] || ''}`.trim();
-            pill.textContent = SHOP_LABELS[shop] || shop;
-            shopCell.appendChild(pill);
-          }
-          tr.appendChild(shopCell);
-
           const reportedCell = document.createElement('td');
           reportedCell.textContent = formatDate(ticket.reported_at);
           tr.appendChild(reportedCell);
@@ -327,6 +317,15 @@
           opsNotesCell.textContent = ticket.ops_description || '';
           tr.appendChild(opsNotesCell);
 
+          const diagDateCell = document.createElement('td');
+          const diagValue = ticket.diag_date || ticket.first_diagnosis_at || ticket.started_at;
+          if (ticket.diag_date) {
+            diagDateCell.textContent = formatDateOnly(diagValue);
+          } else {
+            diagDateCell.textContent = formatDate(diagValue);
+          }
+          tr.appendChild(diagDateCell);
+
           const mechanicCell = document.createElement('td');
           mechanicCell.textContent = ticket.mechanic || '';
           tr.appendChild(mechanicCell);
@@ -336,18 +335,19 @@
           diagnosisCell.textContent = ticket.diagnosis_text || '';
           tr.appendChild(diagnosisCell);
 
-          const startedCell = document.createElement('td');
-          const diagValue = ticket.diag_date || ticket.first_diagnosis_at || ticket.started_at;
-          if (ticket.diag_date) {
-            startedCell.textContent = formatDateOnly(diagValue);
-          } else {
-            startedCell.textContent = formatDate(diagValue);
-          }
-          tr.appendChild(startedCell);
-
           const completedCell = document.createElement('td');
           completedCell.textContent = formatDate(ticket.completed_at);
           tr.appendChild(completedCell);
+
+          const shopCell = document.createElement('td');
+          const shop = ticket.shop_status || '';
+          if (shop) {
+            const pill = document.createElement('span');
+            pill.className = `pill ${SHOP_CLASS[shop] || ''}`.trim();
+            pill.textContent = SHOP_LABELS[shop] || shop;
+            shopCell.appendChild(pill);
+          }
+          tr.appendChild(shopCell);
 
           body.appendChild(tr);
         });

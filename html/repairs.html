@@ -269,14 +269,16 @@
         <table>
           <thead>
             <tr>
-              <th>Vehicle</th>
-              <th>Reported</th>
-              <th>OPS</th>
-              <th>Shop</th>
-              <th>Mechanic</th>
-              <th>Diag Date</th>
-              <th>Completed</th>
-              <th>Notes</th>
+              <th>VEHICLE</th>
+              <th>OPS STATUS</th>
+              <th>REPORTED</th>
+              <th>REPORTED BY</th>
+              <th>OPS NOTES</th>
+              <th>DIAG DATE</th>
+              <th>MECHANIC</th>
+              <th>DIAGNOSIS</th>
+              <th>COMPLETED</th>
+              <th>SHOP STATUS</th>
               <th></th>
             </tr>
           </thead>
@@ -413,7 +415,7 @@
     }
 
     async function fetchTickets() {
-      ticketsBody.innerHTML = '<tr><td colspan="9">Loading…</td></tr>';
+      ticketsBody.innerHTML = '<tr><td colspan="11">Loading…</td></tr>';
       try {
         const params = new URLSearchParams();
         if (includeClosedEl.checked) params.set('includeClosed', 'true');
@@ -426,13 +428,13 @@
           : (Array.isArray(body?.tickets) ? body.tickets : []);
         renderTickets(tickets);
       } catch (err) {
-        ticketsBody.innerHTML = '<tr><td colspan="9">Unable to load tickets.</td></tr>';
+        ticketsBody.innerHTML = '<tr><td colspan="11">Unable to load tickets.</td></tr>';
       }
     }
 
     function renderTickets(tickets) {
       if (!tickets.length) {
-        ticketsBody.innerHTML = '<tr><td colspan="9">No tickets found.</td></tr>';
+        ticketsBody.innerHTML = '<tr><td colspan="11">No tickets found.</td></tr>';
         return;
       }
       ticketsBody.innerHTML = '';
@@ -443,10 +445,6 @@
         vehicleCell.textContent = ticket.vehicle_label || '';
         tr.appendChild(vehicleCell);
 
-        const reportedCell = document.createElement('td');
-        reportedCell.textContent = formatDateTime(ticket.reported_at);
-        tr.appendChild(reportedCell);
-
         const opsStatusCell = document.createElement('td');
         if (ticket.ops_status) {
           const span = document.createElement('span');
@@ -456,6 +454,35 @@
         }
         tr.appendChild(opsStatusCell);
 
+        const reportedCell = document.createElement('td');
+        reportedCell.textContent = formatDateTime(ticket.reported_at);
+        tr.appendChild(reportedCell);
+
+        const reportedByCell = document.createElement('td');
+        reportedByCell.textContent = ticket.reported_by || '';
+        tr.appendChild(reportedByCell);
+
+        const opsNotesCell = document.createElement('td');
+        opsNotesCell.textContent = ticket.ops_description || '';
+        tr.appendChild(opsNotesCell);
+
+        const diagDateCell = document.createElement('td');
+        const diagValue = ticket.diag_date || ticket.started_at;
+        diagDateCell.textContent = formatDateOnly(diagValue);
+        tr.appendChild(diagDateCell);
+
+        const mechanicCell = document.createElement('td');
+        mechanicCell.textContent = ticket.mechanic || '';
+        tr.appendChild(mechanicCell);
+
+        const diagnosisCell = document.createElement('td');
+        diagnosisCell.textContent = ticket.diagnosis_text || '';
+        tr.appendChild(diagnosisCell);
+
+        const completedCell = document.createElement('td');
+        completedCell.textContent = formatDateOnly(ticket.completed_at);
+        tr.appendChild(completedCell);
+
         const shopStatusCell = document.createElement('td');
         if (ticket.shop_status) {
           const span = document.createElement('span');
@@ -464,32 +491,6 @@
           shopStatusCell.appendChild(span);
         }
         tr.appendChild(shopStatusCell);
-
-        const mechanicCell = document.createElement('td');
-        mechanicCell.textContent = ticket.mechanic || '';
-        tr.appendChild(mechanicCell);
-
-        const diagDateCell = document.createElement('td');
-        const diagValue = ticket.diag_date || ticket.started_at;
-        diagDateCell.textContent = formatDateOnly(diagValue);
-        tr.appendChild(diagDateCell);
-
-        const completedCell = document.createElement('td');
-        completedCell.textContent = formatDateOnly(ticket.completed_at);
-        tr.appendChild(completedCell);
-
-        const descriptionCell = document.createElement('td');
-        const descriptions = [ticket.ops_description, ticket.diagnosis_text].filter(Boolean);
-        descriptions.forEach((desc, index) => {
-          const span = document.createElement('span');
-          span.textContent = desc;
-          descriptionCell.appendChild(span);
-          if (index < descriptions.length - 1) {
-            descriptionCell.appendChild(document.createElement('br'));
-            descriptionCell.appendChild(document.createElement('br'));
-          }
-        });
-        tr.appendChild(descriptionCell);
 
         const actionsCell = document.createElement('td');
         tr.appendChild(actionsCell);
