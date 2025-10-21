@@ -52,7 +52,8 @@ def test_hard_purge_removes_tickets(ticket_client):
 
     remaining = client.get("/api/tickets")
     assert remaining.status_code == 200
-    assert remaining.json() == []
+    remaining_payload = remaining.json()
+    assert remaining_payload["tickets"] == []
     assert store._tickets == {}
 
 
@@ -83,6 +84,7 @@ def test_soft_purge_hides_tickets(ticket_client):
 
     remaining = client.get("/api/tickets")
     assert remaining.status_code == 200
-    assert remaining.json() == []
+    remaining_payload = remaining.json()
+    assert remaining_payload["tickets"] == []
     assert len(store._tickets) == 1
     assert store._soft_purges
