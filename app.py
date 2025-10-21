@@ -155,7 +155,13 @@ VEH_LOG_DIRS = [
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
 
 TICKETS_PATH = Path(os.getenv("TICKETS_PATH", str(PRIMARY_DATA_DIR / "tickets.json")))
-TICKETS_NAME = TICKETS_PATH.name
+if TICKETS_PATH.is_absolute():
+    try:
+        _tickets_commit_name = str(TICKETS_PATH.relative_to(PRIMARY_DATA_DIR))
+    except ValueError:
+        _tickets_commit_name = str(TICKETS_PATH)
+else:
+    _tickets_commit_name = str(TICKETS_PATH)
 tickets_store = TicketStore(TICKETS_PATH)
 
 # Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
@@ -477,7 +483,7 @@ def _two_phase_write(name: str, data: str) -> Dict[str, Any]:
     return {"transaction_id": tx_id, "machine_ids": machine_ids}
 
 
-tickets_store.set_commit_handler(lambda payload: _two_phase_write(TICKETS_NAME, payload))
+tickets_store.set_commit_handler(lambda payload: _two_phase_write(_tickets_commit_name, payload))
 
 # ---------------------------
 # Geometry helpers
