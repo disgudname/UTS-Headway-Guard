@@ -165,7 +165,23 @@ else:
 tickets_store = TicketStore(TICKETS_PATH)
 
 # Comma-separated list of peer hosts (e.g. "peer1:8080,peer2:8080")
-SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
+# Maintain compatibility with legacy configuration that used the ``PEERS``
+# environment variable (Node.js service). ``SYNC_PEERS`` takes precedence but
+# we fall back to ``PEERS`` when it isn't provided.
+def _parse_sync_peers() -> List[str]:
+    raw = os.getenv("SYNC_PEERS")
+    if raw is None or raw.strip() == "":
+        raw = os.getenv("PEERS", "")
+    peers: List[str] = []
+    for part in raw.split(","):
+        entry = part.strip()
+        if not entry:
+            continue
+        peers.append(entry.rstrip("/"))
+    return peers
+
+
+SYNC_PEERS = _parse_sync_peers()
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
@@ -385,7 +401,13 @@ def _two_pc_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _two_pc_send(peer: str, phase: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    url = f"http://{peer.rstrip('/')}/sync/2pc/{phase}"
+    base = peer.strip().rstrip("/")
+    if not base:
+        raise RuntimeError("invalid peer")
+    if "://" in base:
+        url = f"{base}/sync/2pc/{phase}"
+    else:
+        url = f"http://{base}/sync/2pc/{phase}"
     try:
         resp = httpx.post(url, json=_two_pc_payload(payload), timeout=10)
         resp.raise_for_status()
