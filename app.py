@@ -162,6 +162,9 @@ SYNC_PEERS = [p for p in os.getenv("SYNC_PEERS", "").split(",") if p]
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
+TWO_PC_COMMIT_RETRY_LIMIT = 5
+TWO_PC_COMMIT_RETRY_DELAY = 0.5
+
 # Dispatcher authentication helpers
 DISPATCH_PASSWORDS: Dict[str, str] = {}
 DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
@@ -418,11 +421,6 @@ def _two_phase_commit(actions: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
         missing = [mid for mid in required if mid not in participants]
         if missing:
             raise RuntimeError(f"missing prepare from machines: {', '.join(missing)}")
-        for peer, _machine_id in prepared_peers:
-            _two_pc_send(peer, "commit", {"transaction_id": tx_id})
-        with TWO_PC_LOCK:
-            _two_pc_commit_local(tx_id)
-        return tx_id, list(participants.keys())
     except Exception as exc:
         print(f"[2pc] commit error: {exc}")
         with TWO_PC_LOCK:
@@ -436,6 +434,39 @@ def _two_phase_commit(actions: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
             except Exception:
                 pass
         raise
+
+    commit_errors: List[Tuple[str, Exception]] = []
+    pending_commits: List[Tuple[str, str]] = list(prepared_peers)
+    commit_attempts: Dict[str, int] = defaultdict(int)
+    while pending_commits:
+        peer, _machine_id = pending_commits.pop(0)
+        try:
+            _two_pc_send(peer, "commit", {"transaction_id": tx_id})
+        except Exception as err:  # noqa: PERF203 - bounded retries
+            commit_attempts[peer] += 1
+            if commit_attempts[peer] >= TWO_PC_COMMIT_RETRY_LIMIT:
+                commit_errors.append((peer, err))
+            else:
+                time.sleep(TWO_PC_COMMIT_RETRY_DELAY)
+                pending_commits.append((peer, _machine_id))
+
+    local_attempts = 0
+    while True:
+        try:
+            with TWO_PC_LOCK:
+                _two_pc_commit_local(tx_id)
+            break
+        except Exception as err:  # noqa: PERF203 - bounded retries
+            local_attempts += 1
+            if local_attempts >= TWO_PC_COMMIT_RETRY_LIMIT:
+                commit_errors.append(("local", err))
+                break
+            time.sleep(TWO_PC_COMMIT_RETRY_DELAY)
+    if commit_errors:
+        detail = ", ".join(f"{peer}: {error}" for peer, error in commit_errors)
+        print(f"[2pc] commit decision recorded with errors: {detail}")
+        raise RuntimeError(f"commit issued but not confirmed everywhere: {detail}")
+    return tx_id, list(participants.keys())
 
 
 def _two_phase_write(name: str, data: str) -> Dict[str, Any]:
