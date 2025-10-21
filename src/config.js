@@ -4,6 +4,17 @@ const PORT = parseInt(process.env.PORT || '8080', 10);
 const DATA_DIR = process.env.DATA_DIR || '/data/maint';
 const MACHINE_ID = process.env.FLY_MACHINE_ID || 'local';
 
+function parseRequiredMachineIds() {
+  const raw = process.env.REQUIRED_MACHINE_IDS;
+  if (!raw) {
+    return ['6e82745df6e3e8', 'd8967e6a673ed8'];
+  }
+  return raw
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
 function parsePeers() {
   if (!process.env.PEERS) return [];
   return process.env.PEERS.split(',')
@@ -25,5 +36,6 @@ module.exports = {
   metaFile: 'meta.json',
   eventsFile: 'events.jsonl',
   snapshotFile: 'snapshot.json',
-  queueDir: 'queue'
+  queueDir: 'queue',
+  requiredMachineIds: parseRequiredMachineIds()
 };

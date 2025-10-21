@@ -523,56 +523,54 @@
     }
 
     async function syncTicketRequest(url, method, payload, idempotencyKey) {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Request failed');
+      }
+      let lastResponse;
+      try {
+        lastResponse = await res.json();
+      } catch (jsonErr) {
+        throw new Error('Invalid server response');
+      }
       const machineIds = new Set();
-      const maxAttempts = 30;
-      let lastResponse = null;
-      let ticketId = null;
-      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        const requestPayload =
-          ticketId && method === 'POST'
-            ? { ...payload, ticket_id: ticketId, id: ticketId }
-            : payload;
-        const res = await fetch(url, {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
-          },
-          body: JSON.stringify(requestPayload)
-        });
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(errorText || 'Request failed');
-        }
-        try {
-          lastResponse = await res.json();
-        } catch (jsonErr) {
-          throw new Error('Invalid server response');
-        }
-        const machineId =
-          lastResponse?.machine_id ||
-          lastResponse?.machineId ||
-          lastResponse?.ticket?.machine_id ||
-          lastResponse?.ticket?.machineId;
-        if (machineId) {
-          machineIds.add(machineId);
-        }
-        const responseTicket =
-          lastResponse?.ticket ||
-          (lastResponse && lastResponse.ticket === undefined ? lastResponse : null);
-        const responseTicketId =
-          responseTicket?.id ||
-          lastResponse?.id ||
-          lastResponse?.ticket_id ||
-          lastResponse?.ticketId ||
-          null;
-        if (responseTicketId) {
-          ticketId = responseTicketId;
-        }
-        if (machineIds.size >= 2) {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 150));
+      const header = res.headers && res.headers.get ? res.headers.get('x-commit-machines') : null;
+      if (header) {
+        header
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((id) => machineIds.add(id));
+      }
+      const inlineIds =
+        lastResponse?.committed_machine_ids ||
+        lastResponse?.committedMachineIds ||
+        lastResponse?.machine_ids ||
+        lastResponse?.machineIds;
+      if (Array.isArray(inlineIds)) {
+        inlineIds
+          .map((id) => String(id).trim())
+          .filter(Boolean)
+          .forEach((id) => machineIds.add(id));
+      }
+      const directMachineId =
+        lastResponse?.machine_id ||
+        lastResponse?.machineId ||
+        lastResponse?.ticket?.machine_id ||
+        lastResponse?.ticket?.machineId;
+      if (directMachineId) {
+        machineIds.add(String(directMachineId).trim());
+      }
+      if (machineIds.size < 2) {
+        throw new Error('Commit confirmation missing required machines');
       }
       return { body: lastResponse, machineIds };
     }

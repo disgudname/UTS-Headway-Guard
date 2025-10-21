@@ -27,7 +27,7 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io
+import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid, threading
 from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 import httpx
@@ -135,6 +135,15 @@ ALL_BUSES = [
 # Data directories (support multiple mirrored volumes)
 DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 PRIMARY_DATA_DIR = DATA_DIRS[0]
+
+REQUIRED_MACHINE_IDS = [
+    mid.strip()
+    for mid in os.getenv("REQUIRED_MACHINE_IDS", "6e82745df6e3e8,d8967e6a673ed8").split(",")
+    if mid.strip()
+]
+TWO_PC_DIR = PRIMARY_DATA_DIR / "2pc"
+TWO_PC_DIR.mkdir(parents=True, exist_ok=True)
+TWO_PC_LOCK = threading.Lock()
 
 VEH_LOG_DIRS = [
     Path(p)
@@ -280,18 +289,160 @@ def prune_old_entries() -> None:
                 except OSError:
                     pass
 
-def propagate_file(name: str, data: str) -> None:
-    if not SYNC_PEERS:
+def _atomic_write(path: Path, data: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{int(time.time()*1000)}.tmp")
+    tmp.write_text(data)
+    tmp.replace(path)
+
+
+def _two_pc_transaction_path(tx_id: str) -> Path:
+    return TWO_PC_DIR / f"{tx_id}.json"
+
+
+def _normalise_two_pc_action(action: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(action, dict):
+        raise ValueError("invalid action")
+    action_type = action.get("type")
+    if action_type == "write_file":
+        name = action.get("name")
+        data = action.get("data")
+        if not isinstance(name, str) or not isinstance(data, str):
+            raise ValueError("write_file action requires name and data")
+        return {"type": "write_file", "name": name, "data": data}
+    raise ValueError(f"unsupported action type {action_type}")
+
+
+def _two_pc_prepare(tx_id: str, actions: List[Dict[str, Any]]) -> None:
+    if not tx_id or not isinstance(tx_id, str):
+        raise ValueError("transaction_id required")
+    if not actions:
+        raise ValueError("actions required")
+    payload = {
+        "transaction_id": tx_id,
+        "actions": [_normalise_two_pc_action(action) for action in actions],
+    }
+    path = _two_pc_transaction_path(tx_id)
+    if path.exists():
         return
-    payload = {"name": name, "data": data}
+    _atomic_write(path, json.dumps(payload))
+
+
+def _two_pc_apply_action(action: Dict[str, Any]) -> None:
+    action_type = action.get("type")
+    if action_type == "write_file":
+        name = action.get("name")
+        data = action.get("data")
+        if not isinstance(name, str) or not isinstance(data, str):
+            raise ValueError("invalid write_file action")
+        for base in DATA_DIRS:
+            path = base / name
+            _atomic_write(path, data)
+        return
+    raise ValueError(f"unsupported action type {action_type}")
+
+
+def _two_pc_commit_local(tx_id: str) -> bool:
+    path = _two_pc_transaction_path(tx_id)
+    if not path.exists():
+        return False
+    data = json.loads(path.read_text())
+    actions = data.get("actions")
+    if not isinstance(actions, list):
+        actions = []
+    for action in actions:
+        _two_pc_apply_action(action)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    return True
+
+
+def _two_pc_rollback_local(tx_id: str) -> None:
+    path = _two_pc_transaction_path(tx_id)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _two_pc_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(payload)
     if SYNC_SECRET:
-        payload["secret"] = SYNC_SECRET
-    for peer in SYNC_PEERS:
-        url = f"http://{peer.rstrip('/')}/sync"
-        try:
-            httpx.post(url, json=payload, timeout=5)
-        except Exception as e:
-            print(f"[sync] error sending {name} to {peer}: {e}")
+        result["secret"] = SYNC_SECRET
+    return result
+
+
+def _two_pc_send(peer: str, phase: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    url = f"http://{peer.rstrip('/')}/sync/2pc/{phase}"
+    try:
+        resp = httpx.post(url, json=_two_pc_payload(payload), timeout=10)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"{phase} request to {peer} failed: {exc}") from exc
+    try:
+        return resp.json()
+    except ValueError:
+        return {}
+
+
+def _resolve_required_ids(local_id: str, participants: Dict[str, str]) -> set[str]:
+    if not SYNC_PEERS:
+        return {local_id}
+    required = {mid for mid in REQUIRED_MACHINE_IDS if mid}
+    if required:
+        return required
+    return set(participants.keys())
+
+
+def _two_phase_commit(actions: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
+    if not actions:
+        raise ValueError("actions required")
+    tx_id = f"tx-{uuid.uuid4()}"
+    local_info = _current_machine_info()
+    local_id = local_info.get("machine_id", "unknown")
+    participants: Dict[str, str] = {local_id: "local"}
+    prepared_peers: List[Tuple[str, str]] = []
+    try:
+        with TWO_PC_LOCK:
+            _two_pc_prepare(tx_id, actions)
+        for peer in SYNC_PEERS:
+            data = _two_pc_send(peer, "begin", {"transaction_id": tx_id, "actions": actions})
+            machine_id = data.get("machine_id")
+            if not machine_id:
+                raise RuntimeError(f"peer {peer} missing machine_id")
+            participants[machine_id] = peer
+            prepared_peers.append((peer, machine_id))
+        required = _resolve_required_ids(local_id, participants)
+        missing = [mid for mid in required if mid not in participants]
+        if missing:
+            raise RuntimeError(f"missing prepare from machines: {', '.join(missing)}")
+        for peer, _machine_id in prepared_peers:
+            _two_pc_send(peer, "commit", {"transaction_id": tx_id})
+        with TWO_PC_LOCK:
+            _two_pc_commit_local(tx_id)
+        return tx_id, list(participants.keys())
+    except Exception as exc:
+        print(f"[2pc] commit error: {exc}")
+        with TWO_PC_LOCK:
+            try:
+                _two_pc_rollback_local(tx_id)
+            except Exception:
+                pass
+        for peer, _machine_id in prepared_peers:
+            try:
+                _two_pc_send(peer, "rollback", {"transaction_id": tx_id})
+            except Exception:
+                pass
+        raise
+
+
+def _two_phase_write(name: str, data: str) -> Dict[str, Any]:
+    tx_id, machine_ids = _two_phase_commit([
+        {"type": "write_file", "name": name, "data": data}
+    ])
+    return {"transaction_id": tx_id, "machine_ids": machine_ids}
 
 # ---------------------------
 # Geometry helpers
@@ -889,6 +1040,28 @@ def _provenance_headers(info: Dict[str, str]) -> Dict[str, str]:
     return {"X-Machine-Id": info["machine_id"], "X-Region": info["region"]}
 
 
+def _attach_commit_headers(headers: Dict[str, str], commit_info: Optional[Dict[str, Any]]) -> None:
+    if not commit_info:
+        return
+    tx_id = commit_info.get("transaction_id")
+    machines = commit_info.get("machine_ids")
+    if tx_id:
+        headers["X-Commit-Transaction"] = str(tx_id)
+    if machines:
+        headers["X-Commit-Machines"] = ",".join(str(mid) for mid in machines)
+
+
+def _inject_commit_fields(body: Dict[str, Any], commit_info: Optional[Dict[str, Any]]) -> None:
+    if not commit_info:
+        return
+    machines = commit_info.get("machine_ids")
+    tx_id = commit_info.get("transaction_id")
+    if machines:
+        body["committed_machine_ids"] = machines
+    if tx_id:
+        body["transaction_id"] = tx_id
+
+
 def _base_response_fields(ok: bool, saved: bool, info: Dict[str, str]) -> Dict[str, Any]:
     return {
         "ok": ok,
@@ -966,7 +1139,9 @@ def load_config() -> None:
         return
 
 
-def save_config(provenance: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, Any], bool]:
+def save_config(
+    provenance: Optional[Dict[str, str]] = None,
+) -> Tuple[Dict[str, Any], bool, Optional[Dict[str, Any]]]:
     global CONFIG_METADATA
     info = provenance or _current_machine_info()
     metadata = {
@@ -981,19 +1156,13 @@ def save_config(provenance: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, 
         payload = json.dumps(payload_map)
     except Exception as e:
         print(f"[save_config] encode error: {e}")
-        return metadata, False
-    success = True
-    for base in DATA_DIRS:
-        path = base / CONFIG_NAME
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(payload)
-        except Exception as e:
-            print(f"[save_config] error writing {path}: {e}")
-            success = False
-    if success:
-        propagate_file(CONFIG_NAME, payload)
-    return metadata, success
+        return metadata, False, None
+    try:
+        commit_info = _two_phase_write(CONFIG_NAME, payload)
+    except Exception as e:
+        print(f"[save_config] error persisting config: {e}")
+        return metadata, False, None
+    return metadata, True, commit_info
 
 
 load_config()
@@ -1213,7 +1382,7 @@ def save_eink_block_layout(
     layout_payload: Any,
     layout_id: Optional[str] = None,
     provenance: Optional[Dict[str, str]] = None,
-) -> Tuple[List[List[Any]], int, str, Dict[str, Dict[str, Any]]]:
+) -> Tuple[List[List[Any]], int, str, Dict[str, Dict[str, Any]], Dict[str, Any]]:
     layout = _normalize_layout(layout_payload)
     if not layout:
         raise ValueError("layout must contain at least one column")
@@ -1242,25 +1411,20 @@ def save_eink_block_layout(
         "updated_at": timestamp,
     }
     encoded = json.dumps(payload)
-    for base in DATA_DIRS:
-        path = base / EINK_BLOCK_LAYOUT_NAME
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(encoded)
-        except Exception as exc:
-            print(f"[eink_layout] error writing {path}: {exc}")
-    propagate_file(EINK_BLOCK_LAYOUT_NAME, encoded)
-    return layout, timestamp, identifier, store
+    commit_info = _two_phase_write(EINK_BLOCK_LAYOUT_NAME, encoded)
+    return layout, timestamp, identifier, store, commit_info
 
 
-def remove_eink_block_layout(layout_id: Optional[str] = None) -> Tuple[bool, Dict[str, Dict[str, Any]]]:
+def remove_eink_block_layout(
+    layout_id: Optional[str] = None,
+) -> Tuple[bool, Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
     store = _read_eink_layout_store()
     identifier = _normalize_layout_identifier(layout_id)
     if identifier == "default":
         raise ValueError("default layout cannot be deleted")
     existing = store.pop(identifier, None)
     if existing is None:
-        return False, store
+        return False, store, None
     timestamp = int(time.time())
     serialized_layouts = {
         key: {"layout": value["layout"], "updated_at": value.get("updated_at")}
@@ -1268,15 +1432,8 @@ def remove_eink_block_layout(layout_id: Optional[str] = None) -> Tuple[bool, Dic
     }
     payload = {"layouts": serialized_layouts, "updated_at": timestamp}
     encoded = json.dumps(payload)
-    for base in DATA_DIRS:
-        path = base / EINK_BLOCK_LAYOUT_NAME
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(encoded)
-        except Exception as exc:
-            print(f"[eink_layout] error writing {path}: {exc}")
-    propagate_file(EINK_BLOCK_LAYOUT_NAME, encoded)
-    return True, store
+    commit_info = _two_phase_write(EINK_BLOCK_LAYOUT_NAME, encoded)
+    return True, store, commit_info
 
 
 class State:
@@ -1410,14 +1567,10 @@ def save_vehicle_headings() -> None:
     except Exception as e:
         print(f"[vehicle_headings] encode error: {e}")
         return
-    for base in DATA_DIRS:
-        path = base / VEHICLE_HEADINGS_NAME
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(payload_json)
-        except Exception as e:
-            print(f"[vehicle_headings] error writing {path}: {e}")
-    propagate_file(VEHICLE_HEADINGS_NAME, payload_json)
+    try:
+        _two_phase_write(VEHICLE_HEADINGS_NAME, payload_json)
+    except Exception as e:
+        print(f"[vehicle_headings] commit error: {e}")
 
 
 load_vehicle_headings()
@@ -1464,14 +1617,10 @@ def save_bus_days() -> None:
     except Exception as e:
         print(f"[save_bus_days] encode error: {e}")
         return
-    for base in DATA_DIRS:
-        path = base / MILEAGE_NAME
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(payload_json)
-        except Exception as e:
-            print(f"[save_bus_days] error writing {path}: {e}")
-    propagate_file(MILEAGE_NAME, payload_json)
+    try:
+        _two_phase_write(MILEAGE_NAME, payload_json)
+    except Exception as e:
+        print(f"[save_bus_days] commit error: {e}")
 
 # ---------------------------
 # ADS-B proxy
@@ -1551,6 +1700,55 @@ async def receive_sync(payload: dict):
             state.last_headings = parsed_headings
             state.last_headings_dirty = False
     return {"ok": True}
+
+
+def _require_sync_secret(payload: Dict[str, Any]) -> None:
+    if SYNC_SECRET is None:
+        return
+    if payload.get("secret") != SYNC_SECRET:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+@app.post("/sync/2pc/begin")
+async def sync_two_pc_begin(payload: Dict[str, Any]):
+    _require_sync_secret(payload)
+    tx_id = payload.get("transaction_id")
+    actions = payload.get("actions")
+    if not isinstance(tx_id, str) or not tx_id or not isinstance(actions, list) or not actions:
+        raise HTTPException(status_code=400, detail="invalid payload")
+    try:
+        with TWO_PC_LOCK:
+            _two_pc_prepare(tx_id, actions)
+    except Exception as exc:
+        print(f"[2pc] prepare error: {exc}")
+        raise HTTPException(status_code=500, detail="prepare_failed") from exc
+    return {"ok": True, "machine_id": _current_machine_info().get("machine_id", "unknown")}
+
+
+@app.post("/sync/2pc/commit")
+async def sync_two_pc_commit(payload: Dict[str, Any]):
+    _require_sync_secret(payload)
+    tx_id = payload.get("transaction_id")
+    if not isinstance(tx_id, str) or not tx_id:
+        raise HTTPException(status_code=400, detail="invalid payload")
+    try:
+        with TWO_PC_LOCK:
+            _two_pc_commit_local(tx_id)
+    except Exception as exc:
+        print(f"[2pc] commit error: {exc}")
+        raise HTTPException(status_code=500, detail="commit_failed") from exc
+    return {"ok": True, "machine_id": _current_machine_info().get("machine_id", "unknown")}
+
+
+@app.post("/sync/2pc/rollback")
+async def sync_two_pc_rollback(payload: Dict[str, Any]):
+    _require_sync_secret(payload)
+    tx_id = payload.get("transaction_id")
+    if not isinstance(tx_id, str) or not tx_id:
+        raise HTTPException(status_code=400, detail="invalid payload")
+    with TWO_PC_LOCK:
+        _two_pc_rollback_local(tx_id)
+    return {"ok": True, "machine_id": _current_machine_info().get("machine_id", "unknown")}
 
 # ---------------------------
 # Health
@@ -2529,7 +2727,7 @@ async def update_eink_block_layout(
         identifier = _determine_layout_identifier(
             payload, layout_id, layout_name, layout_key, layout_query
         )
-        layout, updated_at, resolved_id, store = save_eink_block_layout(
+        layout, updated_at, resolved_id, store, commit_info = save_eink_block_layout(
             layout_payload, identifier, machine_info
         )
     except ValueError as exc:
@@ -2550,6 +2748,8 @@ async def update_eink_block_layout(
             "available_layouts": sorted(store.keys()),
         }
     )
+    _inject_commit_fields(response_body, commit_info)
+    _attach_commit_headers(headers, commit_info)
     return JSONResponse(response_body, headers=headers)
 
 
@@ -2560,21 +2760,26 @@ async def delete_eink_block_layout_endpoint(
     layout_key: Optional[str] = Query(None, alias="layoutKey"),
     layout_query: Optional[str] = Query(None, alias="layout"),
 ):
+    machine_info = _current_machine_info()
+    headers = _provenance_headers(machine_info)
     try:
         identifier = _determine_layout_identifier(
             None, layout_id, layout_name, layout_key, layout_query
         )
-        deleted, store = remove_eink_block_layout(identifier)
+        deleted, store, commit_info = remove_eink_block_layout(identifier)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         print(f"[eink_layout] error deleting layout: {exc}")
         raise HTTPException(status_code=500, detail="failed to delete layout") from exc
-    return {
+    response = {
         "ok": True,
         "deleted": deleted,
         "available_layouts": sorted(store.keys()),
     }
+    _inject_commit_fields(response, commit_info)
+    _attach_commit_headers(headers, commit_info)
+    return JSONResponse(response, headers=headers)
 
 
 def _normalize_hex_color(value: Optional[str]) -> Optional[str]:
@@ -3952,7 +4157,7 @@ async def set_config(payload: Dict[str, Any]):
                         globals()[k] = type(cur)(v)
                     except Exception:
                         globals()[k] = v
-        metadata, success = save_config(machine_info)
+        metadata, success, commit_info = save_config(machine_info)
     except Exception as exc:
         print(f"[config] error updating config: {exc}")
         body = _base_response_fields(False, False, machine_info)
@@ -3966,6 +4171,8 @@ async def set_config(payload: Dict[str, Any]):
     response_body = _base_response_fields(True, True, machine_info)
     response_body.update(config_snapshot)
     response_body["saved_at"] = metadata.get("saved_at") if metadata else None
+    _inject_commit_fields(response_body, commit_info)
+    _attach_commit_headers(headers, commit_info)
     return JSONResponse(response_body, headers=headers)
 
 

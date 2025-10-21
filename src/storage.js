@@ -53,6 +53,102 @@ class Storage {
     this.ackThreshold = cfg.peers && cfg.peers.length > 0 ? cfg.twoAckThreshold : 1;
   }
 
+  transactionPath(txId) {
+    return path.join(this.queueDir, `${txId}.json`);
+  }
+
+  normaliseAction(action) {
+    if (!action || typeof action !== 'object') {
+      throw new Error('invalid action');
+    }
+    const type = action.type;
+    if (type === 'append_event') {
+      if (!action.event || typeof action.event !== 'object') {
+        throw new Error('append_event action missing event');
+      }
+      const event = JSON.parse(JSON.stringify(action.event));
+      if (!event.event_id) {
+        throw new Error('event missing event_id');
+      }
+      return { type: 'append_event', event };
+    }
+    if (type === 'hard_purge') {
+      if (!action.spec || typeof action.spec !== 'object') {
+        throw new Error('hard_purge action missing spec');
+      }
+      const spec = JSON.parse(JSON.stringify(action.spec));
+      return { type: 'hard_purge', spec };
+    }
+    throw new Error(`unsupported action type ${type}`);
+  }
+
+  async prepareTransaction(txId, actions) {
+    if (!txId || typeof txId !== 'string') {
+      throw new Error('transaction_id required');
+    }
+    if (!Array.isArray(actions) || actions.length === 0) {
+      throw new Error('actions required');
+    }
+    const preparedActions = actions.map((action) => this.normaliseAction(action));
+    await ensureDir(this.queueDir);
+    const txPath = this.transactionPath(txId);
+    const existing = await readJson(txPath, null).catch(() => null);
+    if (existing && Array.isArray(existing.actions) && existing.actions.length) {
+      return;
+    }
+    await writeJsonAtomic(txPath, { transaction_id: txId, actions: preparedActions });
+  }
+
+  async commitPreparedTransaction(txId) {
+    if (!txId || typeof txId !== 'string') {
+      throw new Error('transaction_id required');
+    }
+    const txPath = this.transactionPath(txId);
+    const payload = await readJson(txPath, null);
+    if (!payload || !Array.isArray(payload.actions) || payload.actions.length === 0) {
+      return { committed: false };
+    }
+    await this.enqueue(async () => {
+      for (const action of payload.actions) {
+        await this.applyAction(action);
+      }
+    });
+    await fsp.unlink(txPath).catch((err) => {
+      if (err.code !== 'ENOENT') {
+        throw err;
+      }
+    });
+    return { committed: true };
+  }
+
+  async rollbackPreparedTransaction(txId) {
+    if (!txId || typeof txId !== 'string') {
+      throw new Error('transaction_id required');
+    }
+    const txPath = this.transactionPath(txId);
+    await fsp.unlink(txPath).catch((err) => {
+      if (err.code !== 'ENOENT') {
+        throw err;
+      }
+    });
+  }
+
+  async applyAction(action) {
+    if (!action || typeof action !== 'object') {
+      return;
+    }
+    switch (action.type) {
+      case 'append_event':
+        await this.commitEvent(action.event, { registerAck: false });
+        break;
+      case 'hard_purge':
+        await this.executeHardPurge(action.spec);
+        break;
+      default:
+        throw new Error(`unsupported action type ${action.type}`);
+    }
+  }
+
   async init() {
     await ensureDir(this.dataDir);
     await ensureDir(this.queueDir);
@@ -290,40 +386,42 @@ class Storage {
   }
 
   async performHardPurge(purgeSpec) {
-    await this.enqueue(async () => {
-      await this.saveSnapshot(true);
-      if (this.eventHandle) {
-        await this.eventHandle.close();
-        this.eventHandle = null;
+    await this.enqueue(() => this.executeHardPurge(purgeSpec));
+  }
+
+  async executeHardPurge(purgeSpec) {
+    await this.saveSnapshot(true);
+    if (this.eventHandle) {
+      await this.eventHandle.close();
+      this.eventHandle = null;
+    }
+    const tmpPath = path.join(this.dataDir, `events-${Date.now()}-${process.pid}.tmp`);
+    const readStream = fs.createReadStream(this.eventsPath, { encoding: 'utf8' });
+    const rl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
+    const writeHandle = await fsp.open(tmpPath, 'w');
+    const purgeSet = new Set();
+    for (const ticket of this.state.tickets.values()) {
+      if (ticketMatchesPurge(ticket, this.state.vehicles, purgeSpec)) {
+        purgeSet.add(ticket.id);
       }
-      const tmpPath = path.join(this.dataDir, `events-${Date.now()}-${process.pid}.tmp`);
-      const readStream = fs.createReadStream(this.eventsPath, { encoding: 'utf8' });
-      const rl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
-      const writeHandle = await fsp.open(tmpPath, 'w');
-      const purgeSet = new Set();
-      for (const ticket of this.state.tickets.values()) {
-        if (ticketMatchesPurge(ticket, this.state.vehicles, purgeSpec)) {
-          purgeSet.add(ticket.id);
-        }
+    }
+    for await (const line of rl) {
+      if (!line.trim()) {
+        continue;
       }
-      for await (const line of rl) {
-        if (!line.trim()) {
-          continue;
-        }
-        const event = JSON.parse(line);
-        if (purgeSet.has(event.payload?.ticket?.id)) {
-          continue;
-        }
-        await writeHandle.appendFile(`${JSON.stringify(event)}\n`, 'utf8');
+      const event = JSON.parse(line);
+      if (purgeSet.has(event.payload?.ticket?.id)) {
+        continue;
       }
-      await writeHandle.datasync();
-      await writeHandle.close();
-      await fsp.rename(tmpPath, this.eventsPath);
-      await this.reloadStateFromScratch();
-      this.meta.last_compacted_offset = this.currentOffset;
-      await this.persistMeta();
-      this.eventHandle = await fsp.open(this.eventsPath, 'a');
-    });
+      await writeHandle.appendFile(`${JSON.stringify(event)}\n`, 'utf8');
+    }
+    await writeHandle.datasync();
+    await writeHandle.close();
+    await fsp.rename(tmpPath, this.eventsPath);
+    await this.reloadStateFromScratch();
+    this.meta.last_compacted_offset = this.currentOffset;
+    await this.persistMeta();
+    this.eventHandle = await fsp.open(this.eventsPath, 'a');
   }
 
   async eventsSince(ts) {
