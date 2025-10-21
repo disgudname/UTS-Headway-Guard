@@ -91,9 +91,7 @@ async function load(){
     secretRoot.appendChild(notice);
   }
 }
-const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const REQUIRED_CONFIG_SAVE_MACHINES=2;
-const CONFIG_SAVE_RETRY_DELAY_MS=3000;
 async function save(){
   const form=document.getElementById('cfg');
   const data={};
@@ -110,65 +108,30 @@ async function save(){
   if(savingProgress) savingProgress.style.width='0%';
   if(savingModal) savingModal.style.display='flex';
   try{
-    let lastError=null;
-    let attempt=0;
-    const machinesSeen=new Set();
-    const recordMachine=(resp,data)=>{
-      if(!resp) return;
-      const headerMachine=resp.headers && resp.headers.get ? resp.headers.get('x-machine-id') : null;
-      if(headerMachine){
-        const trimmed=String(headerMachine).trim();
-        if(trimmed){
-          machinesSeen.add(trimmed);
-        }
-      }
-      const savedBy=data && typeof data==='object' ? data.saved_by || data.savedBy : null;
-      const savedMachine=savedBy && typeof savedBy==='object' ? savedBy.machine_id || savedBy.machineId : null;
-      if(savedMachine){
-        const trimmed=String(savedMachine).trim();
-        if(trimmed){
-          machinesSeen.add(trimmed);
-        }
-      }
-      const servedBy=data && typeof data==='object' ? data._served_by || data._servedBy : null;
-      const servedMachine=servedBy && typeof servedBy==='object' ? servedBy.machine_id || servedBy.machineId : null;
-      if(servedMachine){
-        const trimmed=String(servedMachine).trim();
-        if(trimmed){
-          machinesSeen.add(trimmed);
-        }
-      }
-    };
-    while(machinesSeen.size<REQUIRED_CONFIG_SAVE_MACHINES){
-      attempt+=1;
-      try{
-        const resp=await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-        if(!resp.ok){
-          throw new Error('Failed to save configuration');
-        }
-        let payload=null;
-        try{
-          payload=await resp.json();
-        }catch(_err){
-          payload=null;
-        }
-        recordMachine(resp,payload);
-        lastError=null;
-      }catch(err){
-        lastError=err;
-      }
-      if(savingProgress){
-        const pct=machinesSeen.size>=REQUIRED_CONFIG_SAVE_MACHINES
-          ? 100
-          : Math.max(10, Math.round((machinesSeen.size/REQUIRED_CONFIG_SAVE_MACHINES)*100));
-        savingProgress.style.width=`${pct}%`;
-      }
-      if(machinesSeen.size<REQUIRED_CONFIG_SAVE_MACHINES){
-        await delay(CONFIG_SAVE_RETRY_DELAY_MS);
-      }
+    const resp=await fetch('/v1/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    if(!resp.ok){
+      throw new Error('Failed to save configuration');
     }
-    if(machinesSeen.size<REQUIRED_CONFIG_SAVE_MACHINES){
-      throw lastError||new Error('Failed to save configuration');
+    let payload=null;
+    try{
+      payload=await resp.json();
+    }catch(_err){
+      payload=null;
+    }
+    const machines=new Set();
+    const headerMachines=resp.headers && resp.headers.get ? resp.headers.get('x-commit-machines') : null;
+    if(headerMachines){
+      headerMachines.split(',').map(s=>s.trim()).filter(Boolean).forEach(id=>machines.add(id));
+    }
+    const committed=payload && typeof payload==='object' ? payload.committed_machine_ids || payload.committedMachineIds : null;
+    if(Array.isArray(committed)){
+      committed.map(id=>String(id).trim()).filter(Boolean).forEach(id=>machines.add(id));
+    }
+    if(machines.size<REQUIRED_CONFIG_SAVE_MACHINES){
+      throw new Error('Commit confirmation missing required machines');
+    }
+    if(savingProgress){
+      savingProgress.style.width='100%';
     }
     alert('Saved!');
   }catch(err){

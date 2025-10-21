@@ -262,38 +262,38 @@
         return;
       }
       try {
+        const res = await fetch(`${TICKETS_API_BASE}/purge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Request failed');
+        const data = await res.json();
         const machineIds = new Set();
-        let firstResult = null;
-        let attempts = 0;
-        const maxAttempts = 30;
-
-        while (machineIds.size < 2 && attempts < maxAttempts) {
-          attempts += 1;
-          const res = await fetch(`${TICKETS_API_BASE}/purge`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          if (!res.ok) throw new Error('Request failed');
-          const data = await res.json();
-          if (!firstResult) {
-            firstResult = data;
-          }
-          if (data.machine_id) {
-            machineIds.add(data.machine_id);
-          }
-          if (machineIds.size < 2 && attempts < maxAttempts) {
-            showStatus(`Awaiting confirmation from another machine… (seen ${machineIds.size} of 2)`);
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          }
+        const header = res.headers && res.headers.get ? res.headers.get('x-commit-machines') : null;
+        if (header) {
+          header
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .forEach((id) => machineIds.add(id));
         }
-
+        const inlineIds = data?.committed_machine_ids || data?.committedMachineIds;
+        if (Array.isArray(inlineIds)) {
+          inlineIds
+            .map((id) => String(id).trim())
+            .filter(Boolean)
+            .forEach((id) => machineIds.add(id));
+        }
+        if (data?.machine_id) {
+          machineIds.add(String(data.machine_id).trim());
+        }
         if (machineIds.size < 2) {
           throw new Error('Purge not confirmed by two machines.');
         }
 
-        const mode = firstResult?.mode === 'hard' ? 'Deleted' : 'Hidden';
-        const count = firstResult?.purged_count ?? 0;
+        const mode = data?.mode === 'hard' ? 'Deleted' : 'Hidden';
+        const count = data?.purged_count ?? 0;
         const machines = Array.from(machineIds).join(', ');
         showStatus(`${mode} ${count} tickets. Confirmed on machines: ${machines}.`);
       } catch (err) {
