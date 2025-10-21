@@ -2666,6 +2666,12 @@ schedulePlaneStyleOverride();
       const ADMIN_KIOSK_UVA_HEALTH_NAME = 'University of Virginia Health';
       const ADMIN_KIOSK_UVA_HEALTH_START_MINUTES = 2 * 60 + 30;
       const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
+      const ADMIN_KIOSK_UVA_NAME = 'University of Virginia';
+      const MS_PER_MINUTE = 60 * 1000;
+      const ADMIN_KIOSK_SCHEDULE_MIN_DELAY_MS = 1000;
+      const ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS = 30 * 60 * 1000;
+      const ADMIN_KIOSK_UVA_HEALTH_START_MS = ADMIN_KIOSK_UVA_HEALTH_START_MINUTES * MS_PER_MINUTE;
+      const ADMIN_KIOSK_UVA_HEALTH_END_MS = ADMIN_KIOSK_UVA_HEALTH_END_MINUTES * MS_PER_MINUTE;
 
       function shouldForceAdminKioskUvaHealth() {
         if (!adminKioskMode) {
@@ -2687,6 +2693,124 @@ schedulePlaneStyleOverride();
         } catch (error) {
           return false;
         }
+      }
+
+      let adminKioskScheduledAgencyTimerId = null;
+
+      function getAgencyByName(name) {
+        if (!name || !Array.isArray(agencies)) {
+          return null;
+        }
+        const normalizedName = `${name}`.trim().toLowerCase();
+        if (!normalizedName) {
+          return null;
+        }
+        return agencies.find(entry => {
+          const entryName = typeof entry?.name === 'string' ? entry.name.trim().toLowerCase() : '';
+          return entryName === normalizedName;
+        }) || null;
+      }
+
+      function getAdminKioskScheduledAgencyUrl() {
+        if (!adminKioskMode) {
+          return null;
+        }
+        const targetName = shouldForceAdminKioskUvaHealth()
+          ? ADMIN_KIOSK_UVA_HEALTH_NAME
+          : ADMIN_KIOSK_UVA_NAME;
+        const agency = getAgencyByName(targetName);
+        const url = typeof agency?.url === 'string' ? agency.url.trim() : '';
+        return url || null;
+      }
+
+      function clearAdminKioskScheduledAgencyTimer() {
+        if (adminKioskScheduledAgencyTimerId === null) {
+          return;
+        }
+        if (typeof window !== 'undefined' && typeof window.clearTimeout === 'function') {
+          window.clearTimeout(adminKioskScheduledAgencyTimerId);
+        } else {
+          clearTimeout(adminKioskScheduledAgencyTimerId);
+        }
+        adminKioskScheduledAgencyTimerId = null;
+      }
+
+      function computeNextAdminKioskScheduleDelayMs() {
+        if (!adminKioskMode) {
+          return null;
+        }
+        try {
+          const now = new Date();
+          if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+            return null;
+          }
+          const hours = typeof now.getHours === 'function' ? now.getHours() : NaN;
+          const minutes = typeof now.getMinutes === 'function' ? now.getMinutes() : NaN;
+          const seconds = typeof now.getSeconds === 'function' ? now.getSeconds() : NaN;
+          const milliseconds = typeof now.getMilliseconds === 'function' ? now.getMilliseconds() : NaN;
+          if (![hours, minutes, seconds, milliseconds].every(Number.isFinite)) {
+            return null;
+          }
+          const currentMs = (((hours * 60) + minutes) * 60 + seconds) * 1000 + milliseconds;
+          let targetMs;
+          if (currentMs < ADMIN_KIOSK_UVA_HEALTH_START_MS) {
+            targetMs = ADMIN_KIOSK_UVA_HEALTH_START_MS;
+          } else if (currentMs < ADMIN_KIOSK_UVA_HEALTH_END_MS) {
+            targetMs = ADMIN_KIOSK_UVA_HEALTH_END_MS;
+          } else {
+            targetMs = ADMIN_KIOSK_UVA_HEALTH_START_MS + 24 * 60 * MS_PER_MINUTE;
+          }
+          const delta = targetMs - currentMs;
+          return Number.isFinite(delta) ? delta : null;
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function scheduleNextAdminKioskAgencyCheck() {
+        clearAdminKioskScheduledAgencyTimer();
+        if (!adminKioskMode || typeof window === 'undefined' || typeof window.setTimeout !== 'function') {
+          return;
+        }
+        let delay = computeNextAdminKioskScheduleDelayMs();
+        if (!Number.isFinite(delay) || delay <= 0) {
+          delay = ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS;
+        }
+        const normalizedDelay = Math.min(
+          Math.max(delay, ADMIN_KIOSK_SCHEDULE_MIN_DELAY_MS),
+          ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS
+        );
+        adminKioskScheduledAgencyTimerId = window.setTimeout(() => {
+          adminKioskScheduledAgencyTimerId = null;
+          enforceAdminKioskAgencySchedule({ force: true });
+        }, normalizedDelay);
+      }
+
+      function enforceAdminKioskAgencySchedule({ force = false } = {}) {
+        if (!adminKioskMode) {
+          clearAdminKioskScheduledAgencyTimer();
+          return;
+        }
+        const targetUrl = getAdminKioskScheduledAgencyUrl();
+        if (targetUrl) {
+          const trimmedTarget = targetUrl.trim();
+          if (trimmedTarget && (force || baseURL !== trimmedTarget)) {
+            if (!map) {
+              baseURL = trimmedTarget;
+            } else if (baseURL !== trimmedTarget) {
+              changeAgency(trimmedTarget);
+            }
+          }
+        }
+        scheduleNextAdminKioskAgencyCheck();
+      }
+
+      function initializeAdminKioskAgencySchedule() {
+        if (!adminKioskMode) {
+          clearAdminKioskScheduledAgencyTimer();
+          return;
+        }
+        enforceAdminKioskAgencySchedule({ force: true });
       }
       let catOverlayEnabled = false;
       let catLayerGroup = null;
@@ -5096,16 +5220,9 @@ schedulePlaneStyleOverride();
           }
           const consent = localStorage.getItem('agencyConsent') === 'true';
           const storedAgency = consent ? localStorage.getItem('selectedAgency') : null;
-          const adminKioskOverrideActive = shouldForceAdminKioskUvaHealth();
-          let forcedAgencyUrl = null;
-          if (adminKioskOverrideActive) {
-            const forcedAgency = agencies.find(a => a.name === ADMIN_KIOSK_UVA_HEALTH_NAME);
-            if (forcedAgency && typeof forcedAgency.url === 'string' && forcedAgency.url) {
-              forcedAgencyUrl = forcedAgency.url;
-            }
-          }
-          if (forcedAgencyUrl) {
-            baseURL = forcedAgencyUrl;
+          const scheduledAdminKioskUrl = getAdminKioskScheduledAgencyUrl();
+          if (scheduledAdminKioskUrl) {
+            baseURL = scheduledAdminKioskUrl;
           } else if (storedAgency && agencies.some(a => a.url === storedAgency)) {
             baseURL = storedAgency;
           } else {
@@ -14929,6 +15046,7 @@ ${trainPlaneMarkup}
         beginAgencyLoad();
         loadAgencies()
           .then(() => {
+            initializeAdminKioskAgencySchedule();
             initMap();
             showCookieBanner();
             enforceIncidentVisibilityForCurrentAgency();
