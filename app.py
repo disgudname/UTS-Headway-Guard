@@ -4156,6 +4156,15 @@ async def list_tickets(includeClosed: bool = Query(False, alias="includeClosed")
     return {"machine_id": info.get("machine_id", "unknown"), "tickets": tickets}
 
 
+@app.get("/api/tickets/{ticket_id}")
+async def get_ticket(ticket_id: str):
+    ticket = await tickets_store.get_ticket(ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="ticket not found")
+    info = _current_machine_info()
+    return {"machine_id": info.get("machine_id", "unknown"), "ticket": ticket}
+
+
 @app.post("/api/tickets")
 async def create_ticket(payload: Dict[str, Any] = Body(...)):
     try:
