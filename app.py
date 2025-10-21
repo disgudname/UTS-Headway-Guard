@@ -387,6 +387,36 @@ def _two_pc_send(peer: str, phase: str, payload: Dict[str, Any]) -> Dict[str, An
         return {}
 
 
+def _retry_commit_phase(tx_id: str, pending: Dict[str, str], local_commit_pending: bool) -> None:
+    delays = (0.2, 1.0, 5.0)
+    if not pending and not local_commit_pending:
+        return
+    remaining = pending
+    local_pending = local_commit_pending
+    for delay in delays:
+        if local_pending:
+            try:
+                with TWO_PC_LOCK:
+                    _two_pc_commit_local(tx_id)
+                local_pending = False
+            except Exception as exc:  # noqa: BLE001
+                print(f"[2pc] local commit retry failed for {tx_id}: {exc}")
+        for machine_id, peer in list(remaining.items()):
+            try:
+                _two_pc_send(peer, "commit", {"transaction_id": tx_id})
+                remaining.pop(machine_id, None)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[2pc] remote commit retry failed for {tx_id} -> {peer}: {exc}")
+        if not remaining and not local_pending:
+            return
+        time.sleep(delay)
+    if local_pending:
+        print(f"[2pc] local commit still pending after retries for {tx_id}")
+    if remaining:
+        peers = ", ".join(remaining.values())
+        print(f"[2pc] remote commits still pending after retries for {tx_id}: {peers}")
+
+
 def _resolve_required_ids(local_id: str, participants: Dict[str, str]) -> set[str]:
     if not SYNC_PEERS:
         return {local_id}
@@ -404,6 +434,9 @@ def _two_phase_commit(actions: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
     local_id = local_info.get("machine_id", "unknown")
     participants: Dict[str, str] = {local_id: "local"}
     prepared_peers: List[Tuple[str, str]] = []
+    commit_decided = False
+    pending_remote_commits: Dict[str, str] = {}
+    local_commit_pending = False
     try:
         with TWO_PC_LOCK:
             _two_pc_prepare(tx_id, actions)
@@ -418,23 +451,43 @@ def _two_phase_commit(actions: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
         missing = [mid for mid in required if mid not in participants]
         if missing:
             raise RuntimeError(f"missing prepare from machines: {', '.join(missing)}")
-        for peer, _machine_id in prepared_peers:
-            _two_pc_send(peer, "commit", {"transaction_id": tx_id})
-        with TWO_PC_LOCK:
-            _two_pc_commit_local(tx_id)
+        commit_decided = True
+        pending_remote_commits = {machine_id: peer for peer, machine_id in prepared_peers}
+        commit_failures: List[Tuple[str, str, Exception]] = []
+        for peer, machine_id in prepared_peers:
+            try:
+                _two_pc_send(peer, "commit", {"transaction_id": tx_id})
+                pending_remote_commits.pop(machine_id, None)
+            except Exception as send_exc:  # noqa: BLE001
+                commit_failures.append((peer, machine_id, send_exc))
+        local_commit_pending = True
+        try:
+            with TWO_PC_LOCK:
+                _two_pc_commit_local(tx_id)
+            local_commit_pending = False
+        except Exception as commit_exc:  # noqa: BLE001
+            commit_failures.append(("local", local_id, commit_exc))
+        if commit_failures:
+            primary_exc = commit_failures[0][2]
+            err = RuntimeError("two-phase commit incomplete")
+            err.commit_failures = commit_failures
+            raise err from primary_exc
         return tx_id, list(participants.keys())
     except Exception as exc:
         print(f"[2pc] commit error: {exc}")
-        with TWO_PC_LOCK:
-            try:
-                _two_pc_rollback_local(tx_id)
-            except Exception:
-                pass
-        for peer, _machine_id in prepared_peers:
-            try:
-                _two_pc_send(peer, "rollback", {"transaction_id": tx_id})
-            except Exception:
-                pass
+        if not commit_decided:
+            with TWO_PC_LOCK:
+                try:
+                    _two_pc_rollback_local(tx_id)
+                except Exception:  # noqa: BLE001
+                    pass
+            for peer, _machine_id in prepared_peers:
+                try:
+                    _two_pc_send(peer, "rollback", {"transaction_id": tx_id})
+                except Exception:  # noqa: BLE001
+                    pass
+        else:
+            _retry_commit_phase(tx_id, pending_remote_commits, local_commit_pending)
         raise
 
 

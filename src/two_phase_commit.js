@@ -3,6 +3,10 @@ const crypto = require('crypto');
 
 const logger = require('./logger');
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 class TwoPhaseCoordinator {
   constructor(storage, cfg) {
     this.storage = storage;
@@ -30,7 +34,10 @@ class TwoPhaseCoordinator {
     const txId = `tx-${crypto.randomUUID()}`;
     const prepared = new Map();
     const remotes = [];
+    const pendingCommits = new Map();
     let localPrepared = false;
+    let commitDecided = false;
+    let localCommitPending = false;
     try {
       await this.storage.prepareTransaction(txId, actions);
       localPrepared = true;
@@ -50,23 +57,92 @@ class TwoPhaseCoordinator {
           throw new Error(`missing prepare acknowledgement from machine ${id}`);
         }
       }
+      commitDecided = true;
+      const commitErrors = [];
       for (const entry of remotes) {
-        await this.sendRemote(entry.peer, 'commit', { transaction_id: txId });
+        pendingCommits.set(entry.machineId, entry);
       }
-      await this.storage.commitPreparedTransaction(txId);
+      for (const entry of remotes) {
+        try {
+          await this.sendRemote(entry.peer, 'commit', { transaction_id: txId });
+          pendingCommits.delete(entry.machineId);
+        } catch (err) {
+          commitErrors.push({ peer: entry.peer, machineId: entry.machineId, err });
+        }
+      }
+      localCommitPending = true;
+      try {
+        await this.storage.commitPreparedTransaction(txId);
+        localCommitPending = false;
+      } catch (err) {
+        commitErrors.push({ peer: null, machineId: this.machineId, err });
+      }
+      if (commitErrors.length) {
+        const aggregate = new Error('two-phase commit incomplete');
+        aggregate.commitErrors = commitErrors;
+        throw aggregate;
+      }
       return {
         transactionId: txId,
         machineIds: Array.from(prepared.keys())
       };
     } catch (err) {
       logger.error('two-phase commit failure', { err: err.message });
-      if (localPrepared) {
-        await this.storage.rollbackPreparedTransaction(txId).catch(() => {});
-      }
-      for (const entry of remotes) {
-        await this.sendRemote(entry.peer, 'rollback', { transaction_id: txId }).catch(() => {});
+      if (!commitDecided) {
+        if (localPrepared) {
+          await this.storage.rollbackPreparedTransaction(txId).catch(() => {});
+        }
+        for (const entry of remotes) {
+          await this.sendRemote(entry.peer, 'rollback', { transaction_id: txId }).catch(() => {});
+        }
+      } else {
+        await this.finalizeCommit(txId, pendingCommits, localCommitPending);
       }
       throw err;
+    }
+  }
+
+  async finalizeCommit(txId, pendingRemotes, localCommitPending) {
+    let localPending = localCommitPending;
+    const remaining = pendingRemotes;
+    const retries = [200, 1000, 5000];
+    if (!remaining.size && !localPending) {
+      return;
+    }
+    for (const delay of retries) {
+      if (localPending) {
+        try {
+          await this.storage.commitPreparedTransaction(txId);
+          localPending = false;
+        } catch (err) {
+          logger.error('two-phase commit local retry failed', { txId, err: err.message });
+        }
+      }
+      for (const [machineId, entry] of Array.from(remaining.entries())) {
+        try {
+          await this.sendRemote(entry.peer, 'commit', { transaction_id: txId });
+          remaining.delete(machineId);
+        } catch (err) {
+          logger.error('two-phase commit remote retry failed', {
+            txId,
+            peer: entry.peer,
+            err: err.message
+          });
+        }
+      }
+      if (!remaining.size && !localPending) {
+        return;
+      }
+      await wait(delay);
+    }
+    if (localPending) {
+      logger.error('two-phase commit local commit still pending after retries', { txId });
+    }
+    if (remaining.size) {
+      logger.error('two-phase commit remote commits still pending after retries', {
+        txId,
+        peers: Array.from(remaining.values()).map((entry) => entry.peer)
+      });
     }
   }
 
