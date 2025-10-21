@@ -181,6 +181,7 @@ async function bootstrap() {
         ops_description,
         shop_status,
         mechanic,
+        diag_date,
         diagnosis_text,
         started_at,
         completed_at,
@@ -224,6 +225,7 @@ async function bootstrap() {
         ops_description: ops_description || null,
         shop_status: shop_status || null,
         mechanic: mechanic || null,
+        diag_date: diag_date || null,
         diagnosis_text: diagnosis_text || null,
         started_at: started_at || null,
         completed_at: completed_at || null,
@@ -319,7 +321,7 @@ async function bootstrap() {
       return res.status(400).json({ error: 'start and end required' });
     }
     const dateField = req.query.dateField || 'reported_at';
-    if (!['reported_at', 'started_at', 'completed_at', 'updated_at'].includes(dateField)) {
+    if (!['reported_at', 'started_at', 'completed_at', 'updated_at', 'diag_date'].includes(dateField)) {
       return res.status(400).json({ error: 'invalid dateField' });
     }
     const includeClosed = parseBoolean(req.query.includeClosed, true);
@@ -331,7 +333,7 @@ async function bootstrap() {
     });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="export.csv"');
-    res.write('vehicle,ticket_id,reported_at,reported_by,ops_status,ops_description,shop_status,mechanic,diagnosis_text,started_at,completed_at,legacy_row_index,legacy_source,created_at,updated_at\n');
+    res.write('vehicle,ticket_id,reported_at,reported_by,ops_status,ops_description,shop_status,mechanic,diag_date,diagnosis_text,started_at,completed_at,legacy_row_index,legacy_source,created_at,updated_at\n');
     for (const item of items) {
       const line = [
         csvEscape(item.vehicle_label || ''),
@@ -342,6 +344,7 @@ async function bootstrap() {
         csvEscape(item.ops_description || ''),
         csvEscape(item.shop_status || ''),
         csvEscape(item.mechanic || ''),
+        csvEscape(item.diag_date || ''),
         csvEscape(item.diagnosis_text || ''),
         csvEscape(item.started_at || ''),
         csvEscape(item.completed_at || ''),
@@ -366,7 +369,7 @@ async function bootstrap() {
       return res.status(400).json({ error: 'invalid start or end' });
     }
     const dateField = body.dateField || 'reported_at';
-    if (!['reported_at', 'started_at', 'completed_at', 'updated_at'].includes(dateField)) {
+    if (!['reported_at', 'started_at', 'completed_at', 'updated_at', 'diag_date'].includes(dateField)) {
       return res.status(400).json({ error: 'invalid dateField' });
     }
     const vehicles = Array.isArray(body.vehicles) ? body.vehicles.filter(Boolean) : [];

@@ -197,7 +197,7 @@
               <th class="wrap">OPS Notes</th>
               <th>Mechanic</th>
               <th class="wrap">Diagnosis</th>
-              <th>Started</th>
+              <th>Diag Date</th>
               <th>Completed</th>
             </tr>
           </thead>
@@ -254,6 +254,18 @@
         hour: '2-digit',
         minute: '2-digit'
       });
+    }
+
+    function formatDateOnly(value) {
+      if (!value) return '';
+      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return value;
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return value;
+      }
+      return date.toLocaleDateString();
     }
 
     function renderTickets(tickets) {
@@ -325,7 +337,12 @@
           tr.appendChild(diagnosisCell);
 
           const startedCell = document.createElement('td');
-          startedCell.textContent = formatDate(ticket.first_diagnosis_at || ticket.started_at);
+          const diagValue = ticket.diag_date || ticket.first_diagnosis_at || ticket.started_at;
+          if (ticket.diag_date) {
+            startedCell.textContent = formatDateOnly(diagValue);
+          } else {
+            startedCell.textContent = formatDate(diagValue);
+          }
           tr.appendChild(startedCell);
 
           const completedCell = document.createElement('td');
