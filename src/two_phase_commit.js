@@ -3,6 +3,11 @@ const crypto = require('crypto');
 
 const logger = require('./logger');
 
+const COMMIT_RETRY_LIMIT = 5;
+const COMMIT_RETRY_DELAY_MS = 500;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 class TwoPhaseCoordinator {
   constructor(storage, cfg) {
     this.storage = storage;
@@ -50,14 +55,6 @@ class TwoPhaseCoordinator {
           throw new Error(`missing prepare acknowledgement from machine ${id}`);
         }
       }
-      for (const entry of remotes) {
-        await this.sendRemote(entry.peer, 'commit', { transaction_id: txId });
-      }
-      await this.storage.commitPreparedTransaction(txId);
-      return {
-        transactionId: txId,
-        machineIds: Array.from(prepared.keys())
-      };
     } catch (err) {
       logger.error('two-phase commit failure', { err: err.message });
       if (localPrepared) {
@@ -68,6 +65,63 @@ class TwoPhaseCoordinator {
       }
       throw err;
     }
+
+    const commitErrors = [];
+    const attempts = new Map();
+    const queue = [...remotes];
+    while (queue.length) {
+      const entry = queue.shift();
+      try {
+        await this.sendRemote(entry.peer, 'commit', { transaction_id: txId });
+      } catch (err) {
+        const count = (attempts.get(entry.peer) || 0) + 1;
+        attempts.set(entry.peer, count);
+        if (count >= COMMIT_RETRY_LIMIT) {
+          commitErrors.push({ peer: entry.peer, machineId: entry.machineId, error: err });
+        } else {
+          await delay(COMMIT_RETRY_DELAY_MS);
+          queue.push(entry);
+        }
+      }
+    }
+
+    let committed = false;
+    let localAttempts = 0;
+    let lastLocalError = null;
+    while (!committed && localAttempts < COMMIT_RETRY_LIMIT) {
+      try {
+        await this.storage.commitPreparedTransaction(txId);
+        committed = true;
+      } catch (err) {
+        lastLocalError = err;
+        localAttempts += 1;
+        if (localAttempts < COMMIT_RETRY_LIMIT) {
+          await delay(COMMIT_RETRY_DELAY_MS);
+        }
+      }
+    }
+    if (!committed) {
+      commitErrors.push({ peer: 'local', machineId: this.machineId, error: lastLocalError });
+    }
+
+    if (commitErrors.length) {
+      const detail = commitErrors
+        .map(({ peer, machineId, error }) => `${peer}${machineId ? `(${machineId})` : ''}: ${error?.message || error}`)
+        .join(', ');
+      logger.error('two-phase commit decision recorded with errors', { detail });
+      const err = new Error('commit issued but not confirmed everywhere');
+      err.commitErrors = commitErrors.map(({ peer, machineId, error }) => ({
+        peer,
+        machineId,
+        message: error?.message || String(error)
+      }));
+      throw err;
+    }
+
+    return {
+      transactionId: txId,
+      machineIds: Array.from(prepared.keys())
+    };
   }
 
   async beginRemote(peer, txId, actions) {
