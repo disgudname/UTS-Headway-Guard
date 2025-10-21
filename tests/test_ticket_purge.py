@@ -47,6 +47,7 @@ def test_hard_purge_removes_tickets(ticket_client):
     )
     assert response.status_code == 200
     payload = response.json()
+    assert payload["machine_id"] == "unknown"
     assert payload["mode"] == "hard"
     assert payload["purged_count"] == 1
 
@@ -79,6 +80,7 @@ def test_soft_purge_hides_tickets(ticket_client):
     )
     assert response.status_code == 200
     payload = response.json()
+    assert payload["machine_id"] == "unknown"
     assert payload["mode"] == "soft"
     assert payload["purged_count"] == 1
 

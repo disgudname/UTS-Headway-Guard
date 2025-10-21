@@ -4264,7 +4264,8 @@ async def purge_tickets(payload: Dict[str, Any] = Body(...)):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return result
+    info = _current_machine_info()
+    return {"machine_id": info.get("machine_id", "unknown"), **result}
 
 
 @app.get("/dispatcher")
