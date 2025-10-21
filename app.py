@@ -382,7 +382,26 @@ def _two_pc_commit_local(tx_id: str) -> bool:
         path.unlink()
     except FileNotFoundError:
         pass
+
     return True
+
+
+def _summarise_two_pc_action(action: Dict[str, Any]) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {"type": action.get("type")}
+    action_type = action.get("type")
+    if action_type == "write_file":
+        name = action.get("name")
+        if isinstance(name, str):
+            summary["name"] = name
+        data = action.get("data")
+        if isinstance(data, str):
+            encoded = data.encode("utf-8")
+            summary["bytes"] = len(encoded)
+            summary["sha256"] = hashlib.sha256(encoded).hexdigest()
+            preview = data[:120]
+            summary["preview"] = preview
+            summary["preview_truncated"] = len(data) > len(preview)
+    return summary
 
 
 def _two_pc_rollback_local(tx_id: str) -> None:
@@ -1035,6 +1054,7 @@ SERVICECREW_HTML = _load_html("servicecrew.html")
 LANDING_HTML = _load_html("index.html")
 APICALLS_HTML = _load_html("apicalls.html")
 DEBUG_HTML = _load_html("debug.html")
+TWO_PC_DEBUG_HTML = _load_html("two-pc-debug.html")
 REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
@@ -1812,6 +1832,54 @@ async def sync_two_pc_rollback(payload: Dict[str, Any]):
     with TWO_PC_LOCK:
         _two_pc_rollback_local(tx_id)
     return {"ok": True, "machine_id": _current_machine_info().get("machine_id", "unknown")}
+
+
+@app.get("/v1/debug/2pc")
+async def two_pc_debug_state():
+    now = datetime.now().astimezone()
+    now_ts = time.time()
+    transactions: List[Dict[str, Any]] = []
+    with TWO_PC_LOCK:
+        for path in sorted(TWO_PC_DIR.glob("*.json")):
+            stat = path.stat()
+            entry: Dict[str, Any] = {
+                "transaction_id": path.stem,
+                "filename": path.name,
+                "size_bytes": stat.st_size,
+                "updated_at": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(),
+                "age_seconds": max(0.0, now_ts - stat.st_mtime),
+            }
+            try:
+                raw = path.read_text()
+                payload = json.loads(raw)
+            except Exception as exc:
+                entry["error"] = str(exc)
+            else:
+                tx_id = payload.get("transaction_id")
+                if isinstance(tx_id, str) and tx_id:
+                    entry["transaction_id"] = tx_id
+                actions = payload.get("actions")
+                if isinstance(actions, list):
+                    entry["action_count"] = len(actions)
+                    entry["actions"] = [_summarise_two_pc_action(action) for action in actions]
+                else:
+                    entry["action_count"] = 0
+                    entry["actions"] = []
+                entry["payload_keys"] = sorted(payload.keys())
+            transactions.append(entry)
+    return {
+        "generated_at": now.isoformat(),
+        "machine": _current_machine_info(),
+        "two_pc_directory": str(TWO_PC_DIR),
+        "data_directories": [str(path) for path in DATA_DIRS],
+        "sync_peers": SYNC_PEERS,
+        "required_machine_ids": REQUIRED_MACHINE_IDS,
+        "sync_secret_configured": SYNC_SECRET is not None,
+        "commit_retry_limit": TWO_PC_COMMIT_RETRY_LIMIT,
+        "commit_retry_delay": TWO_PC_COMMIT_RETRY_DELAY,
+        "pending_count": len(transactions),
+        "pending_transactions": transactions,
+    }
 
 # ---------------------------
 # Health
@@ -4178,6 +4246,11 @@ async def metromap_page():
 @app.get("/debug")
 async def debug_page():
     return HTMLResponse(DEBUG_HTML)
+
+
+@app.get("/debug/2pc")
+async def two_pc_debug_page():
+    return HTMLResponse(TWO_PC_DEBUG_HTML)
 
 # ---------------------------
 # ADMIN PAGE
