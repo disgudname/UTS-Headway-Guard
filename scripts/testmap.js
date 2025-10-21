@@ -2663,6 +2663,31 @@ schedulePlaneStyleOverride();
 
       let agencies = [];
       let baseURL = '';
+      const ADMIN_KIOSK_UVA_HEALTH_NAME = 'University of Virginia Health';
+      const ADMIN_KIOSK_UVA_HEALTH_START_MINUTES = 2 * 60 + 30;
+      const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
+
+      function shouldForceAdminKioskUvaHealth() {
+        if (!adminKioskMode) {
+          return false;
+        }
+        try {
+          const now = new Date();
+          if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+            return false;
+          }
+          const hours = typeof now.getHours === 'function' ? now.getHours() : NaN;
+          const minutes = typeof now.getMinutes === 'function' ? now.getMinutes() : NaN;
+          if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+            return false;
+          }
+          const totalMinutes = hours * 60 + minutes;
+          return totalMinutes >= ADMIN_KIOSK_UVA_HEALTH_START_MINUTES
+            && totalMinutes < ADMIN_KIOSK_UVA_HEALTH_END_MINUTES;
+        } catch (error) {
+          return false;
+        }
+      }
       let catOverlayEnabled = false;
       let catLayerGroup = null;
       const catVehicleMarkers = new Map();
@@ -5071,7 +5096,17 @@ schedulePlaneStyleOverride();
           }
           const consent = localStorage.getItem('agencyConsent') === 'true';
           const storedAgency = consent ? localStorage.getItem('selectedAgency') : null;
-          if (storedAgency && agencies.some(a => a.url === storedAgency)) {
+          const adminKioskOverrideActive = shouldForceAdminKioskUvaHealth();
+          let forcedAgencyUrl = null;
+          if (adminKioskOverrideActive) {
+            const forcedAgency = agencies.find(a => a.name === ADMIN_KIOSK_UVA_HEALTH_NAME);
+            if (forcedAgency && typeof forcedAgency.url === 'string' && forcedAgency.url) {
+              forcedAgencyUrl = forcedAgency.url;
+            }
+          }
+          if (forcedAgencyUrl) {
+            baseURL = forcedAgencyUrl;
+          } else if (storedAgency && agencies.some(a => a.url === storedAgency)) {
             baseURL = storedAgency;
           } else {
             baseURL = agencies[0]?.url || '';
