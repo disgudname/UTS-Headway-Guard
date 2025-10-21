@@ -116,6 +116,14 @@ class TicketStore:
         filtered.sort(key=lambda t: _sort_key(t.reported_at, t.created_at), reverse=True)
         return [ticket.to_dict() for ticket in filtered]
 
+    async def get_ticket(self, ticket_id: Any) -> Optional[Dict[str, Any]]:
+        async with self._lock:
+            lookup_id = str(ticket_id)
+            ticket = self._tickets.get(lookup_id)
+            if not ticket:
+                return None
+            return ticket.to_dict()
+
     async def create_ticket(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         vehicle_label = _clean_field(payload.get("fleet_no"))
         if not vehicle_label:
