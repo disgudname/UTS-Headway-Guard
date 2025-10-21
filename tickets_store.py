@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 @dataclass
@@ -189,6 +189,52 @@ class TicketStore:
                 await self._persist()
             return ticket.to_dict()
 
+    async def export_tickets(
+        self,
+        start: Any,
+        end: Any,
+        date_field: str,
+        include_closed: bool,
+    ) -> List[Dict[str, Any]]:
+        start_dt = _parse_iso_datetime(start)
+        end_dt = _parse_iso_datetime(end)
+        if not start_dt or not end_dt:
+            raise ValueError("invalid start or end")
+        if start_dt > end_dt:
+            raise ValueError("start must be before end")
+        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at"}
+        if date_field not in allowed_fields:
+            raise ValueError("invalid dateField")
+        async with self._lock:
+            tickets = list(self._tickets.values())
+            purges_snapshot = list(self._soft_purges)
+        start_ts = start_dt.timestamp()
+        end_ts = end_dt.timestamp()
+        selected: List[Tuple[Ticket, float]] = []
+        for ticket in tickets:
+            if not include_closed and ticket.completed_at:
+                continue
+            if _is_soft_purged_by_records(ticket, purges_snapshot):
+                continue
+            field_value = getattr(ticket, date_field, None)
+            if not field_value:
+                continue
+            field_dt = _parse_iso_datetime(field_value)
+            if not field_dt:
+                continue
+            field_ts = field_dt.timestamp()
+            if field_ts < start_ts or field_ts > end_ts:
+                continue
+            selected.append((ticket, field_ts))
+        selected.sort(
+            key=lambda item: (
+                item[0].vehicle_label or "",
+                item[1],
+                item[0].id,
+            )
+        )
+        return [ticket.to_dict() for ticket, _ in selected]
+
     async def purge_tickets(
         self,
         start: Any,
@@ -237,18 +283,7 @@ class TicketStore:
         return {"purge_id": purge_id, "purged_count": len(purged_ids), "mode": mode}
 
     def _is_soft_purged(self, ticket: Ticket) -> bool:
-        if not self._soft_purges:
-            return False
-        for record in self._soft_purges:
-            start_dt = _parse_iso_datetime(record.get("start"))
-            end_dt = _parse_iso_datetime(record.get("end"))
-            if not start_dt or not end_dt:
-                continue
-            date_field = record.get("date_field", "reported_at")
-            vehicles = record.get("vehicles") or []
-            if _matches_purge(ticket, date_field, start_dt, end_dt, set(vehicles)):
-                return True
-        return False
+        return _is_soft_purged_by_records(ticket, self._soft_purges)
 
 
 def _sort_key(primary: Optional[str], secondary: Optional[str]) -> float:
@@ -313,6 +348,22 @@ def _normalize_purge_record(raw: Any) -> Optional[Dict[str, Any]]:
         "created_at": raw.get("created_at", _now_iso()),
     }
     return record
+
+
+def _is_soft_purged_by_records(ticket: Ticket, records: Iterable[Dict[str, Any]]) -> bool:
+    records_list = list(records or [])
+    if not records_list:
+        return False
+    for record in records_list:
+        start_dt = _parse_iso_datetime(record.get("start"))
+        end_dt = _parse_iso_datetime(record.get("end"))
+        if not start_dt or not end_dt:
+            continue
+        date_field = record.get("date_field", "reported_at")
+        vehicles = record.get("vehicles") or []
+        if _matches_purge(ticket, date_field, start_dt, end_dt, set(vehicles)):
+            return True
+    return False
 
 
 def _matches_purge(
