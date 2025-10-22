@@ -185,6 +185,7 @@ async function bootstrap() {
         diagnosis_text,
         started_at,
         completed_at,
+        closed_at,
         legacy_row_index,
         legacy_source
       } = body;
@@ -229,6 +230,7 @@ async function bootstrap() {
         diagnosis_text: diagnosis_text || null,
         started_at: started_at || null,
         completed_at: completed_at || null,
+        closed_at: closed_at || null,
         legacy_row_index: legacy_row_index ?? null,
         legacy_source: legacy_source ?? null,
         created_at: now,
@@ -295,7 +297,11 @@ async function bootstrap() {
       ...body,
       updated_at: now
     };
-    const eventType = body.completed_at ? 'ticket.closed' : 'ticket.updated';
+    const hasClosedAt = Object.prototype.hasOwnProperty.call(body, 'closed_at');
+    if (hasClosedAt) {
+      updated.closed_at = body.closed_at ? body.closed_at : null;
+    }
+    const eventType = hasClosedAt && updated.closed_at ? 'ticket.closed' : 'ticket.updated';
     const event = createEvent(
       eventType,
       { ticket: updated },
@@ -321,7 +327,7 @@ async function bootstrap() {
       return res.status(400).json({ error: 'start and end required' });
     }
     const dateField = req.query.dateField || 'reported_at';
-    if (!['reported_at', 'started_at', 'completed_at', 'updated_at', 'diag_date'].includes(dateField)) {
+    if (!['reported_at', 'started_at', 'completed_at', 'closed_at', 'updated_at', 'diag_date'].includes(dateField)) {
       return res.status(400).json({ error: 'invalid dateField' });
     }
     const includeClosed = parseBoolean(req.query.includeClosed, true);
@@ -333,7 +339,7 @@ async function bootstrap() {
     });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="export.csv"');
-    res.write('vehicle,ticket_id,reported_at,reported_by,ops_status,ops_description,shop_status,mechanic,diag_date,diagnosis_text,started_at,completed_at,legacy_row_index,legacy_source,created_at,updated_at\n');
+    res.write('vehicle,ticket_id,reported_at,reported_by,ops_status,ops_description,shop_status,mechanic,diag_date,diagnosis_text,started_at,completed_at,closed_at,legacy_row_index,legacy_source,created_at,updated_at\n');
     for (const item of items) {
       const line = [
         csvEscape(item.vehicle_label || ''),
@@ -348,6 +354,7 @@ async function bootstrap() {
         csvEscape(item.diagnosis_text || ''),
         csvEscape(item.started_at || ''),
         csvEscape(item.completed_at || ''),
+        csvEscape(item.closed_at || ''),
         csvEscape(item.legacy_row_index == null ? '' : item.legacy_row_index),
         csvEscape(item.legacy_source || ''),
         csvEscape(item.created_at || ''),
@@ -369,7 +376,7 @@ async function bootstrap() {
       return res.status(400).json({ error: 'invalid start or end' });
     }
     const dateField = body.dateField || 'reported_at';
-    if (!['reported_at', 'started_at', 'completed_at', 'updated_at', 'diag_date'].includes(dateField)) {
+    if (!['reported_at', 'started_at', 'completed_at', 'closed_at', 'updated_at', 'diag_date'].includes(dateField)) {
       return res.status(400).json({ error: 'invalid dateField' });
     }
     const vehicles = Array.isArray(body.vehicles) ? body.vehicles.filter(Boolean) : [];

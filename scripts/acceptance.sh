@@ -88,7 +88,7 @@ node -e "const list = JSON.parse(process.argv[1]); if (Array.isArray(list) && li
 
 CSV=$(curl -sf "http://127.0.0.1:$PORT/api/export.csv?start=2023-01-01T00:00:00Z&end=2025-01-01T00:00:00Z")
 HEADER=$(printf '%s\n' "$CSV" | head -n 1)
-if [[ "$HEADER" != "vehicle,ticket_id,reported_at,reported_by,ops_status,ops_description,shop_status,mechanic,diag_date,diagnosis_text,started_at,completed_at,legacy_row_index,legacy_source,created_at,updated_at" ]]; then
+if [[ "$HEADER" != "vehicle,ticket_id,reported_at,reported_by,ops_status,ops_description,shop_status,mechanic,diag_date,diagnosis_text,started_at,completed_at,closed_at,legacy_row_index,legacy_source,created_at,updated_at" ]]; then
   echo "CSV header mismatch" >&2
   exit 1
 fi

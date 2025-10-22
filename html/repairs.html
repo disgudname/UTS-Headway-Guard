@@ -463,6 +463,7 @@
         ['Diagnosis', ticket.diagnosis_text || ''],
         ['Diag Date', formatDateOnly(ticket.diag_date)],
         ['Completed Date', formatDateOnly(ticket.completed_at)],
+        ['Closed At', formatDateTime(ticket.closed_at)],
         ['Created At', formatDateTime(ticket.created_at)],
         ['Updated At', formatDateTime(ticket.updated_at)]
       ];
@@ -641,22 +642,22 @@
 
         const completeBtn = document.createElement('button');
         completeBtn.type = 'button';
-        completeBtn.textContent = ticket.completed_at ? 'Reopen' : 'Complete';
-        if (ticket.completed_at) {
+        completeBtn.textContent = ticket.closed_at ? 'Reopen' : 'Complete';
+        if (ticket.closed_at) {
           completeBtn.className = 'secondary';
         }
         completeBtn.addEventListener('click', async () => {
           const payload = {};
-          if (ticket.completed_at) {
-            payload.completed_at = null;
+          if (ticket.closed_at) {
+            payload.closed_at = null;
           } else {
-            payload.completed_at = new Date().toISOString().slice(0, 10);
+            payload.closed_at = new Date().toISOString();
           }
           try {
             const idempotencyKey = `complete-${ticket.id}-${crypto.randomUUID()}`;
             await syncTicketRequest(`${TICKETS_API_BASE}/${ticket.id}`, 'PUT', payload, idempotencyKey);
             await fetchTickets();
-            const baseMessage = ticket.completed_at ? 'Ticket reopened.' : 'Ticket marked complete.';
+            const baseMessage = ticket.closed_at ? 'Ticket reopened.' : 'Ticket marked complete.';
             showMessage(baseMessage);
           } catch (err) {
             showMessage('Unable to update ticket.', true);

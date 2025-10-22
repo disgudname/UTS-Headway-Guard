@@ -118,14 +118,17 @@ def test_complete_ticket_keeps_id_and_can_be_fetched(ticket_client):
     completed_ticket = complete_payload["ticket"]
     assert completed_ticket["id"] == ticket_id
     assert completed_ticket["completed_at"] == "2024-03-11"
+    assert completed_ticket.get("closed_at") is None
     assert set(store._tickets.keys()) == {ticket_id}
     assert store._tickets[ticket_id].completed_at == "2024-03-11"
+    assert store._tickets[ticket_id].closed_at is None
 
     fetched = client.get(f"/api/tickets/{ticket_id}")
     assert fetched.status_code == 200
     fetched_ticket = fetched.json()["ticket"]
     assert fetched_ticket["id"] == ticket_id
     assert fetched_ticket["completed_at"] == "2024-03-11"
+    assert fetched_ticket.get("closed_at") is None
 
 
 def test_get_ticket_returns_404_for_missing(ticket_client):
