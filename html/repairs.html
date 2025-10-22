@@ -282,6 +282,7 @@
         </div>
         <div class="actions">
           <button type="submit" id="submit-btn">Create Ticket</button>
+          <button type="button" class="secondary" id="history-btn" hidden>Show History</button>
           <button type="button" class="secondary" id="reset-btn">New Ticket</button>
           <button type="button" class="secondary" id="refresh-btn">Refresh List</button>
         </div>
@@ -344,6 +345,7 @@
     const resetBtn = document.getElementById('reset-btn');
     const refreshBtn = document.getElementById('refresh-btn');
     const submitBtn = document.getElementById('submit-btn');
+    const historyBtn = document.getElementById('history-btn');
     const formTitle = document.getElementById('form-title');
     const ticketIdEl = document.getElementById('ticket-id');
     const fleetInput = document.getElementById('fleet-no');
@@ -410,6 +412,104 @@
       return value;
     }
 
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatChangeValue(value) {
+      if (value === null || value === undefined || value === '') return '—';
+      if (typeof value === 'string') return value;
+      if (value instanceof Date) return value.toISOString();
+      if (Array.isArray(value) || typeof value === 'object') {
+        try {
+          return JSON.stringify(value);
+        } catch (err) {
+          return String(value);
+        }
+      }
+      return String(value);
+    }
+
+    function renderHistoryWindow(ticket, historyWin) {
+      if (!historyWin || historyWin.closed) return;
+      const doc = historyWin.document;
+      if (!ticket || typeof ticket !== 'object') {
+        doc.open();
+        doc.write('<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>No History</title><style>body{margin:0;font-family:Segoe UI,system-ui,sans-serif;padding:32px;background:#0b1628;color:#f7fbff;}p{margin:0;font-size:1.1rem;}</style></head><body><p>Ticket history unavailable.</p></body></html>');
+        doc.close();
+        return;
+      }
+      const historyEntries = Array.isArray(ticket.history) ? [...ticket.history] : [];
+      historyEntries.sort((a, b) => {
+        const aTime = new Date(a?.ts || 0).getTime();
+        const bTime = new Date(b?.ts || 0).getTime();
+        return bTime - aTime;
+      });
+      const detailRows = [
+        ['Ticket ID', ticket.id || ''],
+        ['Vehicle', ticket.vehicle_label || ''],
+        ['OPS Status', ticket.ops_status || ''],
+        ['Shop Status', ticket.shop_status || ''],
+        ['Reported At', formatDateTime(ticket.reported_at)],
+        ['Reported By', ticket.reported_by || ''],
+        ['OPS Notes', ticket.ops_description || ''],
+        ['Mechanic', ticket.mechanic || ''],
+        ['Diagnosis', ticket.diagnosis_text || ''],
+        ['Diag Date', formatDateOnly(ticket.diag_date)],
+        ['Completed Date', formatDateOnly(ticket.completed_at)],
+        ['Created At', formatDateTime(ticket.created_at)],
+        ['Updated At', formatDateTime(ticket.updated_at)]
+      ];
+      const detailsHtml = detailRows
+        .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value ?? '')}</td></tr>`)
+        .join('');
+      const historyHtml = historyEntries.length
+        ? historyEntries.map((entry) => {
+            const timestamp = entry?.ts ? formatDateTime(entry.ts) : 'Unknown time';
+            const actor = entry?.actor || 'unknown';
+            const action = entry?.action || 'updated';
+            const changedFields = Object.entries(entry?.changes || {});
+            changedFields.sort(([a], [b]) => a.localeCompare(b));
+            const changesHtml = changedFields.length
+              ? `<ul class="change-list">${changedFields.map(([field, change]) => {
+                  const fromValue = escapeHtml(formatChangeValue(change?.from));
+                  const toValue = escapeHtml(formatChangeValue(change?.to));
+                  return `<li><span class="field">${escapeHtml(field)}</span><span class="values">${fromValue} → ${toValue}</span></li>`;
+                }).join('')}</ul>`
+              : '<p class="no-changes">No field changes recorded.</p>';
+            return `<div class="history-entry">`
+              + `<div class="history-header">`
+              + `<span class="history-ts">${escapeHtml(timestamp || '')}</span>`
+              + `<span class="history-actor">${escapeHtml(actor)}</span>`
+              + `<span class="history-action">${escapeHtml(action)}</span>`
+              + `</div>${changesHtml}</div>`;
+          }).join('')
+        : '<p class="empty">No history recorded yet.</p>';
+      const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" />`
+        + `<title>Ticket ${escapeHtml(ticket.id || '')} History</title>`
+        + `<style>`
+        + `:root{color-scheme:dark;}body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:#0b1628;color:#f7fbff;padding:28px;}main{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:24px;}section{background:linear-gradient(160deg,rgba(18,31,56,0.95),rgba(18,31,56,0.75));border-radius:18px;padding:20px 24px;border:1px solid rgba(124,158,213,0.35);box-shadow:0 18px 36px rgba(5,11,28,0.45);}h1,h2{text-transform:uppercase;letter-spacing:0.1em;margin:0 0 12px;}table.details{width:100%;border-collapse:collapse;}table.details th{text-align:left;padding:6px 8px;color:#9cb5d6;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.06em;}table.details td{padding:6px 8px;border-bottom:1px solid rgba(124,158,213,0.2);font-size:0.95rem;}table.details tr:last-child td{border-bottom:none;}.history-entry{border:1px solid rgba(124,158,213,0.25);border-radius:16px;padding:14px 16px;margin-bottom:14px;background:rgba(7,14,28,0.6);}.history-entry:last-child{margin-bottom:0;}.history-header{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-bottom:10px;font-size:0.9rem;color:#9cb5d6;}.history-ts{font-weight:600;color:#f7fbff;}.history-actor{font-weight:600;color:#7cc9ff;}.history-action{text-transform:uppercase;letter-spacing:0.08em;font-size:0.75rem;background:rgba(124,201,255,0.18);color:#7cc9ff;padding:4px 10px;border-radius:999px;}ul.change-list{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;}ul.change-list li{list-style:disc;color:#f7fbff;}ul.change-list .field{font-weight:600;color:#7cc9ff;margin-right:6px;text-transform:uppercase;letter-spacing:0.05em;font-size:0.75rem;display:inline-block;}ul.change-list .values{font-size:0.9rem;}p.empty,p.no-changes{margin:0;color:#9cb5d6;font-style:italic;}`
+        + `</style></head><body><main>`
+        + `<h1>Ticket ${escapeHtml(ticket.id || '')}</h1>`
+        + `<section><h2>Details</h2><table class="details">${detailsHtml}</table></section>`
+        + `<section><h2>Edit History</h2>${historyHtml}</section>`
+        + `</main></body></html>`;
+      doc.open();
+      doc.write(html);
+      doc.close();
+      try {
+        historyWin.focus();
+      } catch (err) {
+        /* ignore */
+      }
+    }
+
     function showMessage(text, isError = false) {
       messageEl.textContent = text;
       messageEl.style.display = 'block';
@@ -425,6 +525,8 @@
       formTitle.textContent = 'Create Ticket';
       submitBtn.textContent = 'Create Ticket';
       fleetInput.removeAttribute('disabled');
+      historyBtn.hidden = true;
+      historyBtn.dataset.ticketId = '';
     }
 
     function populateForm(ticket) {
@@ -442,6 +544,8 @@
       completedAtInput.value = isoToDateInput(ticket.completed_at);
       opsDescriptionInput.value = ticket.ops_description || '';
       diagnosisInput.value = ticket.diagnosis_text || '';
+      historyBtn.hidden = false;
+      historyBtn.dataset.ticketId = ticket.id;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -642,6 +746,40 @@
         showMessage(err.message || 'Request failed.', true);
       }
     }
+
+    historyBtn.addEventListener('click', async () => {
+      const ticketId = historyBtn.dataset.ticketId || ticketIdEl.value;
+      if (!ticketId) {
+        showMessage('Select a ticket before viewing history.', true);
+        return;
+      }
+      const historyWin = window.open('', '_blank', 'noopener,noreferrer,width=880,height=920');
+      if (!historyWin) {
+        showMessage('Enable pop-ups to view ticket history.', true);
+        return;
+      }
+      historyWin.document.open();
+      historyWin.document.write('<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Loading History</title><style>body{margin:0;font-family:Segoe UI,system-ui,sans-serif;background:#0b1628;color:#f7fbff;padding:32px;}p{margin:0;font-size:1.1rem;}</style></head><body><p>Loading history…</p></body></html>');
+      historyWin.document.close();
+      try {
+        const res = await fetch(`${TICKETS_API_BASE}/${encodeURIComponent(ticketId)}`);
+        if (!res.ok) throw new Error('Unable to load history.');
+        const body = await res.json();
+        const ticket = body?.ticket || body;
+        if (!ticket || typeof ticket !== 'object') {
+          throw new Error('Ticket history unavailable.');
+        }
+        renderHistoryWindow(ticket, historyWin);
+      } catch (err) {
+        const message = err?.message || 'Unable to load history.';
+        if (historyWin && !historyWin.closed) {
+          historyWin.document.open();
+          historyWin.document.write(`<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Error</title><style>body{margin:0;font-family:Segoe UI,system-ui,sans-serif;background:#0b1628;color:#ff6488;padding:32px;}p{margin:0;font-size:1.1rem;}</style></head><body><p>${escapeHtml(message)}</p></body></html>`);
+          historyWin.document.close();
+        }
+        showMessage(message, true);
+      }
+    });
 
     includeClosedEl.addEventListener('change', fetchTickets);
     form.addEventListener('submit', submitForm);

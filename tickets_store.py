@@ -24,6 +24,7 @@ class Ticket:
     completed_at: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    history: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -39,6 +40,109 @@ def _clean_field(value: Any) -> Optional[str]:
     if isinstance(value, str) and not value.strip():
         return None
     return value
+
+
+def _normalize_actor(actor: Optional[str]) -> str:
+    if isinstance(actor, str):
+        stripped = actor.strip()
+        if stripped:
+            return stripped
+    return "unknown"
+
+
+def _normalize_history(raw: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        ts = entry.get("ts")
+        action_raw = entry.get("action")
+        action = action_raw.strip() if isinstance(action_raw, str) else ""
+        if not action:
+            action = "updated"
+        changes_raw = entry.get("changes")
+        changes: Dict[str, Dict[str, Any]] = {}
+        if isinstance(changes_raw, dict):
+            for key, change in changes_raw.items():
+                if isinstance(change, dict):
+                    changes[key] = {
+                        "from": change.get("from"),
+                        "to": change.get("to"),
+                    }
+                else:
+                    changes[key] = {"from": None, "to": change}
+        normalized.append(
+            {
+                "ts": ts,
+                "actor": _normalize_actor(entry.get("actor")),
+                "action": action,
+                "changes": changes,
+            }
+        )
+    return normalized
+
+
+def _history_entry(
+    actor: Optional[str],
+    action: str,
+    changes: Dict[str, Dict[str, Any]],
+    *,
+    ts: Optional[str] = None,
+) -> Dict[str, Any]:
+    entry_ts = ts or _now_iso()
+    action_text = action.strip() if isinstance(action, str) else ""
+    if not action_text:
+        action_text = "updated"
+    normalized_changes: Dict[str, Dict[str, Any]] = {}
+    for field, change in (changes or {}).items():
+        if isinstance(change, dict):
+            normalized_changes[field] = {
+                "from": change.get("from"),
+                "to": change.get("to"),
+            }
+        else:
+            normalized_changes[field] = {"from": None, "to": change}
+    return {
+        "ts": entry_ts,
+        "actor": _normalize_actor(actor),
+        "action": action_text,
+        "changes": normalized_changes,
+    }
+
+
+def _history_changes_for_creation(ticket: Ticket) -> Dict[str, Dict[str, Any]]:
+    fields = (
+        "vehicle_label",
+        "vehicle_type",
+        "reported_at",
+        "reported_by",
+        "ops_status",
+        "ops_description",
+        "shop_status",
+        "mechanic",
+        "diagnosis_text",
+        "diag_date",
+        "started_at",
+        "completed_at",
+    )
+    changes: Dict[str, Dict[str, Any]] = {}
+    for field in fields:
+        value = getattr(ticket, field, None)
+        if value is not None:
+            changes[field] = {"from": None, "to": value}
+    return changes
+
+
+def _determine_update_action(ticket: "Ticket", updates: Dict[str, Any]) -> str:
+    if "completed_at" in updates:
+        new_value = updates.get("completed_at")
+        if new_value:
+            return "completed"
+        if ticket.completed_at:
+            return "reopened"
+    return "updated"
 
 
 class TicketStore:
@@ -93,6 +197,7 @@ class TicketStore:
                 completed_at=data.get("completed_at"),
                 created_at=data.get("created_at", _now_iso()),
                 updated_at=data.get("updated_at", _now_iso()),
+                history=_normalize_history(data.get("history")),
             )
         for purge in purges:
             record = _normalize_purge_record(purge)
@@ -141,7 +246,9 @@ class TicketStore:
                 return None
             return ticket.to_dict()
 
-    async def create_ticket(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    async def create_ticket(
+        self, payload: Dict[str, Any], actor: Optional[str] = None
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         vehicle_label = _clean_field(payload.get("fleet_no"))
         if not vehicle_label:
             vehicle_label = _clean_field(payload.get("vehicle_name"))
@@ -177,6 +284,14 @@ class TicketStore:
                 created_at=now,
                 updated_at=now,
             )
+            ticket.history.append(
+                _history_entry(
+                    actor,
+                    "created",
+                    _history_changes_for_creation(ticket),
+                    ts=now,
+                )
+            )
             next_tickets = dict(self._tickets)
             next_tickets[ticket_id] = ticket
             payload_json = self._serialise_state(next_tickets, self._soft_purges)
@@ -184,7 +299,9 @@ class TicketStore:
             self._tickets = next_tickets
         return ticket.to_dict(), commit_info
 
-    async def update_ticket(self, ticket_id: str, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    async def update_ticket(
+        self, ticket_id: str, payload: Dict[str, Any], actor: Optional[str] = None
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
         async with self._lock:
             ticket = self._tickets.get(ticket_id)
             if not ticket:
@@ -210,7 +327,26 @@ class TicketStore:
                         updated = True
             if not updated:
                 return ticket.to_dict(), None
-            updates["updated_at"] = _now_iso()
+            now = _now_iso()
+            updates["updated_at"] = now
+            history_changes: Dict[str, Dict[str, Any]] = {}
+            for field, new_value in list(updates.items()):
+                if field in {"updated_at", "history"}:
+                    continue
+                history_changes[field] = {
+                    "from": getattr(ticket, field),
+                    "to": new_value,
+                }
+            next_history = list(ticket.history)
+            next_history.append(
+                _history_entry(
+                    actor,
+                    _determine_update_action(ticket, updates),
+                    history_changes,
+                    ts=now,
+                )
+            )
+            updates["history"] = next_history
             updated_ticket = replace(ticket, **updates)
             next_tickets = dict(self._tickets)
             next_tickets[ticket_id] = updated_ticket

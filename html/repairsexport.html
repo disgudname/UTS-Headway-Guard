@@ -145,6 +145,9 @@
           <label style="flex-direction:row;align-items:center;gap:8px;">
             <input type="checkbox" id="export-include-closed" checked /> Include closed tickets
           </label>
+          <label style="flex-direction:row;align-items:center;gap:8px;">
+            <input type="checkbox" id="export-include-history" /> Include edit history column
+          </label>
         </div>
         <div class="actions">
           <button type="submit">Download CSV</button>
@@ -218,6 +221,7 @@
       const end = localInputToIso(endInput);
       const field = document.getElementById('export-field').value;
       const includeClosed = document.getElementById('export-include-closed').checked;
+      const includeHistory = document.getElementById('export-include-history').checked;
       if (!start || !end) {
         showStatus('Provide a start and end time for export.', true);
         return;
@@ -225,6 +229,7 @@
       try {
         const params = new URLSearchParams({ start, end, dateField: field });
         if (includeClosed) params.set('includeClosed', 'true');
+        if (includeHistory) params.set('includeHistory', 'true');
         const res = await fetch(`${TICKETS_API_BASE}/export.csv?${params.toString()}`);
         if (!res.ok) throw new Error('Export failed');
         const blob = await res.blob();

@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import sys
 from pathlib import Path
 
@@ -103,3 +104,66 @@ def test_export_csv_requires_valid_range(ticket_client):
     )
     assert response.status_code == 400
     assert "invalid" in response.json()["detail"].lower()
+
+
+def test_ticket_history_and_export(ticket_client, monkeypatch):
+    client, _ = ticket_client
+    monkeypatch.setenv("OPS_PASS", "history-secret")
+    app_module._refresh_dispatch_passwords(force=True)
+    cookie_value = app_module._dispatcher_cookie_value_for_label("ops")
+    assert cookie_value
+    client.cookies.set(app_module.DISPATCH_COOKIE_NAME, cookie_value)
+
+    create_payload = {
+        "fleet_no": "BUS-99",
+        "reported_at": "2024-10-05T08:00:00Z",
+        "reported_by": "Unit Test",
+        "ops_status": "DOWNED",
+        "ops_description": "Air leak discovered",
+    }
+    create_response = client.post("/api/tickets", json=create_payload)
+    assert create_response.status_code == 200
+    ticket_id = create_response.json()["ticket"]["id"]
+
+    complete_response = client.put(
+        f"/api/tickets/{ticket_id}",
+        json={"completed_at": "2024-10-08T12:00:00Z", "shop_status": "UP"},
+    )
+    assert complete_response.status_code == 200
+
+    reopen_response = client.put(
+        f"/api/tickets/{ticket_id}",
+        json={"completed_at": None, "ops_status": "LIMITED"},
+    )
+    assert reopen_response.status_code == 200
+
+    ticket_response = client.get(f"/api/tickets/{ticket_id}")
+    assert ticket_response.status_code == 200
+    ticket_body = ticket_response.json()["ticket"]
+    history_entries = ticket_body.get("history")
+    assert isinstance(history_entries, list)
+    assert len(history_entries) >= 3
+
+    actions = {entry.get("action"): entry for entry in history_entries}
+    assert actions["created"]["actor"] == "ops"
+    assert actions["created"]["changes"]["vehicle_label"]["to"] == "BUS-99"
+    assert actions["completed"]["changes"]["completed_at"]["to"] == "2024-10-08T12:00:00Z"
+    reopened_entry = actions["reopened"]
+    assert reopened_entry["changes"]["completed_at"]["to"] is None
+    assert reopened_entry["changes"]["ops_status"]["to"] == "LIMITED"
+
+    params = {
+        "start": "2024-10-01T00:00:00Z",
+        "end": "2024-10-31T23:59:59Z",
+        "dateField": "reported_at",
+        "includeClosed": "true",
+        "includeHistory": "true",
+    }
+    export_response = client.get("/api/tickets/export.csv", params=params)
+    assert export_response.status_code == 200
+    reader = csv.DictReader(io.StringIO(export_response.text))
+    rows = list(reader)
+    assert rows and rows[0].get("history") is not None
+    history_raw = next(row["history"] for row in rows if row["ticket_id"] == ticket_id)
+    parsed_history = json.loads(history_raw)
+    assert any(entry.get("action") == "created" for entry in parsed_history)

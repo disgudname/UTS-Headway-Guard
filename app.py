@@ -4160,6 +4160,7 @@ async def export_tickets_csv(
     end: str = Query(...),
     date_field: str = Query("reported_at", alias="dateField"),
     include_closed: bool = Query(True, alias="includeClosed"),
+    include_history: bool = Query(False, alias="includeHistory"),
 ):
     try:
         tickets = await tickets_store.export_tickets(
@@ -4172,47 +4173,50 @@ async def export_tickets_csv(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(
-        [
-            "vehicle",
-            "ticket_id",
-            "reported_at",
-            "reported_by",
-            "ops_status",
-            "ops_description",
-            "shop_status",
-            "mechanic",
-            "diag_date",
-            "diagnosis_text",
-            "started_at",
-            "completed_at",
-            "legacy_row_index",
-            "legacy_source",
-            "created_at",
-            "updated_at",
-        ]
-    )
+    header = [
+        "vehicle",
+        "ticket_id",
+        "reported_at",
+        "reported_by",
+        "ops_status",
+        "ops_description",
+        "shop_status",
+        "mechanic",
+        "diag_date",
+        "diagnosis_text",
+        "started_at",
+        "completed_at",
+        "legacy_row_index",
+        "legacy_source",
+        "created_at",
+        "updated_at",
+    ]
+    if include_history:
+        header.append("history")
+    writer.writerow(header)
     for ticket in tickets:
-        writer.writerow(
-            [
-                ticket.get("vehicle_label") or "",
-                ticket.get("id") or "",
-                ticket.get("reported_at") or "",
-                ticket.get("reported_by") or "",
-                ticket.get("ops_status") or "",
-                ticket.get("ops_description") or "",
-                ticket.get("shop_status") or "",
-                ticket.get("mechanic") or "",
-                ticket.get("diag_date") or "",
-                ticket.get("diagnosis_text") or "",
-                ticket.get("started_at") or "",
-                ticket.get("completed_at") or "",
-                "" if ticket.get("legacy_row_index") is None else ticket.get("legacy_row_index"),
-                ticket.get("legacy_source") or "",
-                ticket.get("created_at") or "",
-                ticket.get("updated_at") or "",
-            ]
-        )
+        row = [
+            ticket.get("vehicle_label") or "",
+            ticket.get("id") or "",
+            ticket.get("reported_at") or "",
+            ticket.get("reported_by") or "",
+            ticket.get("ops_status") or "",
+            ticket.get("ops_description") or "",
+            ticket.get("shop_status") or "",
+            ticket.get("mechanic") or "",
+            ticket.get("diag_date") or "",
+            ticket.get("diagnosis_text") or "",
+            ticket.get("started_at") or "",
+            ticket.get("completed_at") or "",
+            "" if ticket.get("legacy_row_index") is None else ticket.get("legacy_row_index"),
+            ticket.get("legacy_source") or "",
+            ticket.get("created_at") or "",
+            ticket.get("updated_at") or "",
+        ]
+        if include_history:
+            history_value = json.dumps(ticket.get("history") or [], ensure_ascii=False)
+            row.append(history_value)
+        writer.writerow(row)
     content = buffer.getvalue()
     headers = {"Content-Disposition": 'attachment; filename="export.csv"'}
     return Response(content, media_type="text/csv; charset=utf-8", headers=headers)
@@ -4228,9 +4232,12 @@ async def get_ticket(ticket_id: str):
 
 
 @app.post("/api/tickets")
-async def create_ticket(payload: Dict[str, Any] = Body(...)):
+async def create_ticket(request: Request, payload: Dict[str, Any] = Body(...)):
     try:
-        ticket, _commit_info_unused = await tickets_store.create_ticket(payload)
+        actor = _get_dispatcher_secret_label(request)
+        ticket, _commit_info_unused = await tickets_store.create_ticket(
+            payload, actor=actor
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     info = _current_machine_info()
@@ -4240,9 +4247,12 @@ async def create_ticket(payload: Dict[str, Any] = Body(...)):
 
 
 @app.put("/api/tickets/{ticket_id}")
-async def update_ticket(ticket_id: str, payload: Dict[str, Any] = Body(...)):
+async def update_ticket(request: Request, ticket_id: str, payload: Dict[str, Any] = Body(...)):
     try:
-        ticket, _commit_info_unused = await tickets_store.update_ticket(ticket_id, payload)
+        actor = _get_dispatcher_secret_label(request)
+        ticket, _commit_info_unused = await tickets_store.update_ticket(
+            ticket_id, payload, actor=actor
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="ticket not found") from exc
     info = _current_machine_info()
