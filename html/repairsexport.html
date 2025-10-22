@@ -205,10 +205,17 @@
       return date.toISOString();
     }
 
+    function formatDateForFilename(value) {
+      if (!value) return 'unknown';
+      return value.replace('T', '_').replace(/[:]/g, '');
+    }
+
     document.getElementById('export-form').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const start = localInputToIso(document.getElementById('export-start').value);
-      const end = localInputToIso(document.getElementById('export-end').value);
+      const startInput = document.getElementById('export-start').value;
+      const endInput = document.getElementById('export-end').value;
+      const start = localInputToIso(startInput);
+      const end = localInputToIso(endInput);
       const field = document.getElementById('export-field').value;
       const includeClosed = document.getElementById('export-include-closed').checked;
       if (!start || !end) {
@@ -224,7 +231,9 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'repairs-export.csv';
+        const startLabel = formatDateForFilename(startInput);
+        const endLabel = formatDateForFilename(endInput);
+        a.download = `repairs-export_${startLabel}_to_${endLabel}.csv`;
         document.body.appendChild(a);
         a.click();
         URL.revokeObjectURL(url);
