@@ -47,7 +47,7 @@ def test_export_csv_filters_closed_and_soft_hidden(ticket_client):
     ).json()["ticket"]
     client.put(
         f"/api/tickets/{closed_ticket['id']}",
-        json={"completed_at": "2024-10-12T09:00:00Z"},
+        json={"closed_at": "2024-10-12T09:00:00Z"},
     )
 
     hidden_ticket = client.post(
@@ -125,15 +125,21 @@ def test_ticket_history_and_export(ticket_client, monkeypatch):
     assert create_response.status_code == 200
     ticket_id = create_response.json()["ticket"]["id"]
 
+    manual_update = client.put(
+        f"/api/tickets/{ticket_id}",
+        json={"completed_at": "2024-10-07"},
+    )
+    assert manual_update.status_code == 200
+
     complete_response = client.put(
         f"/api/tickets/{ticket_id}",
-        json={"completed_at": "2024-10-08T12:00:00Z", "shop_status": "UP"},
+        json={"closed_at": "2024-10-08T12:00:00Z", "shop_status": "UP"},
     )
     assert complete_response.status_code == 200
 
     reopen_response = client.put(
         f"/api/tickets/{ticket_id}",
-        json={"completed_at": None, "ops_status": "LIMITED"},
+        json={"closed_at": None, "ops_status": "LIMITED"},
     )
     assert reopen_response.status_code == 200
 
@@ -143,13 +149,18 @@ def test_ticket_history_and_export(ticket_client, monkeypatch):
     history_entries = ticket_body.get("history")
     assert isinstance(history_entries, list)
     assert len(history_entries) >= 3
+    assert ticket_body["completed_at"] == "2024-10-07"
+    assert ticket_body.get("closed_at") is None
 
     actions = {entry.get("action"): entry for entry in history_entries}
     assert actions["created"]["actor"] == "ops"
     assert actions["created"]["changes"]["vehicle_label"]["to"] == "BUS-99"
-    assert actions["completed"]["changes"]["completed_at"]["to"] == "2024-10-08T12:00:00Z"
+    updated_entry = actions["updated"]
+    assert updated_entry["changes"]["completed_at"]["to"] == "2024-10-07"
+    completed_entry = actions["completed"]
+    assert completed_entry["changes"]["closed_at"]["to"] == "2024-10-08T12:00:00Z"
     reopened_entry = actions["reopened"]
-    assert reopened_entry["changes"]["completed_at"]["to"] is None
+    assert reopened_entry["changes"]["closed_at"]["to"] is None
     assert reopened_entry["changes"]["ops_status"]["to"] == "LIMITED"
 
     params = {

@@ -29,6 +29,15 @@ function ticketMatchesPurge(ticket, vehiclesById, purge) {
   return time >= purge.start && time <= purge.end;
 }
 
+function ensureClosedAt(record) {
+  if (!Object.prototype.hasOwnProperty.call(record, 'closed_at')) {
+    record.closed_at = record.completed_at || null;
+  } else if (record.closed_at == null || record.closed_at === '') {
+    record.closed_at = null;
+  }
+  return record;
+}
+
 class DomainState {
   constructor(snapshot) {
     this.vehicles = new Map();
@@ -46,7 +55,8 @@ class DomainState {
       }
       if (snapshot.tickets) {
         for (const [id, value] of Object.entries(snapshot.tickets)) {
-          this.tickets.set(id, value);
+          const copy = ensureClosedAt({ ...value });
+          this.tickets.set(id, copy);
         }
       }
       if (snapshot.purges) {
@@ -148,7 +158,7 @@ class DomainState {
     const ticket = event.payload.ticket;
     const existing = this.tickets.get(ticket.id);
     if (!existing || compareEvents(existing._meta, event)) {
-      const copy = { ...ticket, _meta: { ts: event.ts, event_id: event.event_id } };
+      const copy = ensureClosedAt({ ...ticket, _meta: { ts: event.ts, event_id: event.event_id } });
       this.tickets.set(ticket.id, copy);
       return true;
     }
@@ -216,7 +226,7 @@ class DomainState {
     const items = [];
     for (const ticket of this.tickets.values()) {
       if (softHidden.has(ticket.id)) continue;
-      if (!includeClosed && ticket.completed_at) continue;
+      if (!includeClosed && ticket.closed_at) continue;
       if (filters.vehicle) {
         const label = this.getVehicleLabel(ticket.vehicle_id);
         if (label !== filters.vehicle) continue;
@@ -242,7 +252,7 @@ class DomainState {
     const openTickets = [];
     for (const ticket of this.tickets.values()) {
       if (softHidden.has(ticket.id)) continue;
-      if (ticket.completed_at) continue;
+      if (ticket.closed_at) continue;
       openTickets.push(ticket);
     }
     openTickets.sort((a, b) => {
@@ -301,7 +311,7 @@ class DomainState {
       if (!fieldValue) continue;
       const time = new Date(fieldValue).getTime();
       if (time < start || time > end) continue;
-      if (!includeClosed && ticket.completed_at) continue;
+      if (!includeClosed && ticket.closed_at) continue;
       items.push(ticket);
     }
     items.sort((a, b) => {

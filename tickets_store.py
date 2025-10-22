@@ -22,6 +22,7 @@ class Ticket:
     diag_date: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    closed_at: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     history: List[Dict[str, Any]] = field(default_factory=list)
@@ -126,6 +127,7 @@ def _history_changes_for_creation(ticket: Ticket) -> Dict[str, Dict[str, Any]]:
         "diag_date",
         "started_at",
         "completed_at",
+        "closed_at",
     )
     changes: Dict[str, Dict[str, Any]] = {}
     for field in fields:
@@ -136,12 +138,18 @@ def _history_changes_for_creation(ticket: Ticket) -> Dict[str, Dict[str, Any]]:
 
 
 def _determine_update_action(ticket: "Ticket", updates: Dict[str, Any]) -> str:
+    if "closed_at" in updates:
+        new_value = updates.get("closed_at")
+        if new_value:
+            return "completed"
+        if ticket.closed_at:
+            return "reopened"
     if "completed_at" in updates:
         new_value = updates.get("completed_at")
         if new_value:
-            return "completed"
+            return "updated"
         if ticket.completed_at:
-            return "reopened"
+            return "updated"
     return "updated"
 
 
@@ -181,6 +189,10 @@ class TicketStore:
             if not ticket_id or not vehicle_label:
                 continue
             data = {**entry}
+            closed_at = data.get("closed_at")
+            if closed_at is None:
+                legacy_completed = data.get("completed_at")
+                closed_at = legacy_completed if legacy_completed else None
             self._tickets[ticket_id] = Ticket(
                 id=ticket_id,
                 vehicle_label=vehicle_label,
@@ -195,6 +207,7 @@ class TicketStore:
                 diag_date=data.get("diag_date"),
                 started_at=data.get("started_at"),
                 completed_at=data.get("completed_at"),
+                closed_at=closed_at,
                 created_at=data.get("created_at", _now_iso()),
                 updated_at=data.get("updated_at", _now_iso()),
                 history=_normalize_history(data.get("history")),
@@ -230,7 +243,7 @@ class TicketStore:
             items = list(self._tickets.values())
         filtered: List[Ticket] = []
         for ticket in items:
-            if not include_closed and ticket.completed_at:
+            if not include_closed and ticket.closed_at:
                 continue
             if self._is_soft_purged(ticket):
                 continue
@@ -281,6 +294,7 @@ class TicketStore:
                 diag_date=_clean_field(payload.get("diag_date")),
                 started_at=_clean_field(payload.get("started_at")),
                 completed_at=_clean_field(payload.get("completed_at")),
+                closed_at=_clean_field(payload.get("closed_at")),
                 created_at=now,
                 updated_at=now,
             )
@@ -319,6 +333,7 @@ class TicketStore:
                 "diag_date",
                 "started_at",
                 "completed_at",
+                "closed_at",
             ):
                 if key in payload:
                     value = _clean_field(payload.get(key))
@@ -368,7 +383,7 @@ class TicketStore:
             raise ValueError("invalid start or end")
         if start_dt > end_dt:
             raise ValueError("start must be before end")
-        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at", "diag_date"}
+        allowed_fields = {"reported_at", "started_at", "completed_at", "closed_at", "updated_at", "diag_date"}
         if date_field not in allowed_fields:
             raise ValueError("invalid dateField")
         async with self._lock:
@@ -378,7 +393,7 @@ class TicketStore:
         end_ts = end_dt.timestamp()
         selected: List[Tuple[Ticket, float]] = []
         for ticket in tickets:
-            if not include_closed and ticket.completed_at:
+            if not include_closed and ticket.closed_at:
                 continue
             if _is_soft_purged_by_records(ticket, purges_snapshot):
                 continue
@@ -415,7 +430,7 @@ class TicketStore:
             raise ValueError("invalid start or end")
         if start_dt > end_dt:
             raise ValueError("start must be before end")
-        allowed_fields = {"reported_at", "started_at", "completed_at", "updated_at", "diag_date"}
+        allowed_fields = {"reported_at", "started_at", "completed_at", "closed_at", "updated_at", "diag_date"}
         if date_field not in allowed_fields:
             raise ValueError("invalid dateField")
         normalized_vehicles = _normalize_vehicle_list(vehicles)
@@ -514,7 +529,9 @@ def _normalize_purge_record(raw: Any) -> Optional[Dict[str, Any]]:
         "purge_id": str(raw.get("purge_id") or uuid.uuid4()),
         "start": start.isoformat(),
         "end": end.isoformat(),
-        "date_field": date_field if date_field in {"reported_at", "started_at", "completed_at", "updated_at", "diag_date"} else "reported_at",
+        "date_field": date_field
+        if date_field in {"reported_at", "started_at", "completed_at", "closed_at", "updated_at", "diag_date"}
+        else "reported_at",
         "vehicles": _normalize_vehicle_list(list(vehicles_raw)),
         "mode": "soft",
         "created_at": raw.get("created_at", _now_iso()),
