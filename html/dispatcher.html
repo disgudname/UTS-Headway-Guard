@@ -562,6 +562,14 @@ function isHowellSecret(label){
   return typeof label==='string' && label.trim().toLowerCase()==='howell';
 }
 
+function isAshleySecret(label){
+  return typeof label==='string' && label.trim().toLowerCase()==='ashley_pass';
+}
+
+function shouldUseFootballLayout(label){
+  return isHowellSecret(label) || isAshleySecret(label);
+}
+
 function applyDispatcherSecretMode(){
   if(isHowellSecret(dispatcherSecretLabel)){
     applyHowellMode();
@@ -814,8 +822,8 @@ function determineRequestedBlockLayout(preferredLayoutId){
   if(direct) return direct;
   const saved=String(getSavedBlockLayoutPreference()||'').trim();
   if(saved) return saved;
-  if(isHowellSecret(dispatcherSecretLabel)){
-    return HOWELL_BLOCK_LAYOUT_NAME;
+  if(shouldUseFootballLayout(dispatcherSecretLabel)){
+    return FOOTBALL_BLOCK_LAYOUT_NAME;
   }
   return '';
 }
@@ -999,7 +1007,7 @@ if(blocksGridTable){
 
 const BLOCK_GRID_ROW_COUNT = 9;
 const BLOCK_GRID_LAYOUT_ENDPOINT = '/api/eink-block/layout';
-const HOWELL_BLOCK_LAYOUT_NAME = 'football-layout';
+const FOOTBALL_BLOCK_LAYOUT_NAME = 'football-layout';
 const BLOCK_GRID_DEFAULT_LAYOUT_DATA = [
   ['01','02','03','04','05','06','07','08','09'],
   ['10','11','12','13','14','15','16AM','17','18AM'],
