@@ -11756,15 +11756,55 @@ ${trainPlaneMarkup}
           return Array.from(unique.values());
       }
 
+      function getCatRouteSortKey(route) {
+          if (!route || typeof route !== 'object') {
+              return '';
+          }
+          const candidates = [
+              route.displayName,
+              route.shortName,
+              route.longName,
+              route.idKey,
+              Number.isFinite(route?.id) ? `${route.id}` : ''
+          ];
+          for (const value of candidates) {
+              if (typeof value === 'string') {
+                  const trimmed = value.trim();
+                  if (trimmed) {
+                      return trimmed;
+                  }
+              }
+          }
+          return '';
+      }
+
+      function compareCatRouteSortKeys(a, b) {
+          const keyA = getCatRouteSortKey(a);
+          const keyB = getCatRouteSortKey(b);
+          if (keyA && keyB) {
+              const comparison = keyA.localeCompare(keyB, undefined, { numeric: true, sensitivity: 'base' });
+              if (comparison !== 0) {
+                  return comparison;
+              }
+          } else if (keyA) {
+              return -1;
+          } else if (keyB) {
+              return 1;
+          }
+          const fallbackA = (a?.idKey || '').trim().toUpperCase();
+          const fallbackB = (b?.idKey || '').trim().toUpperCase();
+          if (fallbackA < fallbackB) return -1;
+          if (fallbackA > fallbackB) return 1;
+          const numericA = Number.isFinite(a?.id) ? a.id : Number.POSITIVE_INFINITY;
+          const numericB = Number.isFinite(b?.id) ? b.id : Number.POSITIVE_INFINITY;
+          if (numericA < numericB) return -1;
+          if (numericA > numericB) return 1;
+          return 0;
+      }
+
       function getSortedCatRoutes() {
           const routes = getUniqueCatRoutes();
-          routes.sort((a, b) => {
-              const nameA = (a.displayName || a.shortName || a.longName || a.idKey || '').trim().toUpperCase();
-              const nameB = (b.displayName || b.shortName || b.longName || b.idKey || '').trim().toUpperCase();
-              if (nameA < nameB) return -1;
-              if (nameA > nameB) return 1;
-              return 0;
-          });
+          routes.sort(compareCatRouteSortKeys);
           return routes;
       }
 
