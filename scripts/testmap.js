@@ -5611,9 +5611,24 @@ schedulePlaneStyleOverride();
           return;
         }
         const trackedIds = new Set();
+        const trackedLayers = new Set();
         if (markers && typeof markers === 'object') {
           Object.keys(markers).forEach(id => {
             trackedIds.add(`${id}`);
+            const layer = markers[id];
+            if (layer) {
+              trackedLayers.add(layer);
+            }
+          });
+        }
+        if (catVehicleMarkers instanceof Map) {
+          catVehicleMarkers.forEach((marker, key) => {
+            if (typeof key === 'string' && key) {
+              trackedIds.add(key);
+            }
+            if (marker) {
+              trackedLayers.add(marker);
+            }
           });
         }
         map.eachLayer(layer => {
@@ -5627,14 +5642,8 @@ schedulePlaneStyleOverride();
           const root = element.querySelector('.bus-marker__root');
           const datasetId = root && root.dataset ? root.dataset.vehicleId : undefined;
           const normalizedId = typeof datasetId === 'string' ? datasetId : '';
-          if (normalizedId && trackedIds.has(normalizedId)) {
+          if ((normalizedId && trackedIds.has(normalizedId)) || trackedLayers.has(layer)) {
             return;
-          }
-          if (!normalizedId && markers && typeof markers === 'object') {
-            const isTracked = Object.values(markers).some(trackedLayer => trackedLayer === layer);
-            if (isTracked) {
-              return;
-            }
           }
           try {
             map.removeLayer(layer);
