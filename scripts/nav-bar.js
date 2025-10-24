@@ -299,6 +299,7 @@
   let authSection = null;
   let authSecret = null;
   let logoutButton = null;
+  let loginButton = null;
 
   const buildReturnTarget = () => {
     const path = window.location.pathname || '/';
@@ -312,77 +313,87 @@
     window.location.href = `/login?return=${encodeURIComponent(target)}`;
   };
 
-  const removeAuthSection = () => {
-    if (logoutButton) {
-      logoutButton.disabled = false;
-      logoutButton.textContent = 'Log out';
-    }
-    if (authSection && authSection.parentNode) {
-      authSection.parentNode.removeChild(authSection);
-    }
-    authSection = null;
-    authSecret = null;
-    logoutButton = null;
-  };
-
-  const ensureAuthSection = (secretLabel) => {
+  const ensureAuthSection = () => {
     if (!authSection) {
       authSection = document.createElement('div');
       authSection.className = 'hg-nav__auth';
-
-      const info = document.createElement('div');
-      info.className = 'hg-nav__auth-info';
-
-      const label = document.createElement('span');
-      label.textContent = 'Logged in as';
-
-      authSecret = document.createElement('span');
-      authSecret.className = 'hg-nav__auth-secret';
-
-      info.appendChild(label);
-      info.appendChild(authSecret);
-
-      logoutButton = document.createElement('button');
-      logoutButton.type = 'button';
-      logoutButton.className = 'hg-nav__auth-logout';
-      logoutButton.textContent = 'Log out';
-      logoutButton.addEventListener('click', async () => {
-        if (!logoutButton || logoutButton.disabled) return;
-        const defaultLabel = logoutButton.textContent;
-        logoutButton.disabled = true;
-        logoutButton.textContent = 'Logging out...';
-        try {
-          const resp = await fetch('/api/dispatcher/logout', {
-            method: 'POST',
-            credentials: 'include',
-          });
-          if (!resp.ok) throw new Error('logout failed');
-          if (typeof window.deleteCookieValue === 'function') {
-            if (typeof window.BLOCK_LAYOUT_COOKIE_NAME === 'string') {
-              try { window.deleteCookieValue(window.BLOCK_LAYOUT_COOKIE_NAME); } catch (err) {}
-            }
-            if (typeof window.LEFT_PANE_WIDTH_COOKIE_NAME === 'string') {
-              try { window.deleteCookieValue(window.LEFT_PANE_WIDTH_COOKIE_NAME); } catch (err) {}
-            }
-          }
-          removeAuthSection();
-          redirectToLogin();
-        } catch (err) {
-          console.warn('Failed to log out', err);
-          logoutButton.disabled = false;
-          logoutButton.textContent = defaultLabel;
-          alert('Unable to log out. Please try again.');
-        }
-      });
-
-      authSection.appendChild(info);
-      authSection.appendChild(logoutButton);
       inner.appendChild(authSection);
     }
+    return authSection;
+  };
 
-    if (authSecret) {
-      authSecret.textContent = secretLabel || 'Unknown';
-    }
+  const renderLoggedIn = (secretLabel) => {
+    const section = ensureAuthSection();
+    section.replaceChildren();
+
+    const info = document.createElement('div');
+    info.className = 'hg-nav__auth-info';
+
+    const label = document.createElement('span');
+    label.textContent = 'Logged in as';
+
+    authSecret = document.createElement('span');
+    authSecret.className = 'hg-nav__auth-secret';
+    authSecret.textContent = secretLabel || 'Unknown';
+
+    info.appendChild(label);
+    info.appendChild(authSecret);
+
+    logoutButton = document.createElement('button');
+    logoutButton.type = 'button';
+    logoutButton.className = 'hg-nav__auth-logout';
+    logoutButton.textContent = 'Log out';
+    logoutButton.addEventListener('click', async () => {
+      if (!logoutButton || logoutButton.disabled) return;
+      const defaultLabel = logoutButton.textContent;
+      logoutButton.disabled = true;
+      logoutButton.textContent = 'Logging out...';
+      try {
+        const resp = await fetch('/api/dispatcher/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!resp.ok) throw new Error('logout failed');
+        if (typeof window.deleteCookieValue === 'function') {
+          if (typeof window.BLOCK_LAYOUT_COOKIE_NAME === 'string') {
+            try { window.deleteCookieValue(window.BLOCK_LAYOUT_COOKIE_NAME); } catch (err) {}
+          }
+          if (typeof window.LEFT_PANE_WIDTH_COOKIE_NAME === 'string') {
+            try { window.deleteCookieValue(window.LEFT_PANE_WIDTH_COOKIE_NAME); } catch (err) {}
+          }
+        }
+        renderLoggedOut();
+        redirectToLogin();
+      } catch (err) {
+        console.warn('Failed to log out', err);
+        logoutButton.disabled = false;
+        logoutButton.textContent = defaultLabel;
+        alert('Unable to log out. Please try again.');
+      }
+    });
+
+    section.appendChild(info);
+    section.appendChild(logoutButton);
+    loginButton = null;
+  };
+
+  const renderLoggedOut = () => {
+    const section = ensureAuthSection();
+    section.replaceChildren();
+
+    loginButton = document.createElement('button');
+    loginButton.type = 'button';
+    loginButton.className = 'hg-nav__auth-logout';
+    loginButton.textContent = 'Log in';
+    loginButton.addEventListener('click', () => {
+      if (!loginButton || loginButton.disabled) return;
+      loginButton.disabled = true;
+      redirectToLogin();
+    });
+
+    section.appendChild(loginButton);
+    authSecret = null;
+    logoutButton = null;
   };
 
   const updateAuthSection = async () => {
@@ -405,12 +416,12 @@
       : null;
 
     if (authorized) {
-      ensureAuthSection(secretLabel || 'Unknown');
+      renderLoggedIn(secretLabel || 'Unknown');
       if (typeof updateSpacerHeight === 'function') {
         updateSpacerHeight();
       }
     } else {
-      removeAuthSection();
+      renderLoggedOut();
       if (typeof updateSpacerHeight === 'function') {
         updateSpacerHeight();
       }
