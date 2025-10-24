@@ -100,6 +100,62 @@
         opacity: 0.6;
         cursor: not-allowed;
       }
+      #project-warning-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 13000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(4, 8, 16, 0.86);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+      #project-warning-overlay.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #project-warning-overlay .project-warning-dialog {
+        width: min(520px, 100%);
+        background: rgba(12, 18, 30, 0.98);
+        border: 1px solid #ff9966;
+        border-radius: 18px;
+        padding: 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        box-shadow: 0 28px 68px rgba(0, 0, 0, 0.55);
+      }
+      #project-warning-overlay .project-warning-title {
+        margin: 0;
+        font-size: 20px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #ffcc66;
+      }
+      #project-warning-overlay .project-warning-message {
+        margin: 0;
+        line-height: 1.6;
+        color: #f6f4ff;
+        font-size: 15px;
+      }
+      #project-warning-overlay .project-warning-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+      #project-warning-overlay .project-warning-button {
+        border-radius: 999px;
+        border: none;
+        padding: 12px 20px;
+        font: inherit;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #ff9966, #ffcc66);
+        color: #0b0e11;
+        cursor: pointer;
+      }
       .status {
         min-height: 20px;
         font-size: 14px;
@@ -469,12 +525,93 @@
       </form>
       <p class="aux">Need a password? Send Pat a Teams message.</p>
     </main>
+    <div id="project-warning-overlay" role="dialog" aria-modal="true" aria-labelledby="project-warning-title" aria-describedby="project-warning-message" aria-hidden="true">
+      <div class="project-warning-dialog">
+        <h2 id="project-warning-title" class="project-warning-title">Please Acknowledge</h2>
+        <p id="project-warning-message" class="project-warning-message">
+          This entire project is UNOFFICIAL, UNSUPPORTED, and a WORK-IN-PROGRESS. New bugs are being found constantly and I do not consider any component of this project to be truly stable, simply working "well enough for now"
+        </p>
+        <div class="project-warning-actions">
+          <button id="project-warning-acknowledge" type="button" class="project-warning-button">I Understand</button>
+        </div>
+      </div>
+    </div>
     <script>
       (function() {
         const form = document.getElementById('loginForm');
         const passwordInput = document.getElementById('password');
         const statusEl = document.getElementById('status');
         const submitButton = document.getElementById('submitButton');
+        const warningOverlay = document.getElementById('project-warning-overlay');
+        const warningButton = document.getElementById('project-warning-acknowledge');
+
+        let warningAcknowledged = false;
+        let warningPromise = null;
+
+        function ensureWarningAcknowledged() {
+          if (!warningOverlay || !warningButton) {
+            warningAcknowledged = true;
+            return Promise.resolve();
+          }
+          if (warningAcknowledged) {
+            return Promise.resolve();
+          }
+          if (warningPromise) {
+            return warningPromise;
+          }
+          warningPromise = new Promise(resolve => {
+            function cleanup() {
+              warningButton.removeEventListener('click', onAcknowledge);
+              document.removeEventListener('keydown', onKeyDown, true);
+              warningPromise = null;
+            }
+
+            function finishAcknowledgement() {
+              warningAcknowledged = true;
+              warningOverlay.classList.remove('visible');
+              const resetHidden = () => {
+                warningOverlay.removeEventListener('transitionend', resetHidden);
+                warningOverlay.setAttribute('aria-hidden', 'true');
+              };
+              warningOverlay.addEventListener('transitionend', resetHidden, { once: true });
+              cleanup();
+              window.setTimeout(() => {
+                warningOverlay.setAttribute('aria-hidden', 'true');
+                resolve();
+              }, 200);
+            }
+
+            function onAcknowledge(event) {
+              event.preventDefault();
+              finishAcknowledgement();
+            }
+
+            function onKeyDown(event) {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+              if (event.key === 'Tab') {
+                event.preventDefault();
+                warningButton.focus();
+                return;
+              }
+              if ((event.key === 'Enter' || event.key === ' ') && document.activeElement === warningButton) {
+                event.preventDefault();
+                event.stopPropagation();
+                finishAcknowledgement();
+              }
+            }
+
+            warningOverlay.setAttribute('aria-hidden', 'false');
+            warningOverlay.classList.add('visible');
+            warningButton.addEventListener('click', onAcknowledge, { once: true });
+            document.addEventListener('keydown', onKeyDown, true);
+            window.setTimeout(() => warningButton.focus(), 20);
+          });
+          return warningPromise;
+        }
 
         const params = new URLSearchParams(window.location.search);
         const rawReturn = params.get('return') || '';
@@ -723,6 +860,7 @@
             }
             const data = await response.json();
             if (data && data.authorized === true) {
+              await ensureWarningAcknowledged();
               await maybeShowHowellSplash(data.secret);
               redirectToTarget();
             }
@@ -767,6 +905,7 @@
               } catch (err) {
                 // ignore malformed json
               }
+              await ensureWarningAcknowledged();
               await maybeShowHowellSplash(secretLabel);
               redirecting = true;
               redirectToTarget();
