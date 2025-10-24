@@ -300,6 +300,41 @@
   let authSecret = null;
   let logoutButton = null;
   let loginButton = null;
+  let lastAuthDetail = { authorized: null, secret: null };
+
+  const emitAuthChangedEvent = (detail) => {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
+      return;
+    }
+    const authorized = detail && detail.authorized === true;
+    const secret = detail && typeof detail.secret === 'string' && detail.secret.trim()
+      ? detail.secret.trim()
+      : null;
+    if (lastAuthDetail.authorized === authorized && lastAuthDetail.secret === secret) {
+      return;
+    }
+    lastAuthDetail = { authorized, secret };
+    const eventDetail = { authorized };
+    if (secret) {
+      eventDetail.secret = secret;
+    }
+    try {
+      let event = null;
+      if (typeof window.CustomEvent === 'function') {
+        event = new window.CustomEvent('hg-nav-auth-changed', { detail: eventDetail });
+      } else if (typeof document !== 'undefined' && typeof document.createEvent === 'function') {
+        event = document.createEvent('CustomEvent');
+        if (event && typeof event.initCustomEvent === 'function') {
+          event.initCustomEvent('hg-nav-auth-changed', false, false, eventDetail);
+        }
+      }
+      if (event) {
+        window.dispatchEvent(event);
+      }
+    } catch (err) {
+      console.warn('Failed to dispatch auth change event', err);
+    }
+  };
 
   const buildReturnTarget = () => {
     const path = window.location.pathname || '/';
@@ -400,6 +435,7 @@
     section.appendChild(info);
     section.appendChild(logoutButton);
     loginButton = null;
+    emitAuthChangedEvent({ authorized: true, secret: secretLabel });
   };
 
   const renderLoggedOut = () => {
@@ -419,6 +455,7 @@
     section.appendChild(loginButton);
     authSecret = null;
     logoutButton = null;
+    emitAuthChangedEvent({ authorized: false });
   };
 
   const updateAuthSection = async () => {
