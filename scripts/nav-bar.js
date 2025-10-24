@@ -313,6 +313,29 @@
     window.location.href = `/login?return=${encodeURIComponent(target)}`;
   };
 
+  const parseBooleanAttribute = (value) => {
+    if (value === null || typeof value === 'undefined') return null;
+    const trimmed = String(value).trim();
+    if (trimmed === '') return true;
+    const normalized = trimmed.toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+    return true;
+  };
+
+  const shouldRedirectAfterLogout = () => {
+    if (typeof window.hgNavShouldRedirectAfterLogout === 'boolean') {
+      return window.hgNavShouldRedirectAfterLogout;
+    }
+    const body = document.body;
+    if (body) {
+      const attrValue = body.getAttribute('data-hg-nav-requires-auth');
+      const parsed = parseBooleanAttribute(attrValue);
+      if (typeof parsed === 'boolean') return parsed;
+    }
+    return false;
+  };
+
   const ensureAuthSection = () => {
     if (!authSection) {
       authSection = document.createElement('div');
@@ -363,7 +386,9 @@
           }
         }
         renderLoggedOut();
-        redirectToLogin();
+        if (shouldRedirectAfterLogout()) {
+          redirectToLogin();
+        }
       } catch (err) {
         console.warn('Failed to log out', err);
         logoutButton.disabled = false;
