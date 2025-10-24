@@ -433,6 +433,25 @@ schedulePlaneStyleOverride();
         }
       }
 
+      function handleNavBarAuthChange(event) {
+        if (!event || !event.detail) {
+          return;
+        }
+        const authorized = event.detail.authorized === true;
+        if (authorized) {
+          return;
+        }
+        const wasAuthorized = adminMode || urlAdminAuthSucceeded;
+        if (!wasAuthorized) {
+          return;
+        }
+        urlAdminPassword = '';
+        urlAdminAuthSucceeded = false;
+        urlAdminAuthAttempted = false;
+        adminModeExplicitlySet = true;
+        setAdminModeEnabled(false);
+      }
+
       async function attemptAdminAuthorizationFromUrl() {
         if (urlAdminAuthAttempted) {
           return urlAdminAuthSucceeded;
@@ -552,6 +571,9 @@ schedulePlaneStyleOverride();
         window.openAdminPasswordPrompt = openAdminPasswordPrompt;
         window.closeAdminPasswordPrompt = closeAdminPasswordPrompt;
         window.logoutAdminTools = logoutAdminTools;
+        if (typeof window.addEventListener === 'function') {
+          window.addEventListener('hg-nav-auth-changed', handleNavBarAuthChange);
+        }
       }
 
       function suppressAdminKioskPanels() {
