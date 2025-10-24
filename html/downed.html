@@ -16,7 +16,8 @@
   :root{
     --bg:#24234B;
     --panel:#101935;
-    --row-alt:#152349;
+    --row-alt:#1b2f5d;
+    --row-divider:#E57200;
     --panel-soft:#142040;
     --ink:#f0f4ff;
     --muted:#9fb0c9;
@@ -105,13 +106,16 @@
   }
   tbody td{
     padding:3px 6px;
-    border-top:1px solid rgba(159,176,201,0.08);
+    border-top:2px solid var(--row-divider);
     vertical-align:middle;
     font-size:clamp(1rem,0.95rem + 0.22vw,1.25rem);
     line-height:1.12;
     text-align:center;
     word-break:normal;
     white-space:nowrap;
+  }
+  tbody tr:first-child td{
+    border-top:none;
   }
   tbody td.wrap-allowed{
     white-space:normal;
