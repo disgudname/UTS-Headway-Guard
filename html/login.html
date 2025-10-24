@@ -231,6 +231,11 @@
         text-shadow: 0 0 18px rgba(255, 204, 102, 0.55);
         animation: howellGlint 3.6s ease-in-out infinite;
       }
+      #howell-boot-screen .howell-welcome.accepted {
+        color: #66ffcc;
+        text-shadow: 0 0 22px rgba(102, 255, 204, 0.6);
+        animation: none;
+      }
       #howell-boot-screen .howell-subtitle {
         font-size: 16px;
         letter-spacing: 0.2em;
@@ -340,6 +345,42 @@
         flex-direction: column;
         gap: 6px;
       }
+      #howell-boot-screen .howell-auth-dialog {
+        position: absolute;
+        right: 32px;
+        bottom: 32px;
+        background: rgba(5, 12, 24, 0.96);
+        border: 2px solid rgba(102, 204, 204, 0.7);
+        border-radius: 24px;
+        padding: 18px 22px;
+        box-shadow: 0 20px 48px rgba(6, 12, 24, 0.6);
+        max-width: min(320px, 70vw);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        line-height: 1.5;
+        color: #e8f9ff;
+        opacity: 0;
+        transform: translateY(12px);
+        transition: opacity 0.4s ease, transform 0.4s ease;
+        pointer-events: none;
+      }
+      #howell-boot-screen .howell-auth-dialog strong {
+        display: block;
+        font-size: 16px;
+        letter-spacing: 0.24em;
+        color: #ffcc66;
+        margin-bottom: 6px;
+      }
+      #howell-boot-screen .howell-auth-dialog span {
+        display: block;
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        color: #cdeeff;
+      }
+      #howell-boot-screen .howell-auth-dialog.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
       #howell-boot-screen .howell-log-line {
         opacity: 0;
         transform: translateX(-24px);
@@ -403,6 +444,13 @@
         }
         #howell-boot-screen .howell-bar.secondary {
           height: 58px;
+        }
+        #howell-boot-screen .howell-auth-dialog {
+          position: static;
+          width: 100%;
+          margin-top: 18px;
+          max-width: none;
+          transform: translateY(12px);
         }
       }
     </style>
@@ -537,9 +585,18 @@
             const welcomeEl = overlay.querySelector('.howell-welcome');
             const tickerNode = overlay.querySelector('[data-ticker]');
             const statusCards = overlay.querySelectorAll('.howell-status-card');
+            const howellCore = overlay.querySelector('.howell-core');
             const timeouts = [];
             const intervals = [];
             let finished = false;
+            let authDialog = null;
+
+            if (howellCore) {
+              authDialog = document.createElement('div');
+              authDialog.className = 'howell-auth-dialog';
+              authDialog.innerHTML = '<strong>Authorization Accepted</strong><span>Welcome, Vice Admiral Howell.</span>';
+              howellCore.appendChild(authDialog);
+            }
 
             if (logContainer) {
               howellLogMessages.forEach((text, idx) => {
@@ -553,9 +610,17 @@
                     logContainer.scrollTop = logContainer.scrollHeight;
                   });
                   if (idx === howellLogMessages.length - 1 && welcomeEl) {
-                    window.setTimeout(() => {
-                      welcomeEl.textContent = 'Authorization Accepted. Welcome, Vice Admiral Howell';
+                    const welcomeTimeout = window.setTimeout(() => {
+                      welcomeEl.textContent = 'AUTHORIZATION ACCEPTED';
+                      welcomeEl.classList.add('accepted');
+                      if (authDialog) {
+                        const dialogTimeout = window.setTimeout(() => {
+                          authDialog.classList.add('visible');
+                        }, 1200);
+                        timeouts.push(dialogTimeout);
+                      }
                     }, 260);
+                    timeouts.push(welcomeTimeout);
                   }
                 }, 420 + idx * 400);
                 timeouts.push(timeout);
@@ -628,7 +693,8 @@
             };
 
             overlay.addEventListener('click', finish, { once: true });
-            timeouts.push(window.setTimeout(finish, 4200));
+            const autoCloseTimeout = window.setTimeout(finish, 7200);
+            timeouts.push(autoCloseTimeout);
 
             requestAnimationFrame(() => {
               overlay.classList.add('visible');
