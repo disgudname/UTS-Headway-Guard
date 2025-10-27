@@ -32,7 +32,7 @@
     },
     {
       href: 'https://uva-uts.transloc.com/secure/dispatch/',
-      label: 'TransLoc',
+      label: 'TransLōc',
       icon: '/media/transloc.svg'
     },
     {
