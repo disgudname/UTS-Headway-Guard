@@ -1529,10 +1529,23 @@
       }
       .panel-toggle__arrow {
         pointer-events: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+        transition: transform 0.2s ease;
+        flex-shrink: 0;
+      }
+      .panel-toggle--left[data-arrow-direction="out"] .panel-toggle__arrow {
+        transform: rotate(0deg);
+      }
+      .panel-toggle--left[data-arrow-direction="in"] .panel-toggle__arrow {
+        transform: rotate(180deg);
+      }
+      .panel-toggle--right[data-arrow-direction="out"] .panel-toggle__arrow {
+        transform: rotate(180deg);
+      }
+      .panel-toggle--right[data-arrow-direction="in"] .panel-toggle__arrow {
+        transform: rotate(0deg);
       }
       #routeLegend {
         position: fixed;

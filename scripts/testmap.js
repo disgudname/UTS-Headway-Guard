@@ -7250,13 +7250,21 @@ ${trainPlaneMarkup}
         refreshMap();
       }
 
-      function setPanelToggleArrow(tab, arrowChar) {
+      function setPanelToggleArrow(tab, direction) {
         if (!tab) return;
+        tab.setAttribute('data-arrow-direction', direction);
         const arrowElement = tab.querySelector('.panel-toggle__arrow');
-        if (arrowElement) {
-          arrowElement.textContent = arrowChar;
-        } else {
-          tab.textContent = arrowChar;
+        const isRightTab = tab.classList.contains('panel-toggle--right');
+        const inChar = isRightTab ? '▶' : '◄';
+        const outChar = isRightTab ? '◄' : '▶';
+        const fallbackChar = direction === 'in' ? inChar : outChar;
+        if (!arrowElement) {
+          tab.textContent = fallbackChar;
+          return;
+        }
+        const tagName = typeof arrowElement.tagName === 'string' ? arrowElement.tagName.toLowerCase() : '';
+        if (tagName !== 'svg') {
+          arrowElement.textContent = fallbackChar;
         }
       }
 
@@ -7274,11 +7282,11 @@ ${trainPlaneMarkup}
       }
 
       function toggleRoutePanel() {
-        togglePanelVisibility('routeSelector', 'routeSelectorTab', '◄', '▶');
+        togglePanelVisibility('routeSelector', 'routeSelectorTab', 'in', 'out');
       }
 
       function toggleControlPanel() {
-        togglePanelVisibility('controlPanel', 'controlPanelTab', '▶', '◄');
+        togglePanelVisibility('controlPanel', 'controlPanelTab', 'in', 'out');
       }
 
       function shouldCollapsePanelsOnLoad() {
@@ -7301,14 +7309,14 @@ ${trainPlaneMarkup}
           controlPanel.classList.add('hidden');
         }
         if (controlTab) {
-          setPanelToggleArrow(controlTab, '◄');
+          setPanelToggleArrow(controlTab, 'out');
         }
 
         if (routePanel && !routePanel.classList.contains('hidden')) {
           routePanel.classList.add('hidden');
         }
         if (routeTab) {
-          setPanelToggleArrow(routeTab, '▶');
+          setPanelToggleArrow(routeTab, 'out');
         }
 
         positionAllPanelTabs();
