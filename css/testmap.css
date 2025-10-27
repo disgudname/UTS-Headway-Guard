@@ -584,7 +584,7 @@
         flex-direction: column;
         overflow: hidden;
         backdrop-filter: blur(12px);
-        transition: transform 0.35s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+        transition: transform 0.35s ease, box-shadow 0.3s ease;
         font-size: 16px;
         color: var(--panel-text-color);
       }
@@ -596,12 +596,10 @@
       }
       #routeSelector.hidden {
         transform: translateX(calc(100% + 24px));
-        opacity: 0;
         pointer-events: none;
       }
       #controlPanel.hidden {
         transform: translateX(calc(-100% - 24px));
-        opacity: 0;
         pointer-events: none;
       }
       .selector-panel .selector-header {
