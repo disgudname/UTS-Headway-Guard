@@ -27,9 +27,9 @@ header h1{flex-basis:100%}
 #controls label.control-field span{font-size:14px;opacity:.82}
 #controls label.control-field select{min-width:160px}
 #duty-roster{display:flex;flex-direction:column;gap:4px;margin-left:12px;font-size:14px;color:#e8eef5}
-#duty-roster .duty-line{display:flex;align-items:baseline;gap:6px}
-#duty-roster .duty-title{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#9fb0c9}
-#duty-roster .duty-name{font-weight:600}
+#duty-roster .duty-line{display:flex;align-items:baseline;gap:6px;flex-wrap:nowrap}
+#duty-roster .duty-title{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#9fb0c9;white-space:nowrap;flex:0 0 auto}
+#duty-roster .duty-name{font-weight:600;white-space:nowrap;flex:0 0 auto}
 #duty-roster .duty-line.duty-empty .duty-name{font-weight:400;color:#6b778a}
 body.kiosk-mode #controls label.control-field{flex:0 0 auto}
 body.lcars #controls label.control-field{display:flex;flex-direction:column;align-items:flex-start;gap:6px;font-size:12px;color:#FFCC66}
