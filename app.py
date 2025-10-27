@@ -3751,6 +3751,9 @@ _MEDIA_ASSETS: dict[str, str] = {
     "downed.svg": "image/svg+xml",
     "testmap.svg": "image/svg+xml",
     "transloc.svg": "image/svg+xml",
+    "apple-touch-icon-120.png": "image/png",
+    "apple-touch-icon-152.png": "image/png",
+    "apple-touch-icon-180.png": "image/png",
 }
 
 
