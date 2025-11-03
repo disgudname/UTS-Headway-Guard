@@ -12249,6 +12249,9 @@ ${trainPlaneMarkup}
               if (catOverlayEnabled) {
                   updateRouteSelector(activeRoutes);
                   renderCatRoutes();
+                  if (Array.isArray(catStopDataCache) && catStopDataCache.length > 0) {
+                      renderBusStops(stopDataCache);
+                  }
               }
               return routes;
           } catch (error) {
