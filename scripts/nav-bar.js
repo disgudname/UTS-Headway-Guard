@@ -321,18 +321,43 @@
 
   const navAnchors = [];
 
+  let authSection = null;
+  let authSecret = null;
+  let logoutButton = null;
+  let loginButton = null;
+  let lastAuthDetail = { authorized: null, secret: null };
+
+  const insertAnchorBeforeAuthSection = (element) => {
+    if (!element) return;
+    if (authSection && authSection.parentElement === inner) {
+      inner.insertBefore(element, authSection);
+    } else {
+      inner.appendChild(element);
+    }
+  };
+
   const updateLinkVisibility = (authorized) => {
+    const visibleAnchors = navAnchors
+      .filter(({ requiresAuth }) => authorized || !requiresAuth)
+      .sort((a, b) => a.index - b.index);
+
     navAnchors.forEach(({ element, requiresAuth }) => {
-      const shouldHide = requiresAuth && !authorized;
-      if (shouldHide) {
+      if (element.parentElement === inner) {
+        inner.removeChild(element);
+      }
+
+      if (requiresAuth && !authorized) {
         element.setAttribute('hidden', '');
         element.setAttribute('aria-hidden', 'true');
-        element.style.display = 'none';
       } else {
         element.removeAttribute('hidden');
         element.removeAttribute('aria-hidden');
         element.style.removeProperty('display');
       }
+    });
+
+    visibleAnchors.forEach(({ element }) => {
+      insertAnchorBeforeAuthSection(element);
     });
   };
 
@@ -357,9 +382,11 @@
 
     anchor.appendChild(icon);
     anchor.appendChild(label);
-    inner.appendChild(anchor);
-
-    navAnchors.push({ element: anchor, requiresAuth: link.requiresAuth === true });
+    navAnchors.push({
+      element: anchor,
+      requiresAuth: link.requiresAuth === true,
+      index: navAnchors.length,
+    });
   });
 
   nav.appendChild(inner);
@@ -368,12 +395,6 @@
   const spacer = document.createElement('div');
   spacer.className = 'hg-nav-spacer-bottom';
   document.body.appendChild(spacer);
-
-  let authSection = null;
-  let authSecret = null;
-  let logoutButton = null;
-  let loginButton = null;
-  let lastAuthDetail = { authorized: null, secret: null };
 
   const emitAuthChangedEvent = (detail) => {
     if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
