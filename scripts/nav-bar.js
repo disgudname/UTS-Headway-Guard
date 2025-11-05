@@ -23,42 +23,50 @@
     {
       href: '/',
       label: 'Home',
-      icon: '/media/home.svg'
+      icon: '/media/home.svg',
+      requiresAuth: true,
     },
     {
       href: '/dispatcher',
       label: 'Dispatch',
-      icon: '/media/dispatcher.svg'
+      icon: '/media/dispatcher.svg',
+      requiresAuth: true,
     },
     {
       href: 'https://uva-uts.transloc.com/secure/dispatch/',
       label: 'TransLōc',
-      icon: '/media/transloc.svg'
+      icon: '/media/transloc.svg',
+      requiresAuth: true,
     },
     {
       href: '/map',
       label: 'Live Map',
-      icon: '/media/map.svg'
+      icon: '/media/map.svg',
+      requiresAuth: false,
     },
     {
       href: '/ridership',
       label: 'Ridership',
-      icon: '/media/ridership.svg'
+      icon: '/media/ridership.svg',
+      requiresAuth: true,
     },
     {
       href: '/replay',
       label: 'Replay',
-      icon: '/media/replay.svg'
+      icon: '/media/replay.svg',
+      requiresAuth: true,
     },
     {
       href: '/downed',
       label: 'Downed Vehicles',
-      icon: '/media/downed.svg'
+      icon: '/media/downed.svg',
+      requiresAuth: true,
     },
     {
       href: '/driver',
       label: 'Driver',
-      icon: '/media/driver.svg'
+      icon: '/media/driver.svg',
+      requiresAuth: true,
     }
   ];
 
@@ -265,6 +273,18 @@
   const inner = document.createElement('div');
   inner.className = 'hg-nav__inner';
 
+  const navAnchors = [];
+
+  const updateLinkVisibility = (authorized) => {
+    navAnchors.forEach(({ element, requiresAuth }) => {
+      if (requiresAuth && !authorized) {
+        element.setAttribute('hidden', '');
+      } else {
+        element.removeAttribute('hidden');
+      }
+    });
+  };
+
   links.forEach(link => {
     const anchor = document.createElement('a');
     anchor.href = link.href;
@@ -287,6 +307,8 @@
     anchor.appendChild(icon);
     anchor.appendChild(label);
     inner.appendChild(anchor);
+
+    navAnchors.push({ element: anchor, requiresAuth: link.requiresAuth === true });
   });
 
   nav.appendChild(inner);
@@ -435,6 +457,7 @@
     section.appendChild(info);
     section.appendChild(logoutButton);
     loginButton = null;
+    updateLinkVisibility(true);
     emitAuthChangedEvent({ authorized: true, secret: secretLabel });
   };
 
@@ -455,6 +478,7 @@
     section.appendChild(loginButton);
     authSecret = null;
     logoutButton = null;
+    updateLinkVisibility(false);
     emitAuthChangedEvent({ authorized: false });
   };
 
@@ -548,6 +572,7 @@
     mobileQuery.addListener(updateSpacerHeight);
   }
 
+  updateLinkVisibility(false);
   updateSpacerHeight();
   updateAuthSection();
   markScrollableContainers();
