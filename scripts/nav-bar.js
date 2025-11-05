@@ -163,15 +163,18 @@
       letter-spacing:0.12em;
       color:#FFFFFF;
     }
-    #${NAV_ID} .hg-nav__auth-logout{
-      background:rgba(0,0,0,0.25);
-      border:1px solid rgba(255,255,255,0.2);
+    #${NAV_ID} .hg-nav__auth-logout,
+    #${NAV_ID} .hg-nav__auth-login{
       border-radius:999px;
       color:inherit;
       font:inherit;
-      padding:8px 18px;
       cursor:pointer;
-      transition:background-color 0.2s ease,border-color 0.2s ease;
+      transition:background-color 0.2s ease,border-color 0.2s ease,box-shadow 0.2s ease;
+      border:1px solid rgba(255,255,255,0.2);
+    }
+    #${NAV_ID} .hg-nav__auth-logout{
+      background:rgba(0,0,0,0.25);
+      padding:8px 18px;
     }
     #${NAV_ID} .hg-nav__auth-logout:hover{
       background:rgba(0,0,0,0.32);
@@ -180,6 +183,49 @@
     #${NAV_ID} .hg-nav__auth-logout:disabled{
       opacity:0.6;
       cursor:not-allowed;
+    }
+    #${NAV_ID} .hg-nav__auth-login{
+      background:linear-gradient(135deg,#FFB547,#F76B1C);
+      color:#232D4B;
+      font-weight:600;
+      padding:12px 22px 14px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      box-shadow:0 6px 14px rgba(0,0,0,0.25);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:6px;
+    }
+    #${NAV_ID} .hg-nav__auth-login:hover{
+      background:linear-gradient(135deg,#FFC878,#FF7F2A);
+      border-color:rgba(255,255,255,0.35);
+      box-shadow:0 8px 18px rgba(0,0,0,0.3);
+    }
+    #${NAV_ID} .hg-nav__auth-login:focus-visible{
+      outline:3px solid rgba(255,255,255,0.85);
+      outline-offset:3px;
+    }
+    #${NAV_ID} .hg-nav__auth-login:disabled{
+      opacity:0.7;
+      cursor:not-allowed;
+      box-shadow:none;
+    }
+    #${NAV_ID} .hg-nav__auth-login-label{
+      font-size:14px;
+      letter-spacing:0.12em;
+    }
+    #${NAV_ID} .hg-nav__auth-login-hint{
+      font-size:11px;
+      letter-spacing:0.04em;
+      text-transform:none;
+      color:rgba(35,45,75,0.85);
+    }
+    #${NAV_ID} .hg-nav__auth-login-description{
+      font-size:11px;
+      letter-spacing:0.04em;
+      text-transform:none;
+      color:rgba(255,255,255,0.78);
     }
     #${NAV_ID} a:focus-visible{
       outline:2px solid #FFFFFF;
@@ -470,16 +516,40 @@
     const section = ensureAuthSection();
     section.replaceChildren();
 
+    const info = document.createElement('div');
+    info.className = 'hg-nav__auth-info';
+
+    const label = document.createElement('span');
+    label.textContent = 'Staff tools';
+
+    const description = document.createElement('span');
+    description.className = 'hg-nav__auth-login-description';
+    description.textContent = 'Log in to manage routes';
+
+    info.appendChild(label);
+    info.appendChild(description);
+
     loginButton = document.createElement('button');
     loginButton.type = 'button';
-    loginButton.className = 'hg-nav__auth-logout';
-    loginButton.textContent = 'Log in';
+    loginButton.className = 'hg-nav__auth-login';
+
+    const buttonLabel = document.createElement('span');
+    buttonLabel.className = 'hg-nav__auth-login-label';
+    buttonLabel.textContent = 'Log in';
+
+    const buttonHint = document.createElement('span');
+    buttonHint.className = 'hg-nav__auth-login-hint';
+    buttonHint.textContent = 'Open sign-in page';
+
+    loginButton.appendChild(buttonLabel);
+    loginButton.appendChild(buttonHint);
     loginButton.addEventListener('click', () => {
       if (!loginButton || loginButton.disabled) return;
       loginButton.disabled = true;
       redirectToLogin();
     });
 
+    section.appendChild(info);
     section.appendChild(loginButton);
     authSecret = null;
     logoutButton = null;
