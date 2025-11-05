@@ -17,7 +17,11 @@
   .container{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;max-width:700px;}
   .card{width:160px;height:160px;border-radius:16px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);}
   .card .card__icon{width:64px;height:64px;margin-bottom:12px;display:block;}
-  .admin-link{position:fixed;top:12px;right:16px;color:var(--ink);text-decoration:none;font-size:14px;}
+  .auth-container{position:fixed;top:12px;right:16px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+  .auth-button{background:transparent;border:1px solid rgba(255,255,255,0.4);border-radius:999px;padding:6px 16px;color:var(--ink);font-size:14px;cursor:pointer;transition:background 0.2s ease,border-color 0.2s ease;}
+  .auth-button:hover{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.6);}
+  .auth-button:disabled{opacity:0.6;cursor:not-allowed;}
+  .auth-secret{font-size:12px;color:var(--muted,#9fb0c9);}
   .github-link{position:fixed;top:12px;left:16px;color:var(--ink);text-decoration:none;font-size:14px;}
   .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
   @media(max-width:600px){
@@ -28,7 +32,10 @@
 </head>
 <body>
 <a href="https://github.com/disgudname/UTS-Headway-Guard" class="github-link" target="_blank" rel="noopener">GitHub</a>
-<a href="/admin" class="admin-link">Admin</a>
+<div class="auth-container">
+  <button type="button" class="auth-button" id="auth-button">Log in</button>
+  <div class="auth-secret" id="auth-secret" hidden></div>
+</div>
 <div class="title">Welcome to the UTS Operations Dashboard</div>
 <div class="container">
   <a class="card" href="/dispatcher">
@@ -61,5 +68,59 @@
   </a>
 </div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
+<script>
+  (function(){
+    const authButton = document.getElementById('auth-button');
+    const authSecret = document.getElementById('auth-secret');
+    if(!authButton || !authSecret){
+      return;
+    }
+
+    let loggedIn = false;
+
+    async function updateAuthState(){
+      try{
+        const response = await fetch('/api/dispatcher/auth', {credentials: 'same-origin'});
+        if(!response.ok){
+          throw new Error('status');
+        }
+        const data = await response.json();
+        loggedIn = Boolean(data.authorized);
+        if(loggedIn){
+          authButton.textContent = 'Log out';
+          if(data.secret){
+            authSecret.textContent = `Logged in as ${data.secret}`;
+            authSecret.hidden = false;
+          } else {
+            authSecret.hidden = true;
+          }
+        } else {
+          authButton.textContent = 'Log in';
+          authSecret.hidden = true;
+        }
+      } catch(err){
+        loggedIn = false;
+        authButton.textContent = 'Log in';
+        authSecret.hidden = true;
+      }
+    }
+
+    authButton.addEventListener('click', async () => {
+      if(loggedIn){
+        authButton.disabled = true;
+        try{
+          await fetch('/api/dispatcher/logout', {method: 'POST', credentials: 'same-origin'});
+        } finally {
+          authButton.disabled = false;
+        }
+        await updateAuthState();
+      } else {
+        window.location.href = '/login?return=%2Fadmin';
+      }
+    });
+
+    updateAuthState();
+  })();
+</script>
 </body>
 </html>
