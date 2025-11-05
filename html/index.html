@@ -31,18 +31,18 @@
 </style>
 </head>
 <body>
-<a href="https://github.com/disgudname/UTS-Headway-Guard" class="github-link" target="_blank" rel="noopener">GitHub</a>
+<a href="https://github.com/disgudname/UTS-Headway-Guard" class="github-link" target="_blank" rel="noopener" data-requires-auth>GitHub</a>
 <div class="auth-container">
   <button type="button" class="auth-button" id="auth-button">Log in</button>
   <div class="auth-secret" id="auth-secret" hidden></div>
 </div>
 <div class="title">Welcome to the UTS Operations Dashboard</div>
 <div class="container">
-  <a class="card" href="/dispatcher">
+  <a class="card" href="/dispatcher" data-requires-auth>
     <img src="/media/dispatcher.svg" alt="" class="card__icon" />
     <div>Dispatch</div>
   </a>
-  <a class="card" href="https://uva-uts.transloc.com/secure/dispatch/" target="_blank" rel="noopener">
+  <a class="card" href="https://uva-uts.transloc.com/secure/dispatch/" target="_blank" rel="noopener" data-requires-auth>
     <img src="/media/transloc.svg" alt="" class="card__icon" />
     <div>TransLōc</div>
   </a>
@@ -50,19 +50,19 @@
     <img src="/media/map.svg" alt="" class="card__icon" />
     <div>Live Map</div>
   </a>
-  <a class="card" href="/ridership">
+  <a class="card" href="/ridership" data-requires-auth>
     <img src="/media/ridership.svg" alt="" class="card__icon" />
     <div>Ridership</div>
   </a>
-  <a class="card" href="/replay">
+  <a class="card" href="/replay" data-requires-auth>
     <img src="/media/replay.svg" alt="" class="card__icon" />
     <div>Replay</div>
   </a>
-  <a class="card" href="/downed">
+  <a class="card" href="/downed" data-requires-auth>
     <img src="/media/downed.svg" alt="" class="card__icon" />
     <div>Downed Vehicles</div>
   </a>
-  <a class="card" href="/driver">
+  <a class="card" href="/driver" data-requires-auth>
     <img src="/media/driver.svg" alt="" class="card__icon" />
     <div>Driver</div>
   </a>
@@ -72,11 +72,22 @@
   (function(){
     const authButton = document.getElementById('auth-button');
     const authSecret = document.getElementById('auth-secret');
+    const gatedElements = Array.from(document.querySelectorAll('[data-requires-auth]'));
     if(!authButton || !authSecret){
       return;
     }
 
     let loggedIn = false;
+
+    const applyAccessRestrictions = () => {
+      gatedElements.forEach((element) => {
+        if(loggedIn){
+          element.removeAttribute('hidden');
+        } else {
+          element.setAttribute('hidden', '');
+        }
+      });
+    };
 
     async function updateAuthState(){
       try{
@@ -98,10 +109,12 @@
           authButton.textContent = 'Log in';
           authSecret.hidden = true;
         }
+        applyAccessRestrictions();
       } catch(err){
         loggedIn = false;
         authButton.textContent = 'Log in';
         authSecret.hidden = true;
+        applyAccessRestrictions();
       }
     }
 
@@ -119,6 +132,7 @@
       }
     });
 
+    applyAccessRestrictions();
     updateAuthState();
   })();
 </script>
