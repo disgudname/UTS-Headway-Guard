@@ -346,11 +346,13 @@
         inner.removeChild(element);
       }
 
-      if (requiresAuth && !authorized) {
-        element.setAttribute('hidden', '');
+      const shouldHide = requiresAuth && !authorized;
+      if (shouldHide) {
+        element.hidden = true;
         element.setAttribute('aria-hidden', 'true');
+        element.style.setProperty('display', 'none', 'important');
       } else {
-        element.removeAttribute('hidden');
+        element.hidden = false;
         element.removeAttribute('aria-hidden');
         element.style.removeProperty('display');
       }
