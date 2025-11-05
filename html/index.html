@@ -81,10 +81,15 @@
 
     const applyAccessRestrictions = () => {
       gatedElements.forEach((element) => {
-        if(loggedIn){
-          element.removeAttribute('hidden');
-        } else {
+        const shouldHide = !loggedIn;
+        if(shouldHide){
           element.setAttribute('hidden', '');
+          element.setAttribute('aria-hidden', 'true');
+          element.style.display = 'none';
+        } else {
+          element.removeAttribute('hidden');
+          element.removeAttribute('aria-hidden');
+          element.style.removeProperty('display');
         }
       });
     };

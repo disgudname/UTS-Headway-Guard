@@ -277,10 +277,15 @@
 
   const updateLinkVisibility = (authorized) => {
     navAnchors.forEach(({ element, requiresAuth }) => {
-      if (requiresAuth && !authorized) {
+      const shouldHide = requiresAuth && !authorized;
+      if (shouldHide) {
         element.setAttribute('hidden', '');
+        element.setAttribute('aria-hidden', 'true');
+        element.style.display = 'none';
       } else {
         element.removeAttribute('hidden');
+        element.removeAttribute('aria-hidden');
+        element.style.removeProperty('display');
       }
     });
   };
