@@ -2392,6 +2392,10 @@ schedulePlaneStyleOverride();
           return false;
       }
 
+      function centerMapOnRoutes() {
+          return centerDispatcherMapOnRoutes();
+      }
+
       function handleDispatcherMessage(event) {
           if (!event || !event.data || typeof event.data !== 'object') {
               return;
@@ -6835,12 +6839,24 @@ ${trainPlaneMarkup}
               </div>
             </div>
         `;
+        const centerMapButtonHtml = `
+            <button type="button" id="centerMapButton" class="pill-button center-map-button" onclick="centerMapOnRoutes()">
+              Center Map
+            </button>
+        `;
         if (catOverlayAvailable) {
           html += `
             <div class="selector-group">
               <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
                 CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
               </button>
+              ${centerMapButtonHtml}
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="selector-group">
+              ${centerMapButtonHtml}
             </div>
           `;
         }
