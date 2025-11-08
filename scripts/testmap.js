@@ -2685,6 +2685,7 @@ schedulePlaneStyleOverride();
 
       let agencies = [];
       let baseURL = '';
+      let includeStaleBuses = false;
       const ADMIN_KIOSK_UVA_HEALTH_NAME = 'University of Virginia Health';
       const ADMIN_KIOSK_UVA_HEALTH_START_MINUTES = 2 * 60 + 30;
       const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
@@ -2926,8 +2927,9 @@ schedulePlaneStyleOverride();
       const TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY = '__default__';
       const translocSnapshotCache = new Map();
 
-      function getTranslocSnapshotCacheKey(base) {
-        return base || TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY;
+      function getTranslocSnapshotCacheKey(base, includeStale = includeStaleBuses) {
+        const baseKey = base || TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY;
+        return includeStale ? `${baseKey}::stale` : `${baseKey}::fresh`;
       }
 
       function getOrCreateTranslocSnapshotEntry(cacheKey) {
@@ -2945,7 +2947,7 @@ schedulePlaneStyleOverride();
 
       function loadTranslocSnapshot(force = false) {
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
-        const cacheKey = getTranslocSnapshotCacheKey(sanitizedBaseURL);
+        const cacheKey = getTranslocSnapshotCacheKey(sanitizedBaseURL, includeStaleBuses);
         const entry = getOrCreateTranslocSnapshotEntry(cacheKey);
         const now = Date.now();
         if (!force && entry.data && (now - entry.timestamp) < TRANSLOC_SNAPSHOT_TTL_MS) {
@@ -2954,8 +2956,15 @@ schedulePlaneStyleOverride();
         if (entry.promise) {
           return entry.promise;
         }
-        const endpoint = sanitizedBaseURL
-          ? `${TRANSLOC_SNAPSHOT_ENDPOINT}?base_url=${encodeURIComponent(sanitizedBaseURL)}`
+        const queryParts = [];
+        if (sanitizedBaseURL) {
+          queryParts.push(`base_url=${encodeURIComponent(sanitizedBaseURL)}`);
+        }
+        if (includeStaleBuses) {
+          queryParts.push('stale=true');
+        }
+        const endpoint = queryParts.length > 0
+          ? `${TRANSLOC_SNAPSHOT_ENDPOINT}?${queryParts.join('&')}`
           : TRANSLOC_SNAPSHOT_ENDPOINT;
         entry.promise = fetch(endpoint, { cache: 'no-store' })
           .then(response => {
@@ -5054,6 +5063,34 @@ schedulePlaneStyleOverride();
         setIncidentsVisibility(!incidentsVisible);
       }
 
+      function setIncludeStaleBuses(value) {
+        const nextValue = !!value;
+        if (includeStaleBuses === nextValue) {
+          updateStaleBusesButton();
+          return;
+        }
+        includeStaleBuses = nextValue;
+        resetTranslocSnapshotCache();
+        busLocationsFetchPromise = null;
+        busLocationsFetchBaseURL = null;
+        routePathsFetchPromise = null;
+        routePathsFetchBaseURL = null;
+        fetchRouteColors();
+        fetchBusStops();
+        fetchBlockAssignments();
+        fetchBusLocations().then(() => fetchRoutePaths());
+        fetchStopArrivalTimes()
+          .then(allEtas => {
+            cachedEtas = allEtas || {};
+            updateCustomPopups();
+          });
+        updateStaleBusesButton();
+      }
+
+      function toggleStaleBuses() {
+        setIncludeStaleBuses(!includeStaleBuses);
+      }
+
       const BUS_MARKER_SVG_URL = 'busmarker.svg';
 
       const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
@@ -5599,6 +5636,18 @@ schedulePlaneStyleOverride();
         const button = document.getElementById('incidentToggleButton');
         if (!button) return;
         const isActive = !!incidentsVisible;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
+      }
+
+      function updateStaleBusesButton() {
+        const button = document.getElementById('staleBusesButton');
+        if (!button) return;
+        const isActive = !!includeStaleBuses;
         button.classList.toggle('is-active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         const indicator = button.querySelector('.toggle-indicator');
@@ -6814,6 +6863,11 @@ ${trainPlaneMarkup}
                 </button>
               </div>
             </div>
+            <div class="selector-group">
+              <button type="button" id="staleBusesButton" class="pill-button stale-buses-button${includeStaleBuses ? ' is-active' : ''}" aria-pressed="${includeStaleBuses ? 'true' : 'false'}" onclick="toggleStaleBuses()">
+                Show Stale Buses<span class="toggle-indicator">${includeStaleBuses ? 'On' : 'Off'}</span>
+              </button>
+            </div>
           `;
         }
 
@@ -6834,6 +6888,7 @@ ${trainPlaneMarkup}
         updateTrainToggleButton();
         updateAircraftToggleButton();
         updateIncidentToggleButton();
+        updateStaleBusesButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
       }
