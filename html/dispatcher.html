@@ -211,7 +211,17 @@ body.kiosk-mode:not(.lcars):not(.cyberpunk) .panel.downed-panel .downed-embed-wr
 .driver-line[data-active="true"]{font-weight:600}
 .driver-line:hover{opacity:.86;text-decoration:underline}
 .driver-line:focus-visible{outline:2px solid #3a83f5;outline-offset:2px;text-decoration:none}
-#blocks td .cell .drivers .driver-line,.blocks-grid .cell .drivers .driver-line{width:100%}
+#blocks td .cell .drivers .driver-line,.blocks-grid .cell .drivers .driver-line{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+#blocks td .cell,
+.blocks-grid .cell{
+  text-align:center;
+}
 #blocks-grid[hidden]{display:none}
 #blocks-grid .hint{margin:0}
 #blocks-grid .mono{font-family:FGDC,ui-monospace,Menlo,Consolas,monospace}
