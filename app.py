@@ -2854,7 +2854,9 @@ def _vehicle_age_seconds(seconds_since_report: Any = None, timestamp: Any = None
     return age
 
 
-async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, Any]:
+async def build_transloc_snapshot(
+    base_url: Optional[str] = None, include_stale: bool = False
+) -> Dict[str, Any]:
     use_default = is_default_transloc_base(base_url)
     routes_raw: List[Dict[str, Any]] = []
     extra_routes_raw: List[Dict[str, Any]] = []
@@ -2924,7 +2926,11 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
                 or rec.get("DateTimeUTC")
             ),
         )
-        if age_for_filter is not None and age_for_filter >= VEHICLE_STALE_THRESHOLD_S:
+        if (
+            not include_stale
+            and age_for_filter is not None
+            and age_for_filter >= VEHICLE_STALE_THRESHOLD_S
+        ):
             continue
         seconds_output = seconds if seconds is not None else seconds_raw
         vehicles.append(
@@ -2953,8 +2959,10 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
 
 
 @app.get("/v1/testmap/transloc")
-async def testmap_transloc_snapshot(base_url: Optional[str] = Query(None)):
-    return await build_transloc_snapshot(base_url=base_url)
+async def testmap_transloc_snapshot(
+    base_url: Optional[str] = Query(None), stale: bool = Query(False)
+):
+    return await build_transloc_snapshot(base_url=base_url, include_stale=stale)
 
 
 def _extract_cat_array(root: Any, keys: List[str]) -> List[Any]:
