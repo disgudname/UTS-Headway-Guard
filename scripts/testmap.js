@@ -6713,14 +6713,14 @@ schedulePlaneStyleOverride();
         if (allowTrainControls) {
           trainPlaneButtons.push(
             `<button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsFeature.visible ? ' is-active' : ''}" aria-pressed="${trainsFeature.visible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
-                Show Amtrak<span class="toggle-indicator">${trainsFeature.visible ? 'On' : 'Off'}</span>
+                Amtrak<span class="toggle-indicator">${trainsFeature.visible ? 'On' : 'Off'}</span>
               </button>`
           );
         }
         if (allowAdminFeatures) {
           trainPlaneButtons.push(
             `<button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesFeature.visible ? ' is-active' : ''}" aria-pressed="${planesFeature.visible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
-                Show Aircraft<span class="toggle-indicator">${planesFeature.visible ? 'On' : 'Off'}</span>
+                Aircraft<span class="toggle-indicator">${planesFeature.visible ? 'On' : 'Off'}</span>
               </button>`
           );
         }
@@ -6756,7 +6756,7 @@ ${trainPlaneMarkup}
             <div class="selector-group radar-control-group">
               <div class="selector-label">Radar</div>
               <button type="button" id="radarToggleButton" class="pill-button radar-toggle${toggleActive ? ' is-active' : ''}" aria-pressed="${toggleActive ? 'true' : 'false'}"${toggleDisabledAttr}>
-                Show Radar<span class="toggle-indicator">${toggleActive ? 'On' : 'Off'}</span>
+                Radar<span class="toggle-indicator">${toggleActive ? 'On' : 'Off'}</span>
               </button>
               <div class="radar-control">
                 <label class="radar-control-label" for="radarProductSelect">Product</label>
@@ -6798,7 +6798,7 @@ ${trainPlaneMarkup}
           <div class="selector-group">
             <div class="selector-label">Incidents</div>
             <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
-              Show Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
+              Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
             </button>
           </div>
         ` : '';
@@ -6839,7 +6839,7 @@ ${trainPlaneMarkup}
           html += `
             <div class="selector-group">
               <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
-                Show CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
+                CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
               </button>
             </div>
           `;
@@ -6853,19 +6853,19 @@ ${trainPlaneMarkup}
               <div class="selector-label">Vehicle Labels</div>
               <div class="display-mode-group" id="displayModeButtons">
                 <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.SPEED ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.SPEED}" onclick="setDisplayMode('${DISPLAY_MODES.SPEED}')">
-                  Show Speed
+                  Speed
                 </button>
                 <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.BLOCK ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.BLOCK}" onclick="setDisplayMode('${DISPLAY_MODES.BLOCK}')">
-                  Show Blocks
+                  Block
                 </button>
                 <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.NONE ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.NONE}" onclick="setDisplayMode('${DISPLAY_MODES.NONE}')">
-                  Show None
+                  None
                 </button>
               </div>
             </div>
             <div class="selector-group">
               <button type="button" id="staleBusesButton" class="pill-button stale-buses-button${includeStaleBuses ? ' is-active' : ''}" aria-pressed="${includeStaleBuses ? 'true' : 'false'}" onclick="toggleStaleBuses()">
-                Show Stale Buses<span class="toggle-indicator">${includeStaleBuses ? 'On' : 'Off'}</span>
+                Stale Buses<span class="toggle-indicator">${includeStaleBuses ? 'On' : 'Off'}</span>
               </button>
             </div>
           `;
