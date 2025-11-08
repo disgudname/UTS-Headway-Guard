@@ -536,7 +536,6 @@ body.cyberpunk .cyberpunk-rune:nth-child(3){animation-delay:2.8s}
         <option value="">Loading layouts…</option>
       </select>
     </label>
-    <button id="center-map-button" type="button">Center Map</button>
     <div id="duty-roster" aria-live="polite">
       <div class="duty-line duty-empty" id="sup-duty-line">
         <span class="duty-title">SUP ON DUTY</span>
@@ -830,12 +829,9 @@ const blocksGridTable = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-
 const blocksGridStatus = blocksGridEl ? blocksGridEl.querySelector('.blocks-grid-status') : null;
 const blockLayoutSelect = document.getElementById('block-layout-select');
 const blockLayoutSelectContainer = blockLayoutSelect ? blockLayoutSelect.closest('label') : null;
-const centerMapButton = document.getElementById('center-map-button');
-
 const MAP_MESSAGE_SOURCE = 'dispatcher';
 const MAP_MESSAGE_TYPES = Object.freeze({
-  focusBus: 'dispatcher:focusBus',
-  centerMap: 'dispatcher:centerMap'
+  focusBus: 'dispatcher:focusBus'
 });
 const MAP_RESPONSE_SOURCE = 'testmap';
 const MAP_RESPONSE_TYPES = Object.freeze({
@@ -1033,12 +1029,6 @@ function postMapMessage(message){
   }catch(error){
     console.warn('Failed to post message to map frame:',error);
   }
-}
-
-if(centerMapButton){
-  centerMapButton.addEventListener('click',()=>{
-    postMapMessage({type:MAP_MESSAGE_TYPES.centerMap});
-  });
 }
 
 if(blocksGridTable){
