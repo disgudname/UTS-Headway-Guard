@@ -251,6 +251,7 @@ VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
 VEH_LOG_MIN_MOVE_M = float(os.getenv("VEH_LOG_MIN_MOVE_M", "3"))
 LAST_LOG_POS: Dict[int, Tuple[float, float]] = {}
+LAST_ROUTE_SNAPSHOT_HASH: Dict[Tuple[str, str], str] = {}
 
 TRANSLOC_ARRIVALS_TTL_S = int(os.getenv("TRANSLOC_ARRIVALS_TTL_S", "15"))
 TRANSLOC_BLOCKS_TTL_S = int(os.getenv("TRANSLOC_BLOCKS_TTL_S", "60"))
@@ -1946,11 +1947,67 @@ async def startup():
                         print(f"[vehicle_logger] block error: {e}")
 
                     blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
+                    day_key = datetime.fromtimestamp(ts / 1000).strftime("%Y%m%d")
+                    minimal_routes: Optional[List[Dict[str, Any]]] = None
+                    routes_serialized: Optional[str] = None
+                    routes_hash: Optional[str] = None
+                    try:
+                        routes_raw: List[Dict[str, Any]] = []
+                        routes_catalog_raw: List[Dict[str, Any]] = []
+                        async with state.lock:
+                            routes_raw = list(getattr(state, "routes_raw", []))
+                            routes_catalog_raw = list(getattr(state, "routes_catalog_raw", []))
+                        trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
+                        if routes_catalog_raw:
+                            trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog_raw)
+                        minimal: List[Dict[str, Any]] = []
+                        for route in trimmed_routes:
+                            if not isinstance(route, dict):
+                                continue
+                            rid = route.get("RouteID")
+                            if rid is None:
+                                continue
+                            entry_min: Dict[str, Any] = {"RouteID": rid}
+                            for key in ("Description", "RouteName", "InfoText", "MapLineColor", "EncodedPolyline"):
+                                val = route.get(key)
+                                if val not in (None, ""):
+                                    entry_min[key] = val
+                            minimal.append(entry_min)
+                        minimal.sort(key=lambda item: str(item.get("RouteID")))
+                        minimal_routes = minimal
+                        routes_serialized = json.dumps(
+                            minimal_routes,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        routes_hash = hashlib.sha256(routes_serialized.encode("utf-8")).hexdigest()
+                    except Exception as route_err:
+                        minimal_routes = None
+                        routes_serialized = None
+                        routes_hash = None
+                        print(f"[vehicle_logger] route snapshot error: {route_err}")
+
                     entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
                     fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
                     for log_dir in VEH_LOG_DIRS:
                         path = log_dir / fname
                         path.parent.mkdir(parents=True, exist_ok=True)
+                        if routes_serialized is not None and routes_hash is not None:
+                            routes_path = log_dir / f"{day_key}_routes.json"
+                            route_hash_key = (os.fspath(log_dir), day_key)
+                            try:
+                                if (
+                                    LAST_ROUTE_SNAPSHOT_HASH.get(route_hash_key) != routes_hash
+                                    or not routes_path.exists()
+                                ):
+                                    routes_path.parent.mkdir(parents=True, exist_ok=True)
+                                    with routes_path.open("w") as rf:
+                                        rf.write(routes_serialized)
+                                        rf.flush()
+                                        os.fsync(rf.fileno())
+                                    LAST_ROUTE_SNAPSHOT_HASH[route_hash_key] = routes_hash
+                            except Exception as route_write_err:
+                                print(f"[vehicle_logger] failed to persist routes: {route_write_err}")
                         with path.open("a") as f:
                             f.write(json.dumps(entry) + "\n")
                             f.flush()
@@ -4095,7 +4152,7 @@ async def nav_bar_js():
 
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
-    if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
+    if not re.fullmatch(r"\d{8}_(?:\d{2}\.jsonl|routes\.json)", log_name):
         raise HTTPException(status_code=404, detail="Invalid log file")
     path = None
     for log_dir in VEH_LOG_DIRS:
@@ -4105,7 +4162,8 @@ async def vehicle_log_file(log_name: str):
             break
     if path is None:
         raise HTTPException(status_code=404, detail="Log file not found")
-    return FileResponse(path, media_type="application/json")
+    media_type = "application/x-ndjson" if log_name.endswith(".jsonl") else "application/json"
+    return FileResponse(path, media_type=media_type)
 
 # ---------------------------
 # LANDING PAGE
