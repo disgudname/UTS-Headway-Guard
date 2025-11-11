@@ -721,9 +721,18 @@ function renderSection(section){
   const table=document.createElement('table');
   const thead=document.createElement('thead');
   const headRow=document.createElement('tr');
-  const visibleColumns=section.headers
+  const headers=Array.isArray(section.headers) ? section.headers.slice() : [];
+  const visibleColumns=headers
     .map((text,index)=>({ text, index }))
     .filter(col=>!isHiddenHeader(col.text));
+
+  if(!visibleColumns.length){
+    const empty=document.createElement('div');
+    empty.className='empty-indicator';
+    empty.textContent='No records to display.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
 
   visibleColumns.forEach(col => {
     const text=abbreviateHeaderLabel(col.text);
@@ -743,9 +752,9 @@ function renderSection(section){
   table.appendChild(thead);
 
   const tbody=document.createElement('tbody');
-  const deliveryIndex=findDeliveryDateIndex(section.headers);
-  const downIndex=findDownDateIndex(section.headers);
-  const vehicleIndex=findVehicleIndex(section.headers);
+  const deliveryIndex=findDeliveryDateIndex(headers);
+  const downIndex=findDownDateIndex(headers);
+  const vehicleIndex=findVehicleIndex(headers);
   const shouldBuildMobileCards=!kioskMode;
   const mobileList=shouldBuildMobileCards ? document.createElement('div') : null;
   if(mobileList) mobileList.className='mobile-list';
@@ -753,16 +762,17 @@ function renderSection(section){
     const tr=document.createElement('tr');
     const values=Array.isArray(row && row.values) ? row.values.slice()
       : Array.isArray(row) ? row.slice() : [];
-    while(values.length<section.headers.length){ values.push(''); }
+    while(values.length<headers.length){ values.push(''); }
+    if(values.length>headers.length){ values.length=headers.length; }
     const statusText=(row && typeof row.statusText==='string') ? row.statusText
-      : getPreferredStatus(values, section.headers);
+      : getPreferredStatus(values, headers);
     const displayDate=(row && typeof row.displayDate==='string') ? row.displayDate
       : getDisplayDate(values, deliveryIndex, downIndex);
     visibleColumns.forEach(col => {
       const { index, text: headerText } = col;
-      const cell=values[index];
+      const cell=index<values.length ? values[index] : '';
       const td=document.createElement('td');
-      const text=cell;
+      const text=cell==null ? '' : cell;
       const normalizedHeader=normalizeHeader(headerText);
       const isVehicleColumn=normalizedHeader==='bus' || normalizedHeader==='p&t support vehicle' || normalizedHeader==='vehicle' || normalizedHeader.includes('vehicle');
       const allowsWrapping=allowsWrappingForHeader(headerText);
@@ -799,7 +809,10 @@ function renderSection(section){
 
       const vehicleLabel=document.createElement('span');
       vehicleLabel.className='vehicle';
-      vehicleLabel.textContent=values[vehicleIndex] || 'Unknown Vehicle';
+      const vehicleValue=(vehicleIndex>=0 && vehicleIndex<values.length && values[vehicleIndex])
+        ? values[vehicleIndex]
+        : (values.find(v=>v) || 'Unknown Vehicle');
+      vehicleLabel.textContent=vehicleValue;
       summaryButton.appendChild(vehicleLabel);
 
       const summaryMeta=document.createElement('div');
@@ -833,7 +846,7 @@ function renderSection(section){
       details.className='card-details';
       visibleColumns.forEach(col => {
         const { index, text: headerText } = col;
-        const value=values[index];
+        const value=index<values.length ? values[index] : '';
         if(!value) return;
         const dt=document.createElement('dt');
         dt.textContent=getMobileLabel(headerText);
