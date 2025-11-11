@@ -17,6 +17,7 @@
     const normalized=String(value).trim().toLowerCase();
     kioskMode=normalized==='' ? true : !['0','false','no','off'].includes(normalized);
   }
+  document.documentElement.classList.toggle('kiosk-mode', kioskMode);
   if(kioskMode){
     const systemStack="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
     document.documentElement.style.setProperty('--app-font-family', systemStack);
@@ -173,7 +174,7 @@
     text-transform:uppercase;
     letter-spacing:0.08em;
   }
-  .pill{
+  .pill{ 
     position:relative;
     z-index:0;
     display:inline-flex;
@@ -187,6 +188,18 @@
     background:var(--pill-bg);
     box-shadow:0 0 0 1px rgba(255,255,255,0.12) inset;
     line-height:1.05;
+  }
+  .kiosk-mode body{
+    text-rendering:auto;
+  }
+  .kiosk-mode section{
+    box-shadow:none;
+  }
+  .kiosk-mode .pill{
+    box-shadow:none;
+  }
+  .kiosk-mode .card-summary .chevron{
+    transition:none;
   }
   .pill span+span{
     margin-left:6px;
