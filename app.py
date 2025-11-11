@@ -25,7 +25,7 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence
+from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
 from datetime import datetime, timedelta, time as dtime
@@ -2271,6 +2271,40 @@ def _should_hide_by_delivery_date(
     return parsed_date <= cutoff_date.date()
 
 
+KIOSK_STATUS_ALLOWLIST: Set[str] = {
+    "DOWN",
+    "DOWNED",
+    "HOLD",
+    "LIMITED",
+    "USABLE",
+    "COSMETIC",
+    "COMFORT",
+    "PM",
+    "VSI",
+}
+
+KIOSK_COLUMN_WHITELIST: Set[str] = {
+    "bus",
+    "p&t support vehicle",
+    "vehicle",
+    "status",
+    "date",
+    "down date",
+    "actual delivery date",
+    "delivery date",
+    "supervisor",
+    "notes/description",
+    "notes",
+    "description",
+    "diagnostic date",
+    "diag date",
+    "mechanic",
+    "diagnostic description",
+    "current eta",
+    "eta",
+}
+
+
 def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
     if not csv_text:
         return {"headerLine": [], "sections": []}
@@ -2330,6 +2364,49 @@ def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
         section["rows"] = processed_rows
 
     return {"headerLine": header_line, "sections": sections}
+
+
+def _normalize_status_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).upper()
+
+
+def _filter_kiosk_sections(sections: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    filtered: List[Dict[str, Any]] = []
+    for section in sections or []:
+        headers = list(section.get("headers") or [])
+        normalized_headers = [_normalize_header_label(text) for text in headers]
+        keep_indices = [
+            idx
+            for idx, normalized in enumerate(normalized_headers)
+            if normalized in KIOSK_COLUMN_WHITELIST
+        ]
+        if not keep_indices:
+            continue
+
+        filtered_rows: List[Dict[str, Any]] = []
+        for row in section.get("rows", []):
+            if not isinstance(row, dict):
+                continue
+            status_text = _normalize_status_text(row.get("statusText"))
+            if not status_text:
+                continue
+            if not any(allowed in status_text for allowed in KIOSK_STATUS_ALLOWLIST):
+                continue
+            values = list(row.get("values") or [])
+            filtered_values = [
+                values[idx] if idx < len(values) else ""
+                for idx in keep_indices
+            ]
+            filtered_rows.append({**row, "values": filtered_values})
+
+        if not filtered_rows:
+            continue
+
+        filtered_section = dict(section)
+        filtered_section["headers"] = [headers[idx] for idx in keep_indices]
+        filtered_section["rows"] = filtered_rows
+        filtered.append(filtered_section)
+    return filtered
 
 
 async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
@@ -2674,9 +2751,10 @@ async def dispatcher_downed_buses(request: Request):
 async def kiosk_downed_buses():
     csv_text, fetched_at, error = await _get_cached_downed_sheet()
     parsed = _parse_downed_sheet_csv(csv_text)
+    filtered_sections = _filter_kiosk_sections(parsed.get("sections", []))
     payload: Dict[str, Any] = {
         "headerLine": parsed.get("headerLine", []),
-        "sections": parsed.get("sections", []),
+        "sections": filtered_sections,
         "fetched_at": int(fetched_at * 1000) if fetched_at else None,
     }
     if error:
