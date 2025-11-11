@@ -416,6 +416,7 @@ function adjustBaseFontSize(){
 }
 
 function scheduleFontAdjustment(){
+  if(kioskMode) return;
   if(fontAdjustmentFrame) cancelAnimationFrame(fontAdjustmentFrame);
   fontAdjustmentFrame=requestAnimationFrame(()=>{
     fontAdjustmentFrame=requestAnimationFrame(()=>{
@@ -424,12 +425,16 @@ function scheduleFontAdjustment(){
   });
 }
 
-window.addEventListener('resize',()=>{
-  if(resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
-  resizeDebounceTimer=setTimeout(scheduleFontAdjustment, 150);
-});
+if(!kioskMode){
+  window.addEventListener('resize',()=>{
+    if(resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+    resizeDebounceTimer=setTimeout(scheduleFontAdjustment, 150);
+  });
+}
 
 const urlParams = new URLSearchParams(window.location.search);
+
+const kioskMode = getQueryFlag('kioskMode');
 
 function getQueryFlag(name){
   const value=urlParams.get(name);
@@ -438,8 +443,6 @@ function getQueryFlag(name){
   if(!normalized) return true;
   return !['0','false','no','off'].includes(normalized);
 }
-
-const kioskModeEnabled = getQueryFlag('kioskMode');
 
 const prioritizedSectionTitles=[];
 if(getQueryFlag('bus')) prioritizedSectionTitles.push('Bus');
@@ -719,7 +722,7 @@ function renderSection(section){
   const deliveryCutoff=getDeliveryCutoff();
   const downIndex=findDownDateIndex(section.headers);
   const vehicleIndex=findVehicleIndex(section.headers);
-  const shouldBuildMobileCards=!kioskModeEnabled;
+  const shouldBuildMobileCards=!kioskMode;
   const mobileList=shouldBuildMobileCards ? document.createElement('div') : null;
   if(mobileList) mobileList.className='mobile-list';
   section.rows.forEach(row => {
@@ -841,7 +844,7 @@ function renderSection(section){
         const expanded=!card.classList.contains('expanded');
         card.classList.toggle('expanded');
         summaryButton.setAttribute('aria-expanded', expanded ? 'true':'false');
-        scheduleFontAdjustment();
+        if(!kioskMode) scheduleFontAdjustment();
       });
 
       card.appendChild(summaryButton);
@@ -872,7 +875,7 @@ function renderSheet(data){
     empty.className='empty-indicator';
     empty.textContent='Unable to load downed vehicle data.';
     sectionsContainer.appendChild(empty);
-    scheduleFontAdjustment();
+    if(!kioskMode) scheduleFontAdjustment();
     return;
   }
   const orderedSections=data.sections
@@ -886,12 +889,12 @@ function renderSheet(data){
   orderedSections.forEach(section => {
     sectionsContainer.appendChild(renderSection(section));
   });
-  scheduleFontAdjustment();
+  if(!kioskMode) scheduleFontAdjustment();
 }
 
 async function loadSheet(){
   try{
-    if(kioskModeEnabled){
+    if(kioskMode){
       const res=await fetch(KIOSK_ENDPOINT,{cache:'no-store'});
       if(!res.ok) throw new Error('HTTP '+res.status);
       const payload=await res.json();
