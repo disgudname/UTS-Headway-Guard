@@ -806,8 +806,12 @@
   <div id="controls" class="playback-controls">
     <div class="controls-row controls-row--filters">
       <div class="control-field">
-        <label for="datePicker">Date</label>
-        <input id="datePicker" placeholder="Date">
+        <label for="startDatePicker">From Date</label>
+        <input id="startDatePicker" placeholder="Start date">
+      </div>
+      <div class="control-field">
+        <label for="endDatePicker">To Date</label>
+        <input id="endDatePicker" placeholder="End date">
       </div>
       <div class="control-field">
         <label for="startTime">From</label>
@@ -3234,10 +3238,48 @@
 
     initializeMap();
 
-    flatpickr("#datePicker", {
+    const defaultDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    let endDatePickerInstance = null;
+    const startDatePickerInstance = flatpickr("#startDatePicker", {
       dateFormat: "Y-m-d",
-      defaultDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      defaultDate: defaultDateStr,
+      onChange(selectedDates) {
+        if (!selectedDates || !selectedDates.length) return;
+        const selectedDate = selectedDates[0];
+        if (endDatePickerInstance) {
+          endDatePickerInstance.set('minDate', selectedDate);
+          const [currentEnd] = endDatePickerInstance.selectedDates;
+          if (!currentEnd || currentEnd < selectedDate) {
+            endDatePickerInstance.setDate(selectedDate, true);
+          }
+        }
+      }
     });
+    endDatePickerInstance = flatpickr("#endDatePicker", {
+      dateFormat: "Y-m-d",
+      defaultDate: defaultDateStr,
+      onChange(selectedDates) {
+        if (!selectedDates || !selectedDates.length) return;
+        const selectedDate = selectedDates[0];
+        if (startDatePickerInstance) {
+          startDatePickerInstance.set('maxDate', selectedDate);
+          const [currentStart] = startDatePickerInstance.selectedDates;
+          if (currentStart && currentStart > selectedDate) {
+            startDatePickerInstance.setDate(selectedDate, true);
+          }
+        }
+      }
+    });
+    if (startDatePickerInstance && endDatePickerInstance) {
+      const [initialStart] = startDatePickerInstance.selectedDates;
+      const [initialEnd] = endDatePickerInstance.selectedDates;
+      if (initialStart) {
+        endDatePickerInstance.set('minDate', initialStart);
+      }
+      if (initialEnd) {
+        startDatePickerInstance.set('maxDate', initialEnd);
+      }
+    }
     flatpickr("#startTime", {
       enableTime: true,
       noCalendar: true,
@@ -4623,22 +4665,56 @@
     async function applyRange(initial = false) {
       beginRangeLoad();
       try {
-        const dateStr = document.getElementById('datePicker').value;
+        const startDateInput = document.getElementById('startDatePicker');
+        const endDateInput = document.getElementById('endDatePicker');
+        const startDateStr = (startDateInput && startDateInput.value) ? startDateInput.value : defaultDateStr;
+        let endDateStr = (endDateInput && endDateInput.value) ? endDateInput.value : startDateStr;
         const startStr = document.getElementById('startTime').value || '00:00';
         const endStr = document.getElementById('endTime').value || '23:59';
-        startTime = new Date(`${dateStr}T${startStr}:00`);
-        userEndTime = new Date(`${dateStr}T${endStr}:00`);
+        startTime = new Date(`${startDateStr}T${startStr}:00`);
+        userEndTime = new Date(`${endDateStr}T${endStr}:00`);
 
-        // If the selected date is today, don't try to load data beyond the current time
+        if (userEndTime < startTime) {
+          userEndTime = new Date(startTime);
+          if (endDateInput && endDateInput._flatpickr) {
+            endDateInput._flatpickr.setDate(startTime, true);
+          }
+          const endTimeInput = document.getElementById('endTime');
+          if (endTimeInput && endTimeInput._flatpickr) {
+            endTimeInput._flatpickr.setDate(startTime, true);
+          }
+          endDateStr = startDateStr;
+        }
+
+        // If the selected end date is today, don't try to load data beyond the current time
         const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-        let lastHour = new Date(`${dateStr}T23:00:00`);
-        if (dateStr === todayStr) {
+        let lastHour = new Date(userEndTime);
+        lastHour.setMinutes(0, 0, 0);
+        if (endDateStr === todayStr) {
           const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
           if (userEndTime > now) {
             userEndTime = now;
+            if (endDateInput && endDateInput._flatpickr) {
+              endDateInput._flatpickr.setDate(now, true);
+            }
+            const endTimeInput = document.getElementById('endTime');
+            if (endTimeInput && endTimeInput._flatpickr) {
+              endTimeInput._flatpickr.setDate(now, true);
+            }
           }
-          // For the current day only load up to the current hour
-          lastHour = new Date(`${dateStr}T${String(now.getHours()).padStart(2, '0')}:00:00`);
+          lastHour = new Date(userEndTime);
+          lastHour.setMinutes(0, 0, 0);
+        }
+
+        if (startTime > userEndTime) {
+          startTime = new Date(userEndTime);
+          if (startDateInput && startDateInput._flatpickr) {
+            startDateInput._flatpickr.setDate(startTime, true);
+          }
+          const startTimeInput = document.getElementById('startTime');
+          if (startTimeInput && startTimeInput._flatpickr) {
+            startTimeInput._flatpickr.setDate(startTime, true);
+          }
         }
 
         endTime = userEndTime;
@@ -4686,7 +4762,8 @@
     // Periodically check for newly available data in the selected day
     function startAutoRefresh() {
       setInterval(async () => {
-        const dateStr = document.getElementById('datePicker').value;
+        const endDateInput = document.getElementById('endDatePicker');
+        const dateStr = endDateInput ? endDateInput.value : '';
         const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
         if (dateStr !== todayStr) return;
 
@@ -4696,6 +4773,13 @@
           endTime = now;
           const timeline = document.getElementById('timeline');
           timeline.max = now.getTime();
+          if (endDateInput && endDateInput._flatpickr) {
+            endDateInput._flatpickr.setDate(now, true);
+          }
+          const endTimeInput = document.getElementById('endTime');
+          if (endTimeInput && endTimeInput._flatpickr) {
+            endTimeInput._flatpickr.setDate(now, true);
+          }
           await loadHour(now.getTime());
         }
       }, 60000);
