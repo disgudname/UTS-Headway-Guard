@@ -2693,7 +2693,7 @@ schedulePlaneStyleOverride();
 
       let agencies = [];
       let baseURL = '';
-      let includeStaleBuses = false;
+      let includeStaleVehicles = false;
       let onDemandVehiclesEnabled = false;
       let onDemandPollingTimerId = null;
       let onDemandPollingPausedForVisibility = false;
@@ -3055,7 +3055,7 @@ schedulePlaneStyleOverride();
       const TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY = '__default__';
       const translocSnapshotCache = new Map();
 
-      function getTranslocSnapshotCacheKey(base, includeStale = includeStaleBuses) {
+      function getTranslocSnapshotCacheKey(base, includeStale = includeStaleVehicles) {
         const baseKey = base || TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY;
         return includeStale ? `${baseKey}::stale` : `${baseKey}::fresh`;
       }
@@ -3075,7 +3075,7 @@ schedulePlaneStyleOverride();
 
       function loadTranslocSnapshot(force = false) {
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
-        const cacheKey = getTranslocSnapshotCacheKey(sanitizedBaseURL, includeStaleBuses);
+        const cacheKey = getTranslocSnapshotCacheKey(sanitizedBaseURL, includeStaleVehicles);
         const entry = getOrCreateTranslocSnapshotEntry(cacheKey);
         const now = Date.now();
         if (!force && entry.data && (now - entry.timestamp) < TRANSLOC_SNAPSHOT_TTL_MS) {
@@ -3088,7 +3088,7 @@ schedulePlaneStyleOverride();
         if (sanitizedBaseURL) {
           queryParts.push(`base_url=${encodeURIComponent(sanitizedBaseURL)}`);
         }
-        if (includeStaleBuses) {
+        if (includeStaleVehicles) {
           queryParts.push('stale=true');
         }
         const endpoint = queryParts.length > 0
@@ -5191,13 +5191,13 @@ schedulePlaneStyleOverride();
         setIncidentsVisibility(!incidentsVisible);
       }
 
-      function setIncludeStaleBuses(value) {
+      function setIncludeStaleVehicles(value) {
         const nextValue = !!value;
-        if (includeStaleBuses === nextValue) {
-          updateStaleBusesButton();
+        if (includeStaleVehicles === nextValue) {
+          updateStaleVehiclesButton();
           return;
         }
-        includeStaleBuses = nextValue;
+        includeStaleVehicles = nextValue;
         resetTranslocSnapshotCache();
         busLocationsFetchPromise = null;
         busLocationsFetchBaseURL = null;
@@ -5212,11 +5212,12 @@ schedulePlaneStyleOverride();
             cachedEtas = allEtas || {};
             updateCustomPopups();
           });
-        updateStaleBusesButton();
+        fetchOnDemandVehicles();
+        updateStaleVehiclesButton();
       }
 
-      function toggleStaleBuses() {
-        setIncludeStaleBuses(!includeStaleBuses);
+      function toggleStaleVehicles() {
+        setIncludeStaleVehicles(!includeStaleVehicles);
       }
 
       function updateOnDemandButton() {
@@ -5401,7 +5402,8 @@ schedulePlaneStyleOverride();
               if (!entry || typeof entry !== 'object') {
                 continue;
               }
-              if (entry.stale === true) {
+              const isStale = entry.stale === true;
+              if (isStale && !includeStaleVehicles) {
                 continue;
               }
               if (entry.enabled === false) {
@@ -5434,7 +5436,7 @@ schedulePlaneStyleOverride();
               state.fillColor = fillColor;
               const glyphColor = computeBusMarkerGlyphColor(fillColor);
               state.glyphColor = glyphColor;
-              state.isStale = false;
+              state.isStale = isStale;
               state.isStopped = isBusConsideredStopped(speedMph);
               state.groundSpeed = speedMph;
               state.lastUpdateTimestamp = Date.now();
@@ -5453,7 +5455,7 @@ schedulePlaneStyleOverride();
                   headingDeg,
                   accessibleLabel: state.accessibleLabel,
                   stopped: state.isStopped,
-                  stale: false
+                  stale: isStale
                 });
               } else {
                 const icon = await createBusMarkerDivIcon(markerKey, state);
@@ -6092,10 +6094,10 @@ schedulePlaneStyleOverride();
         }
       }
 
-      function updateStaleBusesButton() {
-        const button = document.getElementById('staleBusesButton');
+      function updateStaleVehiclesButton() {
+        const button = document.getElementById('staleVehiclesButton');
         if (!button) return;
-        const isActive = !!includeStaleBuses;
+        const isActive = !!includeStaleVehicles;
         button.classList.toggle('is-active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         const indicator = button.querySelector('.toggle-indicator');
@@ -7324,8 +7326,8 @@ ${trainPlaneMarkup}
               </div>
             </div>
             <div class="selector-group">
-              <button type="button" id="staleBusesButton" class="pill-button stale-buses-button${includeStaleBuses ? ' is-active' : ''}" aria-pressed="${includeStaleBuses ? 'true' : 'false'}" onclick="toggleStaleBuses()">
-                Stale Buses<span class="toggle-indicator">${includeStaleBuses ? 'On' : 'Off'}</span>
+              <button type="button" id="staleVehiclesButton" class="pill-button stale-vehicles-button${includeStaleVehicles ? ' is-active' : ''}" aria-pressed="${includeStaleVehicles ? 'true' : 'false'}" onclick="toggleStaleVehicles()">
+                Stale Vehicles<span class="toggle-indicator">${includeStaleVehicles ? 'On' : 'Off'}</span>
               </button>
             </div>
             <div class="selector-group">
@@ -7353,7 +7355,7 @@ ${trainPlaneMarkup}
         updateTrainToggleButton();
         updateAircraftToggleButton();
         updateIncidentToggleButton();
-        updateStaleBusesButton();
+        updateStaleVehiclesButton();
         updateOnDemandButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
