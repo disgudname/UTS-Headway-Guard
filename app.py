@@ -811,7 +811,11 @@ app = FastAPI(title="UTS Operations Dashboard")
 
 @app.on_event("startup")
 async def init_ondemand_client() -> None:
-    app.state.ondemand_client = OnDemandClient.from_env()
+    try:
+        app.state.ondemand_client = OnDemandClient.from_env()
+    except RuntimeError as exc:
+        print(f"[ondemand] client not configured: {exc}")
+        app.state.ondemand_client = None
 
 
 @app.on_event("shutdown")
@@ -1572,7 +1576,9 @@ async def health():
 
 @app.get("/api/ondemand/vehicles/positions")
 async def api_ondemand_positions():
-    client: OnDemandClient = app.state.ondemand_client
+    client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
+    if client is None:
+        raise HTTPException(status_code=503, detail="ondemand client not configured")
     data = await client.get_vehicle_positions()
     return data
 
