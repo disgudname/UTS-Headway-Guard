@@ -18,9 +18,17 @@ class OnDemandClient:
         positions_url: str,
         user: str,
         passwd: str,
+        vehicles_url: Optional[str] = None,
     ) -> None:
         self._login_url = login_url
         self._positions_url = positions_url
+        if vehicles_url:
+            self._vehicles_url = vehicles_url
+        else:
+            base_url = positions_url.rstrip("/")
+            if base_url.lower().endswith("/positions"):
+                base_url = base_url[: -len("/positions")]
+            self._vehicles_url = f"{base_url}?show_last_active_at=true"
         self._user = user
         self._passwd = passwd
         self._client: Optional[httpx.AsyncClient] = None
@@ -54,7 +62,15 @@ class OnDemandClient:
         if missing:
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
-        return cls(login_url=login_url, positions_url=positions_url, user=user, passwd=passwd)
+        vehicles_url = (os.getenv("ONDEMAND_VEHICLES_URL") or "").strip()
+
+        return cls(
+            login_url=login_url,
+            positions_url=positions_url,
+            user=user,
+            passwd=passwd,
+            vehicles_url=vehicles_url or None,
+        )
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -165,3 +181,28 @@ class OnDemandClient:
 
         response.raise_for_status()
         return response.json()
+
+    async def get_vehicle_details(self) -> list:
+        await self._ensure_token()
+        client = await self._ensure_client()
+
+        headers = {
+            "Authorization": f"Token {self._token}",
+            "Accept": "application/json",
+        }
+
+        response = await client.get(self._vehicles_url, headers=headers)
+
+        if response.status_code in {401, 403}:
+            self._token = None
+            await self._login(force=True)
+            headers["Authorization"] = f"Token {self._token}"
+            response = await client.get(self._vehicles_url, headers=headers)
+            if response.status_code in {401, 403}:
+                response.raise_for_status()
+
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return data
+        return []

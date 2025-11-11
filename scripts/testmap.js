@@ -1897,7 +1897,7 @@ schedulePlaneStyleOverride();
       const CAT_STOP_ETA_CACHE_TTL_MS = 30000;
       const ONDEMAND_POSITIONS_ENDPOINT = '/api/ondemand/vehicles/positions';
       const ONDEMAND_MARKER_PREFIX = 'ondemand:';
-      const ONDEMAND_MARKER_COLOR = '#ec4899';
+      const ONDEMAND_MARKER_DEFAULT_COLOR = '#ec4899';
       const ONDEMAND_REFRESH_INTERVAL_MS = 5000;
 
       let map;
@@ -5234,6 +5234,29 @@ schedulePlaneStyleOverride();
         setOnDemandVehiclesEnabled(!onDemandVehiclesEnabled);
       }
 
+      function getOnDemandMarkerColor(entry) {
+        if (!entry || typeof entry !== 'object') {
+          return ONDEMAND_MARKER_DEFAULT_COLOR;
+        }
+        const candidates = [];
+        if (typeof entry.color_hex === 'string') {
+          candidates.push(entry.color_hex.trim());
+        }
+        if (typeof entry.color === 'string') {
+          const trimmed = entry.color.trim();
+          if (trimmed) {
+            candidates.push(trimmed.startsWith('#') ? trimmed : `#${trimmed}`);
+          }
+        }
+        for (const candidate of candidates) {
+          const normalized = sanitizeCssColor(candidate);
+          if (normalized) {
+            return normalized;
+          }
+        }
+        return ONDEMAND_MARKER_DEFAULT_COLOR;
+      }
+
       async function fetchOnDemandVehicles() {
         if (!onDemandVehiclesEnabled) {
           return [];
@@ -5291,8 +5314,9 @@ schedulePlaneStyleOverride();
               const displayName = extractOnDemandDisplayName(entry.call_name) || `Vehicle ${normalizedId}`;
               state.busName = displayName;
               state.routeID = null;
-              state.fillColor = ONDEMAND_MARKER_COLOR;
-              const glyphColor = computeBusMarkerGlyphColor(ONDEMAND_MARKER_COLOR);
+              const fillColor = getOnDemandMarkerColor(entry);
+              state.fillColor = fillColor;
+              const glyphColor = computeBusMarkerGlyphColor(fillColor);
               state.glyphColor = glyphColor;
               state.isStale = false;
               state.isStopped = isBusConsideredStopped(speedMph);
@@ -5308,7 +5332,7 @@ schedulePlaneStyleOverride();
                 markers[markerKey].isOnDemand = true;
                 state.marker = markers[markerKey];
                 queueBusMarkerVisualUpdate(markerKey, {
-                  fillColor: ONDEMAND_MARKER_COLOR,
+                  fillColor,
                   glyphColor,
                   headingDeg,
                   accessibleLabel: state.accessibleLabel,
@@ -5335,7 +5359,7 @@ schedulePlaneStyleOverride();
               }
 
               if (adminMode && !kioskMode) {
-                const nameIcon = createNameBubbleDivIcon(displayName, ONDEMAND_MARKER_COLOR, markerMetricsForZoom.scale, headingDeg);
+                const nameIcon = createNameBubbleDivIcon(displayName, fillColor, markerMetricsForZoom.scale, headingDeg);
                 nameBubbles[markerKey] = nameBubbles[markerKey] || {};
                 if (nameIcon) {
                   if (nameBubbles[markerKey].nameMarker) {
