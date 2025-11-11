@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+from html.parser import HTMLParser
 from typing import Optional, List
 
 import httpx
@@ -67,10 +68,47 @@ class OnDemandClient:
         self._token = None
 
     def _extract_csrf_token(self, html: str) -> str:
-        match = re.search(r'name="csrf_token" value="([^"]+)"', html)
-        if not match:
-            raise RuntimeError("Could not find csrf_token in login page")
-        return match.group(1)
+        """Extract a CSRF token from the login page HTML."""
+
+        class _CSRFParser(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.token: Optional[str] = None
+
+            def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+                if self.token is not None or tag.lower() not in {"input", "meta"}:
+                    return
+
+                attr_dict = {key.lower(): value for key, value in attrs}
+
+                # Handle hidden input fields
+                name = attr_dict.get("name")
+                if name and name.lower() in {"csrf_token", "csrfmiddlewaretoken"}:
+                    value = attr_dict.get("value")
+                    if value:
+                        self.token = value
+                        return
+
+                # Handle meta tag variant (e.g. <meta name="csrf-token" content="...")
+                if tag.lower() == "meta":
+                    meta_name = attr_dict.get("name")
+                    if meta_name and meta_name.lower() in {"csrf-token", "csrf_token"}:
+                        content = attr_dict.get("content")
+                        if content:
+                            self.token = content
+
+        parser = _CSRFParser()
+        parser.feed(html)
+
+        if parser.token:
+            return parser.token
+
+        # Fallback to regex in case attributes are ordered unusually.
+        match = re.search(r"csrf[-_]?token\s*['\"]?[:=]['\"]([^'\"]+)", html, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+        raise RuntimeError("Could not find csrf_token in login page")
 
     async def _login(self, force: bool = False) -> None:
         if not force and self._token:
