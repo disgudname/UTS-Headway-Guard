@@ -1895,6 +1895,10 @@ schedulePlaneStyleOverride();
       const CAT_MAX_TOOLTIP_ETAS = 3;
       const CAT_VEHICLE_ETA_CACHE_TTL_MS = 30000;
       const CAT_STOP_ETA_CACHE_TTL_MS = 30000;
+      const ONDEMAND_POSITIONS_ENDPOINT = '/api/ondemand/vehicles/positions';
+      const ONDEMAND_MARKER_PREFIX = 'ondemand:';
+      const ONDEMAND_MARKER_COLOR = '#ec4899';
+      const ONDEMAND_REFRESH_INTERVAL_MS = 5000;
 
       let map;
       let markers = {};
@@ -2690,6 +2694,10 @@ schedulePlaneStyleOverride();
       let agencies = [];
       let baseURL = '';
       let includeStaleBuses = false;
+      let onDemandVehiclesEnabled = false;
+      let onDemandPollingTimerId = null;
+      let onDemandPollingPausedForVisibility = false;
+      let onDemandFetchPromise = null;
       const ADMIN_KIOSK_UVA_HEALTH_NAME = 'University of Virginia Health';
       const ADMIN_KIOSK_UVA_HEALTH_START_MINUTES = 2 * 60 + 30;
       const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
@@ -5095,6 +5103,301 @@ schedulePlaneStyleOverride();
         setIncludeStaleBuses(!includeStaleBuses);
       }
 
+      function updateOnDemandButton() {
+        const button = document.getElementById('onDemandToggleButton');
+        if (!button) return;
+        const isActive = !!onDemandVehiclesEnabled;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
+      }
+
+      function isOnDemandVehicleId(vehicleID) {
+        if (vehicleID === undefined || vehicleID === null) {
+          return false;
+        }
+        return `${vehicleID}`.startsWith(ONDEMAND_MARKER_PREFIX);
+      }
+
+      function extractOnDemandDisplayName(callName) {
+        if (typeof callName !== 'string') {
+          return '';
+        }
+        const trimmed = callName.trim();
+        if (!trimmed) {
+          return '';
+        }
+        const colonIndex = trimmed.indexOf(':');
+        if (colonIndex > 0) {
+          return trimmed.slice(0, colonIndex).trim();
+        }
+        return trimmed;
+      }
+
+      function clearOnDemandVehicles() {
+        if (!map || typeof map.removeLayer !== 'function') {
+          Object.keys(markers).forEach(vehicleID => {
+            if (isOnDemandVehicleId(vehicleID)) {
+              delete markers[vehicleID];
+              clearBusMarkerState(vehicleID);
+            }
+          });
+          Object.keys(nameBubbles).forEach(vehicleID => {
+            if (isOnDemandVehicleId(vehicleID)) {
+              delete nameBubbles[vehicleID];
+            }
+          });
+          return;
+        }
+
+        Object.keys(markers).forEach(vehicleID => {
+          if (!isOnDemandVehicleId(vehicleID)) {
+            return;
+          }
+          const marker = markers[vehicleID];
+          if (marker) {
+            map.removeLayer(marker);
+          }
+          delete markers[vehicleID];
+          clearBusMarkerState(vehicleID);
+        });
+
+        Object.keys(nameBubbles).forEach(vehicleID => {
+          if (!isOnDemandVehicleId(vehicleID)) {
+            return;
+          }
+          const bubble = nameBubbles[vehicleID];
+          if (bubble) {
+            if (bubble.speedMarker) map.removeLayer(bubble.speedMarker);
+            if (bubble.nameMarker) map.removeLayer(bubble.nameMarker);
+            if (bubble.blockMarker) map.removeLayer(bubble.blockMarker);
+            if (bubble.routeMarker) map.removeLayer(bubble.routeMarker);
+          }
+          delete nameBubbles[vehicleID];
+        });
+
+        Object.keys(busMarkerStates).forEach(vehicleID => {
+          if (isOnDemandVehicleId(vehicleID)) {
+            clearBusMarkerState(vehicleID);
+          }
+        });
+
+        purgeOrphanedBusMarkers();
+      }
+
+      function stopOnDemandPolling() {
+        if (onDemandPollingTimerId !== null) {
+          clearInterval(onDemandPollingTimerId);
+          onDemandPollingTimerId = null;
+        }
+      }
+
+      function startOnDemandPolling() {
+        if (!onDemandVehiclesEnabled || onDemandPollingTimerId !== null) {
+          return;
+        }
+        if (typeof document !== 'undefined' && document.hidden) {
+          return;
+        }
+        fetchOnDemandVehicles().catch(error => {
+          console.error('Failed to fetch OnDemand vehicles:', error);
+        });
+        onDemandPollingTimerId = setInterval(() => {
+          fetchOnDemandVehicles().catch(error => {
+            console.error('Failed to refresh OnDemand vehicles:', error);
+          });
+        }, ONDEMAND_REFRESH_INTERVAL_MS);
+      }
+
+      function setOnDemandVehiclesEnabled(value) {
+        const nextValue = !!value;
+        if (onDemandVehiclesEnabled === nextValue) {
+          updateOnDemandButton();
+          return;
+        }
+        onDemandVehiclesEnabled = nextValue;
+        if (onDemandVehiclesEnabled) {
+          onDemandPollingPausedForVisibility = false;
+          startOnDemandPolling();
+        } else {
+          stopOnDemandPolling();
+          onDemandPollingPausedForVisibility = false;
+          clearOnDemandVehicles();
+        }
+        updateOnDemandButton();
+      }
+
+      function toggleOnDemandVehicles() {
+        setOnDemandVehiclesEnabled(!onDemandVehiclesEnabled);
+      }
+
+      async function fetchOnDemandVehicles() {
+        if (!onDemandVehiclesEnabled) {
+          return [];
+        }
+        if (!map || typeof fetch !== 'function') {
+          return [];
+        }
+        if (onDemandFetchPromise) {
+          return onDemandFetchPromise;
+        }
+        const fetchPromise = (async () => {
+          try {
+            const response = await fetch(ONDEMAND_POSITIONS_ENDPOINT, { cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const payload = await response.json();
+            if (!onDemandVehiclesEnabled) {
+              return [];
+            }
+            const entries = Array.isArray(payload) ? payload : [];
+            const seen = new Set();
+            const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
+            const markerMetricsForZoom = computeBusMarkerMetrics(zoom);
+            for (const entry of entries) {
+              if (!entry || typeof entry !== 'object') {
+                continue;
+              }
+              if (entry.stale === true) {
+                continue;
+              }
+              if (entry.enabled === false) {
+                continue;
+              }
+              const position = entry.position || {};
+              const lat = Number(position.latitude ?? position.lat);
+              const lon = Number(position.longitude ?? position.lon);
+              if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                continue;
+              }
+              const rawId = entry.vehicle_id ?? entry.device_uuid ?? entry.device_id ?? entry.call_name ?? '';
+              const normalizedId = `${rawId}`.trim();
+              if (!normalizedId) {
+                continue;
+              }
+              const markerKey = `${ONDEMAND_MARKER_PREFIX}${normalizedId}`;
+              seen.add(markerKey);
+              const state = ensureBusMarkerState(markerKey);
+              state.isOnDemand = true;
+              const newPosition = [lat, lon];
+              const speedRaw = Number(entry.speed);
+              const speedMph = Number.isFinite(speedRaw) ? Math.max(0, speedRaw) : 0;
+              const fallbackHeading = getVehicleHeadingFallback(markerKey, entry.heading);
+              const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, speedMph);
+              const displayName = extractOnDemandDisplayName(entry.call_name) || `Vehicle ${normalizedId}`;
+              state.busName = displayName;
+              state.routeID = null;
+              state.fillColor = ONDEMAND_MARKER_COLOR;
+              const glyphColor = computeBusMarkerGlyphColor(ONDEMAND_MARKER_COLOR);
+              state.glyphColor = glyphColor;
+              state.isStale = false;
+              state.isStopped = isBusConsideredStopped(speedMph);
+              state.groundSpeed = speedMph;
+              state.lastUpdateTimestamp = Date.now();
+              const accessibleName = `${displayName} OnDemand`;
+              state.accessibleLabel = buildBusMarkerAccessibleLabel(accessibleName, headingDeg, speedMph);
+              rememberCachedVehicleHeading(markerKey, headingDeg, state.lastUpdateTimestamp);
+
+              if (markers[markerKey]) {
+                animateMarkerTo(markers[markerKey], newPosition);
+                markers[markerKey].routeID = null;
+                markers[markerKey].isOnDemand = true;
+                state.marker = markers[markerKey];
+                queueBusMarkerVisualUpdate(markerKey, {
+                  fillColor: ONDEMAND_MARKER_COLOR,
+                  glyphColor,
+                  headingDeg,
+                  accessibleLabel: state.accessibleLabel,
+                  stopped: state.isStopped,
+                  stale: false
+                });
+              } else {
+                const icon = await createBusMarkerDivIcon(markerKey, state);
+                if (!icon) {
+                  continue;
+                }
+                const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
+                marker.routeID = null;
+                marker.isOnDemand = true;
+                marker.addTo(map);
+                markers[markerKey] = marker;
+                state.marker = marker;
+                removeDuplicateBusMarkerLayers(markerKey, marker);
+                registerBusMarkerElements(markerKey);
+                attachBusMarkerInteractions(markerKey);
+                updateBusMarkerRootClasses(state);
+                updateBusMarkerZIndex(state);
+                applyBusMarkerOutlineWidth(state);
+              }
+
+              if (adminMode && !kioskMode) {
+                const nameIcon = createNameBubbleDivIcon(displayName, ONDEMAND_MARKER_COLOR, markerMetricsForZoom.scale, headingDeg);
+                nameBubbles[markerKey] = nameBubbles[markerKey] || {};
+                if (nameIcon) {
+                  if (nameBubbles[markerKey].nameMarker) {
+                    animateMarkerTo(nameBubbles[markerKey].nameMarker, newPosition);
+                    nameBubbles[markerKey].nameMarker.setIcon(nameIcon);
+                  } else {
+                    nameBubbles[markerKey].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                  }
+                } else if (nameBubbles[markerKey].nameMarker) {
+                  map.removeLayer(nameBubbles[markerKey].nameMarker);
+                  delete nameBubbles[markerKey].nameMarker;
+                }
+              } else if (nameBubbles[markerKey] && nameBubbles[markerKey].nameMarker) {
+                map.removeLayer(nameBubbles[markerKey].nameMarker);
+                delete nameBubbles[markerKey].nameMarker;
+              }
+
+              if (nameBubbles[markerKey]) {
+                const bubble = nameBubbles[markerKey];
+                const hasMarkers = Boolean(bubble.speedMarker || bubble.nameMarker || bubble.blockMarker || bubble.routeMarker);
+                if (hasMarkers) {
+                  bubble.lastScale = markerMetricsForZoom.scale;
+                } else {
+                  delete nameBubbles[markerKey];
+                }
+              }
+            }
+
+            Object.keys(markers).forEach(vehicleID => {
+              if (!isOnDemandVehicleId(vehicleID) || seen.has(vehicleID)) {
+                return;
+              }
+              const marker = markers[vehicleID];
+              if (marker) {
+                map.removeLayer(marker);
+              }
+              delete markers[vehicleID];
+              clearBusMarkerState(vehicleID);
+              if (nameBubbles[vehicleID]) {
+                const bubble = nameBubbles[vehicleID];
+                if (bubble.speedMarker) map.removeLayer(bubble.speedMarker);
+                if (bubble.nameMarker) map.removeLayer(bubble.nameMarker);
+                if (bubble.blockMarker) map.removeLayer(bubble.blockMarker);
+                if (bubble.routeMarker) map.removeLayer(bubble.routeMarker);
+                delete nameBubbles[vehicleID];
+              }
+            });
+            purgeOrphanedBusMarkers();
+            return entries;
+          } catch (error) {
+            console.error('Failed to fetch OnDemand vehicles:', error);
+            return [];
+          }
+        })();
+        onDemandFetchPromise = fetchPromise.finally(() => {
+          if (onDemandFetchPromise === fetchPromise) {
+            onDemandFetchPromise = null;
+          }
+        });
+        return onDemandFetchPromise;
+      }
+
       const BUS_MARKER_SVG_URL = 'busmarker.svg';
 
       const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
@@ -6884,6 +7187,11 @@ ${trainPlaneMarkup}
                 Stale Buses<span class="toggle-indicator">${includeStaleBuses ? 'On' : 'Off'}</span>
               </button>
             </div>
+            <div class="selector-group">
+              <button type="button" id="onDemandToggleButton" class="pill-button ondemand-toggle-button${onDemandVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${onDemandVehiclesEnabled ? 'true' : 'false'}" onclick="toggleOnDemandVehicles()">
+                OnDemand<span class="toggle-indicator">${onDemandVehiclesEnabled ? 'On' : 'Off'}</span>
+              </button>
+            </div>
           `;
         }
 
@@ -6905,6 +7213,7 @@ ${trainPlaneMarkup}
         updateAircraftToggleButton();
         updateIncidentToggleButton();
         updateStaleBusesButton();
+        updateOnDemandButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
       }
@@ -7880,6 +8189,9 @@ ${trainPlaneMarkup}
         if (catOverlayEnabled) {
           renderCatVehiclesUsingCache();
         }
+        if (onDemandVehiclesEnabled) {
+          fetchOnDemandVehicles().catch(error => console.error('Failed to refresh OnDemand vehicles:', error));
+        }
       }
 
       function clearRefreshIntervals() {
@@ -7922,6 +8234,9 @@ ${trainPlaneMarkup}
         if (shouldFetchServiceAlerts()) {
           fetchServiceAlertsForCurrentAgency();
         }
+        if (onDemandVehiclesEnabled) {
+          startOnDemandPolling();
+        }
         refreshIntervalsActive = true;
       }
 
@@ -7932,6 +8247,10 @@ ${trainPlaneMarkup}
         const hidden = document.hidden;
         if (hidden && !refreshSuspendedForVisibility) {
           refreshSuspendedForVisibility = true;
+          if (onDemandVehiclesEnabled && onDemandPollingTimerId !== null) {
+            stopOnDemandPolling();
+            onDemandPollingPausedForVisibility = true;
+          }
           clearRefreshIntervals();
           return;
         }
@@ -7939,6 +8258,10 @@ ${trainPlaneMarkup}
           refreshSuspendedForVisibility = false;
           refreshMap();
           startRefreshIntervals();
+          if (onDemandVehiclesEnabled && (onDemandPollingPausedForVisibility || onDemandPollingTimerId === null)) {
+            onDemandPollingPausedForVisibility = false;
+            startOnDemandPolling();
+          }
         }
       }
 
@@ -11394,6 +11717,9 @@ ${trainPlaneMarkup}
               }
 
               Object.keys(markers).forEach(vehicleID => {
+                  if (isOnDemandVehicleId(vehicleID)) {
+                      return;
+                  }
                   if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
                       map.removeLayer(markers[vehicleID]);
                       delete markers[vehicleID];
