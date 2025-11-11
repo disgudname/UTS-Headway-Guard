@@ -2155,6 +2155,81 @@ async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
         return csv_text, fetch_ts, None
 
 
+_DOWNED_SECTION_TITLES = {"Bus", "P&T Support Vehicle"}
+_DOWNED_SENSITIVE_HEADERS = {"current eta"}
+_DOWNED_SENSITIVE_HEADER_KEYWORDS = ("contact", "phone", "email")
+
+
+def _normalize_downed_header(text: Any) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip()).lower()
+
+
+def _clean_downed_cell(value: Any) -> str:
+    text = str(value or "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.strip()
+    if text.startswith("\ufeff"):
+        text = text.lstrip("\ufeff")
+    return text
+
+
+def _is_sensitive_downed_header(text: Any) -> bool:
+    normalized = _normalize_downed_header(text)
+    if not normalized:
+        return False
+    if normalized in _DOWNED_SENSITIVE_HEADERS:
+        return True
+    return any(keyword in normalized for keyword in _DOWNED_SENSITIVE_HEADER_KEYWORDS)
+
+
+def _parse_downed_sheet_sections(csv_text: str) -> Dict[str, Any]:
+    if not csv_text:
+        return {"headerLine": [], "sections": []}
+
+    reader = csv.reader(io.StringIO(csv_text))
+    rows = [[_clean_downed_cell(cell) for cell in row] for row in reader]
+    if not rows:
+        return {"headerLine": [], "sections": []}
+
+    header_line = rows[0]
+    sections: list[Dict[str, Any]] = []
+    current_section: Optional[Tuple[Dict[str, Any], list[int]]] = None
+
+    for row in rows[1:]:
+        if not any(row):
+            continue
+        first_cell = row[0]
+        if first_cell in _DOWNED_SECTION_TITLES:
+            headers = row
+            keep_indices = [
+                idx
+                for idx, header in enumerate(headers)
+                if not _is_sensitive_downed_header(header)
+            ]
+            filtered_headers = [headers[idx] for idx in keep_indices]
+            section: Dict[str, Any] = {
+                "title": first_cell,
+                "headers": filtered_headers,
+                "rows": [],
+            }
+            sections.append(section)
+            current_section = (section, keep_indices)
+            continue
+
+        if current_section is None:
+            continue
+
+        section, keep_indices = current_section
+        if not keep_indices:
+            continue
+        row_values = [row[idx] if idx < len(row) else "" for idx in keep_indices]
+        if not any(row_values):
+            continue
+        section["rows"].append(row_values)
+
+    return {"headerLine": header_line, "sections": sections}
+
+
 def _normalize_plain_block_name(text: str) -> Optional[str]:
     normalized = re.sub(r"\s+", " ", text.strip())
     if not normalized:
@@ -2452,6 +2527,20 @@ async def dispatcher_downed_buses(request: Request):
     csv_text, fetched_at, error = await _get_cached_downed_sheet()
     payload = {
         "csv": csv_text,
+        "fetched_at": int(fetched_at * 1000) if fetched_at else None,
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+@app.get("/v1/kiosk/downed_buses")
+async def kiosk_downed_buses():
+    csv_text, fetched_at, error = await _get_cached_downed_sheet()
+    parsed = _parse_downed_sheet_sections(csv_text)
+    payload: Dict[str, Any] = {
+        "headerLine": parsed.get("headerLine", []),
+        "sections": parsed.get("sections", []),
         "fetched_at": int(fetched_at * 1000) if fetched_at else None,
     }
     if error:

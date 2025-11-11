@@ -318,7 +318,8 @@
   <div id="sections"></div>
 </main>
 <script>
-const ENDPOINT = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const GOOGLE_SHEET_ENDPOINT = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const KIOSK_ENDPOINT = '/v1/kiosk/downed_buses';
 const REFRESH_MS = 5 * 60 * 1000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
@@ -437,6 +438,8 @@ function getQueryFlag(name){
   if(!normalized) return true;
   return !['0','false','no','off'].includes(normalized);
 }
+
+const kioskMode = getQueryFlag('kioskMode');
 
 const prioritizedSectionTitles=[];
 if(getQueryFlag('bus')) prioritizedSectionTitles.push('Bus');
@@ -646,6 +649,20 @@ function parseSheet(csvText){
     if(!current) continue;
     current.rows.push(row.slice());
   }
+  return { headerLine, sections };
+}
+
+function parseKioskPayload(payload){
+  if(!payload || typeof payload!=='object') return { headerLine:[], sections:[] };
+  const headerLine = Array.isArray(payload.headerLine) ? payload.headerLine.map(cleanCell) : [];
+  const sections = Array.isArray(payload.sections) ? payload.sections.map(section => {
+    const title = section && typeof section.title==='string' ? section.title : '';
+    const headers = Array.isArray(section.headers) ? section.headers.map(cleanCell) : [];
+    const rows = Array.isArray(section.rows)
+      ? section.rows.map(row => Array.isArray(row) ? row.map(cleanCell) : [])
+      : [];
+    return { title, headers, rows };
+  }).filter(section => section.headers && section.headers.length) : [];
   return { headerLine, sections };
 }
 
@@ -886,10 +903,20 @@ function renderSheet(data){
 
 async function loadSheet(){
   try{
-    const res=await fetch(ENDPOINT,{cache:'no-store'});
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const csv=await res.text();
-    renderSheet(parseSheet(csv));
+    let data=null;
+    if(kioskMode){
+      const res=await fetch(KIOSK_ENDPOINT,{cache:'no-store'});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const payload=await res.json();
+      if(payload && payload.error) console.warn('Downed buses source reported an error:', payload.error);
+      data=parseKioskPayload(payload);
+    }else{
+      const res=await fetch(GOOGLE_SHEET_ENDPOINT,{cache:'no-store'});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const csv=await res.text();
+      data=parseSheet(csv);
+    }
+    renderSheet(data || { headerLine:[], sections:[] });
   }catch(err){
     console.error('Failed to load downed vehicles sheet', err);
     renderSheet({ headerLine:[], sections:[] });
