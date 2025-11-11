@@ -1015,6 +1015,8 @@
     let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x, 1000x
     let routeColors = {};
     let allRoutes = {};
+    let loadedRouteDays = new Set();
+    let missingRouteDays = new Set();
     let routeSelections = {};
     let activeRoutes = new Set();
     let allBuses = {};
@@ -3570,6 +3572,53 @@
       }
     }
 
+    function mergeRouteMetadata(route) {
+      if (!route) return;
+      const rawId = route.RouteID ?? route.RouteId ?? route.routeID ?? route.routeId ?? route.id;
+      let numericId = Number(rawId);
+      if (!Number.isFinite(numericId)) {
+        if (typeof rawId === 'string' && rawId.trim()) {
+          const parsed = Number(rawId.trim());
+          if (Number.isFinite(parsed)) {
+            numericId = parsed;
+          } else {
+            return;
+          }
+        } else {
+          return;
+        }
+      }
+
+      const merged = Object.assign({}, allRoutes[numericId] || {}, route);
+
+      const colorRaw = route.MapLineColor ?? route.mapLineColor ?? route.RouteColor ?? route.Color;
+      const color = typeof colorRaw === 'string' ? colorRaw.trim() : '';
+      if (color) {
+        routeColors[numericId] = color;
+        merged.MapLineColor = color;
+      }
+
+      const encodedPolylineRaw = route.EncodedPolyline ?? route.encodedPolyline ?? route.Polyline ?? route.polyline;
+      const encoded = typeof encodedPolylineRaw === 'string' ? encodedPolylineRaw.trim() : '';
+      if (encoded) {
+        merged.EncodedPolyline = encoded;
+      } else {
+        delete merged.EncodedPolyline;
+      }
+
+      ['Description', 'RouteName', 'InfoText'].forEach(key => {
+        const value = route[key];
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed) {
+            merged[key] = trimmed;
+          }
+        }
+      });
+
+      allRoutes[numericId] = merged;
+    }
+
     async function fetchRoutes() {
       try {
         const response = await fetch('/v1/transloc/routes');
@@ -3578,29 +3627,8 @@
           return;
         }
 
-        data.forEach(route => {
-          if (!route) return;
-          const numericId = Number(route.RouteID);
-          if (!Number.isFinite(numericId)) return;
-
-          const merged = Object.assign({}, allRoutes[numericId] || {}, route);
-
-          const color = typeof route.MapLineColor === 'string' ? route.MapLineColor.trim() : '';
-          if (color) {
-            routeColors[numericId] = color;
-            merged.MapLineColor = color;
-          }
-
-          const encodedPolylineRaw = route.EncodedPolyline ?? route.encodedPolyline;
-          const encoded = typeof encodedPolylineRaw === 'string' ? encodedPolylineRaw.trim() : '';
-          if (encoded) {
-            merged.EncodedPolyline = encoded;
-          } else {
-            delete merged.EncodedPolyline;
-          }
-
-          allRoutes[numericId] = merged;
-        });
+        data.forEach(route => mergeRouteMetadata(route));
+        updateRouteSelector(activeRoutes, { force: true });
       } catch (err) {
         console.error('Error fetching routes', err);
       }
@@ -4133,11 +4161,37 @@
       return `${y}${m}${day}_${h}`;
     }
 
+    async function loadRoutesForDay(dayKey) {
+      if (!dayKey) return;
+      if (loadedRouteDays.has(dayKey) || missingRouteDays.has(dayKey)) return;
+      try {
+        const response = await fetch(`/vehicle_log/${dayKey}_routes.json`, { cache: 'no-store' });
+        if (!response.ok) {
+          if (response.status === 404) {
+            missingRouteDays.add(dayKey);
+          }
+          return;
+        }
+        const data = await response.json();
+        if (!Array.isArray(data)) {
+          loadedRouteDays.add(dayKey);
+          return;
+        }
+        data.forEach(route => mergeRouteMetadata(route));
+        loadedRouteDays.add(dayKey);
+        updateRouteSelector(activeRoutes, { force: true });
+      } catch (err) {
+        console.error(`Failed to load routes for ${dayKey}`, err);
+      }
+    }
+
     async function loadHour(ms) {
       const key = hourKey(ms);
       if (loadedHours.has(key)) return;
+      const dayKey = key.split('_')[0];
       beginRangeLoad();
       try {
+        await loadRoutesForDay(dayKey);
         const resp = await fetch(`/vehicle_log/${key}.jsonl`, { cache: 'no-store' });
         if (!resp.ok) { loadedHours.add(key); return; }
         const text = await resp.text();
@@ -4721,10 +4775,15 @@
         playbackData = [];
         playbackTimes = [];
         loadedHours = new Set();
+        allRoutes = {};
+        routeColors = {};
+        loadedRouteDays = new Set();
+        missingRouteDays = new Set();
         clearMarkers();
         routeLayers.forEach(layer => map.removeLayer(layer));
         routeLayers = [];
         routePolylineCache.clear();
+        updateRouteSelector(activeRoutes, { force: true });
         const timeline = document.getElementById('timeline');
         timeline.min = startTime.getTime();
         timeline.max = userEndTime.getTime();
@@ -4794,8 +4853,10 @@
       replayInitialized = true;
       try {
         pause();
-        await fetchRoutes();
         await applyRange(true);
+        if (missingRouteDays.size > 0 || Object.keys(allRoutes).length === 0) {
+          await fetchRoutes();
+        }
         startAutoRefresh();
       } catch (err) {
         replayInitialized = false;
@@ -4833,6 +4894,9 @@
     document.getElementById('loadRangeBtn').onclick = async () => {
       pause();
       await applyRange(false);
+      if (missingRouteDays.size > 0 || Object.keys(allRoutes).length === 0) {
+        await fetchRoutes();
+      }
     };
 
     if (disclaimerOverlay) {
