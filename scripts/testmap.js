@@ -5390,12 +5390,13 @@ schedulePlaneStyleOverride();
             return [];
           }
         })();
-        onDemandFetchPromise = fetchPromise.finally(() => {
+        onDemandFetchPromise = fetchPromise;
+        fetchPromise.finally(() => {
           if (onDemandFetchPromise === fetchPromise) {
             onDemandFetchPromise = null;
           }
         });
-        return onDemandFetchPromise;
+        return fetchPromise;
       }
 
       const BUS_MARKER_SVG_URL = 'busmarker.svg';
