@@ -18,18 +18,13 @@
     kioskMode=normalized==='' ? true : !['0','false','no','off'].includes(normalized);
   }
   document.documentElement.classList.toggle('kiosk-mode', kioskMode);
-  if(kioskMode){
-    const systemStack="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
-    document.documentElement.style.setProperty('--app-font-family', systemStack);
-  }else{
-    const preload=document.createElement('link');
-    preload.rel='preload';
-    preload.href='FGDC.ttf';
-    preload.as='font';
-    preload.type='font/ttf';
-    preload.crossOrigin='anonymous';
-    document.head.appendChild(preload);
-  }
+  const preload=document.createElement('link');
+  preload.rel='preload';
+  preload.href='FGDC.ttf';
+  preload.as='font';
+  preload.type='font/ttf';
+  preload.crossOrigin='anonymous';
+  document.head.appendChild(preload);
 })();
 </script>
 <style>
