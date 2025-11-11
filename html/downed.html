@@ -8,7 +8,29 @@
 <meta charset="utf-8" />
 <title>Downed Vehicles - UTS Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<script>
+(function(){
+  const params=new URLSearchParams(window.location.search);
+  const value=params.get('kioskMode');
+  let kioskMode=false;
+  if(value!==null){
+    const normalized=String(value).trim().toLowerCase();
+    kioskMode=normalized==='' ? true : !['0','false','no','off'].includes(normalized);
+  }
+  if(kioskMode){
+    const systemStack="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+    document.documentElement.style.setProperty('--app-font-family', systemStack);
+  }else{
+    const preload=document.createElement('link');
+    preload.rel='preload';
+    preload.href='FGDC.ttf';
+    preload.as='font';
+    preload.type='font/ttf';
+    preload.crossOrigin='anonymous';
+    document.head.appendChild(preload);
+  }
+})();
+</script>
 <style>
   @font-face{
     font-family:'FGDC';
@@ -17,6 +39,7 @@
     font-style:normal;
   }
   :root{
+    --app-font-family:'FGDC', sans-serif;
     --bg:#24234B;
     --panel:#101935;
     --row-alt:#1b2f5d;
@@ -37,7 +60,7 @@
     margin:0;
     background:var(--bg);
     color:var(--ink);
-    font-family:'FGDC',sans-serif;
+    font-family:var(--app-font-family);
     font-size:var(--dynamic-base-font-size, var(--base-font-size));
     line-height:1.45;
     min-height:100vh;
