@@ -927,7 +927,12 @@ document.addEventListener('visibilitychange',()=>{
 });
 
 start();
+
+if(!kioskMode){
+  const navScript=document.createElement('script');
+  navScript.src='nav-bar.js';
+  document.body.appendChild(navScript);
+}
 </script>
-<script src="nav-bar.js"></script>
 </body>
 </html>
