@@ -318,7 +318,8 @@
   <div id="sections"></div>
 </main>
 <script>
-const ENDPOINT = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const GOOGLE_SHEETS_ENDPOINT = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const KIOSK_ENDPOINT = '/v1/kiosk/downed_buses';
 const REFRESH_MS = 5 * 60 * 1000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
@@ -890,10 +891,21 @@ function renderSheet(data){
 
 async function loadSheet(){
   try{
-    const res=await fetch(ENDPOINT,{cache:'no-store'});
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const csv=await res.text();
-    renderSheet(parseSheet(csv));
+    if(kioskModeEnabled){
+      const res=await fetch(KIOSK_ENDPOINT,{cache:'no-store'});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const payload=await res.json();
+      if(payload && payload.error){
+        console.warn('Downed kiosk endpoint reported error:', payload.error);
+      }
+      const sections=Array.isArray(payload && payload.sections) ? payload.sections : [];
+      renderSheet({ headerLine:payload && payload.headerLine || [], sections });
+    }else{
+      const res=await fetch(GOOGLE_SHEETS_ENDPOINT,{cache:'no-store'});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const csv=await res.text();
+      renderSheet(parseSheet(csv));
+    }
   }catch(err){
     console.error('Failed to load downed vehicles sheet', err);
     renderSheet({ headerLine:[], sections:[] });
