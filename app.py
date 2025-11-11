@@ -31,7 +31,6 @@ import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uui
 from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 import httpx
-import html as html_lib
 from collections import deque, defaultdict
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
@@ -841,7 +840,6 @@ NOT_FOUND_HTML = _load_html("404.html")
 RADAR_HTML = _load_html("radar.html")
 EINK_BLOCK_HTML = _load_html("eink-block.html")
 DOWNED_HTML = _load_html("downed.html")
-DOWNED_KIOSK_HTML = _load_html("downed_kiosk.html")
 IPS_HTML = _load_html("ips.html")
 LOGIN_HTML = _load_html("login.html")
 REPAIRS_HTML = _load_html("repairs.html")
@@ -2409,91 +2407,6 @@ def _filter_kiosk_sections(sections: Sequence[Dict[str, Any]]) -> List[Dict[str,
         filtered_section["rows"] = filtered_rows
         filtered.append(filtered_section)
     return filtered
-
-
-DOWNED_KIOSK_REFRESH_S = int(os.getenv("DOWNED_KIOSK_REFRESH_S", "60"))
-
-
-def _escape_for_html(value: Any) -> str:
-    return html_lib.escape(str(value or ""), quote=False)
-
-
-def _render_kiosk_sections(sections: Sequence[Dict[str, Any]]) -> str:
-    rendered_sections: List[str] = []
-    for section in sections or []:
-        headers = list(section.get("headers") or [])
-        rows = list(section.get("rows") or [])
-        if not rows:
-            continue
-
-        table_parts: List[str] = ["<table>"]
-        title = section.get("title")
-        if title:
-            table_parts.append(f"<caption>{_escape_for_html(title)}</caption>")
-
-        if headers:
-            table_parts.append("<thead><tr>")
-            for header in headers:
-                table_parts.append(f"<th>{_escape_for_html(header)}</th>")
-            table_parts.append("</tr></thead>")
-
-        table_parts.append("<tbody>")
-        header_count = len(headers)
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            values = list(row.get("values") or [])
-            col_count = max(header_count, len(values))
-            table_parts.append("<tr>")
-            for idx in range(col_count):
-                value = values[idx] if idx < len(values) else ""
-                table_parts.append(f"<td>{_escape_for_html(value)}</td>")
-            table_parts.append("</tr>")
-        table_parts.append("</tbody></table>")
-        rendered_sections.append("".join(table_parts))
-
-    if not rendered_sections:
-        return (
-            '<div class="empty">No kiosk-ready vehicles at this time.</div>'
-        )
-    return "\n".join(rendered_sections)
-
-
-def _format_kiosk_updated_text(fetched_at: Optional[float], error: Optional[str]) -> str:
-    pieces: List[str] = []
-    if fetched_at:
-        eastern = datetime.fromtimestamp(fetched_at, ZoneInfo("America/New_York"))
-        pieces.append(eastern.strftime("Updated %b %d %I:%M %p").replace(" 0", " "))
-    else:
-        pieces.append("Updated time unavailable")
-    if error:
-        pieces.append(f"Last fetch error: {error}")
-    return _escape_for_html(" — ".join(pieces))
-
-
-def _format_kiosk_header_line(header_line: Sequence[Any]) -> str:
-    text = " · ".join(
-        str(part).strip()
-        for part in header_line or []
-        if str(part).strip()
-    )
-    return _escape_for_html(text)
-
-
-async def _render_downed_kiosk_page() -> str:
-    csv_text, fetched_at, error = await _get_cached_downed_sheet()
-    parsed = _parse_downed_sheet_csv(csv_text)
-    filtered_sections = _filter_kiosk_sections(parsed.get("sections", []))
-    table_html = _render_kiosk_sections(filtered_sections)
-    updated_text = _format_kiosk_updated_text(fetched_at, error)
-    header_text = _format_kiosk_header_line(parsed.get("headerLine") or [])
-    return (
-        DOWNED_KIOSK_HTML
-        .replace("{{REFRESH_INTERVAL}}", str(DOWNED_KIOSK_REFRESH_S))
-        .replace("{{UPDATED_AT}}", updated_text)
-        .replace("{{HEADER_LINE}}", header_text)
-        .replace("{{TABLE}}", table_html)
-    )
 
 
 async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
@@ -4696,11 +4609,7 @@ async def dispatcher_page(request: Request):
 
 
 @app.get("/downed")
-async def downed_page(request: Request):
-    kiosk_mode = request.query_params.get("kioskMode", "").lower() == "true"
-    if kiosk_mode:
-        kiosk_html = await _render_downed_kiosk_page()
-        return HTMLResponse(kiosk_html)
+async def downed_page():
     return HTMLResponse(DOWNED_HTML)
 
 
