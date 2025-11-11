@@ -359,6 +359,7 @@ const KIOSK_ENDPOINT = '/v1/kiosk/downed_buses';
 const REFRESH_MS = 5 * 60 * 1000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
+let kioskRenderSignature = null;
 
 const MIN_DYNAMIC_FONT_SIZE = 12;
 const MAX_DYNAMIC_FONT_SIZE = 48;
@@ -500,15 +501,6 @@ function abbreviateHeaderLabel(text){
     .replace(/ACTUAL DELIVERY DATE/gi,'DEL DATE');
 }
 
-function allowsWrappingForHeader(text){
-  const normalized=normalizeHeader(text);
-  if(!normalized) return false;
-  if(normalized.includes('note')) return true;
-  if(normalized.includes('description')) return true;
-  if(normalized.includes('notes/description')) return true;
-  return false;
-}
-
 function normalizeHeader(text){
   return String(text || '')
     .replace(/\s+/g,' ')
@@ -516,12 +508,36 @@ function normalizeHeader(text){
     .toLowerCase();
 }
 
+function allowsWrappingForNormalizedHeader(normalized){
+  if(!normalized) return false;
+  if(normalized.includes('note')) return true;
+  if(normalized.includes('description')) return true;
+  if(normalized.includes('notes/description')) return true;
+  return false;
+}
+
+function isHiddenNormalizedHeader(normalized){
+  return !!normalized && HIDDEN_HEADER_LABELS.has(normalized);
+}
+
 function isHiddenHeader(text){
-  return HIDDEN_HEADER_LABELS.has(normalizeHeader(text));
+  return isHiddenNormalizedHeader(normalizeHeader(text));
+}
+
+function isStatusNormalizedHeader(normalized){
+  return normalized === 'status';
 }
 
 function isStatusHeader(text){
-  return normalizeHeader(text) === 'status';
+  return isStatusNormalizedHeader(normalizeHeader(text));
+}
+
+function isVehicleNormalizedHeader(normalized){
+  if(!normalized) return false;
+  if(normalized==='bus') return true;
+  if(normalized==='p&t support vehicle') return true;
+  if(normalized==='vehicle') return true;
+  return normalized.includes('vehicle');
 }
 
 function findDiagnosticDateIndex(headers){
@@ -564,7 +580,7 @@ function findVehicleIndex(headers){
   if(!Array.isArray(headers)) return 0;
   for(let i=0;i<headers.length;i++){
     const normalized=normalizeHeader(headers[i]);
-    if(normalized==='bus' || normalized==='p&t support vehicle' || normalized==='vehicle' || normalized.includes('vehicle')){
+    if(isVehicleNormalizedHeader(normalized)){
       return i;
     }
   }
@@ -575,7 +591,7 @@ function findStatusIndices(headers){
   if(!Array.isArray(headers)) return [];
   const results=[];
   headers.forEach((text,index)=>{
-    if(normalizeHeader(text)==='status') results.push(index);
+    if(isStatusHeader(text)) results.push(index);
   });
   return results;
 }
@@ -638,6 +654,26 @@ function parseCsv(text){
   }
   if(cur!=='' || row.length){ row.push(cur); rows.push(row); }
   return rows;
+}
+
+function computeKioskSignature(data){
+  if(!kioskMode) return null;
+  try{
+    if(!data || !Array.isArray(data.sections)) return '[]';
+    const payload=data.sections.map(section=>({
+      title:section && section.title || '',
+      headers:Array.isArray(section && section.headers) ? section.headers.slice() : [],
+      rows:Array.isArray(section && section.rows) ? section.rows.map(row=>({
+        values:Array.isArray(row && row.values) ? row.values.slice() : Array.isArray(row) ? row.slice() : [],
+        statusText:row && row.statusText || '',
+        displayDate:row && row.displayDate || '',
+      })) : [],
+    }));
+    return JSON.stringify(payload);
+  }catch(err){
+    console.warn('Unable to compute kiosk render signature', err);
+    return null;
+  }
 }
 
 function cleanCell(value){
@@ -758,9 +794,20 @@ function renderSection(section){
   const thead=document.createElement('thead');
   const headRow=document.createElement('tr');
   const headers=Array.isArray(section.headers) ? section.headers.slice() : [];
-  const visibleColumns=headers
-    .map((text,index)=>({ text, index }))
-    .filter(col=>!isHiddenHeader(col.text));
+  const visibleColumns=[];
+  headers.forEach((text,index)=>{
+    const normalized=normalizeHeader(text);
+    if(isHiddenNormalizedHeader(normalized)) return;
+    visibleColumns.push({
+      text,
+      index,
+      normalized,
+      isVehicle:isVehicleNormalizedHeader(normalized),
+      allowsWrapping:allowsWrappingForNormalizedHeader(normalized),
+      isStatus:isStatusNormalizedHeader(normalized),
+      mobileLabel:getMobileLabel(text),
+    });
+  });
 
   if(!visibleColumns.length){
     const empty=document.createElement('div');
@@ -774,9 +821,7 @@ function renderSection(section){
     const text=abbreviateHeaderLabel(col.text);
     const th=document.createElement('th');
     const normalized=normalizeHeader(text);
-    const originalNormalized=normalizeHeader(col.text);
-    const isVehicleColumn=originalNormalized==='bus' || originalNormalized==='p&t support vehicle' || originalNormalized==='vehicle' || originalNormalized.includes('vehicle');
-    if(isVehicleColumn) th.classList.add('vehicle-column');
+    if(col.isVehicle) th.classList.add('vehicle-column');
     if(text && normalized!=='bus' && normalized!=='p&t support vehicle'){
       th.textContent=String(text).replace(/[\n\r]+/g,' ').replace(/\s{2,}/g,' ').trim();
     }else{
@@ -805,16 +850,13 @@ function renderSection(section){
     const displayDate=(row && typeof row.displayDate==='string') ? row.displayDate
       : getDisplayDate(values, deliveryIndex, downIndex);
     visibleColumns.forEach(col => {
-      const { index, text: headerText } = col;
+      const { index, isVehicle, allowsWrapping, isStatus } = col;
       const cell=index<values.length ? values[index] : '';
       const td=document.createElement('td');
       const text=cell==null ? '' : cell;
-      const normalizedHeader=normalizeHeader(headerText);
-      const isVehicleColumn=normalizedHeader==='bus' || normalizedHeader==='p&t support vehicle' || normalizedHeader==='vehicle' || normalizedHeader.includes('vehicle');
-      const allowsWrapping=allowsWrappingForHeader(headerText);
-      if(isVehicleColumn) td.classList.add('vehicle-column');
+      if(isVehicle) td.classList.add('vehicle-column');
       if(allowsWrapping) td.classList.add('wrap-allowed');
-      if(isStatusHeader(headerText)){
+      if(isStatus){
         const cls=getStatusClass(text);
         td.className='status';
         if(text && cls){
@@ -881,13 +923,13 @@ function renderSection(section){
       const details=document.createElement('dl');
       details.className='card-details';
       visibleColumns.forEach(col => {
-        const { index, text: headerText } = col;
+        const { index, isStatus, mobileLabel } = col;
         const value=index<values.length ? values[index] : '';
         if(!value) return;
         const dt=document.createElement('dt');
-        dt.textContent=getMobileLabel(headerText);
+        dt.textContent=mobileLabel;
         const dd=document.createElement('dd');
-        if(isStatusHeader(headerText)){
+        if(isStatus){
           const cls=getStatusClass(value);
           if(value && cls){
             const pill=document.createElement('span');
@@ -943,12 +985,22 @@ function renderSection(section){
 }
 
 function renderSheet(data){
-  sectionsContainer.innerHTML='';
+  let kioskSignature=null;
+  if(kioskMode){
+    kioskSignature=computeKioskSignature(data);
+    if(kioskSignature && kioskSignature===kioskRenderSignature){
+      return;
+    }
+  }else{
+    kioskRenderSignature=null;
+  }
+
   if(!data.sections.length){
     const empty=document.createElement('div');
     empty.className='empty-indicator';
     empty.textContent='Unable to load downed vehicle data.';
-    sectionsContainer.appendChild(empty);
+    sectionsContainer.replaceChildren(empty);
+    if(kioskMode) kioskRenderSignature=kioskSignature;
     if(!kioskMode) scheduleFontAdjustment();
     return;
   }
@@ -960,9 +1012,12 @@ function renderSheet(data){
       return a.index-b.index;
     })
     .map(item=>item.section);
+  const fragment=document.createDocumentFragment();
   orderedSections.forEach(section => {
-    sectionsContainer.appendChild(renderSection(section));
+    fragment.appendChild(renderSection(section));
   });
+  sectionsContainer.replaceChildren(fragment);
+  if(kioskMode) kioskRenderSignature=kioskSignature;
   if(!kioskMode) scheduleFontAdjustment();
 }
 
