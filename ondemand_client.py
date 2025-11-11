@@ -67,7 +67,11 @@ class OnDemandClient:
         self._token = None
 
     def _extract_csrf_token(self, html: str) -> str:
-        match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+        match = re.search(
+            r'<input[^>]*name=["\']csrf_token["\'][^>]*value=["\']([^"\']+)["\']',
+            html,
+            flags=re.IGNORECASE,
+        )
         if not match:
             raise RuntimeError("Could not find csrf_token in login page")
         return match.group(1)
