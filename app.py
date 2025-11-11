@@ -48,6 +48,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 
 from tickets_store import TicketStore
+from ondemand_client import OnDemandClient
 
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
@@ -807,6 +808,18 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # ---------------------------
 app = FastAPI(title="UTS Operations Dashboard")
 
+
+@app.on_event("startup")
+async def init_ondemand_client() -> None:
+    app.state.ondemand_client = OnDemandClient.from_env()
+
+
+@app.on_event("shutdown")
+async def shutdown_ondemand_client() -> None:
+    client = getattr(app.state, "ondemand_client", None)
+    if client is not None:
+        await client.aclose()
+
 BASE_DIR = Path(__file__).resolve().parent
 HTML_DIR = BASE_DIR / "html"
 CSS_DIR = BASE_DIR / "css"
@@ -1555,6 +1568,14 @@ async def health():
     async with state.lock:
         ok = not bool(state.last_error)
         return {"ok": ok, "last_error": (state.last_error or None), "last_error_ts": (state.last_error_ts or None)}
+
+
+@app.get("/api/ondemand/vehicles/positions")
+async def api_ondemand_positions():
+    client: OnDemandClient = app.state.ondemand_client
+    data = await client.get_vehicle_positions()
+    return data
+
 
 # ---------------------------
 # Startup background updater
