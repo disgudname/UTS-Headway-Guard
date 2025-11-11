@@ -2121,6 +2121,47 @@ async def _fetch_downed_sheet_csv() -> str:
     return resp.text
 
 
+def _clean_sheet_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.strip()
+
+
+def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
+    if not csv_text:
+        return {"headerLine": [], "sections": []}
+
+    reader = csv.reader(io.StringIO(csv_text))
+    rows: List[List[str]] = [[_clean_sheet_cell(cell) for cell in row] for row in reader]
+    if not rows:
+        return {"headerLine": [], "sections": []}
+
+    header_line = rows[0]
+    sections: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    SECTION_TITLES = {"Bus", "P&T Support Vehicle"}
+
+    for raw_row in rows[1:]:
+        if not any(raw_row):
+            continue
+        first = raw_row[0]
+        if first in SECTION_TITLES:
+            current = {
+                "title": first,
+                "headers": list(raw_row),
+                "rows": [],
+            }
+            sections.append(current)
+            continue
+        if current is None:
+            continue
+        current["rows"].append(list(raw_row))
+
+    return {"headerLine": header_line, "sections": sections}
+
+
 async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
     global _downed_sheet_csv, _downed_sheet_fetched_at, _downed_sheet_last_attempt, _downed_sheet_error
 
@@ -2452,6 +2493,20 @@ async def dispatcher_downed_buses(request: Request):
     csv_text, fetched_at, error = await _get_cached_downed_sheet()
     payload = {
         "csv": csv_text,
+        "fetched_at": int(fetched_at * 1000) if fetched_at else None,
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+@app.get("/v1/kiosk/downed_buses")
+async def kiosk_downed_buses():
+    csv_text, fetched_at, error = await _get_cached_downed_sheet()
+    parsed = _parse_downed_sheet_csv(csv_text)
+    payload: Dict[str, Any] = {
+        "headerLine": parsed.get("headerLine", []),
+        "sections": parsed.get("sections", []),
         "fetched_at": int(fetched_at * 1000) if fetched_at else None,
     }
     if error:
