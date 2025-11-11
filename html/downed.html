@@ -438,6 +438,8 @@ function getQueryFlag(name){
   return !['0','false','no','off'].includes(normalized);
 }
 
+const kioskModeEnabled = getQueryFlag('kioskMode');
+
 const prioritizedSectionTitles=[];
 if(getQueryFlag('bus')) prioritizedSectionTitles.push('Bus');
 if(getQueryFlag('support')) prioritizedSectionTitles.push('P&T Support Vehicle');
@@ -716,8 +718,9 @@ function renderSection(section){
   const deliveryCutoff=getDeliveryCutoff();
   const downIndex=findDownDateIndex(section.headers);
   const vehicleIndex=findVehicleIndex(section.headers);
-  const mobileList=document.createElement('div');
-  mobileList.className='mobile-list';
+  const shouldBuildMobileCards=!kioskModeEnabled;
+  const mobileList=shouldBuildMobileCards ? document.createElement('div') : null;
+  if(mobileList) mobileList.className='mobile-list';
   section.rows.forEach(row => {
     const tr=document.createElement('tr');
     const padded=row.slice();
@@ -725,7 +728,6 @@ function renderSection(section){
     const statusText=getPreferredStatus(padded, section.headers);
     if(shouldHideByDeliveryDate(padded, deliveryIndex, deliveryCutoff, statusText)) return;
     const diagnosticValue=(diagnosticIndex>=0 && diagnosticIndex<padded.length) ? padded[diagnosticIndex] : '';
-    const hasDiagnosticDate=!!(diagnosticValue && String(diagnosticValue).trim());
     const displayDate=getDisplayDate(padded, deliveryIndex, downIndex);
     visibleColumns.forEach(col => {
       const { index, text: headerText } = col;
@@ -758,91 +760,93 @@ function renderSection(section){
     });
     tbody.appendChild(tr);
 
-    const card=document.createElement('div');
-    card.className='mobile-card';
-    const summaryButton=document.createElement('button');
-    summaryButton.type='button';
-    summaryButton.className='card-summary';
-    summaryButton.setAttribute('aria-expanded','false');
+    if(shouldBuildMobileCards){
+      const card=document.createElement('div');
+      card.className='mobile-card';
+      const summaryButton=document.createElement('button');
+      summaryButton.type='button';
+      summaryButton.className='card-summary';
+      summaryButton.setAttribute('aria-expanded','false');
 
-    const vehicleLabel=document.createElement('span');
-    vehicleLabel.className='vehicle';
-    vehicleLabel.textContent=padded[vehicleIndex] || 'Unknown Vehicle';
-    summaryButton.appendChild(vehicleLabel);
+      const vehicleLabel=document.createElement('span');
+      vehicleLabel.className='vehicle';
+      vehicleLabel.textContent=padded[vehicleIndex] || 'Unknown Vehicle';
+      summaryButton.appendChild(vehicleLabel);
 
-    const summaryMeta=document.createElement('div');
-    summaryMeta.className='summary-meta';
+      const summaryMeta=document.createElement('div');
+      summaryMeta.className='summary-meta';
 
-    if(statusText){
-      const statusCls=getStatusClass(statusText);
-      const pill=document.createElement('span');
-      pill.className='pill';
-      if(statusCls) pill.classList.add(statusCls);
-      const label=document.createElement('span');
-      label.textContent=statusText;
-      pill.appendChild(label);
-      summaryMeta.appendChild(pill);
-    }
+      if(statusText){
+        const statusCls=getStatusClass(statusText);
+        const pill=document.createElement('span');
+        pill.className='pill';
+        if(statusCls) pill.classList.add(statusCls);
+        const label=document.createElement('span');
+        label.textContent=statusText;
+        pill.appendChild(label);
+        summaryMeta.appendChild(pill);
+      }
 
-    const dateEl=document.createElement('span');
-    dateEl.className='summary-date';
-    dateEl.textContent=displayDate || '—';
-    summaryMeta.appendChild(dateEl);
+      const dateEl=document.createElement('span');
+      dateEl.className='summary-date';
+      dateEl.textContent=displayDate || '—';
+      summaryMeta.appendChild(dateEl);
 
-    const chevron=document.createElement('span');
-    chevron.className='chevron';
-    chevron.textContent='›';
-    chevron.setAttribute('aria-hidden','true');
+      const chevron=document.createElement('span');
+      chevron.className='chevron';
+      chevron.textContent='›';
+      chevron.setAttribute('aria-hidden','true');
 
-    summaryButton.appendChild(summaryMeta);
-    summaryButton.appendChild(chevron);
+      summaryButton.appendChild(summaryMeta);
+      summaryButton.appendChild(chevron);
 
-    const details=document.createElement('dl');
-    details.className='card-details';
-    visibleColumns.forEach(col => {
-      const { index, text: headerText } = col;
-      const value=padded[index];
-      if(!value) return;
-      const dt=document.createElement('dt');
-      dt.textContent=getMobileLabel(headerText);
-      const dd=document.createElement('dd');
-      if(isStatusHeader(headerText)){
-        const cls=getStatusClass(value);
-        if(value && cls){
-          const pill=document.createElement('span');
-          pill.className='pill';
-          pill.classList.add(cls);
-          const label=document.createElement('span');
-          label.textContent=value;
-          pill.appendChild(label);
-          dd.appendChild(pill);
+      const details=document.createElement('dl');
+      details.className='card-details';
+      visibleColumns.forEach(col => {
+        const { index, text: headerText } = col;
+        const value=padded[index];
+        if(!value) return;
+        const dt=document.createElement('dt');
+        dt.textContent=getMobileLabel(headerText);
+        const dd=document.createElement('dd');
+        if(isStatusHeader(headerText)){
+          const cls=getStatusClass(value);
+          if(value && cls){
+            const pill=document.createElement('span');
+            pill.className='pill';
+            pill.classList.add(cls);
+            const label=document.createElement('span');
+            label.textContent=value;
+            pill.appendChild(label);
+            dd.appendChild(pill);
+          }else{
+            dd.textContent=value;
+          }
         }else{
           dd.textContent=value;
         }
-      }else{
-        dd.textContent=value;
+        details.appendChild(dt);
+        details.appendChild(dd);
+      });
+
+      const hasDetails=details.children.length>0;
+      if(!hasDetails){
+        chevron.style.visibility='hidden';
+        summaryButton.setAttribute('aria-expanded','false');
       }
-      details.appendChild(dt);
-      details.appendChild(dd);
-    });
 
-    const hasDetails=details.children.length>0;
-    if(!hasDetails){
-      chevron.style.visibility='hidden';
-      summaryButton.setAttribute('aria-expanded','false');
+      summaryButton.addEventListener('click',()=>{
+        if(!hasDetails) return;
+        const expanded=!card.classList.contains('expanded');
+        card.classList.toggle('expanded');
+        summaryButton.setAttribute('aria-expanded', expanded ? 'true':'false');
+        scheduleFontAdjustment();
+      });
+
+      card.appendChild(summaryButton);
+      card.appendChild(details);
+      mobileList.appendChild(card);
     }
-
-    summaryButton.addEventListener('click',()=>{
-      if(!hasDetails) return;
-      const expanded=!card.classList.contains('expanded');
-      card.classList.toggle('expanded');
-      summaryButton.setAttribute('aria-expanded', expanded ? 'true':'false');
-      scheduleFontAdjustment();
-    });
-
-    card.appendChild(summaryButton);
-    card.appendChild(details);
-    mobileList.appendChild(card);
   });
   if(!tbody.children.length){
     const empty=document.createElement('div');
@@ -854,7 +858,7 @@ function renderSection(section){
   table.appendChild(tbody);
   tableWrapper.appendChild(table);
   wrapper.appendChild(tableWrapper);
-  if(mobileList.children.length){
+  if(shouldBuildMobileCards && mobileList.children.length){
     wrapper.appendChild(mobileList);
   }
   return wrapper;
