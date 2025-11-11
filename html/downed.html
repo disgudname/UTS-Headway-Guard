@@ -415,6 +415,10 @@ function adjustBaseFontSize(){
   setDynamicFontSize(best);
 }
 
+const urlParams = new URLSearchParams(window.location.search);
+
+const kioskMode = getQueryFlag('kioskMode');
+
 function scheduleFontAdjustment(){
   if(kioskMode) return;
   if(fontAdjustmentFrame) cancelAnimationFrame(fontAdjustmentFrame);
@@ -431,10 +435,6 @@ if(!kioskMode){
     resizeDebounceTimer=setTimeout(scheduleFontAdjustment, 150);
   });
 }
-
-const urlParams = new URLSearchParams(window.location.search);
-
-const kioskMode = getQueryFlag('kioskMode');
 
 function getQueryFlag(name){
   const value=urlParams.get(name);
