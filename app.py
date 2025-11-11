@@ -2129,6 +2129,148 @@ def _clean_sheet_cell(value: Any) -> str:
     return text.strip()
 
 
+def _normalize_header_label(text: Any) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip()).lower()
+
+
+def _find_status_indices(headers: Sequence[Any]) -> List[int]:
+    return [idx for idx, text in enumerate(headers) if _normalize_header_label(text) == "status"]
+
+
+def _find_delivery_date_index(headers: Sequence[Any]) -> int:
+    for idx, text in enumerate(headers):
+        normalized = _normalize_header_label(text)
+        if not normalized:
+            continue
+        if (
+            normalized == "actual delivery date"
+            or normalized == "delivery date"
+            or "delivery date" in normalized
+        ):
+            return idx
+    return -1
+
+
+def _find_down_date_index(headers: Sequence[Any]) -> int:
+    for idx, text in enumerate(headers):
+        normalized = _normalize_header_label(text)
+        if not normalized:
+            continue
+        if normalized == "date" or normalized == "down date" or "down date" in normalized:
+            return idx
+    return -1
+
+
+def _parse_sheet_date(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+
+    normalized = text.replace("T", " ").replace("Z", "").strip()
+    try:
+        # datetime.fromisoformat handles many common cases
+        parsed = datetime.fromisoformat(normalized)
+        return parsed
+    except (TypeError, ValueError):
+        pass
+
+    date_patterns = [
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%Y/%m/%d",
+        "%Y-%m-%d",
+        "%m-%d-%Y",
+        "%m-%d-%y",
+        "%b %d %Y",
+        "%b %d, %Y",
+    ]
+    datetime_patterns = [
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%y %H:%M",
+        "%m/%d/%y %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%m-%d-%Y %H:%M",
+        "%m-%d-%Y %H:%M:%S",
+        "%m-%d-%y %H:%M",
+        "%m-%d-%y %H:%M:%S",
+    ]
+
+    for fmt in datetime_patterns:
+        try:
+            return datetime.strptime(normalized, fmt)
+        except (TypeError, ValueError):
+            continue
+
+    for fmt in date_patterns:
+        try:
+            return datetime.strptime(normalized, fmt)
+        except (TypeError, ValueError):
+            continue
+
+    first_token = normalized.split()[0]
+    if first_token != normalized:
+        for fmt in date_patterns:
+            try:
+                return datetime.strptime(first_token, fmt)
+            except (TypeError, ValueError):
+                continue
+
+    return None
+
+
+def _get_preferred_status(values: Sequence[Any], status_indices: Sequence[int]) -> str:
+    if not status_indices:
+        return ""
+    for idx in reversed(status_indices):
+        if idx < 0 or idx >= len(values):
+            continue
+        value = values[idx]
+        if value and str(value).strip():
+            return str(value)
+    for idx in status_indices:
+        if idx < 0 or idx >= len(values):
+            continue
+        value = values[idx]
+        if value and str(value).strip():
+            return str(value)
+    return ""
+
+
+def _get_display_date(values: Sequence[Any], delivery_idx: int, down_idx: int) -> str:
+    if 0 <= delivery_idx < len(values):
+        delivery = values[delivery_idx]
+        if delivery and str(delivery).strip():
+            return str(delivery)
+    if 0 <= down_idx < len(values):
+        down = values[down_idx]
+        if down and str(down).strip():
+            return str(down)
+    return ""
+
+
+def _should_hide_by_delivery_date(
+    values: Sequence[Any],
+    delivery_idx: int,
+    cutoff_date: datetime,
+    status_text: str = "",
+) -> bool:
+    if delivery_idx < 0 or delivery_idx >= len(values):
+        return False
+    if status_text and re.search(r"\bUP\b", status_text, re.IGNORECASE):
+        return False
+    parsed = _parse_sheet_date(values[delivery_idx])
+    if not parsed:
+        return False
+    if parsed.tzinfo is not None and cutoff_date.tzinfo is not None:
+        parsed = parsed.astimezone(cutoff_date.tzinfo)
+    parsed_date = parsed.date()
+    return parsed_date <= cutoff_date.date()
+
+
 def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
     if not csv_text:
         return {"headerLine": [], "sections": []}
@@ -2158,6 +2300,34 @@ def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
         if current is None:
             continue
         current["rows"].append(list(raw_row))
+
+    now = datetime.now(ZoneInfo("America/New_York"))
+    start_of_today = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
+    delivery_cutoff = start_of_today - timedelta(days=1)
+
+    for section in sections:
+        headers = section.get("headers") or []
+        status_indices = _find_status_indices(headers)
+        delivery_idx = _find_delivery_date_index(headers)
+        down_idx = _find_down_date_index(headers)
+        processed_rows: List[Dict[str, Any]] = []
+        for row in section.get("rows", []):
+            values = list(row)
+            if len(values) < len(headers):
+                values.extend([""] * (len(headers) - len(values)))
+            status_text = _get_preferred_status(values, status_indices)
+            if _should_hide_by_delivery_date(
+                values, delivery_idx, delivery_cutoff, status_text
+            ):
+                continue
+            processed_rows.append(
+                {
+                    "values": values,
+                    "statusText": status_text,
+                    "displayDate": _get_display_date(values, delivery_idx, down_idx),
+                }
+            )
+        section["rows"] = processed_rows
 
     return {"headerLine": header_line, "sections": sections}
 
