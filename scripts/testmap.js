@@ -2703,10 +2703,17 @@ schedulePlaneStyleOverride();
       const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
       const ADMIN_KIOSK_UVA_NAME = 'University of Virginia';
       const MS_PER_MINUTE = 60 * 1000;
+      const MS_PER_DAY = 24 * 60 * MS_PER_MINUTE;
       const ADMIN_KIOSK_SCHEDULE_MIN_DELAY_MS = 1000;
       const ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS = 30 * 60 * 1000;
       const ADMIN_KIOSK_UVA_HEALTH_START_MS = ADMIN_KIOSK_UVA_HEALTH_START_MINUTES * MS_PER_MINUTE;
       const ADMIN_KIOSK_UVA_HEALTH_END_MS = ADMIN_KIOSK_UVA_HEALTH_END_MINUTES * MS_PER_MINUTE;
+      const ADMIN_KIOSK_ONDEMAND_START_MINUTES = 19 * 60 + 30;
+      const ADMIN_KIOSK_ONDEMAND_END_MINUTES = 5 * 60;
+      const ADMIN_KIOSK_ONDEMAND_START_MS = ADMIN_KIOSK_ONDEMAND_START_MINUTES * MS_PER_MINUTE;
+      const ADMIN_KIOSK_ONDEMAND_END_MS = ADMIN_KIOSK_ONDEMAND_END_MINUTES * MS_PER_MINUTE;
+
+      let adminKioskOnDemandTimerId = null;
 
       function shouldForceAdminKioskUvaHealth() {
         if (!adminKioskMode) {
@@ -2846,6 +2853,115 @@ schedulePlaneStyleOverride();
           return;
         }
         enforceAdminKioskAgencySchedule({ force: true });
+      }
+
+      function shouldEnableAdminKioskOnDemand() {
+        if (!adminKioskMode) {
+          return false;
+        }
+        try {
+          const now = new Date();
+          if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+            return false;
+          }
+          const hours = typeof now.getHours === 'function' ? now.getHours() : NaN;
+          const minutes = typeof now.getMinutes === 'function' ? now.getMinutes() : NaN;
+          if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+            return false;
+          }
+          const totalMinutes = (hours * 60) + minutes;
+          if (ADMIN_KIOSK_ONDEMAND_START_MINUTES <= ADMIN_KIOSK_ONDEMAND_END_MINUTES) {
+            return totalMinutes >= ADMIN_KIOSK_ONDEMAND_START_MINUTES
+              && totalMinutes < ADMIN_KIOSK_ONDEMAND_END_MINUTES;
+          }
+          return totalMinutes >= ADMIN_KIOSK_ONDEMAND_START_MINUTES
+            || totalMinutes < ADMIN_KIOSK_ONDEMAND_END_MINUTES;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function clearAdminKioskOnDemandTimer() {
+        if (adminKioskOnDemandTimerId === null) {
+          return;
+        }
+        if (typeof window !== 'undefined' && typeof window.clearTimeout === 'function') {
+          window.clearTimeout(adminKioskOnDemandTimerId);
+        } else {
+          clearTimeout(adminKioskOnDemandTimerId);
+        }
+        adminKioskOnDemandTimerId = null;
+      }
+
+      function computeNextAdminKioskOnDemandDelayMs() {
+        if (!adminKioskMode) {
+          return null;
+        }
+        try {
+          const now = new Date();
+          if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+            return null;
+          }
+          const hours = typeof now.getHours === 'function' ? now.getHours() : NaN;
+          const minutes = typeof now.getMinutes === 'function' ? now.getMinutes() : NaN;
+          const seconds = typeof now.getSeconds === 'function' ? now.getSeconds() : NaN;
+          const milliseconds = typeof now.getMilliseconds === 'function' ? now.getMilliseconds() : NaN;
+          if (![hours, minutes, seconds, milliseconds].every(Number.isFinite)) {
+            return null;
+          }
+          const currentMs = (((hours * 60) + minutes) * 60 + seconds) * 1000 + milliseconds;
+          const nextStart = currentMs < ADMIN_KIOSK_ONDEMAND_START_MS
+            ? ADMIN_KIOSK_ONDEMAND_START_MS
+            : ADMIN_KIOSK_ONDEMAND_START_MS + MS_PER_DAY;
+          const nextEnd = currentMs < ADMIN_KIOSK_ONDEMAND_END_MS
+            ? ADMIN_KIOSK_ONDEMAND_END_MS
+            : ADMIN_KIOSK_ONDEMAND_END_MS + MS_PER_DAY;
+          const currentlyEnabled = shouldEnableAdminKioskOnDemand();
+          const targetMs = currentlyEnabled ? nextEnd : nextStart;
+          const delta = targetMs - currentMs;
+          return Number.isFinite(delta) ? delta : null;
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function scheduleNextAdminKioskOnDemandCheck() {
+        clearAdminKioskOnDemandTimer();
+        if (!adminKioskMode || typeof window === 'undefined' || typeof window.setTimeout !== 'function') {
+          return;
+        }
+        let delay = computeNextAdminKioskOnDemandDelayMs();
+        if (!Number.isFinite(delay) || delay <= 0) {
+          delay = ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS;
+        }
+        const normalizedDelay = Math.min(
+          Math.max(delay, ADMIN_KIOSK_SCHEDULE_MIN_DELAY_MS),
+          ADMIN_KIOSK_SCHEDULE_MAX_DELAY_MS
+        );
+        adminKioskOnDemandTimerId = window.setTimeout(() => {
+          adminKioskOnDemandTimerId = null;
+          enforceAdminKioskOnDemandSchedule({ force: true });
+        }, normalizedDelay);
+      }
+
+      function enforceAdminKioskOnDemandSchedule({ force = false } = {}) {
+        if (!adminKioskMode) {
+          clearAdminKioskOnDemandTimer();
+          return;
+        }
+        const shouldEnable = shouldEnableAdminKioskOnDemand();
+        if (force || onDemandVehiclesEnabled !== shouldEnable) {
+          setOnDemandVehiclesEnabled(shouldEnable);
+        }
+        scheduleNextAdminKioskOnDemandCheck();
+      }
+
+      function initializeAdminKioskOnDemandSchedule() {
+        if (!adminKioskMode) {
+          clearAdminKioskOnDemandTimer();
+          return;
+        }
+        enforceAdminKioskOnDemandSchedule({ force: true });
       }
       let catOverlayEnabled = false;
       let catLayerGroup = null;
@@ -15551,6 +15667,7 @@ ${trainPlaneMarkup}
         loadAgencies()
           .then(() => {
             initializeAdminKioskAgencySchedule();
+            initializeAdminKioskOnDemandSchedule();
             initMap();
             showCookieBanner();
             enforceIncidentVisibilityForCurrentAgency();
