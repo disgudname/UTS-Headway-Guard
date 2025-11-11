@@ -2252,36 +2252,7 @@ def _get_display_date(values: Sequence[Any], delivery_idx: int, down_idx: int) -
     return ""
 
 
-def _should_hide_by_delivery_date(
-    values: Sequence[Any],
-    delivery_idx: int,
-    cutoff_date: datetime,
-    status_text: str = "",
-) -> bool:
-    if delivery_idx < 0 or delivery_idx >= len(values):
-        return False
-    if status_text and re.search(r"\bUP\b", status_text, re.IGNORECASE):
-        return False
-    parsed = _parse_sheet_date(values[delivery_idx])
-    if not parsed:
-        return False
-    if parsed.tzinfo is not None and cutoff_date.tzinfo is not None:
-        parsed = parsed.astimezone(cutoff_date.tzinfo)
-    parsed_date = parsed.date()
-    return parsed_date <= cutoff_date.date()
 
-
-KIOSK_STATUS_ALLOWLIST: Set[str] = {
-    "DOWN",
-    "DOWNED",
-    "HOLD",
-    "LIMITED",
-    "USABLE",
-    "COSMETIC",
-    "COMFORT",
-    "PM",
-    "VSI",
-}
 
 KIOSK_COLUMN_WHITELIST: Set[str] = {
     "bus",
@@ -2335,10 +2306,6 @@ def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
             continue
         current["rows"].append(list(raw_row))
 
-    now = datetime.now(ZoneInfo("America/New_York"))
-    start_of_today = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
-    delivery_cutoff = start_of_today - timedelta(days=1)
-
     for section in sections:
         headers = section.get("headers") or []
         status_indices = _find_status_indices(headers)
@@ -2350,10 +2317,6 @@ def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
             if len(values) < len(headers):
                 values.extend([""] * (len(headers) - len(values)))
             status_text = _get_preferred_status(values, status_indices)
-            if _should_hide_by_delivery_date(
-                values, delivery_idx, delivery_cutoff, status_text
-            ):
-                continue
             processed_rows.append(
                 {
                     "values": values,
@@ -2364,10 +2327,6 @@ def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
         section["rows"] = processed_rows
 
     return {"headerLine": header_line, "sections": sections}
-
-
-def _normalize_status_text(value: Any) -> str:
-    return re.sub(r"\s+", " ", str(value or "").strip()).upper()
 
 
 def _filter_kiosk_sections(sections: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -2386,11 +2345,6 @@ def _filter_kiosk_sections(sections: Sequence[Dict[str, Any]]) -> List[Dict[str,
         filtered_rows: List[Dict[str, Any]] = []
         for row in section.get("rows", []):
             if not isinstance(row, dict):
-                continue
-            status_text = _normalize_status_text(row.get("statusText"))
-            if not status_text:
-                continue
-            if not any(allowed in status_text for allowed in KIOSK_STATUS_ALLOWLIST):
                 continue
             values = list(row.get("values") or [])
             filtered_values = [
