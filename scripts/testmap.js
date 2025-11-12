@@ -262,6 +262,25 @@ schedulePlaneStyleOverride();
       let urlAdminAuthAttempted = false;
       let urlAdminAuthSucceeded = false;
       let adminLogoutInProgress = false;
+      let navAuthorized = false;
+
+      function updateUserAuthorizationState(authorized) {
+        const normalized = authorized === true;
+        if (navAuthorized === normalized) {
+          return navAuthorized;
+        }
+        navAuthorized = normalized;
+        if (!navAuthorized) {
+          setOnDemandVehiclesEnabled(false);
+        } else {
+          updateOnDemandButton();
+        }
+        return navAuthorized;
+      }
+
+      function userIsAuthorizedForOnDemand() {
+        return navAuthorized === true;
+      }
 
       function setAdminModeEnabled(enabled, options = {}) {
         const normalized = Boolean(enabled);
@@ -333,6 +352,7 @@ schedulePlaneStyleOverride();
               data = null;
             }
             const authorized = data && data.authorized === true;
+            updateUserAuthorizationState(authorized);
             const requiresPassword = data && typeof data.required === 'boolean' ? data.required : true;
             if (authorized || requiresPassword === false) {
               if (forceEnable) {
@@ -421,6 +441,7 @@ schedulePlaneStyleOverride();
           urlAdminAuthAttempted = false;
           adminModeExplicitlySet = true;
           setAdminModeEnabled(false);
+          updateUserAuthorizationState(false);
           return true;
         } catch (error) {
           console.error('Failed to log out of admin tools', error);
@@ -438,6 +459,7 @@ schedulePlaneStyleOverride();
           return;
         }
         const authorized = event.detail.authorized === true;
+        updateUserAuthorizationState(authorized);
         if (authorized) {
           return;
         }
@@ -2939,6 +2961,15 @@ schedulePlaneStyleOverride();
       }
 
       function enforceAdminKioskOnDemandSchedule({ force = false } = {}) {
+        if (!userIsAuthorizedForOnDemand()) {
+          if (onDemandVehiclesEnabled) {
+            setOnDemandVehiclesEnabled(false);
+          } else {
+            updateOnDemandButton();
+          }
+          scheduleNextAdminKioskOnDemandCheck();
+          return;
+        }
         const shouldEnable = shouldEnableAdminKioskOnDemand();
         if (force || onDemandVehiclesEnabled !== shouldEnable) {
           setOnDemandVehiclesEnabled(shouldEnable);
@@ -5261,6 +5292,15 @@ schedulePlaneStyleOverride();
       function updateOnDemandButton() {
         const button = document.getElementById('onDemandToggleButton');
         if (!button) return;
+        const authorized = userIsAuthorizedForOnDemand();
+        if (typeof button.disabled === 'boolean') {
+          button.disabled = !authorized;
+        }
+        if (!authorized) {
+          button.setAttribute('aria-disabled', 'true');
+        } else {
+          button.removeAttribute('aria-disabled');
+        }
         const isActive = !!onDemandVehiclesEnabled;
         button.classList.toggle('is-active', isActive);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
@@ -5368,7 +5408,13 @@ schedulePlaneStyleOverride();
       }
 
       function setOnDemandVehiclesEnabled(value) {
-        const nextValue = !!value;
+        const authorized = userIsAuthorizedForOnDemand();
+        const requestedEnable = !!value;
+        if (requestedEnable && !authorized) {
+          updateOnDemandButton();
+          return;
+        }
+        const nextValue = requestedEnable;
         if (onDemandVehiclesEnabled === nextValue) {
           updateOnDemandButton();
           return;
@@ -5386,6 +5432,10 @@ schedulePlaneStyleOverride();
       }
 
       function toggleOnDemandVehicles() {
+        if (!userIsAuthorizedForOnDemand()) {
+          updateOnDemandButton();
+          return;
+        }
         setOnDemandVehiclesEnabled(!onDemandVehiclesEnabled);
       }
 
