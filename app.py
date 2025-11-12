@@ -263,6 +263,7 @@ CAT_STOP_ETA_TTL_S = int(os.getenv("CAT_STOP_ETA_TTL_S", "30"))
 PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
 AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
 RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
+ONDEMAND_POSITIONS_TTL_S = int(os.getenv("ONDEMAND_POSITIONS_TTL_S", "5"))
 ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
 DISPATCHER_DOWNED_SHEET_URL = os.getenv(
     "DISPATCHER_DOWNED_SHEET_URL",
@@ -1335,6 +1336,7 @@ cat_stop_etas_cache = PerKeyTTLCache(CAT_STOP_ETA_TTL_S)
 pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
 ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
+ondemand_positions_cache = TTLCache(ONDEMAND_POSITIONS_TTL_S)
 w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
@@ -1579,47 +1581,50 @@ async def api_ondemand_positions():
     client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
     if client is None:
         raise HTTPException(status_code=503, detail="ondemand client not configured")
-    roster: List[Dict[str, Any]] = []
-    try:
-        roster = await client.get_vehicle_details()
-    except Exception as exc:
-        print(f"[ondemand] vehicle roster fetch failed: {exc}")
+    async def fetch() -> Any:
+        roster: List[Dict[str, Any]] = []
+        try:
+            roster = await client.get_vehicle_details()
+        except Exception as exc:
+            print(f"[ondemand] vehicle roster fetch failed: {exc}")
 
-    color_map: Dict[str, str] = {}
-    for entry in roster:
-        if not isinstance(entry, dict):
-            continue
-        vehicle_id = entry.get("vehicle_id")
-        color = entry.get("color")
-        if vehicle_id is None or color is None:
-            continue
-        vehicle_key = str(vehicle_id).strip()
-        color_value = str(color).strip()
-        if not vehicle_key or not color_value:
-            continue
-        # Normalise the colour so the frontend can prepend a '#'.
-        normalized_color = color_value.lstrip("#").lower()
-        if normalized_color:
-            color_map[vehicle_key] = normalized_color
+        color_map: Dict[str, str] = {}
+        for entry in roster:
+            if not isinstance(entry, dict):
+                continue
+            vehicle_id = entry.get("vehicle_id")
+            color = entry.get("color")
+            if vehicle_id is None or color is None:
+                continue
+            vehicle_key = str(vehicle_id).strip()
+            color_value = str(color).strip()
+            if not vehicle_key or not color_value:
+                continue
+            # Normalise the colour so the frontend can prepend a '#'.
+            normalized_color = color_value.lstrip("#").lower()
+            if normalized_color:
+                color_map[vehicle_key] = normalized_color
 
-    data = await client.get_vehicle_positions()
-    if not isinstance(data, list):
+        data = await client.get_vehicle_positions()
+        if not isinstance(data, list):
+            return data
+
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            vehicle_id = entry.get("vehicle_id") or entry.get("VehicleID")
+            if vehicle_id is None:
+                continue
+            vehicle_key = str(vehicle_id).strip()
+            if not vehicle_key:
+                continue
+            color = color_map.get(vehicle_key)
+            if color:
+                entry["color"] = color
+                entry["color_hex"] = f"#{color}"
         return data
 
-    for entry in data:
-        if not isinstance(entry, dict):
-            continue
-        vehicle_id = entry.get("vehicle_id") or entry.get("VehicleID")
-        if vehicle_id is None:
-            continue
-        vehicle_key = str(vehicle_id).strip()
-        if not vehicle_key:
-            continue
-        color = color_map.get(vehicle_key)
-        if color:
-            entry["color"] = color
-            entry["color_hex"] = f"#{color}"
-    return data
+    return await ondemand_positions_cache.get(fetch)
 
 
 # ---------------------------
