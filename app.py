@@ -1581,7 +1581,8 @@ async def health():
 
 
 @app.get("/api/ondemand/vehicles/positions")
-async def api_ondemand_positions():
+async def api_ondemand_positions(request: Request):
+    _require_dispatcher_access(request)
     client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
     if client is None:
         raise HTTPException(status_code=503, detail="ondemand client not configured")
