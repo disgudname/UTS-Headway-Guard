@@ -3629,6 +3629,27 @@ schedulePlaneStyleOverride();
         return null;
       }
 
+      function normalizeIncidentTimestampValue(value) {
+        if (value === undefined || value === null || value === '') return null;
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+          return value.getTime();
+        }
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          if (value > 1e12) return Math.round(value);
+          if (value > 1e9) return Math.round(value * 1000);
+          return null;
+        }
+        const str = String(value).trim();
+        if (!str) return null;
+        const numeric = Number.parseFloat(str);
+        if (Number.isFinite(numeric)) {
+          if (numeric > 1e12) return Math.round(numeric);
+          if (numeric > 1e9) return Math.round(numeric * 1000);
+        }
+        const parsed = parseIncidentDate(str);
+        return parsed ? parsed.getTime() : null;
+      }
+
       function formatIncidentTimestamp(date) {
         if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
         try {
@@ -4074,24 +4095,54 @@ schedulePlaneStyleOverride();
         if (!id) return null;
         const hasOnScene = incidentHasOnSceneUnits(incident);
         const existing = incidentFirstOnSceneTimes.get(id) || null;
+        let timestamp = Number.isFinite(existing?.timestamp) ? existing.timestamp : null;
+        let source = typeof existing?.source === 'string' ? existing.source : '';
+        const serverSourceCandidates = [
+          incident?._firstOnSceneTimestampSource,
+          incident?.firstOnSceneTimestampSource,
+          incident?.FirstOnSceneTimestampSource
+        ];
+        const serverSource = serverSourceCandidates.find(value => typeof value === 'string' && value.trim()) || '';
+        const serverTimestampCandidates = [
+          incident?._firstOnSceneTimestamp,
+          incident?.firstOnSceneTimestamp,
+          incident?.FirstOnSceneTimestamp
+        ];
+        let serverTimestamp = null;
+        for (const candidate of serverTimestampCandidates) {
+          const normalized = normalizeIncidentTimestampValue(candidate);
+          if (Number.isFinite(normalized)) {
+            serverTimestamp = normalized;
+            break;
+          }
+        }
+        if (Number.isFinite(serverTimestamp)) {
+          const preferServer = !Number.isFinite(timestamp)
+            || source !== 'data'
+            || (typeof serverSource === 'string'
+              && serverSource.trim().toLowerCase() === 'data'
+              && (!Number.isFinite(timestamp) || serverTimestamp <= timestamp));
+          if (preferServer) {
+            timestamp = serverTimestamp;
+            source = serverSource || source || '';
+          }
+        }
         const dataDate = extractIncidentFirstOnSceneDate(incident);
-        let timestamp = existing?.timestamp ?? null;
-        let source = existing?.source ?? '';
         if (dataDate instanceof Date && !Number.isNaN(dataDate.getTime())) {
           const ms = dataDate.getTime();
-          if (!timestamp || ms < timestamp || source !== 'data') {
+          if (!Number.isFinite(timestamp) || ms < timestamp || source !== 'data') {
             timestamp = ms;
             source = 'data';
           }
         }
-        if (hasOnScene) {
-          if (!timestamp) {
-            timestamp = Date.now();
-            source = 'observed';
-          }
+        if (hasOnScene && Number.isFinite(timestamp)) {
           incidentFirstOnSceneTimes.set(id, { timestamp, source });
           incident._firstOnSceneTimestamp = timestamp;
-          incident._firstOnSceneTimestampSource = source;
+          if (source) {
+            incident._firstOnSceneTimestampSource = source;
+          } else {
+            delete incident._firstOnSceneTimestampSource;
+          }
           return timestamp;
         }
         incidentFirstOnSceneTimes.delete(id);

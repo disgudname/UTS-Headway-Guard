@@ -28,7 +28,8 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
-from datetime import datetime, timedelta, time as dtime
+from datetime import datetime, timedelta, time as dtime, timezone
+from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 import httpx
 from collections import deque, defaultdict
@@ -1338,6 +1339,9 @@ ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
 w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
+
+PULSEPOINT_FIRST_ON_SCENE: Dict[str, Dict[str, Any]] = {}
+PULSEPOINT_FIRST_ON_SCENE_LOCK = asyncio.Lock()
 
 VEHICLE_HEADINGS_NAME = Path(os.environ.get("VEHICLE_HEADINGS_FILE", "vehicle_headings.json")).name
 
@@ -3860,6 +3864,465 @@ async def cat_stop_etas_endpoint(stop_id: str):
     return {"etas": data}
 
 
+
+_PULSEPOINT_INCIDENT_ID_KEYS = (
+    "ID",
+    "IncidentID",
+    "IncidentNumber",
+    "PulsePointIncidentID",
+    "PulsePointIncidentCallNumber",
+    "CadIncidentNumber",
+    "CADIncidentNumber",
+)
+_PULSEPOINT_INCIDENT_RECEIVED_FIELDS = (
+    "CallReceivedDateTime",
+    "ReceivedDateTime",
+    "Received",
+    "CallReceived",
+    "FirstReceived",
+    "CreateDate",
+    "CreatedDateTime",
+    "DispatchDateTime",
+)
+_PULSEPOINT_FIRST_ON_SCENE_FIELDS = (
+    "FirstUnitOnSceneDateTime",
+    "FirstOnSceneDateTime",
+    "FirstUnitOnScene",
+    "FirstOnScene",
+    "FirstUnitArrivedDateTime",
+    "FirstArrivedDateTime",
+    "FirstArrivalDateTime",
+    "CallFirstUnitOnSceneDateTime",
+    "CallFirstOnSceneDateTime",
+    "CallFirstUnitArrivedDateTime",
+)
+_PULSEPOINT_UNIT_TIME_FIELDS = (
+    "UnitOnSceneDateTime",
+    "UnitArrivedDateTime",
+    "UnitAtSceneDateTime",
+    "OnSceneDateTime",
+    "ArrivedDateTime",
+    "ArrivalDateTime",
+    "OnSceneTime",
+    "OnSceneTimestamp",
+    "Arrived",
+)
+_PULSEPOINT_UNIT_STATUS_ALIASES = {
+    "DP": "DP",
+    "DISPATCHED": "DP",
+    "DISPATCH": "DP",
+    "AK": "AK",
+    "ACK": "AK",
+    "ACKNOWLEDGED": "AK",
+    "ER": "ER",
+    "EN ROUTE": "ER",
+    "ENROUTE": "ER",
+    "SG": "SG",
+    "STAGED": "SG",
+    "OS": "OS",
+    "ON SCENE": "OS",
+    "ON-SCENE": "OS",
+    "ONSCENE": "OS",
+    "AE": "AE",
+    "AVAILABLE ON SCENE": "AE",
+    "AVAILABLE ONSCENE": "AE",
+    "AVAILABLE ON-SCENE": "AE",
+    "AVAIL ON SCENE": "AE",
+    "TR": "TR",
+    "TRANSPORT": "TR",
+    "TRANSPORTING": "TR",
+    "TA": "TA",
+    "TRANSPORT ARRIVED": "TA",
+    "TRANSPORT-ARRIVED": "TA",
+    "TRANSPORT ARRVD": "TA",
+    "AR": "AR",
+    "CLEARED": "AR",
+    "CLEARED FROM INCIDENT": "AR",
+}
+_PULSEPOINT_UNIT_ON_SCENE_STATUS = {"OS", "AE"}
+_PULSEPOINT_ON_SCENE_KEYWORDS = ("on scene", "onscene", "on-scene")
+_PULSEPOINT_UNIT_STRING_RE = re.compile(r"^(.*?)\s*\(([^)]*)\)\s*$")
+
+
+def _looks_like_pulsepoint_incident(obj: Any) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    keys = {"ID", "FullDisplayAddress", "PulsePointIncidentCallType", "CallReceivedDateTime", "Latitude", "Longitude"}
+    return sum(1 for key in keys if key in obj) >= 2
+
+
+def _parse_incident_coordinate(value: Any) -> Optional[float]:
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            numeric = float(value.strip())
+        except (TypeError, ValueError):
+            return None
+        return numeric if math.isfinite(numeric) else None
+    return None
+
+
+def _normalize_incident_id(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _get_incident_identifier(incident: Dict[str, Any]) -> Optional[str]:
+    for key in _PULSEPOINT_INCIDENT_ID_KEYS:
+        value = incident.get(key)
+        if value is None:
+            continue
+        normalized = _normalize_incident_id(value)
+        if normalized:
+            return normalized
+    return None
+
+
+def _get_incident_received_value(incident: Dict[str, Any]) -> str:
+    for field in _PULSEPOINT_INCIDENT_RECEIVED_FIELDS:
+        value = incident.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _derive_incident_lookup_id(incident: Dict[str, Any]) -> str:
+    direct = _get_incident_identifier(incident)
+    if direct:
+        return direct
+    lat = _parse_incident_coordinate(
+        incident.get("Latitude") or incident.get("latitude") or incident.get("lat")
+    )
+    lon = _parse_incident_coordinate(
+        incident.get("Longitude") or incident.get("longitude") or incident.get("lon")
+    )
+    if lat is None or lon is None:
+        return ""
+    received = _get_incident_received_value(incident)
+    if received:
+        return _normalize_incident_id(f"{lat:.6f}_{lon:.6f}_{received}")
+    return _normalize_incident_id(f"{lat:.6f}_{lon:.6f}")
+
+
+def _normalize_unit_status(value: Any) -> Tuple[str, str]:
+    if value is None:
+        return "", ""
+    raw = str(value).strip()
+    if not raw:
+        return "", ""
+    canonical = _PULSEPOINT_UNIT_STATUS_ALIASES.get(raw.upper(), "")
+    return canonical, raw
+
+
+def _parse_unit_string(text: str) -> Tuple[str, str, str]:
+    trimmed = text.strip()
+    if not trimmed:
+        return "", "", ""
+    match = _PULSEPOINT_UNIT_STRING_RE.match(trimmed)
+    if match:
+        name = match.group(1).strip()
+        status = match.group(2).strip()
+        return name, status, trimmed
+    return trimmed, "", trimmed
+
+
+def _extract_incident_units(incident: Dict[str, Any]) -> List[Dict[str, Any]]:
+    units: List[Dict[str, Any]] = []
+    raw_units = incident.get("Unit")
+    if isinstance(raw_units, list):
+        for entry in raw_units:
+            name = ""
+            status = ""
+            raw_text = ""
+            if isinstance(entry, dict):
+                for key in ("UnitID", "Unit", "Name", "ApparatusID", "VehicleID"):
+                    candidate = entry.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        name = candidate.strip()
+                        break
+                for key in (
+                    "PulsePointDispatchStatus",
+                    "DispatchStatus",
+                    "Status",
+                    "UnitStatus",
+                ):
+                    candidate = entry.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        status = candidate.strip()
+                        break
+                if isinstance(entry, str):
+                    name, status, raw_text = _parse_unit_string(entry)
+            elif isinstance(entry, str):
+                name, status, raw_text = _parse_unit_string(entry)
+            if not raw_text and isinstance(entry, dict):
+                raw_text = entry.get("_raw") if isinstance(entry.get("_raw"), str) else ""
+            canonical, raw_status = _normalize_unit_status(status)
+            display = name or raw_status or raw_text
+            if not display:
+                continue
+            units.append(
+                {
+                    "status_key": canonical,
+                    "status_label": raw_status,
+                    "raw_status": raw_status,
+                    "display_text": display,
+                }
+            )
+    if not units:
+        string_candidates = [
+            incident.get("_units"),
+            incident.get("Units"),
+            incident.get("Apparatus"),
+            incident.get("UnitString"),
+        ]
+        source = next(
+            (value for value in string_candidates if isinstance(value, str) and value.strip()),
+            "",
+        )
+        if source:
+            parts = [part.strip() for part in source.split(",") if part.strip()]
+            for part in parts:
+                name, status, raw_text = _parse_unit_string(part)
+                canonical, raw_status = _normalize_unit_status(status)
+                display = name or raw_status or raw_text
+                if not display:
+                    continue
+                units.append(
+                    {
+                        "status_key": canonical,
+                        "status_label": raw_status,
+                        "raw_status": raw_status,
+                        "display_text": display,
+                    }
+                )
+    return units
+
+
+def _unit_has_on_scene_status(unit: Dict[str, Any]) -> bool:
+    status_key = str(unit.get("status_key") or "").strip().upper()
+    if status_key in _PULSEPOINT_UNIT_ON_SCENE_STATUS:
+        return True
+    for field in ("status_label", "raw_status", "display_text"):
+        value = unit.get(field)
+        if isinstance(value, str) and value:
+            lowered = value.lower()
+            if any(keyword in lowered for keyword in _PULSEPOINT_ON_SCENE_KEYWORDS):
+                return True
+    return False
+
+
+def _incident_has_on_scene_units(incident: Dict[str, Any]) -> bool:
+    units = _extract_incident_units(incident)
+    if not units:
+        return False
+    return any(_unit_has_on_scene_status(unit) for unit in units)
+
+
+def _parse_incident_datetime(value: Any) -> Optional[datetime]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        seconds = float(value)
+        if seconds > 1e12:
+            seconds /= 1000.0
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+            try:
+                numeric = float(text)
+            except ValueError:
+                numeric = None
+            if numeric is not None and math.isfinite(numeric):
+                seconds = numeric
+                if seconds > 1e12:
+                    seconds /= 1000.0
+                return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        candidate = text
+        if candidate.endswith("Z") or candidate.endswith("z"):
+            candidate = candidate[:-1] + "+00:00"
+        match = re.search(r"([+-]\d{2})(\d{2})$", candidate)
+        if match and ":" not in match.group(0):
+            candidate = f"{candidate[:-5]}{match.group(1)}:{match.group(2)}"
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(text)
+            except (TypeError, ValueError):
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed
+    return None
+
+
+def _extract_incident_first_on_scene_date(incident: Dict[str, Any]) -> Optional[datetime]:
+    for field in _PULSEPOINT_FIRST_ON_SCENE_FIELDS:
+        if field in incident:
+            date = _parse_incident_datetime(incident.get(field))
+            if date is not None:
+                return date
+    timeline = incident.get("Timeline") or incident.get("timeline")
+    if isinstance(timeline, dict):
+        for key, value in timeline.items():
+            if not isinstance(key, str):
+                continue
+            if "scene" not in key.lower():
+                continue
+            date = _parse_incident_datetime(value)
+            if date is not None:
+                return date
+    units = incident.get("Unit")
+    earliest: Optional[datetime] = None
+    if isinstance(units, list):
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            for field in _PULSEPOINT_UNIT_TIME_FIELDS:
+                if field not in unit:
+                    continue
+                date = _parse_incident_datetime(unit.get(field))
+                if date is None:
+                    continue
+                if earliest is None or date < earliest:
+                    earliest = date
+    return earliest
+
+
+def _coerce_timestamp_ms(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        parsed = _parse_incident_datetime(value)
+        return int(parsed.timestamp() * 1000) if parsed else None
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        numeric = float(value)
+        if numeric > 1e12:
+            return int(round(numeric))
+        if numeric > 1e9:
+            return int(round(numeric * 1000))
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+            try:
+                numeric = float(text)
+            except ValueError:
+                numeric = None
+            if numeric is not None and math.isfinite(numeric):
+                if numeric > 1e12:
+                    return int(round(numeric))
+                if numeric > 1e9:
+                    return int(round(numeric * 1000))
+        parsed = _parse_incident_datetime(text)
+        if parsed is not None:
+            return int(parsed.timestamp() * 1000)
+    return None
+
+
+def _extract_existing_first_on_scene(incident: Dict[str, Any]) -> Tuple[Optional[int], str]:
+    source_candidates = (
+        incident.get("_firstOnSceneTimestampSource"),
+        incident.get("firstOnSceneTimestampSource"),
+        incident.get("FirstOnSceneTimestampSource"),
+    )
+    source = next(
+        (str(value).strip() for value in source_candidates if isinstance(value, str) and value.strip()),
+        "",
+    )
+    ts_candidates = (
+        incident.get("_firstOnSceneTimestamp"),
+        incident.get("firstOnSceneTimestamp"),
+        incident.get("FirstOnSceneTimestamp"),
+    )
+    for candidate in ts_candidates:
+        ts = _coerce_timestamp_ms(candidate)
+        if ts is not None:
+            return ts, source
+    return None, source
+
+
+def _iter_pulsepoint_incidents(root: Any) -> Iterable[Dict[str, Any]]:
+    seen: Set[int] = set()
+
+    def _dig(node: Any) -> Iterable[Dict[str, Any]]:
+        if isinstance(node, dict):
+            if id(node) in seen:
+                return
+            if _looks_like_pulsepoint_incident(node):
+                seen.add(id(node))
+                yield node
+            for value in node.values():
+                yield from _dig(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from _dig(item)
+
+    return _dig(root)
+
+
+async def _update_pulsepoint_first_on_scene(payload: Any) -> None:
+    incidents = list(_iter_pulsepoint_incidents(payload))
+    seen_ids: Set[str] = set()
+    now_ms = int(time.time() * 1000)
+    async with PULSEPOINT_FIRST_ON_SCENE_LOCK:
+        for incident in incidents:
+            if not isinstance(incident, dict):
+                continue
+            incident_id = _derive_incident_lookup_id(incident)
+            if not incident_id:
+                continue
+            seen_ids.add(incident_id)
+            has_on_scene = _incident_has_on_scene_units(incident)
+            data_date = _extract_incident_first_on_scene_date(incident)
+            existing_entry = PULSEPOINT_FIRST_ON_SCENE.get(incident_id)
+            timestamp = existing_entry.get("timestamp") if isinstance(existing_entry, dict) else None
+            source = existing_entry.get("source") if isinstance(existing_entry, dict) else ""
+            server_ts, server_source = _extract_existing_first_on_scene(incident)
+            if server_ts is not None:
+                prefer_server = (
+                    timestamp is None
+                    or source != "data"
+                    or (server_source == "data" and (timestamp is None or server_ts <= timestamp))
+                )
+                if prefer_server:
+                    timestamp = server_ts
+                    source = server_source or source or ""
+            if data_date is not None:
+                data_ms = int(data_date.timestamp() * 1000)
+                if timestamp is None or data_ms < timestamp or source != "data":
+                    timestamp = data_ms
+                    source = "data"
+            if has_on_scene:
+                if timestamp is None:
+                    timestamp = now_ms
+                    source = "observed"
+                PULSEPOINT_FIRST_ON_SCENE[incident_id] = {"timestamp": int(timestamp), "source": source}
+                incident["_firstOnSceneTimestamp"] = int(timestamp)
+                if source:
+                    incident["_firstOnSceneTimestampSource"] = source
+                else:
+                    incident.pop("_firstOnSceneTimestampSource", None)
+            else:
+                PULSEPOINT_FIRST_ON_SCENE.pop(incident_id, None)
+                incident.pop("_firstOnSceneTimestamp", None)
+                incident.pop("_firstOnSceneTimestampSource", None)
+        stale_ids = [key for key in list(PULSEPOINT_FIRST_ON_SCENE.keys()) if key not in seen_ids]
+        for key in stale_ids:
+            PULSEPOINT_FIRST_ON_SCENE.pop(key, None)
+
+
 def _derive_aes_key_iv(password: bytes, salt: bytes, key_len: int = 32, iv_len: int = 16) -> Tuple[bytes, bytes]:
     d = b""
     prev = b""
@@ -3918,7 +4381,9 @@ async def _get_pulsepoint_incidents() -> Any:
                 data = json.loads(data)
             except Exception:
                 return data
-        return _decrypt_pulsepoint_payload(data)
+        payload = _decrypt_pulsepoint_payload(data)
+        await _update_pulsepoint_first_on_scene(payload)
+        return payload
 
     return await pulsepoint_cache.get(fetch)
 
