@@ -2959,6 +2959,9 @@ schedulePlaneStyleOverride();
       function initializeAdminKioskOnDemandSchedule() {
         if (!adminKioskMode) {
           clearAdminKioskOnDemandTimer();
+          if (!onDemandVehiclesEnabled) {
+            setOnDemandVehiclesEnabled(true);
+          }
           return;
         }
         enforceAdminKioskOnDemandSchedule({ force: true });
