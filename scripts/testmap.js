@@ -2856,9 +2856,6 @@ schedulePlaneStyleOverride();
       }
 
       function shouldEnableAdminKioskOnDemand() {
-        if (!adminKioskMode) {
-          return false;
-        }
         try {
           const now = new Date();
           if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
@@ -2894,9 +2891,6 @@ schedulePlaneStyleOverride();
       }
 
       function computeNextAdminKioskOnDemandDelayMs() {
-        if (!adminKioskMode) {
-          return null;
-        }
         try {
           const now = new Date();
           if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
@@ -2927,7 +2921,7 @@ schedulePlaneStyleOverride();
 
       function scheduleNextAdminKioskOnDemandCheck() {
         clearAdminKioskOnDemandTimer();
-        if (!adminKioskMode || typeof window === 'undefined' || typeof window.setTimeout !== 'function') {
+        if (typeof window === 'undefined' || typeof window.setTimeout !== 'function') {
           return;
         }
         let delay = computeNextAdminKioskOnDemandDelayMs();
@@ -2945,10 +2939,6 @@ schedulePlaneStyleOverride();
       }
 
       function enforceAdminKioskOnDemandSchedule({ force = false } = {}) {
-        if (!adminKioskMode) {
-          clearAdminKioskOnDemandTimer();
-          return;
-        }
         const shouldEnable = shouldEnableAdminKioskOnDemand();
         if (force || onDemandVehiclesEnabled !== shouldEnable) {
           setOnDemandVehiclesEnabled(shouldEnable);
@@ -2957,13 +2947,7 @@ schedulePlaneStyleOverride();
       }
 
       function initializeAdminKioskOnDemandSchedule() {
-        if (!adminKioskMode) {
-          clearAdminKioskOnDemandTimer();
-          if (!onDemandVehiclesEnabled) {
-            setOnDemandVehiclesEnabled(true);
-          }
-          return;
-        }
+        clearAdminKioskOnDemandTimer();
         enforceAdminKioskOnDemandSchedule({ force: true });
       }
       let catOverlayEnabled = false;
