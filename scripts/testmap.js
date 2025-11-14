@@ -5547,6 +5547,209 @@ schedulePlaneStyleOverride();
         setOnDemandStopsEnabled(!onDemandStopsEnabled);
       }
 
+      function normalizeOnDemandStopsForClustering(stops) {
+        if (!Array.isArray(stops)) {
+          return [];
+        }
+        const normalizedStops = [];
+        stops.forEach((stop, index) => {
+          if (!stop || typeof stop !== 'object') {
+            return;
+          }
+          const lat = Number(stop.lat ?? stop.latitude);
+          const lon = Number(stop.lng ?? stop.lon ?? stop.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            return;
+          }
+          const rawVehicleId = stop.vehicleId ?? stop.vehicleID;
+          const vehicleId = typeof rawVehicleId === 'string'
+            ? rawVehicleId.trim()
+            : `${rawVehicleId || ''}`.trim();
+          if (!vehicleId) {
+            return;
+          }
+          const routeId = `${ONDEMAND_STOP_ROUTE_PREFIX}${vehicleId}`;
+          const stopTimestamp = typeof stop.stopTimestamp === 'string' ? stop.stopTimestamp : '';
+          const uniqueSuffix = stopTimestamp || `${index}`;
+          const routeStopId = `${routeId}:${uniqueSuffix}`;
+          const capacityRaw = Number(stop.capacity);
+          const capacity = Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : 1;
+          const stopType = (stop.stopType || '').toLowerCase() === 'dropoff' ? 'dropoff' : 'pickup';
+          const addressValue = typeof stop.address === 'string' ? stop.address.trim() : '';
+          const serviceIdRaw = stop.serviceId ?? stop.serviceID;
+          const serviceIdText = typeof serviceIdRaw === 'string'
+            ? serviceIdRaw.trim()
+            : `${serviceIdRaw || ''}`.trim();
+          const serviceId = serviceIdText || null;
+          const stopName = addressValue || `OnDemand ${stopType === 'dropoff' ? 'Dropoff' : 'Pickup'}`;
+          normalizedStops.push({
+            Latitude: lat,
+            Longitude: lon,
+            Name: stopName,
+            RouteStopID: routeStopId,
+            StopID: routeStopId,
+            RouteIDs: [routeId],
+            Routes: [{ RouteID: routeId }],
+            isOnDemandStop: true,
+            onDemandStopDetails: {
+              vehicleId,
+              routeId,
+              capacity,
+              stopType,
+              address: addressValue,
+              serviceId,
+              stopTimestamp
+            }
+          });
+        });
+        return normalizedStops;
+      }
+
+      function summarizeOnDemandStopEntries(stopEntries) {
+        const routeStopIds = new Set();
+        const fallbackStopIds = new Set();
+        const markerRouteIds = new Set();
+        const addressSet = new Set();
+        let latestStopTimestampMs = 0;
+        const segmentsByVehicle = new Map();
+
+        stopEntries.forEach(entry => {
+          if (!entry) {
+            return;
+          }
+          const entryRouteStopIds = Array.isArray(entry.routeStopIds) ? entry.routeStopIds : [];
+          entryRouteStopIds.forEach(id => {
+            if (id !== undefined && id !== null) {
+              routeStopIds.add(`${id}`);
+            }
+          });
+          const entryStopIds = Array.isArray(entry.stopIds) ? entry.stopIds : [];
+          entryStopIds.forEach(id => {
+            if (id === undefined || id === null) {
+              return;
+            }
+            const text = `${id}`.trim();
+            if (text) {
+              fallbackStopIds.add(text);
+            }
+          });
+          const entryRouteIds = Array.isArray(entry.routeIds) ? entry.routeIds : [];
+          entryRouteIds.forEach(routeId => {
+            const normalized = normalizeRouteIdentifier(routeId);
+            if (typeof normalized === 'string' && normalized.startsWith(ONDEMAND_STOP_ROUTE_PREFIX)) {
+              markerRouteIds.add(normalized);
+            }
+          });
+          const onDemandStops = Array.isArray(entry.onDemandStops) ? entry.onDemandStops : [];
+          onDemandStops.forEach(details => {
+            if (!details) {
+              return;
+            }
+            const vehicleId = typeof details.vehicleId === 'string'
+              ? details.vehicleId.trim()
+              : `${details.vehicleId || ''}`.trim();
+            if (!vehicleId) {
+              return;
+            }
+            let segment = segmentsByVehicle.get(vehicleId);
+            if (!segment) {
+              const routeId = details.routeId || `${ONDEMAND_STOP_ROUTE_PREFIX}${vehicleId}`;
+              segment = {
+                vehicleId,
+                routeId,
+                totalCapacity: 0,
+                pickupCount: 0,
+                dropoffCount: 0,
+                serviceIds: new Set(),
+                addresses: new Set(),
+                latestTimestamp: 0
+              };
+              segmentsByVehicle.set(vehicleId, segment);
+            }
+            const capacityRaw = Number(details.capacity);
+            const safeCapacity = Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : 1;
+            segment.totalCapacity += safeCapacity;
+            if ((details.stopType || '').toLowerCase() === 'dropoff') {
+              segment.dropoffCount += safeCapacity;
+            } else {
+              segment.pickupCount += safeCapacity;
+            }
+            if (details.serviceId) {
+              segment.serviceIds.add(`${details.serviceId}`);
+            }
+            if (details.address) {
+              segment.addresses.add(details.address);
+              addressSet.add(details.address);
+            }
+            const timestampMs = Date.parse(details.stopTimestamp || '');
+            if (Number.isFinite(timestampMs)) {
+              if (timestampMs > segment.latestTimestamp) {
+                segment.latestTimestamp = timestampMs;
+              }
+              if (timestampMs > latestStopTimestampMs) {
+                latestStopTimestampMs = timestampMs;
+              }
+            }
+          });
+        });
+
+        const segments = Array.from(segmentsByVehicle.values()).map(segment => ({
+          vehicleId: segment.vehicleId,
+          routeId: segment.routeId,
+          totalCapacity: segment.totalCapacity,
+          pickupCount: segment.pickupCount,
+          dropoffCount: segment.dropoffCount,
+          color: sanitizeCssColor(getOnDemandVehicleColor(segment.vehicleId)) || ONDEMAND_MARKER_DEFAULT_COLOR,
+          serviceIds: Array.from(segment.serviceIds).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+          latestTimestamp: segment.latestTimestamp
+        })).filter(segment => segment.totalCapacity > 0);
+
+        const fallbackStopIdText = fallbackStopIds.size > 0
+          ? Array.from(fallbackStopIds).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', ')
+          : '';
+
+        const markerRouteIdList = markerRouteIds.size > 0
+          ? Array.from(markerRouteIds).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+          : segments.map(segment => segment.routeId).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+        const representativeAddress = addressSet.size === 1 ? Array.from(addressSet)[0] : '';
+
+        return {
+          segments,
+          routeStopIds: Array.from(routeStopIds),
+          fallbackStopIdText,
+          markerRouteIds: markerRouteIdList,
+          address: representativeAddress,
+          latestStopTimestamp: Number.isFinite(latestStopTimestampMs) && latestStopTimestampMs > 0
+            ? new Date(latestStopTimestampMs).toISOString()
+            : ''
+        };
+      }
+
+      function formatOnDemandStopTimestamp(timestamp) {
+        if (!timestamp) {
+          return '';
+        }
+        try {
+          const date = new Date(timestamp);
+          if (Number.isNaN(date.getTime())) {
+            return '';
+          }
+          if (typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat === 'function') {
+            const formatter = new Intl.DateTimeFormat(undefined, {
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit'
+            });
+            return formatter.format(date);
+          }
+          return date.toLocaleString();
+        } catch (error) {
+          return '';
+        }
+      }
+
       function clearOnDemandStops() {
         if (!map || typeof map.removeLayer !== 'function') {
           onDemandStopMarkerCache.clear();
@@ -5574,20 +5777,31 @@ schedulePlaneStyleOverride();
         if (!groupInfo || !Array.isArray(groupInfo.segments) || groupInfo.segments.length === 0) {
           return '';
         }
+        const sections = [];
+        if (groupInfo.address) {
+          sections.push(`<div class="ondemand-stop-tooltip__address">${escapeHtml(groupInfo.address)}</div>`);
+        }
+        const timestampText = formatOnDemandStopTimestamp(groupInfo.stopTimestamp);
+        if (timestampText) {
+          sections.push(`<div class="ondemand-stop-tooltip__timestamp">${escapeHtml(timestampText)}</div>`);
+        }
         const lines = groupInfo.segments.map(segment => {
           if (!segment) {
             return '';
           }
+          const color = sanitizeCssColor(segment.color) || ONDEMAND_MARKER_DEFAULT_COLOR;
+          const swatch = `<span class="ondemand-stop-tooltip__swatch" style="background-color:${color};"></span>`;
           const vehicleLabel = `Vehicle ${segment.vehicleId}`;
-          const pickupText = segment.pickups === 1 ? '1 pickup' : `${segment.pickups} pickups`;
-          const dropoffText = segment.dropoffs === 1 ? '1 dropoff' : `${segment.dropoffs} dropoffs`;
-          const parts = [pickupText];
-          if (segment.dropoffs > 0) {
-            parts.push(dropoffText);
-          }
-          return `<div><strong>${escapeHtml(vehicleLabel)}</strong>: ${escapeHtml(parts.join(', '))}</div>`;
+          const pickupText = segment.pickupCount === 1 ? '1 pickup' : `${segment.pickupCount} pickups`;
+          const dropoffText = segment.dropoffCount === 1 ? '1 dropoff' : `${segment.dropoffCount} dropoffs`;
+          const counts = segment.dropoffCount > 0 ? `${pickupText}, ${dropoffText}` : pickupText;
+          const serviceText = Array.isArray(segment.serviceIds) && segment.serviceIds.length > 0
+            ? ` — Service ${escapeHtml(segment.serviceIds.join(', '))}`
+            : '';
+          return `<div class="ondemand-stop-tooltip__entry">${swatch}<div><strong>${escapeHtml(vehicleLabel)}</strong><div>${escapeHtml(counts)}${serviceText}</div></div></div>`;
         }).filter(Boolean);
-        return `<div>${lines.join('')}</div>`;
+        sections.push(...lines);
+        return `<div class="ondemand-stop-tooltip__content">${sections.join('')}</div>`;
       }
 
       function renderOnDemandStops() {
@@ -5598,47 +5812,12 @@ schedulePlaneStyleOverride();
         if (!map) {
           return;
         }
-        const stops = Array.isArray(onDemandStopDataCache) ? onDemandStopDataCache : [];
+        const stops = normalizeOnDemandStopsForClustering(onDemandStopDataCache);
         if (stops.length === 0) {
           clearOnDemandStops();
           return;
         }
-        const normalizedStops = stops
-          .map(stop => {
-            if (!stop || typeof stop !== 'object') {
-              return null;
-            }
-            const lat = Number(stop.lat ?? stop.latitude);
-            const lon = Number(stop.lng ?? stop.lon ?? stop.longitude);
-            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-              return null;
-            }
-            const rawVehicleId = stop.vehicleId ?? stop.vehicleID;
-            const vehicleId = typeof rawVehicleId === 'string' ? rawVehicleId.trim() : `${rawVehicleId || ''}`.trim();
-            if (!vehicleId) {
-              return null;
-            }
-            const capacityRaw = Number(stop.capacity);
-            const capacity = Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : 1;
-            const stopType = (stop.stopType || '').toLowerCase() === 'dropoff' ? 'dropoff' : 'pickup';
-            return {
-              Latitude: lat,
-              Longitude: lon,
-              vehicleId,
-              markerRouteId: `${ONDEMAND_STOP_ROUTE_PREFIX}${vehicleId}`,
-              capacity,
-              stopType,
-              address: typeof stop.address === 'string' ? stop.address : ''
-            };
-          })
-          .filter(Boolean);
-
-        if (normalizedStops.length === 0) {
-          clearOnDemandStops();
-          return;
-        }
-
-        const groupedStops = groupStopsByPixelDistance(normalizedStops, STOP_GROUPING_PIXEL_DISTANCE);
+        const groupedStops = groupStopsByPixelDistance(stops, STOP_GROUPING_PIXEL_DISTANCE);
         if (groupedStops.length === 0) {
           clearOnDemandStops();
           return;
@@ -5650,65 +5829,45 @@ schedulePlaneStyleOverride();
           if (!group || !Array.isArray(group.stops) || group.stops.length === 0) {
             return;
           }
-          const segmentsByVehicle = new Map();
-          group.stops.forEach(stop => {
-            if (!stop) {
-              return;
-            }
-            const vehicleId = stop.vehicleId;
-            if (!vehicleId) {
-              return;
-            }
-            let segment = segmentsByVehicle.get(vehicleId);
-            if (!segment) {
-              segment = {
-                vehicleId,
-                routeId: stop.markerRouteId,
-                totalCapacity: 0,
-                pickups: 0,
-                dropoffs: 0
-              };
-              segmentsByVehicle.set(vehicleId, segment);
-            }
-            const capacity = Number(stop.capacity);
-            const safeCapacity = Number.isFinite(capacity) && capacity > 0 ? capacity : 1;
-            segment.totalCapacity += safeCapacity;
-            if (stop.stopType === 'dropoff') {
-              segment.dropoffs += safeCapacity;
-            } else {
-              segment.pickups += safeCapacity;
-            }
-          });
-
-          if (segmentsByVehicle.size === 0) {
+          const stopEntries = buildStopEntriesFromStops(group.stops);
+          if (stopEntries.length === 0) {
+            return;
+          }
+          const summary = summarizeOnDemandStopEntries(stopEntries);
+          if (!summary.segments || summary.segments.length === 0) {
             return;
           }
 
-          const markerRouteIds = Array.from(
-            new Set(Array.from(segmentsByVehicle.values()).map(segment => segment.routeId))
-          ).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-
+          const fallbackKey = summary.fallbackStopIdText
+            || `${group.latitude.toFixed(5)},${group.longitude.toFixed(5)}`;
+          const markerRouteIds = summary.markerRouteIds.length > 0
+            ? summary.markerRouteIds.slice()
+            : summary.segments.map(segment => segment.routeId).filter(Boolean);
           if (markerRouteIds.length === 0) {
             return;
           }
+          markerRouteIds.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-          const fallbackKey = `${group.latitude.toFixed(5)},${group.longitude.toFixed(5)}`;
-          const groupKey = createStopGroupKey(markerRouteIds, fallbackKey);
-          const icon = createStopMarkerIcon(markerRouteIds);
+          const groupKey = createStopGroupKey(summary.routeStopIds, fallbackKey);
+          const icon = createStopMarkerIcon(markerRouteIds, [], { onDemandSegments: summary.segments });
           if (!icon) {
             return;
           }
 
           const groupInfo = {
             position: [group.latitude, group.longitude],
-            segments: Array.from(segmentsByVehicle.values()),
+            segments: summary.segments,
             markerRouteIds,
-            groupKey
+            groupKey,
+            address: summary.address,
+            stopTimestamp: summary.latestStopTimestamp
           };
 
           const tooltipHtml = buildOnDemandStopTooltip(groupInfo);
           let markerEntry = onDemandStopMarkerCache.get(groupKey) || null;
-          const iconSignature = markerRouteIds.join('|');
+          const iconSignature = `${markerRouteIds.join('|')}__${summary.segments
+            .map(segment => `${segment.vehicleId}:${segment.totalCapacity}`)
+            .join('|')}`;
           if (!markerEntry || !markerEntry.marker) {
             const marker = L.marker(groupInfo.position, { icon, pane: 'ondemandStopsPane', interactive: false, keyboard: false });
             marker.addTo(map);
@@ -9286,6 +9445,27 @@ ${trainPlaneMarkup}
           return selected;
       }
 
+      function normalizeRouteIdentifier(value) {
+          if (value === undefined || value === null) {
+              return null;
+          }
+          if (typeof value === 'string') {
+              const trimmed = value.trim();
+              if (!trimmed) {
+                  return null;
+              }
+              if (trimmed.startsWith(ONDEMAND_STOP_ROUTE_PREFIX)) {
+                  return trimmed;
+              }
+              const numeric = Number(trimmed);
+              return Number.isNaN(numeric) ? null : numeric;
+          }
+          if (typeof value === 'number') {
+              return Number.isNaN(value) ? null : value;
+          }
+          return null;
+      }
+
       function buildStopEntriesFromStops(stops) {
           if (!Array.isArray(stops)) {
               return [];
@@ -9318,7 +9498,8 @@ ${trainPlaneMarkup}
                       catStopIds: new Set(),
                       names: new Set(),
                       routeIds: new Set(),
-                      catRouteKeys: new Set()
+                      catRouteKeys: new Set(),
+                      onDemandStops: []
                   });
               }
 
@@ -9375,16 +9556,17 @@ ${trainPlaneMarkup}
                   entry.names.add(sanitizeStopName(name));
               }
 
-              const routeIdRaw = stop.RouteID ?? stop.RouteId;
-              const routeIdNumeric = Number(routeIdRaw);
-              if (!Number.isNaN(routeIdNumeric)) {
-                  entry.routeIds.add(routeIdNumeric);
+              const explicitRouteId = normalizeRouteIdentifier(stop.RouteID ?? stop.RouteId);
+              if (explicitRouteId !== null) {
+                  entry.routeIds.add(explicitRouteId);
               }
 
               const routesArray = Array.isArray(stop.Routes) ? stop.Routes : [];
               routesArray.forEach(routeInfo => {
-                  const candidateRouteId = Number(routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id);
-                  if (!Number.isNaN(candidateRouteId)) {
+                  const candidateRouteId = normalizeRouteIdentifier(
+                      routeInfo?.RouteID ?? routeInfo?.RouteId ?? routeInfo?.Id
+                  );
+                  if (candidateRouteId !== null) {
                       entry.routeIds.add(candidateRouteId);
                   }
               });
@@ -9393,11 +9575,38 @@ ${trainPlaneMarkup}
                   ? (stop.RouteIDs ?? stop.RouteIds)
                   : [];
               routeIdsList.forEach(routeIdValue => {
-                  const numericRouteId = Number(routeIdValue);
-                  if (!Number.isNaN(numericRouteId)) {
-                      entry.routeIds.add(numericRouteId);
+                  const normalizedRouteId = normalizeRouteIdentifier(routeIdValue);
+                  if (normalizedRouteId !== null) {
+                      entry.routeIds.add(normalizedRouteId);
                   }
               });
+
+              const singleRoute = stop.Route ?? stop.route;
+              if (singleRoute && typeof singleRoute === 'object') {
+                  const singleRouteId = normalizeRouteIdentifier(
+                      singleRoute.RouteID ?? singleRoute.RouteId ?? singleRoute.Id
+                  );
+                  if (singleRouteId !== null) {
+                      entry.routeIds.add(singleRouteId);
+                  }
+              }
+
+              if (stop.isOnDemandStop && stop.onDemandStopDetails) {
+                  const details = stop.onDemandStopDetails;
+                  entry.onDemandStops.push({
+                      vehicleId: details.vehicleId ?? '',
+                      routeId: details.routeId ?? '',
+                      capacity: details.capacity ?? 1,
+                      stopType: details.stopType ?? 'pickup',
+                      address: typeof details.address === 'string' ? details.address : '',
+                      serviceId: details.serviceId ?? null,
+                      stopTimestamp: details.stopTimestamp ?? ''
+                  });
+                  const onDemandRouteId = normalizeRouteIdentifier(details.routeId);
+                  if (onDemandRouteId !== null) {
+                      entry.routeIds.add(onDemandRouteId);
+                  }
+              }
 
               const catKeysFromStop = extractCatRouteKeys(stop);
               catKeysFromStop.forEach(routeKey => entry.catRouteKeys.add(routeKey));
@@ -9457,7 +9666,8 @@ ${trainPlaneMarkup}
                   stopIdText: formattedStopIds.join(', '),
                   displayName: entry.names.size > 0 ? Array.from(entry.names).join(' / ') : 'Stop',
                   routeIds: Array.from(entry.routeIds),
-                  catRouteKeys: Array.from(entry.catRouteKeys)
+                  catRouteKeys: Array.from(entry.catRouteKeys),
+                  onDemandStops: Array.isArray(entry.onDemandStops) ? entry.onDemandStops.slice() : []
               };
           });
       }
@@ -9468,20 +9678,21 @@ ${trainPlaneMarkup}
           if (!entry) {
               return { routeIds, catRouteKeys };
           }
-          if (Array.isArray(entry.routeIds)) {
-              entry.routeIds.forEach(routeId => {
-                  const numeric = Number(routeId);
-                  if (!Number.isNaN(numeric)) {
-                      routeIds.add(numeric);
-                  }
-              });
-          }
+          const entryRouteIds = entry.routeIds instanceof Set
+              ? Array.from(entry.routeIds)
+              : (Array.isArray(entry.routeIds) ? entry.routeIds : []);
+          entryRouteIds.forEach(routeId => {
+              const normalizedRouteId = normalizeRouteIdentifier(routeId);
+              if (normalizedRouteId !== null) {
+                  routeIds.add(normalizedRouteId);
+              }
+          });
           if (Array.isArray(entry.routeStopIds)) {
               entry.routeStopIds.forEach(routeStopId => {
                   const mapped = routeStopRouteMap[routeStopId];
-                  const numeric = Number(mapped);
-                  if (!Number.isNaN(numeric)) {
-                      routeIds.add(numeric);
+                  const normalizedRouteId = normalizeRouteIdentifier(mapped);
+                  if (normalizedRouteId !== null) {
+                      routeIds.add(normalizedRouteId);
                   }
               });
           }
@@ -9558,26 +9769,19 @@ ${trainPlaneMarkup}
 
           const isCatStop = !!stop.isCatStop;
 
-          const addRouteId = value => {
-              if (value === undefined || value === null) {
-                  return;
-              }
-              if (value instanceof Set || Array.isArray(value)) {
-                  value.forEach(addRouteId);
-                  return;
-              }
-              let candidate = value;
-              if (typeof candidate === 'string') {
-                  candidate = candidate.trim();
-                  if (candidate === '') {
-                      return;
-                  }
-              }
-              const numericRouteId = Number(candidate);
-              if (!Number.isNaN(numericRouteId)) {
-                  routeIds.add(numericRouteId);
-              }
-          };
+        const addRouteId = value => {
+            if (value === undefined || value === null) {
+                return;
+            }
+            if (value instanceof Set || Array.isArray(value)) {
+                value.forEach(addRouteId);
+                return;
+            }
+            const normalizedRouteId = normalizeRouteIdentifier(value);
+            if (normalizedRouteId !== null) {
+                routeIds.add(normalizedRouteId);
+            }
+        };
 
           if (!isCatStop) {
               addRouteId(stop.RouteID ?? stop.RouteId);
@@ -9606,18 +9810,33 @@ ${trainPlaneMarkup}
           return { routeIds, catRouteKeys };
       }
 
-      function collectStopMarkerColors(routeIds, catRouteKeys = []) {
+      function collectStopMarkerColors(routeIds, catRouteKeys = [], options = {}) {
+          const weightedColors = [];
           const colorSet = new Set();
 
-          const numericRouteIds = Array.isArray(routeIds) ? routeIds : [];
-          numericRouteIds.forEach(routeId => {
-              if (typeof routeId === 'string' && routeId.startsWith(ONDEMAND_STOP_ROUTE_PREFIX)) {
-                  const vehicleId = routeId.slice(ONDEMAND_STOP_ROUTE_PREFIX.length);
-                  const ondemandColor = sanitizeCssColor(getOnDemandVehicleColor(vehicleId));
-                  if (ondemandColor) {
-                      colorSet.add(ondemandColor);
-                      return;
-                  }
+          const addWeightedColor = (color, weight = 1) => {
+              const normalized = sanitizeCssColor(color);
+              if (!normalized) {
+                  return;
+              }
+              const safeWeight = Math.max(1, Math.round(weight));
+              for (let i = 0; i < safeWeight; i += 1) {
+                  weightedColors.push(normalized);
+              }
+          };
+
+          const onDemandSegments = Array.isArray(options?.onDemandSegments) ? options.onDemandSegments : [];
+          onDemandSegments.forEach(segment => {
+              const weight = Number(segment?.totalCapacity ?? segment?.capacity ?? segment?.weight ?? 1);
+              const color = segment?.color || getOnDemandVehicleColor(segment?.vehicleId);
+              addWeightedColor(color, Number.isFinite(weight) && weight > 0 ? weight : 1);
+          });
+
+          const skipOnDemandRoutes = onDemandSegments.length > 0;
+          const normalizedRouteIds = Array.isArray(routeIds) ? routeIds : [];
+          normalizedRouteIds.forEach(routeId => {
+              if (skipOnDemandRoutes && typeof routeId === 'string' && routeId.startsWith(ONDEMAND_STOP_ROUTE_PREFIX)) {
+                  return;
               }
               const color = sanitizeCssColor(getRouteColor(routeId));
               if (color) {
@@ -9639,6 +9858,10 @@ ${trainPlaneMarkup}
               }
           });
 
+          if (weightedColors.length > 0) {
+              return weightedColors;
+          }
+
           const colors = Array.from(colorSet);
           if (colors.length === 0) {
               return ['#FFFFFF'];
@@ -9646,8 +9869,8 @@ ${trainPlaneMarkup}
           return colors;
       }
 
-      function buildStopMarkerGradient(routeIds, catRouteKeys = []) {
-          const colors = collectStopMarkerColors(routeIds, catRouteKeys);
+      function buildStopMarkerGradient(routeIds, catRouteKeys = [], options = {}) {
+          const colors = collectStopMarkerColors(routeIds, catRouteKeys, options);
           if (colors.length <= 1) {
               return colors[0] || '#FFFFFF';
           }
@@ -9661,8 +9884,8 @@ ${trainPlaneMarkup}
           return `conic-gradient(${segments.join(', ')})`;
       }
 
-      function createStopMarkerIcon(routeIds, catRouteKeys = []) {
-          const colors = collectStopMarkerColors(routeIds, catRouteKeys);
+      function createStopMarkerIcon(routeIds, catRouteKeys = [], options = {}) {
+          const colors = collectStopMarkerColors(routeIds, catRouteKeys, options);
           const colorKey = colors.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join('|');
           const size = STOP_MARKER_ICON_SIZE;
           const outline = Math.max(0, Number(STOP_MARKER_OUTLINE_WIDTH) || 0);
@@ -9677,7 +9900,7 @@ ${trainPlaneMarkup}
           }
 
           if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
-              const gradient = buildStopMarkerGradient(routeIds, catRouteKeys);
+              const gradient = buildStopMarkerGradient(routeIds, catRouteKeys, options);
               const fallbackIcon = L.divIcon({
                   className: 'stop-marker-container leaflet-div-icon',
                   html: `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`,
@@ -9692,7 +9915,7 @@ ${trainPlaneMarkup}
           const context = canvas.getContext('2d');
 
           if (!context) {
-              const gradient = buildStopMarkerGradient(routeIds, catRouteKeys);
+              const gradient = buildStopMarkerGradient(routeIds, catRouteKeys, options);
               const fallbackIcon = L.divIcon({
                   className: 'stop-marker-container leaflet-div-icon',
                   html: `<div class="stop-marker-outer" style="--stop-marker-size:${size}px;--stop-marker-border-color:${STOP_MARKER_BORDER_COLOR};--stop-marker-outline-size:${outline}px;--stop-marker-outline-color:${STOP_MARKER_OUTLINE_COLOR};--stop-marker-gradient:${gradient};"></div>`,
