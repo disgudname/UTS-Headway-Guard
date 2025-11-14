@@ -1779,8 +1779,7 @@ def build_ondemand_virtual_stops(
     return records
 
 
-@app.get("/api/ondemand")
-async def api_ondemand_positions(request: Request):
+async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     _require_dispatcher_access(request)
     client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
     if client is None:
@@ -1915,6 +1914,18 @@ async def api_ondemand_positions(request: Request):
     )
 
     return {"vehicles": vehicles, "ondemandStops": ondemand_stops}
+
+
+@app.get("/api/ondemand")
+async def api_ondemand_positions(request: Request):
+    return await _build_ondemand_payload(request)
+
+
+@app.get("/api/ondemand/vehicles/positions")
+async def api_ondemand_positions_legacy(request: Request):
+    data = await _build_ondemand_payload(request)
+    vehicles = data.get("vehicles") if isinstance(data, dict) else []
+    return {"vehicles": vehicles}
 
 
 # ---------------------------
@@ -3476,15 +3487,6 @@ async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]
         return await transloc_blocks_cache.get(fetch)
 
     return await _fetch_transloc_blocks_for_base(base_url)
-
-
-def _coerce_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _coerce_epoch_seconds(value: Any) -> Optional[float]:
