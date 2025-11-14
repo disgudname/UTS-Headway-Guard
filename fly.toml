@@ -1,5 +1,5 @@
 app = "uts-headway-guard"
-primary_region = "iad"  # or your nearest region
+primary_region = "dfw"  # or your nearest region
 kill_signal = "SIGINT"
 kill_timeout = "5s"
 
