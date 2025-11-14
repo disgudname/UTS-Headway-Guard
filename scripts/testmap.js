@@ -272,8 +272,10 @@ schedulePlaneStyleOverride();
         navAuthorized = normalized;
         if (!navAuthorized) {
           setOnDemandVehiclesEnabled(false);
+          setOnDemandStopsEnabled(false);
         } else {
           updateOnDemandButton();
+          updateOnDemandStopsButton();
         }
         return navAuthorized;
       }
@@ -1917,10 +1919,12 @@ schedulePlaneStyleOverride();
       const CAT_MAX_TOOLTIP_ETAS = 3;
       const CAT_VEHICLE_ETA_CACHE_TTL_MS = 30000;
       const CAT_STOP_ETA_CACHE_TTL_MS = 30000;
-      const ONDEMAND_POSITIONS_ENDPOINT = '/api/ondemand/vehicles/positions';
+      const ONDEMAND_ENDPOINT = '/api/ondemand';
       const ONDEMAND_MARKER_PREFIX = 'ondemand:';
       const ONDEMAND_MARKER_DEFAULT_COLOR = '#ec4899';
       const ONDEMAND_REFRESH_INTERVAL_MS = 5000;
+      const ONDEMAND_STOP_ROUTE_PREFIX = 'ondemand-stop:';
+      const ONDEMAND_STOP_TOOLTIP_CLASS = 'ondemand-stop-tooltip';
 
       let map;
       let markers = {};
@@ -2717,9 +2721,14 @@ schedulePlaneStyleOverride();
       let baseURL = '';
       let includeStaleVehicles = false;
       let onDemandVehiclesEnabled = false;
+      let onDemandStopsEnabled = true;
       let onDemandPollingTimerId = null;
       let onDemandPollingPausedForVisibility = false;
       let onDemandFetchPromise = null;
+      const onDemandVehicleColorMap = new Map();
+      let onDemandStopDataCache = [];
+      const onDemandStopMarkerCache = new Map();
+      let onDemandStopMarkers = [];
       const ADMIN_KIOSK_UVA_HEALTH_NAME = 'University of Virginia Health';
       const ADMIN_KIOSK_UVA_HEALTH_START_MINUTES = 2 * 60 + 30;
       const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
@@ -5281,7 +5290,9 @@ schedulePlaneStyleOverride();
             cachedEtas = allEtas || {};
             updateCustomPopups();
           });
-        fetchOnDemandVehicles();
+        if (shouldPollOnDemandData()) {
+          fetchOnDemandVehicles();
+        }
         updateStaleVehiclesButton();
       }
 
@@ -5308,6 +5319,61 @@ schedulePlaneStyleOverride();
         if (indicator) {
           indicator.textContent = isActive ? 'On' : 'Off';
         }
+      }
+
+      function updateOnDemandStopsButton() {
+        const button = document.getElementById('onDemandStopsToggleButton');
+        if (!button) return;
+        const authorized = userIsAuthorizedForOnDemand();
+        if (typeof button.disabled === 'boolean') {
+          button.disabled = !authorized;
+        }
+        if (!authorized) {
+          button.setAttribute('aria-disabled', 'true');
+        } else {
+          button.removeAttribute('aria-disabled');
+        }
+        const isActive = !!onDemandStopsEnabled;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        const indicator = button.querySelector('.toggle-indicator');
+        if (indicator) {
+          indicator.textContent = isActive ? 'On' : 'Off';
+        }
+      }
+
+      function shouldPollOnDemandData() {
+        if (!userIsAuthorizedForOnDemand()) {
+          return false;
+        }
+        return !!(onDemandVehiclesEnabled || onDemandStopsEnabled);
+      }
+
+      function updateOnDemandVehicleColorMap(vehicles) {
+        onDemandVehicleColorMap.clear();
+        if (!Array.isArray(vehicles)) {
+          return;
+        }
+        vehicles.forEach(vehicle => {
+          if (!vehicle) {
+            return;
+          }
+          const rawId = vehicle.vehicleId ?? vehicle.vehicleID;
+          const vehicleId = typeof rawId === 'string' ? rawId.trim() : `${rawId || ''}`.trim();
+          if (!vehicleId) {
+            return;
+          }
+          const color = sanitizeCssColor(vehicle.markerColor) || ONDEMAND_MARKER_DEFAULT_COLOR;
+          onDemandVehicleColorMap.set(vehicleId, color);
+        });
+      }
+
+      function getOnDemandVehicleColor(vehicleId) {
+        const normalized = typeof vehicleId === 'string' ? vehicleId.trim() : `${vehicleId || ''}`.trim();
+        if (!normalized) {
+          return ONDEMAND_MARKER_DEFAULT_COLOR;
+        }
+        return onDemandVehicleColorMap.get(normalized) || ONDEMAND_MARKER_DEFAULT_COLOR;
       }
 
       function isOnDemandVehicleId(vehicleID) {
@@ -5391,7 +5457,7 @@ schedulePlaneStyleOverride();
       }
 
       function startOnDemandPolling() {
-        if (!onDemandVehiclesEnabled || onDemandPollingTimerId !== null) {
+        if (!shouldPollOnDemandData() || onDemandPollingTimerId !== null) {
           return;
         }
         if (typeof document !== 'undefined' && document.hidden) {
@@ -5419,14 +5485,19 @@ schedulePlaneStyleOverride();
           updateOnDemandButton();
           return;
         }
+        const pollingBefore = shouldPollOnDemandData();
         onDemandVehiclesEnabled = nextValue;
         if (onDemandVehiclesEnabled) {
           onDemandPollingPausedForVisibility = false;
-          startOnDemandPolling();
         } else {
-          stopOnDemandPolling();
-          onDemandPollingPausedForVisibility = false;
           clearOnDemandVehicles();
+          onDemandPollingPausedForVisibility = false;
+        }
+        const pollingAfter = shouldPollOnDemandData();
+        if (pollingAfter && !pollingBefore) {
+          startOnDemandPolling();
+        } else if (!pollingAfter && pollingBefore) {
+          stopOnDemandPolling();
         }
         updateOnDemandButton();
       }
@@ -5439,11 +5510,274 @@ schedulePlaneStyleOverride();
         setOnDemandVehiclesEnabled(!onDemandVehiclesEnabled);
       }
 
+      function setOnDemandStopsEnabled(value) {
+        const authorized = userIsAuthorizedForOnDemand();
+        const requestedEnable = !!value;
+        if (requestedEnable && !authorized) {
+          updateOnDemandStopsButton();
+          return;
+        }
+        if (onDemandStopsEnabled === requestedEnable) {
+          updateOnDemandStopsButton();
+          return;
+        }
+        const pollingBefore = shouldPollOnDemandData();
+        onDemandStopsEnabled = requestedEnable;
+        if (!onDemandStopsEnabled) {
+          clearOnDemandStops();
+        }
+        const pollingAfter = shouldPollOnDemandData();
+        if (pollingAfter && !pollingBefore) {
+          onDemandPollingPausedForVisibility = false;
+          startOnDemandPolling();
+        } else if (!pollingAfter && pollingBefore) {
+          stopOnDemandPolling();
+          onDemandPollingPausedForVisibility = false;
+        } else if (onDemandStopsEnabled) {
+          renderOnDemandStops();
+        }
+        updateOnDemandStopsButton();
+      }
+
+      function toggleOnDemandStops() {
+        if (!userIsAuthorizedForOnDemand()) {
+          updateOnDemandStopsButton();
+          return;
+        }
+        setOnDemandStopsEnabled(!onDemandStopsEnabled);
+      }
+
+      function clearOnDemandStops() {
+        if (!map || typeof map.removeLayer !== 'function') {
+          onDemandStopMarkerCache.clear();
+          onDemandStopMarkers = [];
+          return;
+        }
+        onDemandStopMarkerCache.forEach(entry => {
+          if (!entry || !entry.marker) {
+            return;
+          }
+          try {
+            if (typeof entry.marker.unbindTooltip === 'function') {
+              entry.marker.unbindTooltip();
+            }
+            map.removeLayer(entry.marker);
+          } catch (error) {
+            console.warn('Failed to remove OnDemand stop marker:', error);
+          }
+        });
+        onDemandStopMarkerCache.clear();
+        onDemandStopMarkers = [];
+      }
+
+      function buildOnDemandStopTooltip(groupInfo) {
+        if (!groupInfo || !Array.isArray(groupInfo.segments) || groupInfo.segments.length === 0) {
+          return '';
+        }
+        const lines = groupInfo.segments.map(segment => {
+          if (!segment) {
+            return '';
+          }
+          const vehicleLabel = `Vehicle ${segment.vehicleId}`;
+          const pickupText = segment.pickups === 1 ? '1 pickup' : `${segment.pickups} pickups`;
+          const dropoffText = segment.dropoffs === 1 ? '1 dropoff' : `${segment.dropoffs} dropoffs`;
+          const parts = [pickupText];
+          if (segment.dropoffs > 0) {
+            parts.push(dropoffText);
+          }
+          return `<div><strong>${escapeHtml(vehicleLabel)}</strong>: ${escapeHtml(parts.join(', '))}</div>`;
+        }).filter(Boolean);
+        return `<div>${lines.join('')}</div>`;
+      }
+
+      function renderOnDemandStops() {
+        if (!onDemandStopsEnabled) {
+          clearOnDemandStops();
+          return;
+        }
+        if (!map) {
+          return;
+        }
+        const stops = Array.isArray(onDemandStopDataCache) ? onDemandStopDataCache : [];
+        if (stops.length === 0) {
+          clearOnDemandStops();
+          return;
+        }
+        const normalizedStops = stops
+          .map(stop => {
+            if (!stop || typeof stop !== 'object') {
+              return null;
+            }
+            const lat = Number(stop.lat ?? stop.latitude);
+            const lon = Number(stop.lng ?? stop.lon ?? stop.longitude);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+              return null;
+            }
+            const rawVehicleId = stop.vehicleId ?? stop.vehicleID;
+            const vehicleId = typeof rawVehicleId === 'string' ? rawVehicleId.trim() : `${rawVehicleId || ''}`.trim();
+            if (!vehicleId) {
+              return null;
+            }
+            const capacityRaw = Number(stop.capacity);
+            const capacity = Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : 1;
+            const stopType = (stop.stopType || '').toLowerCase() === 'dropoff' ? 'dropoff' : 'pickup';
+            return {
+              Latitude: lat,
+              Longitude: lon,
+              vehicleId,
+              markerRouteId: `${ONDEMAND_STOP_ROUTE_PREFIX}${vehicleId}`,
+              capacity,
+              stopType,
+              address: typeof stop.address === 'string' ? stop.address : ''
+            };
+          })
+          .filter(Boolean);
+
+        if (normalizedStops.length === 0) {
+          clearOnDemandStops();
+          return;
+        }
+
+        const groupedStops = groupStopsByPixelDistance(normalizedStops, STOP_GROUPING_PIXEL_DISTANCE);
+        if (groupedStops.length === 0) {
+          clearOnDemandStops();
+          return;
+        }
+
+        const activeKeys = new Set();
+
+        groupedStops.forEach(group => {
+          if (!group || !Array.isArray(group.stops) || group.stops.length === 0) {
+            return;
+          }
+          const segmentsByVehicle = new Map();
+          group.stops.forEach(stop => {
+            if (!stop) {
+              return;
+            }
+            const vehicleId = stop.vehicleId;
+            if (!vehicleId) {
+              return;
+            }
+            let segment = segmentsByVehicle.get(vehicleId);
+            if (!segment) {
+              segment = {
+                vehicleId,
+                routeId: stop.markerRouteId,
+                totalCapacity: 0,
+                pickups: 0,
+                dropoffs: 0
+              };
+              segmentsByVehicle.set(vehicleId, segment);
+            }
+            const capacity = Number(stop.capacity);
+            const safeCapacity = Number.isFinite(capacity) && capacity > 0 ? capacity : 1;
+            segment.totalCapacity += safeCapacity;
+            if (stop.stopType === 'dropoff') {
+              segment.dropoffs += safeCapacity;
+            } else {
+              segment.pickups += safeCapacity;
+            }
+          });
+
+          if (segmentsByVehicle.size === 0) {
+            return;
+          }
+
+          const markerRouteIds = Array.from(
+            new Set(Array.from(segmentsByVehicle.values()).map(segment => segment.routeId))
+          ).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+          if (markerRouteIds.length === 0) {
+            return;
+          }
+
+          const fallbackKey = `${group.latitude.toFixed(5)},${group.longitude.toFixed(5)}`;
+          const groupKey = createStopGroupKey(markerRouteIds, fallbackKey);
+          const icon = createStopMarkerIcon(markerRouteIds);
+          if (!icon) {
+            return;
+          }
+
+          const groupInfo = {
+            position: [group.latitude, group.longitude],
+            segments: Array.from(segmentsByVehicle.values()),
+            markerRouteIds,
+            groupKey
+          };
+
+          const tooltipHtml = buildOnDemandStopTooltip(groupInfo);
+          let markerEntry = onDemandStopMarkerCache.get(groupKey) || null;
+          const iconSignature = markerRouteIds.join('|');
+          if (!markerEntry || !markerEntry.marker) {
+            const marker = L.marker(groupInfo.position, { icon, pane: 'ondemandStopsPane', interactive: false, keyboard: false });
+            marker.addTo(map);
+            if (typeof marker.bindTooltip === 'function') {
+              marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
+            }
+            markerEntry = { marker, iconSignature, groupInfo };
+          } else {
+            if (typeof markerEntry.marker.setLatLng === 'function') {
+              markerEntry.marker.setLatLng(groupInfo.position);
+            }
+            if (markerEntry.iconSignature !== iconSignature && typeof markerEntry.marker.setIcon === 'function') {
+              markerEntry.marker.setIcon(icon);
+            }
+            const tooltip = typeof markerEntry.marker.getTooltip === 'function' ? markerEntry.marker.getTooltip() : null;
+            if (tooltip && typeof tooltip.setContent === 'function') {
+              tooltip.setContent(tooltipHtml);
+            } else if (typeof markerEntry.marker.bindTooltip === 'function') {
+              markerEntry.marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
+            }
+            markerEntry.iconSignature = iconSignature;
+            markerEntry.groupInfo = groupInfo;
+          }
+
+          onDemandStopMarkerCache.set(groupKey, markerEntry);
+          activeKeys.add(groupKey);
+        });
+
+        const removalKeys = [];
+        onDemandStopMarkerCache.forEach((entry, key) => {
+          if (!activeKeys.has(key)) {
+            removalKeys.push(key);
+          }
+        });
+
+        removalKeys.forEach(key => {
+          const entry = onDemandStopMarkerCache.get(key);
+          if (entry && entry.marker && map && typeof map.removeLayer === 'function') {
+            try {
+              if (typeof entry.marker.unbindTooltip === 'function') {
+                entry.marker.unbindTooltip();
+              }
+              map.removeLayer(entry.marker);
+            } catch (error) {
+              console.warn('Failed to remove stale OnDemand stop marker:', error);
+            }
+          }
+          onDemandStopMarkerCache.delete(key);
+        });
+
+        onDemandStopMarkers = Array.from(onDemandStopMarkerCache.values())
+          .map(entry => entry && entry.marker)
+          .filter(marker => !!marker);
+
+        onDemandStopMarkers.forEach(marker => {
+          if (marker && typeof marker.bringToFront === 'function') {
+            marker.bringToFront();
+          }
+        });
+      }
+
       function getOnDemandMarkerColor(entry) {
         if (!entry || typeof entry !== 'object') {
           return ONDEMAND_MARKER_DEFAULT_COLOR;
         }
         const candidates = [];
+        if (typeof entry.markerColor === 'string') {
+          candidates.push(entry.markerColor.trim());
+        }
         if (typeof entry.color_hex === 'string') {
           candidates.push(entry.color_hex.trim());
         }
@@ -5463,7 +5797,7 @@ schedulePlaneStyleOverride();
       }
 
       async function fetchOnDemandVehicles() {
-        if (!onDemandVehiclesEnabled) {
+        if (!shouldPollOnDemandData()) {
           return [];
         }
         if (!map || typeof fetch !== 'function') {
@@ -5474,36 +5808,45 @@ schedulePlaneStyleOverride();
         }
         const fetchPromise = (async () => {
           try {
-            const response = await fetch(ONDEMAND_POSITIONS_ENDPOINT, { cache: 'no-store' });
+            const response = await fetch(ONDEMAND_ENDPOINT, { cache: 'no-store' });
             if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
             }
             const payload = await response.json();
-            if (!onDemandVehiclesEnabled) {
+            if (!shouldPollOnDemandData()) {
               return [];
             }
-            const entries = Array.isArray(payload) ? payload : [];
+            const vehicles = Array.isArray(payload?.vehicles) ? payload.vehicles : [];
+            const ondemandStops = Array.isArray(payload?.ondemandStops) ? payload.ondemandStops : [];
+            updateOnDemandVehicleColorMap(vehicles);
+            onDemandStopDataCache = ondemandStops.slice();
+            if (onDemandStopsEnabled) {
+              renderOnDemandStops();
+            }
+            if (!onDemandVehiclesEnabled) {
+              clearOnDemandVehicles();
+              return [];
+            }
             const seen = new Set();
             const zoom = typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM;
             const markerMetricsForZoom = computeBusMarkerMetrics(zoom);
-            for (const entry of entries) {
-              if (!entry || typeof entry !== 'object') {
+            for (const vehicle of vehicles) {
+              if (!vehicle || typeof vehicle !== 'object') {
                 continue;
               }
-              const isStale = entry.stale === true;
+              const isStale = vehicle.stale === true;
               if (isStale && !includeStaleVehicles) {
                 continue;
               }
-              if (entry.enabled === false) {
+              if (vehicle.enabled === false) {
                 continue;
               }
-              const position = entry.position || {};
-              const lat = Number(position.latitude ?? position.lat);
-              const lon = Number(position.longitude ?? position.lon);
+              const lat = Number(vehicle.lat ?? vehicle.latitude);
+              const lon = Number(vehicle.lng ?? vehicle.lon ?? vehicle.longitude);
               if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
                 continue;
               }
-              const rawId = entry.vehicle_id ?? entry.device_uuid ?? entry.device_id ?? entry.call_name ?? '';
+              const rawId = vehicle.vehicleId ?? vehicle.deviceUuid ?? vehicle.deviceId ?? vehicle.callName ?? '';
               const normalizedId = `${rawId}`.trim();
               if (!normalizedId) {
                 continue;
@@ -5513,14 +5856,14 @@ schedulePlaneStyleOverride();
               const state = ensureBusMarkerState(markerKey);
               state.isOnDemand = true;
               const newPosition = [lat, lon];
-              const speedRaw = Number(entry.speed);
+              const speedRaw = Number(vehicle.speed);
               const speedMph = Number.isFinite(speedRaw) ? Math.max(0, speedRaw) : 0;
-              const fallbackHeading = getVehicleHeadingFallback(markerKey, entry.heading);
+              const fallbackHeading = getVehicleHeadingFallback(markerKey, vehicle.heading);
               const headingDeg = updateBusMarkerHeading(state, newPosition, fallbackHeading, speedMph);
-              const displayName = extractOnDemandDisplayName(entry.call_name) || `Vehicle ${normalizedId}`;
+              const displayName = extractOnDemandDisplayName(vehicle.callName) || `Vehicle ${normalizedId}`;
               state.busName = displayName;
               state.routeID = null;
-              const fillColor = getOnDemandMarkerColor(entry);
+              const fillColor = sanitizeCssColor(vehicle.markerColor) || getOnDemandVehicleColor(normalizedId);
               state.fillColor = fillColor;
               const glyphColor = computeBusMarkerGlyphColor(fillColor);
               state.glyphColor = glyphColor;
@@ -5614,7 +5957,7 @@ schedulePlaneStyleOverride();
               }
             });
             purgeOrphanedBusMarkers();
-            return entries;
+            return vehicles;
           } catch (error) {
             console.error('Failed to fetch OnDemand vehicles:', error);
             return [];
@@ -7422,6 +7765,9 @@ ${trainPlaneMarkup}
               <button type="button" id="onDemandToggleButton" class="pill-button ondemand-toggle-button${onDemandVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${onDemandVehiclesEnabled ? 'true' : 'false'}" onclick="toggleOnDemandVehicles()">
                 OnDemand<span class="toggle-indicator">${onDemandVehiclesEnabled ? 'On' : 'Off'}</span>
               </button>
+              <button type="button" id="onDemandStopsToggleButton" class="pill-button ondemand-stops-toggle-button${onDemandStopsEnabled ? ' is-active' : ''}" aria-pressed="${onDemandStopsEnabled ? 'true' : 'false'}" onclick="toggleOnDemandStops()">
+                Demand Stops<span class="toggle-indicator">${onDemandStopsEnabled ? 'On' : 'Off'}</span>
+              </button>
             </div>
           `;
         }
@@ -7445,6 +7791,7 @@ ${trainPlaneMarkup}
         updateIncidentToggleButton();
         updateStaleVehiclesButton();
         updateOnDemandButton();
+        updateOnDemandStopsButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
       }
@@ -8420,7 +8767,7 @@ ${trainPlaneMarkup}
         if (catOverlayEnabled) {
           renderCatVehiclesUsingCache();
         }
-        if (onDemandVehiclesEnabled) {
+        if (shouldPollOnDemandData()) {
           fetchOnDemandVehicles().catch(error => console.error('Failed to refresh OnDemand vehicles:', error));
         }
       }
@@ -8465,7 +8812,7 @@ ${trainPlaneMarkup}
         if (shouldFetchServiceAlerts()) {
           fetchServiceAlertsForCurrentAgency();
         }
-        if (onDemandVehiclesEnabled) {
+        if (shouldPollOnDemandData()) {
           startOnDemandPolling();
         }
         refreshIntervalsActive = true;
@@ -8478,7 +8825,7 @@ ${trainPlaneMarkup}
         const hidden = document.hidden;
         if (hidden && !refreshSuspendedForVisibility) {
           refreshSuspendedForVisibility = true;
-          if (onDemandVehiclesEnabled && onDemandPollingTimerId !== null) {
+          if (shouldPollOnDemandData() && onDemandPollingTimerId !== null) {
             stopOnDemandPolling();
             onDemandPollingPausedForVisibility = true;
           }
@@ -8489,7 +8836,7 @@ ${trainPlaneMarkup}
           refreshSuspendedForVisibility = false;
           refreshMap();
           startRefreshIntervals();
-          if (onDemandVehiclesEnabled && (onDemandPollingPausedForVisibility || onDemandPollingTimerId === null)) {
+          if (shouldPollOnDemandData() && (onDemandPollingPausedForVisibility || onDemandPollingTimerId === null)) {
             onDemandPollingPausedForVisibility = false;
             startOnDemandPolling();
           }
@@ -8649,6 +8996,8 @@ ${trainPlaneMarkup}
           map.on('click', () => {
               closeCatVehicleTooltip();
           });
+          map.on('moveend', renderOnDemandStops);
+          map.on('zoomend', renderOnDemandStops);
           map.createPane(RADAR_PANE_NAME);
           const radarPane = map.getPane(RADAR_PANE_NAME);
           if (radarPane) {
@@ -8664,6 +9013,12 @@ ${trainPlaneMarkup}
           if (stopsPane) {
               stopsPane.style.zIndex = 450;
               stopsPane.style.pointerEvents = 'auto';
+          }
+          map.createPane('ondemandStopsPane');
+          const ondemandStopsPane = map.getPane('ondemandStopsPane');
+          if (ondemandStopsPane) {
+              ondemandStopsPane.style.zIndex = 455;
+              ondemandStopsPane.style.pointerEvents = 'auto';
           }
           map.createPane('busesPane');
           const busesPane = map.getPane('busesPane');
@@ -9256,6 +9611,14 @@ ${trainPlaneMarkup}
 
           const numericRouteIds = Array.isArray(routeIds) ? routeIds : [];
           numericRouteIds.forEach(routeId => {
+              if (typeof routeId === 'string' && routeId.startsWith(ONDEMAND_STOP_ROUTE_PREFIX)) {
+                  const vehicleId = routeId.slice(ONDEMAND_STOP_ROUTE_PREFIX.length);
+                  const ondemandColor = sanitizeCssColor(getOnDemandVehicleColor(vehicleId));
+                  if (ondemandColor) {
+                      colorSet.add(ondemandColor);
+                      return;
+                  }
+              }
               const color = sanitizeCssColor(getRouteColor(routeId));
               if (color) {
                   colorSet.add(color);

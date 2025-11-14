@@ -160,7 +160,9 @@ class OnDemandClient:
         if not self._token:
             await self._login(force=True)
 
-    async def get_vehicle_positions(self) -> list:
+    async def get_resource(
+        self, url: str, *, extra_headers: Optional[dict[str, str]] = None
+    ) -> httpx.Response:
         await self._ensure_token()
         client = await self._ensure_client()
 
@@ -168,39 +170,28 @@ class OnDemandClient:
             "Authorization": f"Token {self._token}",
             "Accept": "application/json",
         }
+        if extra_headers:
+            headers.update(extra_headers)
 
-        response = await client.get(self._positions_url, headers=headers)
+        response = await client.get(url, headers=headers)
 
         if response.status_code in {401, 403}:
             self._token = None
             await self._login(force=True)
             headers["Authorization"] = f"Token {self._token}"
-            response = await client.get(self._positions_url, headers=headers)
+            response = await client.get(url, headers=headers)
             if response.status_code in {401, 403}:
                 response.raise_for_status()
 
+        return response
+
+    async def get_vehicle_positions(self) -> list:
+        response = await self.get_resource(self._positions_url)
         response.raise_for_status()
         return response.json()
 
     async def get_vehicle_details(self) -> list:
-        await self._ensure_token()
-        client = await self._ensure_client()
-
-        headers = {
-            "Authorization": f"Token {self._token}",
-            "Accept": "application/json",
-        }
-
-        response = await client.get(self._vehicles_url, headers=headers)
-
-        if response.status_code in {401, 403}:
-            self._token = None
-            await self._login(force=True)
-            headers["Authorization"] = f"Token {self._token}"
-            response = await client.get(self._vehicles_url, headers=headers)
-            if response.status_code in {401, 403}:
-                response.raise_for_status()
-
+        response = await self.get_resource(self._vehicles_url)
         response.raise_for_status()
         data = response.json()
         if isinstance(data, list):
