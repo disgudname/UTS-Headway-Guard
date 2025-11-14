@@ -11,6 +11,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import httpx
+
 from app import app, _refresh_dispatch_passwords, ondemand_positions_cache  # noqa: E402
 
 
@@ -35,6 +37,9 @@ class DummyOnDemandClient:
 
     async def get_vehicle_positions(self):
         return self._positions
+
+    async def get_resource(self, url: str, extra_headers=None):  # noqa: ARG002
+        return httpx.Response(200, json=[])
 
 
 def _reset_ondemand_cache() -> None:
@@ -88,7 +93,7 @@ def test_positions_requires_authentication():
         original_client = getattr(app.state, "ondemand_client", None)
         try:
             _reset_ondemand_cache()
-            response = client.get("/api/ondemand/vehicles/positions")
+            response = client.get("/api/ondemand")
             assert response.status_code == 401
         finally:
             app.state.ondemand_client = original_client
@@ -110,12 +115,14 @@ def test_positions_returns_data_when_authenticated():
             login = client.post("/api/dispatcher/auth", json={"password": "dispatch-secret"})
             assert login.status_code == 200
 
-            response = client.get("/api/ondemand/vehicles/positions")
+            response = client.get("/api/ondemand")
             assert response.status_code == 200
             data = response.json()
-            assert isinstance(data, list)
-            assert data[0]["color"] == "336699"
-            assert data[0]["color_hex"] == "#336699"
+            assert isinstance(data, dict)
+            vehicles = data.get("vehicles")
+            assert isinstance(vehicles, list)
+            assert vehicles[0]["markerColor"] == "#336699"
+            assert vehicles[0]["vehicleId"] == "123"
         finally:
             app.state.ondemand_client = original_client
             _reset_ondemand_cache()

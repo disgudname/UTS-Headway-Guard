@@ -265,6 +265,11 @@ PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
 AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
 RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
 ONDEMAND_POSITIONS_TTL_S = int(os.getenv("ONDEMAND_POSITIONS_TTL_S", "5"))
+ONDEMAND_SCHEDULES_URL = (os.getenv("ONDEMAND_SCHEDULES_URL") or "").strip()
+ONDEMAND_VIRTUAL_STOP_MAX_AGE_S = int(os.getenv("ONDEMAND_VIRTUAL_STOP_MAX_AGE_S", str(10 * 60)))
+ONDEMAND_DEFAULT_MARKER_COLOR = (os.getenv("ONDEMAND_DEFAULT_MARKER_COLOR") or "#ec4899").strip() or "#ec4899"
+if not ONDEMAND_DEFAULT_MARKER_COLOR.startswith("#"):
+    ONDEMAND_DEFAULT_MARKER_COLOR = f"#{ONDEMAND_DEFAULT_MARKER_COLOR.lstrip('#')}"
 ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
 DISPATCHER_DOWNED_SHEET_URL = os.getenv(
     "DISPATCHER_DOWNED_SHEET_URL",
@@ -1338,6 +1343,8 @@ pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
 ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
 ondemand_positions_cache = TTLCache(ONDEMAND_POSITIONS_TTL_S)
+ondemand_schedules_cache_state: Dict[str, Any] = {"etag": None, "data": None}
+ondemand_schedules_cache_lock = asyncio.Lock()
 w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
@@ -1580,7 +1587,199 @@ async def health():
         return {"ok": ok, "last_error": (state.last_error or None), "last_error_ts": (state.last_error_ts or None)}
 
 
-@app.get("/api/ondemand/vehicles/positions")
+def _coerce_float(value: Any) -> Optional[float]:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(result) or math.isinf(result):
+        return None
+    return result
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        if math.isnan(seconds) or math.isinf(seconds):
+            return None
+        if seconds > 10_000_000_000:
+            seconds /= 1000.0
+        try:
+            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            if text.isdigit():
+                return datetime.fromtimestamp(float(text), tz=timezone.utc)
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                return parsedate_to_datetime(text)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _normalize_hex_color(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.startswith("#"):
+        text = text[1:]
+    text = text.lower()
+    if not re.fullmatch(r"[0-9a-f]{3,8}", text):
+        return None
+    if len(text) == 3:
+        text = "".join(ch * 2 for ch in text)
+    if len(text) not in {6, 8}:
+        return None
+    return f"#{text}"
+
+
+async def fetch_ondemand_schedules(client: OnDemandClient) -> List[Dict[str, Any]]:
+    if not ONDEMAND_SCHEDULES_URL:
+        return []
+
+    async with ondemand_schedules_cache_lock:
+        cached_data = ondemand_schedules_cache_state.get("data")
+        cached_etag = ondemand_schedules_cache_state.get("etag")
+
+    headers: Dict[str, str] = {}
+    if cached_etag:
+        headers["If-None-Match"] = cached_etag
+
+    try:
+        response = await client.get_resource(
+            ONDEMAND_SCHEDULES_URL, extra_headers=headers or None
+        )
+    except Exception as exc:
+        print(f"[ondemand] schedules fetch failed: {exc}")
+        return cached_data or []
+
+    if response.status_code == 304:
+        return cached_data or []
+    if response.status_code >= 400:
+        print(f"[ondemand] schedules fetch error: {response.status_code}")
+        return cached_data or []
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        print(f"[ondemand] schedules decode failed: {exc}")
+        return cached_data or []
+
+    data: List[Dict[str, Any]]
+    if isinstance(payload, list):
+        data = payload
+    elif isinstance(payload, dict):
+        candidate = payload.get("data")
+        data = candidate if isinstance(candidate, list) else []
+    else:
+        data = []
+
+    async with ondemand_schedules_cache_lock:
+        ondemand_schedules_cache_state["data"] = data
+        ondemand_schedules_cache_state["etag"] = response.headers.get("ETag")
+
+    return data
+
+
+def build_ondemand_virtual_stops(
+    schedules: Sequence[Dict[str, Any]], now: datetime
+) -> List[Dict[str, Any]]:
+    if not schedules:
+        return []
+
+    cutoff = now - timedelta(seconds=max(0, ONDEMAND_VIRTUAL_STOP_MAX_AGE_S))
+    records: List[Dict[str, Any]] = []
+
+    for vehicle in schedules:
+        if not isinstance(vehicle, dict):
+            continue
+        vehicle_id_raw = vehicle.get("vehicle_id") or vehicle.get("vehicleId")
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
+        if not vehicle_id:
+            continue
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+        for stop in stops:
+            if not isinstance(stop, dict):
+                continue
+            position = stop.get("position") or {}
+            lat = _coerce_float(
+                position.get("latitude")
+                or position.get("lat")
+                or stop.get("latitude")
+                or stop.get("lat")
+            )
+            lng = _coerce_float(
+                position.get("longitude")
+                or position.get("lon")
+                or position.get("lng")
+                or stop.get("longitude")
+                or stop.get("lon")
+            )
+            if lat is None or lng is None:
+                continue
+            stop_timestamp = _parse_timestamp(stop.get("timestamp") or stop.get("time"))
+            if stop_timestamp is None:
+                continue
+            if stop_timestamp.tzinfo is None:
+                stop_timestamp = stop_timestamp.replace(tzinfo=timezone.utc)
+            else:
+                stop_timestamp = stop_timestamp.astimezone(timezone.utc)
+            if stop_timestamp < cutoff:
+                continue
+            rides = stop.get("rides")
+            if not isinstance(rides, list):
+                continue
+            address_value = stop.get("address") or stop.get("label") or ""
+            address = str(address_value).strip()
+            for ride in rides:
+                if not isinstance(ride, dict):
+                    continue
+                stop_type_raw = ride.get("stop_type") or ride.get("stopType")
+                stop_type = str(stop_type_raw or "").strip().lower()
+                if stop_type not in {"pickup", "dropoff"}:
+                    continue
+                capacity_value = ride.get("capacity")
+                capacity = 1
+                try:
+                    if capacity_value is not None:
+                        capacity_candidate = int(float(capacity_value))
+                        if capacity_candidate > 0:
+                            capacity = capacity_candidate
+                except (TypeError, ValueError):
+                    capacity = 1
+                service_id_raw = ride.get("service_id") or ride.get("serviceId")
+                service_id = (
+                    str(service_id_raw).strip() if service_id_raw not in {None, ""} else None
+                )
+                records.append(
+                    {
+                        "lat": lat,
+                        "lng": lng,
+                        "address": address,
+                        "stopType": stop_type,
+                        "capacity": capacity,
+                        "serviceId": service_id,
+                        "vehicleId": vehicle_id,
+                        "stopTimestamp": stop_timestamp.isoformat(),
+                    }
+                )
+    return records
+
+
+@app.get("/api/ondemand")
 async def api_ondemand_positions(request: Request):
     _require_dispatcher_access(request)
     client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
@@ -1629,7 +1828,93 @@ async def api_ondemand_positions(request: Request):
                 entry["color_hex"] = f"#{color}"
         return data
 
-    return await ondemand_positions_cache.get(fetch)
+    raw_positions = await ondemand_positions_cache.get(fetch)
+
+    schedules: List[Dict[str, Any]] = []
+    try:
+        schedules = await fetch_ondemand_schedules(client)
+    except Exception as exc:
+        print(f"[ondemand] schedules processing failed: {exc}")
+
+    vehicles: List[Dict[str, Any]] = []
+    positions_list = raw_positions if isinstance(raw_positions, list) else []
+    for entry in positions_list:
+        if not isinstance(entry, dict):
+            continue
+        vehicle_id_raw = (
+            entry.get("vehicle_id")
+            or entry.get("VehicleID")
+            or entry.get("device_uuid")
+            or entry.get("device_id")
+        )
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
+        if not vehicle_id:
+            continue
+        position = entry.get("position") or {}
+        lat = _coerce_float(position.get("latitude") or position.get("lat") or entry.get("lat"))
+        lng = _coerce_float(
+            position.get("longitude")
+            or position.get("lon")
+            or position.get("lng")
+            or entry.get("lon")
+        )
+        if lat is None or lng is None:
+            continue
+        heading = _coerce_float(entry.get("heading") or entry.get("Heading"))
+        last_update_dt = _parse_timestamp(
+            entry.get("last_update")
+            or entry.get("lastUpdate")
+            or entry.get("last_seen")
+            or entry.get("timestamp")
+        )
+        if last_update_dt is not None:
+            if last_update_dt.tzinfo is None:
+                last_update_dt = last_update_dt.replace(tzinfo=timezone.utc)
+            else:
+                last_update_dt = last_update_dt.astimezone(timezone.utc)
+        last_update = last_update_dt.isoformat() if last_update_dt is not None else None
+        service_id_raw = entry.get("service_id") or entry.get("serviceId")
+        service_id = (
+            str(service_id_raw).strip() if service_id_raw not in {None, ""} else None
+        )
+        color = (
+            _normalize_hex_color(entry.get("markerColor"))
+            or _normalize_hex_color(entry.get("color_hex"))
+            or _normalize_hex_color(entry.get("color"))
+            or ONDEMAND_DEFAULT_MARKER_COLOR
+        )
+        vehicle_payload: Dict[str, Any] = {
+            "vehicleId": vehicle_id,
+            "lat": lat,
+            "lng": lng,
+            "heading": heading,
+            "lastUpdate": last_update,
+            "serviceId": service_id,
+            "markerColor": color,
+            "status": entry.get("status") or entry.get("Status"),
+        }
+        if "speed" in entry:
+            vehicle_payload["speed"] = entry.get("speed")
+        if "stale" in entry:
+            vehicle_payload["stale"] = bool(entry.get("stale"))
+        if "enabled" in entry:
+            vehicle_payload["enabled"] = entry.get("enabled")
+        call_name = entry.get("call_name") or entry.get("callName")
+        if call_name:
+            vehicle_payload["callName"] = call_name
+        device_uuid = entry.get("device_uuid") or entry.get("deviceUuid")
+        if device_uuid:
+            vehicle_payload["deviceUuid"] = device_uuid
+        device_id = entry.get("device_id") or entry.get("deviceId")
+        if device_id:
+            vehicle_payload["deviceId"] = device_id
+        vehicles.append(vehicle_payload)
+
+    ondemand_stops = build_ondemand_virtual_stops(
+        schedules, datetime.now(timezone.utc)
+    )
+
+    return {"vehicles": vehicles, "ondemandStops": ondemand_stops}
 
 
 # ---------------------------
