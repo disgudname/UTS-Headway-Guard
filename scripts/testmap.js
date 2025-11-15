@@ -2976,12 +2976,20 @@ schedulePlaneStyleOverride();
           } else {
             updateOnDemandButton();
           }
+          if (onDemandStopsEnabled) {
+            setOnDemandStopsEnabled(false);
+          } else {
+            updateOnDemandStopsButton();
+          }
           scheduleNextAdminKioskOnDemandCheck();
           return;
         }
         const shouldEnable = shouldEnableAdminKioskOnDemand();
         if (force || onDemandVehiclesEnabled !== shouldEnable) {
           setOnDemandVehiclesEnabled(shouldEnable);
+        }
+        if (force || onDemandStopsEnabled !== shouldEnable) {
+          setOnDemandStopsEnabled(shouldEnable);
         }
         scheduleNextAdminKioskOnDemandCheck();
       }
