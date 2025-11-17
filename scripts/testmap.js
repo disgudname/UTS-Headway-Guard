@@ -6030,6 +6030,27 @@ schedulePlaneStyleOverride();
               const displayName = extractOnDemandDisplayName(vehicle.callName) || `Vehicle ${normalizedId}`;
               state.busName = displayName;
               state.routeID = null;
+              const driverNameSource =
+                typeof vehicle.driverName === 'string'
+                  ? vehicle.driverName
+                  : typeof vehicle.driver === 'string'
+                    ? vehicle.driver
+                    : typeof vehicle.driver_name === 'string'
+                      ? vehicle.driver_name
+                      : '';
+              const driverName = driverNameSource ? driverNameSource.trim() : '';
+              if (driverName) {
+                state.driverPopupContent = [
+                  '<div class="ondemand-driver-popup__content">',
+                  '<div class="ondemand-driver-popup__label">Driver</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(driverName)}</div>`,
+                  '</div>'
+                ].join('');
+                state.driverPopupAriaLabel = `Driver ${driverName}`;
+              } else {
+                delete state.driverPopupContent;
+                delete state.driverPopupAriaLabel;
+              }
               const fillColor = sanitizeCssColor(vehicle.markerColor) || getOnDemandVehicleColor(normalizedId);
               state.fillColor = fillColor;
               const glyphColor = computeBusMarkerGlyphColor(fillColor);
@@ -6068,7 +6089,6 @@ schedulePlaneStyleOverride();
                 state.marker = marker;
                 removeDuplicateBusMarkerLayers(markerKey, marker);
                 registerBusMarkerElements(markerKey);
-                attachBusMarkerInteractions(markerKey);
                 updateBusMarkerRootClasses(state);
                 updateBusMarkerZIndex(state);
                 applyBusMarkerOutlineWidth(state);
@@ -6092,6 +6112,8 @@ schedulePlaneStyleOverride();
                 map.removeLayer(nameBubbles[markerKey].nameMarker);
                 delete nameBubbles[markerKey].nameMarker;
               }
+
+              attachBusMarkerInteractions(markerKey);
 
               if (nameBubbles[markerKey]) {
                 const bubble = nameBubbles[markerKey];
@@ -15818,6 +15840,9 @@ ${trainPlaneMarkup}
           if (typeof marker.off === 'function') {
               marker.off();
           }
+          if (typeof marker.unbindPopup === 'function') {
+              marker.unbindPopup();
+          }
           if (marker.options) {
               marker.options.interactive = false;
               marker.options.keyboard = false;
@@ -15849,11 +15874,56 @@ ${trainPlaneMarkup}
               if (root.dataset && root.dataset.busMarkerFocusBound) {
                   delete root.dataset.busMarkerFocusBound;
               }
+              if (root.hasAttribute('role')) {
+                  root.removeAttribute('role');
+              }
+              if (root.hasAttribute('aria-label')) {
+                  root.removeAttribute('aria-label');
+              }
           }
           if (svg) {
               svg.style.pointerEvents = 'none';
           }
-          state.markerEventsBound = false;
+          const driverPopupHtml = state.driverPopupContent;
+          if (!driverPopupHtml) {
+              state.markerEventsBound = false;
+              return;
+          }
+
+          if (marker.options) {
+              marker.options.interactive = true;
+              marker.options.keyboard = true;
+          }
+          if (icon) {
+              icon.style.pointerEvents = 'auto';
+          }
+          if (root) {
+              root.style.pointerEvents = 'auto';
+              root.style.touchAction = 'manipulation';
+              root.style.cursor = 'pointer';
+              root.setAttribute('tabindex', '0');
+              root.setAttribute('role', 'button');
+              const ariaLabel = state.driverPopupAriaLabel || state.accessibleLabel;
+              if (ariaLabel) {
+                  root.setAttribute('aria-label', ariaLabel);
+              }
+              if (root.dataset) {
+                  root.dataset.busMarkerFocusBound = 'true';
+              }
+          }
+          if (svg) {
+              svg.style.pointerEvents = 'auto';
+          }
+          if (typeof marker.bindPopup === 'function') {
+              marker.bindPopup(driverPopupHtml, {
+                  className: 'ondemand-driver-popup',
+                  closeButton: false,
+                  autoClose: true,
+                  autoPan: false,
+                  offset: [0, -20],
+              });
+          }
+          state.markerEventsBound = true;
       }
 
       async function updateBusMarkerSizes(metricsOverride = null) {

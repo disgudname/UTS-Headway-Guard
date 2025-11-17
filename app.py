@@ -1792,6 +1792,7 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             print(f"[ondemand] vehicle roster fetch failed: {exc}")
 
         color_map: Dict[str, str] = {}
+        driver_name_map: Dict[str, str] = {}
         for entry in roster:
             if not isinstance(entry, dict):
                 continue
@@ -1807,6 +1808,18 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             normalized_color = color_value.lstrip("#").lower()
             if normalized_color:
                 color_map[vehicle_key] = normalized_color
+            driver_name = (
+                entry.get("driver_name")
+                or entry.get("driverName")
+                or entry.get("driver")
+            )
+            driver_name_value = (
+                str(driver_name).strip()
+                if driver_name not in {None, ""}
+                else ""
+            )
+            if driver_name_value:
+                driver_name_map[vehicle_key] = driver_name_value
 
         data = await client.get_vehicle_positions()
         if not isinstance(data, list):
@@ -1825,6 +1838,9 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             if color:
                 entry["color"] = color
                 entry["color_hex"] = f"#{color}"
+            driver_name = driver_name_map.get(vehicle_key)
+            if driver_name:
+                entry["driverName"] = driver_name
         return data
 
     raw_positions = await ondemand_positions_cache.get(fetch)
@@ -1901,6 +1917,11 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
         call_name = entry.get("call_name") or entry.get("callName")
         if call_name:
             vehicle_payload["callName"] = call_name
+        driver_name = entry.get("driverName")
+        if driver_name:
+            driver_name_value = str(driver_name).strip()
+            if driver_name_value:
+                vehicle_payload["driverName"] = driver_name_value
         device_uuid = entry.get("device_uuid") or entry.get("deviceUuid")
         if device_uuid:
             vehicle_payload["deviceUuid"] = device_uuid
