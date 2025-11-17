@@ -14,6 +14,40 @@
         --accent-soft: rgba(229, 114, 0, 0.28);
         --app-font-family: 'FGDC', sans-serif;
       }
+      .leaflet-popup.ondemand-driver-popup .leaflet-popup-content-wrapper {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+        color: #0f172a;
+        font-family: var(--app-font-family);
+        padding: 10px 14px;
+        border: 2px solid rgba(35, 45, 75, 0.08);
+      }
+      .leaflet-popup.ondemand-driver-popup .leaflet-popup-content {
+        margin: 0;
+      }
+      .leaflet-popup.ondemand-driver-popup .leaflet-popup-tip {
+        background: #ffffff;
+        border: 2px solid rgba(35, 45, 75, 0.08);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+      }
+      .ondemand-driver-popup__content {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 140px;
+      }
+      .ondemand-driver-popup__label {
+        font-size: 11px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: rgba(15, 23, 42, 0.75);
+      }
+      .ondemand-driver-popup__value {
+        font-size: 15px;
+        font-weight: 700;
+        color: #1f2937;
+      }
       .custom-popup {
         position: absolute;
         background: linear-gradient(135deg, var(--navy), var(--navy-dark));
