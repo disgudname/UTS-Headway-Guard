@@ -3510,6 +3510,33 @@ async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]
     return await _fetch_transloc_blocks_for_base(base_url)
 
 
+def _describe_transloc_source(base_url: Optional[str]) -> str:
+    if is_default_transloc_base(base_url):
+        return "default TransLoc feed"
+    sanitized = sanitize_transloc_base(base_url)
+    if sanitized:
+        return sanitized
+    if base_url:
+        return base_url
+    return "default TransLoc feed"
+
+
+def _transloc_error_detail(exc: httpx.HTTPError, base_url: Optional[str]) -> str:
+    source = _describe_transloc_source(base_url)
+    prefix = f"TransLoc request failed for {source}"
+    if isinstance(exc, httpx.TimeoutException):
+        return f"{prefix}: request timed out"
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        reason = exc.response.reason_phrase or ""
+        if reason:
+            return f"{prefix}: HTTP {status} {reason}"
+        return f"{prefix}: HTTP {status}"
+    if isinstance(exc, httpx.RequestError):
+        return f"{prefix}: {exc.__class__.__name__}: {exc}"
+    return f"{prefix}: {exc}"
+
+
 def _coerce_epoch_seconds(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -3660,7 +3687,11 @@ async def build_transloc_snapshot(
 async def testmap_transloc_snapshot(
     base_url: Optional[str] = Query(None), stale: bool = Query(False)
 ):
-    return await build_transloc_snapshot(base_url=base_url, include_stale=stale)
+    try:
+        return await build_transloc_snapshot(base_url=base_url, include_stale=stale)
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url)
+        raise HTTPException(status_code=502, detail=detail) from exc
 
 
 def _extract_cat_array(root: Any, keys: List[str]) -> List[Any]:
@@ -4821,12 +4852,16 @@ async def anti_bunching_raw():
         now = time.time()
         if state.anti_cache and now - state.anti_cache_ts < VEH_REFRESH_S:
             return state.anti_cache
-    async with httpx.AsyncClient() as client:
-        url = f"{TRANSLOC_BASE}/GetAntiBunching"
-        r = await client.get(url, timeout=20)
-        record_api_call("GET", url, r.status_code)
-        r.raise_for_status()
-        data = r.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            url = f"{TRANSLOC_BASE}/GetAntiBunching"
+            r = await client.get(url, timeout=20)
+            record_api_call("GET", url, r.status_code)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, TRANSLOC_BASE)
+        raise HTTPException(status_code=502, detail=detail) from exc
     async with state.lock:
         state.anti_cache = data
         state.anti_cache_ts = time.time()
