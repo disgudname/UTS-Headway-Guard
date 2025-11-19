@@ -227,6 +227,9 @@ schedulePlaneStyleOverride();
       let adminKioskUiSuppressed = false;
       let kioskUiSuppressed = false;
       let kioskVehicleStatusKnown = false;
+      let kioskTranslocErrorActive = false;
+      const KIOSK_DEFAULT_STATUS_TEXT = 'No active vehicles';
+      const KIOSK_TRANSLOC_ERROR_TEXT = 'TransLoc is currently failing to provide bus data.\nThe Operations Dashboard is functioning normally.';
       let displayMode = DISPLAY_MODES.BLOCK;
 
       const PANEL_COLLAPSE_BREAKPOINT = 600;
@@ -3139,10 +3142,12 @@ schedulePlaneStyleOverride();
           .then(data => {
             entry.data = data || {};
             entry.timestamp = Date.now();
+            clearKioskTranslocErrorState();
             return entry.data;
           })
           .catch(error => {
             console.error('Failed to load TransLoc snapshot:', error);
+            markKioskTranslocError();
             throw error;
           })
           .finally(() => {
@@ -6569,6 +6574,33 @@ schedulePlaneStyleOverride();
         return getCachedElementById('kioskStatusMessage');
       }
 
+      function setKioskStatusMessageText(text) {
+        const element = getKioskStatusMessageElement();
+        if (!element) return;
+        const fallbackText = typeof text === 'string' && text.trim() !== '' ? text : KIOSK_DEFAULT_STATUS_TEXT;
+        if (element.textContent !== fallbackText) {
+          element.textContent = fallbackText;
+        }
+      }
+
+      function markKioskTranslocError() {
+        if (!isKioskExperienceActive()) {
+          return;
+        }
+        if (!kioskTranslocErrorActive) {
+          kioskTranslocErrorActive = true;
+        }
+        updateKioskStatusMessage();
+      }
+
+      function clearKioskTranslocErrorState() {
+        if (!kioskTranslocErrorActive) {
+          return;
+        }
+        kioskTranslocErrorActive = false;
+        updateKioskStatusMessage();
+      }
+
       function setKioskStatusMessageVisibility(visible) {
         const element = getKioskStatusMessageElement();
         if (!element) return;
@@ -6594,7 +6626,14 @@ schedulePlaneStyleOverride();
       function updateKioskStatusMessage(options = {}) {
         if (!kioskMode && !adminKioskMode) {
           kioskVehicleStatusKnown = false;
+          kioskTranslocErrorActive = false;
           setKioskStatusMessageVisibility(false);
+          return;
+        }
+
+        if (kioskTranslocErrorActive) {
+          setKioskStatusMessageText(KIOSK_TRANSLOC_ERROR_TEXT);
+          setKioskStatusMessageVisibility(true);
           return;
         }
 
@@ -6612,6 +6651,7 @@ schedulePlaneStyleOverride();
           return;
         }
 
+        setKioskStatusMessageText(KIOSK_DEFAULT_STATUS_TEXT);
         setKioskStatusMessageVisibility(!hasActiveVehicles);
       }
 
@@ -9135,6 +9175,7 @@ ${trainPlaneMarkup}
         routeStopAddressMap = {};
         routeStopRouteMap = {};
         activeRoutes = new Set();
+        clearKioskTranslocErrorState();
         kioskVehicleStatusKnown = false;
         updateKioskStatusMessage({ known: false, hasActiveVehicles: false });
         routeColors = {};
