@@ -536,6 +536,7 @@
         font-weight: 700;
         font-size: clamp(1.5rem, 8vw, 4.5rem);
         line-height: 1.2;
+        white-space: pre-line;
         color: #f8fafc;
         background: rgba(35, 45, 75, 0.82);
         backdrop-filter: blur(3px);
