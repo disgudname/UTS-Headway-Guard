@@ -2,7 +2,7 @@ import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -17,8 +17,12 @@ from app import app, _refresh_dispatch_passwords, ondemand_positions_cache  # no
 
 
 @contextmanager
-def dispatch_passwords(**passwords: str):
+def dispatch_passwords(*, cat_passwords: Optional[Dict[str, str]] = None, **passwords: str):
     env_updates = {f"{label.upper()}_PASS": secret for label, secret in passwords.items()}
+    if cat_passwords:
+        env_updates.update(
+            {f"{label.upper()}_CAT_PASS": secret for label, secret in cat_passwords.items()}
+        )
     with patch.dict(os.environ, env_updates, clear=False):
         _refresh_dispatch_passwords(force=True)
         try:
@@ -52,7 +56,10 @@ def test_accepts_known_password():
         client = TestClient(app)
         response = client.post("/api/dispatcher/auth", json={"password": "dispatch-secret"})
         assert response.status_code == 200
-        assert response.json() == {"ok": True, "secret": "dispatch"}
+        payload = response.json()
+        assert payload["ok"] is True
+        assert payload["secret"] == "dispatch"
+        assert payload["access_type"] == "uts"
 
 
 def test_rejects_unknown_password():
@@ -75,6 +82,7 @@ def test_status_reports_authorized_with_valid_cookie():
         assert payload["required"] is True
         assert payload["authorized"] is True
         assert payload["secret"] == "beta"
+        assert payload["access_type"] == "uts"
 
 
 def test_invalid_cookie_is_rejected():
@@ -85,6 +93,24 @@ def test_invalid_cookie_is_rejected():
     payload = status.json()
     assert payload["authorized"] is False
     assert payload["secret"] is None
+    assert payload["access_type"] is None
+
+
+def test_cat_password_sets_cat_access_type():
+    with dispatch_passwords(cat_passwords={"ops": "cat-secret"}):
+        client = TestClient(app)
+        response = client.post("/api/dispatcher/auth", json={"password": "cat-secret"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["access_type"] == "cat"
+        cookie_value = client.cookies.get("dispatcher_auth")
+        assert cookie_value is not None and ":cat:" in cookie_value
+
+        status = client.get("/api/dispatcher/auth")
+        assert status.status_code == 200
+        status_payload = status.json()
+        assert status_payload["authorized"] is True
+        assert status_payload["access_type"] == "cat"
 
 
 def test_positions_requires_authentication():
