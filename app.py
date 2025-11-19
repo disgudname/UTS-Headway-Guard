@@ -163,7 +163,8 @@ SYNC_SECRET = os.getenv("SYNC_SECRET")
 # Dispatcher authentication helpers
 DISPATCH_PASSWORDS: Dict[str, str] = {}
 DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
-_DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str, str], ...]] = None
+DISPATCH_PASSWORD_TYPES: Dict[str, str] = {}
+_DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str, str, str], ...]] = None
 
 _NON_SECRET_ENV_KEYS = {
     "PATH",
@@ -189,24 +190,38 @@ _NON_SECRET_ENV_PREFIXES = (
 def _refresh_dispatch_passwords(force: bool = False) -> None:
     """Load dispatcher passwords from environment secrets."""
 
-    global DISPATCH_PASSWORDS, DISPATCH_PASSWORD_LABELS, _DISPATCH_PASSWORD_CACHE
+    global DISPATCH_PASSWORDS
+    global DISPATCH_PASSWORD_LABELS
+    global DISPATCH_PASSWORD_TYPES
+    global _DISPATCH_PASSWORD_CACHE
 
-    secrets_list: list[Tuple[str, str, str]] = []
+    secrets_list: list[Tuple[str, str, str, str]] = []
     for key, value in os.environ.items():
-        if not key.endswith("_PASS"):
-            continue
         if key.upper() != key:
             continue
         if not value:
             continue
-        raw_label = key[:-5]
+        access_type = "uts"
+        raw_label: Optional[str] = None
+        if key.endswith("_CAT_PASS"):
+            access_type = "cat"
+            base_label = key[: -len("_CAT_PASS")]
+            if base_label.endswith("_CAT"):
+                raw_label = base_label[: -len("_CAT")]
+            else:
+                raw_label = base_label
+        elif key.endswith("_PASS"):
+            raw_label = key[:-5]
+        else:
+            continue
         normalized = raw_label.strip().lower()
         if not normalized:
             continue
         display_label = raw_label.strip()
         if display_label.isupper():
             display_label = display_label.lower()
-        secrets_list.append((normalized, value, display_label))
+        normalized_key = f"{normalized}::{access_type}"
+        secrets_list.append((normalized_key, value, display_label, access_type))
 
     secrets_list.sort()
     cache_state = tuple(secrets_list)
@@ -214,10 +229,14 @@ def _refresh_dispatch_passwords(force: bool = False) -> None:
         return
 
     DISPATCH_PASSWORDS = {
-        normalized: secret for normalized, secret, _label in secrets_list
+        normalized: secret for normalized, secret, _label, _type in secrets_list
     }
     DISPATCH_PASSWORD_LABELS = {
-        normalized: label for normalized, _secret, label in secrets_list
+        normalized: label for normalized, _secret, label, _type in secrets_list
+    }
+    DISPATCH_PASSWORD_TYPES = {
+        normalized: access_type
+        for normalized, _secret, _label, access_type in secrets_list
     }
     _DISPATCH_PASSWORD_CACHE = cache_state
 
@@ -5251,57 +5270,100 @@ async def driver_page():
 # ---------------------------
 # DISPATCHER PAGE
 # ---------------------------
-def _normalize_dispatch_password(password: Optional[str]) -> Optional[str]:
+def _normalize_dispatch_password(password: Optional[str]) -> Optional[Tuple[str, str]]:
     if not isinstance(password, str):
         return None
     _refresh_dispatch_passwords()
     for normalized_label, secret in DISPATCH_PASSWORDS.items():
         if secrets.compare_digest(password, secret):
-            return DISPATCH_PASSWORD_LABELS.get(normalized_label, normalized_label)
+            display_label = DISPATCH_PASSWORD_LABELS.get(normalized_label, normalized_label)
+            access_type = DISPATCH_PASSWORD_TYPES.get(
+                normalized_label,
+                normalized_label.split("::")[-1],
+            )
+            return display_label, access_type
     return None
 
 
-def _dispatcher_cookie_value_for_label(label: str) -> Optional[str]:
+def _normalized_dispatch_key(label: Optional[str], access_type: Optional[str]) -> Optional[str]:
+    if not isinstance(label, str) or not isinstance(access_type, str):
+        return None
+    normalized_label = label.strip().lower()
+    normalized_type = access_type.strip().lower()
+    if not normalized_label or not normalized_type:
+        return None
+    return f"{normalized_label}::{normalized_type}"
+
+
+def _dispatcher_cookie_value_for_label(label: str, access_type: str) -> Optional[str]:
     _refresh_dispatch_passwords()
-    if not isinstance(label, str):
+    normalized_key = _normalized_dispatch_key(label, access_type)
+    if not normalized_key:
         return None
-    normalized = label.strip().lower()
-    if not normalized:
-        return None
-    secret = DISPATCH_PASSWORDS.get(normalized)
+    secret = DISPATCH_PASSWORDS.get(normalized_key)
     if not secret:
         return None
-    display_label = DISPATCH_PASSWORD_LABELS.get(normalized, label.strip())
+    display_label = DISPATCH_PASSWORD_LABELS.get(normalized_key, label.strip())
+    normalized_type = DISPATCH_PASSWORD_TYPES.get(normalized_key, access_type.strip().lower())
+    digest = hashlib.sha256(
+        f"dispatcher::{display_label}:{normalized_type}:{secret}".encode("utf-8")
+    ).hexdigest()
+    return f"{display_label}:{normalized_type}:{digest}"
+
+
+def _legacy_dispatcher_cookie_value(label: str) -> Optional[str]:
+    normalized_key = _normalized_dispatch_key(label, "uts")
+    if not normalized_key:
+        return None
+    secret = DISPATCH_PASSWORDS.get(normalized_key)
+    if not secret:
+        return None
+    display_label = DISPATCH_PASSWORD_LABELS.get(normalized_key, label.strip())
     digest = hashlib.sha256(
         f"dispatcher::{display_label}:{secret}".encode("utf-8")
     ).hexdigest()
     return f"{display_label}:{digest}"
 
 
-def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
+def _get_dispatcher_secret_info(request: Request) -> Optional[Tuple[str, str]]:
     _refresh_dispatch_passwords()
     provided = request.cookies.get(DISPATCH_COOKIE_NAME)
     if not provided:
         return None
-    label, sep, _hash = provided.partition(":")
-    if not sep:
-        return None
-    expected = _dispatcher_cookie_value_for_label(label)
-    if expected and secrets.compare_digest(provided, expected):
-        normalized = label.strip().lower()
-        if normalized:
-            return DISPATCH_PASSWORD_LABELS.get(normalized, label)
-        return label
+    parts = provided.split(":", 2)
+    if len(parts) == 3:
+        label, access_type, _hash = parts
+        expected = _dispatcher_cookie_value_for_label(label, access_type)
+        if expected and secrets.compare_digest(provided, expected):
+            normalized_key = _normalized_dispatch_key(label, access_type)
+            if not normalized_key:
+                return None
+            stored_label = DISPATCH_PASSWORD_LABELS.get(normalized_key, label)
+            stored_type = DISPATCH_PASSWORD_TYPES.get(
+                normalized_key, access_type.strip().lower()
+            )
+            return stored_label, stored_type
+    elif len(parts) == 2:
+        label, _hash = parts
+        expected = _legacy_dispatcher_cookie_value(label)
+        if expected and secrets.compare_digest(provided, expected):
+            return label, "uts"
     return None
 
 
+def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
+    info = _get_dispatcher_secret_info(request)
+    if info is None:
+        return None
+    label, _access_type = info
+    return label
+
+
 def _has_dispatcher_access(request: Request) -> bool:
-    _refresh_dispatch_passwords()
-    return _get_dispatcher_secret_label(request) is not None
+    return _get_dispatcher_secret_info(request) is not None
 
 
 def _require_dispatcher_access(request: Request) -> None:
-    _refresh_dispatch_passwords()
     if not _has_dispatcher_access(request):
         raise HTTPException(status_code=401, detail="dispatcher auth required")
 
@@ -5316,12 +5378,14 @@ def _login_redirect(request: Request) -> RedirectResponse:
 
 @app.get("/api/dispatcher/auth")
 async def dispatcher_auth_status(request: Request):
-    _refresh_dispatch_passwords()
-    secret_label = _get_dispatcher_secret_label(request)
+    info = _get_dispatcher_secret_info(request)
+    secret_label = info[0] if info else None
+    access_type = info[1] if info else None
     return {
         "required": True,
         "authorized": bool(secret_label),
         "secret": secret_label,
+        "access_type": access_type,
     }
 
 
@@ -5329,10 +5393,10 @@ async def dispatcher_auth_status(request: Request):
 async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)
 ):
-    _refresh_dispatch_passwords()
-    label = _normalize_dispatch_password(payload.get("password"))
-    if label is not None:
-        cookie_value = _dispatcher_cookie_value_for_label(label)
+    secret_info = _normalize_dispatch_password(payload.get("password"))
+    if secret_info is not None:
+        label, access_type = secret_info
+        cookie_value = _dispatcher_cookie_value_for_label(label, access_type)
         if not cookie_value:
             raise HTTPException(status_code=401, detail="Incorrect password.")
         response.set_cookie(
@@ -5343,7 +5407,7 @@ async def dispatcher_auth(
             secure=DISPATCH_COOKIE_SECURE,
             samesite="lax",
         )
-        return {"ok": True, "secret": label}
+        return {"ok": True, "secret": label, "access_type": access_type}
     raise HTTPException(status_code=401, detail="Incorrect password.")
 
 

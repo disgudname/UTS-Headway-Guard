@@ -110,7 +110,7 @@ def test_ticket_history_and_export(ticket_client, monkeypatch):
     client, _ = ticket_client
     monkeypatch.setenv("OPS_PASS", "history-secret")
     app_module._refresh_dispatch_passwords(force=True)
-    cookie_value = app_module._dispatcher_cookie_value_for_label("ops")
+    cookie_value = app_module._dispatcher_cookie_value_for_label("ops", "uts")
     assert cookie_value
     client.cookies.set(app_module.DISPATCH_COOKIE_NAME, cookie_value)
 
