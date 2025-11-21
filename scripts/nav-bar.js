@@ -527,6 +527,7 @@
           }
         }
         renderLoggedOut();
+        emitAuthChangedEvent({ authorized: false, secret: null, accessType: null });
         if (shouldRedirectAfterLogout()) {
           redirectToLogin();
         }
