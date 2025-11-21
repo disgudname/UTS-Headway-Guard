@@ -267,24 +267,29 @@ schedulePlaneStyleOverride();
       let adminLogoutInProgress = false;
       let navAuthorized = false;
 
+      function userIsAuthorizedForOnDemand() {
+        return navAuthorized === true && dispatcherAccessType !== 'cat';
+      }
+
       function updateUserAuthorizationState(authorized) {
         const normalized = authorized === true;
         if (navAuthorized === normalized) {
-          return navAuthorized;
+          const ondemandAllowed = userIsAuthorizedForOnDemand();
+          if (!ondemandAllowed) {
+            setOnDemandVehiclesEnabled(false);
+            setOnDemandStopsEnabled(false);
+          }
+          return ondemandAllowed;
         }
         navAuthorized = normalized;
-        if (!navAuthorized) {
+        if (!userIsAuthorizedForOnDemand()) {
           setOnDemandVehiclesEnabled(false);
           setOnDemandStopsEnabled(false);
         } else {
           updateOnDemandButton();
           updateOnDemandStopsButton();
         }
-        return navAuthorized;
-      }
-
-      function userIsAuthorizedForOnDemand() {
-        return navAuthorized === true;
+        return userIsAuthorizedForOnDemand();
       }
 
       function setAdminModeEnabled(enabled, options = {}) {
@@ -357,6 +362,10 @@ schedulePlaneStyleOverride();
               data = null;
             }
             const authorized = data && data.authorized === true;
+            const accessType = data && typeof data.access_type === 'string' && data.access_type.trim()
+              ? data.access_type.trim().toLowerCase()
+              : null;
+            applyDispatcherAccessType(accessType, authorized);
             updateUserAuthorizationState(authorized);
             const requiresPassword = data && typeof data.required === 'boolean' ? data.required : true;
             if (authorized || requiresPassword === false) {
