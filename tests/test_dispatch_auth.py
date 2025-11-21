@@ -97,9 +97,9 @@ def test_invalid_cookie_is_rejected():
 
 
 def test_cat_password_sets_cat_access_type():
-    with dispatch_passwords(cat_passwords={"ops": "cat-secret"}):
+    with dispatch_passwords(cat_passwords={"ops": "OPS_CAT_PASS"}):
         client = TestClient(app)
-        response = client.post("/api/dispatcher/auth", json={"password": "cat-secret"})
+        response = client.post("/api/dispatcher/auth", json={"password": "OPS_CAT_PASS"})
         assert response.status_code == 200
         payload = response.json()
         assert payload["access_type"] == "cat"
@@ -111,6 +111,19 @@ def test_cat_password_sets_cat_access_type():
         status_payload = status.json()
         assert status_payload["authorized"] is True
         assert status_payload["access_type"] == "cat"
+
+
+def test_cat_secret_without_cat_suffix_is_treated_as_uts():
+    with dispatch_passwords(cat_passwords={"ops": "regular-secret"}):
+        client = TestClient(app)
+        response = client.post(
+            "/api/dispatcher/auth", json={"password": "regular-secret"}
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["access_type"] == "uts"
+        cookie_value = client.cookies.get("dispatcher_auth")
+        assert cookie_value is not None and ":uts:" in cookie_value
 
 
 def test_positions_requires_authentication():
