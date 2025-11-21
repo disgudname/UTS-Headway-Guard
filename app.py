@@ -1804,6 +1804,25 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     if client is None:
         raise HTTPException(status_code=503, detail="ondemand client not configured")
     async def fetch() -> Any:
+        def extract_driver_name(entry: Dict[str, Any]) -> str:
+            driver_info = entry.get("driver") if isinstance(entry, dict) else None
+            if isinstance(driver_info, dict):
+                first_name = driver_info.get("first_name") or driver_info.get("firstName")
+                last_name = driver_info.get("last_name") or driver_info.get("lastName")
+                name_parts = [
+                    str(part).strip() for part in (first_name, last_name) if part not in {None, ""}
+                ]
+                joined_name = " ".join([part for part in name_parts if part])
+                if joined_name:
+                    return joined_name
+            for key in ("driverName", "driver_name", "driver"):
+                value = entry.get(key) if isinstance(entry, dict) else None
+                if isinstance(value, str):
+                    value_stripped = value.strip()
+                    if value_stripped:
+                        return value_stripped
+            return ""
+
         roster: List[Dict[str, Any]] = []
         try:
             roster = await client.get_vehicle_details()
@@ -1857,7 +1876,7 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             if color:
                 entry["color"] = color
                 entry["color_hex"] = f"#{color}"
-            driver_name = driver_name_map.get(vehicle_key)
+            driver_name = driver_name_map.get(vehicle_key) or extract_driver_name(entry)
             if driver_name:
                 entry["driverName"] = driver_name
         return data
