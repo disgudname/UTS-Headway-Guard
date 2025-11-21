@@ -506,6 +506,31 @@ schedulePlaneStyleOverride();
         setCatPriorityMode(shouldPrioritizeCat);
       }
 
+      async function initializeDispatcherAccessFromServer() {
+        if (typeof fetch !== 'function') {
+          return;
+        }
+
+        try {
+          const response = await fetch('/api/dispatcher/auth', {
+            cache: 'no-store',
+            credentials: 'include',
+          });
+          if (!response || !response.ok) {
+            return;
+          }
+
+          const data = await response.json();
+          const authorized = data && data.authorized === true;
+          const accessType = data && typeof data.access_type === 'string' && data.access_type.trim()
+            ? data.access_type.trim().toLowerCase()
+            : null;
+          applyDispatcherAccessType(accessType, authorized);
+        } catch (error) {
+          console.warn('Failed to initialize dispatcher access state', error);
+        }
+      }
+
       function handleNavBarAuthChange(event) {
         if (!event || !event.detail) {
           return;
@@ -651,6 +676,8 @@ schedulePlaneStyleOverride();
           window.addEventListener('hg-nav-auth-changed', handleNavBarAuthChange);
         }
       }
+
+      initializeDispatcherAccessFromServer();
 
       function suppressAdminKioskPanels() {
         if (!adminKioskMode || adminKioskUiSuppressed) {
