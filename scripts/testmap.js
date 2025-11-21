@@ -459,11 +459,20 @@ schedulePlaneStyleOverride();
         }
       }
 
+      function applyDispatcherAccessType(accessType, authorized) {
+        const normalized = typeof accessType === 'string' ? accessType.trim().toLowerCase() : null;
+        dispatcherAccessType = normalized || null;
+        const shouldPrioritizeCat = authorized && normalized === 'cat';
+        setCatPriorityMode(shouldPrioritizeCat);
+      }
+
       function handleNavBarAuthChange(event) {
         if (!event || !event.detail) {
           return;
         }
         const authorized = event.detail.authorized === true;
+        const accessType = event.detail.accessType;
+        applyDispatcherAccessType(accessType, authorized);
         updateUserAuthorizationState(authorized);
         if (authorized) {
           return;
@@ -2426,6 +2435,11 @@ schedulePlaneStyleOverride();
       }
 
       function centerMapOnRoutes() {
+          if (catPriorityMode && catOverlayEnabled) {
+              if (fitMapToCatRoutes()) {
+                  return true;
+              }
+          }
           return centerDispatcherMapOnRoutes();
       }
 
@@ -3034,6 +3048,11 @@ schedulePlaneStyleOverride();
       let catServiceAlertsLastFetchTime = 0;
       let catBusMarkerSvgPromise = null;
 
+      let dispatcherAccessType = null;
+      let catPriorityMode = false;
+      let catRoutesFitToView = false;
+      let utsOverlayEnabled = true;
+
       let incidentsVisible = false;
       let incidentsVisibilityPreference = false;
       let incidentLayerGroup = null;
@@ -3112,6 +3131,9 @@ schedulePlaneStyleOverride();
       }
 
       function loadTranslocSnapshot(force = false) {
+        if (!utsOverlayEnabled) {
+          return Promise.resolve({ routes: [], vehicles: [], stops: [], arrivals: [], blocks: {} });
+        }
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
         const cacheKey = getTranslocSnapshotCacheKey(sanitizedBaseURL, includeStaleVehicles);
         const entry = getOrCreateTranslocSnapshotEntry(cacheKey);
@@ -7791,7 +7813,14 @@ schedulePlaneStyleOverride();
         const selectedAgency = agencies.find(a => a.url === baseURL);
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
         let logoHtml = '';
-        if (sanitizedBaseURL) {
+        if (catPriorityMode) {
+          const safeLogoSrc = '/media/CATlogo.png';
+          logoHtml = `
+            <div class="selector-logo">
+              <img src="${safeLogoSrc}" alt="CAT logo" loading="lazy">
+            </div>
+          `;
+        } else if (sanitizedBaseURL) {
           const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
           const safeLogoSrc = escapeAttribute(agencyLogoUrl);
           const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
@@ -7950,7 +7979,16 @@ ${trainPlaneMarkup}
               Center Map
             </button>
         `;
-        if (catOverlayAvailable) {
+        if (catPriorityMode) {
+          html += `
+            <div class="selector-group">
+              <button type="button" id="utsToggleButton" class="pill-button cat-toggle-button${utsOverlayEnabled ? ' is-active' : ''}" aria-pressed="${utsOverlayEnabled ? 'true' : 'false'}" onclick="toggleUtsOverlay()">
+                UTS<span class="toggle-indicator">${utsOverlayEnabled ? 'On' : 'Off'}</span>
+              </button>
+              ${centerMapButtonHtml}
+            </div>
+          `;
+        } else if (catOverlayAvailable) {
           html += `
             <div class="selector-group">
               <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
@@ -7969,7 +8007,7 @@ ${trainPlaneMarkup}
         html += serviceAlertsSectionHtml;
         html += incidentAlertsHtml;
 
-        if (adminMode) {
+        if (adminMode && !catPriorityMode) {
           html += `
             <div class="selector-group">
               <div class="selector-label">Vehicle Labels</div>
@@ -8013,6 +8051,7 @@ ${trainPlaneMarkup}
 
         panel.innerHTML = html;
         updateCatToggleButtonState();
+        updateUtsToggleButtonState();
         initializeRadarControls();
         updateDisplayModeButtons();
         updateTrainToggleButton();
@@ -9354,6 +9393,11 @@ ${trainPlaneMarkup}
       }
 
       async function fetchBusStops() {
+          if (!utsOverlayEnabled) {
+              stopDataCache = [];
+              renderBusStops(stopDataCache);
+              return [];
+          }
           const currentBaseURL = baseURL;
           try {
               const snapshot = await loadTranslocSnapshot();
@@ -10700,6 +10744,36 @@ ${trainPlaneMarkup}
           lastStopDisplaySignature = null;
       }
 
+      function clearTranslocMapData() {
+          routeLayers.forEach(layer => {
+              if (!layer) return;
+              try {
+                  if (map && typeof map.removeLayer === 'function') {
+                      map.removeLayer(layer);
+                  }
+                  if (typeof layer.remove === 'function') {
+                      layer.remove();
+                  }
+              } catch (error) {
+                  console.warn('Failed to remove route layer', error);
+              }
+          });
+          routeLayers = [];
+          Object.keys(nameBubbles).forEach(key => removeNameBubbleForKey(key));
+          markers = {};
+          busMarkerStates = {};
+          previousBusData = {};
+          cachedEtas = {};
+          customPopups = customPopups.filter(popup => popup && popup.dataset.popupType === 'incident');
+          clearStopMarkerCache();
+          stopDataCache = [];
+          routeStopAddressMap = {};
+          routeStopRouteMap = {};
+          renderBusStops(stopDataCache);
+          allRouteBounds = null;
+          mapHasFitAllRoutes = false;
+      }
+
       function computeStopDisplaySignature() {
           const selectedRouteIds = Array.from(getSelectedRouteIdSet())
               .map(id => {
@@ -11241,6 +11315,9 @@ ${trainPlaneMarkup}
       }
 
       async function fetchStopArrivalTimes() {
+          if (!utsOverlayEnabled) {
+              return {};
+          }
           const currentBaseURL = baseURL;
           try {
               const snapshot = await loadTranslocSnapshot();
@@ -12079,6 +12156,10 @@ ${trainPlaneMarkup}
 
       // Fetch route paths from GetRoutesForMapWithSchedule and center map on relevant routes.
       async function runFetchRoutePaths() {
+          if (!utsOverlayEnabled) {
+              clearTranslocMapData();
+              return [];
+          }
           const currentBaseURL = baseURL;
           try {
               const snapshot = await loadTranslocSnapshot();
@@ -12357,6 +12438,10 @@ ${trainPlaneMarkup}
       }
 
       async function fetchBlockAssignments() {
+          if (!utsOverlayEnabled) {
+              busBlocks = {};
+              return;
+          }
           const currentBaseURL = baseURL;
           try {
               const snapshot = await loadTranslocSnapshot();
@@ -12371,6 +12456,10 @@ ${trainPlaneMarkup}
       }
 
       async function runFetchBusLocations() {
+          if (!utsOverlayEnabled) {
+              clearTranslocMapData();
+              return [];
+          }
           try {
               const headingPromise = loadVehicleHeadingCache();
               if (headingPromise && typeof headingPromise.then === 'function') {
@@ -12763,6 +12852,52 @@ ${trainPlaneMarkup}
           return vehicleHeadingCachePromise;
       }
 
+      function setCatPriorityMode(enabled) {
+          const desired = enabled === true;
+          if (catPriorityMode === desired) {
+              return;
+          }
+          catPriorityMode = desired;
+          catRoutesFitToView = false;
+          if (catPriorityMode) {
+              setUtsOverlayEnabled(false);
+              if (catOverlayIsAvailable()) {
+                  enableCatOverlay();
+              }
+              if (onDemandVehiclesEnabled) {
+                  setOnDemandVehiclesEnabled(false);
+              }
+              if (onDemandStopsEnabled) {
+                  setOnDemandStopsEnabled(false);
+              }
+          } else {
+              setUtsOverlayEnabled(true);
+          }
+      }
+
+      function setUtsOverlayEnabled(enabled) {
+          const desired = enabled === true;
+          if (utsOverlayEnabled === desired) {
+              updateUtsToggleButtonState();
+              return;
+          }
+          utsOverlayEnabled = desired;
+          if (!utsOverlayEnabled) {
+              clearRefreshIntervals();
+              clearTranslocMapData();
+          } else {
+              refreshMap();
+              startRefreshIntervals();
+          }
+          updateControlPanel();
+          updateRouteSelector(activeRoutes, true);
+          updateUtsToggleButtonState();
+      }
+
+      function toggleUtsOverlay() {
+          setUtsOverlayEnabled(!utsOverlayEnabled);
+      }
+
       function toggleCatOverlay() {
           if (catOverlayEnabled) {
               disableCatOverlay();
@@ -12773,6 +12908,7 @@ ${trainPlaneMarkup}
 
       function enableCatOverlay() {
           catOverlayEnabled = true;
+          catRoutesFitToView = false;
           ensureCatLayerGroup();
           ensureCatBusMarkerSvgLoaded();
           const restoredCatStops = restoreCatStopDataCacheFromStoredStops();
@@ -12795,6 +12931,7 @@ ${trainPlaneMarkup}
 
       function disableCatOverlay() {
           catOverlayEnabled = false;
+          catRoutesFitToView = false;
           stopCatRefreshIntervals();
           clearCatVehicleMarkers();
           if (catLayerGroup && map && map.hasLayer(catLayerGroup)) {
@@ -13890,6 +14027,10 @@ ${trainPlaneMarkup}
                   }
               });
 
+              if (catPriorityMode) {
+                  catRoutesFitToView = false;
+              }
+
               catRoutePatternsLastFetchTime = now;
               catRoutePatternsCache = patterns;
               renderCatRoutes();
@@ -14566,6 +14707,58 @@ ${trainPlaneMarkup}
           catRoutePatternLayers.clear();
       }
 
+      function computeCatRouteBounds() {
+          if (!map || typeof L === 'undefined' || typeof L.latLngBounds !== 'function') {
+              return null;
+          }
+          const bounds = L.latLngBounds([]);
+          catRoutePatternGeometries.forEach(geometry => {
+              if (!geometry || !Array.isArray(geometry.latLngs)) {
+                  return;
+              }
+              geometry.latLngs.forEach(point => {
+                  if (point && Number.isFinite(point.lat) && Number.isFinite(point.lng)) {
+                      bounds.extend([point.lat, point.lng]);
+                  } else if (Array.isArray(point) && point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1])) {
+                      bounds.extend([point[0], point[1]]);
+                  }
+              });
+          });
+          if (!bounds.isValid() && Array.isArray(catStopDataCache)) {
+              catStopDataCache.forEach(stop => {
+                  if (Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude)) {
+                      bounds.extend([stop.latitude, stop.longitude]);
+                  }
+              });
+          }
+          if (!bounds.isValid() && catVehiclesById.size > 0) {
+              catVehiclesById.forEach(vehicle => {
+                  if (Number.isFinite(vehicle.latitude) && Number.isFinite(vehicle.longitude)) {
+                      bounds.extend([vehicle.latitude, vehicle.longitude]);
+                  }
+              });
+          }
+          return bounds.isValid() ? bounds : null;
+      }
+
+      function fitMapToCatRoutes() {
+          if (!map || typeof map.fitBounds !== 'function') {
+              return false;
+          }
+          const bounds = computeCatRouteBounds();
+          if (!bounds) {
+              return false;
+          }
+          try {
+              map.fitBounds(bounds, { padding: [20, 20] });
+              catRoutesFitToView = true;
+              return true;
+          } catch (error) {
+              console.warn('Failed to fit CAT routes:', error);
+              return false;
+          }
+      }
+
       function renderCatRoutes() {
           if (!catOverlayEnabled) {
               clearCatRouteLayers();
@@ -14638,6 +14831,10 @@ ${trainPlaneMarkup}
                   catRoutePatternLayers.delete(key);
               }
           });
+
+          if (catPriorityMode && !catRoutesFitToView) {
+              fitMapToCatRoutes();
+          }
       }
 
       function clearCatVehicleMarkers() {
@@ -14860,6 +15057,19 @@ ${trainPlaneMarkup}
           const indicator = button.querySelector('.toggle-indicator');
           if (indicator) {
               indicator.textContent = catOverlayEnabled ? 'On' : 'Off';
+          }
+      }
+
+      function updateUtsToggleButtonState() {
+          const button = document.getElementById('utsToggleButton');
+          if (!button) {
+              return;
+          }
+          button.classList.toggle('is-active', !!utsOverlayEnabled);
+          button.setAttribute('aria-pressed', utsOverlayEnabled ? 'true' : 'false');
+          const indicator = button.querySelector('.toggle-indicator');
+          if (indicator) {
+              indicator.textContent = utsOverlayEnabled ? 'On' : 'Off';
           }
       }
 
