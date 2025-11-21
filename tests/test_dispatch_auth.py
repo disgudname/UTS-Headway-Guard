@@ -152,3 +152,34 @@ def test_positions_returns_data_when_authenticated():
         finally:
             app.state.ondemand_client = original_client
             _reset_ondemand_cache()
+
+
+def test_positions_includes_driver_name_from_positions_payload():
+    with dispatch_passwords(dispatch="dispatch-secret"):
+        client = TestClient(app)
+        original_client = getattr(app.state, "ondemand_client", None)
+        dummy = DummyOnDemandClient(
+            roster=[],
+            positions=[
+                {
+                    "vehicle_id": "999",
+                    "position": {"latitude": 38.03, "longitude": -78.51},
+                    "driver": {"first_name": "James", "last_name": "Thompson"},
+                }
+            ],
+        )
+        try:
+            app.state.ondemand_client = dummy
+            _reset_ondemand_cache()
+
+            login = client.post("/api/dispatcher/auth", json={"password": "dispatch-secret"})
+            assert login.status_code == 200
+
+            response = client.get("/api/ondemand")
+            assert response.status_code == 200
+            data = response.json()
+            vehicles = data.get("vehicles") if isinstance(data, dict) else []
+            assert vehicles and vehicles[0].get("driverName") == "James Thompson"
+        finally:
+            app.state.ondemand_client = original_client
+            _reset_ondemand_cache()
