@@ -187,15 +187,6 @@ _NON_SECRET_ENV_PREFIXES = (
 )
 
 
-def _looks_like_cat_password(secret: str) -> bool:
-    suffix = "_CAT_PASS"
-    return (
-        isinstance(secret, str)
-        and len(secret) > len(suffix)
-        and secret.upper().endswith(suffix)
-    )
-
-
 def _refresh_dispatch_passwords(force: bool = False) -> None:
     """Load dispatcher passwords from environment secrets."""
 
@@ -223,8 +214,6 @@ def _refresh_dispatch_passwords(force: bool = False) -> None:
             raw_label = key[:-5]
         else:
             continue
-        if access_type == "cat" and not _looks_like_cat_password(value):
-            access_type = "uts"
         normalized = raw_label.strip().lower()
         if not normalized:
             continue

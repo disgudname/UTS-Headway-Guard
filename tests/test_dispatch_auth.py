@@ -113,7 +113,7 @@ def test_cat_password_sets_cat_access_type():
         assert status_payload["access_type"] == "cat"
 
 
-def test_cat_secret_without_cat_suffix_is_treated_as_uts():
+def test_cat_secret_is_detected_when_key_uses_cat_suffix():
     with dispatch_passwords(cat_passwords={"ops": "regular-secret"}):
         client = TestClient(app)
         response = client.post(
@@ -121,9 +121,9 @@ def test_cat_secret_without_cat_suffix_is_treated_as_uts():
         )
         assert response.status_code == 200
         payload = response.json()
-        assert payload["access_type"] == "uts"
+        assert payload["access_type"] == "cat"
         cookie_value = client.cookies.get("dispatcher_auth")
-        assert cookie_value is not None and ":uts:" in cookie_value
+        assert cookie_value is not None and ":cat:" in cookie_value
 
 
 def test_positions_requires_authentication():
