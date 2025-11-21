@@ -1804,6 +1804,25 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     if client is None:
         raise HTTPException(status_code=503, detail="ondemand client not configured")
     async def fetch() -> Any:
+        def extract_driver_name(entry: Dict[str, Any]) -> str:
+            driver_info = entry.get("driver") if isinstance(entry, dict) else None
+            if isinstance(driver_info, dict):
+                first_name = driver_info.get("first_name") or driver_info.get("firstName")
+                last_name = driver_info.get("last_name") or driver_info.get("lastName")
+                name_parts = [
+                    str(part).strip() for part in (first_name, last_name) if part not in {None, ""}
+                ]
+                joined_name = " ".join([part for part in name_parts if part])
+                if joined_name:
+                    return joined_name
+            for key in ("driverName", "driver_name", "driver"):
+                value = entry.get(key) if isinstance(entry, dict) else None
+                if isinstance(value, str):
+                    value_stripped = value.strip()
+                    if value_stripped:
+                        return value_stripped
+            return ""
+
         roster: List[Dict[str, Any]] = []
         try:
             roster = await client.get_vehicle_details()
@@ -1857,7 +1876,7 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             if color:
                 entry["color"] = color
                 entry["color_hex"] = f"#{color}"
-            driver_name = driver_name_map.get(vehicle_key)
+            driver_name = driver_name_map.get(vehicle_key) or extract_driver_name(entry)
             if driver_name:
                 entry["driverName"] = driver_name
         return data
@@ -5274,6 +5293,7 @@ def _normalize_dispatch_password(password: Optional[str]) -> Optional[Tuple[str,
     if not isinstance(password, str):
         return None
     _refresh_dispatch_passwords()
+    matches: list[Tuple[str, str]] = []
     for normalized_label, secret in DISPATCH_PASSWORDS.items():
         if secrets.compare_digest(password, secret):
             display_label = DISPATCH_PASSWORD_LABELS.get(normalized_label, normalized_label)
@@ -5281,7 +5301,19 @@ def _normalize_dispatch_password(password: Optional[str]) -> Optional[Tuple[str,
                 normalized_label,
                 normalized_label.split("::")[-1],
             )
+            matches.append((display_label, access_type))
+
+    if not matches:
+        return None
+
+    # Prefer non-CAT access when a password is shared between multiple roles so
+    # that CAT-specific UI changes only occur when the CAT credential is used
+    # explicitly.
+    for display_label, access_type in matches:
+        if access_type != "cat":
             return display_label, access_type
+
+    return matches[0]
     return None
 
 

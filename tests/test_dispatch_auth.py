@@ -97,9 +97,9 @@ def test_invalid_cookie_is_rejected():
 
 
 def test_cat_password_sets_cat_access_type():
-    with dispatch_passwords(cat_passwords={"ops": "cat-secret"}):
+    with dispatch_passwords(cat_passwords={"ops": "OPS_CAT_PASS"}):
         client = TestClient(app)
-        response = client.post("/api/dispatcher/auth", json={"password": "cat-secret"})
+        response = client.post("/api/dispatcher/auth", json={"password": "OPS_CAT_PASS"})
         assert response.status_code == 200
         payload = response.json()
         assert payload["access_type"] == "cat"
@@ -111,6 +111,19 @@ def test_cat_password_sets_cat_access_type():
         status_payload = status.json()
         assert status_payload["authorized"] is True
         assert status_payload["access_type"] == "cat"
+
+
+def test_cat_secret_is_detected_when_key_uses_cat_suffix():
+    with dispatch_passwords(cat_passwords={"ops": "regular-secret"}):
+        client = TestClient(app)
+        response = client.post(
+            "/api/dispatcher/auth", json={"password": "regular-secret"}
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["access_type"] == "cat"
+        cookie_value = client.cookies.get("dispatcher_auth")
+        assert cookie_value is not None and ":cat:" in cookie_value
 
 
 def test_positions_requires_authentication():
@@ -149,6 +162,37 @@ def test_positions_returns_data_when_authenticated():
             assert isinstance(vehicles, list)
             assert vehicles[0]["markerColor"] == "#336699"
             assert vehicles[0]["vehicleId"] == "123"
+        finally:
+            app.state.ondemand_client = original_client
+            _reset_ondemand_cache()
+
+
+def test_positions_includes_driver_name_from_positions_payload():
+    with dispatch_passwords(dispatch="dispatch-secret"):
+        client = TestClient(app)
+        original_client = getattr(app.state, "ondemand_client", None)
+        dummy = DummyOnDemandClient(
+            roster=[],
+            positions=[
+                {
+                    "vehicle_id": "999",
+                    "position": {"latitude": 38.03, "longitude": -78.51},
+                    "driver": {"first_name": "James", "last_name": "Thompson"},
+                }
+            ],
+        )
+        try:
+            app.state.ondemand_client = dummy
+            _reset_ondemand_cache()
+
+            login = client.post("/api/dispatcher/auth", json={"password": "dispatch-secret"})
+            assert login.status_code == 200
+
+            response = client.get("/api/ondemand")
+            assert response.status_code == 200
+            data = response.json()
+            vehicles = data.get("vehicles") if isinstance(data, dict) else []
+            assert vehicles and vehicles[0].get("driverName") == "James Thompson"
         finally:
             app.state.ondemand_client = original_client
             _reset_ondemand_cache()
