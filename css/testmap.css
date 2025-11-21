@@ -1,17 +1,17 @@
       :root {
-        --navy: #006D9D;
-        --navy-dark: #006D9D;
-        --navy-darker: #006D9D;
+        --navy: #232D4B;
+        --navy-dark: #1b274a;
+        --navy-darker: #1a2441;
         --panel-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.96));
         --panel-border-color: rgba(35, 45, 75, 0.12);
         --panel-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
         --panel-highlight: rgba(35, 45, 75, 0.06);
         --panel-text-color: #1f2937;
-        --panel-heading-color: #006D9D;
+        --panel-heading-color: #232D4B;
         --panel-muted-text: #4b5563;
-        --accent: #BAD838;
-        --accent-bright: #BAD838;
-        --accent-soft: rgba(186, 216, 56, 0.28);
+        --accent: #E57200;
+        --accent-bright: #ff9c3e;
+        --accent-soft: rgba(229, 114, 0, 0.28);
         --app-font-family: 'FGDC', sans-serif;
       }
       .leaflet-popup.ondemand-driver-popup .leaflet-popup-content-wrapper {
