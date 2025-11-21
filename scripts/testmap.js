@@ -14717,25 +14717,31 @@ ${trainPlaneMarkup}
               }
 
               if (adminMode && !kioskMode) {
+                  nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                  const previousLabel = nameBubbles[bubbleKey].lastLabelText || '';
                   const labelText = toNonEmptyString(vehicle.equipmentId)
                       || toNonEmptyString(vehicle.displayName)
-                      || toNonEmptyString(vehicle.id);
+                      || toNonEmptyString(vehicle.id)
+                      || previousLabel;
                   const nameIcon = labelText
                       ? createNameBubbleDivIcon(labelText, routeColor, markerMetricsForZoom.scale, headingDeg)
                       : null;
                   if (nameIcon) {
-                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
                       if (nameBubbles[bubbleKey].nameMarker) {
                           animateMarkerTo(nameBubbles[bubbleKey].nameMarker, newPosition);
                           nameBubbles[bubbleKey].nameMarker.setIcon(nameIcon);
                       } else if (map) {
                           nameBubbles[bubbleKey].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                       }
+                      nameBubbles[bubbleKey].lastLabelText = labelText;
                   } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
                       if (map && typeof map.removeLayer === 'function') {
                           map.removeLayer(nameBubbles[bubbleKey].nameMarker);
                       }
                       delete nameBubbles[bubbleKey].nameMarker;
+                      if (!nameBubbles[bubbleKey].speedMarker && !nameBubbles[bubbleKey].blockMarker && !nameBubbles[bubbleKey].routeMarker && !nameBubbles[bubbleKey].catRouteMarker) {
+                          delete nameBubbles[bubbleKey];
+                      }
                   }
               } else {
                   if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
