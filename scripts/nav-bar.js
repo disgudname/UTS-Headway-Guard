@@ -17,6 +17,20 @@
     return;
   }
 
+  const NAV_THEME_DEFAULT = {
+    primary: '#232D4B',
+    accent: '#E57200',
+    accentHoverStart: '#FFC878',
+    accentHoverEnd: '#FF7F2A',
+  };
+  const NAV_THEME_CAT = {
+    primary: '#006D9D',
+    accent: '#BAD838',
+    accentHoverStart: '#D4E970',
+    accentHoverEnd: '#A4C229',
+  };
+  const NAV_ACCENT_TEXT_COLOR = '#0f172a';
+
   const mobileQuery = window.matchMedia('(max-width: 768px)');
 
   const links = [
@@ -93,8 +107,13 @@
       bottom:calc(var(--hg-nav-bottom-offset) + 4px);
     }
     #${NAV_ID}{
+      --hg-nav-primary:${NAV_THEME_DEFAULT.primary};
+      --hg-nav-accent:${NAV_THEME_DEFAULT.accent};
+      --hg-nav-accent-hover-start:${NAV_THEME_DEFAULT.accentHoverStart};
+      --hg-nav-accent-hover-end:${NAV_THEME_DEFAULT.accentHoverEnd};
+      --hg-nav-accent-text:${NAV_ACCENT_TEXT_COLOR};
       position:fixed;
-      background:#006D9D;
+      background:var(--hg-nav-primary);
       color:#FFFFFF;
       z-index:1100;
       display:flex;
@@ -185,8 +204,8 @@
       cursor:not-allowed;
     }
     #${NAV_ID} .hg-nav__auth-login{
-      background:linear-gradient(135deg,#BAD838,#BAD838);
-      color:#0f172a;
+      background:linear-gradient(135deg,var(--hg-nav-accent),var(--hg-nav-accent));
+      color:var(--hg-nav-accent-text);
       font-weight:600;
       padding:12px 22px 14px;
       text-transform:uppercase;
@@ -198,7 +217,7 @@
       gap:6px;
     }
     #${NAV_ID} .hg-nav__auth-login:hover{
-      background:linear-gradient(135deg,#FFC878,#FF7F2A);
+      background:linear-gradient(135deg,var(--hg-nav-accent-hover-start),var(--hg-nav-accent-hover-end));
       border-color:rgba(255,255,255,0.35);
       box-shadow:0 8px 18px rgba(0,0,0,0.3);
     }
@@ -325,7 +344,7 @@
   let authSecret = null;
   let logoutButton = null;
   let loginButton = null;
-  let lastAuthDetail = { authorized: null, secret: null };
+  let lastAuthDetail = { authorized: null, secret: null, accessType: null };
 
   const insertAnchorBeforeAuthSection = (element) => {
     if (!element) return;
@@ -397,6 +416,32 @@
   const spacer = document.createElement('div');
   spacer.className = 'hg-nav-spacer-bottom';
   document.body.appendChild(spacer);
+
+  let activeThemeKey = null;
+
+  const applyNavTheme = (themeKey) => {
+    if (!nav || !nav.style) {
+      return;
+    }
+    const resolvedKey = themeKey === 'cat' ? 'cat' : 'default';
+    if (activeThemeKey === resolvedKey) {
+      return;
+    }
+    activeThemeKey = resolvedKey;
+    const theme = resolvedKey === 'cat' ? NAV_THEME_CAT : NAV_THEME_DEFAULT;
+    nav.style.setProperty('--hg-nav-primary', theme.primary);
+    nav.style.setProperty('--hg-nav-accent', theme.accent);
+    nav.style.setProperty('--hg-nav-accent-hover-start', theme.accentHoverStart);
+    nav.style.setProperty('--hg-nav-accent-hover-end', theme.accentHoverEnd);
+    nav.style.setProperty('--hg-nav-accent-text', NAV_ACCENT_TEXT_COLOR);
+  };
+
+  const updateNavThemeForAccess = (accessType, authorized) => {
+    const isCatAccess = authorized && typeof accessType === 'string' && accessType.trim().toLowerCase() === 'cat';
+    applyNavTheme(isCatAccess ? 'cat' : 'default');
+  };
+
+  applyNavTheme('default');
 
   const emitAuthChangedEvent = (detail) => {
     if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
@@ -549,6 +594,8 @@
     const section = ensureAuthSection();
     section.replaceChildren();
 
+    updateNavThemeForAccess(null, false);
+
     const info = document.createElement('div');
     info.className = 'hg-nav__auth-info';
 
@@ -610,6 +657,8 @@
     const accessType = data && typeof data.access_type === 'string' && data.access_type.trim()
       ? data.access_type.trim().toLowerCase()
       : null;
+
+    updateNavThemeForAccess(accessType, authorized);
 
     if (authorized) {
       renderLoggedIn(secretLabel || 'Unknown');

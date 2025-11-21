@@ -459,10 +459,50 @@ schedulePlaneStyleOverride();
         }
       }
 
+      const MAP_THEME_DEFAULT = {
+        '--navy': '#232D4B',
+        '--navy-dark': '#1b274a',
+        '--navy-darker': '#1a2441',
+        '--panel-heading-color': '#232D4B',
+        '--accent': '#E57200',
+        '--accent-bright': '#ff9c3e',
+        '--accent-soft': 'rgba(229, 114, 0, 0.28)',
+      };
+      const MAP_THEME_CAT = {
+        '--navy': '#006D9D',
+        '--navy-dark': '#006D9D',
+        '--navy-darker': '#006D9D',
+        '--panel-heading-color': '#006D9D',
+        '--accent': '#BAD838',
+        '--accent-bright': '#BAD838',
+        '--accent-soft': 'rgba(186, 216, 56, 0.28)',
+      };
+      let mapThemeCatEnabled = null;
+
+      function applyMapThemeForAccess(useCatTheme) {
+        const desired = useCatTheme === true;
+        if (mapThemeCatEnabled === desired) {
+          return;
+        }
+        mapThemeCatEnabled = desired;
+        if (typeof document === 'undefined') {
+          return;
+        }
+        const root = document.documentElement;
+        if (!root || !root.style || typeof root.style.setProperty !== 'function') {
+          return;
+        }
+        const theme = desired ? MAP_THEME_CAT : MAP_THEME_DEFAULT;
+        Object.entries(theme).forEach(([property, value]) => {
+          root.style.setProperty(property, value);
+        });
+      }
+
       function applyDispatcherAccessType(accessType, authorized) {
         const normalized = typeof accessType === 'string' ? accessType.trim().toLowerCase() : null;
         dispatcherAccessType = normalized || null;
         const shouldPrioritizeCat = authorized && normalized === 'cat';
+        applyMapThemeForAccess(shouldPrioritizeCat);
         setCatPriorityMode(shouldPrioritizeCat);
       }
 
