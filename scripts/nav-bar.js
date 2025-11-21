@@ -94,7 +94,7 @@
     }
     #${NAV_ID}{
       position:fixed;
-      background:#232D4B;
+      background:#006D9D;
       color:#FFFFFF;
       z-index:1100;
       display:flex;
@@ -185,8 +185,8 @@
       cursor:not-allowed;
     }
     #${NAV_ID} .hg-nav__auth-login{
-      background:linear-gradient(135deg,#FFB547,#F76B1C);
-      color:#232D4B;
+      background:linear-gradient(135deg,#BAD838,#BAD838);
+      color:#0f172a;
       font-weight:600;
       padding:12px 22px 14px;
       text-transform:uppercase;
@@ -406,13 +406,23 @@
     const secret = detail && typeof detail.secret === 'string' && detail.secret.trim()
       ? detail.secret.trim()
       : null;
-    if (lastAuthDetail.authorized === authorized && lastAuthDetail.secret === secret) {
+    const accessType = detail && typeof detail.accessType === 'string' && detail.accessType.trim()
+      ? detail.accessType.trim().toLowerCase()
+      : null;
+    if (
+      lastAuthDetail.authorized === authorized &&
+      lastAuthDetail.secret === secret &&
+      lastAuthDetail.accessType === accessType
+    ) {
       return;
     }
-    lastAuthDetail = { authorized, secret };
+    lastAuthDetail = { authorized, secret, accessType };
     const eventDetail = { authorized };
     if (secret) {
       eventDetail.secret = secret;
+    }
+    if (accessType) {
+      eventDetail.accessType = accessType;
     }
     try {
       let event = null;
@@ -532,7 +542,6 @@
     section.appendChild(logoutButton);
     loginButton = null;
     updateLinkVisibility(true);
-    emitAuthChangedEvent({ authorized: true, secret: secretLabel });
   };
 
   const renderLoggedOut = () => {
@@ -577,7 +586,6 @@
     authSecret = null;
     logoutButton = null;
     updateLinkVisibility(false);
-    emitAuthChangedEvent({ authorized: false });
   };
 
   const updateAuthSection = async () => {
@@ -598,6 +606,9 @@
     const secretLabel = data && typeof data.secret === 'string' && data.secret.trim()
       ? data.secret.trim()
       : null;
+    const accessType = data && typeof data.access_type === 'string' && data.access_type.trim()
+      ? data.access_type.trim().toLowerCase()
+      : null;
 
     if (authorized) {
       renderLoggedIn(secretLabel || 'Unknown');
@@ -610,6 +621,8 @@
         updateSpacerHeight();
       }
     }
+
+    emitAuthChangedEvent({ authorized, secret: secretLabel || null, accessType });
   };
 
   const markScrollableContainers = () => {
