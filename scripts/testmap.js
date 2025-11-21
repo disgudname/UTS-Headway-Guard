@@ -10844,7 +10844,12 @@ ${trainPlaneMarkup}
               }
           });
           routeLayers = [];
-          Object.keys(nameBubbles).forEach(key => removeNameBubbleForKey(key));
+          Object.keys(nameBubbles).forEach(key => {
+              if (typeof key === 'string' && key.startsWith('cat-')) {
+                  return;
+              }
+              removeNameBubbleForKey(key);
+          });
           markers = {};
           busMarkerStates = {};
           previousBusData = {};
