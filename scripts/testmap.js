@@ -13389,12 +13389,23 @@ ${trainPlaneMarkup}
       }
 
       function isOutOfServiceRouteVisible() {
-          if (!canDisplayRoute(0)) {
-              return false;
-          }
           if (Object.prototype.hasOwnProperty.call(routeSelections, 0)) {
               return !!routeSelections[0];
           }
+
+          const catHasExplicitOutOfServiceSelection = catRouteSelections.has(CAT_OUT_OF_SERVICE_ROUTE_KEY);
+          if (catOverlayEnabled && !catHasExplicitOutOfServiceSelection) {
+              return true;
+          }
+
+          if (!canDisplayRoute(0)) {
+              return false;
+          }
+
+          if (catHasExplicitOutOfServiceSelection) {
+              return !!catRouteSelections.get(CAT_OUT_OF_SERVICE_ROUTE_KEY);
+          }
+
           return activeRoutes instanceof Set ? activeRoutes.has(0) : false;
       }
 
