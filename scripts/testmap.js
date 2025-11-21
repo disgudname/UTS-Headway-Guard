@@ -8028,6 +8028,8 @@ ${trainPlaneMarkup}
             <div class="admin-auth-note">${adminMode ? 'Admin tools stay on until you log out or clear your cookies.' : 'Dispatch password required.'}</div>
           </div>
         `;
+        const showAgencySelect = !catPriorityMode || utsOverlayEnabled;
+
         let html = `
           <div class="selector-header">
             <div class="selector-header-text">
@@ -8037,19 +8039,25 @@ ${trainPlaneMarkup}
             ${logoHtml}
           </div>
           <div class="selector-content">
+        `;
+
+        if (showAgencySelect) {
+          html += `
             <div class="selector-group">
               <label class="selector-label" for="agencySelect">Select System</label>
               <div class="selector-control">
                 <select id="agencySelect" onchange="changeAgency(this.value)">
-        `;
-        agencies.forEach(a => {
-          html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
-        });
-        html += `
+          `;
+          agencies.forEach(a => {
+            html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
+          });
+          html += `
                 </select>
               </div>
             </div>
-        `;
+          `;
+        }
+
         const centerMapButtonHtml = `
             <button type="button" id="centerMapButton" class="pill-button center-map-button" onclick="centerMapOnRoutes()">
               Center Map
