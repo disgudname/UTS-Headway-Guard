@@ -1800,6 +1800,9 @@ def build_ondemand_virtual_stops(
 
 async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     _require_dispatcher_access(request)
+    dispatcher_info = _get_dispatcher_secret_info(request)
+    if dispatcher_info and dispatcher_info[1] == "cat":
+        raise HTTPException(status_code=403, detail="ondemand data unavailable for CAT access")
     client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
     if client is None:
         raise HTTPException(status_code=503, detail="ondemand client not configured")

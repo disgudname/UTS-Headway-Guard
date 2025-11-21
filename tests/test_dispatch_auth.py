@@ -126,6 +126,22 @@ def test_cat_secret_is_detected_when_key_uses_cat_suffix():
         assert cookie_value is not None and ":cat:" in cookie_value
 
 
+def test_cat_access_cannot_view_ondemand_data():
+    with dispatch_passwords(cat_passwords={"ops": "OPS_CAT_PASS"}):
+        client = TestClient(app)
+        original_client = getattr(app.state, "ondemand_client", None)
+        try:
+            _reset_ondemand_cache()
+            login = client.post("/api/dispatcher/auth", json={"password": "OPS_CAT_PASS"})
+            assert login.status_code == 200
+
+            response = client.get("/api/ondemand")
+            assert response.status_code == 403
+        finally:
+            app.state.ondemand_client = original_client
+            _reset_ondemand_cache()
+
+
 def test_positions_requires_authentication():
     with dispatch_passwords(dispatch="dispatch-secret"):
         client = TestClient(app)
