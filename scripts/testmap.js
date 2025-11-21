@@ -6461,6 +6461,7 @@ schedulePlaneStyleOverride();
             baseURL = agencies[0]?.url || '';
           }
           resetServiceAlertsState();
+          ensureCatOverlayEnabledWhenPrioritized();
           updateControlPanel();
           enforceIncidentVisibilityForCurrentAgency();
           updateRouteSelector(activeRoutes, true);
@@ -12928,6 +12929,18 @@ ${trainPlaneMarkup}
           return vehicleHeadingCachePromise;
       }
 
+      function ensureCatOverlayEnabledWhenPrioritized() {
+          if (!catPriorityMode) {
+              return;
+          }
+          if (!catOverlayIsAvailable()) {
+              return;
+          }
+          if (!catOverlayEnabled) {
+              enableCatOverlay();
+          }
+      }
+
       function setCatPriorityMode(enabled) {
           const desired = enabled === true;
           if (catPriorityMode === desired) {
@@ -12937,9 +12950,7 @@ ${trainPlaneMarkup}
           catRoutesFitToView = false;
           if (catPriorityMode) {
               setUtsOverlayEnabled(false);
-              if (catOverlayIsAvailable()) {
-                  enableCatOverlay();
-              }
+              ensureCatOverlayEnabledWhenPrioritized();
               if (onDemandVehiclesEnabled) {
                   setOnDemandVehiclesEnabled(false);
               }
