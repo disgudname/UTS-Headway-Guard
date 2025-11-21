@@ -5293,6 +5293,7 @@ def _normalize_dispatch_password(password: Optional[str]) -> Optional[Tuple[str,
     if not isinstance(password, str):
         return None
     _refresh_dispatch_passwords()
+    matches: list[Tuple[str, str]] = []
     for normalized_label, secret in DISPATCH_PASSWORDS.items():
         if secrets.compare_digest(password, secret):
             display_label = DISPATCH_PASSWORD_LABELS.get(normalized_label, normalized_label)
@@ -5300,7 +5301,19 @@ def _normalize_dispatch_password(password: Optional[str]) -> Optional[Tuple[str,
                 normalized_label,
                 normalized_label.split("::")[-1],
             )
+            matches.append((display_label, access_type))
+
+    if not matches:
+        return None
+
+    # Prefer non-CAT access when a password is shared between multiple roles so
+    # that CAT-specific UI changes only occur when the CAT credential is used
+    # explicitly.
+    for display_label, access_type in matches:
+        if access_type != "cat":
             return display_label, access_type
+
+    return matches[0]
     return None
 
 
