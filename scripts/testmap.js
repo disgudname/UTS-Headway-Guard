@@ -8118,7 +8118,7 @@ ${trainPlaneMarkup}
                 OnDemand<span class="toggle-indicator">${onDemandVehiclesEnabled ? 'On' : 'Off'}</span>
               </button>
               <button type="button" id="onDemandStopsToggleButton" class="pill-button ondemand-stops-toggle-button${onDemandStopsEnabled ? ' is-active' : ''}" aria-pressed="${onDemandStopsEnabled ? 'true' : 'false'}" onclick="toggleOnDemandStops()">
-                Demand Stops<span class="toggle-indicator">${onDemandStopsEnabled ? 'On' : 'Off'}</span>
+                OnDemand Stops<span class="toggle-indicator">${onDemandStopsEnabled ? 'On' : 'Off'}</span>
               </button>
             </div>
           `;
