@@ -1914,7 +1914,7 @@ schedulePlaneStyleOverride();
 
       const TRANSLOC_SNAPSHOT_ENDPOINT = '/v1/testmap/transloc';
       const TRANSLOC_SNAPSHOT_TTL_MS = 2000;
-      const PULSEPOINT_ENDPOINT = '/v1/testmap/pulsepoint';
+      const PULSEPOINT_ENDPOINT = '/v1/pulsepoint/incidents';
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;

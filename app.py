@@ -5015,9 +5015,18 @@ async def _fetch_ridesystems_clients() -> List[Dict[str, str]]:
     return normalised
 
 
+async def _proxy_pulsepoint_incidents():
+    return await _get_pulsepoint_incidents()
+
+
+@app.get("/v1/pulsepoint/incidents")
+async def pulsepoint_proxy():
+    return await _proxy_pulsepoint_incidents()
+
+
 @app.get("/v1/testmap/pulsepoint")
 async def pulsepoint_endpoint():
-    return await _get_pulsepoint_incidents()
+    return await _proxy_pulsepoint_incidents()
 
 
 @app.get("/v1/testmap/trains")
