@@ -6066,6 +6066,22 @@ schedulePlaneStyleOverride();
         return ONDEMAND_MARKER_DEFAULT_COLOR;
       }
 
+      function applyMarkerInteractivity(marker, isInteractive) {
+        if (!marker) {
+          return;
+        }
+        const interactive = Boolean(isInteractive);
+        if (marker.options) {
+          marker.options.interactive = interactive;
+          marker.options.keyboard = interactive;
+        }
+        const iconEl = typeof marker.getElement === 'function' ? marker.getElement() : marker._icon;
+        if (iconEl && iconEl.classList) {
+          iconEl.classList.toggle('leaflet-interactive', interactive);
+          iconEl.style.pointerEvents = interactive ? 'auto' : 'none';
+        }
+      }
+
       async function fetchOnDemandVehicles() {
         if (!shouldPollOnDemandData()) {
           return [];
@@ -6158,6 +6174,7 @@ schedulePlaneStyleOverride();
               state.fillColor = fillColor;
               const glyphColor = computeBusMarkerGlyphColor(fillColor);
               state.glyphColor = glyphColor;
+              const hasDriverPopup = Boolean(state.driverPopupContent);
               state.isStale = isStale;
               state.isStopped = isBusConsideredStopped(speedMph);
               state.groundSpeed = speedMph;
@@ -6170,6 +6187,7 @@ schedulePlaneStyleOverride();
                 animateMarkerTo(markers[markerKey], newPosition);
                 markers[markerKey].routeID = null;
                 markers[markerKey].isOnDemand = true;
+                applyMarkerInteractivity(markers[markerKey], hasDriverPopup);
                 state.marker = markers[markerKey];
                 queueBusMarkerVisualUpdate(markerKey, {
                   fillColor,
@@ -6184,10 +6202,11 @@ schedulePlaneStyleOverride();
                 if (!icon) {
                   continue;
                 }
-                const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
+                const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: hasDriverPopup, keyboard: hasDriverPopup });
                 marker.routeID = null;
                 marker.isOnDemand = true;
                 marker.addTo(map);
+                applyMarkerInteractivity(marker, hasDriverPopup);
                 markers[markerKey] = marker;
                 state.marker = marker;
                 removeDuplicateBusMarkerLayers(markerKey, marker);
