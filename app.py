@@ -1770,6 +1770,16 @@ def build_ondemand_virtual_stops(
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
                     continue
+                riders: List[str] = []
+                rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+                if rider_name:
+                    riders.append(rider_name)
+                extra_riders = ride.get("riders") or ride.get("passengers")
+                if isinstance(extra_riders, list):
+                    for extra in extra_riders:
+                        formatted = _format_rider_name(extra)
+                        if formatted:
+                            riders.append(formatted)
                 capacity_value = ride.get("capacity")
                 capacity = 1
                 try:
@@ -1793,6 +1803,7 @@ def build_ondemand_virtual_stops(
                         "serviceId": service_id,
                         "vehicleId": vehicle_id,
                         "stopTimestamp": stop_timestamp.isoformat(),
+                        "riders": riders,
                     }
                 )
     return records

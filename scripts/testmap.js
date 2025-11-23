@@ -5693,6 +5693,11 @@ schedulePlaneStyleOverride();
             : `${serviceIdRaw || ''}`.trim();
           const serviceId = serviceIdText || null;
           const stopName = addressValue || `OnDemand ${stopType === 'dropoff' ? 'Dropoff' : 'Pickup'}`;
+          const riders = Array.isArray(stop.riders)
+            ? stop.riders
+                .map(name => (typeof name === 'string' ? name.trim() : ''))
+                .filter(Boolean)
+            : [];
           normalizedStops.push({
             Latitude: lat,
             Longitude: lon,
@@ -5709,7 +5714,8 @@ schedulePlaneStyleOverride();
               stopType,
               address: addressValue,
               serviceId,
-              stopTimestamp
+              stopTimestamp,
+              riders
             }
           });
         });
@@ -5971,7 +5977,11 @@ schedulePlaneStyleOverride();
             markerRouteIds,
             groupKey,
             address: summary.address,
-            stopTimestamp: summary.latestStopTimestamp
+            stopTimestamp: summary.latestStopTimestamp,
+            stopEntries,
+            aggregatedRouteStopIds: Array.isArray(summary.routeStopIds) ? summary.routeStopIds.slice() : [],
+            fallbackStopId: summary.fallbackStopIdText,
+            stopName: summary.address || (stopEntries[0]?.displayName || 'OnDemand Stop')
           };
 
           const tooltipHtml = buildOnDemandStopTooltip(groupInfo);
@@ -5980,12 +5990,19 @@ schedulePlaneStyleOverride();
             .map(segment => `${segment.vehicleId}:${segment.totalCapacity}`)
             .join('|')}`;
           if (!markerEntry || !markerEntry.marker) {
-            const marker = L.marker(groupInfo.position, { icon, pane: 'ondemandStopsPane', interactive: false, keyboard: false });
+            const marker = L.marker(groupInfo.position, { icon, pane: 'ondemandStopsPane', interactive: true, keyboard: true });
             marker.addTo(map);
             if (typeof marker.bindTooltip === 'function') {
               marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
             }
-            markerEntry = { marker, iconSignature, groupInfo };
+            const handleClick = () => {
+              const latestEntry = onDemandStopMarkerCache.get(groupKey);
+              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+              const popupGroupInfo = combineOnDemandStopWithBusGroup(latestInfo);
+              createCustomPopup(Object.assign({ popupType: 'stop' }, popupGroupInfo));
+            };
+            marker.on('click', handleClick);
+            markerEntry = { marker, iconSignature, groupInfo, clickHandler: handleClick };
           } else {
             if (typeof markerEntry.marker.setLatLng === 'function') {
               markerEntry.marker.setLatLng(groupInfo.position);
@@ -5999,9 +6016,21 @@ schedulePlaneStyleOverride();
             } else if (typeof markerEntry.marker.bindTooltip === 'function') {
               markerEntry.marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
             }
+            if (!markerEntry.clickHandler && typeof markerEntry.marker.on === 'function') {
+              const handleClick = () => {
+                const latestEntry = onDemandStopMarkerCache.get(groupKey);
+                const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                const popupGroupInfo = combineOnDemandStopWithBusGroup(latestInfo);
+                createCustomPopup(Object.assign({ popupType: 'stop' }, popupGroupInfo));
+              };
+              markerEntry.marker.on('click', handleClick);
+              markerEntry.clickHandler = handleClick;
+            }
             markerEntry.iconSignature = iconSignature;
             markerEntry.groupInfo = groupInfo;
           }
+
+          applyMarkerInteractivity(markerEntry.marker, true);
 
           onDemandStopMarkerCache.set(groupKey, markerEntry);
           activeKeys.add(groupKey);
@@ -6037,6 +6066,80 @@ schedulePlaneStyleOverride();
           if (marker && typeof marker.bringToFront === 'function') {
             marker.bringToFront();
           }
+        });
+      }
+
+      function getNearbyBusStopGroup(position) {
+        if (!Array.isArray(position) || position.length !== 2) {
+          return null;
+        }
+        let cacheReference = null;
+        try {
+          cacheReference = stopMarkerCache;
+        } catch (error) {
+          return null;
+        }
+        const tolerance = 0.00008;
+        let nearbyGroup = null;
+        cacheReference.forEach(entry => {
+          const groupInfo = entry && entry.groupInfo ? entry.groupInfo : null;
+          const stopPosition = Array.isArray(groupInfo?.position) ? groupInfo.position : null;
+          if (!stopPosition || stopPosition.length !== 2) {
+            return;
+          }
+          const deltaLat = Math.abs(stopPosition[0] - position[0]);
+          const deltaLon = Math.abs(stopPosition[1] - position[1]);
+          if (deltaLat <= tolerance && deltaLon <= tolerance) {
+            nearbyGroup = groupInfo;
+          }
+        });
+        return nearbyGroup;
+      }
+
+      function combineOnDemandStopWithBusGroup(onDemandGroupInfo) {
+        if (!onDemandGroupInfo || !Array.isArray(onDemandGroupInfo.position)) {
+          return onDemandGroupInfo;
+        }
+        const busGroup = getNearbyBusStopGroup(onDemandGroupInfo.position);
+        if (!busGroup || !busGroup.stopEntries) {
+          return onDemandGroupInfo;
+        }
+
+        const mergedEntries = [];
+        if (Array.isArray(busGroup.stopEntries)) {
+          mergedEntries.push(...busGroup.stopEntries);
+        }
+        if (Array.isArray(onDemandGroupInfo.stopEntries)) {
+          mergedEntries.push(...onDemandGroupInfo.stopEntries);
+        }
+
+        const mergedRouteStopIds = new Set();
+        const addRouteStopIds = list => {
+          if (!Array.isArray(list)) {
+            return;
+          }
+          list.forEach(id => {
+            if (id !== undefined && id !== null) {
+              mergedRouteStopIds.add(`${id}`);
+            }
+          });
+        };
+
+        addRouteStopIds(busGroup.aggregatedRouteStopIds);
+        addRouteStopIds(onDemandGroupInfo.aggregatedRouteStopIds);
+
+        const fallbackStopId = onDemandGroupInfo.fallbackStopId || busGroup.fallbackStopId || '';
+        const stopName = onDemandGroupInfo.stopName || onDemandGroupInfo.address || busGroup.stopName || 'Stop';
+        const groupKey = onDemandGroupInfo.groupKey
+          || busGroup.groupKey
+          || createStopGroupKey(Array.from(mergedRouteStopIds), fallbackStopId);
+
+        return Object.assign({}, busGroup, onDemandGroupInfo, {
+          stopEntries: mergedEntries,
+          aggregatedRouteStopIds: Array.from(mergedRouteStopIds),
+          groupKey,
+          fallbackStopId,
+          stopName
         });
       }
 
@@ -9912,7 +10015,12 @@ ${trainPlaneMarkup}
                       stopType: details.stopType ?? 'pickup',
                       address: typeof details.address === 'string' ? details.address : '',
                       serviceId: details.serviceId ?? null,
-                      stopTimestamp: details.stopTimestamp ?? ''
+                      stopTimestamp: details.stopTimestamp ?? '',
+                      riders: Array.isArray(details.riders)
+                        ? details.riders
+                            .map(rider => (typeof rider === 'string' ? rider.trim() : ''))
+                            .filter(Boolean)
+                        : []
                   });
                   const onDemandRouteId = normalizeRouteIdentifier(details.routeId);
                   if (onDemandRouteId !== null) {
@@ -10551,6 +10659,121 @@ ${trainPlaneMarkup}
           }).join('');
       }
 
+      function buildOnDemandStopDetailsHtml(stopEntries) {
+          if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
+              return '';
+          }
+
+          const vehicleMap = new Map();
+          stopEntries.forEach(entry => {
+              const onDemandStops = Array.isArray(entry?.onDemandStops) ? entry.onDemandStops : [];
+              onDemandStops.forEach(stop => {
+                  if (!stop) {
+                      return;
+                  }
+                  const vehicleId = typeof stop.vehicleId === 'string'
+                      ? stop.vehicleId.trim()
+                      : `${stop.vehicleId || ''}`.trim();
+                  if (!vehicleId) {
+                      return;
+                  }
+                  const record = vehicleMap.get(vehicleId) || {
+                      vehicleId,
+                      pickups: [],
+                      dropoffs: [],
+                      addresses: new Set(),
+                      serviceIds: new Set(),
+                      latestTimestamp: 0
+                  };
+                  const riders = Array.isArray(stop.riders)
+                      ? stop.riders
+                          .map(name => (typeof name === 'string' ? name.trim() : ''))
+                          .filter(Boolean)
+                      : [];
+                  const capacityValue = Number(stop.capacity);
+                  const capacity = Number.isFinite(capacityValue) && capacityValue > 0 ? capacityValue : 1;
+                  const entryInfo = { riders, capacity };
+                  if ((stop.stopType || '').toLowerCase() === 'dropoff') {
+                      record.dropoffs.push(entryInfo);
+                  } else {
+                      record.pickups.push(entryInfo);
+                  }
+                  if (stop.address) {
+                      record.addresses.add(stop.address);
+                  }
+                  if (stop.serviceId) {
+                      record.serviceIds.add(`${stop.serviceId}`);
+                  }
+                  const timestampMs = Date.parse(stop.stopTimestamp || '');
+                  if (Number.isFinite(timestampMs) && timestampMs > record.latestTimestamp) {
+                      record.latestTimestamp = timestampMs;
+                  }
+                  vehicleMap.set(vehicleId, record);
+              });
+          });
+
+          if (vehicleMap.size === 0) {
+              return '';
+          }
+
+          const formatEntries = entries => entries.map(item => {
+              const riderText = Array.isArray(item.riders) && item.riders.length > 0
+                  ? item.riders.map(name => escapeHtml(name)).join(', ')
+                  : '';
+              const countLabel = item.capacity === 1 ? '1 rider' : `${item.capacity} riders`;
+              if (riderText) {
+                  return `${riderText}${item.capacity > item.riders.length ? ` (${escapeHtml(countLabel)})` : ''}`;
+              }
+              return escapeHtml(countLabel);
+          }).join('; ');
+
+          const sections = [];
+          vehicleMap.forEach(record => {
+              const vehicleLabel = `Van ${record.vehicleId}`;
+              const addressText = record.addresses.size === 1 ? Array.from(record.addresses)[0] : '';
+              const serviceText = record.serviceIds.size > 0
+                  ? Array.from(record.serviceIds).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', ')
+                  : '';
+              const pickupText = formatEntries(record.pickups);
+              const dropoffText = formatEntries(record.dropoffs);
+              const timestampText = record.latestTimestamp > 0
+                  ? formatOnDemandStopTimestamp(new Date(record.latestTimestamp).toISOString())
+                  : '';
+
+              const rows = [];
+              if (pickupText) {
+                  rows.push(`<div class="ondemand-stop-details__row"><span class="ondemand-stop-details__label">Pickups</span><span class="ondemand-stop-details__value">${pickupText}</span></div>`);
+              }
+              if (dropoffText) {
+                  rows.push(`<div class="ondemand-stop-details__row"><span class="ondemand-stop-details__label">Dropoffs</span><span class="ondemand-stop-details__value">${dropoffText}</span></div>`);
+              }
+              if (rows.length === 0) {
+                  rows.push('<div class="ondemand-stop-details__row"><span class="ondemand-stop-details__value">No riders</span></div>');
+              }
+
+              const metaLines = [];
+              if (addressText) {
+                  metaLines.push(`<div class="ondemand-stop-details__address">${escapeHtml(addressText)}</div>`);
+              }
+              if (serviceText) {
+                  metaLines.push(`<div class="ondemand-stop-details__service">Service ${escapeHtml(serviceText)}</div>`);
+              }
+              if (timestampText) {
+                  metaLines.push(`<div class="ondemand-stop-details__timestamp">${escapeHtml(timestampText)}</div>`);
+              }
+
+              sections.push([
+                  '<div class="ondemand-stop-details__vehicle">',
+                  `<div class="ondemand-stop-details__vehicle-name">${escapeHtml(vehicleLabel)}</div>`,
+                  metaLines.join(''),
+                  rows.join(''),
+                  '</div>'
+              ].join(''));
+          });
+
+          return `<div class="ondemand-stop-details"><div class="ondemand-stop-details__heading">OnDemand</div>${sections.join('')}</div>`;
+      }
+
       function attachPopupCloseHandler(popupElement) {
           const closeButton = popupElement.querySelector('.custom-popup-close');
           if (!closeButton) {
@@ -10580,7 +10803,16 @@ ${trainPlaneMarkup}
           const primaryStopIdText = !multipleStops
               ? (stopEntries[0]?.stopIdText || fallbackStopIdText)
               : '';
-          const entriesHtml = buildStopEntriesSectionHtml(stopEntries, multipleStops);
+          const hasEtaContent = stopEntries.some(entry => {
+              const routeStopIds = Array.isArray(entry?.routeStopIds) ? entry.routeStopIds : [];
+              const catStopIds = Array.isArray(entry?.catStopIds) ? entry.catStopIds : [];
+              const stopIds = Array.isArray(entry?.stopIds) ? entry.stopIds : [];
+              return routeStopIds.length > 0 || catStopIds.length > 0 || stopIds.length > 0;
+          });
+          const entriesHtml = hasEtaContent ? buildStopEntriesSectionHtml(stopEntries, multipleStops) : '';
+          const onDemandHtml = buildOnDemandStopDetailsHtml(stopEntries);
+          const detailsHtml = [entriesHtml, onDemandHtml].filter(Boolean).join('')
+              || '<div style="margin-top: 10px;">No stop details</div>';
           const groupKey = groupInfo.groupKey || createStopGroupKey(aggregatedRouteStopIds, fallbackStopIdText);
           const primaryAddressIdText = !multipleStops
               ? normalizeIdentifier(stopEntries[0]?.addressId)
@@ -10605,7 +10837,7 @@ ${trainPlaneMarkup}
             ${stopNameLine}
             ${addressIdLine}
             ${stopIdLine}
-            ${entriesHtml}
+            ${detailsHtml}
             <div class="custom-popup-arrow"></div>
           `;
 

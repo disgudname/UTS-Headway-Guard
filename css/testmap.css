@@ -427,6 +427,50 @@
         opacity: 0.9;
         margin-bottom: 6px;
       }
+      .ondemand-stop-details {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        white-space: normal;
+      }
+      .ondemand-stop-details__heading {
+        font-weight: 800;
+        letter-spacing: 0.35px;
+      }
+      .ondemand-stop-details__vehicle {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .ondemand-stop-details__vehicle-name {
+        font-weight: 800;
+        color: #ffd166;
+      }
+      .ondemand-stop-details__address,
+      .ondemand-stop-details__service,
+      .ondemand-stop-details__timestamp {
+        font-size: 12px;
+        opacity: 0.9;
+      }
+      .ondemand-stop-details__row {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        white-space: normal;
+      }
+      .ondemand-stop-details__label {
+        font-weight: 700;
+        min-width: 70px;
+        display: inline-block;
+      }
+      .ondemand-stop-details__value {
+        flex: 1;
+        display: inline-block;
+        white-space: normal;
+      }
       .bus-marker {
         background: transparent;
         border: 0;
