@@ -3686,11 +3686,13 @@ function startCyberpunkSplash(){
   ];
   const totalSteps=steps.length;
 
-  const bootSound=new Audio('https://assets.mixkit.co/sfx/preview/mixkit-futuristic-tech-ui-interface-click-1125.mp3');
-  bootSound.volume=0.6;
-  const ambientSound=new Audio('https://assets.mixkit.co/music/preview/mixkit-ambient-futuristic-straight-pattern-715.mp3');
-  ambientSound.loop=true;
-  ambientSound.volume=0.18;
+  // NOTE: Chrome's Safe Browsing started flagging the dispatcher page when it
+  // attempted to stream preview audio from assets.mixkit.co. To avoid pulling
+  // media from a domain we don't control (and triggering the warning), keep
+  // the boot/ambient sounds disabled until we have a vetted, self-hosted
+  // source for them.
+  const bootSound=null;
+  const ambientSound=null;
 
   const ensurePlayback=audio=>{
     if(!audio) return;
