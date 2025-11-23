@@ -29,7 +29,7 @@
 </head>
 <body>
   <h1>PulsePoint Incidents — Decrypted Viewer</h1>
-  <div class="muted">Source: <code>https://api.pulsepoint.org/v1/webapp?resource=incidents&amp;agencyid=54000,00300</code></div>
+  <div class="muted">Source: <code>/v1/pulsepoint/incidents</code></div>
 
   <div class="controls">
     <input id="search" type="text" placeholder="Filter (address, type, ID, units…)" />
@@ -60,7 +60,7 @@
 
 <script>
 (async function () {
-  const ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
+  const ENDPOINT = "/v1/pulsepoint/incidents";
   const PASSPHRASE = "tombrady5rings";
 
   const $status   = document.getElementById("status");
