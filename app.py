@@ -27,7 +27,7 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid, logging
+import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
 from datetime import datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
@@ -47,7 +47,6 @@ from fastapi.responses import (
 )
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
-from pydantic import BaseModel
 
 from tickets_store import TicketStore
 from ondemand_client import OnDemandClient
@@ -70,9 +69,6 @@ PULSEPOINT_ENDPOINT = os.getenv(
     "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300",
 )
 PULSEPOINT_PASSPHRASE = os.getenv("PULSEPOINT_PASSPHRASE", "tombrady5rings")
-PIPER_BASE_URL = os.getenv("PIPER_BASE_URL", "http://localhost:5000").rstrip("/")
-PIPER_TIMEOUT_S = int(os.getenv("PIPER_TIMEOUT_S", "10"))
-PIPER_MAX_CONCURRENT = int(os.getenv("PIPER_MAX_CONCURRENT", "2"))
 AMTRAKER_URL = os.getenv("AMTRAKER_URL", "https://api-v3.amtraker.com/v3/trains")
 RIDESYSTEMS_CLIENTS_URL = os.getenv(
     "RIDESYSTEMS_CLIENTS_URL",
@@ -837,8 +833,6 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # App & state
 # ---------------------------
 app = FastAPI(title="UTS Operations Dashboard")
-logger = logging.getLogger(__name__)
-app.state.tts_semaphore = asyncio.Semaphore(PIPER_MAX_CONCURRENT)
 
 
 @app.on_event("startup")
@@ -848,15 +842,6 @@ async def init_ondemand_client() -> None:
     except RuntimeError as exc:
         print(f"[ondemand] client not configured: {exc}")
         app.state.ondemand_client = None
-
-
-@app.on_event("startup")
-async def init_tts_cache_dir() -> None:
-    try:
-        TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:
-        logger.error("[tts] failed to ensure cache directory: %s", exc)
-    app.state.tts_semaphore = asyncio.Semaphore(max(1, PIPER_MAX_CONCURRENT))
 
 
 @app.on_event("shutdown")
@@ -871,7 +856,6 @@ CSS_DIR = BASE_DIR / "css"
 SCRIPT_DIR = BASE_DIR / "scripts"
 FONT_DIR = BASE_DIR / "fonts"
 MEDIA_DIR = BASE_DIR / "media"
-TTS_CACHE_DIR = MEDIA_DIR / "tts"
 
 
 def _load_html(name: str) -> str:
@@ -966,60 +950,6 @@ def _base_response_fields(ok: bool, saved: bool, info: Dict[str, str]) -> Dict[s
         "saved_by": info,
         "_served_by": info,
     }
-
-MAX_TTS_LENGTH = 500
-
-
-def _normalize_tts_text(text: str) -> str:
-    return text.strip()
-
-
-def _tts_cache_key(normalized_text: str) -> str:
-    return hashlib.sha256(normalized_text.lower().encode("utf-8")).hexdigest()
-
-
-def _tts_cache_path(tts_id: str) -> Path:
-    return TTS_CACHE_DIR / f"{tts_id}.wav"
-
-
-def _is_safe_tts_id(tts_id: str) -> bool:
-    return bool(re.fullmatch(r"[0-9a-fA-F]{64}", tts_id or ""))
-
-
-def fix_wav(data: bytes) -> bytes:
-    """
-    Take raw WAV bytes from Piper and rewrite a clean RIFF/WAVE container
-    so picky players like VLC accept it.
-    """
-    try:
-        import wave
-
-        inp = wave.open(io.BytesIO(data), "rb")
-        out_buf = io.BytesIO()
-        out = wave.open(out_buf, "wb")
-        out.setnchannels(inp.getnchannels())
-        out.setsampwidth(inp.getsampwidth())
-        out.setframerate(inp.getframerate())
-        out.writeframes(inp.readframes(inp.getnframes()))
-        out.close()
-        return out_buf.getvalue()
-    except Exception as exc:
-        logger.error("[tts] wav rewrite failed: %s", exc)
-        return data
-
-
-async def _fetch_piper_audio(text: str) -> bytes:
-    url = f"{PIPER_BASE_URL}/"
-    semaphore = getattr(app.state, "tts_semaphore", None)
-    if semaphore is None:
-        semaphore = asyncio.Semaphore(max(1, PIPER_MAX_CONCURRENT))
-        app.state.tts_semaphore = semaphore
-    async with semaphore:
-        async with httpx.AsyncClient(timeout=PIPER_TIMEOUT_S) as client:
-            response = await client.get(url, params={"text": text})
-    response.raise_for_status()
-    return response.content
-
 
 EINK_BLOCK_LAYOUT_NAME = "eink_block_layout.json"
 
@@ -2058,91 +1988,6 @@ async def api_ondemand_positions_legacy(request: Request):
     data = await _build_ondemand_payload(request)
     vehicles = data.get("vehicles") if isinstance(data, dict) else []
     return {"vehicles": vehicles}
-
-
-# ---------------------------
-# Piper TTS proxy (Fly.io sidecar, caches and WAV normalization)
-# ---------------------------
-class TTSRequest(BaseModel):
-    text: str
-
-
-def _validate_tts_text(text: str) -> str:
-    normalized_text = _normalize_tts_text(text or "")
-    if not normalized_text:
-        raise HTTPException(status_code=400, detail="text is required")
-    if len(normalized_text) > MAX_TTS_LENGTH:
-        raise HTTPException(status_code=400, detail="text too long")
-    return normalized_text
-
-
-@app.post("/api/tts")
-async def proxy_tts(payload: TTSRequest):
-    normalized_text = _validate_tts_text(payload.text)
-    cache_key = _tts_cache_key(normalized_text)
-    cache_path = _tts_cache_path(cache_key)
-
-    if cache_path.exists():
-        try:
-            length_bytes = cache_path.stat().st_size
-        except OSError:
-            length_bytes = 0
-        logger.info("[tts] cache hit for key %s", cache_key)
-        return {
-            "id": cache_key,
-            "url": f"/api/tts/audio/{cache_key}.wav",
-            "cached": True,
-            "length_bytes": length_bytes,
-        }
-
-    try:
-        logger.info("[tts] cache miss; requesting Piper")
-        raw_audio = await _fetch_piper_audio(normalized_text)
-    except httpx.HTTPError as exc:
-        logger.error("[tts] Piper request failed: %s", exc)
-        raise HTTPException(status_code=503, detail="TTS service unavailable")
-
-    fixed_audio = fix_wav(raw_audio)
-    try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_bytes(fixed_audio)
-    except Exception as exc:
-        logger.error("[tts] failed to write cache file %s: %s", cache_path, exc)
-
-    return {
-        "id": cache_key,
-        "url": f"/api/tts/audio/{cache_key}.wav",
-        "cached": False,
-        "length_bytes": len(fixed_audio),
-    }
-
-
-@app.get("/api/tts/audio/{tts_id}.wav")
-async def get_tts_audio(tts_id: str):
-    if not _is_safe_tts_id(tts_id):
-        raise HTTPException(status_code=404, detail="audio not found")
-    cache_path = _tts_cache_path(tts_id.lower())
-    if not cache_path.exists():
-        raise HTTPException(status_code=404, detail="audio not found")
-    return FileResponse(cache_path, media_type="audio/wav")
-
-
-@app.get("/api/tts/stream")
-async def stream_tts(text: str = Query(...)):
-    normalized_text = _validate_tts_text(text)
-    try:
-        logger.info("[tts] streaming request to Piper")
-        raw_audio = await _fetch_piper_audio(normalized_text)
-    except httpx.HTTPError as exc:
-        logger.error("[tts] Piper request failed: %s", exc)
-        raise HTTPException(status_code=503, detail="TTS service unavailable")
-
-    fixed_audio = fix_wav(raw_audio)
-    headers = {
-        "Content-Disposition": 'inline; filename="tts.wav"',
-        "Content-Length": str(len(fixed_audio)),
-    }
-    return StreamingResponse(iter([fixed_audio]), media_type="audio/wav", headers=headers)
 
 
 # ---------------------------
