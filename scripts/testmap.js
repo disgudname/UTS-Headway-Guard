@@ -6384,6 +6384,7 @@ schedulePlaneStyleOverride();
                 markers[markerKey].routeID = null;
                 markers[markerKey].isOnDemand = true;
                 applyMarkerInteractivity(markers[markerKey], hasDriverPopup);
+                syncMarkerPopupPosition(markers[markerKey]);
                 state.marker = markers[markerKey];
                 queueBusMarkerVisualUpdate(markerKey, {
                   fillColor,
