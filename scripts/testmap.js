@@ -5687,6 +5687,10 @@ schedulePlaneStyleOverride();
           const capacity = Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : 1;
           const stopType = (stop.stopType || '').toLowerCase() === 'dropoff' ? 'dropoff' : 'pickup';
           const addressValue = typeof stop.address === 'string' ? stop.address.trim() : '';
+          const rawCallName = typeof stop.callName === 'string'
+            ? stop.callName
+            : (typeof stop.call_name === 'string' ? stop.call_name : '');
+          const callName = rawCallName.trim();
           const serviceIdRaw = stop.serviceId ?? stop.serviceID;
           const serviceIdText = typeof serviceIdRaw === 'string'
             ? serviceIdRaw.trim()
@@ -5709,6 +5713,7 @@ schedulePlaneStyleOverride();
             isOnDemandStop: true,
             onDemandStopDetails: {
               vehicleId,
+              callName,
               routeId,
               capacity,
               stopType,
@@ -5998,8 +6003,9 @@ schedulePlaneStyleOverride();
             const handleClick = () => {
               const latestEntry = onDemandStopMarkerCache.get(groupKey);
               const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-              const popupGroupInfo = combineOnDemandStopWithBusGroup(latestInfo);
-              createCustomPopup(Object.assign({ popupType: 'stop' }, popupGroupInfo));
+              const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+              const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+              createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
             };
             marker.on('click', handleClick);
             markerEntry = { marker, iconSignature, groupInfo, clickHandler: handleClick };
@@ -6020,8 +6026,9 @@ schedulePlaneStyleOverride();
               const handleClick = () => {
                 const latestEntry = onDemandStopMarkerCache.get(groupKey);
                 const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-                const popupGroupInfo = combineOnDemandStopWithBusGroup(latestInfo);
-                createCustomPopup(Object.assign({ popupType: 'stop' }, popupGroupInfo));
+                const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+                const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+                createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
               };
               markerEntry.marker.on('click', handleClick);
               markerEntry.clickHandler = handleClick;
@@ -10059,8 +10066,10 @@ ${trainPlaneMarkup}
 
               if (stop.isOnDemandStop && stop.onDemandStopDetails) {
                   const details = stop.onDemandStopDetails;
+                  const callName = typeof details.callName === 'string' ? details.callName.trim() : '';
                   entry.onDemandStops.push({
                       vehicleId: details.vehicleId ?? '',
+                      callName,
                       routeId: details.routeId ?? '',
                       capacity: details.capacity ?? 1,
                       stopType: details.stopType ?? 'pickup',
@@ -10733,6 +10742,7 @@ ${trainPlaneMarkup}
                       pickups: [],
                       dropoffs: [],
                       addresses: new Set(),
+                      callNames: new Set(),
                       serviceIds: new Set(),
                       latestTimestamp: 0
                   };
@@ -10754,6 +10764,10 @@ ${trainPlaneMarkup}
                   }
                   if (stop.serviceId) {
                       record.serviceIds.add(`${stop.serviceId}`);
+                  }
+                  const callName = extractOnDemandDisplayName(stop.callName);
+                  if (callName) {
+                      record.callNames.add(callName);
                   }
                   const timestampMs = Date.parse(stop.stopTimestamp || '');
                   if (Number.isFinite(timestampMs) && timestampMs > record.latestTimestamp) {
@@ -10780,11 +10794,9 @@ ${trainPlaneMarkup}
 
           const sections = [];
           vehicleMap.forEach(record => {
-              const vehicleLabel = `Van ${record.vehicleId}`;
+              const vehicleCallName = record.callNames.size > 0 ? Array.from(record.callNames)[0] : '';
+              const vehicleLabel = vehicleCallName || `Van ${record.vehicleId}`;
               const addressText = record.addresses.size === 1 ? Array.from(record.addresses)[0] : '';
-              const serviceText = record.serviceIds.size > 0
-                  ? Array.from(record.serviceIds).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', ')
-                  : '';
               const pickupText = formatEntries(record.pickups);
               const dropoffText = formatEntries(record.dropoffs);
               const timestampText = record.latestTimestamp > 0
@@ -10805,9 +10817,6 @@ ${trainPlaneMarkup}
               const metaLines = [];
               if (addressText) {
                   metaLines.push(`<div class="ondemand-stop-details__address">${escapeHtml(addressText)}</div>`);
-              }
-              if (serviceText) {
-                  metaLines.push(`<div class="ondemand-stop-details__service">Service ${escapeHtml(serviceText)}</div>`);
               }
               if (timestampText) {
                   metaLines.push(`<div class="ondemand-stop-details__timestamp">${escapeHtml(timestampText)}</div>`);
@@ -10842,6 +10851,8 @@ ${trainPlaneMarkup}
           }
 
           popupElement.dataset.popupType = 'stop';
+          const isOnDemandStop = groupInfo.isOnDemandStop === true || popupElement.dataset.isOnDemandStop === 'true';
+          popupElement.dataset.isOnDemandStop = isOnDemandStop ? 'true' : 'false';
           const stopEntries = Array.isArray(groupInfo.stopEntries) ? groupInfo.stopEntries : [];
           const aggregatedRouteStopIds = Array.isArray(groupInfo.aggregatedRouteStopIds)
               ? groupInfo.aggregatedRouteStopIds
@@ -11631,12 +11642,16 @@ ${trainPlaneMarkup}
                       parsedRouteStopIds = [];
                   }
                   const fallbackId = popupElement.dataset.fallbackStopId || '';
+                  const isOnDemandStop = popupElement.dataset.isOnDemandStop === 'true';
                   const key = popupElement.dataset.groupKey || createStopGroupKey(parsedRouteStopIds, fallbackId);
                   const matchingGroup = groupByKey.get(key);
                   if (matchingGroup) {
                       popupElement.dataset.position = `${matchingGroup.position[0]},${matchingGroup.position[1]}`;
                       setStopPopupContent(popupElement, matchingGroup);
                       updatePopupPosition(popupElement, matchingGroup.position);
+                      return true;
+                  }
+                  if (isOnDemandStop) {
                       return true;
                   }
                   popupElement.remove();
@@ -11785,6 +11800,7 @@ ${trainPlaneMarkup}
                   }
                   const fallbackStopId = popupElement.dataset.fallbackStopId || '';
                   const stopName = popupElement.dataset.stopName || '';
+                  const isOnDemandStop = popupElement.dataset.isOnDemandStop === 'true';
                   const groupKey = popupElement.dataset.groupKey || createStopGroupKey(routeStopIds, fallbackStopId);
                   const groupInfo = {
                       position: position.split(',').map(Number),
@@ -11792,7 +11808,8 @@ ${trainPlaneMarkup}
                       fallbackStopId,
                       stopEntries,
                       aggregatedRouteStopIds: routeStopIds,
-                      groupKey
+                      groupKey,
+                      isOnDemandStop
                   };
                   setStopPopupContent(popupElement, groupInfo);
               }
