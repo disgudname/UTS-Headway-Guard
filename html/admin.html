@@ -107,10 +107,26 @@ async function load(){
         container.className='secret';
         const name=document.createElement('strong');
         name.textContent=secret.name;
-        const value=document.createElement('code');
-        value.textContent=secret.value;
+        const command=document.createElement('code');
+        const flyCommand=`flyctl secrets set ${secret.name}="${secret.value}" --app uts-operations-dashboard`;
+        command.textContent=flyCommand;
+        const copyButton=document.createElement('button');
+        copyButton.type='button';
+        copyButton.textContent='Copy';
+        copyButton.addEventListener('click',async()=>{
+          try{
+            await navigator.clipboard.writeText(flyCommand);
+            copyButton.textContent='Copied!';
+            setTimeout(()=>{copyButton.textContent='Copy';},1200);
+          }catch(err){
+            console.error('Failed to copy command',err);
+            copyButton.textContent='Copy failed';
+            setTimeout(()=>{copyButton.textContent='Copy';},1500);
+          }
+        });
         container.appendChild(name);
-        container.appendChild(value);
+        container.appendChild(command);
+        container.appendChild(copyButton);
         secretRoot.appendChild(container);
       }
     }catch(err){
