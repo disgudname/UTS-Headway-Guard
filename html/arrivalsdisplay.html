@@ -65,7 +65,7 @@ function getParameterByName(name){ const p=new URLSearchParams(window.location.s
 async function fetchAlerts(){
   try{
     const showInactive=getParameterByName('showInactiveAlerts')==='true';
-    const r=await axios.get('https://uva.transloc.com/Secure/Services/RoutesService.svc/GetMessagesPaged',{
+    const r=await axios.get('/v1/transloc/alerts',{
       params:{showInactive,includeDeleted:false,messageTypeId:1,search:false,rows:10,page:1,sortIndex:'StartDateUtc',sortOrder:'asc'}
     });
     const msgs=r.data.Rows.map(a=>a.MessageText);
@@ -87,7 +87,7 @@ function updateTicker(msgs){
 /* ===================== Data Fetch ===================== */
 async function fetchArrivalTimes(stopID){
   try{
-    const r=await axios.get('https://uva.transloc.com/Services/JSONPRelay.svc/GetStopArrivalTimes',{params:{APIKey:'8882812681',stopIDs:stopID}});
+    const r=await axios.get('/v1/transloc/stop_arrivals',{params:{stopIDs:stopID}});
     if(r.data&&r.data.length>0){
       const stopName=r.data[0].StopDescription||'Bus Arrival Predictions';
       document.getElementById('stop-name').textContent=stopName.replace(/\(.*\)/,'').trim();
@@ -98,7 +98,7 @@ async function fetchArrivalTimes(stopID){
 }
 async function fetchVehicleCapacities(){
   try{
-    const r=await axios.get('https://uva.transloc.com/Services/JSONPRelay.svc/GetVehicleCapacities',{params:{APIKey:'8882812681'}});
+    const r=await axios.get('/v1/transloc/vehicle_capacities');
     return r.data;
   }catch(e){ console.error("[capacities] error",e); return []; }
 }

@@ -249,24 +249,13 @@
             return normalizeBaseUrl(forcedBaseURL);
           }
           try {
-            const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
-            const contentType = response.headers.get('content-type') || '';
-            let clients = [];
-            if (contentType.includes('application/json')) {
-              clients = await response.json();
-            } else {
-              const text = await response.text();
-              const parser = new DOMParser();
-              const xml = parser.parseFromString(text, 'application/xml');
-              clients = Array.from(xml.getElementsByTagName('Client')).map(node => ({
-                Name: node.getElementsByTagName('Name')[0]?.textContent.trim(),
-                WebAddress: node.getElementsByTagName('WebAddress')[0]?.textContent.trim()
-              }));
-            }
+            const response = await fetch('/v1/testmap/ridesystems/clients');
+            const payload = await response.json();
+            const clients = payload?.clients || [];
             const cleaned = clients
               .map(client => ({
-                name: client.Name?.trim(),
-                url: normalizeBaseUrl(client.WebAddress)
+                name: client.name?.trim(),
+                url: normalizeBaseUrl(client.url)
               }))
               .filter(entry => entry.name && entry.url);
             const uva = cleaned.find(entry => entry.name === 'University of Virginia');
