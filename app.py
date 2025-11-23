@@ -521,6 +521,17 @@ def build_transloc_url(base_url: Optional[str], path: str) -> str:
     return f"{base}{path}"
 
 
+def transloc_host_base(base_url: Optional[str]) -> str:
+    sanitized = sanitize_transloc_base(base_url) or DEFAULT_TRANSLOC_BASE
+    parsed = urlparse(sanitized)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    parsed_default = urlparse(DEFAULT_TRANSLOC_BASE)
+    if parsed_default.scheme and parsed_default.netloc:
+        return f"{parsed_default.scheme}://{parsed_default.netloc}"
+    return "https://uva.transloc.com"
+
+
 def is_default_transloc_base(base_url: Optional[str]) -> bool:
     sanitized = sanitize_transloc_base(base_url)
     return sanitized is None or sanitized == DEFAULT_TRANSLOC_BASE
@@ -3703,6 +3714,18 @@ def _transloc_error_detail(exc: httpx.HTTPError, base_url: Optional[str]) -> str
     return f"{prefix}: {exc}"
 
 
+async def _proxy_transloc_get(url: str, *, params: Optional[Dict[str, Any]] = None, base_url: Optional[str] = None):
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, params=params, timeout=20)
+            record_api_call("GET", str(r.url), r.status_code)
+            r.raise_for_status()
+            return r.json()
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url or url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+
 def _coerce_epoch_seconds(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -5006,6 +5029,76 @@ async def trains_endpoint():
 async def ridesystems_clients_endpoint():
     clients = await _fetch_ridesystems_clients()
     return {"clients": clients}
+
+
+@app.get("/v1/transloc/routes_with_shapes")
+async def transloc_routes_with_shapes(base_url: Optional[str] = Query(None)):
+    try:
+        async with httpx.AsyncClient() as client:
+            return await fetch_routes_with_shapes(client, base_url=base_url)
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+
+@app.get("/v1/transloc/ridership")
+async def transloc_ridership(
+    startDate: str = Query(..., description="MM/DD/YYYY start date"),
+    endDate: str = Query(..., description="MM/DD/YYYY end date"),
+    base_url: Optional[str] = Query(None),
+):
+    url = build_transloc_url(base_url, "GetRidershipData")
+    params = {"startDate": startDate, "endDate": endDate}
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+
+@app.get("/v1/transloc/alerts")
+async def transloc_alerts(
+    showInactive: bool = Query(False),
+    includeDeleted: bool = Query(False),
+    messageTypeId: int = Query(1),
+    search: bool = Query(False),
+    rows: int = Query(10),
+    page: int = Query(1),
+    sortIndex: str = Query("StartDateUtc"),
+    sortOrder: str = Query("asc"),
+    base_url: Optional[str] = Query(None),
+):
+    root = transloc_host_base(base_url)
+    url = f"{root}/Secure/Services/RoutesService.svc/GetMessagesPaged"
+    params = {
+        "showInactive": showInactive,
+        "includeDeleted": includeDeleted,
+        "messageTypeId": messageTypeId,
+        "search": search,
+        "rows": rows,
+        "page": page,
+        "sortIndex": sortIndex,
+        "sortOrder": sortOrder,
+    }
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+
+@app.get("/v1/transloc/stop_arrivals")
+async def transloc_stop_arrivals(
+    stopIDs: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+    stops: Optional[str] = Query(None, description="Alias for stopIDs"),
+    base_url: Optional[str] = Query(None),
+):
+    url = build_transloc_url(base_url, "GetStopArrivalTimes")
+    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY}
+    if stopIDs:
+        params["stopIDs"] = stopIDs
+    if stops:
+        params["stops"] = stops
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+
+@app.get("/v1/transloc/vehicle_capacities")
+async def transloc_vehicle_capacities(base_url: Optional[str] = Query(None)):
+    url = build_transloc_url(base_url, "GetVehicleCapacities")
+    params = {"APIKey": TRANSLOC_KEY}
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 @app.get("/v1/transloc/routes")
 async def transloc_routes():

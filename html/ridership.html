@@ -258,7 +258,7 @@ loadBtn.disabled=true;
 const MAX_EXTENDED_HOUR=27;
 const MAX_EXTENDED_MINUTES=MAX_EXTENDED_HOUR*60;
 
-const ROUTE_INFO_URL='https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681';
+const ROUTE_INFO_URL='/v1/transloc/routes_with_shapes';
 
 let ridershipByRoute={};
 let routeList=[];
@@ -504,7 +504,7 @@ function load(){
   const startStr=(start.getMonth()+1)+"/"+start.getDate()+"/"+start.getFullYear();
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
   const bounds={start,nextStart,end};
-  const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
+  const url=`/v1/transloc/ridership?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
   const ridershipPromise=fetch(url).then(r=>r.json()).catch(err=>{
     console.error(err);
     return [];
