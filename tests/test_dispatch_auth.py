@@ -212,3 +212,34 @@ def test_positions_includes_driver_name_from_positions_payload():
         finally:
             app.state.ondemand_client = original_client
             _reset_ondemand_cache()
+
+
+def test_positions_passes_through_eligibility_flag():
+    with dispatch_passwords(dispatch="dispatch-secret"):
+        client = TestClient(app)
+        original_client = getattr(app.state, "ondemand_client", None)
+        dummy = DummyOnDemandClient(
+            roster=[],
+            positions=[
+                {
+                    "vehicle_id": "321",
+                    "position": {"latitude": 38.03, "longitude": -78.51},
+                    "eligible": False,
+                }
+            ],
+        )
+        try:
+            app.state.ondemand_client = dummy
+            _reset_ondemand_cache()
+
+            login = client.post("/api/dispatcher/auth", json={"password": "dispatch-secret"})
+            assert login.status_code == 200
+
+            response = client.get("/api/ondemand")
+            assert response.status_code == 200
+            data = response.json()
+            vehicles = data.get("vehicles") if isinstance(data, dict) else []
+            assert vehicles and vehicles[0].get("eligible") is False
+        finally:
+            app.state.ondemand_client = original_client
+            _reset_ondemand_cache()
