@@ -16600,8 +16600,15 @@ ${trainPlaneMarkup}
           if (!state || !marker) {
               return;
           }
+          const existingPopup = typeof marker.getPopup === 'function' ? marker.getPopup() : null;
+          const hadOpenPopup = typeof marker.isPopupOpen === 'function'
+              ? marker.isPopupOpen()
+              : existingPopup?.isOpen?.() || false;
           if (typeof marker.off === 'function') {
               marker.off();
+          }
+          if (hadOpenPopup && typeof marker.closePopup === 'function') {
+              marker.closePopup();
           }
           if (typeof marker.unbindPopup === 'function') {
               marker.unbindPopup();
@@ -16685,6 +16692,10 @@ ${trainPlaneMarkup}
                   autoPan: false,
                   offset: [0, -20],
               });
+          }
+          if (hadOpenPopup && typeof marker.openPopup === 'function') {
+              marker.openPopup();
+              syncMarkerPopupPosition(marker);
           }
           state.markerEventsBound = true;
       }
