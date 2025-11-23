@@ -1798,6 +1798,90 @@ def build_ondemand_virtual_stops(
     return records
 
 
+def _format_rider_name(rider: Any) -> Optional[str]:
+    if isinstance(rider, dict):
+        first = rider.get("first_name") or rider.get("firstName") or rider.get("first")
+        last = rider.get("last_name") or rider.get("lastName") or rider.get("last")
+        name_parts = [str(part).strip() for part in (first, last) if part not in {None, ""}]
+        joined = " ".join([part for part in name_parts if part])
+        if joined:
+            return joined
+        for key in ("name", "username", "email"):
+            candidate = rider.get(key)
+            if isinstance(candidate, str):
+                candidate_stripped = candidate.strip()
+                if candidate_stripped:
+                    return candidate_stripped
+    elif isinstance(rider, str):
+        rider_stripped = rider.strip()
+        if rider_stripped:
+            return rider_stripped
+    return None
+
+
+def build_ondemand_vehicle_stop_plans(
+    schedules: Sequence[Dict[str, Any]]
+) -> Dict[str, List[Dict[str, Any]]]:
+    plans: Dict[str, List[Dict[str, Any]]] = {}
+    for vehicle in schedules:
+        if not isinstance(vehicle, dict):
+            continue
+        vehicle_id_raw = vehicle.get("vehicle_id") or vehicle.get("vehicleId")
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
+        if not vehicle_id:
+            continue
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+        entries: List[Dict[str, Any]] = []
+        order = 1
+        for stop in stops:
+            if not isinstance(stop, dict):
+                continue
+            rides = stop.get("rides")
+            if not isinstance(rides, list):
+                continue
+            address_value = stop.get("address") or stop.get("label") or ""
+            address = str(address_value).strip() or "Unknown stop"
+            grouped: Dict[str, List[str]] = {}
+            for ride in rides:
+                if not isinstance(ride, dict):
+                    continue
+                stop_type_raw = ride.get("stop_type") or ride.get("stopType")
+                stop_type = str(stop_type_raw or "").strip().lower()
+                if stop_type not in {"pickup", "dropoff"}:
+                    continue
+                rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+                if rider_name:
+                    grouped.setdefault(stop_type, []).append(rider_name)
+            for stop_type, riders in grouped.items():
+                if not riders:
+                    continue
+                entry = {
+                    "order": order,
+                    "address": address,
+                    "stopType": stop_type,
+                    "riders": riders,
+                }
+                if entries:
+                    last = entries[-1]
+                    if (
+                        last.get("address", "").lower() == address.lower()
+                        and last.get("stopType") == stop_type
+                    ):
+                        existing_names = set(last.get("riders", []))
+                        for name in riders:
+                            if name not in existing_names:
+                                last.setdefault("riders", []).append(name)
+                                existing_names.add(name)
+                        continue
+                entries.append(entry)
+                order += 1
+        if entries:
+            plans[vehicle_id] = entries
+    return plans
+
+
 async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     _require_dispatcher_access(request)
     dispatcher_info = _get_dispatcher_secret_info(request)
@@ -1892,6 +1976,8 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     except Exception as exc:
         print(f"[ondemand] schedules processing failed: {exc}")
 
+    stop_plans = build_ondemand_vehicle_stop_plans(schedules)
+
     vehicles: List[Dict[str, Any]] = []
     positions_list = raw_positions if isinstance(raw_positions, list) else []
     for entry in positions_list:
@@ -1969,6 +2055,9 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
         device_id = entry.get("device_id") or entry.get("deviceId")
         if device_id:
             vehicle_payload["deviceId"] = device_id
+        stop_plan = stop_plans.get(vehicle_id)
+        if stop_plan:
+            vehicle_payload["stops"] = stop_plan
         vehicles.append(vehicle_payload)
 
     ondemand_stops = build_ondemand_virtual_stops(
