@@ -5079,6 +5079,22 @@ async def transloc_alerts(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
+@app.get("/v1/transloc/client_logo")
+async def transloc_client_logo(base_url: Optional[str] = Query(None)):
+    root = transloc_host_base(base_url)
+    url = f"{root}/Images/clientLogo.jpg"
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, timeout=20)
+            record_api_call("GET", str(r.url), r.status_code)
+            r.raise_for_status()
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url or url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+    content_type = r.headers.get("content-type") or "image/jpeg"
+    return Response(content=r.content, media_type=content_type)
+
+
 @app.get("/v1/transloc/stop_arrivals")
 async def transloc_stop_arrivals(
     stopIDs: Optional[str] = Query(None, description="Comma-separated stop IDs"),

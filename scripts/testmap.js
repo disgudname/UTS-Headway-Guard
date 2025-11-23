@@ -8052,7 +8052,10 @@ schedulePlaneStyleOverride();
           sortIndex: 'StartDateUtc',
           sortOrder: 'asc'
         });
-        const endpoint = `${sanitizedBase}/Secure/Services/RoutesService.svc/GetMessagesPaged?${query.toString()}`;
+        if (fetchBaseURL) {
+          query.set('base_url', fetchBaseURL);
+        }
+        const endpoint = `/v1/transloc/alerts?${query.toString()}`;
         const requestPromise = (async () => {
           const response = await fetch(endpoint, { cache: 'no-store' });
           if (!response.ok) {
@@ -8171,7 +8174,12 @@ schedulePlaneStyleOverride();
             </div>
           `;
         } else if (sanitizedBaseURL) {
-          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
+          let agencyLogoUrl = '/v1/transloc/client_logo';
+          const logoParams = new URLSearchParams({ base_url: sanitizedBaseURL });
+          const serializedParams = logoParams.toString();
+          if (serializedParams) {
+            agencyLogoUrl += `?${serializedParams}`;
+          }
           const safeLogoSrc = escapeAttribute(agencyLogoUrl);
           const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
           const safeLogoAltText = escapeAttribute(logoAltText);
