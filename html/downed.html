@@ -450,6 +450,7 @@ function adjustBaseFontSize(){
 const urlParams = new URLSearchParams(window.location.search);
 
 const kioskMode = getQueryFlag('kioskMode');
+const embeddedMode = getQueryFlag('embedded');
 
 function scheduleFontAdjustment(){
   if(fontAdjustmentFrame) cancelAnimationFrame(fontAdjustmentFrame);
@@ -1015,7 +1016,7 @@ function renderSheet(data){
 
 async function loadSheet(){
   try{
-    if(kioskMode){
+    if(kioskMode || embeddedMode){
       const res=await fetch(KIOSK_ENDPOINT,{cache:'no-store'});
       if(!res.ok) throw new Error('HTTP '+res.status);
       const payload=await res.json();
