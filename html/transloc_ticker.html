@@ -335,7 +335,7 @@
         }
 
         httpGet(
-          'https://uva.transloc.com/Secure/Services/RoutesService.svc/GetMessagesPaged',
+          '/v1/transloc/alerts',
           {
             showInactive: showInactive,
             includeDeleted: false,
@@ -374,7 +374,7 @@
           return;
         }
         httpGet(
-          'https://uva.transloc.com/Services/JSONPRelay.svc/GetStopArrivalTimes',
+          '/v1/transloc/stop_arrivals',
           { stops: stopsParam },
           function (payload) {
             var out = [];

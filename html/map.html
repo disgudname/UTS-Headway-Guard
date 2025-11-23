@@ -4387,27 +4387,13 @@
 
       async function loadAgencies() {
         try {
-          const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
-          const contentType = response.headers.get('content-type') || '';
-          let clients = [];
-          if (contentType.includes('application/json')) {
-            clients = await response.json();
-          } else {
-            const text = await response.text();
-            const parser = new DOMParser();
-            const xml = parser.parseFromString(text, 'application/xml');
-            clients = Array.from(xml.getElementsByTagName('Client')).map(c => ({
-              Name: c.getElementsByTagName('Name')[0]?.textContent.trim(),
-              WebAddress: c.getElementsByTagName('WebAddress')[0]?.textContent.trim()
-            }));
-          }
+          const response = await fetch('/v1/testmap/ridesystems/clients');
+          const payload = await response.json();
+          const clients = payload?.clients || [];
           agencies = clients.map(c => {
-            const name = c.Name?.trim();
-            const webAddress = c.WebAddress?.trim();
-            if (!name || !webAddress) return null;
-            const url = webAddress.startsWith('http')
-              ? webAddress.replace(/^http:\/\//i, 'https://')
-              : `https://${webAddress}`;
+            const name = c.name?.trim();
+            const url = c.url?.trim();
+            if (!name || !url) return null;
             return { name, url };
           }).filter(Boolean);
           agencies.sort((a, b) => a.name.localeCompare(b.name));
@@ -5508,22 +5494,16 @@
           sortIndex: 'StartDateUtc',
           sortOrder: 'asc'
         });
-        const endpoint = `${sanitizedBase}/Secure/Services/RoutesService.svc/GetMessagesPaged?${query.toString()}`;
+        if (sanitizedBase) {
+          query.set('base_url', sanitizedBase);
+        }
+        const endpoint = `/v1/transloc/alerts?${query.toString()}`;
         const requestPromise = (async () => {
           const response = await fetch(endpoint, { cache: 'no-store' });
           if (!response.ok) {
             throw new Error(`Service alerts request failed: ${response.status}`);
           }
-          const text = await response.text();
-          let payload = {};
-          if (text) {
-            try {
-              payload = JSON.parse(text);
-            } catch (parseError) {
-              console.error('Failed to parse service alerts response:', parseError);
-              throw parseError;
-            }
-          }
+          const payload = await response.json();
           let rows = extractServiceAlertRows(payload);
           if (!rows.length && payload && typeof payload === 'object' && payload.d) {
             rows = extractServiceAlertRows(payload.d);
@@ -5616,7 +5596,8 @@
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
         let logoHtml = '';
         if (sanitizedBaseURL) {
-          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
+          const logoParams = new URLSearchParams({ base_url: sanitizedBaseURL });
+          const agencyLogoUrl = `/v1/transloc/client_logo?${logoParams.toString()}`;
           const safeLogoSrc = escapeAttribute(agencyLogoUrl);
           const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
           const safeLogoAltText = escapeAttribute(logoAltText);

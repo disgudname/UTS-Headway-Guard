@@ -8042,35 +8042,29 @@ schedulePlaneStyleOverride();
         serviceAlertsLoading = true;
         serviceAlertsError = null;
         refreshServiceAlertsUI();
-        const query = new URLSearchParams({
-          showInactive: 'false',
-          includeDeleted: 'false',
-          messageTypeId: '1',
-          search: 'false',
-          rows: '10',
-          page: '1',
-          sortIndex: 'StartDateUtc',
-          sortOrder: 'asc'
-        });
-        const endpoint = `${sanitizedBase}/Secure/Services/RoutesService.svc/GetMessagesPaged?${query.toString()}`;
-        const requestPromise = (async () => {
-          const response = await fetch(endpoint, { cache: 'no-store' });
-          if (!response.ok) {
-            throw new Error(`Service alerts request failed: ${response.status}`);
-          }
-          const text = await response.text();
-          let payload = {};
-          if (text) {
-            try {
-              payload = JSON.parse(text);
-            } catch (parseError) {
-              console.error('Failed to parse service alerts response:', parseError);
-              throw parseError;
-            }
-          }
-          let rows = extractServiceAlertRows(payload);
-          if (!rows.length && payload && typeof payload === 'object' && payload.d) {
-            rows = extractServiceAlertRows(payload.d);
+      const query = new URLSearchParams({
+        showInactive: 'false',
+        includeDeleted: 'false',
+        messageTypeId: '1',
+        search: 'false',
+        rows: '10',
+        page: '1',
+        sortIndex: 'StartDateUtc',
+        sortOrder: 'asc'
+      });
+      if (sanitizedBase) {
+        query.set('base_url', sanitizedBase);
+      }
+      const endpoint = `/v1/transloc/alerts?${query.toString()}`;
+      const requestPromise = (async () => {
+        const response = await fetch(endpoint, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`Service alerts request failed: ${response.status}`);
+        }
+        const payload = await response.json();
+        let rows = extractServiceAlertRows(payload);
+        if (!rows.length && payload && typeof payload === 'object' && payload.d) {
+          rows = extractServiceAlertRows(payload.d);
           }
           return rows.map(normalizeServiceAlertRow).filter(Boolean);
         })();
@@ -8171,7 +8165,8 @@ schedulePlaneStyleOverride();
             </div>
           `;
         } else if (sanitizedBaseURL) {
-          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
+          const logoParams = new URLSearchParams({ base_url: sanitizedBaseURL });
+          const agencyLogoUrl = `/v1/transloc/client_logo?${logoParams.toString()}`;
           const safeLogoSrc = escapeAttribute(agencyLogoUrl);
           const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
           const safeLogoAltText = escapeAttribute(logoAltText);
