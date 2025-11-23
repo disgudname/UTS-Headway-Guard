@@ -69,6 +69,9 @@ PULSEPOINT_ENDPOINT = os.getenv(
     "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300",
 )
 PULSEPOINT_PASSPHRASE = os.getenv("PULSEPOINT_PASSPHRASE", "tombrady5rings")
+PULSEPOINT_ICON_BASE = os.getenv(
+    "PULSEPOINT_ICON_BASE", "https://web.pulsepoint.org/images/respond_icons/"
+)
 AMTRAKER_URL = os.getenv("AMTRAKER_URL", "https://api-v3.amtraker.com/v3/trains")
 RIDESYSTEMS_CLIENTS_URL = os.getenv(
     "RIDESYSTEMS_CLIENTS_URL",
@@ -281,6 +284,7 @@ CAT_VEHICLE_TTL_S = int(os.getenv("CAT_VEHICLE_TTL_S", "5"))
 CAT_SERVICE_ALERT_TTL_S = int(os.getenv("CAT_SERVICE_ALERT_TTL_S", "60"))
 CAT_STOP_ETA_TTL_S = int(os.getenv("CAT_STOP_ETA_TTL_S", "30"))
 PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
+PULSEPOINT_ICON_TTL_S = int(os.getenv("PULSEPOINT_ICON_TTL_S", str(24 * 3600)))
 AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
 RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
 ONDEMAND_POSITIONS_TTL_S = int(os.getenv("ONDEMAND_POSITIONS_TTL_S", "5"))
@@ -1371,6 +1375,7 @@ cat_vehicles_cache = TTLCache(CAT_VEHICLE_TTL_S)
 cat_service_alerts_cache = TTLCache(CAT_SERVICE_ALERT_TTL_S)
 cat_stop_etas_cache = PerKeyTTLCache(CAT_STOP_ETA_TTL_S)
 pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
+pulsepoint_icon_cache = PerKeyTTLCache(PULSEPOINT_ICON_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
 ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
 ondemand_positions_cache = TTLCache(ONDEMAND_POSITIONS_TTL_S)
@@ -4922,6 +4927,31 @@ async def _get_pulsepoint_incidents() -> Any:
     return await pulsepoint_cache.get(fetch)
 
 
+async def _proxy_pulsepoint_icon(icon_path: str) -> Response:
+    normalised = icon_path.lstrip("/\\").strip()
+    if not normalised:
+        raise HTTPException(status_code=404, detail="Icon path not found")
+
+    async def fetch():
+        url = f"{PULSEPOINT_ICON_BASE}{normalised}"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=20)
+            record_api_call("GET", str(resp.request.url), resp.status_code)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type") or "application/octet-stream"
+            return {"content": resp.content, "content_type": content_type}
+
+    try:
+        icon = await pulsepoint_icon_cache.get(normalised, fetch)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="PulsePoint icon fetch failed"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="PulsePoint icon fetch failed") from exc
+    return Response(content=icon["content"], media_type=icon["content_type"])
+
+
 def _train_includes_station(train: Dict[str, Any], station: str) -> bool:
     if not station:
         return True
@@ -5017,6 +5047,11 @@ async def _fetch_ridesystems_clients() -> List[Dict[str, str]]:
 
 async def _proxy_pulsepoint_incidents():
     return await _get_pulsepoint_incidents()
+
+
+@app.get("/v1/pulsepoint/respond_icons/{icon_path:path}")
+async def pulsepoint_icon_proxy(icon_path: str):
+    return await _proxy_pulsepoint_icon(icon_path)
 
 
 @app.get("/v1/pulsepoint/incidents")
