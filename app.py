@@ -878,6 +878,7 @@ DEBUG_HTML = _load_html("debug.html")
 REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
+SITEMAP_HTML = _load_html("sitemap.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 BUS_TABLE_HTML = _load_html("buses.html")
 NOT_FOUND_HTML = _load_html("404.html")
@@ -5217,6 +5218,11 @@ async def vehicle_log_file(log_name: str):
 @app.get("/")
 async def landing_page():
     return HTMLResponse(LANDING_HTML)
+
+
+@app.get("/sitemap")
+async def sitemap_page():
+    return HTMLResponse(SITEMAP_HTML)
 
 @app.get("/login")
 async def login_page():
