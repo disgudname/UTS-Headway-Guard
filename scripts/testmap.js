@@ -16846,6 +16846,24 @@ ${trainPlaneMarkup}
           return state.headingDeg;
       }
 
+      function syncMarkerPopupPosition(marker) {
+        if (!marker || typeof marker.getPopup !== 'function') {
+          return;
+        }
+        const popup = marker.getPopup();
+        if (!popup || typeof popup.setLatLng !== 'function' || typeof popup.isOpen !== 'function') {
+          return;
+        }
+        if (!popup.isOpen()) {
+          return;
+        }
+        const markerLatLng = typeof marker.getLatLng === 'function' ? marker.getLatLng() : null;
+        if (!markerLatLng) {
+          return;
+        }
+        popup.setLatLng(markerLatLng);
+      }
+
       function animateMarkerTo(marker, newPosition) {
         if (!marker || !newPosition) return;
         const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
@@ -16855,11 +16873,13 @@ ${trainPlaneMarkup}
         const startPos = marker.getLatLng();
         if (!startPos) {
           marker.setLatLng(endPos);
+          syncMarkerPopupPosition(marker);
           return;
         }
 
         if (lowPerformanceMode || typeof requestAnimationFrame !== 'function') {
           marker.setLatLng(endPos);
+          syncMarkerPopupPosition(marker);
           return;
         }
 
@@ -16869,6 +16889,7 @@ ${trainPlaneMarkup}
 
         if (positionsMatch) {
           marker.setLatLng(endPos);
+          syncMarkerPopupPosition(marker);
           return;
         }
 
@@ -16882,6 +16903,7 @@ ${trainPlaneMarkup}
             startPos.lng + t * (endPos.lng - startPos.lng)
           );
           marker.setLatLng(currentPos);
+          syncMarkerPopupPosition(marker);
           if (t < 1) requestAnimationFrame(animate);
         }
         requestAnimationFrame(animate);
