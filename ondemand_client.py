@@ -5,6 +5,7 @@ import os
 import re
 from html.parser import HTMLParser
 from typing import Optional, List
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -23,16 +24,24 @@ class OnDemandClient:
         self._login_url = login_url
         self._positions_url = positions_url
         if vehicles_url:
-            self._vehicles_url = vehicles_url
+            self._vehicles_url = self._ensure_last_active_param(vehicles_url)
         else:
             base_url = positions_url.rstrip("/")
             if base_url.lower().endswith("/positions"):
                 base_url = base_url[: -len("/positions")]
-            self._vehicles_url = f"{base_url}?show_last_active_at=true"
+            self._vehicles_url = self._ensure_last_active_param(base_url)
         self._user = user
         self._passwd = passwd
         self._client: Optional[httpx.AsyncClient] = None
         self._token: Optional[str] = None
+
+    @staticmethod
+    def _ensure_last_active_param(url: str) -> str:
+        parsed = urlparse(url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["show_last_active_at"] = "true"
+        new_query = urlencode(query)
+        return urlunparse(parsed._replace(query=new_query))
 
     @classmethod
     def from_env(cls) -> "OnDemandClient":
