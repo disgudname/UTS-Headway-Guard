@@ -11,7 +11,6 @@
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
     <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
     <style>
       .custom-popup {
         position: absolute;
@@ -2241,7 +2240,6 @@
       const outOfServiceRouteColor = '#000000';
 
       const PULSEPOINT_ENDPOINT = "/v1/pulsepoint/incidents";
-      const PULSEPOINT_PASSPHRASE = "tombrady5rings";
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;
@@ -2743,7 +2741,7 @@
       }
       incidentsVisibilityPreference = incidentsVisible;
 
-      function fetchPulsePointEncrypted() {
+      function fetchPulsePointData() {
         return fetch(PULSEPOINT_ENDPOINT, {
           method: 'GET',
           mode: 'cors',
@@ -2754,44 +2752,6 @@
           }
           return response.json();
         });
-      }
-
-      function decryptPulsePointPayload(encryptedObj) {
-        if (!encryptedObj) {
-          throw new Error('Missing PulsePoint payload.');
-        }
-        const obj = typeof encryptedObj === 'string' ? JSON.parse(encryptedObj) : encryptedObj;
-        if (!obj || typeof obj !== 'object' || !obj.ct) {
-          throw new Error('PulsePoint payload is malformed.');
-        }
-        const cipherParams = CryptoJS.lib.CipherParams.create({
-          ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
-        });
-        if (obj.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(obj.iv);
-        if (obj.s) cipherParams.salt = CryptoJS.enc.Hex.parse(obj.s);
-        const rawText = CryptoJS.AES.decrypt(cipherParams, PULSEPOINT_PASSPHRASE, {
-          mode: CryptoJS.mode.CBC,
-          padding: CryptoJS.pad.Pkcs7
-        }).toString(CryptoJS.enc.Utf8);
-        if (!rawText) {
-          throw new Error('PulsePoint decryption returned empty payload.');
-        }
-        let parsed = rawText;
-        for (let i = 0; i < 3; i += 1) {
-          if (typeof parsed === 'string') {
-            try {
-              parsed = JSON.parse(parsed);
-              continue;
-            } catch (error) {
-              break;
-            }
-          }
-          break;
-        }
-        if (typeof parsed === 'string') {
-          throw new Error('PulsePoint decrypted payload is not valid JSON.');
-        }
-        return { parsed, rawText };
       }
 
       function looksLikePulsePointIncident(obj) {
@@ -3299,9 +3259,8 @@
       }
 
       async function fetchPulsePointIncidents() {
-        const encrypted = await fetchPulsePointEncrypted();
-        const { parsed } = decryptPulsePointPayload(encrypted);
-        return normalizePulsePointIncidents(parsed);
+        const payload = await fetchPulsePointData();
+        return normalizePulsePointIncidents(payload);
       }
 
       function parseIncidentCoordinate(value) {
