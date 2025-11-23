@@ -1929,21 +1929,23 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
 
         color_map: Dict[str, str] = {}
         driver_name_map: Dict[str, str] = {}
+        last_active_map: Dict[str, str] = {}
         for entry in roster:
             if not isinstance(entry, dict):
                 continue
             vehicle_id = entry.get("vehicle_id")
-            color = entry.get("color")
-            if vehicle_id is None or color is None:
+            if vehicle_id is None:
                 continue
             vehicle_key = str(vehicle_id).strip()
-            color_value = str(color).strip()
-            if not vehicle_key or not color_value:
+            if not vehicle_key:
                 continue
             # Normalise the colour so the frontend can prepend a '#'.
-            normalized_color = color_value.lstrip("#").lower()
-            if normalized_color:
-                color_map[vehicle_key] = normalized_color
+            color = entry.get("color")
+            color_value = str(color).strip() if color is not None else ""
+            if color_value:
+                normalized_color = color_value.lstrip("#").lower()
+                if normalized_color:
+                    color_map[vehicle_key] = normalized_color
             driver_name = (
                 entry.get("driver_name")
                 or entry.get("driverName")
@@ -1956,6 +1958,12 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             )
             if driver_name_value:
                 driver_name_map[vehicle_key] = driver_name_value
+
+            last_active_value = entry.get("last_active_at") or entry.get("lastActiveAt")
+            if isinstance(last_active_value, str):
+                last_active_value = last_active_value.strip()
+            if last_active_value:
+                last_active_map[vehicle_key] = str(last_active_value)
 
         data = await client.get_vehicle_positions()
         if not isinstance(data, list):
@@ -1977,6 +1985,10 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             driver_name = driver_name_map.get(vehicle_key) or extract_driver_name(entry)
             if driver_name:
                 entry["driverName"] = driver_name
+            last_active = last_active_map.get(vehicle_key)
+            if last_active:
+                entry["last_active_at"] = last_active
+                entry.setdefault("lastActiveAt", last_active)
         return data
 
     raw_positions = await ondemand_positions_cache.get(fetch)
@@ -2046,6 +2058,10 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             "markerColor": color,
             "status": entry.get("status") or entry.get("Status"),
         }
+        last_active_at = entry.get("last_active_at") or entry.get("lastActiveAt")
+        if last_active_at:
+            vehicle_payload["last_active_at"] = last_active_at
+            vehicle_payload["lastActiveAt"] = last_active_at
         if "speed" in entry:
             vehicle_payload["speed"] = entry.get("speed")
         if "stale" in entry:
