@@ -1727,6 +1727,11 @@ def build_ondemand_virtual_stops(
         vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
         if not vehicle_id:
             continue
+        call_name_raw = vehicle.get("call_name") or vehicle.get("callName")
+        call_name = (
+            str(call_name_raw).strip() if call_name_raw not in {None, ""} else None
+        )
+
         stops = vehicle.get("stops")
         if not isinstance(stops, list):
             continue
@@ -1793,19 +1798,20 @@ def build_ondemand_virtual_stops(
                 service_id = (
                     str(service_id_raw).strip() if service_id_raw not in {None, ""} else None
                 )
-                records.append(
-                    {
-                        "lat": lat,
-                        "lng": lng,
-                        "address": address,
-                        "stopType": stop_type,
-                        "capacity": capacity,
-                        "serviceId": service_id,
-                        "vehicleId": vehicle_id,
-                        "stopTimestamp": stop_timestamp.isoformat(),
-                        "riders": riders,
-                    }
-                )
+                record = {
+                    "lat": lat,
+                    "lng": lng,
+                    "address": address,
+                    "stopType": stop_type,
+                    "capacity": capacity,
+                    "serviceId": service_id,
+                    "vehicleId": vehicle_id,
+                    "stopTimestamp": stop_timestamp.isoformat(),
+                    "riders": riders,
+                }
+                if call_name:
+                    record["callName"] = call_name
+                records.append(record)
     return records
 
 
