@@ -89,9 +89,36 @@ async function load(){
   const secretRoot=document.getElementById('secrets');
   if(secretRoot){
     secretRoot.innerHTML='';
-    const notice=document.createElement('div');
-    notice.textContent='Environment secrets are hidden for security reasons.';
-    secretRoot.appendChild(notice);
+    try{
+      const secretResp=await fetch('/v1/secrets',{cache:'no-store'});
+      if(!secretResp.ok){
+        throw new Error('Failed to load secrets');
+      }
+      const secretPayload=await secretResp.json();
+      const secrets=Array.isArray(secretPayload?.secrets)?secretPayload.secrets:[];
+      if(!secrets.length){
+        const empty=document.createElement('div');
+        empty.textContent='No environment secrets found.';
+        secretRoot.appendChild(empty);
+        return;
+      }
+      for(const secret of secrets){
+        const container=document.createElement('div');
+        container.className='secret';
+        const name=document.createElement('strong');
+        name.textContent=secret.name;
+        const value=document.createElement('code');
+        value.textContent=secret.value;
+        container.appendChild(name);
+        container.appendChild(value);
+        secretRoot.appendChild(container);
+      }
+    }catch(err){
+      console.error('Failed to load secrets',err);
+      const error=document.createElement('div');
+      error.textContent='Unable to load environment secrets. Please try again.';
+      secretRoot.appendChild(error);
+    }
   }
 }
 async function save(){
