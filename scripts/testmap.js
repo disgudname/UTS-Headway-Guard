@@ -6082,6 +6082,68 @@ schedulePlaneStyleOverride();
         }
       }
 
+      function normalizeOnDemandStopPlan(rawStops) {
+        if (!Array.isArray(rawStops)) {
+          return [];
+        }
+        const normalized = [];
+        for (const stop of rawStops) {
+          if (!stop || typeof stop !== 'object') {
+            continue;
+          }
+          const stopTypeRaw = typeof stop.stopType === 'string' ? stop.stopType : stop.stop_type;
+          const stopType = `${stopTypeRaw ?? ''}`.trim().toLowerCase();
+          if (stopType !== 'pickup' && stopType !== 'dropoff') {
+            continue;
+          }
+          const orderValue = Number(stop.order);
+          const order = Number.isFinite(orderValue) ? orderValue : normalized.length + 1;
+          const address = typeof stop.address === 'string' ? stop.address.trim() : '';
+          const riders = Array.isArray(stop.riders)
+            ? stop.riders
+                .map(rider => (typeof rider === 'string' ? rider : ''))
+                .map(name => name.trim())
+                .filter(Boolean)
+            : [];
+          normalized.push({ order, stopType, address, riders });
+        }
+        normalized.sort((a, b) => a.order - b.order);
+        return normalized;
+      }
+
+      function renderOnDemandStopList(stopPlan) {
+        const stops = normalizeOnDemandStopPlan(stopPlan);
+        if (!stops.length) {
+          return '';
+        }
+        const entries = stops
+          .map(entry => {
+            const orderLabel = Number.isFinite(entry.order) ? `#${entry.order}` : '';
+            const stopTypeLabel = entry.stopType === 'pickup' ? 'Pickup' : 'Dropoff';
+            const addressText = entry.address || 'Stop';
+            const riderNames = entry.riders?.length ? entry.riders.join(', ') : 'Rider';
+            return [
+              '<li class="ondemand-driver-popup__stop">',
+              `<div class="ondemand-driver-popup__stop-order">${escapeHtml(orderLabel)}</div>`,
+              '<div class="ondemand-driver-popup__stop-body">',
+              `<div class="ondemand-driver-popup__stop-type">${escapeHtml(stopTypeLabel)}</div>`,
+              `<div class="ondemand-driver-popup__stop-address">${escapeHtml(addressText)}</div>`,
+              `<div class="ondemand-driver-popup__stop-riders">${escapeHtml(riderNames)}</div>`,
+              '</div>',
+              '</li>'
+            ].join('');
+          })
+          .join('');
+        return [
+          '<div class="ondemand-driver-popup__stops">',
+          '<div class="ondemand-driver-popup__label">Stops</div>',
+          '<ol class="ondemand-driver-popup__stop-list">',
+          entries,
+          '</ol>',
+          '</div>'
+        ].join('');
+      }
+
       async function fetchOnDemandVehicles() {
         if (!shouldPollOnDemandData()) {
           return [];
@@ -6158,14 +6220,45 @@ schedulePlaneStyleOverride();
                       ? vehicle.driver_name
                       : '';
               const driverName = driverNameSource ? driverNameSource.trim() : '';
+              const stopListHtml = renderOnDemandStopList(vehicle.stops);
+              const popupSections = [];
               if (driverName) {
+                popupSections.push(
+                  [
+                    '<div class="ondemand-driver-popup__section">',
+                    '<div class="ondemand-driver-popup__label">Driver</div>',
+                    `<div class="ondemand-driver-popup__value">${escapeHtml(driverName)}</div>`,
+                    '</div>'
+                  ].join('')
+                );
+              }
+              if (stopListHtml) {
+                popupSections.push(stopListHtml);
+              }
+              if (popupSections.length) {
+                const stopPlan = normalizeOnDemandStopPlan(vehicle.stops);
+                const ariaParts = [];
+                if (driverName) {
+                  ariaParts.push(`Driver ${driverName}`);
+                }
+                if (stopPlan.length) {
+                  const stopSummaries = stopPlan.map(entry => {
+                    const riderText = entry.riders?.length ? entry.riders.join(', ') : 'Rider';
+                    const action = entry.stopType === 'pickup' ? 'Pickup' : 'Dropoff';
+                    const addressText = entry.address || 'stop';
+                    return `${action} ${riderText} at ${addressText}`;
+                  });
+                  ariaParts.push(`Stops: ${stopSummaries.join('; ')}`);
+                }
                 state.driverPopupContent = [
                   '<div class="ondemand-driver-popup__content">',
-                  '<div class="ondemand-driver-popup__label">Driver</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(driverName)}</div>`,
+                  popupSections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>'),
                   '</div>'
                 ].join('');
-                state.driverPopupAriaLabel = `Driver ${driverName}`;
+                const ariaLabel = ariaParts.join('. ').trim();
+                if (ariaLabel) {
+                  state.driverPopupAriaLabel = ariaLabel;
+                }
               } else {
                 delete state.driverPopupContent;
                 delete state.driverPopupAriaLabel;
