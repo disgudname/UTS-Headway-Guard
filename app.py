@@ -2052,6 +2052,8 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
             vehicle_payload["stale"] = bool(entry.get("stale"))
         if "enabled" in entry:
             vehicle_payload["enabled"] = entry.get("enabled")
+        if "eligible" in entry:
+            vehicle_payload["eligible"] = entry.get("eligible")
         call_name = entry.get("call_name") or entry.get("callName")
         if call_name:
             vehicle_payload["callName"] = call_name
