@@ -243,3 +243,39 @@ def test_positions_passes_through_eligibility_flag():
         finally:
             app.state.ondemand_client = original_client
             _reset_ondemand_cache()
+
+
+def test_positions_include_last_active_timestamp_from_roster():
+    with dispatch_passwords(dispatch="dispatch-secret"):
+        client = TestClient(app)
+        original_client = getattr(app.state, "ondemand_client", None)
+        dummy = DummyOnDemandClient(
+            roster=[
+                {
+                    "vehicle_id": "abc",
+                    "color": "336699",
+                    "last_active_at": "2024-06-01T12:34:56Z",
+                }
+            ],
+            positions=[
+                {
+                    "vehicle_id": "abc",
+                    "position": {"latitude": 38.03, "longitude": -78.51},
+                }
+            ],
+        )
+        try:
+            app.state.ondemand_client = dummy
+            _reset_ondemand_cache()
+
+            login = client.post("/api/dispatcher/auth", json={"password": "dispatch-secret"})
+            assert login.status_code == 200
+
+            response = client.get("/api/ondemand")
+            assert response.status_code == 200
+            vehicles = response.json().get("vehicles")
+            assert vehicles and vehicles[0].get("last_active_at") == "2024-06-01T12:34:56Z"
+            assert vehicles[0].get("lastActiveAt") == "2024-06-01T12:34:56Z"
+        finally:
+            app.state.ondemand_client = original_client
+            _reset_ondemand_cache()
