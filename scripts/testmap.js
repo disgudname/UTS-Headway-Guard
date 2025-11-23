@@ -3376,7 +3376,7 @@ schedulePlaneStyleOverride();
 
       const INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS = 150;
       const INCIDENT_TIME_ZONE = 'America/New_York';
-      const INCIDENT_LIST_ICON_BASE_URL = 'https://web.pulsepoint.org/images/respond_icons/';
+      const INCIDENT_LIST_ICON_BASE_URL = '/v1/pulsepoint/respond_icons/';
       const INCIDENT_TYPE_LABELS = Object.freeze({
         AED: 'AED Alarm',
         AC: 'Aircraft Crash',
@@ -3567,7 +3567,7 @@ schedulePlaneStyleOverride();
       let demoIncidentEntry = null;
       let demoIncidentPreviousVisibility = null;
       const DEMO_INCIDENT_STATIC_ROW = Object.freeze({
-        Marker: 'https://web.pulsepoint.org/images/respond_icons/me_map_active.png',
+        Marker: `${INCIDENT_LIST_ICON_BASE_URL}me_map_active.png`,
         Category: 'active',
         ID: '2296541797',
         Type: 'ME',
@@ -3668,7 +3668,7 @@ schedulePlaneStyleOverride();
       function buildPulsePointMarkerUrl(type, category) {
         const categoryLower = (category || '').toLowerCase();
         if (!type || (categoryLower !== 'active' && categoryLower !== 'recent')) return '';
-        return `https://web.pulsepoint.org/images/respond_icons/${type.toLowerCase()}_map_${categoryLower}.png`;
+        return `${INCIDENT_LIST_ICON_BASE_URL}${type.toLowerCase()}_map_${categoryLower}.png`;
       }
 
       function pulsePointMarkerAltText(type, category, fallback) {

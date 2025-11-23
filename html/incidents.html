@@ -62,6 +62,7 @@
 (async function () {
   const ENDPOINT = "/v1/pulsepoint/incidents";
   const PASSPHRASE = "tombrady5rings";
+  const INCIDENT_LIST_ICON_BASE_URL = '/v1/pulsepoint/respond_icons/';
 
   const $status   = document.getElementById("status");
   const $tbody    = document.querySelector("#grid tbody");
@@ -253,7 +254,7 @@ function decryptPayload(encryptedObj) {
   function buildMarkerUrl(type, category) {
     const cat = (category || "").toLowerCase();
     if (!type || (cat !== "active" && cat !== "recent")) return "";
-    return `https://web.pulsepoint.org/images/respond_icons/${type.toLowerCase()}_map_${cat}.png`;
+    return `${INCIDENT_LIST_ICON_BASE_URL}${type.toLowerCase()}_map_${cat}.png`;
   }
 
   function markerAltText(type, category, fallback) {
