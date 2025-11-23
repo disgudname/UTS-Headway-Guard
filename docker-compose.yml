@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  web:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DATA_DIRS=/data
+      - MIMIC3_BASE_URL=http://mimic3:59125
+      - MIMIC3_DEFAULT_VOICE=en_UK/apope_low#default
+    volumes:
+      - ./data:/data
+    depends_on:
+      - mimic3
+
+  mimic3:
+    image: mycroftai/mimic3:latest
+    ports:
+      - "59125:59125"
+    volumes:
+      - ./mimic3-voices:/home/mimic3/.local/share/mycroft/mimic3
+    restart: unless-stopped

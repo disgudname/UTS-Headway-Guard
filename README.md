@@ -76,6 +76,36 @@ scripts/acceptance.sh
    ```
 3. Open the role-specific pages (e.g. `/driver`, `/dispatcher`, `/servicecrew`, `/map`) at <http://localhost:8080>.
 
+## Text-to-Speech (Mimic 3)
+The FastAPI backend can call a local Mimic 3 sidecar to synthesize audio and serve cached WAV files to the frontend.
+
+- Start both services locally:
+  ```bash
+  docker compose up
+  ```
+- Key environment variables:
+  - `MIMIC3_BASE_URL` (default `http://mimic3:59125`)
+  - `MIMIC3_DEFAULT_VOICE` (default `en_UK/apope_low#default`)
+  - `MIMIC3_TIMEOUT_S` (default `10`)
+  - `MIMIC3_MAX_CONCURRENT` (default `2`)
+
+### Calling the API
+Default voice:
+```bash
+curl -X POST http://localhost:8080/api/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Test message from UTS dispatcher."}'
+```
+
+Explicit voice:
+```bash
+curl -X POST http://localhost:8080/api/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Bus 12132 approaching Copeley.", "voice": "en_US/vctk_low#p303"}'
+```
+
+Responses include a deterministic URL like `/api/tts/audio/<id>.wav` that can be used directly in an `<audio>` element.
+
 ## Deployment notes
 - The provided `Dockerfile` builds a minimal Python image, creates a non-root user, installs dependencies, and launches Uvicorn via `start.sh`.
 - `fly.toml` demonstrates a Fly.io deployment that mounts persistent storage at `/data` for configuration, mileage, and vehicle logs.
