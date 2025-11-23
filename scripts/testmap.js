@@ -6247,6 +6247,30 @@ schedulePlaneStyleOverride();
         ].join('');
       }
 
+      function parseOnDemandLastActiveTimestamp(value) {
+        if (typeof value !== 'string') {
+          return null;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return null;
+        }
+        const normalized = trimmed.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+        const timestampMs = Date.parse(normalized);
+        return Number.isFinite(timestampMs) ? timestampMs : null;
+      }
+
+      function computeMinutesSinceTimestamp(timestampMs) {
+        if (!Number.isFinite(timestampMs)) {
+          return null;
+        }
+        const diffMs = Date.now() - timestampMs;
+        if (!Number.isFinite(diffMs) || diffMs < 0) {
+          return null;
+        }
+        return Math.floor(diffMs / 60000);
+      }
+
       async function fetchOnDemandVehicles() {
         if (!shouldPollOnDemandData()) {
           return [];
@@ -6323,8 +6347,30 @@ schedulePlaneStyleOverride();
                       ? vehicle.driver_name
                       : '';
               const driverName = driverNameSource ? driverNameSource.trim() : '';
+              const lastActiveRaw =
+                typeof vehicle.last_active_at === 'string'
+                  ? vehicle.last_active_at
+                  : typeof vehicle.lastActiveAt === 'string'
+                    ? vehicle.lastActiveAt
+                    : '';
+              const lastActiveTimestamp = parseOnDemandLastActiveTimestamp(lastActiveRaw);
+              const pausedMinutes =
+                vehicle.eligible === false && !isStale
+                  ? computeMinutesSinceTimestamp(lastActiveTimestamp)
+                  : null;
               const stopListHtml = renderOnDemandStopList(vehicle.stops);
               const popupSections = [];
+              if (Number.isFinite(pausedMinutes)) {
+                const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
+                popupSections.push(
+                  [
+                    '<div class="ondemand-driver-popup__section">',
+                    '<div class="ondemand-driver-popup__label">Status</div>',
+                    `<div class="ondemand-driver-popup__value">Paused for ${pausedMinutes} ${minutesLabel}</div>`,
+                    '</div>'
+                  ].join('')
+                );
+              }
               if (driverName) {
                 popupSections.push(
                   [
@@ -6341,6 +6387,10 @@ schedulePlaneStyleOverride();
               if (popupSections.length) {
                 const stopPlan = normalizeOnDemandStopPlan(vehicle.stops);
                 const ariaParts = [];
+                if (Number.isFinite(pausedMinutes)) {
+                  const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
+                  ariaParts.push(`Paused for ${pausedMinutes} ${minutesLabel}`);
+                }
                 if (driverName) {
                   ariaParts.push(`Driver ${driverName}`);
                 }
