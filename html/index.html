@@ -8,6 +8,27 @@
 <meta charset="utf-8" />
 <title>UTS Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<script>
+(function () {
+  const currentHost = window.location.hostname;
+  const oldHosts = [
+    'uts-headway-guard.fly.dev',
+    'uts-headway-guard.fly.io'
+  ];
+
+  if (oldHosts.includes(currentHost)) {
+    const newUrl =
+      window.location.protocol +
+      '//' +
+      'utsopsdashboard.com' +
+      window.location.pathname +
+      window.location.search +
+      window.location.hash;
+
+    window.location.replace(newUrl);
+  }
+})();
+</script>
 <link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
 <style>
   @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
