@@ -2819,6 +2819,7 @@ schedulePlaneStyleOverride();
       let onDemandPollingPausedForVisibility = false;
       let onDemandFetchPromise = null;
       const onDemandVehicleColorMap = new Map();
+      const onDemandVehicleNameMap = new Map();
       let onDemandStopDataCache = [];
       const onDemandStopMarkerCache = new Map();
       let onDemandStopMarkers = [];
@@ -5462,6 +5463,7 @@ schedulePlaneStyleOverride();
 
       function updateOnDemandVehicleColorMap(vehicles) {
         onDemandVehicleColorMap.clear();
+        onDemandVehicleNameMap.clear();
         if (!Array.isArray(vehicles)) {
           return;
         }
@@ -5476,7 +5478,19 @@ schedulePlaneStyleOverride();
           }
           const color = sanitizeCssColor(vehicle.markerColor) || ONDEMAND_MARKER_DEFAULT_COLOR;
           onDemandVehicleColorMap.set(vehicleId, color);
+          const displayName = extractOnDemandDisplayName(vehicle.callName);
+          if (displayName) {
+            onDemandVehicleNameMap.set(vehicleId, displayName);
+          }
         });
+      }
+
+      function getOnDemandVehicleCallName(vehicleId) {
+        const normalized = typeof vehicleId === 'string' ? vehicleId.trim() : `${vehicleId || ''}`.trim();
+        if (!normalized) {
+          return '';
+        }
+        return onDemandVehicleNameMap.get(normalized) || '';
       }
 
       function getOnDemandVehicleColor(vehicleId) {
@@ -5690,7 +5704,7 @@ schedulePlaneStyleOverride();
           const rawCallName = typeof stop.callName === 'string'
             ? stop.callName
             : (typeof stop.call_name === 'string' ? stop.call_name : '');
-          const callName = rawCallName.trim();
+          const callName = extractOnDemandDisplayName(rawCallName) || getOnDemandVehicleCallName(vehicleId);
           const serviceIdRaw = stop.serviceId ?? stop.serviceID;
           const serviceIdText = typeof serviceIdRaw === 'string'
             ? serviceIdRaw.trim()
@@ -5773,6 +5787,7 @@ schedulePlaneStyleOverride();
             if (!vehicleId) {
               return;
             }
+            const callName = extractOnDemandDisplayName(details.callName) || getOnDemandVehicleCallName(vehicleId);
             let segment = segmentsByVehicle.get(vehicleId);
             if (!segment) {
               const routeId = details.routeId || `${ONDEMAND_STOP_ROUTE_PREFIX}${vehicleId}`;
@@ -5782,11 +5797,15 @@ schedulePlaneStyleOverride();
                 totalCapacity: 0,
                 pickupCount: 0,
                 dropoffCount: 0,
+                callNames: new Set(),
                 serviceIds: new Set(),
                 addresses: new Set(),
                 latestTimestamp: 0
               };
               segmentsByVehicle.set(vehicleId, segment);
+            }
+            if (callName) {
+              segment.callNames.add(callName);
             }
             const capacityRaw = Number(details.capacity);
             const safeCapacity = Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : 1;
@@ -5821,6 +5840,9 @@ schedulePlaneStyleOverride();
           totalCapacity: segment.totalCapacity,
           pickupCount: segment.pickupCount,
           dropoffCount: segment.dropoffCount,
+          callName: segment.callNames.size > 0
+            ? Array.from(segment.callNames)[0]
+            : getOnDemandVehicleCallName(segment.vehicleId),
           color: sanitizeCssColor(getOnDemandVehicleColor(segment.vehicleId)) || ONDEMAND_MARKER_DEFAULT_COLOR,
           serviceIds: Array.from(segment.serviceIds).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
           latestTimestamp: segment.latestTimestamp
@@ -5913,7 +5935,7 @@ schedulePlaneStyleOverride();
           }
           const color = sanitizeCssColor(segment.color) || ONDEMAND_MARKER_DEFAULT_COLOR;
           const swatch = `<span class="ondemand-stop-tooltip__swatch" style="background-color:${color};"></span>`;
-          const vehicleLabel = `Vehicle ${segment.vehicleId}`;
+          const vehicleLabel = segment.callName || 'OnDemand van';
           const pickupText = segment.pickupCount === 1 ? '1 pickup' : `${segment.pickupCount} pickups`;
           const dropoffText = segment.dropoffCount === 1 ? '1 dropoff' : `${segment.dropoffCount} dropoffs`;
           const counts = segment.dropoffCount > 0 ? `${pickupText}, ${dropoffText}` : pickupText;
