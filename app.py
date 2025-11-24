@@ -297,6 +297,9 @@ ONDEMAND_RIDES_LOOKBACK_MIN = int(
 ONDEMAND_RIDES_LOOKAHEAD_MIN = int(
     os.getenv("ONDEMAND_RIDES_LOOKAHEAD_MIN", str(2 * 60))
 )
+ONDEMAND_RIDES_WINDOW_PADDING_MIN = int(
+    os.getenv("ONDEMAND_RIDES_WINDOW_PADDING_MIN", "30")
+)
 ONDEMAND_VIRTUAL_STOP_MAX_AGE_S = int(os.getenv("ONDEMAND_VIRTUAL_STOP_MAX_AGE_S", str(10 * 60)))
 ONDEMAND_DEFAULT_MARKER_COLOR = (os.getenv("ONDEMAND_DEFAULT_MARKER_COLOR") or "#ec4899").strip() or "#ec4899"
 if not ONDEMAND_DEFAULT_MARKER_COLOR.startswith("#"):
@@ -1744,19 +1747,58 @@ def _format_ondemand_timestamp(value: datetime) -> str:
     return iso
 
 
-async def fetch_ondemand_rides(client: OnDemandClient) -> Set[str]:
+def _extract_schedule_time_bounds(
+    schedules: Optional[Sequence[Dict[str, Any]]],
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    earliest: Optional[datetime] = None
+    latest: Optional[datetime] = None
+
+    if not schedules:
+        return (None, None)
+
+    for vehicle in schedules:
+        if not isinstance(vehicle, dict):
+            continue
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+        for stop in stops:
+            if not isinstance(stop, dict):
+                continue
+            ts = _parse_timestamp(stop.get("timestamp") or stop.get("time"))
+            if ts is None:
+                continue
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            else:
+                ts = ts.astimezone(timezone.utc)
+            if earliest is None or ts < earliest:
+                earliest = ts
+            if latest is None or ts > latest:
+                latest = ts
+
+    return (earliest, latest)
+
+
+async def fetch_ondemand_rides(
+    client: OnDemandClient, schedules: Optional[Sequence[Dict[str, Any]]] = None
+) -> Set[str]:
     if not ONDEMAND_RIDES_URL:
         return set()
 
     async def fetch() -> Set[str]:
         now = datetime.now(timezone.utc)
+        schedule_start, schedule_end = _extract_schedule_time_bounds(schedules)
+        padding = timedelta(minutes=max(0, ONDEMAND_RIDES_WINDOW_PADDING_MIN))
+        start_dt = schedule_start - padding if schedule_start else now - timedelta(
+            minutes=max(1, ONDEMAND_RIDES_LOOKBACK_MIN)
+        )
+        end_dt = schedule_end + padding if schedule_end else now + timedelta(
+            minutes=max(1, ONDEMAND_RIDES_LOOKAHEAD_MIN)
+        )
         params = {
-            "start_time": _format_ondemand_timestamp(
-                now - timedelta(minutes=max(1, ONDEMAND_RIDES_LOOKBACK_MIN))
-            ),
-            "end_time": _format_ondemand_timestamp(
-                now + timedelta(minutes=max(1, ONDEMAND_RIDES_LOOKAHEAD_MIN))
-            ),
+            "start_time": _format_ondemand_timestamp(start_dt),
+            "end_time": _format_ondemand_timestamp(end_dt),
             "include_histories": "true",
         }
 
@@ -1790,6 +1832,30 @@ async def fetch_ondemand_rides(client: OnDemandClient) -> Set[str]:
         else:
             data = []
 
+        schedule_ride_ids: Set[str] = set()
+        if schedules:
+            for vehicle in schedules:
+                if not isinstance(vehicle, dict):
+                    continue
+                stops = vehicle.get("stops")
+                if not isinstance(stops, list):
+                    continue
+                for stop in stops:
+                    rides = stop.get("rides") if isinstance(stop, dict) else None
+                    if not isinstance(rides, list):
+                        continue
+                    for ride in rides:
+                        if not isinstance(ride, dict):
+                            continue
+                        ride_id_value = (
+                            ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                        )
+                        if ride_id_value is None:
+                            continue
+                        ride_id_text = str(ride_id_value).strip()
+                        if ride_id_text:
+                            schedule_ride_ids.add(ride_id_text.lower())
+
         pending: Set[str] = set()
         for ride in data:
             if not isinstance(ride, dict):
@@ -1804,8 +1870,12 @@ async def fetch_ondemand_rides(client: OnDemandClient) -> Set[str]:
             if ride_id is None:
                 continue
             ride_id_str = str(ride_id).strip()
-            if ride_id_str:
-                pending.add(ride_id_str.lower())
+            if not ride_id_str:
+                continue
+            ride_id_key = ride_id_str.lower()
+            if schedule_ride_ids and ride_id_key not in schedule_ride_ids:
+                continue
+            pending.add(ride_id_key)
         return pending
 
     return await ondemand_rides_cache.get(fetch)
@@ -2143,7 +2213,7 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     except Exception as exc:
         print(f"[ondemand] schedules processing failed: {exc}")
     try:
-        pending_ride_ids = await fetch_ondemand_rides(client)
+        pending_ride_ids = await fetch_ondemand_rides(client, schedules)
     except Exception as exc:
         print(f"[ondemand] rides processing failed: {exc}")
 
