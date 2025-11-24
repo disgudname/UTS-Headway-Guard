@@ -46,7 +46,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from pathlib import Path
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from tickets_store import TicketStore
 from ondemand_client import OnDemandClient
@@ -289,6 +289,14 @@ AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
 RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
 ONDEMAND_POSITIONS_TTL_S = int(os.getenv("ONDEMAND_POSITIONS_TTL_S", "5"))
 ONDEMAND_SCHEDULES_URL = (os.getenv("ONDEMAND_SCHEDULES_URL") or "").strip()
+ONDEMAND_RIDES_URL = (os.getenv("ONDEMAND_RIDES_URL") or "").strip()
+ONDEMAND_RIDES_TTL_S = int(os.getenv("ONDEMAND_RIDES_TTL_S", "30"))
+ONDEMAND_RIDES_LOOKBACK_MIN = int(
+    os.getenv("ONDEMAND_RIDES_LOOKBACK_MIN", str(8 * 60))
+)
+ONDEMAND_RIDES_LOOKAHEAD_MIN = int(
+    os.getenv("ONDEMAND_RIDES_LOOKAHEAD_MIN", str(2 * 60))
+)
 ONDEMAND_VIRTUAL_STOP_MAX_AGE_S = int(os.getenv("ONDEMAND_VIRTUAL_STOP_MAX_AGE_S", str(10 * 60)))
 ONDEMAND_DEFAULT_MARKER_COLOR = (os.getenv("ONDEMAND_DEFAULT_MARKER_COLOR") or "#ec4899").strip() or "#ec4899"
 if not ONDEMAND_DEFAULT_MARKER_COLOR.startswith("#"):
@@ -1379,6 +1387,7 @@ pulsepoint_icon_cache = PerKeyTTLCache(PULSEPOINT_ICON_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
 ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
 ondemand_positions_cache = TTLCache(ONDEMAND_POSITIONS_TTL_S)
+ondemand_rides_cache = TTLCache(ONDEMAND_RIDES_TTL_S)
 ondemand_schedules_cache_state: Dict[str, Any] = {"etag": None, "data": None}
 ondemand_schedules_cache_lock = asyncio.Lock()
 w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
@@ -1728,14 +1737,93 @@ async def fetch_ondemand_schedules(client: OnDemandClient) -> List[Dict[str, Any
     return data
 
 
+def _format_ondemand_timestamp(value: datetime) -> str:
+    iso = value.astimezone(timezone.utc).isoformat(timespec="milliseconds")
+    if iso.endswith("+00:00"):
+        return f"{iso[:-6]}Z"
+    return iso
+
+
+async def fetch_ondemand_rides(client: OnDemandClient) -> Set[str]:
+    if not ONDEMAND_RIDES_URL:
+        return set()
+
+    async def fetch() -> Set[str]:
+        now = datetime.now(timezone.utc)
+        params = {
+            "start_time": _format_ondemand_timestamp(
+                now - timedelta(minutes=max(1, ONDEMAND_RIDES_LOOKBACK_MIN))
+            ),
+            "end_time": _format_ondemand_timestamp(
+                now + timedelta(minutes=max(1, ONDEMAND_RIDES_LOOKAHEAD_MIN))
+            ),
+            "include_histories": "true",
+        }
+
+        parsed = urlparse(ONDEMAND_RIDES_URL)
+        merged_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        merged_params.update(params)
+        url = urlunparse(parsed._replace(query=urlencode(merged_params)))
+
+        try:
+            response = await client.get_resource(url)
+        except Exception as exc:
+            print(f"[ondemand] rides fetch failed: {exc}")
+            return set()
+
+        if response.status_code >= 400:
+            print(f"[ondemand] rides fetch error: {response.status_code}")
+            return set()
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            print(f"[ondemand] rides decode failed: {exc}")
+            return set()
+
+        data: Sequence[Any]
+        if isinstance(payload, list):
+            data = payload
+        elif isinstance(payload, dict):
+            candidate = payload.get("data")
+            data = candidate if isinstance(candidate, list) else []
+        else:
+            data = []
+
+        pending: Set[str] = set()
+        for ride in data:
+            if not isinstance(ride, dict):
+                continue
+            status_val = ride.get("status")
+            status_normalized = (
+                str(status_val).strip().lower() if status_val not in {None, ""} else ""
+            )
+            if status_normalized != "pending":
+                continue
+            ride_id = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+            if ride_id is None:
+                continue
+            ride_id_str = str(ride_id).strip()
+            if ride_id_str:
+                pending.add(ride_id_str.lower())
+        return pending
+
+    return await ondemand_rides_cache.get(fetch)
+
+
 def build_ondemand_virtual_stops(
-    schedules: Sequence[Dict[str, Any]], now: datetime
+    schedules: Sequence[Dict[str, Any]],
+    now: datetime,
+    pending_ride_ids: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
     if not schedules:
         return []
 
     cutoff = now - timedelta(seconds=max(0, ONDEMAND_VIRTUAL_STOP_MAX_AGE_S))
     records: List[Dict[str, Any]] = []
+    pending_lookup: Set[str] = set()
+    if pending_ride_ids:
+        pending_lookup = {ride_id.lower() for ride_id in pending_ride_ids if ride_id}
 
     for vehicle in schedules:
         if not isinstance(vehicle, dict):
@@ -1787,6 +1875,12 @@ def build_ondemand_virtual_stops(
             address = str(address_value).strip()
             for ride in rides:
                 if not isinstance(ride, dict):
+                    continue
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id_normalized = (
+                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
+                )
+                if ride_id_normalized and ride_id_normalized in pending_lookup:
                     continue
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
@@ -1854,9 +1948,13 @@ def _format_rider_name(rider: Any) -> Optional[str]:
 
 
 def build_ondemand_vehicle_stop_plans(
-    schedules: Sequence[Dict[str, Any]]
+    schedules: Sequence[Dict[str, Any]],
+    pending_ride_ids: Optional[Set[str]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     plans: Dict[str, List[Dict[str, Any]]] = {}
+    pending_lookup: Set[str] = set()
+    if pending_ride_ids:
+        pending_lookup = {ride_id.lower() for ride_id in pending_ride_ids if ride_id}
     for vehicle in schedules:
         if not isinstance(vehicle, dict):
             continue
@@ -1880,6 +1978,12 @@ def build_ondemand_vehicle_stop_plans(
             grouped: Dict[str, List[str]] = {}
             for ride in rides:
                 if not isinstance(ride, dict):
+                    continue
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id_normalized = (
+                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
+                )
+                if ride_id_normalized and ride_id_normalized in pending_lookup:
                     continue
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
@@ -2017,12 +2121,17 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     raw_positions = await ondemand_positions_cache.get(fetch)
 
     schedules: List[Dict[str, Any]] = []
+    pending_ride_ids: Set[str] = set()
     try:
         schedules = await fetch_ondemand_schedules(client)
     except Exception as exc:
         print(f"[ondemand] schedules processing failed: {exc}")
+    try:
+        pending_ride_ids = await fetch_ondemand_rides(client)
+    except Exception as exc:
+        print(f"[ondemand] rides processing failed: {exc}")
 
-    stop_plans = build_ondemand_vehicle_stop_plans(schedules)
+    stop_plans = build_ondemand_vehicle_stop_plans(schedules, pending_ride_ids)
 
     vehicles: List[Dict[str, Any]] = []
     positions_list = raw_positions if isinstance(raw_positions, list) else []
@@ -2113,7 +2222,7 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
         vehicles.append(vehicle_payload)
 
     ondemand_stops = build_ondemand_virtual_stops(
-        schedules, datetime.now(timezone.utc)
+        schedules, datetime.now(timezone.utc), pending_ride_ids
     )
 
     return {"vehicles": vehicles, "ondemandStops": ondemand_stops}
