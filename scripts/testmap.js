@@ -6390,17 +6390,6 @@ schedulePlaneStyleOverride();
                   : null;
               const stopListHtml = renderOnDemandStopList(vehicle.stops);
               const popupSections = [];
-              if (Number.isFinite(pausedMinutes)) {
-                const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
-                popupSections.push(
-                  [
-                    '<div class="ondemand-driver-popup__section">',
-                    '<div class="ondemand-driver-popup__label">Status</div>',
-                    `<div class="ondemand-driver-popup__value">Paused for ${pausedMinutes} ${minutesLabel}</div>`,
-                    '</div>'
-                  ].join('')
-                );
-              }
               if (vehicleCallName) {
                 popupSections.push(
                   [
@@ -6417,6 +6406,17 @@ schedulePlaneStyleOverride();
                     '<div class="ondemand-driver-popup__section">',
                     '<div class="ondemand-driver-popup__label">Driver</div>',
                     `<div class="ondemand-driver-popup__value">${escapeHtml(driverName)}</div>`,
+                    '</div>'
+                  ].join('')
+                );
+              }
+              if (Number.isFinite(pausedMinutes)) {
+                const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
+                popupSections.push(
+                  [
+                    '<div class="ondemand-driver-popup__section">',
+                    '<div class="ondemand-driver-popup__label">Status</div>',
+                    `<div class="ondemand-driver-popup__value">Paused for ${pausedMinutes} ${minutesLabel}</div>`,
                     '</div>'
                   ].join('')
                 );
