@@ -16692,12 +16692,6 @@ ${trainPlaneMarkup}
           if (typeof marker.off === 'function') {
               marker.off();
           }
-          if (hadOpenPopup && typeof marker.closePopup === 'function') {
-              marker.closePopup();
-          }
-          if (typeof marker.unbindPopup === 'function') {
-              marker.unbindPopup();
-          }
           if (marker.options) {
               marker.options.interactive = false;
               marker.options.keyboard = false;
@@ -16741,6 +16735,12 @@ ${trainPlaneMarkup}
           }
           const driverPopupHtml = state.driverPopupContent;
           if (!driverPopupHtml) {
+              if (hadOpenPopup && typeof marker.closePopup === 'function') {
+                  marker.closePopup();
+              }
+              if (typeof marker.unbindPopup === 'function') {
+                  marker.unbindPopup();
+              }
               state.markerEventsBound = false;
               return;
           }
@@ -16769,16 +16769,28 @@ ${trainPlaneMarkup}
           if (svg) {
               svg.style.pointerEvents = 'auto';
           }
-          if (typeof marker.bindPopup === 'function') {
-              marker.bindPopup(driverPopupHtml, {
-                  className: 'ondemand-driver-popup',
-                  closeButton: false,
-                  autoClose: true,
-                  autoPan: false,
-                  offset: [0, -20],
-              });
+          const popupOptions = {
+              className: 'ondemand-driver-popup',
+              closeButton: false,
+              autoClose: true,
+              autoPan: false,
+              offset: [0, -20],
+          };
+
+          if (existingPopup) {
+              const existingContent = typeof existingPopup.getContent === 'function'
+                  ? existingPopup.getContent()
+                  : null;
+              if (typeof existingPopup.setContent === 'function' && existingContent !== driverPopupHtml) {
+                  existingPopup.setContent(driverPopupHtml);
+              }
+              existingPopup.options = Object.assign(existingPopup.options || {}, popupOptions);
+          } else if (typeof marker.bindPopup === 'function') {
+              marker.bindPopup(driverPopupHtml, popupOptions);
           }
-          if (hadOpenPopup && typeof marker.openPopup === 'function') {
+          if (hadOpenPopup && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
+              syncMarkerPopupPosition(marker);
+          } else if (hadOpenPopup && typeof marker.openPopup === 'function') {
               marker.openPopup();
               syncMarkerPopupPosition(marker);
           }
