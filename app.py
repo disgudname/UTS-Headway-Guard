@@ -1876,6 +1876,14 @@ def build_ondemand_virtual_stops(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
+                status_val = ride.get("status")
+                status_normalized = (
+                    str(status_val).strip().lower()
+                    if status_val not in {None, ""}
+                    else ""
+                )
+                if status_normalized.startswith("pending"):
+                    continue
                 ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
                 ride_id_normalized = (
                     str(ride_id_val).strip().lower() if ride_id_val is not None else ""
@@ -1978,6 +1986,14 @@ def build_ondemand_vehicle_stop_plans(
             grouped: Dict[str, List[str]] = {}
             for ride in rides:
                 if not isinstance(ride, dict):
+                    continue
+                status_val = ride.get("status")
+                status_normalized = (
+                    str(status_val).strip().lower()
+                    if status_val not in {None, ""}
+                    else ""
+                )
+                if status_normalized.startswith("pending"):
                     continue
                 ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
                 ride_id_normalized = (
