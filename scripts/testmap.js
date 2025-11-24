@@ -10707,7 +10707,7 @@ ${trainPlaneMarkup}
           return 'Scheduled';
       }
 
-      function buildStopEntriesSectionHtml(stopEntries, multipleStops) {
+      function buildStopEntriesSectionHtml(stopEntries, multipleStops, hideStopIds = false) {
           if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
               return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
           }
@@ -10719,7 +10719,7 @@ ${trainPlaneMarkup}
 
           return stopEntries.map(entry => {
               const entryTitle = entry.displayName ? `<span class="stop-entry-title">${sanitizeStopName(entry.displayName)}</span>` : '';
-              const entryIdLine = entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
+              const entryIdLine = !hideStopIds && entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
               const entryAddressIdText = normalizeIdentifier(entry?.addressId);
               const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Stop ID: ${entryAddressIdText}</span>` : '';
               const tableHtml = buildEtaTableHtml(entry.routeStopIds || [], entry.catStopIds || [], entry.stopIds || []);
@@ -10803,7 +10803,7 @@ ${trainPlaneMarkup}
           const sections = [];
           vehicleMap.forEach(record => {
               const vehicleCallName = record.callNames.size > 0 ? Array.from(record.callNames)[0] : '';
-              const vehicleLabel = vehicleCallName || `Van ${record.vehicleId}`;
+              const vehicleLabel = vehicleCallName || 'OnDemand van';
               const addressText = record.addresses.size === 1 ? Array.from(record.addresses)[0] : '';
               const pickupText = formatEntries(record.pickups);
               const dropoffText = formatEntries(record.dropoffs);
@@ -10879,7 +10879,7 @@ ${trainPlaneMarkup}
               const stopIds = Array.isArray(entry?.stopIds) ? entry.stopIds : [];
               return routeStopIds.length > 0 || catStopIds.length > 0 || stopIds.length > 0;
           });
-          const entriesHtml = hasEtaContent ? buildStopEntriesSectionHtml(stopEntries, multipleStops) : '';
+          const entriesHtml = hasEtaContent ? buildStopEntriesSectionHtml(stopEntries, multipleStops, isOnDemandStop) : '';
           const onDemandHtml = buildOnDemandStopDetailsHtml(stopEntries);
           const detailsHtml = [entriesHtml, onDemandHtml].filter(Boolean).join('')
               || '<div style="margin-top: 10px;">No stop details</div>';
@@ -10900,7 +10900,7 @@ ${trainPlaneMarkup}
               ? `<span class="stop-entry-title">${sanitizedStopName}</span><br>`
               : '';
           const addressIdLine = primaryAddressIdText ? `<span class="stop-entry-id">Address ID: ${primaryAddressIdText}</span><br>` : '';
-          const stopIdLine = primaryStopIdText ? `<span class="stop-entry-id">Stop ID: ${primaryStopIdText}</span><br>` : '';
+          const stopIdLine = !isOnDemandStop && primaryStopIdText ? `<span class="stop-entry-id">Stop ID: ${primaryStopIdText}</span><br>` : '';
 
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
