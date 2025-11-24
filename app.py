@@ -50,6 +50,7 @@ from urllib.parse import quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from tickets_store import TicketStore
 from ondemand_client import OnDemandClient
+from osm_router import LocalOSMRouter
 
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
@@ -859,6 +860,18 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # App & state
 # ---------------------------
 app = FastAPI(title="UTS Operations Dashboard")
+
+
+@app.on_event("startup")
+async def init_local_router() -> None:
+    """Prepare the cached OSMnx drive graph for local routing."""
+
+    router = LocalOSMRouter()
+    app.state.local_router = router
+    try:
+        await asyncio.to_thread(router.ensure_graph)
+    except Exception as exc:
+        print(f"[local_router] unable to prepare graph: {exc}")
 
 
 @app.on_event("startup")
@@ -2335,6 +2348,37 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
     if client is None:
         raise HTTPException(status_code=503, detail="ondemand client not configured")
     return await _collect_ondemand_data(client)
+
+
+@app.get("/api/local_route")
+async def api_local_route(
+    from_lat: float = Query(..., description="Origin latitude"),
+    from_lng: float = Query(..., description="Origin longitude"),
+    to_lat: float = Query(..., description="Destination latitude"),
+    to_lng: float = Query(..., description="Destination longitude"),
+):
+    router: Optional[LocalOSMRouter] = getattr(app.state, "local_router", None)
+    if router is None or not router.has_graph():
+        raise HTTPException(status_code=503, detail="local routing graph unavailable")
+
+    try:
+        result = await asyncio.to_thread(
+            router.shortest_path,
+            (from_lat, from_lng),
+            (to_lat, to_lng),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {
+        "coordinates": result.coordinates,
+        "distance_meters": result.distance_meters,
+        "estimated_travel_time_seconds": result.travel_time_seconds,
+    }
 
 
 @app.get("/api/ondemand")
@@ -5601,6 +5645,14 @@ async def vehicle_log_file(log_name: str):
         raise HTTPException(status_code=404, detail="Log file not found")
     media_type = "application/x-ndjson" if log_name.endswith(".jsonl") else "application/json"
     return FileResponse(path, media_type=media_type)
+
+# ---------------------------
+# OSMnx local routing helper
+# ---------------------------
+# /api/local_route exposes a shortest-path polyline using the cached
+# LocalOSMRouter graph under /data. html/testmap.html consumes this endpoint
+# to draw a demo route for the OnDemand map and can be wired into future UI
+# controls when more interactivity is needed.
 
 # ---------------------------
 # LANDING PAGE

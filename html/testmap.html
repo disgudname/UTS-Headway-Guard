@@ -57,6 +57,74 @@
         <div class="loading-overlay__text">Loading agency data…</div>
       </div>
     </div>
+    <script>
+      // Minimal helper to draw a local OSMnx route for the UVA on-demand area.
+      (() => {
+        let localRouteLine = null;
+
+        async function drawLocalRoute(fromLat, fromLng, toLat, toLng) {
+          const params = new URLSearchParams({
+            from_lat: fromLat,
+            from_lng: fromLng,
+            to_lat: toLat,
+            to_lng: toLng,
+          });
+
+          const response = await fetch(`/api/local_route?${params.toString()}`, {
+            cache: 'no-store',
+          });
+
+          if (!response.ok) {
+            let detail = `Route request failed (${response.status})`;
+            try {
+              const payload = await response.json();
+              if (payload && payload.detail) detail = payload.detail;
+            } catch (error) {
+              // ignore parse errors
+            }
+            throw new Error(detail);
+          }
+
+          const data = await response.json();
+          const coords = Array.isArray(data.coordinates) ? data.coordinates : [];
+          if (typeof map === 'undefined' || !coords.length) {
+            console.warn('Map not ready or empty route payload');
+            return data;
+          }
+
+          if (localRouteLine) {
+            localRouteLine.remove();
+          }
+
+          localRouteLine = L.polyline(coords, {
+            color: '#2563eb',
+            weight: 5,
+            opacity: 0.8,
+          }).addTo(map);
+
+          map.fitBounds(localRouteLine.getBounds(), { padding: [20, 20] });
+          return data;
+        }
+
+        // Expose helper for future UI hooks and console experimentation.
+        window.drawLocalRoute = drawLocalRoute;
+
+        window.addEventListener('DOMContentLoaded', () => {
+          // Temporary demo: trace a short campus route after the map initializes.
+          const demoOrigin = [38.0301, -78.5006];
+          const demoDestination = [38.0346, -78.5087];
+          setTimeout(() => {
+            if (typeof map === 'undefined') return;
+            drawLocalRoute(
+              demoOrigin[0],
+              demoOrigin[1],
+              demoDestination[0],
+              demoDestination[1]
+            ).catch(error => console.warn('Demo route failed:', error));
+          }, 3500);
+        });
+      })();
+    </script>
     <script src="nav-bar.js"></script>
   </body>
 </html>
