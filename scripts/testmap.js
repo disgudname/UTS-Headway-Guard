@@ -11785,9 +11785,15 @@ ${trainPlaneMarkup}
           if (!map || typeof map?.latLngToContainerPoint !== 'function') {
               return;
           }
+          const mapContainer = typeof map.getContainer === 'function' ? map.getContainer() : null;
+          if (!mapContainer || typeof mapContainer.getBoundingClientRect !== 'function') {
+              return;
+          }
+
+          const mapRect = mapContainer.getBoundingClientRect();
           const mapPos = map.latLngToContainerPoint(position);
-          popupElement.style.left = `${mapPos.x}px`;
-          popupElement.style.top = `${mapPos.y}px`;
+          popupElement.style.left = `${mapRect.left + mapPos.x}px`;
+          popupElement.style.top = `${mapRect.top + mapPos.y}px`;
       }
 
       function centerPopupOnMap(popupElement) {
