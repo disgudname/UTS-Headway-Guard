@@ -6367,6 +6367,7 @@ schedulePlaneStyleOverride();
               const displayName = extractOnDemandDisplayName(vehicle.callName) || `Vehicle ${normalizedId}`;
               state.busName = displayName;
               state.routeID = null;
+              const vehicleCallName = typeof vehicle.callName === 'string' ? vehicle.callName.trim() : '';
               const driverNameSource =
                 typeof vehicle.driverName === 'string'
                   ? vehicle.driverName
@@ -6400,6 +6401,16 @@ schedulePlaneStyleOverride();
                   ].join('')
                 );
               }
+              if (vehicleCallName) {
+                popupSections.push(
+                  [
+                    '<div class="ondemand-driver-popup__section">',
+                    '<div class="ondemand-driver-popup__label">VEHICLE</div>',
+                    `<div class="ondemand-driver-popup__value">${escapeHtml(vehicleCallName)}</div>`,
+                    '</div>'
+                  ].join('')
+                );
+              }
               if (driverName) {
                 popupSections.push(
                   [
@@ -6419,6 +6430,9 @@ schedulePlaneStyleOverride();
                 if (Number.isFinite(pausedMinutes)) {
                   const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
                   ariaParts.push(`Paused for ${pausedMinutes} ${minutesLabel}`);
+                }
+                if (vehicleCallName) {
+                  ariaParts.push(`Vehicle ${vehicleCallName}`);
                 }
                 if (driverName) {
                   ariaParts.push(`Driver ${driverName}`);
