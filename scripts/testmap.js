@@ -16777,17 +16777,18 @@ ${trainPlaneMarkup}
               offset: [0, -20],
           };
 
-          if (existingPopup) {
-              const existingContent = typeof existingPopup.getContent === 'function'
-                  ? existingPopup.getContent()
-                  : null;
-              if (typeof existingPopup.setContent === 'function' && existingContent !== driverPopupHtml) {
-                  existingPopup.setContent(driverPopupHtml);
-              }
-              existingPopup.options = Object.assign(existingPopup.options || {}, popupOptions);
-          } else if (typeof marker.bindPopup === 'function') {
-              marker.bindPopup(driverPopupHtml, popupOptions);
-          }
+        if (existingPopup) {
+            const existingContent = typeof existingPopup.getContent === 'function'
+                ? existingPopup.getContent()
+                : null;
+            if (typeof existingPopup.setContent === 'function' && existingContent !== driverPopupHtml) {
+                existingPopup.setContent(driverPopupHtml);
+            }
+            existingPopup.options = Object.assign(existingPopup.options || {}, popupOptions);
+        }
+        if (typeof marker.bindPopup === 'function') {
+            marker.bindPopup(existingPopup || driverPopupHtml, popupOptions);
+        }
           if (hadOpenPopup && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
               syncMarkerPopupPosition(marker);
           } else if (hadOpenPopup && typeof marker.openPopup === 'function') {
