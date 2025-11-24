@@ -1,0 +1,205 @@
+[
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 1,
+        "created_at": "2025-11-24T04:08:29.000+0000",
+        "created_by": {
+            "email": "cushingmolly@gmail.com",
+            "username": "marycushing",
+            "phone": "(434) 906-5660",
+            "last_name": "Cushing",
+            "first_name": "Mary"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.5145591609478,
+                "latitude": 38.0206898601507
+            },
+            "timestamp": null,
+            "address": "Cleveland Ave @ Jefferson Park Ave [HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.4980769737139,
+                "latitude": 38.0317698453987
+            },
+            "timestamp": "2025-11-24T04:08:29.000+0000",
+            "address": "Lee St @ UVA Medical Center (Pickup Only) [RESTRICTED USE - PAIR WITH HUB]",
+            "priority": 0
+        },
+        "ride_id": "32357839",
+        "rider": {
+            "email": "cushingmolly@gmail.com",
+            "username": "marycushing",
+            "phone": "(434) 906-5660",
+            "last_name": "Cushing",
+            "first_name": "Mary"
+        },
+        "schedule": null,
+        "service_color": "3c31bd",
+        "service_id": "2191",
+        "service_name": "OnDemand | 10pm-2am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "pending",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-11-24T04:08:29.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": null,
+        "wheelchair": false
+    },
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 1,
+        "created_at": "2025-11-24T04:04:43.000+0000",
+        "created_by": {
+            "email": "atk9sb@virginia.edu",
+            "username": "vickyrv",
+            "phone": "(240) 839-8857",
+            "last_name": "Rajagopal",
+            "first_name": "Vignesh"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.5052800588608,
+                "latitude": 38.0488508801947
+            },
+            "timestamp": null,
+            "address": "Barracks Road Shopping Center [HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.4932704679966,
+                "latitude": 38.0417759210604
+            },
+            "timestamp": "2025-11-24T04:04:43.000+0000",
+            "address": "Madison Ave @ Preston Ave [HUB]",
+            "priority": 0
+        },
+        "ride_id": "32357793",
+        "rider": {
+            "email": "atk9sb@virginia.edu",
+            "username": "vickyrv",
+            "phone": "(240) 839-8857",
+            "last_name": "Rajagopal",
+            "first_name": "Vignesh"
+        },
+        "schedule": null,
+        "service_color": "3c31bd",
+        "service_id": "2191",
+        "service_name": "OnDemand | 10pm-2am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "in_progress",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-11-24T04:04:43.000+0000"
+            },
+            {
+                "status": "in_progress",
+                "timestamp": "2025-11-24T04:07:25.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": "4899",
+        "wheelchair": false
+    },
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 1,
+        "created_at": "2025-11-24T04:01:38.000+0000",
+        "created_by": {
+            "email": "kca6nh@virginia.edu",
+            "username": "kli20",
+            "phone": "(781) 439-7514",
+            "last_name": "Li",
+            "first_name": "Kylan"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.51549391,
+                "latitude": 38.02989991
+            },
+            "timestamp": null,
+            "address": "Student Activities Building [RESTRICTED USE - PAIR WITH HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.5077637844086,
+                "latitude": 38.0359537332303
+            },
+            "timestamp": "2025-11-24T04:01:38.000+0000",
+            "address": "UVA Bookstore [HUB]",
+            "priority": 0
+        },
+        "ride_id": "32357753",
+        "rider": {
+            "email": "kca6nh@virginia.edu",
+            "username": "kli20",
+            "phone": "(781) 439-7514",
+            "last_name": "Li",
+            "first_name": "Kylan"
+        },
+        "schedule": null,
+        "service_color": "3c31bd",
+        "service_id": "2191",
+        "service_name": "OnDemand | 10pm-2am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "in_progress",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-11-24T04:01:38.000+0000"
+            },
+            {
+                "status": "in_progress",
+                "timestamp": "2025-11-24T04:06:40.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": "1347",
+        "wheelchair": false
+    }
+]
