@@ -6492,6 +6492,25 @@ schedulePlaneStyleOverride();
                 applyBusMarkerOutlineWidth(state);
               }
 
+              if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                const speedIcon = createSpeedBubbleDivIcon(fillColor, speedMph, markerMetricsForZoom.scale, headingDeg);
+                nameBubbles[markerKey] = nameBubbles[markerKey] || {};
+                if (speedIcon) {
+                  if (nameBubbles[markerKey].speedMarker) {
+                    animateMarkerTo(nameBubbles[markerKey].speedMarker, newPosition);
+                    nameBubbles[markerKey].speedMarker.setIcon(speedIcon);
+                  } else {
+                    nameBubbles[markerKey].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                  }
+                } else if (nameBubbles[markerKey].speedMarker) {
+                  map.removeLayer(nameBubbles[markerKey].speedMarker);
+                  delete nameBubbles[markerKey].speedMarker;
+                }
+              } else if (nameBubbles[markerKey]?.speedMarker) {
+                map.removeLayer(nameBubbles[markerKey].speedMarker);
+                delete nameBubbles[markerKey].speedMarker;
+              }
+
               if (adminMode && !kioskMode) {
                 const nameIcon = createNameBubbleDivIcon(displayName, fillColor, markerMetricsForZoom.scale, headingDeg);
                 nameBubbles[markerKey] = nameBubbles[markerKey] || {};
