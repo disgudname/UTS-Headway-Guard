@@ -10895,13 +10895,10 @@ ${trainPlaneMarkup}
           const primaryStopIdText = !multipleStops
               ? (stopEntries[0]?.stopIdText || fallbackStopIdText)
               : '';
-          const hasEtaContent = stopEntries.some(entry => {
-              const routeStopIds = Array.isArray(entry?.routeStopIds) ? entry.routeStopIds : [];
-              const catStopIds = Array.isArray(entry?.catStopIds) ? entry.catStopIds : [];
-              const stopIds = Array.isArray(entry?.stopIds) ? entry.stopIds : [];
-              return routeStopIds.length > 0 || catStopIds.length > 0 || stopIds.length > 0;
-          });
-          const entriesHtml = hasEtaContent ? buildStopEntriesSectionHtml(stopEntries, multipleStops, isOnDemandStop) : '';
+          const hasBusStopData = stopEntries.some(entry => !Array.isArray(entry?.onDemandStops) || entry.onDemandStops.length === 0);
+          const entriesHtml = hasBusStopData
+              ? buildStopEntriesSectionHtml(stopEntries, multipleStops, isOnDemandStop)
+              : '';
           const onDemandHtml = buildOnDemandStopDetailsHtml(stopEntries);
           const detailsHtml = [entriesHtml, onDemandHtml].filter(Boolean).join('')
               || '<div style="margin-top: 10px;">No stop details</div>';
@@ -10918,7 +10915,7 @@ ${trainPlaneMarkup}
           popupElement.dataset.addressId = primaryAddressIdText || '';
           popupElement.dataset.groupKey = groupKey;
 
-          const stopNameLine = (!multipleStops && sanitizedStopName)
+          const stopNameLine = (!multipleStops && sanitizedStopName && (!isOnDemandStop || hasBusStopData))
               ? `<span class="stop-entry-title">${sanitizedStopName}</span><br>`
               : '';
           const addressIdLine = primaryAddressIdText ? `<span class="stop-entry-id">Address ID: ${primaryAddressIdText}</span><br>` : '';
@@ -10933,7 +10930,7 @@ ${trainPlaneMarkup}
             <div class="custom-popup-arrow"></div>
           `;
 
-          if (catOverlayEnabled) {
+          if (catOverlayEnabled && hasBusStopData) {
               const catStopIdsToFetch = new Set();
               stopEntries.forEach(entry => {
                   if (!entry || !Array.isArray(entry.catStopIds)) {
