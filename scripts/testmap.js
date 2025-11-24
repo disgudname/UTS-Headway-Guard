@@ -9793,6 +9793,8 @@ ${trainPlaneMarkup}
               scheduleStopRendering();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
+          window.addEventListener('resize', updatePopupPositions);
+          window.addEventListener('scroll', updatePopupPositions, { passive: true });
           map.on('zoomend', () => {
               scheduleStopRendering();
               scheduleMarkerScaleUpdate();
