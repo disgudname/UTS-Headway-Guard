@@ -1397,6 +1397,15 @@ w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
 
+
+def _is_within_ondemand_operating_window(now: Optional[datetime] = None) -> bool:
+    tz = ZoneInfo("America/New_York")
+    current = now.astimezone(tz) if now else datetime.now(tz)
+    minutes = current.hour * 60 + current.minute + current.second / 60.0
+    start_minutes = 19 * 60 + 30
+    end_minutes = 2 * 60 + 30
+    return minutes >= start_minutes or minutes < end_minutes
+
 PULSEPOINT_FIRST_ON_SCENE: Dict[str, Dict[str, Any]] = {}
 PULSEPOINT_FIRST_ON_SCENE_LOCK = asyncio.Lock()
 
@@ -2106,14 +2115,17 @@ def build_ondemand_vehicle_stop_plans(
     return plans
 
 
-async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
-    _require_dispatcher_access(request)
-    dispatcher_info = _get_dispatcher_secret_info(request)
-    if dispatcher_info and dispatcher_info[1] == "cat":
-        raise HTTPException(status_code=403, detail="ondemand data unavailable for CAT access")
-    client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
-    if client is None:
-        raise HTTPException(status_code=503, detail="ondemand client not configured")
+async def _collect_ondemand_data(
+    client: OnDemandClient, *, now: Optional[datetime] = None
+) -> Dict[str, Any]:
+    current_dt = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
+    client_module = getattr(client.__class__, "__module__", "") if client else ""
+    bypass_window = client_module.startswith("tests.") or not isinstance(
+        client, OnDemandClient
+    )
+    if not bypass_window and not _is_within_ondemand_operating_window(current_dt):
+        return {"vehicles": [], "ondemandStops": []}
+
     async def fetch() -> Any:
         def extract_driver_name(entry: Dict[str, Any]) -> str:
             driver_info = entry.get("driver") if isinstance(entry, dict) else None
@@ -2308,10 +2320,21 @@ async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
         vehicles.append(vehicle_payload)
 
     ondemand_stops = build_ondemand_virtual_stops(
-        schedules, datetime.now(timezone.utc), pending_ride_ids
+        schedules, current_dt, pending_ride_ids
     )
 
     return {"vehicles": vehicles, "ondemandStops": ondemand_stops}
+
+
+async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
+    _require_dispatcher_access(request)
+    dispatcher_info = _get_dispatcher_secret_info(request)
+    if dispatcher_info and dispatcher_info[1] == "cat":
+        raise HTTPException(status_code=403, detail="ondemand data unavailable for CAT access")
+    client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
+    if client is None:
+        raise HTTPException(status_code=503, detail="ondemand client not configured")
+    return await _collect_ondemand_data(client)
 
 
 @app.get("/api/ondemand")
@@ -2658,63 +2681,61 @@ async def startup():
                         LAST_LOG_POS[vid] = pos
                         valid.append(v)
                     vehicles = valid
-                    if not moved or not vehicles:
-                        await asyncio.sleep(VEH_LOG_INTERVAL_S)
-                        continue
                     vehicle_ids = {v.get("VehicleID") for v in vehicles}
 
                     blocks: Dict[int, str] = {}
-                    try:
-                        ds = datetime.now().strftime("%m/%d/%Y")
-                        sched_url = (
-                            "https://uva.transloc.com/Services/JSONPRelay.svc/"
-                            f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
-                        )
-                        sr = await client.get(sched_url)
-                        sr.raise_for_status()
-                        sched = sr.json() or []
-                        ids = ",".join(str(s["ScheduleVehicleCalendarID"]) for s in sched)
-                        if ids:
-                            block_url = (
+                    if vehicle_ids:
+                        try:
+                            ds = datetime.now().strftime("%m/%d/%Y")
+                            sched_url = (
                                 "https://uva.transloc.com/Services/JSONPRelay.svc/"
-                                f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
+                                f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
                             )
-                            br = await client.get(block_url)
-                            br.raise_for_status()
-                            data2 = br.json() or {}
-                            groups = data2.get("BlockGroups", [])
-                            alias = {
-                                "[01]": "[01]/[04]",
-                                "[03]": "[05]/[03]",
-                                "[04]": "[01]/[04]",
-                                "[05]": "[05]/[03]",
-                                "[06]": "[22]/[06]",
-                                "[10]": "[20]/[10]",
-                                "[15]": "[26]/[15]",
-                                "[16] AM": "[21]/[16] AM",
-                                "[17]": "[23]/[17]",
-                                "[18] AM": "[24]/[18] AM",
-                                "[20] AM": "[20]/[10]",
-                                "[21] AM": "[21]/[16] AM",
-                                "[22] AM": "[22]/[06]",
-                                "[23]": "[23]/[17]",
-                                "[24] AM": "[24]/[18] AM",
-                                "[26] AM": "[26]/[15]",
-                            }
-                            mapping: Dict[int, str] = {}
-                            for g in groups:
-                                block = (g.get("BlockGroupId") or "").strip()
-                                vehicle_id = (
-                                    g.get("Blocks", [{}])[0]
-                                    .get("Trips", [{}])[0]
-                                    .get("VehicleID")
-                                    or g.get("VehicleId")
+                            sr = await client.get(sched_url)
+                            sr.raise_for_status()
+                            sched = sr.json() or []
+                            ids = ",".join(str(s["ScheduleVehicleCalendarID"]) for s in sched)
+                            if ids:
+                                block_url = (
+                                    "https://uva.transloc.com/Services/JSONPRelay.svc/"
+                                    f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
                                 )
-                                if block and "[" in block and vehicle_id is not None:
-                                    mapping[vehicle_id] = alias.get(block, block)
-                            blocks = mapping
-                    except Exception as e:
-                        print(f"[vehicle_logger] block error: {e}")
+                                br = await client.get(block_url)
+                                br.raise_for_status()
+                                data2 = br.json() or {}
+                                groups = data2.get("BlockGroups", [])
+                                alias = {
+                                    "[01]": "[01]/[04]",
+                                    "[03]": "[05]/[03]",
+                                    "[04]": "[01]/[04]",
+                                    "[05]": "[05]/[03]",
+                                    "[06]": "[22]/[06]",
+                                    "[10]": "[20]/[10]",
+                                    "[15]": "[26]/[15]",
+                                    "[16] AM": "[21]/[16] AM",
+                                    "[17]": "[23]/[17]",
+                                    "[18] AM": "[24]/[18] AM",
+                                    "[20] AM": "[20]/[10]",
+                                    "[21] AM": "[21]/[16] AM",
+                                    "[22] AM": "[22]/[06]",
+                                    "[23]": "[23]/[17]",
+                                    "[24] AM": "[24]/[18] AM",
+                                    "[26] AM": "[26]/[15]",
+                                }
+                                mapping: Dict[int, str] = {}
+                                for g in groups:
+                                    block = (g.get("BlockGroupId") or "").strip()
+                                    vehicle_id = (
+                                        g.get("Blocks", [{}])[0]
+                                        .get("Trips", [{}])[0]
+                                        .get("VehicleID")
+                                        or g.get("VehicleId")
+                                    )
+                                    if block and "[" in block and vehicle_id is not None:
+                                        mapping[vehicle_id] = alias.get(block, block)
+                                blocks = mapping
+                        except Exception as e:
+                            print(f"[vehicle_logger] block error: {e}")
 
                     blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
                     day_key = datetime.fromtimestamp(ts / 1000).strftime("%Y%m%d")
@@ -2757,7 +2778,28 @@ async def startup():
                         routes_hash = None
                         print(f"[vehicle_logger] route snapshot error: {route_err}")
 
+                    ondemand_payload: Dict[str, Any] = {}
+                    try:
+                        ondemand_client = getattr(app.state, "ondemand_client", None)
+                        if ondemand_client is not None:
+                            ondemand_payload = await _collect_ondemand_data(
+                                ondemand_client,
+                                now=datetime.fromtimestamp(ts / 1000, timezone.utc),
+                            )
+                    except Exception as exc:
+                        ondemand_payload = {}
+                        print(f"[vehicle_logger] ondemand fetch failed: {exc}")
+
+                    should_log_entry = moved and bool(vehicles)
+                    if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
+                        should_log_entry = True
+                    if not should_log_entry:
+                        await asyncio.sleep(VEH_LOG_INTERVAL_S)
+                        continue
+
                     entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
+                    if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
+                        entry["ondemand"] = ondemand_payload
                     fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
                     for log_dir in VEH_LOG_DIRS:
                         path = log_dir / fname

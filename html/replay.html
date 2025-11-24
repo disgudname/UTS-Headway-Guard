@@ -979,6 +979,9 @@
     const ROTATION_SMOOTHING_DURATION_MULTIPLIER = 0.9;
     const ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE = 0.6;
     const ROTATION_SMOOTHING_HEADING_EXPONENT = 1.35;
+    const ONDEMAND_DEFAULT_COLOR = '#ec4899';
+    const ONDEMAND_VEHICLE_RADIUS = 8;
+    const ONDEMAND_STOP_RADIUS = 7;
 
     let map = null;
 
@@ -1010,6 +1013,10 @@
     let pendingMarkerScaleMetrics = null;
     let markerScaleUpdateFrame = null;
     let textMeasurementCanvas = null;
+    const onDemandVehicleMarkers = new Map();
+    const onDemandStopMarkers = new Map();
+    const onDemandVehicleColors = new Map();
+    const onDemandServiceColors = new Map();
 
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x, 1000x
@@ -1025,6 +1032,9 @@
     let showSpeed = true;
     let showBlockNumbers = false;
     let showNameBubbles = true;
+    let showOnDemand = false;
+    let onDemandDataAvailable = false;
+    let onDemandPreferenceSet = false;
     let currentFrameIndex = 0;
     let lastFrameDisplayMs = null;
     let lastFrameRealTime = null;
@@ -3207,6 +3217,18 @@
         busesPane.style.zIndex = 500;
         busesPane.style.pointerEvents = 'auto';
       }
+      map.createPane('ondemandPane');
+      const ondemandPane = map.getPane('ondemandPane');
+      if (ondemandPane) {
+        ondemandPane.style.zIndex = 505;
+        ondemandPane.style.pointerEvents = 'auto';
+      }
+      map.createPane('ondemandStopsPane');
+      const ondemandStopsPane = map.getPane('ondemandStopsPane');
+      if (ondemandStopsPane) {
+        ondemandStopsPane.style.zIndex = 455;
+        ondemandStopsPane.style.pointerEvents = 'auto';
+      }
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(map);
@@ -3697,6 +3719,38 @@
       await refreshReplay();
     }
 
+    function hasOnDemandContent(entry) {
+      if (!entry || typeof entry !== 'object') return false;
+      const payload = entry.ondemand || entry.onDemand;
+      if (!payload || typeof payload !== 'object') return false;
+      const vehicles = Array.isArray(payload?.vehicles) ? payload.vehicles : [];
+      const stops = Array.isArray(payload?.ondemandStops) ? payload.ondemandStops : [];
+      return vehicles.length > 0 || stops.length > 0;
+    }
+
+    function recomputeOnDemandAvailability() {
+      const previousAvailability = onDemandDataAvailable;
+      const previousVisibility = showOnDemand;
+      onDemandDataAvailable = playbackData.some(hasOnDemandContent);
+      if (!onDemandDataAvailable) {
+        showOnDemand = false;
+        clearOnDemandLayers();
+      } else if (!onDemandPreferenceSet && !showOnDemand) {
+        showOnDemand = true;
+      }
+      if (previousAvailability !== onDemandDataAvailable || previousVisibility !== showOnDemand) {
+        updateRouteSelector(activeRoutes, { force: true });
+      }
+    }
+
+    async function toggleOnDemandOverlay() {
+      if (!onDemandDataAvailable) return;
+      onDemandPreferenceSet = true;
+      showOnDemand = !showOnDemand;
+      updateRouteSelector(activeRoutes, { force: true });
+      await refreshReplay();
+    }
+
     function applyBusOptionState(inputElement) {
       if (!inputElement || typeof inputElement.closest !== 'function') return;
       const parentLabel = inputElement.closest('label.selector-option');
@@ -3917,7 +3971,9 @@
         active: activeSnapshot,
         showSpeed: !!showSpeed,
         showBlockNumbers: !!showBlockNumbers,
-        showNameBubbles: !!showNameBubbles
+        showNameBubbles: !!showNameBubbles,
+        showOnDemand: !!showOnDemand,
+        onDemandDataAvailable: !!onDemandDataAvailable
       });
 
       if (!forceUpdate && nextStateKey === lastRouteSelectorStateKey) {
@@ -3945,6 +4001,10 @@
             <div class="selector-group">
               <div class="selector-label">Name Bubbles</div>
               <button type="button" class="pill-button ${showNameBubbles ? 'is-active' : ''}" onclick="toggleNameBubbles()">${showNameBubbles ? 'Hide Name Bubbles' : 'Show Name Bubbles'}</button>
+            </div>
+            <div class="selector-group">
+              <div class="selector-label">OnDemand</div>
+              <button type="button" class="pill-button ${showOnDemand ? 'is-active' : ''}" ${onDemandDataAvailable ? '' : 'disabled'} onclick="toggleOnDemandOverlay()">${showOnDemand ? 'Hide OnDemand' : 'Show OnDemand'}</button>
             </div>
             <div class="selector-group selector-group--route-actions">
               <div class="selector-label">Route Shortcuts</div>
@@ -4207,6 +4267,7 @@
           return (!startTime || t >= startTime) && (!userEndTime || t <= userEndTime);
         });
         playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
+        recomputeOnDemandAvailability();
         loadedHours.add(key);
         if (playbackTimes.length) {
           const lastMs = playbackTimes[playbackTimes.length - 1];
@@ -4271,8 +4332,34 @@
       busMarkerStates = {};
       pendingBusVisualUpdates.clear();
       busBlocks = {};
+      clearOnDemandLayers();
       lastFrameDisplayMs = null;
       lastFrameRealTime = null;
+    }
+
+    function clearOnDemandLayers() {
+      onDemandVehicleMarkers.forEach(marker => {
+        if (!marker) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+      });
+      onDemandVehicleMarkers.clear();
+      onDemandStopMarkers.forEach(marker => {
+        if (!marker) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+      });
+      onDemandStopMarkers.clear();
+      onDemandVehicleColors.clear();
+      onDemandServiceColors.clear();
     }
 
     function drawRoutes() {
@@ -4425,6 +4512,144 @@
       };
     }
 
+    function normalizeOnDemandVehicleId(entry) {
+      const candidate = entry?.vehicleId
+        ?? entry?.vehicle_id
+        ?? entry?.vehicleID
+        ?? entry?.deviceUuid
+        ?? entry?.device_uuid
+        ?? entry?.deviceId;
+      if (candidate == null) return '';
+      const text = `${candidate}`.trim();
+      return text;
+    }
+
+    function getOnDemandServiceColor(serviceId) {
+      const key = typeof serviceId === 'string' ? serviceId.trim() : '';
+      if (!key) return ONDEMAND_DEFAULT_COLOR;
+      if (onDemandServiceColors.has(key)) {
+        return onDemandServiceColors.get(key);
+      }
+      const hash = key.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+      const hue = hash % 360;
+      const color = `hsl(${hue}, 70%, 45%)`;
+      onDemandServiceColors.set(key, color);
+      return color;
+    }
+
+    function renderOnDemandFrame(payload, animationOptions) {
+      if (!map) return;
+      if (!showOnDemand) {
+        clearOnDemandLayers();
+        return;
+      }
+      const vehicles = Array.isArray(payload?.vehicles) ? payload.vehicles : [];
+      const stops = Array.isArray(payload?.ondemandStops) ? payload.ondemandStops : [];
+
+      const seenVehicles = new Set();
+      vehicles.forEach(vehicle => {
+        const vehicleId = normalizeOnDemandVehicleId(vehicle);
+        if (!vehicleId) return;
+        const lat = Number.isFinite(vehicle.lat) ? vehicle.lat : Number(vehicle.lat);
+        const lng = Number.isFinite(vehicle.lng) ? vehicle.lng : Number(vehicle.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const pos = [lat, lng];
+        const markerColor = (typeof vehicle.markerColor === 'string' && vehicle.markerColor.trim())
+          ? vehicle.markerColor.trim()
+          : ONDEMAND_DEFAULT_COLOR;
+        onDemandVehicleColors.set(vehicleId, markerColor);
+        const existing = onDemandVehicleMarkers.get(vehicleId);
+        if (existing) {
+          animateMarkerTo(existing, pos, animationOptions);
+          if (typeof existing.setStyle === 'function') {
+            existing.setStyle({ color: markerColor, fillColor: markerColor });
+          }
+        } else if (typeof L === 'object' && typeof L.circleMarker === 'function') {
+          const marker = L.circleMarker(pos, {
+            radius: ONDEMAND_VEHICLE_RADIUS,
+            color: markerColor,
+            weight: 2,
+            fillColor: markerColor,
+            fillOpacity: 0.8,
+            pane: 'ondemandPane'
+          });
+          marker.addTo(map);
+          onDemandVehicleMarkers.set(vehicleId, marker);
+        }
+        const marker = onDemandVehicleMarkers.get(vehicleId);
+        if (marker && typeof marker.bindTooltip === 'function') {
+          const labelParts = [];
+          if (vehicle.callName) labelParts.push(`${vehicle.callName}`.trim());
+          if (vehicle.driverName) labelParts.push(`${vehicle.driverName}`.trim());
+          if (vehicle.serviceId) labelParts.push(`Service ${vehicle.serviceId}`);
+          const tooltip = labelParts.filter(Boolean).join(' • ');
+          if (tooltip) {
+            marker.bindTooltip(tooltip, { direction: 'top', offset: [0, -6] });
+          }
+        }
+        seenVehicles.add(vehicleId);
+      });
+      onDemandVehicleMarkers.forEach((marker, key) => {
+        if (seenVehicles.has(key)) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+        onDemandVehicleMarkers.delete(key);
+        onDemandVehicleColors.delete(key);
+      });
+
+      const seenStops = new Set();
+      stops.forEach(stop => {
+        if (!stop || typeof stop !== 'object') return;
+        const lat = Number(stop.lat ?? stop.latitude);
+        const lng = Number(stop.lng ?? stop.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const stopType = typeof stop.stopType === 'string' ? stop.stopType : '';
+        const stopKey = `${stop.vehicleId || ''}|${stop.stopTimestamp || stop.timestamp || ''}|${lat.toFixed(5)}|${lng.toFixed(5)}|${stopType}`;
+        seenStops.add(stopKey);
+        const color = onDemandVehicleColors.get(stop.vehicleId) || getOnDemandServiceColor(stop.serviceId);
+        const existing = onDemandStopMarkers.get(stopKey);
+        const position = [lat, lng];
+        if (existing) {
+          animateMarkerTo(existing, position, animationOptions);
+          if (typeof existing.setStyle === 'function') {
+            existing.setStyle({ color, fillColor: color });
+          }
+        } else if (typeof L === 'object' && typeof L.circleMarker === 'function') {
+          const marker = L.circleMarker(position, {
+            radius: ONDEMAND_STOP_RADIUS,
+            color,
+            weight: 2,
+            fillColor: color,
+            fillOpacity: 0.5,
+            pane: 'ondemandStopsPane'
+          });
+          let label = stop.stopType === 'pickup' ? 'Pickup' : (stop.stopType === 'dropoff' ? 'Dropoff' : 'Stop');
+          if (stop.address) {
+            label += ` • ${stop.address}`;
+          }
+          if (marker && typeof marker.bindTooltip === 'function') {
+            marker.bindTooltip(label, { direction: 'top', offset: [0, -4] });
+          }
+          marker.addTo(map);
+          onDemandStopMarkers.set(stopKey, marker);
+        }
+      });
+      onDemandStopMarkers.forEach((marker, key) => {
+        if (seenStops.has(key)) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+        onDemandStopMarkers.delete(key);
+      });
+    }
+
 
     function findFrameIndex(ms) {
       let idx = 0;
@@ -4488,6 +4713,9 @@
       updateBusSelector(activeBusesSet);
 
       drawRoutes();
+
+      const ondemandPayload = entry.ondemand || entry.onDemand || null;
+      renderOnDemandFrame(ondemandPayload, markerAnimationOptions);
 
       const blocks = entry.blocks || {};
       const seen = new Set();
@@ -4783,6 +5011,10 @@
         routeLayers.forEach(layer => map.removeLayer(layer));
         routeLayers = [];
         routePolylineCache.clear();
+        showOnDemand = false;
+        onDemandDataAvailable = false;
+        onDemandPreferenceSet = false;
+        clearOnDemandLayers();
         updateRouteSelector(activeRoutes, { force: true });
         const timeline = document.getElementById('timeline');
         timeline.min = startTime.getTime();
