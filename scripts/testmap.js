@@ -6310,6 +6310,7 @@ schedulePlaneStyleOverride();
         if (onDemandFetchPromise) {
           return onDemandFetchPromise;
         }
+        const smoothingClaimed = claimVehicleSmoothingDisable();
         const fetchPromise = (async () => {
           try {
             const response = await fetch(ONDEMAND_ENDPOINT, { cache: 'no-store' });
@@ -6581,6 +6582,10 @@ schedulePlaneStyleOverride();
           } catch (error) {
             console.error('Failed to fetch OnDemand vehicles:', error);
             return [];
+          } finally {
+            if (smoothingClaimed) {
+              releaseVehicleSmoothingDisable();
+            }
           }
         })();
         onDemandFetchPromise = fetchPromise;
@@ -6681,12 +6686,37 @@ schedulePlaneStyleOverride();
       let scheduledStopRenderFrame = null;
       let scheduledStopRenderTimeout = null;
 
+      let vehicleSmoothingTemporarilyDisabled = false;
+      let vehicleSmoothingDisableClaims = 0;
+
       let overlapRenderer = null;
 
       let currentTranslocRendererGeometries = new Map();
       let currentTranslocSelectedRouteIds = [];
 
       let activeAgencyLoadCount = 0;
+
+      function requestVehicleSmoothingDisable() {
+        vehicleSmoothingTemporarilyDisabled = true;
+      }
+
+      function claimVehicleSmoothingDisable() {
+        if (!vehicleSmoothingTemporarilyDisabled) {
+          return false;
+        }
+        vehicleSmoothingDisableClaims += 1;
+        return true;
+      }
+
+      function releaseVehicleSmoothingDisable() {
+        if (vehicleSmoothingDisableClaims > 0) {
+          vehicleSmoothingDisableClaims -= 1;
+        }
+        if (vehicleSmoothingDisableClaims <= 0) {
+          vehicleSmoothingDisableClaims = 0;
+          vehicleSmoothingTemporarilyDisabled = false;
+        }
+      }
 
       function showLoadingOverlay() {
         const overlay = document.getElementById('loadingOverlay');
@@ -9523,6 +9553,7 @@ ${trainPlaneMarkup}
         }
         if (!hidden && refreshSuspendedForVisibility) {
           refreshSuspendedForVisibility = false;
+          requestVehicleSmoothingDisable();
           refreshMap();
           startRefreshIntervals();
           if (shouldPollOnDemandData() && (onDemandPollingPausedForVisibility || onDemandPollingTimerId === null)) {
@@ -13030,6 +13061,7 @@ ${trainPlaneMarkup}
               clearTranslocMapData();
               return [];
           }
+          const smoothingClaimed = claimVehicleSmoothingDisable();
           try {
               const headingPromise = loadVehicleHeadingCache();
               if (headingPromise && typeof headingPromise.then === 'function') {
@@ -13300,6 +13332,10 @@ ${trainPlaneMarkup}
               previousBusData = currentBusData;
           } catch (error) {
               console.error("Error fetching bus locations:", error);
+          } finally {
+              if (smoothingClaimed) {
+                  releaseVehicleSmoothingDisable();
+              }
           }
       }
 
@@ -15513,6 +15549,7 @@ ${trainPlaneMarkup}
           if (!catOverlayEnabled) {
               return [];
           }
+          const smoothingClaimed = claimVehicleSmoothingDisable();
           try {
               const response = await fetch(CAT_VEHICLES_ENDPOINT, { cache: 'no-store' });
               if (!response.ok) {
@@ -15525,6 +15562,10 @@ ${trainPlaneMarkup}
           } catch (error) {
               console.error('Failed to fetch CAT vehicles:', error);
               return [];
+          } finally {
+              if (smoothingClaimed) {
+                  releaseVehicleSmoothingDisable();
+              }
           }
       }
 
@@ -17250,8 +17291,9 @@ ${trainPlaneMarkup}
         popup.setLatLng(markerLatLng);
       }
 
-      function animateMarkerTo(marker, newPosition) {
+      function animateMarkerTo(marker, newPosition, options = {}) {
         if (!marker || !newPosition) return;
+        const disableSmoothing = Boolean(options?.disableSmoothing) || vehicleSmoothingTemporarilyDisabled;
         const hasArrayPosition = Array.isArray(newPosition) && newPosition.length >= 2;
         const endPos = hasArrayPosition ? L.latLng(newPosition) : L.latLng(newPosition?.lat, newPosition?.lng);
         if (!endPos || Number.isNaN(endPos.lat) || Number.isNaN(endPos.lng)) return;
@@ -17263,7 +17305,7 @@ ${trainPlaneMarkup}
           return;
         }
 
-        if (lowPerformanceMode || typeof requestAnimationFrame !== 'function') {
+        if (disableSmoothing || lowPerformanceMode || typeof requestAnimationFrame !== 'function') {
           marker.setLatLng(endPos);
           syncMarkerPopupPosition(marker);
           return;
