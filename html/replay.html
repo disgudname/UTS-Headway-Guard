@@ -979,6 +979,7 @@
     const ROTATION_SMOOTHING_DURATION_MULTIPLIER = 0.9;
     const ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE = 0.6;
     const ROTATION_SMOOTHING_HEADING_EXPONENT = 1.35;
+    const ONDEMAND_MARKER_PREFIX = 'ondemand:';
     const ONDEMAND_DEFAULT_COLOR = '#ec4899';
     const ONDEMAND_VEHICLE_RADIUS = 8;
     const ONDEMAND_STOP_RADIUS = 7;
@@ -4360,6 +4361,31 @@
       onDemandStopMarkers.clear();
       onDemandVehicleColors.clear();
       onDemandServiceColors.clear();
+
+      Object.keys(markers).forEach(id => {
+        if (!isOnDemandMarkerKey(id)) return;
+        const marker = markers[id];
+        if (marker) {
+          stopMarkerAnimation(marker);
+          map?.removeLayer(marker);
+        }
+        delete markers[id];
+        clearBusMarkerState(id);
+      });
+
+      Object.keys(nameBubbles).forEach(id => {
+        if (!isOnDemandMarkerKey(id)) return;
+        const bubble = nameBubbles[id];
+        if (bubble?.speedMarker) {
+          stopMarkerAnimation(bubble.speedMarker);
+          map?.removeLayer(bubble.speedMarker);
+        }
+        if (bubble?.nameMarker) {
+          stopMarkerAnimation(bubble.nameMarker);
+          map?.removeLayer(bubble.nameMarker);
+        }
+        delete nameBubbles[id];
+      });
     }
 
     function drawRoutes() {
@@ -4524,6 +4550,10 @@
       return text;
     }
 
+    function isOnDemandMarkerKey(id) {
+      return typeof id === 'string' && id.startsWith(ONDEMAND_MARKER_PREFIX);
+    }
+
     function getOnDemandServiceColor(serviceId) {
       const key = typeof serviceId === 'string' ? serviceId.trim() : '';
       if (!key) return ONDEMAND_DEFAULT_COLOR;
@@ -4537,7 +4567,7 @@
       return color;
     }
 
-    function renderOnDemandFrame(payload, animationOptions) {
+    async function renderOnDemandFrame(payload, animationOptions) {
       if (!map) return;
       if (!showOnDemand) {
         clearOnDemandLayers();
@@ -4547,48 +4577,125 @@
       const stops = Array.isArray(payload?.ondemandStops) ? payload.ondemandStops : [];
 
       const seenVehicles = new Set();
-      vehicles.forEach(vehicle => {
+      for (const vehicle of vehicles) {
         const vehicleId = normalizeOnDemandVehicleId(vehicle);
-        if (!vehicleId) return;
+        if (!vehicleId) continue;
         const lat = Number.isFinite(vehicle.lat) ? vehicle.lat : Number(vehicle.lat);
         const lng = Number.isFinite(vehicle.lng) ? vehicle.lng : Number(vehicle.lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
         const pos = [lat, lng];
         const markerColor = (typeof vehicle.markerColor === 'string' && vehicle.markerColor.trim())
           ? vehicle.markerColor.trim()
           : ONDEMAND_DEFAULT_COLOR;
+        const markerKey = `${ONDEMAND_MARKER_PREFIX}${vehicleId}`;
+        seenVehicles.add(markerKey);
         onDemandVehicleColors.set(vehicleId, markerColor);
-        const existing = onDemandVehicleMarkers.get(vehicleId);
-        if (existing) {
-          animateMarkerTo(existing, pos, animationOptions);
-          if (typeof existing.setStyle === 'function') {
-            existing.setStyle({ color: markerColor, fillColor: markerColor });
-          }
-        } else if (typeof L === 'object' && typeof L.circleMarker === 'function') {
-          const marker = L.circleMarker(pos, {
-            radius: ONDEMAND_VEHICLE_RADIUS,
-            color: markerColor,
-            weight: 2,
+
+        const state = ensureBusMarkerState(markerKey);
+        const busName = (typeof vehicle.callName === 'string' && vehicle.callName.trim())
+          ? vehicle.callName.trim()
+          : `Vehicle ${vehicleId}`;
+        const speedMph = Number.isFinite(vehicle.speed) ? Math.max(0, vehicle.speed) : 0;
+        const headingDeg = updateBusMarkerHeading(state, pos, vehicle.heading, speedMph);
+        const glyphColor = computeBusMarkerGlyphColor(markerColor);
+        const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, speedMph);
+
+        state.busName = busName;
+        state.routeID = null;
+        state.fillColor = markerColor;
+        state.glyphColor = glyphColor;
+        state.headingDeg = headingDeg;
+        state.accessibleLabel = accessibleLabel;
+        state.isStale = vehicle.stale === true;
+        state.isStopped = isBusConsideredStopped(speedMph);
+        state.groundSpeed = speedMph;
+        state.lastUpdateTimestamp = Date.now();
+
+        const metrics = computeBusMarkerMetrics(typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+        if (!state.size) {
+          setBusMarkerSize(state, metrics);
+        }
+
+        if (markers[markerKey]) {
+          animateMarkerTo(markers[markerKey], pos, animationOptions);
+          queueBusMarkerVisualUpdate(markerKey, {
             fillColor: markerColor,
-            fillOpacity: 0.8,
-            pane: 'ondemandPane'
+            glyphColor,
+            headingDeg,
+            rotationDurationMs: animationOptions?.durationMs,
+            stale: state.isStale,
+            accessibleLabel,
+            stopped: state.isStopped
           });
-          marker.addTo(map);
-          onDemandVehicleMarkers.set(vehicleId, marker);
-        }
-        const marker = onDemandVehicleMarkers.get(vehicleId);
-        if (marker && typeof marker.bindTooltip === 'function') {
-          const labelParts = [];
-          if (vehicle.callName) labelParts.push(`${vehicle.callName}`.trim());
-          if (vehicle.driverName) labelParts.push(`${vehicle.driverName}`.trim());
-          if (vehicle.serviceId) labelParts.push(`Service ${vehicle.serviceId}`);
-          const tooltip = labelParts.filter(Boolean).join(' • ');
-          if (tooltip) {
-            marker.bindTooltip(tooltip, { direction: 'top', offset: [0, -6] });
+        } else {
+          const icon = await createBusMarkerDivIcon(markerKey, state);
+          if (icon) {
+            const marker = L.marker(pos, { icon, pane: 'busesPane', interactive: true });
+            marker.routeID = null;
+            marker.isOnDemand = true;
+            marker.addTo(map);
+            markers[markerKey] = marker;
+            onDemandVehicleMarkers.set(markerKey, marker);
+            state.marker = marker;
+            registerBusMarkerElements(markerKey);
+            attachBusMarkerInteractions(markerKey);
+            updateBusMarkerRootClasses(state);
+            updateBusMarkerZIndex(state);
+            applyBusMarkerOutlineWidth(state);
           }
         }
-        seenVehicles.add(vehicleId);
-      });
+
+        const bubble = nameBubbles[markerKey] || {};
+        const scale = metrics.scale;
+
+        if (showSpeed) {
+          const speedIcon = createSpeedBubbleDivIcon(markerColor, speedMph, scale, state.headingDeg);
+          if (speedIcon) {
+            if (bubble.speedMarker) {
+              animateMarkerTo(bubble.speedMarker, pos, animationOptions);
+              bubble.speedMarker.setIcon(speedIcon);
+            } else {
+              bubble.speedMarker = L.marker(pos, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+            }
+          } else if (bubble.speedMarker) {
+            stopMarkerAnimation(bubble.speedMarker);
+            map.removeLayer(bubble.speedMarker);
+            delete bubble.speedMarker;
+          }
+        } else if (bubble.speedMarker) {
+          stopMarkerAnimation(bubble.speedMarker);
+          map.removeLayer(bubble.speedMarker);
+          delete bubble.speedMarker;
+        }
+
+        if (showNameBubbles && busName) {
+          const nameIcon = createNameBubbleDivIcon(busName, markerColor, scale, state.headingDeg);
+          if (nameIcon) {
+            if (bubble.nameMarker) {
+              animateMarkerTo(bubble.nameMarker, pos, animationOptions);
+              bubble.nameMarker.setIcon(nameIcon);
+            } else {
+              bubble.nameMarker = L.marker(pos, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+            }
+          } else if (bubble.nameMarker) {
+            stopMarkerAnimation(bubble.nameMarker);
+            map.removeLayer(bubble.nameMarker);
+            delete bubble.nameMarker;
+          }
+        } else if (bubble.nameMarker) {
+          stopMarkerAnimation(bubble.nameMarker);
+          map.removeLayer(bubble.nameMarker);
+          delete bubble.nameMarker;
+        }
+
+        if (bubble.speedMarker || bubble.nameMarker) {
+          bubble.lastScale = scale;
+          nameBubbles[markerKey] = bubble;
+        } else {
+          delete nameBubbles[markerKey];
+        }
+      }
+
       onDemandVehicleMarkers.forEach((marker, key) => {
         if (seenVehicles.has(key)) return;
         stopMarkerAnimation(marker);
@@ -4597,8 +4704,20 @@
         } else if (map && typeof map.removeLayer === 'function') {
           map.removeLayer(marker);
         }
+        delete markers[key];
+        clearBusMarkerState(key);
         onDemandVehicleMarkers.delete(key);
         onDemandVehicleColors.delete(key);
+        const bubble = nameBubbles[key];
+        if (bubble?.speedMarker) {
+          stopMarkerAnimation(bubble.speedMarker);
+          map.removeLayer(bubble.speedMarker);
+        }
+        if (bubble?.nameMarker) {
+          stopMarkerAnimation(bubble.nameMarker);
+          map.removeLayer(bubble.nameMarker);
+        }
+        delete nameBubbles[key];
       });
 
       const seenStops = new Set();
@@ -4608,9 +4727,10 @@
         const lng = Number(stop.lng ?? stop.longitude);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
         const stopType = typeof stop.stopType === 'string' ? stop.stopType : '';
-        const stopKey = `${stop.vehicleId || ''}|${stop.stopTimestamp || stop.timestamp || ''}|${lat.toFixed(5)}|${lng.toFixed(5)}|${stopType}`;
+        const stopVehicleId = normalizeOnDemandVehicleId(stop);
+        const stopKey = `${stopVehicleId || ''}|${stop.stopTimestamp || stop.timestamp || ''}|${lat.toFixed(5)}|${lng.toFixed(5)}|${stopType}`;
         seenStops.add(stopKey);
-        const color = onDemandVehicleColors.get(stop.vehicleId) || getOnDemandServiceColor(stop.serviceId);
+        const color = onDemandVehicleColors.get(stopVehicleId) || getOnDemandServiceColor(stop.serviceId);
         const existing = onDemandStopMarkers.get(stopKey);
         const position = [lat, lng];
         if (existing) {
@@ -4715,7 +4835,7 @@
       drawRoutes();
 
       const ondemandPayload = entry.ondemand || entry.onDemand || null;
-      renderOnDemandFrame(ondemandPayload, markerAnimationOptions);
+      await renderOnDemandFrame(ondemandPayload, markerAnimationOptions);
 
       const blocks = entry.blocks || {};
       const seen = new Set();
@@ -4868,6 +4988,7 @@
       }
 
       Object.keys(markers).forEach(id => {
+        if (isOnDemandMarkerKey(id)) return;
         const numericId = Number(id);
         if (!seen.has(numericId)) {
           const marker = markers[id];
@@ -4881,6 +5002,7 @@
       });
 
       Object.keys(nameBubbles).forEach(id => {
+        if (isOnDemandMarkerKey(id)) return;
         const numericId = Number(id);
         if (!seen.has(numericId)) {
           const bubble = nameBubbles[id];
