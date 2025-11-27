@@ -25,10 +25,11 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence
+from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
-from datetime import datetime, timedelta, time as dtime
+from datetime import datetime, timedelta, time as dtime, timezone
+from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 import httpx
 from collections import deque, defaultdict
@@ -45,9 +46,10 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from pathlib import Path
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from tickets_store import TicketStore
+from ondemand_client import OnDemandClient
 
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
@@ -67,6 +69,9 @@ PULSEPOINT_ENDPOINT = os.getenv(
     "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300",
 )
 PULSEPOINT_PASSPHRASE = os.getenv("PULSEPOINT_PASSPHRASE", "tombrady5rings")
+PULSEPOINT_ICON_BASE = os.getenv(
+    "PULSEPOINT_ICON_BASE", "https://web.pulsepoint.org/images/respond_icons/"
+)
 AMTRAKER_URL = os.getenv("AMTRAKER_URL", "https://api-v3.amtraker.com/v3/trains")
 RIDESYSTEMS_CLIENTS_URL = os.getenv(
     "RIDESYSTEMS_CLIENTS_URL",
@@ -161,7 +166,8 @@ SYNC_SECRET = os.getenv("SYNC_SECRET")
 # Dispatcher authentication helpers
 DISPATCH_PASSWORDS: Dict[str, str] = {}
 DISPATCH_PASSWORD_LABELS: Dict[str, str] = {}
-_DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str, str], ...]] = None
+DISPATCH_PASSWORD_TYPES: Dict[str, str] = {}
+_DISPATCH_PASSWORD_CACHE: Optional[Tuple[Tuple[str, str, str, str], ...]] = None
 
 _NON_SECRET_ENV_KEYS = {
     "PATH",
@@ -187,24 +193,38 @@ _NON_SECRET_ENV_PREFIXES = (
 def _refresh_dispatch_passwords(force: bool = False) -> None:
     """Load dispatcher passwords from environment secrets."""
 
-    global DISPATCH_PASSWORDS, DISPATCH_PASSWORD_LABELS, _DISPATCH_PASSWORD_CACHE
+    global DISPATCH_PASSWORDS
+    global DISPATCH_PASSWORD_LABELS
+    global DISPATCH_PASSWORD_TYPES
+    global _DISPATCH_PASSWORD_CACHE
 
-    secrets_list: list[Tuple[str, str, str]] = []
+    secrets_list: list[Tuple[str, str, str, str]] = []
     for key, value in os.environ.items():
-        if not key.endswith("_PASS"):
-            continue
         if key.upper() != key:
             continue
         if not value:
             continue
-        raw_label = key[:-5]
+        access_type = "uts"
+        raw_label: Optional[str] = None
+        if key.endswith("_CAT_PASS"):
+            access_type = "cat"
+            base_label = key[: -len("_CAT_PASS")]
+            if base_label.endswith("_CAT"):
+                raw_label = base_label[: -len("_CAT")]
+            else:
+                raw_label = base_label
+        elif key.endswith("_PASS"):
+            raw_label = key[:-5]
+        else:
+            continue
         normalized = raw_label.strip().lower()
         if not normalized:
             continue
         display_label = raw_label.strip()
         if display_label.isupper():
             display_label = display_label.lower()
-        secrets_list.append((normalized, value, display_label))
+        normalized_key = f"{normalized}::{access_type}"
+        secrets_list.append((normalized_key, value, display_label, access_type))
 
     secrets_list.sort()
     cache_state = tuple(secrets_list)
@@ -212,10 +232,14 @@ def _refresh_dispatch_passwords(force: bool = False) -> None:
         return
 
     DISPATCH_PASSWORDS = {
-        normalized: secret for normalized, secret, _label in secrets_list
+        normalized: secret for normalized, secret, _label, _type in secrets_list
     }
     DISPATCH_PASSWORD_LABELS = {
-        normalized: label for normalized, _secret, label in secrets_list
+        normalized: label for normalized, _secret, label, _type in secrets_list
+    }
+    DISPATCH_PASSWORD_TYPES = {
+        normalized: access_type
+        for normalized, _secret, _label, access_type in secrets_list
     }
     _DISPATCH_PASSWORD_CACHE = cache_state
 
@@ -251,6 +275,7 @@ VEH_LOG_INTERVAL_S = int(os.getenv("VEH_LOG_INTERVAL_S", "4"))
 VEH_LOG_RETENTION_MS = int(os.getenv("VEH_LOG_RETENTION_MS", str(7 * 24 * 3600 * 1000)))
 VEH_LOG_MIN_MOVE_M = float(os.getenv("VEH_LOG_MIN_MOVE_M", "3"))
 LAST_LOG_POS: Dict[int, Tuple[float, float]] = {}
+LAST_ROUTE_SNAPSHOT_HASH: Dict[Tuple[str, str], str] = {}
 
 TRANSLOC_ARRIVALS_TTL_S = int(os.getenv("TRANSLOC_ARRIVALS_TTL_S", "15"))
 TRANSLOC_BLOCKS_TTL_S = int(os.getenv("TRANSLOC_BLOCKS_TTL_S", "60"))
@@ -259,8 +284,26 @@ CAT_VEHICLE_TTL_S = int(os.getenv("CAT_VEHICLE_TTL_S", "5"))
 CAT_SERVICE_ALERT_TTL_S = int(os.getenv("CAT_SERVICE_ALERT_TTL_S", "60"))
 CAT_STOP_ETA_TTL_S = int(os.getenv("CAT_STOP_ETA_TTL_S", "30"))
 PULSEPOINT_TTL_S = int(os.getenv("PULSEPOINT_TTL_S", "20"))
+PULSEPOINT_ICON_TTL_S = int(os.getenv("PULSEPOINT_ICON_TTL_S", str(24 * 3600)))
 AMTRAKER_TTL_S = int(os.getenv("AMTRAKER_TTL_S", "30"))
 RIDESYSTEMS_CLIENT_TTL_S = int(os.getenv("RIDESYSTEMS_CLIENT_TTL_S", str(12 * 3600)))
+ONDEMAND_POSITIONS_TTL_S = int(os.getenv("ONDEMAND_POSITIONS_TTL_S", "5"))
+ONDEMAND_SCHEDULES_URL = (os.getenv("ONDEMAND_SCHEDULES_URL") or "").strip()
+ONDEMAND_RIDES_URL = (os.getenv("ONDEMAND_RIDES_URL") or "").strip()
+ONDEMAND_RIDES_TTL_S = int(os.getenv("ONDEMAND_RIDES_TTL_S", "30"))
+ONDEMAND_RIDES_LOOKBACK_MIN = int(
+    os.getenv("ONDEMAND_RIDES_LOOKBACK_MIN", str(8 * 60))
+)
+ONDEMAND_RIDES_LOOKAHEAD_MIN = int(
+    os.getenv("ONDEMAND_RIDES_LOOKAHEAD_MIN", str(2 * 60))
+)
+ONDEMAND_RIDES_WINDOW_PADDING_MIN = int(
+    os.getenv("ONDEMAND_RIDES_WINDOW_PADDING_MIN", "30")
+)
+ONDEMAND_VIRTUAL_STOP_MAX_AGE_S = int(os.getenv("ONDEMAND_VIRTUAL_STOP_MAX_AGE_S", str(10 * 60)))
+ONDEMAND_DEFAULT_MARKER_COLOR = (os.getenv("ONDEMAND_DEFAULT_MARKER_COLOR") or "#ec4899").strip() or "#ec4899"
+if not ONDEMAND_DEFAULT_MARKER_COLOR.startswith("#"):
+    ONDEMAND_DEFAULT_MARKER_COLOR = f"#{ONDEMAND_DEFAULT_MARKER_COLOR.lstrip('#')}"
 ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
 DISPATCHER_DOWNED_SHEET_URL = os.getenv(
     "DISPATCHER_DOWNED_SHEET_URL",
@@ -491,6 +534,17 @@ def build_transloc_url(base_url: Optional[str], path: str) -> str:
     if not path.startswith("/"):
         path = "/" + path
     return f"{base}{path}"
+
+
+def transloc_host_base(base_url: Optional[str]) -> str:
+    sanitized = sanitize_transloc_base(base_url) or DEFAULT_TRANSLOC_BASE
+    parsed = urlparse(sanitized)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    parsed_default = urlparse(DEFAULT_TRANSLOC_BASE)
+    if parsed_default.scheme and parsed_default.netloc:
+        return f"{parsed_default.scheme}://{parsed_default.netloc}"
+    return "https://uva.transloc.com"
 
 
 def is_default_transloc_base(base_url: Optional[str]) -> bool:
@@ -806,6 +860,22 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 # ---------------------------
 app = FastAPI(title="UTS Operations Dashboard")
 
+
+@app.on_event("startup")
+async def init_ondemand_client() -> None:
+    try:
+        app.state.ondemand_client = OnDemandClient.from_env()
+    except RuntimeError as exc:
+        print(f"[ondemand] client not configured: {exc}")
+        app.state.ondemand_client = None
+
+
+@app.on_event("shutdown")
+async def shutdown_ondemand_client() -> None:
+    client = getattr(app.state, "ondemand_client", None)
+    if client is not None:
+        await client.aclose()
+
 BASE_DIR = Path(__file__).resolve().parent
 HTML_DIR = BASE_DIR / "html"
 CSS_DIR = BASE_DIR / "css"
@@ -834,6 +904,7 @@ DEBUG_HTML = _load_html("debug.html")
 REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
+SITEMAP_HTML = _load_html("sitemap.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 BUS_TABLE_HTML = _load_html("buses.html")
 NOT_FOUND_HTML = _load_html("404.html")
@@ -1315,11 +1386,28 @@ cat_vehicles_cache = TTLCache(CAT_VEHICLE_TTL_S)
 cat_service_alerts_cache = TTLCache(CAT_SERVICE_ALERT_TTL_S)
 cat_stop_etas_cache = PerKeyTTLCache(CAT_STOP_ETA_TTL_S)
 pulsepoint_cache = TTLCache(PULSEPOINT_TTL_S)
+pulsepoint_icon_cache = PerKeyTTLCache(PULSEPOINT_ICON_TTL_S)
 amtraker_cache = TTLCache(AMTRAKER_TTL_S)
 ridesystems_clients_cache = TTLCache(RIDESYSTEMS_CLIENT_TTL_S)
+ondemand_positions_cache = TTLCache(ONDEMAND_POSITIONS_TTL_S)
+ondemand_rides_cache = TTLCache(ONDEMAND_RIDES_TTL_S)
+ondemand_schedules_cache_state: Dict[str, Any] = {"etag": None, "data": None}
+ondemand_schedules_cache_lock = asyncio.Lock()
 w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
+
+
+def _is_within_ondemand_operating_window(now: Optional[datetime] = None) -> bool:
+    tz = ZoneInfo("America/New_York")
+    current = now.astimezone(tz) if now else datetime.now(tz)
+    minutes = current.hour * 60 + current.minute + current.second / 60.0
+    start_minutes = 19 * 60 + 30
+    end_minutes = 2 * 60 + 30
+    return minutes >= start_minutes or minutes < end_minutes
+
+PULSEPOINT_FIRST_ON_SCENE: Dict[str, Dict[str, Any]] = {}
+PULSEPOINT_FIRST_ON_SCENE_LOCK = asyncio.Lock()
 
 VEHICLE_HEADINGS_NAME = Path(os.environ.get("VEHICLE_HEADINGS_FILE", "vehicle_headings.json")).name
 
@@ -1554,6 +1642,712 @@ async def health():
     async with state.lock:
         ok = not bool(state.last_error)
         return {"ok": ok, "last_error": (state.last_error or None), "last_error_ts": (state.last_error_ts or None)}
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(result) or math.isinf(result):
+        return None
+    return result
+
+
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        if math.isnan(seconds) or math.isinf(seconds):
+            return None
+        if seconds > 10_000_000_000:
+            seconds /= 1000.0
+        try:
+            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            if text.isdigit():
+                return datetime.fromtimestamp(float(text), tz=timezone.utc)
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                return parsedate_to_datetime(text)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _normalize_hex_color(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.startswith("#"):
+        text = text[1:]
+    text = text.lower()
+    if not re.fullmatch(r"[0-9a-f]{3,8}", text):
+        return None
+    if len(text) == 3:
+        text = "".join(ch * 2 for ch in text)
+    if len(text) not in {6, 8}:
+        return None
+    return f"#{text}"
+
+
+async def fetch_ondemand_schedules(client: OnDemandClient) -> List[Dict[str, Any]]:
+    if not ONDEMAND_SCHEDULES_URL:
+        return []
+
+    async with ondemand_schedules_cache_lock:
+        cached_data = ondemand_schedules_cache_state.get("data")
+        cached_etag = ondemand_schedules_cache_state.get("etag")
+
+    headers: Dict[str, str] = {}
+    if cached_etag:
+        headers["If-None-Match"] = cached_etag
+
+    try:
+        response = await client.get_resource(
+            ONDEMAND_SCHEDULES_URL, extra_headers=headers or None
+        )
+    except Exception as exc:
+        print(f"[ondemand] schedules fetch failed: {exc}")
+        return cached_data or []
+
+    if response.status_code == 304:
+        return cached_data or []
+    if response.status_code >= 400:
+        print(f"[ondemand] schedules fetch error: {response.status_code}")
+        return cached_data or []
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        print(f"[ondemand] schedules decode failed: {exc}")
+        return cached_data or []
+
+    data: List[Dict[str, Any]]
+    if isinstance(payload, list):
+        data = payload
+    elif isinstance(payload, dict):
+        candidate = payload.get("data")
+        data = candidate if isinstance(candidate, list) else []
+    else:
+        data = []
+
+    async with ondemand_schedules_cache_lock:
+        ondemand_schedules_cache_state["data"] = data
+        ondemand_schedules_cache_state["etag"] = response.headers.get("ETag")
+
+    return data
+
+
+def _format_ondemand_timestamp(value: datetime) -> str:
+    iso = value.astimezone(timezone.utc).isoformat(timespec="milliseconds")
+    if iso.endswith("+00:00"):
+        return f"{iso[:-6]}Z"
+    return iso
+
+
+def _extract_schedule_time_bounds(
+    schedules: Optional[Sequence[Dict[str, Any]]],
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    earliest: Optional[datetime] = None
+    latest: Optional[datetime] = None
+
+    if not schedules:
+        return (None, None)
+
+    for vehicle in schedules:
+        if not isinstance(vehicle, dict):
+            continue
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+        for stop in stops:
+            if not isinstance(stop, dict):
+                continue
+            ts = _parse_timestamp(stop.get("timestamp") or stop.get("time"))
+            if ts is None:
+                continue
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            else:
+                ts = ts.astimezone(timezone.utc)
+            if earliest is None or ts < earliest:
+                earliest = ts
+            if latest is None or ts > latest:
+                latest = ts
+
+    return (earliest, latest)
+
+
+async def fetch_ondemand_rides(
+    client: OnDemandClient, schedules: Optional[Sequence[Dict[str, Any]]] = None
+) -> Set[str]:
+    if not ONDEMAND_RIDES_URL:
+        return set()
+
+    async def fetch() -> Set[str]:
+        now = datetime.now(timezone.utc)
+        schedule_start, schedule_end = _extract_schedule_time_bounds(schedules)
+        padding = timedelta(minutes=max(0, ONDEMAND_RIDES_WINDOW_PADDING_MIN))
+        start_dt = schedule_start - padding if schedule_start else now - timedelta(
+            minutes=max(1, ONDEMAND_RIDES_LOOKBACK_MIN)
+        )
+        end_dt = schedule_end + padding if schedule_end else now + timedelta(
+            minutes=max(1, ONDEMAND_RIDES_LOOKAHEAD_MIN)
+        )
+        params = {
+            "start_time": _format_ondemand_timestamp(start_dt),
+            "end_time": _format_ondemand_timestamp(end_dt),
+            "include_histories": "true",
+        }
+
+        parsed = urlparse(ONDEMAND_RIDES_URL)
+        merged_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        merged_params.update(params)
+        url = urlunparse(parsed._replace(query=urlencode(merged_params)))
+
+        try:
+            response = await client.get_resource(url)
+        except Exception as exc:
+            print(f"[ondemand] rides fetch failed: {exc}")
+            return set()
+
+        if response.status_code >= 400:
+            print(f"[ondemand] rides fetch error: {response.status_code}")
+            return set()
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            print(f"[ondemand] rides decode failed: {exc}")
+            return set()
+
+        data: Sequence[Any]
+        if isinstance(payload, list):
+            data = payload
+        elif isinstance(payload, dict):
+            candidate = payload.get("data")
+            data = candidate if isinstance(candidate, list) else []
+        else:
+            data = []
+
+        schedule_ride_ids: Set[str] = set()
+        if schedules:
+            for vehicle in schedules:
+                if not isinstance(vehicle, dict):
+                    continue
+                stops = vehicle.get("stops")
+                if not isinstance(stops, list):
+                    continue
+                for stop in stops:
+                    rides = stop.get("rides") if isinstance(stop, dict) else None
+                    if not isinstance(rides, list):
+                        continue
+                    for ride in rides:
+                        if not isinstance(ride, dict):
+                            continue
+                        ride_id_value = (
+                            ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                        )
+                        if ride_id_value is None:
+                            continue
+                        ride_id_text = str(ride_id_value).strip()
+                        if ride_id_text:
+                            schedule_ride_ids.add(ride_id_text.lower())
+
+        pending: Set[str] = set()
+        for ride in data:
+            if not isinstance(ride, dict):
+                continue
+            status_val = ride.get("status")
+            status_normalized = (
+                str(status_val).strip().lower() if status_val not in {None, ""} else ""
+            )
+            if status_normalized != "pending":
+                continue
+            ride_id = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+            if ride_id is None:
+                continue
+            ride_id_str = str(ride_id).strip()
+            if not ride_id_str:
+                continue
+            ride_id_key = ride_id_str.lower()
+            if schedule_ride_ids and ride_id_key not in schedule_ride_ids:
+                continue
+            pending.add(ride_id_key)
+        return pending
+
+    return await ondemand_rides_cache.get(fetch)
+
+
+def build_ondemand_virtual_stops(
+    schedules: Sequence[Dict[str, Any]],
+    now: datetime,
+    pending_ride_ids: Optional[Set[str]] = None,
+) -> List[Dict[str, Any]]:
+    if not schedules:
+        return []
+
+    cutoff = now - timedelta(seconds=max(0, ONDEMAND_VIRTUAL_STOP_MAX_AGE_S))
+    records: List[Dict[str, Any]] = []
+    pending_lookup: Set[str] = set()
+    if pending_ride_ids:
+        pending_lookup = {ride_id.lower() for ride_id in pending_ride_ids if ride_id}
+
+    for vehicle in schedules:
+        if not isinstance(vehicle, dict):
+            continue
+        vehicle_id_raw = vehicle.get("vehicle_id") or vehicle.get("vehicleId")
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
+        if not vehicle_id:
+            continue
+        call_name_raw = vehicle.get("call_name") or vehicle.get("callName")
+        call_name = (
+            str(call_name_raw).strip() if call_name_raw not in {None, ""} else None
+        )
+
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+        for stop in stops:
+            if not isinstance(stop, dict):
+                continue
+            position = stop.get("position") or {}
+            lat = _coerce_float(
+                position.get("latitude")
+                or position.get("lat")
+                or stop.get("latitude")
+                or stop.get("lat")
+            )
+            lng = _coerce_float(
+                position.get("longitude")
+                or position.get("lon")
+                or position.get("lng")
+                or stop.get("longitude")
+                or stop.get("lon")
+            )
+            if lat is None or lng is None:
+                continue
+            stop_timestamp = _parse_timestamp(stop.get("timestamp") or stop.get("time"))
+            if stop_timestamp is None:
+                continue
+            if stop_timestamp.tzinfo is None:
+                stop_timestamp = stop_timestamp.replace(tzinfo=timezone.utc)
+            else:
+                stop_timestamp = stop_timestamp.astimezone(timezone.utc)
+            if stop_timestamp < cutoff:
+                continue
+            rides = stop.get("rides")
+            if not isinstance(rides, list):
+                continue
+            address_value = stop.get("address") or stop.get("label") or ""
+            address = str(address_value).strip()
+            for ride in rides:
+                if not isinstance(ride, dict):
+                    continue
+                status_val = ride.get("status")
+                status_normalized = (
+                    str(status_val).strip().lower()
+                    if status_val not in {None, ""}
+                    else ""
+                )
+                if status_normalized.startswith("pending"):
+                    continue
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id_normalized = (
+                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
+                )
+                if ride_id_normalized and ride_id_normalized in pending_lookup:
+                    continue
+                stop_type_raw = ride.get("stop_type") or ride.get("stopType")
+                stop_type = str(stop_type_raw or "").strip().lower()
+                if stop_type not in {"pickup", "dropoff"}:
+                    continue
+                riders: List[str] = []
+                rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+                if rider_name:
+                    riders.append(rider_name)
+                extra_riders = ride.get("riders") or ride.get("passengers")
+                if isinstance(extra_riders, list):
+                    for extra in extra_riders:
+                        formatted = _format_rider_name(extra)
+                        if formatted:
+                            riders.append(formatted)
+                capacity_value = ride.get("capacity")
+                capacity = 1
+                try:
+                    if capacity_value is not None:
+                        capacity_candidate = int(float(capacity_value))
+                        if capacity_candidate > 0:
+                            capacity = capacity_candidate
+                except (TypeError, ValueError):
+                    capacity = 1
+                service_id_raw = ride.get("service_id") or ride.get("serviceId")
+                service_id = (
+                    str(service_id_raw).strip() if service_id_raw not in {None, ""} else None
+                )
+                record = {
+                    "lat": lat,
+                    "lng": lng,
+                    "address": address,
+                    "stopType": stop_type,
+                    "capacity": capacity,
+                    "serviceId": service_id,
+                    "vehicleId": vehicle_id,
+                    "stopTimestamp": stop_timestamp.isoformat(),
+                    "riders": riders,
+                }
+                if call_name:
+                    record["callName"] = call_name
+                records.append(record)
+    return records
+
+
+def _format_rider_name(rider: Any) -> Optional[str]:
+    if isinstance(rider, dict):
+        first = rider.get("first_name") or rider.get("firstName") or rider.get("first")
+        last = rider.get("last_name") or rider.get("lastName") or rider.get("last")
+        name_parts = [str(part).strip() for part in (first, last) if part not in {None, ""}]
+        joined = " ".join([part for part in name_parts if part])
+        if joined:
+            return joined
+        for key in ("name", "username", "email"):
+            candidate = rider.get(key)
+            if isinstance(candidate, str):
+                candidate_stripped = candidate.strip()
+                if candidate_stripped:
+                    return candidate_stripped
+    elif isinstance(rider, str):
+        rider_stripped = rider.strip()
+        if rider_stripped:
+            return rider_stripped
+    return None
+
+
+def build_ondemand_vehicle_stop_plans(
+    schedules: Sequence[Dict[str, Any]],
+    pending_ride_ids: Optional[Set[str]] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    plans: Dict[str, List[Dict[str, Any]]] = {}
+    pending_lookup: Set[str] = set()
+    if pending_ride_ids:
+        pending_lookup = {ride_id.lower() for ride_id in pending_ride_ids if ride_id}
+    for vehicle in schedules:
+        if not isinstance(vehicle, dict):
+            continue
+        vehicle_id_raw = vehicle.get("vehicle_id") or vehicle.get("vehicleId")
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
+        if not vehicle_id:
+            continue
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+        entries: List[Dict[str, Any]] = []
+        order = 1
+        for stop in stops:
+            if not isinstance(stop, dict):
+                continue
+            rides = stop.get("rides")
+            if not isinstance(rides, list):
+                continue
+            address_value = stop.get("address") or stop.get("label") or ""
+            address = str(address_value).strip() or "Unknown stop"
+            grouped: Dict[str, List[str]] = {}
+            for ride in rides:
+                if not isinstance(ride, dict):
+                    continue
+                status_val = ride.get("status")
+                status_normalized = (
+                    str(status_val).strip().lower()
+                    if status_val not in {None, ""}
+                    else ""
+                )
+                if status_normalized.startswith("pending"):
+                    continue
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id_normalized = (
+                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
+                )
+                if ride_id_normalized and ride_id_normalized in pending_lookup:
+                    continue
+                stop_type_raw = ride.get("stop_type") or ride.get("stopType")
+                stop_type = str(stop_type_raw or "").strip().lower()
+                if stop_type not in {"pickup", "dropoff"}:
+                    continue
+                rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+                if rider_name:
+                    grouped.setdefault(stop_type, []).append(rider_name)
+            for stop_type, riders in grouped.items():
+                if not riders:
+                    continue
+                entry = {
+                    "order": order,
+                    "address": address,
+                    "stopType": stop_type,
+                    "riders": riders,
+                }
+                if entries:
+                    last = entries[-1]
+                    if (
+                        last.get("address", "").lower() == address.lower()
+                        and last.get("stopType") == stop_type
+                    ):
+                        existing_names = set(last.get("riders", []))
+                        for name in riders:
+                            if name not in existing_names:
+                                last.setdefault("riders", []).append(name)
+                                existing_names.add(name)
+                        continue
+                entries.append(entry)
+                order += 1
+        if entries:
+            plans[vehicle_id] = entries
+    return plans
+
+
+async def _collect_ondemand_data(
+    client: OnDemandClient, *, now: Optional[datetime] = None
+) -> Dict[str, Any]:
+    current_dt = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
+    client_module = getattr(client.__class__, "__module__", "") if client else ""
+    bypass_window = client_module.startswith("tests.") or not isinstance(
+        client, OnDemandClient
+    )
+    if not bypass_window and not _is_within_ondemand_operating_window(current_dt):
+        return {"vehicles": [], "ondemandStops": []}
+
+    async def fetch() -> Any:
+        def extract_driver_name(entry: Dict[str, Any]) -> str:
+            driver_info = entry.get("driver") if isinstance(entry, dict) else None
+            if isinstance(driver_info, dict):
+                first_name = driver_info.get("first_name") or driver_info.get("firstName")
+                last_name = driver_info.get("last_name") or driver_info.get("lastName")
+                name_parts = [
+                    str(part).strip() for part in (first_name, last_name) if part not in {None, ""}
+                ]
+                joined_name = " ".join([part for part in name_parts if part])
+                if joined_name:
+                    return joined_name
+            for key in ("driverName", "driver_name", "driver"):
+                value = entry.get(key) if isinstance(entry, dict) else None
+                if isinstance(value, str):
+                    value_stripped = value.strip()
+                    if value_stripped:
+                        return value_stripped
+            return ""
+
+        roster: List[Dict[str, Any]] = []
+        try:
+            roster = await client.get_vehicle_details()
+        except Exception as exc:
+            print(f"[ondemand] vehicle roster fetch failed: {exc}")
+
+        color_map: Dict[str, str] = {}
+        driver_name_map: Dict[str, str] = {}
+        last_active_map: Dict[str, str] = {}
+        for entry in roster:
+            if not isinstance(entry, dict):
+                continue
+            vehicle_id = entry.get("vehicle_id")
+            if vehicle_id is None:
+                continue
+            vehicle_key = str(vehicle_id).strip()
+            if not vehicle_key:
+                continue
+            # Normalise the colour so the frontend can prepend a '#'.
+            color = entry.get("color")
+            color_value = str(color).strip() if color is not None else ""
+            if color_value:
+                normalized_color = color_value.lstrip("#").lower()
+                if normalized_color:
+                    color_map[vehicle_key] = normalized_color
+            driver_name = (
+                entry.get("driver_name")
+                or entry.get("driverName")
+                or entry.get("driver")
+            )
+            driver_name_value = (
+                str(driver_name).strip()
+                if driver_name not in {None, ""}
+                else ""
+            )
+            if driver_name_value:
+                driver_name_map[vehicle_key] = driver_name_value
+
+            last_active_value = entry.get("last_active_at") or entry.get("lastActiveAt")
+            if isinstance(last_active_value, str):
+                last_active_value = last_active_value.strip()
+            if last_active_value:
+                last_active_map[vehicle_key] = str(last_active_value)
+
+        data = await client.get_vehicle_positions()
+        if not isinstance(data, list):
+            return data
+
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            vehicle_id = entry.get("vehicle_id") or entry.get("VehicleID")
+            if vehicle_id is None:
+                continue
+            vehicle_key = str(vehicle_id).strip()
+            if not vehicle_key:
+                continue
+            color = color_map.get(vehicle_key)
+            if color:
+                entry["color"] = color
+                entry["color_hex"] = f"#{color}"
+            driver_name = driver_name_map.get(vehicle_key) or extract_driver_name(entry)
+            if driver_name:
+                entry["driverName"] = driver_name
+            last_active = last_active_map.get(vehicle_key)
+            if last_active:
+                entry["last_active_at"] = last_active
+                entry.setdefault("lastActiveAt", last_active)
+        return data
+
+    raw_positions = await ondemand_positions_cache.get(fetch)
+
+    schedules: List[Dict[str, Any]] = []
+    pending_ride_ids: Set[str] = set()
+    try:
+        schedules = await fetch_ondemand_schedules(client)
+    except Exception as exc:
+        print(f"[ondemand] schedules processing failed: {exc}")
+    try:
+        pending_ride_ids = await fetch_ondemand_rides(client, schedules)
+    except Exception as exc:
+        print(f"[ondemand] rides processing failed: {exc}")
+
+    stop_plans = build_ondemand_vehicle_stop_plans(schedules, pending_ride_ids)
+
+    vehicles: List[Dict[str, Any]] = []
+    positions_list = raw_positions if isinstance(raw_positions, list) else []
+    for entry in positions_list:
+        if not isinstance(entry, dict):
+            continue
+        vehicle_id_raw = (
+            entry.get("vehicle_id")
+            or entry.get("VehicleID")
+            or entry.get("device_uuid")
+            or entry.get("device_id")
+        )
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
+        if not vehicle_id:
+            continue
+        position = entry.get("position") or {}
+        lat = _coerce_float(position.get("latitude") or position.get("lat") or entry.get("lat"))
+        lng = _coerce_float(
+            position.get("longitude")
+            or position.get("lon")
+            or position.get("lng")
+            or entry.get("lon")
+        )
+        if lat is None or lng is None:
+            continue
+        heading = _coerce_float(entry.get("heading") or entry.get("Heading"))
+        last_update_dt = _parse_timestamp(
+            entry.get("last_update")
+            or entry.get("lastUpdate")
+            or entry.get("last_seen")
+            or entry.get("timestamp")
+        )
+        if last_update_dt is not None:
+            if last_update_dt.tzinfo is None:
+                last_update_dt = last_update_dt.replace(tzinfo=timezone.utc)
+            else:
+                last_update_dt = last_update_dt.astimezone(timezone.utc)
+        last_update = last_update_dt.isoformat() if last_update_dt is not None else None
+        service_id_raw = entry.get("service_id") or entry.get("serviceId")
+        service_id = (
+            str(service_id_raw).strip() if service_id_raw not in {None, ""} else None
+        )
+        color = (
+            _normalize_hex_color(entry.get("markerColor"))
+            or _normalize_hex_color(entry.get("color_hex"))
+            or _normalize_hex_color(entry.get("color"))
+            or ONDEMAND_DEFAULT_MARKER_COLOR
+        )
+        vehicle_payload: Dict[str, Any] = {
+            "vehicleId": vehicle_id,
+            "lat": lat,
+            "lng": lng,
+            "heading": heading,
+            "lastUpdate": last_update,
+            "serviceId": service_id,
+            "markerColor": color,
+            "status": entry.get("status") or entry.get("Status"),
+        }
+        last_active_at = entry.get("last_active_at") or entry.get("lastActiveAt")
+        if last_active_at:
+            vehicle_payload["last_active_at"] = last_active_at
+            vehicle_payload["lastActiveAt"] = last_active_at
+        if "speed" in entry:
+            vehicle_payload["speed"] = entry.get("speed")
+        if "stale" in entry:
+            vehicle_payload["stale"] = bool(entry.get("stale"))
+        if "enabled" in entry:
+            vehicle_payload["enabled"] = entry.get("enabled")
+        if "eligible" in entry:
+            vehicle_payload["eligible"] = entry.get("eligible")
+        call_name = entry.get("call_name") or entry.get("callName")
+        if call_name:
+            vehicle_payload["callName"] = call_name
+        driver_name = entry.get("driverName")
+        if driver_name:
+            driver_name_value = str(driver_name).strip()
+            if driver_name_value:
+                vehicle_payload["driverName"] = driver_name_value
+        device_uuid = entry.get("device_uuid") or entry.get("deviceUuid")
+        if device_uuid:
+            vehicle_payload["deviceUuid"] = device_uuid
+        device_id = entry.get("device_id") or entry.get("deviceId")
+        if device_id:
+            vehicle_payload["deviceId"] = device_id
+        stop_plan = stop_plans.get(vehicle_id)
+        if stop_plan:
+            vehicle_payload["stops"] = stop_plan
+        vehicles.append(vehicle_payload)
+
+    ondemand_stops = build_ondemand_virtual_stops(
+        schedules, current_dt, pending_ride_ids
+    )
+
+    return {"vehicles": vehicles, "ondemandStops": ondemand_stops}
+
+
+async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
+    _require_dispatcher_access(request)
+    dispatcher_info = _get_dispatcher_secret_info(request)
+    if dispatcher_info and dispatcher_info[1] == "cat":
+        raise HTTPException(status_code=403, detail="ondemand data unavailable for CAT access")
+    client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
+    if client is None:
+        raise HTTPException(status_code=503, detail="ondemand client not configured")
+    return await _collect_ondemand_data(client)
+
+
+@app.get("/api/ondemand")
+async def api_ondemand_positions(request: Request):
+    return await _build_ondemand_payload(request)
+
+
+@app.get("/api/ondemand/vehicles/positions")
+async def api_ondemand_positions_legacy(request: Request):
+    data = await _build_ondemand_payload(request)
+    vehicles = data.get("vehicles") if isinstance(data, dict) else []
+    return {"vehicles": vehicles}
+
 
 # ---------------------------
 # Startup background updater
@@ -1887,70 +2681,145 @@ async def startup():
                         LAST_LOG_POS[vid] = pos
                         valid.append(v)
                     vehicles = valid
-                    if not moved or not vehicles:
-                        await asyncio.sleep(VEH_LOG_INTERVAL_S)
-                        continue
                     vehicle_ids = {v.get("VehicleID") for v in vehicles}
 
                     blocks: Dict[int, str] = {}
-                    try:
-                        ds = datetime.now().strftime("%m/%d/%Y")
-                        sched_url = (
-                            "https://uva.transloc.com/Services/JSONPRelay.svc/"
-                            f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
-                        )
-                        sr = await client.get(sched_url)
-                        sr.raise_for_status()
-                        sched = sr.json() or []
-                        ids = ",".join(str(s["ScheduleVehicleCalendarID"]) for s in sched)
-                        if ids:
-                            block_url = (
+                    if vehicle_ids:
+                        try:
+                            ds = datetime.now().strftime("%m/%d/%Y")
+                            sched_url = (
                                 "https://uva.transloc.com/Services/JSONPRelay.svc/"
-                                f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
+                                f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
                             )
-                            br = await client.get(block_url)
-                            br.raise_for_status()
-                            data2 = br.json() or {}
-                            groups = data2.get("BlockGroups", [])
-                            alias = {
-                                "[01]": "[01]/[04]",
-                                "[03]": "[05]/[03]",
-                                "[04]": "[01]/[04]",
-                                "[05]": "[05]/[03]",
-                                "[06]": "[22]/[06]",
-                                "[10]": "[20]/[10]",
-                                "[15]": "[26]/[15]",
-                                "[16] AM": "[21]/[16] AM",
-                                "[17]": "[23]/[17]",
-                                "[18] AM": "[24]/[18] AM",
-                                "[20] AM": "[20]/[10]",
-                                "[21] AM": "[21]/[16] AM",
-                                "[22] AM": "[22]/[06]",
-                                "[23]": "[23]/[17]",
-                                "[24] AM": "[24]/[18] AM",
-                                "[26] AM": "[26]/[15]",
-                            }
-                            mapping: Dict[int, str] = {}
-                            for g in groups:
-                                block = (g.get("BlockGroupId") or "").strip()
-                                vehicle_id = (
-                                    g.get("Blocks", [{}])[0]
-                                    .get("Trips", [{}])[0]
-                                    .get("VehicleID")
-                                    or g.get("VehicleId")
+                            sr = await client.get(sched_url)
+                            sr.raise_for_status()
+                            sched = sr.json() or []
+                            ids = ",".join(str(s["ScheduleVehicleCalendarID"]) for s in sched)
+                            if ids:
+                                block_url = (
+                                    "https://uva.transloc.com/Services/JSONPRelay.svc/"
+                                    f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
                                 )
-                                if block and "[" in block and vehicle_id is not None:
-                                    mapping[vehicle_id] = alias.get(block, block)
-                            blocks = mapping
-                    except Exception as e:
-                        print(f"[vehicle_logger] block error: {e}")
+                                br = await client.get(block_url)
+                                br.raise_for_status()
+                                data2 = br.json() or {}
+                                groups = data2.get("BlockGroups", [])
+                                alias = {
+                                    "[01]": "[01]/[04]",
+                                    "[03]": "[05]/[03]",
+                                    "[04]": "[01]/[04]",
+                                    "[05]": "[05]/[03]",
+                                    "[06]": "[22]/[06]",
+                                    "[10]": "[20]/[10]",
+                                    "[15]": "[26]/[15]",
+                                    "[16] AM": "[21]/[16] AM",
+                                    "[17]": "[23]/[17]",
+                                    "[18] AM": "[24]/[18] AM",
+                                    "[20] AM": "[20]/[10]",
+                                    "[21] AM": "[21]/[16] AM",
+                                    "[22] AM": "[22]/[06]",
+                                    "[23]": "[23]/[17]",
+                                    "[24] AM": "[24]/[18] AM",
+                                    "[26] AM": "[26]/[15]",
+                                }
+                                mapping: Dict[int, str] = {}
+                                for g in groups:
+                                    block = (g.get("BlockGroupId") or "").strip()
+                                    vehicle_id = (
+                                        g.get("Blocks", [{}])[0]
+                                        .get("Trips", [{}])[0]
+                                        .get("VehicleID")
+                                        or g.get("VehicleId")
+                                    )
+                                    if block and "[" in block and vehicle_id is not None:
+                                        mapping[vehicle_id] = alias.get(block, block)
+                                blocks = mapping
+                        except Exception as e:
+                            print(f"[vehicle_logger] block error: {e}")
 
                     blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
+                    day_key = datetime.fromtimestamp(ts / 1000).strftime("%Y%m%d")
+                    minimal_routes: Optional[List[Dict[str, Any]]] = None
+                    routes_serialized: Optional[str] = None
+                    routes_hash: Optional[str] = None
+                    try:
+                        routes_raw: List[Dict[str, Any]] = []
+                        routes_catalog_raw: List[Dict[str, Any]] = []
+                        async with state.lock:
+                            routes_raw = list(getattr(state, "routes_raw", []))
+                            routes_catalog_raw = list(getattr(state, "routes_catalog_raw", []))
+                        trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
+                        if routes_catalog_raw:
+                            trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog_raw)
+                        minimal: List[Dict[str, Any]] = []
+                        for route in trimmed_routes:
+                            if not isinstance(route, dict):
+                                continue
+                            rid = route.get("RouteID")
+                            if rid is None:
+                                continue
+                            entry_min: Dict[str, Any] = {"RouteID": rid}
+                            for key in ("Description", "RouteName", "InfoText", "MapLineColor", "EncodedPolyline"):
+                                val = route.get(key)
+                                if val not in (None, ""):
+                                    entry_min[key] = val
+                            minimal.append(entry_min)
+                        minimal.sort(key=lambda item: str(item.get("RouteID")))
+                        minimal_routes = minimal
+                        routes_serialized = json.dumps(
+                            minimal_routes,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        routes_hash = hashlib.sha256(routes_serialized.encode("utf-8")).hexdigest()
+                    except Exception as route_err:
+                        minimal_routes = None
+                        routes_serialized = None
+                        routes_hash = None
+                        print(f"[vehicle_logger] route snapshot error: {route_err}")
+
+                    ondemand_payload: Dict[str, Any] = {}
+                    try:
+                        ondemand_client = getattr(app.state, "ondemand_client", None)
+                        if ondemand_client is not None:
+                            ondemand_payload = await _collect_ondemand_data(
+                                ondemand_client,
+                                now=datetime.fromtimestamp(ts / 1000, timezone.utc),
+                            )
+                    except Exception as exc:
+                        ondemand_payload = {}
+                        print(f"[vehicle_logger] ondemand fetch failed: {exc}")
+
+                    should_log_entry = moved and bool(vehicles)
+                    if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
+                        should_log_entry = True
+                    if not should_log_entry:
+                        await asyncio.sleep(VEH_LOG_INTERVAL_S)
+                        continue
+
                     entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
+                    if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
+                        entry["ondemand"] = ondemand_payload
                     fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
                     for log_dir in VEH_LOG_DIRS:
                         path = log_dir / fname
                         path.parent.mkdir(parents=True, exist_ok=True)
+                        if routes_serialized is not None and routes_hash is not None:
+                            routes_path = log_dir / f"{day_key}_routes.json"
+                            route_hash_key = (os.fspath(log_dir), day_key)
+                            try:
+                                if (
+                                    LAST_ROUTE_SNAPSHOT_HASH.get(route_hash_key) != routes_hash
+                                    or not routes_path.exists()
+                                ):
+                                    routes_path.parent.mkdir(parents=True, exist_ok=True)
+                                    with routes_path.open("w") as rf:
+                                        rf.write(routes_serialized)
+                                        rf.flush()
+                                        os.fsync(rf.fileno())
+                                    LAST_ROUTE_SNAPSHOT_HASH[route_hash_key] = routes_hash
+                            except Exception as route_write_err:
+                                print(f"[vehicle_logger] failed to persist routes: {route_write_err}")
                         with path.open("a") as f:
                             f.write(json.dumps(entry) + "\n")
                             f.flush()
@@ -2119,6 +2988,248 @@ async def _fetch_downed_sheet_csv() -> str:
     record_api_call("GET", DISPATCHER_DOWNED_SHEET_URL, resp.status_code)
     resp.raise_for_status()
     return resp.text
+
+
+def _clean_sheet_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.strip()
+
+
+def _normalize_header_label(text: Any) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip()).lower()
+
+
+def _find_status_indices(headers: Sequence[Any]) -> List[int]:
+    return [idx for idx, text in enumerate(headers) if _normalize_header_label(text) == "status"]
+
+
+def _find_delivery_date_index(headers: Sequence[Any]) -> int:
+    for idx, text in enumerate(headers):
+        normalized = _normalize_header_label(text)
+        if not normalized:
+            continue
+        if (
+            normalized == "actual delivery date"
+            or normalized == "delivery date"
+            or "delivery date" in normalized
+        ):
+            return idx
+    return -1
+
+
+def _find_down_date_index(headers: Sequence[Any]) -> int:
+    for idx, text in enumerate(headers):
+        normalized = _normalize_header_label(text)
+        if not normalized:
+            continue
+        if normalized == "date" or normalized == "down date" or "down date" in normalized:
+            return idx
+    return -1
+
+
+def _parse_sheet_date(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+
+    normalized = text.replace("T", " ").replace("Z", "").strip()
+    try:
+        # datetime.fromisoformat handles many common cases
+        parsed = datetime.fromisoformat(normalized)
+        return parsed
+    except (TypeError, ValueError):
+        pass
+
+    date_patterns = [
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%Y/%m/%d",
+        "%Y-%m-%d",
+        "%m-%d-%Y",
+        "%m-%d-%y",
+        "%b %d %Y",
+        "%b %d, %Y",
+    ]
+    datetime_patterns = [
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%y %H:%M",
+        "%m/%d/%y %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%m-%d-%Y %H:%M",
+        "%m-%d-%Y %H:%M:%S",
+        "%m-%d-%y %H:%M",
+        "%m-%d-%y %H:%M:%S",
+    ]
+
+    for fmt in datetime_patterns:
+        try:
+            return datetime.strptime(normalized, fmt)
+        except (TypeError, ValueError):
+            continue
+
+    for fmt in date_patterns:
+        try:
+            return datetime.strptime(normalized, fmt)
+        except (TypeError, ValueError):
+            continue
+
+    first_token = normalized.split()[0]
+    if first_token != normalized:
+        for fmt in date_patterns:
+            try:
+                return datetime.strptime(first_token, fmt)
+            except (TypeError, ValueError):
+                continue
+
+    return None
+
+
+def _get_preferred_status(values: Sequence[Any], status_indices: Sequence[int]) -> str:
+    if not status_indices:
+        return ""
+    for idx in reversed(status_indices):
+        if idx < 0 or idx >= len(values):
+            continue
+        value = values[idx]
+        if value and str(value).strip():
+            return str(value)
+    for idx in status_indices:
+        if idx < 0 or idx >= len(values):
+            continue
+        value = values[idx]
+        if value and str(value).strip():
+            return str(value)
+    return ""
+
+
+def _get_display_date(values: Sequence[Any], delivery_idx: int, down_idx: int) -> str:
+    if 0 <= delivery_idx < len(values):
+        delivery = values[delivery_idx]
+        if delivery and str(delivery).strip():
+            return str(delivery)
+    if 0 <= down_idx < len(values):
+        down = values[down_idx]
+        if down and str(down).strip():
+            return str(down)
+    return ""
+
+
+
+
+KIOSK_COLUMN_WHITELIST: Set[str] = {
+    "bus",
+    "p&t support vehicle",
+    "vehicle",
+    "status",
+    "date",
+    "down date",
+    "actual delivery date",
+    "delivery date",
+    "supervisor",
+    "notes/description",
+    "notes",
+    "description",
+    "diagnostic date",
+    "diag date",
+    "mechanic",
+    "diagnostic description",
+    "current eta",
+    "eta",
+}
+
+
+def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
+    if not csv_text:
+        return {"headerLine": [], "sections": []}
+
+    reader = csv.reader(io.StringIO(csv_text))
+    rows: List[List[str]] = [[_clean_sheet_cell(cell) for cell in row] for row in reader]
+    if not rows:
+        return {"headerLine": [], "sections": []}
+
+    header_line = rows[0]
+    sections: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    SECTION_TITLES = {"Bus", "P&T Support Vehicle"}
+
+    for raw_row in rows[1:]:
+        if not any(raw_row):
+            continue
+        first = raw_row[0]
+        if first in SECTION_TITLES:
+            current = {
+                "title": first,
+                "headers": list(raw_row),
+                "rows": [],
+            }
+            sections.append(current)
+            continue
+        if current is None:
+            continue
+        current["rows"].append(list(raw_row))
+
+    for section in sections:
+        headers = section.get("headers") or []
+        status_indices = _find_status_indices(headers)
+        delivery_idx = _find_delivery_date_index(headers)
+        down_idx = _find_down_date_index(headers)
+        processed_rows: List[Dict[str, Any]] = []
+        for row in section.get("rows", []):
+            values = list(row)
+            if len(values) < len(headers):
+                values.extend([""] * (len(headers) - len(values)))
+            status_text = _get_preferred_status(values, status_indices)
+            processed_rows.append(
+                {
+                    "values": values,
+                    "statusText": status_text,
+                    "displayDate": _get_display_date(values, delivery_idx, down_idx),
+                }
+            )
+        section["rows"] = processed_rows
+
+    return {"headerLine": header_line, "sections": sections}
+
+
+def _filter_kiosk_sections(sections: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    filtered: List[Dict[str, Any]] = []
+    for section in sections or []:
+        headers = list(section.get("headers") or [])
+        normalized_headers = [_normalize_header_label(text) for text in headers]
+        keep_indices = [
+            idx
+            for idx, normalized in enumerate(normalized_headers)
+            if normalized in KIOSK_COLUMN_WHITELIST
+        ]
+        if not keep_indices:
+            continue
+
+        filtered_rows: List[Dict[str, Any]] = []
+        for row in section.get("rows", []):
+            if not isinstance(row, dict):
+                continue
+            values = list(row.get("values") or [])
+            filtered_values = [
+                values[idx] if idx < len(values) else ""
+                for idx in keep_indices
+            ]
+            filtered_rows.append({**row, "values": filtered_values})
+
+        if not filtered_rows:
+            continue
+
+        filtered_section = dict(section)
+        filtered_section["headers"] = [headers[idx] for idx in keep_indices]
+        filtered_section["rows"] = filtered_rows
+        filtered.append(filtered_section)
+    return filtered
 
 
 async def _get_cached_downed_sheet() -> Tuple[str, float, Optional[str]]:
@@ -2452,6 +3563,21 @@ async def dispatcher_downed_buses(request: Request):
     csv_text, fetched_at, error = await _get_cached_downed_sheet()
     payload = {
         "csv": csv_text,
+        "fetched_at": int(fetched_at * 1000) if fetched_at else None,
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+@app.get("/v1/kiosk/downed_buses")
+async def kiosk_downed_buses():
+    csv_text, fetched_at, error = await _get_cached_downed_sheet()
+    parsed = _parse_downed_sheet_csv(csv_text)
+    filtered_sections = _filter_kiosk_sections(parsed.get("sections", []))
+    payload: Dict[str, Any] = {
+        "headerLine": parsed.get("headerLine", []),
+        "sections": filtered_sections,
         "fetched_at": int(fetched_at * 1000) if fetched_at else None,
     }
     if error:
@@ -2803,13 +3929,43 @@ async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]
     return await _fetch_transloc_blocks_for_base(base_url)
 
 
-def _coerce_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
+def _describe_transloc_source(base_url: Optional[str]) -> str:
+    if is_default_transloc_base(base_url):
+        return "default TransLoc feed"
+    sanitized = sanitize_transloc_base(base_url)
+    if sanitized:
+        return sanitized
+    if base_url:
+        return base_url
+    return "default TransLoc feed"
+
+
+def _transloc_error_detail(exc: httpx.HTTPError, base_url: Optional[str]) -> str:
+    source = _describe_transloc_source(base_url)
+    prefix = f"TransLoc request failed for {source}"
+    if isinstance(exc, httpx.TimeoutException):
+        return f"{prefix}: request timed out"
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        reason = exc.response.reason_phrase or ""
+        if reason:
+            return f"{prefix}: HTTP {status} {reason}"
+        return f"{prefix}: HTTP {status}"
+    if isinstance(exc, httpx.RequestError):
+        return f"{prefix}: {exc.__class__.__name__}: {exc}"
+    return f"{prefix}: {exc}"
+
+
+async def _proxy_transloc_get(url: str, *, params: Optional[Dict[str, Any]] = None, base_url: Optional[str] = None):
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, params=params, timeout=20)
+            record_api_call("GET", str(r.url), r.status_code)
+            r.raise_for_status()
+            return r.json()
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url or url)
+        raise HTTPException(status_code=502, detail=detail) from exc
 
 
 def _coerce_epoch_seconds(value: Any) -> Optional[float]:
@@ -2854,7 +4010,9 @@ def _vehicle_age_seconds(seconds_since_report: Any = None, timestamp: Any = None
     return age
 
 
-async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, Any]:
+async def build_transloc_snapshot(
+    base_url: Optional[str] = None, include_stale: bool = False
+) -> Dict[str, Any]:
     use_default = is_default_transloc_base(base_url)
     routes_raw: List[Dict[str, Any]] = []
     extra_routes_raw: List[Dict[str, Any]] = []
@@ -2924,7 +4082,11 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
                 or rec.get("DateTimeUTC")
             ),
         )
-        if age_for_filter is not None and age_for_filter >= VEHICLE_STALE_THRESHOLD_S:
+        if (
+            not include_stale
+            and age_for_filter is not None
+            and age_for_filter >= VEHICLE_STALE_THRESHOLD_S
+        ):
             continue
         seconds_output = seconds if seconds is not None else seconds_raw
         vehicles.append(
@@ -2953,8 +4115,14 @@ async def build_transloc_snapshot(base_url: Optional[str] = None) -> Dict[str, A
 
 
 @app.get("/v1/testmap/transloc")
-async def testmap_transloc_snapshot(base_url: Optional[str] = Query(None)):
-    return await build_transloc_snapshot(base_url=base_url)
+async def testmap_transloc_snapshot(
+    base_url: Optional[str] = Query(None), stale: bool = Query(False)
+):
+    try:
+        return await build_transloc_snapshot(base_url=base_url, include_stale=stale)
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url)
+        raise HTTPException(status_code=502, detail=detail) from exc
 
 
 def _extract_cat_array(root: Any, keys: List[str]) -> List[Any]:
@@ -3472,6 +4640,465 @@ async def cat_stop_etas_endpoint(stop_id: str):
     return {"etas": data}
 
 
+
+_PULSEPOINT_INCIDENT_ID_KEYS = (
+    "ID",
+    "IncidentID",
+    "IncidentNumber",
+    "PulsePointIncidentID",
+    "PulsePointIncidentCallNumber",
+    "CadIncidentNumber",
+    "CADIncidentNumber",
+)
+_PULSEPOINT_INCIDENT_RECEIVED_FIELDS = (
+    "CallReceivedDateTime",
+    "ReceivedDateTime",
+    "Received",
+    "CallReceived",
+    "FirstReceived",
+    "CreateDate",
+    "CreatedDateTime",
+    "DispatchDateTime",
+)
+_PULSEPOINT_FIRST_ON_SCENE_FIELDS = (
+    "FirstUnitOnSceneDateTime",
+    "FirstOnSceneDateTime",
+    "FirstUnitOnScene",
+    "FirstOnScene",
+    "FirstUnitArrivedDateTime",
+    "FirstArrivedDateTime",
+    "FirstArrivalDateTime",
+    "CallFirstUnitOnSceneDateTime",
+    "CallFirstOnSceneDateTime",
+    "CallFirstUnitArrivedDateTime",
+)
+_PULSEPOINT_UNIT_TIME_FIELDS = (
+    "UnitOnSceneDateTime",
+    "UnitArrivedDateTime",
+    "UnitAtSceneDateTime",
+    "OnSceneDateTime",
+    "ArrivedDateTime",
+    "ArrivalDateTime",
+    "OnSceneTime",
+    "OnSceneTimestamp",
+    "Arrived",
+)
+_PULSEPOINT_UNIT_STATUS_ALIASES = {
+    "DP": "DP",
+    "DISPATCHED": "DP",
+    "DISPATCH": "DP",
+    "AK": "AK",
+    "ACK": "AK",
+    "ACKNOWLEDGED": "AK",
+    "ER": "ER",
+    "EN ROUTE": "ER",
+    "ENROUTE": "ER",
+    "SG": "SG",
+    "STAGED": "SG",
+    "OS": "OS",
+    "ON SCENE": "OS",
+    "ON-SCENE": "OS",
+    "ONSCENE": "OS",
+    "AE": "AE",
+    "AVAILABLE ON SCENE": "AE",
+    "AVAILABLE ONSCENE": "AE",
+    "AVAILABLE ON-SCENE": "AE",
+    "AVAIL ON SCENE": "AE",
+    "TR": "TR",
+    "TRANSPORT": "TR",
+    "TRANSPORTING": "TR",
+    "TA": "TA",
+    "TRANSPORT ARRIVED": "TA",
+    "TRANSPORT-ARRIVED": "TA",
+    "TRANSPORT ARRVD": "TA",
+    "AR": "AR",
+    "CLEARED": "AR",
+    "CLEARED FROM INCIDENT": "AR",
+}
+_PULSEPOINT_UNIT_ON_SCENE_STATUS = {"OS", "AE"}
+_PULSEPOINT_ON_SCENE_KEYWORDS = ("on scene", "onscene", "on-scene")
+_PULSEPOINT_UNIT_STRING_RE = re.compile(r"^(.*?)\s*\(([^)]*)\)\s*$")
+
+
+def _looks_like_pulsepoint_incident(obj: Any) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    keys = {"ID", "FullDisplayAddress", "PulsePointIncidentCallType", "CallReceivedDateTime", "Latitude", "Longitude"}
+    return sum(1 for key in keys if key in obj) >= 2
+
+
+def _parse_incident_coordinate(value: Any) -> Optional[float]:
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            numeric = float(value.strip())
+        except (TypeError, ValueError):
+            return None
+        return numeric if math.isfinite(numeric) else None
+    return None
+
+
+def _normalize_incident_id(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _get_incident_identifier(incident: Dict[str, Any]) -> Optional[str]:
+    for key in _PULSEPOINT_INCIDENT_ID_KEYS:
+        value = incident.get(key)
+        if value is None:
+            continue
+        normalized = _normalize_incident_id(value)
+        if normalized:
+            return normalized
+    return None
+
+
+def _get_incident_received_value(incident: Dict[str, Any]) -> str:
+    for field in _PULSEPOINT_INCIDENT_RECEIVED_FIELDS:
+        value = incident.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _derive_incident_lookup_id(incident: Dict[str, Any]) -> str:
+    direct = _get_incident_identifier(incident)
+    if direct:
+        return direct
+    lat = _parse_incident_coordinate(
+        incident.get("Latitude") or incident.get("latitude") or incident.get("lat")
+    )
+    lon = _parse_incident_coordinate(
+        incident.get("Longitude") or incident.get("longitude") or incident.get("lon")
+    )
+    if lat is None or lon is None:
+        return ""
+    received = _get_incident_received_value(incident)
+    if received:
+        return _normalize_incident_id(f"{lat:.6f}_{lon:.6f}_{received}")
+    return _normalize_incident_id(f"{lat:.6f}_{lon:.6f}")
+
+
+def _normalize_unit_status(value: Any) -> Tuple[str, str]:
+    if value is None:
+        return "", ""
+    raw = str(value).strip()
+    if not raw:
+        return "", ""
+    canonical = _PULSEPOINT_UNIT_STATUS_ALIASES.get(raw.upper(), "")
+    return canonical, raw
+
+
+def _parse_unit_string(text: str) -> Tuple[str, str, str]:
+    trimmed = text.strip()
+    if not trimmed:
+        return "", "", ""
+    match = _PULSEPOINT_UNIT_STRING_RE.match(trimmed)
+    if match:
+        name = match.group(1).strip()
+        status = match.group(2).strip()
+        return name, status, trimmed
+    return trimmed, "", trimmed
+
+
+def _extract_incident_units(incident: Dict[str, Any]) -> List[Dict[str, Any]]:
+    units: List[Dict[str, Any]] = []
+    raw_units = incident.get("Unit")
+    if isinstance(raw_units, list):
+        for entry in raw_units:
+            name = ""
+            status = ""
+            raw_text = ""
+            if isinstance(entry, dict):
+                for key in ("UnitID", "Unit", "Name", "ApparatusID", "VehicleID"):
+                    candidate = entry.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        name = candidate.strip()
+                        break
+                for key in (
+                    "PulsePointDispatchStatus",
+                    "DispatchStatus",
+                    "Status",
+                    "UnitStatus",
+                ):
+                    candidate = entry.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        status = candidate.strip()
+                        break
+                if isinstance(entry, str):
+                    name, status, raw_text = _parse_unit_string(entry)
+            elif isinstance(entry, str):
+                name, status, raw_text = _parse_unit_string(entry)
+            if not raw_text and isinstance(entry, dict):
+                raw_text = entry.get("_raw") if isinstance(entry.get("_raw"), str) else ""
+            canonical, raw_status = _normalize_unit_status(status)
+            display = name or raw_status or raw_text
+            if not display:
+                continue
+            units.append(
+                {
+                    "status_key": canonical,
+                    "status_label": raw_status,
+                    "raw_status": raw_status,
+                    "display_text": display,
+                }
+            )
+    if not units:
+        string_candidates = [
+            incident.get("_units"),
+            incident.get("Units"),
+            incident.get("Apparatus"),
+            incident.get("UnitString"),
+        ]
+        source = next(
+            (value for value in string_candidates if isinstance(value, str) and value.strip()),
+            "",
+        )
+        if source:
+            parts = [part.strip() for part in source.split(",") if part.strip()]
+            for part in parts:
+                name, status, raw_text = _parse_unit_string(part)
+                canonical, raw_status = _normalize_unit_status(status)
+                display = name or raw_status or raw_text
+                if not display:
+                    continue
+                units.append(
+                    {
+                        "status_key": canonical,
+                        "status_label": raw_status,
+                        "raw_status": raw_status,
+                        "display_text": display,
+                    }
+                )
+    return units
+
+
+def _unit_has_on_scene_status(unit: Dict[str, Any]) -> bool:
+    status_key = str(unit.get("status_key") or "").strip().upper()
+    if status_key in _PULSEPOINT_UNIT_ON_SCENE_STATUS:
+        return True
+    for field in ("status_label", "raw_status", "display_text"):
+        value = unit.get(field)
+        if isinstance(value, str) and value:
+            lowered = value.lower()
+            if any(keyword in lowered for keyword in _PULSEPOINT_ON_SCENE_KEYWORDS):
+                return True
+    return False
+
+
+def _incident_has_on_scene_units(incident: Dict[str, Any]) -> bool:
+    units = _extract_incident_units(incident)
+    if not units:
+        return False
+    return any(_unit_has_on_scene_status(unit) for unit in units)
+
+
+def _parse_incident_datetime(value: Any) -> Optional[datetime]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        seconds = float(value)
+        if seconds > 1e12:
+            seconds /= 1000.0
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+            try:
+                numeric = float(text)
+            except ValueError:
+                numeric = None
+            if numeric is not None and math.isfinite(numeric):
+                seconds = numeric
+                if seconds > 1e12:
+                    seconds /= 1000.0
+                return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        candidate = text
+        if candidate.endswith("Z") or candidate.endswith("z"):
+            candidate = candidate[:-1] + "+00:00"
+        match = re.search(r"([+-]\d{2})(\d{2})$", candidate)
+        if match and ":" not in match.group(0):
+            candidate = f"{candidate[:-5]}{match.group(1)}:{match.group(2)}"
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(text)
+            except (TypeError, ValueError):
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed
+    return None
+
+
+def _extract_incident_first_on_scene_date(incident: Dict[str, Any]) -> Optional[datetime]:
+    for field in _PULSEPOINT_FIRST_ON_SCENE_FIELDS:
+        if field in incident:
+            date = _parse_incident_datetime(incident.get(field))
+            if date is not None:
+                return date
+    timeline = incident.get("Timeline") or incident.get("timeline")
+    if isinstance(timeline, dict):
+        for key, value in timeline.items():
+            if not isinstance(key, str):
+                continue
+            if "scene" not in key.lower():
+                continue
+            date = _parse_incident_datetime(value)
+            if date is not None:
+                return date
+    units = incident.get("Unit")
+    earliest: Optional[datetime] = None
+    if isinstance(units, list):
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            for field in _PULSEPOINT_UNIT_TIME_FIELDS:
+                if field not in unit:
+                    continue
+                date = _parse_incident_datetime(unit.get(field))
+                if date is None:
+                    continue
+                if earliest is None or date < earliest:
+                    earliest = date
+    return earliest
+
+
+def _coerce_timestamp_ms(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        parsed = _parse_incident_datetime(value)
+        return int(parsed.timestamp() * 1000) if parsed else None
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        numeric = float(value)
+        if numeric > 1e12:
+            return int(round(numeric))
+        if numeric > 1e9:
+            return int(round(numeric * 1000))
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+            try:
+                numeric = float(text)
+            except ValueError:
+                numeric = None
+            if numeric is not None and math.isfinite(numeric):
+                if numeric > 1e12:
+                    return int(round(numeric))
+                if numeric > 1e9:
+                    return int(round(numeric * 1000))
+        parsed = _parse_incident_datetime(text)
+        if parsed is not None:
+            return int(parsed.timestamp() * 1000)
+    return None
+
+
+def _extract_existing_first_on_scene(incident: Dict[str, Any]) -> Tuple[Optional[int], str]:
+    source_candidates = (
+        incident.get("_firstOnSceneTimestampSource"),
+        incident.get("firstOnSceneTimestampSource"),
+        incident.get("FirstOnSceneTimestampSource"),
+    )
+    source = next(
+        (str(value).strip() for value in source_candidates if isinstance(value, str) and value.strip()),
+        "",
+    )
+    ts_candidates = (
+        incident.get("_firstOnSceneTimestamp"),
+        incident.get("firstOnSceneTimestamp"),
+        incident.get("FirstOnSceneTimestamp"),
+    )
+    for candidate in ts_candidates:
+        ts = _coerce_timestamp_ms(candidate)
+        if ts is not None:
+            return ts, source
+    return None, source
+
+
+def _iter_pulsepoint_incidents(root: Any) -> Iterable[Dict[str, Any]]:
+    seen: Set[int] = set()
+
+    def _dig(node: Any) -> Iterable[Dict[str, Any]]:
+        if isinstance(node, dict):
+            if id(node) in seen:
+                return
+            if _looks_like_pulsepoint_incident(node):
+                seen.add(id(node))
+                yield node
+            for value in node.values():
+                yield from _dig(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from _dig(item)
+
+    return _dig(root)
+
+
+async def _update_pulsepoint_first_on_scene(payload: Any) -> None:
+    incidents = list(_iter_pulsepoint_incidents(payload))
+    seen_ids: Set[str] = set()
+    now_ms = int(time.time() * 1000)
+    async with PULSEPOINT_FIRST_ON_SCENE_LOCK:
+        for incident in incidents:
+            if not isinstance(incident, dict):
+                continue
+            incident_id = _derive_incident_lookup_id(incident)
+            if not incident_id:
+                continue
+            seen_ids.add(incident_id)
+            has_on_scene = _incident_has_on_scene_units(incident)
+            data_date = _extract_incident_first_on_scene_date(incident)
+            existing_entry = PULSEPOINT_FIRST_ON_SCENE.get(incident_id)
+            timestamp = existing_entry.get("timestamp") if isinstance(existing_entry, dict) else None
+            source = existing_entry.get("source") if isinstance(existing_entry, dict) else ""
+            server_ts, server_source = _extract_existing_first_on_scene(incident)
+            if server_ts is not None:
+                prefer_server = (
+                    timestamp is None
+                    or source != "data"
+                    or (server_source == "data" and (timestamp is None or server_ts <= timestamp))
+                )
+                if prefer_server:
+                    timestamp = server_ts
+                    source = server_source or source or ""
+            if data_date is not None:
+                data_ms = int(data_date.timestamp() * 1000)
+                if timestamp is None or data_ms < timestamp or source != "data":
+                    timestamp = data_ms
+                    source = "data"
+            if has_on_scene:
+                if timestamp is None:
+                    timestamp = now_ms
+                    source = "observed"
+                PULSEPOINT_FIRST_ON_SCENE[incident_id] = {"timestamp": int(timestamp), "source": source}
+                incident["_firstOnSceneTimestamp"] = int(timestamp)
+                if source:
+                    incident["_firstOnSceneTimestampSource"] = source
+                else:
+                    incident.pop("_firstOnSceneTimestampSource", None)
+            else:
+                PULSEPOINT_FIRST_ON_SCENE.pop(incident_id, None)
+                incident.pop("_firstOnSceneTimestamp", None)
+                incident.pop("_firstOnSceneTimestampSource", None)
+        stale_ids = [key for key in list(PULSEPOINT_FIRST_ON_SCENE.keys()) if key not in seen_ids]
+        for key in stale_ids:
+            PULSEPOINT_FIRST_ON_SCENE.pop(key, None)
+
+
 def _derive_aes_key_iv(password: bytes, salt: bytes, key_len: int = 32, iv_len: int = 16) -> Tuple[bytes, bytes]:
     d = b""
     prev = b""
@@ -3530,9 +5157,36 @@ async def _get_pulsepoint_incidents() -> Any:
                 data = json.loads(data)
             except Exception:
                 return data
-        return _decrypt_pulsepoint_payload(data)
+        payload = _decrypt_pulsepoint_payload(data)
+        await _update_pulsepoint_first_on_scene(payload)
+        return payload
 
     return await pulsepoint_cache.get(fetch)
+
+
+async def _proxy_pulsepoint_icon(icon_path: str) -> Response:
+    normalised = icon_path.lstrip("/\\").strip()
+    if not normalised:
+        raise HTTPException(status_code=404, detail="Icon path not found")
+
+    async def fetch():
+        url = f"{PULSEPOINT_ICON_BASE}{normalised}"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=20)
+            record_api_call("GET", str(resp.request.url), resp.status_code)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type") or "application/octet-stream"
+            return {"content": resp.content, "content_type": content_type}
+
+    try:
+        icon = await pulsepoint_icon_cache.get(normalised, fetch)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="PulsePoint icon fetch failed"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="PulsePoint icon fetch failed") from exc
+    return Response(content=icon["content"], media_type=icon["content_type"])
 
 
 def _train_includes_station(train: Dict[str, Any], station: str) -> bool:
@@ -3628,9 +5282,23 @@ async def _fetch_ridesystems_clients() -> List[Dict[str, str]]:
     return normalised
 
 
+async def _proxy_pulsepoint_incidents():
+    return await _get_pulsepoint_incidents()
+
+
+@app.get("/v1/pulsepoint/respond_icons/{icon_path:path}")
+async def pulsepoint_icon_proxy(icon_path: str):
+    return await _proxy_pulsepoint_icon(icon_path)
+
+
+@app.get("/v1/pulsepoint/incidents")
+async def pulsepoint_proxy():
+    return await _proxy_pulsepoint_incidents()
+
+
 @app.get("/v1/testmap/pulsepoint")
 async def pulsepoint_endpoint():
-    return await _get_pulsepoint_incidents()
+    return await _proxy_pulsepoint_incidents()
 
 
 @app.get("/v1/testmap/trains")
@@ -3643,6 +5311,92 @@ async def ridesystems_clients_endpoint():
     clients = await _fetch_ridesystems_clients()
     return {"clients": clients}
 
+
+@app.get("/v1/transloc/routes_with_shapes")
+async def transloc_routes_with_shapes(base_url: Optional[str] = Query(None)):
+    try:
+        async with httpx.AsyncClient() as client:
+            return await fetch_routes_with_shapes(client, base_url=base_url)
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+
+@app.get("/v1/transloc/ridership")
+async def transloc_ridership(
+    startDate: str = Query(..., description="MM/DD/YYYY start date"),
+    endDate: str = Query(..., description="MM/DD/YYYY end date"),
+    base_url: Optional[str] = Query(None),
+):
+    url = build_transloc_url(base_url, "GetRidershipData")
+    params = {"startDate": startDate, "endDate": endDate}
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+
+@app.get("/v1/transloc/alerts")
+async def transloc_alerts(
+    showInactive: bool = Query(False),
+    includeDeleted: bool = Query(False),
+    messageTypeId: int = Query(1),
+    search: bool = Query(False),
+    rows: int = Query(10),
+    page: int = Query(1),
+    sortIndex: str = Query("StartDateUtc"),
+    sortOrder: str = Query("asc"),
+    base_url: Optional[str] = Query(None),
+):
+    root = transloc_host_base(base_url)
+    url = f"{root}/Secure/Services/RoutesService.svc/GetMessagesPaged"
+    params = {
+        "showInactive": showInactive,
+        "includeDeleted": includeDeleted,
+        "messageTypeId": messageTypeId,
+        "search": search,
+        "rows": rows,
+        "page": page,
+        "sortIndex": sortIndex,
+        "sortOrder": sortOrder,
+    }
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+
+@app.get("/v1/transloc/client_logo")
+async def transloc_client_logo(base_url: Optional[str] = Query(None)):
+    root = transloc_host_base(base_url)
+    url = f"{root}/Images/clientLogo.jpg"
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, timeout=20)
+            record_api_call("GET", str(r.url), r.status_code)
+            r.raise_for_status()
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url or url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+    content_type = r.headers.get("content-type") or "image/jpeg"
+    return Response(content=r.content, media_type=content_type)
+
+
+@app.get("/v1/transloc/stop_arrivals")
+async def transloc_stop_arrivals(
+    stopIDs: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+    stops: Optional[str] = Query(None, description="Alias for stopIDs"),
+    base_url: Optional[str] = Query(None),
+):
+    url = build_transloc_url(base_url, "GetStopArrivalTimes")
+    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY}
+    if stopIDs:
+        params["stopIDs"] = stopIDs
+    if stops:
+        params["stops"] = stops
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+
+@app.get("/v1/transloc/vehicle_capacities")
+async def transloc_vehicle_capacities(base_url: Optional[str] = Query(None)):
+    url = build_transloc_url(base_url, "GetVehicleCapacities")
+    params = {"APIKey": TRANSLOC_KEY}
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
 @app.get("/v1/transloc/routes")
 async def transloc_routes():
     async with state.lock:
@@ -3654,12 +5408,16 @@ async def anti_bunching_raw():
         now = time.time()
         if state.anti_cache and now - state.anti_cache_ts < VEH_REFRESH_S:
             return state.anti_cache
-    async with httpx.AsyncClient() as client:
-        url = f"{TRANSLOC_BASE}/GetAntiBunching"
-        r = await client.get(url, timeout=20)
-        record_api_call("GET", url, r.status_code)
-        r.raise_for_status()
-        data = r.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            url = f"{TRANSLOC_BASE}/GetAntiBunching"
+            r = await client.get(url, timeout=20)
+            record_api_call("GET", url, r.status_code)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, TRANSLOC_BASE)
+        raise HTTPException(status_code=502, detail=detail) from exc
     async with state.lock:
         state.anti_cache = data
         state.anti_cache_ts = time.time()
@@ -3751,6 +5509,10 @@ _MEDIA_ASSETS: dict[str, str] = {
     "downed.svg": "image/svg+xml",
     "testmap.svg": "image/svg+xml",
     "transloc.svg": "image/svg+xml",
+    "CATlogo.png": "image/png",
+    "apple-touch-icon-120.png": "image/png",
+    "apple-touch-icon-152.png": "image/png",
+    "apple-touch-icon-180.png": "image/png",
 }
 
 
@@ -3827,7 +5589,7 @@ async def nav_bar_js():
 
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
-    if not re.fullmatch(r"\d{8}_\d{2}\.jsonl", log_name):
+    if not re.fullmatch(r"\d{8}_(?:\d{2}\.jsonl|routes\.json)", log_name):
         raise HTTPException(status_code=404, detail="Invalid log file")
     path = None
     for log_dir in VEH_LOG_DIRS:
@@ -3837,7 +5599,8 @@ async def vehicle_log_file(log_name: str):
             break
     if path is None:
         raise HTTPException(status_code=404, detail="Log file not found")
-    return FileResponse(path, media_type="application/json")
+    media_type = "application/x-ndjson" if log_name.endswith(".jsonl") else "application/json"
+    return FileResponse(path, media_type=media_type)
 
 # ---------------------------
 # LANDING PAGE
@@ -3845,6 +5608,11 @@ async def vehicle_log_file(log_name: str):
 @app.get("/")
 async def landing_page():
     return HTMLResponse(LANDING_HTML)
+
+
+@app.get("/sitemap")
+async def sitemap_page():
+    return HTMLResponse(SITEMAP_HTML)
 
 @app.get("/login")
 async def login_page():
@@ -4045,57 +5813,113 @@ async def driver_page():
 # ---------------------------
 # DISPATCHER PAGE
 # ---------------------------
-def _normalize_dispatch_password(password: Optional[str]) -> Optional[str]:
+def _normalize_dispatch_password(password: Optional[str]) -> Optional[Tuple[str, str]]:
     if not isinstance(password, str):
         return None
     _refresh_dispatch_passwords()
+    matches: list[Tuple[str, str]] = []
     for normalized_label, secret in DISPATCH_PASSWORDS.items():
         if secrets.compare_digest(password, secret):
-            return DISPATCH_PASSWORD_LABELS.get(normalized_label, normalized_label)
+            display_label = DISPATCH_PASSWORD_LABELS.get(normalized_label, normalized_label)
+            access_type = DISPATCH_PASSWORD_TYPES.get(
+                normalized_label,
+                normalized_label.split("::")[-1],
+            )
+            matches.append((display_label, access_type))
+
+    if not matches:
+        return None
+
+    # Prefer non-CAT access when a password is shared between multiple roles so
+    # that CAT-specific UI changes only occur when the CAT credential is used
+    # explicitly.
+    for display_label, access_type in matches:
+        if access_type != "cat":
+            return display_label, access_type
+
+    return matches[0]
     return None
 
 
-def _dispatcher_cookie_value_for_label(label: str) -> Optional[str]:
+def _normalized_dispatch_key(label: Optional[str], access_type: Optional[str]) -> Optional[str]:
+    if not isinstance(label, str) or not isinstance(access_type, str):
+        return None
+    normalized_label = label.strip().lower()
+    normalized_type = access_type.strip().lower()
+    if not normalized_label or not normalized_type:
+        return None
+    return f"{normalized_label}::{normalized_type}"
+
+
+def _dispatcher_cookie_value_for_label(label: str, access_type: str) -> Optional[str]:
     _refresh_dispatch_passwords()
-    if not isinstance(label, str):
+    normalized_key = _normalized_dispatch_key(label, access_type)
+    if not normalized_key:
         return None
-    normalized = label.strip().lower()
-    if not normalized:
-        return None
-    secret = DISPATCH_PASSWORDS.get(normalized)
+    secret = DISPATCH_PASSWORDS.get(normalized_key)
     if not secret:
         return None
-    display_label = DISPATCH_PASSWORD_LABELS.get(normalized, label.strip())
+    display_label = DISPATCH_PASSWORD_LABELS.get(normalized_key, label.strip())
+    normalized_type = DISPATCH_PASSWORD_TYPES.get(normalized_key, access_type.strip().lower())
+    digest = hashlib.sha256(
+        f"dispatcher::{display_label}:{normalized_type}:{secret}".encode("utf-8")
+    ).hexdigest()
+    return f"{display_label}:{normalized_type}:{digest}"
+
+
+def _legacy_dispatcher_cookie_value(label: str) -> Optional[str]:
+    normalized_key = _normalized_dispatch_key(label, "uts")
+    if not normalized_key:
+        return None
+    secret = DISPATCH_PASSWORDS.get(normalized_key)
+    if not secret:
+        return None
+    display_label = DISPATCH_PASSWORD_LABELS.get(normalized_key, label.strip())
     digest = hashlib.sha256(
         f"dispatcher::{display_label}:{secret}".encode("utf-8")
     ).hexdigest()
     return f"{display_label}:{digest}"
 
 
-def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
+def _get_dispatcher_secret_info(request: Request) -> Optional[Tuple[str, str]]:
     _refresh_dispatch_passwords()
     provided = request.cookies.get(DISPATCH_COOKIE_NAME)
     if not provided:
         return None
-    label, sep, _hash = provided.partition(":")
-    if not sep:
-        return None
-    expected = _dispatcher_cookie_value_for_label(label)
-    if expected and secrets.compare_digest(provided, expected):
-        normalized = label.strip().lower()
-        if normalized:
-            return DISPATCH_PASSWORD_LABELS.get(normalized, label)
-        return label
+    parts = provided.split(":", 2)
+    if len(parts) == 3:
+        label, access_type, _hash = parts
+        expected = _dispatcher_cookie_value_for_label(label, access_type)
+        if expected and secrets.compare_digest(provided, expected):
+            normalized_key = _normalized_dispatch_key(label, access_type)
+            if not normalized_key:
+                return None
+            stored_label = DISPATCH_PASSWORD_LABELS.get(normalized_key, label)
+            stored_type = DISPATCH_PASSWORD_TYPES.get(
+                normalized_key, access_type.strip().lower()
+            )
+            return stored_label, stored_type
+    elif len(parts) == 2:
+        label, _hash = parts
+        expected = _legacy_dispatcher_cookie_value(label)
+        if expected and secrets.compare_digest(provided, expected):
+            return label, "uts"
     return None
 
 
+def _get_dispatcher_secret_label(request: Request) -> Optional[str]:
+    info = _get_dispatcher_secret_info(request)
+    if info is None:
+        return None
+    label, _access_type = info
+    return label
+
+
 def _has_dispatcher_access(request: Request) -> bool:
-    _refresh_dispatch_passwords()
-    return _get_dispatcher_secret_label(request) is not None
+    return _get_dispatcher_secret_info(request) is not None
 
 
 def _require_dispatcher_access(request: Request) -> None:
-    _refresh_dispatch_passwords()
     if not _has_dispatcher_access(request):
         raise HTTPException(status_code=401, detail="dispatcher auth required")
 
@@ -4110,12 +5934,14 @@ def _login_redirect(request: Request) -> RedirectResponse:
 
 @app.get("/api/dispatcher/auth")
 async def dispatcher_auth_status(request: Request):
-    _refresh_dispatch_passwords()
-    secret_label = _get_dispatcher_secret_label(request)
+    info = _get_dispatcher_secret_info(request)
+    secret_label = info[0] if info else None
+    access_type = info[1] if info else None
     return {
         "required": True,
         "authorized": bool(secret_label),
         "secret": secret_label,
+        "access_type": access_type,
     }
 
 
@@ -4123,10 +5949,10 @@ async def dispatcher_auth_status(request: Request):
 async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)
 ):
-    _refresh_dispatch_passwords()
-    label = _normalize_dispatch_password(payload.get("password"))
-    if label is not None:
-        cookie_value = _dispatcher_cookie_value_for_label(label)
+    secret_info = _normalize_dispatch_password(payload.get("password"))
+    if secret_info is not None:
+        label, access_type = secret_info
+        cookie_value = _dispatcher_cookie_value_for_label(label, access_type)
         if not cookie_value:
             raise HTTPException(status_code=401, detail="Incorrect password.")
         response.set_cookie(
@@ -4137,7 +5963,7 @@ async def dispatcher_auth(
             secure=DISPATCH_COOKIE_SECURE,
             samesite="lax",
         )
-        return {"ok": True, "secret": label}
+        return {"ok": True, "secret": label, "access_type": access_type}
     raise HTTPException(status_code=401, detail="Incorrect password.")
 
 

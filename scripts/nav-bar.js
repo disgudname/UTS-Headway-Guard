@@ -17,48 +17,70 @@
     return;
   }
 
+  const NAV_THEME_DEFAULT = {
+    primary: '#232D4B',
+    accent: '#E57200',
+    accentHoverStart: '#FFC878',
+    accentHoverEnd: '#FF7F2A',
+  };
+  const NAV_THEME_CAT = {
+    primary: '#006D9D',
+    accent: '#BAD838',
+    accentHoverStart: '#D4E970',
+    accentHoverEnd: '#A4C229',
+  };
+  const NAV_ACCENT_TEXT_COLOR = '#0f172a';
+
   const mobileQuery = window.matchMedia('(max-width: 768px)');
 
   const links = [
     {
       href: '/',
       label: 'Home',
-      icon: '/media/home.svg'
+      icon: '/media/home.svg',
+      requiresAuth: true,
     },
     {
       href: '/dispatcher',
       label: 'Dispatch',
-      icon: '/media/dispatcher.svg'
+      icon: '/media/dispatcher.svg',
+      requiresAuth: true,
     },
     {
       href: 'https://uva-uts.transloc.com/secure/dispatch/',
-      label: 'TransLoc',
-      icon: '/media/transloc.svg'
+      label: 'TransLōc',
+      icon: '/media/transloc.svg',
+      requiresAuth: true,
     },
     {
       href: '/map',
       label: 'Live Map',
-      icon: '/media/map.svg'
+      icon: '/media/map.svg',
+      requiresAuth: false,
     },
     {
       href: '/ridership',
       label: 'Ridership',
-      icon: '/media/ridership.svg'
+      icon: '/media/ridership.svg',
+      requiresAuth: true,
     },
     {
       href: '/replay',
       label: 'Replay',
-      icon: '/media/replay.svg'
+      icon: '/media/replay.svg',
+      requiresAuth: true,
     },
     {
       href: '/downed',
       label: 'Downed Vehicles',
-      icon: '/media/downed.svg'
+      icon: '/media/downed.svg',
+      requiresAuth: true,
     },
     {
       href: '/driver',
       label: 'Driver',
-      icon: '/media/driver.svg'
+      icon: '/media/driver.svg',
+      requiresAuth: true,
     }
   ];
 
@@ -85,8 +107,13 @@
       bottom:calc(var(--hg-nav-bottom-offset) + 4px);
     }
     #${NAV_ID}{
+      --hg-nav-primary:${NAV_THEME_DEFAULT.primary};
+      --hg-nav-accent:${NAV_THEME_DEFAULT.accent};
+      --hg-nav-accent-hover-start:${NAV_THEME_DEFAULT.accentHoverStart};
+      --hg-nav-accent-hover-end:${NAV_THEME_DEFAULT.accentHoverEnd};
+      --hg-nav-accent-text:${NAV_ACCENT_TEXT_COLOR};
       position:fixed;
-      background:#232D4B;
+      background:var(--hg-nav-primary);
       color:#FFFFFF;
       z-index:1100;
       display:flex;
@@ -155,15 +182,18 @@
       letter-spacing:0.12em;
       color:#FFFFFF;
     }
-    #${NAV_ID} .hg-nav__auth-logout{
-      background:rgba(0,0,0,0.25);
-      border:1px solid rgba(255,255,255,0.2);
+    #${NAV_ID} .hg-nav__auth-logout,
+    #${NAV_ID} .hg-nav__auth-login{
       border-radius:999px;
       color:inherit;
       font:inherit;
-      padding:8px 18px;
       cursor:pointer;
-      transition:background-color 0.2s ease,border-color 0.2s ease;
+      transition:background-color 0.2s ease,border-color 0.2s ease,box-shadow 0.2s ease;
+      border:1px solid rgba(255,255,255,0.2);
+    }
+    #${NAV_ID} .hg-nav__auth-logout{
+      background:rgba(0,0,0,0.25);
+      padding:8px 18px;
     }
     #${NAV_ID} .hg-nav__auth-logout:hover{
       background:rgba(0,0,0,0.32);
@@ -172,6 +202,49 @@
     #${NAV_ID} .hg-nav__auth-logout:disabled{
       opacity:0.6;
       cursor:not-allowed;
+    }
+    #${NAV_ID} .hg-nav__auth-login{
+      background:linear-gradient(135deg,var(--hg-nav-accent),var(--hg-nav-accent));
+      color:var(--hg-nav-accent-text);
+      font-weight:600;
+      padding:12px 22px 14px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      box-shadow:0 6px 14px rgba(0,0,0,0.25);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:6px;
+    }
+    #${NAV_ID} .hg-nav__auth-login:hover{
+      background:linear-gradient(135deg,var(--hg-nav-accent-hover-start),var(--hg-nav-accent-hover-end));
+      border-color:rgba(255,255,255,0.35);
+      box-shadow:0 8px 18px rgba(0,0,0,0.3);
+    }
+    #${NAV_ID} .hg-nav__auth-login:focus-visible{
+      outline:3px solid rgba(255,255,255,0.85);
+      outline-offset:3px;
+    }
+    #${NAV_ID} .hg-nav__auth-login:disabled{
+      opacity:0.7;
+      cursor:not-allowed;
+      box-shadow:none;
+    }
+    #${NAV_ID} .hg-nav__auth-login-label{
+      font-size:14px;
+      letter-spacing:0.12em;
+    }
+    #${NAV_ID} .hg-nav__auth-login-hint{
+      font-size:11px;
+      letter-spacing:0.04em;
+      text-transform:none;
+      color:rgba(35,45,75,0.85);
+    }
+    #${NAV_ID} .hg-nav__auth-login-description{
+      font-size:11px;
+      letter-spacing:0.04em;
+      text-transform:none;
+      color:rgba(255,255,255,0.78);
     }
     #${NAV_ID} a:focus-visible{
       outline:2px solid #FFFFFF;
@@ -265,6 +338,50 @@
   const inner = document.createElement('div');
   inner.className = 'hg-nav__inner';
 
+  const navAnchors = [];
+
+  let authSection = null;
+  let authSecret = null;
+  let logoutButton = null;
+  let loginButton = null;
+  let lastAuthDetail = { authorized: null, secret: null, accessType: null };
+
+  const insertAnchorBeforeAuthSection = (element) => {
+    if (!element) return;
+    if (authSection && authSection.parentElement === inner) {
+      inner.insertBefore(element, authSection);
+    } else {
+      inner.appendChild(element);
+    }
+  };
+
+  const updateLinkVisibility = (authorized) => {
+    const visibleAnchors = navAnchors
+      .filter(({ requiresAuth }) => authorized || !requiresAuth)
+      .sort((a, b) => a.index - b.index);
+
+    navAnchors.forEach(({ element, requiresAuth }) => {
+      if (element.parentElement === inner) {
+        inner.removeChild(element);
+      }
+
+      const shouldHide = requiresAuth && !authorized;
+      if (shouldHide) {
+        element.hidden = true;
+        element.setAttribute('aria-hidden', 'true');
+        element.style.setProperty('display', 'none', 'important');
+      } else {
+        element.hidden = false;
+        element.removeAttribute('aria-hidden');
+        element.style.removeProperty('display');
+      }
+    });
+
+    visibleAnchors.forEach(({ element }) => {
+      insertAnchorBeforeAuthSection(element);
+    });
+  };
+
   links.forEach(link => {
     const anchor = document.createElement('a');
     anchor.href = link.href;
@@ -286,7 +403,11 @@
 
     anchor.appendChild(icon);
     anchor.appendChild(label);
-    inner.appendChild(anchor);
+    navAnchors.push({
+      element: anchor,
+      requiresAuth: link.requiresAuth === true,
+      index: navAnchors.length,
+    });
   });
 
   nav.appendChild(inner);
@@ -296,9 +417,75 @@
   spacer.className = 'hg-nav-spacer-bottom';
   document.body.appendChild(spacer);
 
-  let authSection = null;
-  let authSecret = null;
-  let logoutButton = null;
+  let activeThemeKey = null;
+
+  const applyNavTheme = (themeKey) => {
+    if (!nav || !nav.style) {
+      return;
+    }
+    const resolvedKey = themeKey === 'cat' ? 'cat' : 'default';
+    if (activeThemeKey === resolvedKey) {
+      return;
+    }
+    activeThemeKey = resolvedKey;
+    const theme = resolvedKey === 'cat' ? NAV_THEME_CAT : NAV_THEME_DEFAULT;
+    nav.style.setProperty('--hg-nav-primary', theme.primary);
+    nav.style.setProperty('--hg-nav-accent', theme.accent);
+    nav.style.setProperty('--hg-nav-accent-hover-start', theme.accentHoverStart);
+    nav.style.setProperty('--hg-nav-accent-hover-end', theme.accentHoverEnd);
+    nav.style.setProperty('--hg-nav-accent-text', NAV_ACCENT_TEXT_COLOR);
+  };
+
+  const updateNavThemeForAccess = (accessType, authorized) => {
+    const isCatAccess = authorized && typeof accessType === 'string' && accessType.trim().toLowerCase() === 'cat';
+    applyNavTheme(isCatAccess ? 'cat' : 'default');
+  };
+
+  applyNavTheme('default');
+
+  const emitAuthChangedEvent = (detail) => {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
+      return;
+    }
+    const authorized = detail && detail.authorized === true;
+    const secret = detail && typeof detail.secret === 'string' && detail.secret.trim()
+      ? detail.secret.trim()
+      : null;
+    const accessType = detail && typeof detail.accessType === 'string' && detail.accessType.trim()
+      ? detail.accessType.trim().toLowerCase()
+      : null;
+    if (
+      lastAuthDetail.authorized === authorized &&
+      lastAuthDetail.secret === secret &&
+      lastAuthDetail.accessType === accessType
+    ) {
+      return;
+    }
+    lastAuthDetail = { authorized, secret, accessType };
+    const eventDetail = { authorized };
+    if (secret) {
+      eventDetail.secret = secret;
+    }
+    if (accessType) {
+      eventDetail.accessType = accessType;
+    }
+    try {
+      let event = null;
+      if (typeof window.CustomEvent === 'function') {
+        event = new window.CustomEvent('hg-nav-auth-changed', { detail: eventDetail });
+      } else if (typeof document !== 'undefined' && typeof document.createEvent === 'function') {
+        event = document.createEvent('CustomEvent');
+        if (event && typeof event.initCustomEvent === 'function') {
+          event.initCustomEvent('hg-nav-auth-changed', false, false, eventDetail);
+        }
+      }
+      if (event) {
+        window.dispatchEvent(event);
+      }
+    } catch (err) {
+      console.warn('Failed to dispatch auth change event', err);
+    }
+  };
 
   const buildReturnTarget = () => {
     const path = window.location.pathname || '/';
@@ -312,77 +499,141 @@
     window.location.href = `/login?return=${encodeURIComponent(target)}`;
   };
 
-  const removeAuthSection = () => {
-    if (logoutButton) {
-      logoutButton.disabled = false;
-      logoutButton.textContent = 'Log out';
-    }
-    if (authSection && authSection.parentNode) {
-      authSection.parentNode.removeChild(authSection);
-    }
-    authSection = null;
-    authSecret = null;
-    logoutButton = null;
+  const parseBooleanAttribute = (value) => {
+    if (value === null || typeof value === 'undefined') return null;
+    const trimmed = String(value).trim();
+    if (trimmed === '') return true;
+    const normalized = trimmed.toLowerCase();
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+    return true;
   };
 
-  const ensureAuthSection = (secretLabel) => {
+  const shouldRedirectAfterLogout = () => {
+    if (typeof window.hgNavShouldRedirectAfterLogout === 'boolean') {
+      return window.hgNavShouldRedirectAfterLogout;
+    }
+    const body = document.body;
+    if (body) {
+      const attrValue = body.getAttribute('data-hg-nav-requires-auth');
+      const parsed = parseBooleanAttribute(attrValue);
+      if (typeof parsed === 'boolean') return parsed;
+    }
+    return false;
+  };
+
+  const ensureAuthSection = () => {
     if (!authSection) {
       authSection = document.createElement('div');
       authSection.className = 'hg-nav__auth';
-
-      const info = document.createElement('div');
-      info.className = 'hg-nav__auth-info';
-
-      const label = document.createElement('span');
-      label.textContent = 'Logged in as';
-
-      authSecret = document.createElement('span');
-      authSecret.className = 'hg-nav__auth-secret';
-
-      info.appendChild(label);
-      info.appendChild(authSecret);
-
-      logoutButton = document.createElement('button');
-      logoutButton.type = 'button';
-      logoutButton.className = 'hg-nav__auth-logout';
-      logoutButton.textContent = 'Log out';
-      logoutButton.addEventListener('click', async () => {
-        if (!logoutButton || logoutButton.disabled) return;
-        const defaultLabel = logoutButton.textContent;
-        logoutButton.disabled = true;
-        logoutButton.textContent = 'Logging out...';
-        try {
-          const resp = await fetch('/api/dispatcher/logout', {
-            method: 'POST',
-            credentials: 'include',
-          });
-          if (!resp.ok) throw new Error('logout failed');
-          if (typeof window.deleteCookieValue === 'function') {
-            if (typeof window.BLOCK_LAYOUT_COOKIE_NAME === 'string') {
-              try { window.deleteCookieValue(window.BLOCK_LAYOUT_COOKIE_NAME); } catch (err) {}
-            }
-            if (typeof window.LEFT_PANE_WIDTH_COOKIE_NAME === 'string') {
-              try { window.deleteCookieValue(window.LEFT_PANE_WIDTH_COOKIE_NAME); } catch (err) {}
-            }
-          }
-          removeAuthSection();
-          redirectToLogin();
-        } catch (err) {
-          console.warn('Failed to log out', err);
-          logoutButton.disabled = false;
-          logoutButton.textContent = defaultLabel;
-          alert('Unable to log out. Please try again.');
-        }
-      });
-
-      authSection.appendChild(info);
-      authSection.appendChild(logoutButton);
       inner.appendChild(authSection);
     }
+    return authSection;
+  };
 
-    if (authSecret) {
-      authSecret.textContent = secretLabel || 'Unknown';
-    }
+  const renderLoggedIn = (secretLabel) => {
+    const section = ensureAuthSection();
+    section.replaceChildren();
+
+    const info = document.createElement('div');
+    info.className = 'hg-nav__auth-info';
+
+    const label = document.createElement('span');
+    label.textContent = 'Logged in as';
+
+    authSecret = document.createElement('span');
+    authSecret.className = 'hg-nav__auth-secret';
+    authSecret.textContent = secretLabel || 'Unknown';
+
+    info.appendChild(label);
+    info.appendChild(authSecret);
+
+    logoutButton = document.createElement('button');
+    logoutButton.type = 'button';
+    logoutButton.className = 'hg-nav__auth-logout';
+    logoutButton.textContent = 'Log out';
+    logoutButton.addEventListener('click', async () => {
+      if (!logoutButton || logoutButton.disabled) return;
+      const defaultLabel = logoutButton.textContent;
+      logoutButton.disabled = true;
+      logoutButton.textContent = 'Logging out...';
+      try {
+        const resp = await fetch('/api/dispatcher/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!resp.ok) throw new Error('logout failed');
+        if (typeof window.deleteCookieValue === 'function') {
+          if (typeof window.BLOCK_LAYOUT_COOKIE_NAME === 'string') {
+            try { window.deleteCookieValue(window.BLOCK_LAYOUT_COOKIE_NAME); } catch (err) {}
+          }
+          if (typeof window.LEFT_PANE_WIDTH_COOKIE_NAME === 'string') {
+            try { window.deleteCookieValue(window.LEFT_PANE_WIDTH_COOKIE_NAME); } catch (err) {}
+          }
+        }
+        renderLoggedOut();
+        emitAuthChangedEvent({ authorized: false, secret: null, accessType: null });
+        if (shouldRedirectAfterLogout()) {
+          redirectToLogin();
+        }
+      } catch (err) {
+        console.warn('Failed to log out', err);
+        logoutButton.disabled = false;
+        logoutButton.textContent = defaultLabel;
+        alert('Unable to log out. Please try again.');
+      }
+    });
+
+    section.appendChild(info);
+    section.appendChild(logoutButton);
+    loginButton = null;
+    updateLinkVisibility(true);
+  };
+
+  const renderLoggedOut = () => {
+    const section = ensureAuthSection();
+    section.replaceChildren();
+
+    updateNavThemeForAccess(null, false);
+
+    const info = document.createElement('div');
+    info.className = 'hg-nav__auth-info';
+
+    const label = document.createElement('span');
+    label.textContent = 'Staff tools';
+
+    const description = document.createElement('span');
+    description.className = 'hg-nav__auth-login-description';
+    description.textContent = 'Log in to manage routes';
+
+    info.appendChild(label);
+    info.appendChild(description);
+
+    loginButton = document.createElement('button');
+    loginButton.type = 'button';
+    loginButton.className = 'hg-nav__auth-login';
+
+    const buttonLabel = document.createElement('span');
+    buttonLabel.className = 'hg-nav__auth-login-label';
+    buttonLabel.textContent = 'Log in';
+
+    const buttonHint = document.createElement('span');
+    buttonHint.className = 'hg-nav__auth-login-hint';
+    buttonHint.textContent = 'Open sign-in page';
+
+    loginButton.appendChild(buttonLabel);
+    loginButton.appendChild(buttonHint);
+    loginButton.addEventListener('click', () => {
+      if (!loginButton || loginButton.disabled) return;
+      loginButton.disabled = true;
+      redirectToLogin();
+    });
+
+    section.appendChild(info);
+    section.appendChild(loginButton);
+    authSecret = null;
+    logoutButton = null;
+    updateLinkVisibility(false);
   };
 
   const updateAuthSection = async () => {
@@ -403,18 +654,25 @@
     const secretLabel = data && typeof data.secret === 'string' && data.secret.trim()
       ? data.secret.trim()
       : null;
+    const accessType = data && typeof data.access_type === 'string' && data.access_type.trim()
+      ? data.access_type.trim().toLowerCase()
+      : null;
+
+    updateNavThemeForAccess(accessType, authorized);
 
     if (authorized) {
-      ensureAuthSection(secretLabel || 'Unknown');
+      renderLoggedIn(secretLabel || 'Unknown');
       if (typeof updateSpacerHeight === 'function') {
         updateSpacerHeight();
       }
     } else {
-      removeAuthSection();
+      renderLoggedOut();
       if (typeof updateSpacerHeight === 'function') {
         updateSpacerHeight();
       }
     }
+
+    emitAuthChangedEvent({ authorized, secret: secretLabel || null, accessType });
   };
 
   const markScrollableContainers = () => {
@@ -475,6 +733,7 @@
     mobileQuery.addListener(updateSpacerHeight);
   }
 
+  updateLinkVisibility(false);
   updateSpacerHeight();
   updateAuthSection();
   markScrollableContainers();

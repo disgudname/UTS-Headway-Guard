@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
   <meta charset="utf-8" />
   <title>PulsePoint Incidents — Decrypted Viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- CryptoJS (minimal set): core, AES, enc-utf8/base64, md5, evpkdf, mode-cbc, pad-pkcs7 -->
-  <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     body { margin: 24px; }
@@ -26,7 +27,7 @@
 </head>
 <body>
   <h1>PulsePoint Incidents — Decrypted Viewer</h1>
-  <div class="muted">Source: <code>https://api.pulsepoint.org/v1/webapp?resource=incidents&amp;agencyid=54000,00300</code></div>
+  <div class="muted">Source: <code>/v1/pulsepoint/incidents</code></div>
 
   <div class="controls">
     <input id="search" type="text" placeholder="Filter (address, type, ID, units…)" />
@@ -57,8 +58,8 @@
 
 <script>
 (async function () {
-  const ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
-  const PASSPHRASE = "tombrady5rings";
+  const ENDPOINT = "/v1/pulsepoint/incidents";
+  const INCIDENT_LIST_ICON_BASE_URL = '/v1/pulsepoint/respond_icons/';
 
   const $status   = document.getElementById("status");
   const $tbody    = document.querySelector("#grid tbody");
@@ -81,59 +82,11 @@
 
   function setStatus(msg){ $status.textContent = msg || ""; }
 
-  // CryptoJS formatter for {ct, iv, s}
-  const OpenSSLJSON = {
-    parse(input) {
-      const obj = typeof input === "string" ? JSON.parse(input) : input;
-      const params = CryptoJS.lib.CipherParams.create({
-        ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
-      });
-      if (obj.iv) params.iv = CryptoJS.enc.Hex.parse(obj.iv);
-      if (obj.s ) params.salt = CryptoJS.enc.Hex.parse(obj.s);
-      return params;
-    }
-  };
-
-  async function fetchEncrypted() {
+  async function fetchIncidents() {
     const res = await fetch(ENDPOINT, { method: "GET", mode: "cors", cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json(); // browser will ungzip; response is JSON {ct,iv,s}
+    return res.json();
   }
-
-  // Returns { parsed, rawText }
-function decryptPayload(encryptedObj) {
-  // Parse {ct,iv,s} -> CipherParams
-  const cp = (function OpenSSLJSON(input){
-    const obj = typeof input === "string" ? JSON.parse(input) : input;
-    const params = CryptoJS.lib.CipherParams.create({
-      ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
-    });
-    if (obj.iv) params.iv = CryptoJS.enc.Hex.parse(obj.iv);
-    if (obj.s ) params.salt = CryptoJS.enc.Hex.parse(obj.s);
-    return params;
-  })(encryptedObj);
-
-  // Decrypt with password (EvpKDF/OpenSSL)
-  const rawText = CryptoJS.AES.decrypt(cp, "tombrady5rings", {
-    mode: CryptoJS.mode.CBC,
-    padding: CryptoJS.pad.Pkcs7
-  }).toString(CryptoJS.enc.Utf8);
-
-  if (!rawText) throw new Error("Decryption returned empty string (wrong key/format?)");
-
-  // Robust parsing: keep unwrapping until we land on an object/array
-  let parsed = rawText;
-  for (let i = 0; i < 3; i++) {
-    if (typeof parsed === "string") {
-      try { parsed = JSON.parse(parsed); continue; } catch { break; }
-    }
-    break;
-  }
-  if (typeof parsed === "string")
-    throw new Error("Decrypted payload is still a string after parsing attempts.");
-
-  return { parsed, rawText }; // e.g. { incidents: { active:[], recent:[...] } }
-}
 
 
   function looksIncidentish(obj){
@@ -250,7 +203,7 @@ function decryptPayload(encryptedObj) {
   function buildMarkerUrl(type, category) {
     const cat = (category || "").toLowerCase();
     if (!type || (cat !== "active" && cat !== "recent")) return "";
-    return `https://web.pulsepoint.org/images/respond_icons/${type.toLowerCase()}_map_${cat}.png`;
+    return `${INCIDENT_LIST_ICON_BASE_URL}${type.toLowerCase()}_map_${cat}.png`;
   }
 
   function markerAltText(type, category, fallback) {
@@ -345,24 +298,22 @@ function decryptPayload(encryptedObj) {
 
   async function load() {
     try {
-      setStatus("Fetching…");
-      const enc = await fetchEncrypted();
-      const encKeys = Object.keys(enc||{});
-      setStatus(`Decrypting… (encrypted keys: ${encKeys.join(", ")})`);
-      const { parsed, rawText } = decryptPayload(enc);
+      setStatus("Fetching incidents…");
+      const data = await fetchIncidents();
 
       // Debug: show preview and some structure
-      const preview = rawText.slice(0, 600);
+      const rawPreview = JSON.stringify(data, null, 2) || "";
+      const preview = rawPreview.slice(0, 600);
       let stats = "";
       try {
-        const k = parsed && typeof parsed === "object" ? Object.keys(parsed) : [];
-        stats = `Parsed type: ${typeof parsed}; top keys: ${k.slice(0,12).join(", ")}`;
+        const k = data && typeof data === "object" ? Object.keys(data) : [];
+        stats = `Parsed type: ${typeof data}; top keys: ${k.slice(0,12).join(", ")}`;
       } catch {}
-      $debug.textContent = `Decrypted preview:\n${preview}\n\n${stats}`;
+      $debug.textContent = `Preview:\n${preview}\n\n${stats}`;
 
-      const rows = normaliseIncidents(parsed);
+      const rows = normaliseIncidents(data);
       ROWS = rows;
-      setStatus(rows.length ? "" : "No incidents found after decryption.");
+      setStatus(rows.length ? "" : "No incidents found.");
       applyFilter();
     } catch (err) {
       console.error(err);

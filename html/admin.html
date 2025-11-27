@@ -1,5 +1,8 @@
 <!doctype html>
 <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
 <meta charset="utf-8">
 <title>UTS Operations Dashboard Admin</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -86,9 +89,52 @@ async function load(){
   const secretRoot=document.getElementById('secrets');
   if(secretRoot){
     secretRoot.innerHTML='';
-    const notice=document.createElement('div');
-    notice.textContent='Environment secrets are hidden for security reasons.';
-    secretRoot.appendChild(notice);
+    try{
+      const secretResp=await fetch('/v1/secrets',{cache:'no-store'});
+      if(!secretResp.ok){
+        throw new Error('Failed to load secrets');
+      }
+      const secretPayload=await secretResp.json();
+      const secrets=Array.isArray(secretPayload?.secrets)?secretPayload.secrets:[];
+      if(!secrets.length){
+        const empty=document.createElement('div');
+        empty.textContent='No environment secrets found.';
+        secretRoot.appendChild(empty);
+        return;
+      }
+      for(const secret of secrets){
+        const container=document.createElement('div');
+        container.className='secret';
+        const name=document.createElement('strong');
+        name.textContent=secret.name;
+        const command=document.createElement('code');
+        const flyCommand=`flyctl secrets set ${secret.name}="${secret.value}" --app uts-operations-dashboard`;
+        command.textContent=flyCommand;
+        const copyButton=document.createElement('button');
+        copyButton.type='button';
+        copyButton.textContent='Copy';
+        copyButton.addEventListener('click',async()=>{
+          try{
+            await navigator.clipboard.writeText(flyCommand);
+            copyButton.textContent='Copied!';
+            setTimeout(()=>{copyButton.textContent='Copy';},1200);
+          }catch(err){
+            console.error('Failed to copy command',err);
+            copyButton.textContent='Copy failed';
+            setTimeout(()=>{copyButton.textContent='Copy';},1500);
+          }
+        });
+        container.appendChild(name);
+        container.appendChild(command);
+        container.appendChild(copyButton);
+        secretRoot.appendChild(container);
+      }
+    }catch(err){
+      console.error('Failed to load secrets',err);
+      const error=document.createElement('div');
+      error.textContent='Unable to load environment secrets. Please try again.';
+      secretRoot.appendChild(error);
+    }
   }
 }
 async function save(){

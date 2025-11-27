@@ -14,6 +14,92 @@
         --accent-soft: rgba(229, 114, 0, 0.28);
         --app-font-family: 'FGDC', sans-serif;
       }
+      .leaflet-popup.ondemand-driver-popup .leaflet-popup-content-wrapper {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+        color: #0f172a;
+        font-family: var(--app-font-family);
+        padding: 10px 14px;
+        border: 2px solid rgba(35, 45, 75, 0.08);
+      }
+      .leaflet-popup.ondemand-driver-popup .leaflet-popup-content {
+        margin: 0;
+      }
+      .leaflet-popup.ondemand-driver-popup .leaflet-popup-tip {
+        background: #ffffff;
+        border: 2px solid rgba(35, 45, 75, 0.08);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+      }
+      .ondemand-driver-popup__content {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 140px;
+      }
+      .ondemand-driver-popup__section {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .ondemand-driver-popup__label {
+        font-size: 11px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: rgba(15, 23, 42, 0.75);
+      }
+      .ondemand-driver-popup__value {
+        font-size: 15px;
+        font-weight: 700;
+        color: #1f2937;
+      }
+      .ondemand-driver-popup__divider {
+        height: 1px;
+        width: 100%;
+        background: rgba(35, 45, 75, 0.12);
+        margin: 6px 0;
+      }
+      .ondemand-driver-popup__stops {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .ondemand-driver-popup__stop-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .ondemand-driver-popup__stop {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .ondemand-driver-popup__stop-order {
+        font-weight: 700;
+        color: var(--accent);
+        min-width: 32px;
+        text-align: left;
+      }
+      .ondemand-driver-popup__stop-body {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .ondemand-driver-popup__stop-type {
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .ondemand-driver-popup__stop-address {
+        font-size: 13px;
+        color: #1f2937;
+      }
+      .ondemand-driver-popup__stop-riders {
+        font-size: 12px;
+        color: rgba(15, 23, 42, 0.7);
+      }
       .custom-popup {
         position: absolute;
         background: linear-gradient(135deg, var(--navy), var(--navy-dark));
@@ -341,6 +427,50 @@
         opacity: 0.9;
         margin-bottom: 6px;
       }
+      .ondemand-stop-details {
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        white-space: normal;
+      }
+      .ondemand-stop-details__heading {
+        font-weight: 800;
+        letter-spacing: 0.35px;
+      }
+      .ondemand-stop-details__vehicle {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .ondemand-stop-details__vehicle-name {
+        font-weight: 800;
+        color: #ffd166;
+      }
+      .ondemand-stop-details__address,
+      .ondemand-stop-details__service,
+      .ondemand-stop-details__timestamp {
+        font-size: 12px;
+        opacity: 0.9;
+      }
+      .ondemand-stop-details__row {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        white-space: normal;
+      }
+      .ondemand-stop-details__label {
+        font-weight: 700;
+        min-width: 70px;
+        display: inline-block;
+      }
+      .ondemand-stop-details__value {
+        flex: 1;
+        display: inline-block;
+        white-space: normal;
+      }
       .bus-marker {
         background: transparent;
         border: 0;
@@ -502,6 +632,7 @@
         font-weight: 700;
         font-size: clamp(1.5rem, 8vw, 4.5rem);
         line-height: 1.2;
+        white-space: pre-line;
         color: #f8fafc;
         background: rgba(35, 45, 75, 0.82);
         backdrop-filter: blur(3px);
@@ -584,7 +715,7 @@
         flex-direction: column;
         overflow: hidden;
         backdrop-filter: blur(12px);
-        transition: transform 0.35s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+        transition: transform 0.35s ease, box-shadow 0.3s ease;
         font-size: 16px;
         color: var(--panel-text-color);
       }
@@ -596,12 +727,10 @@
       }
       #routeSelector.hidden {
         transform: translateX(calc(100% + 24px));
-        opacity: 0;
         pointer-events: none;
       }
       #controlPanel.hidden {
         transform: translateX(calc(-100% - 24px));
-        opacity: 0;
         pointer-events: none;
       }
       .selector-panel .selector-header {
@@ -1499,6 +1628,7 @@
         text-align: center;
         font-size: 22px;
         user-select: none;
+        touch-action: none;
         transition: left 0.3s ease, right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
         color: #f8fafc;
         box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
@@ -1529,10 +1659,23 @@
       }
       .panel-toggle__arrow {
         pointer-events: none;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+        transition: transform 0.2s ease;
+        flex-shrink: 0;
+      }
+      .panel-toggle--left[data-arrow-direction="out"] .panel-toggle__arrow {
+        transform: rotate(0deg);
+      }
+      .panel-toggle--left[data-arrow-direction="in"] .panel-toggle__arrow {
+        transform: rotate(180deg);
+      }
+      .panel-toggle--right[data-arrow-direction="out"] .panel-toggle__arrow {
+        transform: rotate(180deg);
+      }
+      .panel-toggle--right[data-arrow-direction="in"] .panel-toggle__arrow {
+        transform: rotate(0deg);
       }
       #routeLegend {
         position: fixed;

@@ -5,6 +5,9 @@
     <title>UTS Operations Dashboard – Login</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
     <style>
       :root {
         color-scheme: dark;
@@ -23,9 +26,21 @@
         color: #e8eef5;
         padding: 24px;
       }
+      body.howell-mode {
+        background: radial-gradient(circle at 12% 18%, rgba(255, 153, 102, 0.12) 0, transparent 54%),
+          radial-gradient(circle at 86% 84%, rgba(102, 204, 204, 0.1) 0, transparent 60%),
+          linear-gradient(130deg, #070b1a 0, #04060f 42%, #070b1a 100%);
+      }
       @font-face {
         font-family: 'FGDC';
         src: url('FGDC.ttf') format('truetype');
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Antonio';
+        src: url('ANTONIO.ttf') format('truetype');
+        font-weight: 400;
+        font-style: normal;
         font-display: swap;
       }
       main {
@@ -88,6 +103,62 @@
         opacity: 0.6;
         cursor: not-allowed;
       }
+      #project-warning-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 13000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(4, 8, 16, 0.86);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+      #project-warning-overlay.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #project-warning-overlay .project-warning-dialog {
+        width: min(520px, 100%);
+        background: rgba(12, 18, 30, 0.98);
+        border: 1px solid #ff9966;
+        border-radius: 18px;
+        padding: 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        box-shadow: 0 28px 68px rgba(0, 0, 0, 0.55);
+      }
+      #project-warning-overlay .project-warning-title {
+        margin: 0;
+        font-size: 20px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #ffcc66;
+      }
+      #project-warning-overlay .project-warning-message {
+        margin: 0;
+        line-height: 1.6;
+        color: #f6f4ff;
+        font-size: 15px;
+      }
+      #project-warning-overlay .project-warning-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+      #project-warning-overlay .project-warning-button {
+        border-radius: 999px;
+        border: none;
+        padding: 12px 20px;
+        font: inherit;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: linear-gradient(135deg, #ff9966, #ffcc66);
+        color: #0b0e11;
+        cursor: pointer;
+      }
       .status {
         min-height: 20px;
         font-size: 14px;
@@ -99,6 +170,347 @@
       }
       a {
         color: #9fbfff;
+      }
+      #howell-boot-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 12000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 42px;
+        background: radial-gradient(circle at 20% 20%, rgba(255, 204, 102, 0.12) 0, transparent 52%),
+          radial-gradient(circle at 82% 78%, rgba(102, 204, 204, 0.16) 0, transparent 58%),
+          linear-gradient(135deg, #02040b 0, #090d1c 48%, #05070f 100%);
+        font-family: 'Antonio', 'FGDC', 'Century Gothic', sans-serif;
+        color: #f5f6ff;
+        opacity: 0;
+        pointer-events: auto;
+        transition: opacity 0.8s ease;
+      }
+      #howell-boot-screen.visible {
+        opacity: 1;
+      }
+      #howell-boot-screen.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #howell-boot-screen .howell-lcars-frame {
+        position: relative;
+        display: flex;
+        gap: 28px;
+        background: #0b1021;
+        border-radius: 48px;
+        border: 4px solid #ff9966;
+        padding: 42px 52px;
+        box-shadow: 0 32px 90px rgba(255, 153, 102, 0.28);
+        width: min(960px, 92vw);
+        height: min(620px, 92vh);
+        max-height: 92vh;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      #howell-boot-screen .howell-lcars-frame::before {
+        content: "";
+        position: absolute;
+        inset: 18px;
+        border: 2px solid rgba(102, 204, 204, 0.4);
+        border-radius: 40px;
+        pointer-events: none;
+      }
+      #howell-boot-screen .howell-lcars-frame::after {
+        content: "";
+        position: absolute;
+        right: -120px;
+        top: -90px;
+        width: 360px;
+        height: 360px;
+        background: #cc6699;
+        border-radius: 170px 0 0 170px;
+        transform: rotate(-18deg);
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      #howell-boot-screen .howell-lcars-column {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        width: 146px;
+        gap: 18px;
+        position: relative;
+        z-index: 1;
+      }
+      #howell-boot-screen .howell-bar {
+        display: block;
+        width: 100%;
+        height: 64px;
+        border-radius: 0 44px 44px 0;
+        background: var(--howell-bar-color, #ff9966);
+        box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.24) inset;
+        animation: howellBarPulse 4.4s ease-in-out infinite;
+      }
+      #howell-boot-screen .howell-bar.secondary {
+        --howell-bar-color: #cc6699;
+        height: 86px;
+      }
+      #howell-boot-screen .howell-bar.tertiary {
+        --howell-bar-color: #66cccc;
+        height: 52px;
+        margin-top: auto;
+      }
+      #howell-boot-screen .howell-core {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        position: relative;
+        z-index: 2;
+        min-height: 0;
+      }
+      #howell-boot-screen .howell-core-main {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        overflow: auto;
+        padding-right: 6px;
+      }
+      #howell-boot-screen .howell-title {
+        font-size: 14px;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: #66cccc;
+      }
+      #howell-boot-screen .howell-welcome {
+        font-size: clamp(26px, 4vw, 46px);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #ffcc66;
+        text-shadow: 0 0 18px rgba(255, 204, 102, 0.55);
+        animation: howellGlint 3.6s ease-in-out infinite;
+      }
+      #howell-boot-screen .howell-welcome.accepted {
+        color: #66ffcc;
+        text-shadow: 0 0 22px rgba(102, 255, 204, 0.6);
+        animation: none;
+      }
+      #howell-boot-screen .howell-subtitle {
+        font-size: 16px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: #f4f0ff;
+        opacity: 0.82;
+      }
+      #howell-boot-screen .howell-strip-group {
+        display: flex;
+        gap: 14px;
+        margin-top: 6px;
+      }
+      #howell-boot-screen .howell-strip {
+        height: 18px;
+        border-radius: 22px;
+        background: var(--howell-strip-color, #ff9966);
+        box-shadow: 0 0 12px rgba(255, 153, 102, 0.45);
+        position: relative;
+        overflow: hidden;
+        flex: 1;
+        min-width: 80px;
+      }
+      #howell-boot-screen .howell-strip::after {
+        content: "";
+        position: absolute;
+        inset: -2px;
+        background: linear-gradient(120deg, transparent 0, rgba(255, 255, 255, 0.45) 38%, transparent 72%);
+        animation: howellStripSweep 5.2s linear infinite;
+      }
+      #howell-boot-screen .howell-strip.accent {
+        --howell-strip-color: #cc6699;
+        flex: 0 0 140px;
+      }
+      #howell-boot-screen .howell-strip.danger {
+        --howell-strip-color: #ff3300;
+        flex: 0 0 92px;
+      }
+      #howell-boot-screen .howell-status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 18px;
+        margin-top: 10px;
+      }
+      #howell-boot-screen .howell-status-card {
+        background: rgba(12, 18, 34, 0.88);
+        border-radius: 32px;
+        padding: 18px 22px;
+        border: 2px solid rgba(255, 153, 102, 0.45);
+        box-shadow: 0 0 0 3px rgba(6, 10, 24, 0.85) inset;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-height: 120px;
+      }
+      #howell-boot-screen .howell-status-card span {
+        font-size: 12px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: #66cccc;
+      }
+      #howell-boot-screen .howell-status-card strong {
+        font-size: 26px;
+        letter-spacing: 0.18em;
+        color: #ff9966;
+      }
+      #howell-boot-screen .howell-status-detail {
+        font-size: 12px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #f6f6ff;
+        opacity: 0.78;
+      }
+      #howell-boot-screen .howell-ticker {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        background: rgba(255, 153, 102, 0.18);
+        border-radius: 40px;
+        padding: 12px 20px;
+        font-size: 14px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #ffcc66;
+      }
+      #howell-boot-screen .howell-ticker::before {
+        content: "LCARS";
+        font-size: 12px;
+        background: #ff9966;
+        color: #05060f;
+        padding: 6px 14px;
+        border-radius: 999px;
+        letter-spacing: 0.32em;
+      }
+      #howell-boot-screen .howell-log {
+        margin-top: 10px;
+        padding: 16px 20px;
+        border-radius: 26px;
+        background: rgba(102, 204, 204, 0.14);
+        font-family: 'Courier Prime', 'IBM Plex Mono', 'Fira Code', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        letter-spacing: 0.12em;
+        color: #8feff3;
+        max-height: 190px;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      #howell-boot-screen .howell-auth-dialog {
+        position: absolute;
+        right: 32px;
+        bottom: 32px;
+        background: rgba(5, 12, 24, 0.96);
+        border: 2px solid rgba(102, 204, 204, 0.7);
+        border-radius: 24px;
+        padding: 18px 22px;
+        box-shadow: 0 20px 48px rgba(6, 12, 24, 0.6);
+        max-width: min(320px, 70vw);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        line-height: 1.5;
+        color: #e8f9ff;
+        opacity: 0;
+        transform: translateY(12px);
+        transition: opacity 0.4s ease, transform 0.4s ease;
+        pointer-events: none;
+      }
+      #howell-boot-screen .howell-auth-dialog strong {
+        display: block;
+        font-size: 16px;
+        letter-spacing: 0.24em;
+        color: #ffcc66;
+        margin-bottom: 6px;
+      }
+      #howell-boot-screen .howell-auth-dialog span {
+        display: block;
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        color: #cdeeff;
+      }
+      #howell-boot-screen .howell-auth-dialog.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      #howell-boot-screen .howell-log-line {
+        opacity: 0;
+        transform: translateX(-24px);
+        transition: opacity 0.4s ease, transform 0.4s ease;
+      }
+      #howell-boot-screen .howell-log-line.visible {
+        opacity: 1;
+        transform: translateX(0);
+      }
+      @keyframes howellGlint {
+        0%,
+        100% {
+          text-shadow: 0 0 12px rgba(255, 204, 102, 0.35);
+        }
+        50% {
+          text-shadow: 0 0 24px rgba(255, 204, 102, 0.75);
+        }
+      }
+      @keyframes howellBarPulse {
+        0%,
+        100% {
+          filter: brightness(1);
+        }
+        40% {
+          filter: brightness(1.35);
+        }
+        60% {
+          filter: brightness(0.82);
+        }
+      }
+      @keyframes howellStripSweep {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(100%);
+        }
+      }
+      @media (max-width: 780px) {
+        #howell-boot-screen {
+          padding: 24px;
+        }
+        #howell-boot-screen .howell-lcars-frame {
+          flex-direction: column;
+          align-items: flex-start;
+          padding: 28px 30px;
+          border-radius: 36px;
+          height: min(640px, 94vh);
+        }
+        #howell-boot-screen .howell-core-main {
+          padding-right: 0;
+        }
+        #howell-boot-screen .howell-lcars-column {
+          flex-direction: row;
+          width: 100%;
+          gap: 12px;
+        }
+        #howell-boot-screen .howell-bar {
+          height: 48px;
+          border-radius: 44px;
+        }
+        #howell-boot-screen .howell-bar.secondary {
+          height: 58px;
+        }
+        #howell-boot-screen .howell-auth-dialog {
+          position: static;
+          width: 100%;
+          margin-top: 18px;
+          max-width: none;
+          transform: translateY(12px);
+        }
       }
     </style>
   </head>
@@ -116,12 +528,93 @@
       </form>
       <p class="aux">Need a password? Send Pat a Teams message.</p>
     </main>
+    <div id="project-warning-overlay" role="dialog" aria-modal="true" aria-labelledby="project-warning-title" aria-describedby="project-warning-message" aria-hidden="true">
+      <div class="project-warning-dialog">
+        <h2 id="project-warning-title" class="project-warning-title">Please Acknowledge</h2>
+        <p id="project-warning-message" class="project-warning-message">
+          This entire project is UNOFFICIAL, UNSUPPORTED, and a WORK-IN-PROGRESS. New bugs are being found constantly and I do not consider any component of this project to be truly stable, simply working "well enough for now"
+        </p>
+        <div class="project-warning-actions">
+          <button id="project-warning-acknowledge" type="button" class="project-warning-button">I Understand</button>
+        </div>
+      </div>
+    </div>
     <script>
       (function() {
         const form = document.getElementById('loginForm');
         const passwordInput = document.getElementById('password');
         const statusEl = document.getElementById('status');
         const submitButton = document.getElementById('submitButton');
+        const warningOverlay = document.getElementById('project-warning-overlay');
+        const warningButton = document.getElementById('project-warning-acknowledge');
+
+        let warningAcknowledged = false;
+        let warningPromise = null;
+
+        function ensureWarningAcknowledged() {
+          if (!warningOverlay || !warningButton) {
+            warningAcknowledged = true;
+            return Promise.resolve();
+          }
+          if (warningAcknowledged) {
+            return Promise.resolve();
+          }
+          if (warningPromise) {
+            return warningPromise;
+          }
+          warningPromise = new Promise(resolve => {
+            function cleanup() {
+              warningButton.removeEventListener('click', onAcknowledge);
+              document.removeEventListener('keydown', onKeyDown, true);
+              warningPromise = null;
+            }
+
+            function finishAcknowledgement() {
+              warningAcknowledged = true;
+              warningOverlay.classList.remove('visible');
+              const resetHidden = () => {
+                warningOverlay.removeEventListener('transitionend', resetHidden);
+                warningOverlay.setAttribute('aria-hidden', 'true');
+              };
+              warningOverlay.addEventListener('transitionend', resetHidden, { once: true });
+              cleanup();
+              window.setTimeout(() => {
+                warningOverlay.setAttribute('aria-hidden', 'true');
+                resolve();
+              }, 200);
+            }
+
+            function onAcknowledge(event) {
+              event.preventDefault();
+              finishAcknowledgement();
+            }
+
+            function onKeyDown(event) {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+              }
+              if (event.key === 'Tab') {
+                event.preventDefault();
+                warningButton.focus();
+                return;
+              }
+              if ((event.key === 'Enter' || event.key === ' ') && document.activeElement === warningButton) {
+                event.preventDefault();
+                event.stopPropagation();
+                finishAcknowledgement();
+              }
+            }
+
+            warningOverlay.setAttribute('aria-hidden', 'false');
+            warningOverlay.classList.add('visible');
+            warningButton.addEventListener('click', onAcknowledge, { once: true });
+            document.addEventListener('keydown', onKeyDown, true);
+            window.setTimeout(() => warningButton.focus(), 20);
+          });
+          return warningPromise;
+        }
 
         const params = new URLSearchParams(window.location.search);
         const rawReturn = params.get('return') || '';
@@ -149,6 +642,219 @@
           window.location.href = returnTarget || '/';
         }
 
+        const howellLogMessages = [
+          'Initializing LCARS interface…',
+          'Establishing secure subspace uplink…',
+          'Routing command authorization…',
+          'Calibrating inertial dampeners…',
+          'Synchronizing dispatch buoys…',
+          'Verifying vice admiral clearance codes…',
+          'Decrypting fleet operations packet…',
+          'Running tactical readiness diagnostics…',
+          'Vice Admiral override confirmed.',
+          'Starfleet dispatch lattice synchronized.'
+        ];
+
+        function isHowellSecret(value) {
+          return typeof value === 'string' && value.trim().toLowerCase() === 'howell';
+        }
+
+        function applyHowellMode() {
+          if (!document.body || document.body.classList.contains('howell-mode')) {
+            return;
+          }
+          document.body.classList.add('howell-mode');
+        }
+
+        function showHowellSplash() {
+          if (showHowellSplash.promise) {
+            return showHowellSplash.promise;
+          }
+          showHowellSplash.promise = new Promise(resolve => {
+            if (!document.body) {
+              resolve();
+              showHowellSplash.promise = null;
+              return;
+            }
+            const overlay = document.createElement('div');
+            overlay.id = 'howell-boot-screen';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-live', 'polite');
+            overlay.innerHTML = `
+    <div class="howell-lcars-frame">
+      <div class="howell-lcars-column">
+        <span class="howell-bar"></span>
+        <span class="howell-bar secondary"></span>
+        <span class="howell-bar tertiary"></span>
+      </div>
+      <div class="howell-core">
+        <div class="howell-title">STARFLEET DISPATCH CONSOLE</div>
+        <div class="howell-welcome">AUTHORIZATION PENDING…</div>
+        <div class="howell-subtitle">SOVEREIGN-CLASS OPERATIONS CONTROL</div>
+        <div class="howell-strip-group">
+          <span class="howell-strip primary"></span>
+          <span class="howell-strip accent"></span>
+          <span class="howell-strip danger"></span>
+        </div>
+        <div class="howell-core-main">
+          <div class="howell-status-grid">
+            <div class="howell-status-card" data-status="fleet">
+              <span>Fleet Sync</span>
+              <strong data-value>000%</strong>
+              <div class="howell-status-detail" data-detail>VECTOR HOLD</div>
+            </div>
+            <div class="howell-status-card" data-status="transport">
+              <span>Transport Buffers</span>
+              <strong data-value>0.0 MJ</strong>
+              <div class="howell-status-detail" data-detail>BUFFER READY</div>
+            </div>
+            <div class="howell-status-card" data-status="defense">
+              <span>Shield Envelope</span>
+              <strong data-value>000%</strong>
+              <div class="howell-status-detail" data-detail>STANDBY</div>
+            </div>
+          </div>
+          <div class="howell-ticker"><span data-ticker>SD 00000.0 • WARP CORE NOMINAL</span></div>
+          <div class="howell-log" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>`;
+            document.body.appendChild(overlay);
+
+            const logContainer = overlay.querySelector('.howell-log');
+            const welcomeEl = overlay.querySelector('.howell-welcome');
+            const tickerNode = overlay.querySelector('[data-ticker]');
+            const statusCards = overlay.querySelectorAll('.howell-status-card');
+            const howellCore = overlay.querySelector('.howell-core');
+            const timeouts = [];
+            const intervals = [];
+            let finished = false;
+            let authDialog = null;
+
+            if (howellCore) {
+              authDialog = document.createElement('div');
+              authDialog.className = 'howell-auth-dialog';
+              authDialog.innerHTML = '<strong>Authorization Accepted</strong><span>Welcome, Vice Admiral Howell.</span>';
+              howellCore.appendChild(authDialog);
+            }
+
+            if (logContainer) {
+              howellLogMessages.forEach((text, idx) => {
+                const timeout = window.setTimeout(() => {
+                  const line = document.createElement('div');
+                  line.className = 'howell-log-line';
+                  line.textContent = text;
+                  logContainer.appendChild(line);
+                  requestAnimationFrame(() => {
+                    line.classList.add('visible');
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                  });
+                  if (idx === howellLogMessages.length - 1 && welcomeEl) {
+                    const welcomeTimeout = window.setTimeout(() => {
+                      welcomeEl.textContent = 'AUTHORIZATION ACCEPTED';
+                      welcomeEl.classList.add('accepted');
+                      if (authDialog) {
+                        const dialogTimeout = window.setTimeout(() => {
+                          authDialog.classList.add('visible');
+                        }, 1200);
+                        timeouts.push(dialogTimeout);
+                      }
+                    }, 260);
+                    timeouts.push(welcomeTimeout);
+                  }
+                }, 420 + idx * 400);
+                timeouts.push(timeout);
+              });
+            }
+
+            const tickerPhrases = [
+              'WARP CORE NOMINAL',
+              'PHOTON RESERVES 98%',
+              'DOCK 47 GREEN',
+              'EPS RELAYS SYNCED',
+              'TRANSPORTER MATRIX READY'
+            ];
+
+            const updateTicker = () => {
+              if (!tickerNode) {
+                return;
+              }
+              const now = new Date();
+              const base = (now.getFullYear() - 2000) * 10;
+              const fractional = ((now.getMonth() + 1) / 12) * 10 + (now.getDate() / 100) + (now.getHours() / 240);
+              const stardate = (1000 + base + fractional).toFixed(1);
+              const phrase = tickerPhrases[Math.floor(Math.random() * tickerPhrases.length)];
+              tickerNode.textContent = `SD ${stardate.padStart(6, '0')} • ${phrase}`;
+            };
+
+            const updateStatuses = () => {
+              statusCards.forEach(card => {
+                const valueEl = card.querySelector('[data-value]');
+                const detailEl = card.querySelector('[data-detail]');
+                if (!valueEl || !detailEl) {
+                  return;
+                }
+                const mode = card.getAttribute('data-status');
+                if (mode === 'fleet') {
+                  valueEl.textContent = `${(97 + Math.random() * 2.6).toFixed(1)}%`;
+                  const variants = ['VECTOR HOLD', 'FORMATION LOCK', 'SYNC STABLE'];
+                  detailEl.textContent = variants[Math.floor(Math.random() * variants.length)];
+                } else if (mode === 'transport') {
+                  valueEl.textContent = `${(4 + Math.random() * 1.6).toFixed(1)} MJ`;
+                  const variants = ['BUFFER READY', 'MATRIX PRIME', 'PATTERN GREEN'];
+                  detailEl.textContent = variants[Math.floor(Math.random() * variants.length)];
+                } else if (mode === 'defense') {
+                  valueEl.textContent = `${(84 + Math.random() * 9).toFixed(0)}%`;
+                  const variants = ['FORE SHIELDS', 'AFT SHIELDS', 'ENVELOPE LOCK'];
+                  detailEl.textContent = `${variants[Math.floor(Math.random() * variants.length)]} NOMINAL`;
+                }
+              });
+            };
+
+            updateTicker();
+            updateStatuses();
+
+            intervals.push(window.setInterval(updateTicker, 1500));
+            intervals.push(window.setInterval(updateStatuses, 1300));
+
+            const finish = () => {
+              if (finished) {
+                return;
+              }
+              finished = true;
+              timeouts.forEach(t => window.clearTimeout(t));
+              intervals.forEach(i => window.clearInterval(i));
+              overlay.classList.add('fade-out');
+              window.setTimeout(() => {
+                overlay.remove();
+                showHowellSplash.promise = null;
+                resolve();
+              }, 820);
+            };
+
+            overlay.addEventListener('click', finish, { once: true });
+            const autoCloseTimeout = window.setTimeout(finish, 7200);
+            timeouts.push(autoCloseTimeout);
+
+            requestAnimationFrame(() => {
+              overlay.classList.add('visible');
+            });
+          });
+          return showHowellSplash.promise;
+        }
+
+        async function maybeShowHowellSplash(secretLabel) {
+          if (!isHowellSecret(secretLabel)) {
+            return;
+          }
+          applyHowellMode();
+          try {
+            await showHowellSplash();
+          } catch (err) {
+            console.warn('Failed to show Howell splash', err);
+          }
+        }
+
         async function checkExistingSession() {
           try {
             const response = await fetch('/api/dispatcher/auth', { cache: 'no-store' });
@@ -157,6 +863,8 @@
             }
             const data = await response.json();
             if (data && data.authorized === true) {
+              await ensureWarningAcknowledged();
+              await maybeShowHowellSplash(data.secret);
               redirectToTarget();
             }
           } catch (error) {
@@ -171,6 +879,8 @@
         }
 
         checkExistingSession();
+
+        let redirecting = false;
 
         form.addEventListener('submit', async event => {
           event.preventDefault();
@@ -189,6 +899,18 @@
               body: JSON.stringify({ password })
             });
             if (response.ok) {
+              let secretLabel = null;
+              try {
+                const data = await response.json();
+                if (data && typeof data.secret === 'string') {
+                  secretLabel = data.secret;
+                }
+              } catch (err) {
+                // ignore malformed json
+              }
+              await ensureWarningAcknowledged();
+              await maybeShowHowellSplash(secretLabel);
+              redirecting = true;
               redirectToTarget();
               return;
             }
@@ -205,9 +927,11 @@
           } catch (error) {
             statusEl.textContent = 'Unable to verify password. Try again.';
           } finally {
-            submitButton.disabled = false;
-            passwordInput.value = '';
-            passwordInput.focus();
+            if (!redirecting) {
+              submitButton.disabled = false;
+              passwordInput.value = '';
+              passwordInput.focus();
+            }
           }
         });
       })();

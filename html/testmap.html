@@ -2,6 +2,9 @@
 <html>
   <head>
 <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
     <title>Live Map - UTS Operations Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -20,11 +23,27 @@
     <div id="routeLegend" aria-live="polite"></div>
     <div id="controlPanel" class="selector-panel"></div>
     <div id="routeSelector" class="selector-panel"></div>
-    <div id="controlPanelTab" class="panel-toggle panel-toggle--left" onclick="toggleControlPanel()" title="Toggle system controls">
-      <span class="panel-toggle__arrow" aria-hidden="true">&#9654;</span>
+    <div
+      id="controlPanelTab"
+      class="panel-toggle panel-toggle--left"
+      data-arrow-direction="in"
+      onclick="toggleControlPanel()"
+      title="Toggle system controls"
+    >
+      <svg class="panel-toggle__arrow" viewBox="0 0 16 24" aria-hidden="true" focusable="false">
+        <path d="M4 3l8 9-8 9z" />
+      </svg>
     </div>
-    <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">
-      <span class="panel-toggle__arrow" aria-hidden="true">&#9664;</span>
+    <div
+      id="routeSelectorTab"
+      class="panel-toggle panel-toggle--right"
+      data-arrow-direction="in"
+      onclick="toggleRoutePanel()"
+      title="Toggle route selector"
+    >
+      <svg class="panel-toggle__arrow" viewBox="0 0 16 24" aria-hidden="true" focusable="false">
+        <path d="M4 3l8 9-8 9z" />
+      </svg>
     </div>
     <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu • Radar tiles © NOAA/NWS via Iowa Environmental Mesonet.</div>
     <div id="mapToast" class="map-toast" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true"></div>

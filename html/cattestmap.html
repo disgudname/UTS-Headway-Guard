@@ -2,13 +2,15 @@
 <html>
   <head>
 <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
     <title>Live Map - UTS Operations Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
     <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
     <style>
       .custom-popup {
         position: absolute;
@@ -2237,8 +2239,7 @@
 
       const outOfServiceRouteColor = '#000000';
 
-      const PULSEPOINT_ENDPOINT = "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300";
-      const PULSEPOINT_PASSPHRASE = "tombrady5rings";
+      const PULSEPOINT_ENDPOINT = "/v1/pulsepoint/incidents";
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
       const INCIDENT_ICON_SCALE = 0.25;
@@ -2514,7 +2515,7 @@
 
       const INCIDENT_ROUTE_PROXIMITY_THRESHOLD_METERS = 150;
       const INCIDENT_TIME_ZONE = 'America/New_York';
-      const INCIDENT_LIST_ICON_BASE_URL = 'https://web.pulsepoint.org/images/respond_icons/';
+      const INCIDENT_LIST_ICON_BASE_URL = '/v1/pulsepoint/respond_icons/';
       const INCIDENT_TYPE_LABELS = Object.freeze({
         AED: 'AED Alarm',
         AC: 'Aircraft Crash',
@@ -2699,7 +2700,7 @@
       let demoIncidentEntry = null;
       let demoIncidentPreviousVisibility = null;
       const DEMO_INCIDENT_STATIC_ROW = Object.freeze({
-        Marker: 'https://web.pulsepoint.org/images/respond_icons/me_map_active.png',
+        Marker: `${INCIDENT_LIST_ICON_BASE_URL}me_map_active.png`,
         Category: 'active',
         ID: '2296541797',
         Type: 'ME',
@@ -2740,7 +2741,7 @@
       }
       incidentsVisibilityPreference = incidentsVisible;
 
-      function fetchPulsePointEncrypted() {
+      function fetchPulsePointData() {
         return fetch(PULSEPOINT_ENDPOINT, {
           method: 'GET',
           mode: 'cors',
@@ -2751,44 +2752,6 @@
           }
           return response.json();
         });
-      }
-
-      function decryptPulsePointPayload(encryptedObj) {
-        if (!encryptedObj) {
-          throw new Error('Missing PulsePoint payload.');
-        }
-        const obj = typeof encryptedObj === 'string' ? JSON.parse(encryptedObj) : encryptedObj;
-        if (!obj || typeof obj !== 'object' || !obj.ct) {
-          throw new Error('PulsePoint payload is malformed.');
-        }
-        const cipherParams = CryptoJS.lib.CipherParams.create({
-          ciphertext: CryptoJS.enc.Base64.parse(obj.ct)
-        });
-        if (obj.iv) cipherParams.iv = CryptoJS.enc.Hex.parse(obj.iv);
-        if (obj.s) cipherParams.salt = CryptoJS.enc.Hex.parse(obj.s);
-        const rawText = CryptoJS.AES.decrypt(cipherParams, PULSEPOINT_PASSPHRASE, {
-          mode: CryptoJS.mode.CBC,
-          padding: CryptoJS.pad.Pkcs7
-        }).toString(CryptoJS.enc.Utf8);
-        if (!rawText) {
-          throw new Error('PulsePoint decryption returned empty payload.');
-        }
-        let parsed = rawText;
-        for (let i = 0; i < 3; i += 1) {
-          if (typeof parsed === 'string') {
-            try {
-              parsed = JSON.parse(parsed);
-              continue;
-            } catch (error) {
-              break;
-            }
-          }
-          break;
-        }
-        if (typeof parsed === 'string') {
-          throw new Error('PulsePoint decrypted payload is not valid JSON.');
-        }
-        return { parsed, rawText };
       }
 
       function looksLikePulsePointIncident(obj) {
@@ -2831,7 +2794,7 @@
       function buildPulsePointMarkerUrl(type, category) {
         const categoryLower = (category || '').toLowerCase();
         if (!type || (categoryLower !== 'active' && categoryLower !== 'recent')) return '';
-        return `https://web.pulsepoint.org/images/respond_icons/${type.toLowerCase()}_map_${categoryLower}.png`;
+        return `${INCIDENT_LIST_ICON_BASE_URL}${type.toLowerCase()}_map_${categoryLower}.png`;
       }
 
       function pulsePointMarkerAltText(type, category, fallback) {
@@ -3296,9 +3259,8 @@
       }
 
       async function fetchPulsePointIncidents() {
-        const encrypted = await fetchPulsePointEncrypted();
-        const { parsed } = decryptPulsePointPayload(encrypted);
-        return normalizePulsePointIncidents(parsed);
+        const payload = await fetchPulsePointData();
+        return normalizePulsePointIncidents(payload);
       }
 
       function parseIncidentCoordinate(value) {
@@ -4384,27 +4346,13 @@
 
       async function loadAgencies() {
         try {
-          const response = await fetch('https://admin.ridesystems.net/api/Clients/GetClients');
-          const contentType = response.headers.get('content-type') || '';
-          let clients = [];
-          if (contentType.includes('application/json')) {
-            clients = await response.json();
-          } else {
-            const text = await response.text();
-            const parser = new DOMParser();
-            const xml = parser.parseFromString(text, 'application/xml');
-            clients = Array.from(xml.getElementsByTagName('Client')).map(c => ({
-              Name: c.getElementsByTagName('Name')[0]?.textContent.trim(),
-              WebAddress: c.getElementsByTagName('WebAddress')[0]?.textContent.trim()
-            }));
-          }
+          const response = await fetch('/v1/testmap/ridesystems/clients');
+          const payload = await response.json();
+          const clients = payload?.clients || [];
           agencies = clients.map(c => {
-            const name = c.Name?.trim();
-            const webAddress = c.WebAddress?.trim();
-            if (!name || !webAddress) return null;
-            const url = webAddress.startsWith('http')
-              ? webAddress.replace(/^http:\/\//i, 'https://')
-              : `https://${webAddress}`;
+            const name = c.name?.trim();
+            const url = c.url?.trim();
+            if (!name || !url) return null;
             return { name, url };
           }).filter(Boolean);
           agencies.sort((a, b) => a.name.localeCompare(b.name));
@@ -5505,7 +5453,10 @@
           sortIndex: 'StartDateUtc',
           sortOrder: 'asc'
         });
-        const endpoint = `${sanitizedBase}/Secure/Services/RoutesService.svc/GetMessagesPaged?${query.toString()}`;
+        if (fetchBaseURL) {
+          query.set('base_url', fetchBaseURL);
+        }
+        const endpoint = `/v1/transloc/alerts?${query.toString()}`;
         const requestPromise = (async () => {
           const response = await fetch(endpoint, { cache: 'no-store' });
           if (!response.ok) {
@@ -5613,7 +5564,12 @@
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
         let logoHtml = '';
         if (sanitizedBaseURL) {
-          const agencyLogoUrl = `${sanitizedBaseURL}/Images/clientLogo.jpg`;
+          let agencyLogoUrl = '/v1/transloc/client_logo';
+          const logoParams = new URLSearchParams({ base_url: sanitizedBaseURL });
+          const serializedParams = logoParams.toString();
+          if (serializedParams) {
+            agencyLogoUrl += `?${serializedParams}`;
+          }
           const safeLogoSrc = escapeAttribute(agencyLogoUrl);
           const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
           const safeLogoAltText = escapeAttribute(logoAltText);

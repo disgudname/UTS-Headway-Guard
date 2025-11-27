@@ -2,10 +2,31 @@
 <html>
 <head>
 <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
 <meta charset="utf-8" />
 <title>Downed Vehicles - UTS Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<script>
+(function(){
+  const params=new URLSearchParams(window.location.search);
+  const value=params.get('kioskMode');
+  let kioskMode=false;
+  if(value!==null){
+    const normalized=String(value).trim().toLowerCase();
+    kioskMode=normalized==='' ? true : !['0','false','no','off'].includes(normalized);
+  }
+  document.documentElement.classList.toggle('kiosk-mode', kioskMode);
+  const preload=document.createElement('link');
+  preload.rel='preload';
+  preload.href='FGDC.ttf';
+  preload.as='font';
+  preload.type='font/ttf';
+  preload.crossOrigin='anonymous';
+  document.head.appendChild(preload);
+})();
+</script>
 <style>
   @font-face{
     font-family:'FGDC';
@@ -14,9 +35,11 @@
     font-style:normal;
   }
   :root{
+    --app-font-family:'FGDC', sans-serif;
     --bg:#24234B;
     --panel:#101935;
-    --row-alt:#152349;
+    --row-alt:#1b2f5d;
+    --row-divider:#E57200;
     --panel-soft:#142040;
     --ink:#f0f4ff;
     --muted:#9fb0c9;
@@ -33,7 +56,7 @@
     margin:0;
     background:var(--bg);
     color:var(--ink);
-    font-family:'FGDC',sans-serif;
+    font-family:var(--app-font-family);
     font-size:var(--dynamic-base-font-size, var(--base-font-size));
     line-height:1.45;
     min-height:100vh;
@@ -105,13 +128,16 @@
   }
   tbody td{
     padding:3px 6px;
-    border-top:1px solid rgba(159,176,201,0.08);
+    border-top:2px solid var(--row-divider);
     vertical-align:middle;
     font-size:clamp(1rem,0.95rem + 0.22vw,1.25rem);
     line-height:1.12;
     text-align:center;
     word-break:normal;
     white-space:nowrap;
+  }
+  tbody tr:first-child td{
+    border-top:none;
   }
   tbody td.wrap-allowed{
     white-space:normal;
@@ -143,7 +169,7 @@
     text-transform:uppercase;
     letter-spacing:0.08em;
   }
-  .pill{
+  .pill{ 
     position:relative;
     z-index:0;
     display:inline-flex;
@@ -157,6 +183,18 @@
     background:var(--pill-bg);
     box-shadow:0 0 0 1px rgba(255,255,255,0.12) inset;
     line-height:1.05;
+  }
+  .kiosk-mode body{
+    text-rendering:auto;
+  }
+  .kiosk-mode section{
+    box-shadow:none;
+  }
+  .kiosk-mode .pill{
+    box-shadow:none;
+  }
+  .kiosk-mode .card-summary .chevron{
+    transition:none;
   }
   .pill span+span{
     margin-left:6px;
@@ -311,10 +349,11 @@
   <div id="sections"></div>
 </main>
 <script>
-const ENDPOINT = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv';
+const DOWNED_ENDPOINT = '/v1/kiosk/downed_buses';
 const REFRESH_MS = 5 * 60 * 1000;
 const sectionsContainer = document.getElementById('sections');
 let refreshTimer = null;
+let kioskRenderSignature = null;
 
 const MIN_DYNAMIC_FONT_SIZE = 12;
 const MAX_DYNAMIC_FONT_SIZE = 48;
@@ -407,6 +446,11 @@ function adjustBaseFontSize(){
   setDynamicFontSize(best);
 }
 
+const urlParams = new URLSearchParams(window.location.search);
+
+const kioskMode = getQueryFlag('kioskMode');
+const embeddedMode = getQueryFlag('embedded');
+
 function scheduleFontAdjustment(){
   if(fontAdjustmentFrame) cancelAnimationFrame(fontAdjustmentFrame);
   fontAdjustmentFrame=requestAnimationFrame(()=>{
@@ -420,8 +464,6 @@ window.addEventListener('resize',()=>{
   if(resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
   resizeDebounceTimer=setTimeout(scheduleFontAdjustment, 150);
 });
-
-const urlParams = new URLSearchParams(window.location.search);
 
 function getQueryFlag(name){
   const value=urlParams.get(name);
@@ -451,15 +493,6 @@ function abbreviateHeaderLabel(text){
     .replace(/ACTUAL DELIVERY DATE/gi,'DEL DATE');
 }
 
-function allowsWrappingForHeader(text){
-  const normalized=normalizeHeader(text);
-  if(!normalized) return false;
-  if(normalized.includes('note')) return true;
-  if(normalized.includes('description')) return true;
-  if(normalized.includes('notes/description')) return true;
-  return false;
-}
-
 function normalizeHeader(text){
   return String(text || '')
     .replace(/\s+/g,' ')
@@ -467,12 +500,36 @@ function normalizeHeader(text){
     .toLowerCase();
 }
 
+function allowsWrappingForNormalizedHeader(normalized){
+  if(!normalized) return false;
+  if(normalized.includes('note')) return true;
+  if(normalized.includes('description')) return true;
+  if(normalized.includes('notes/description')) return true;
+  return false;
+}
+
+function isHiddenNormalizedHeader(normalized){
+  return !!normalized && HIDDEN_HEADER_LABELS.has(normalized);
+}
+
 function isHiddenHeader(text){
-  return HIDDEN_HEADER_LABELS.has(normalizeHeader(text));
+  return isHiddenNormalizedHeader(normalizeHeader(text));
+}
+
+function isStatusNormalizedHeader(normalized){
+  return normalized === 'status';
 }
 
 function isStatusHeader(text){
-  return normalizeHeader(text) === 'status';
+  return isStatusNormalizedHeader(normalizeHeader(text));
+}
+
+function isVehicleNormalizedHeader(normalized){
+  if(!normalized) return false;
+  if(normalized==='bus') return true;
+  if(normalized==='p&t support vehicle') return true;
+  if(normalized==='vehicle') return true;
+  return normalized.includes('vehicle');
 }
 
 function findDiagnosticDateIndex(headers){
@@ -515,7 +572,7 @@ function findVehicleIndex(headers){
   if(!Array.isArray(headers)) return 0;
   for(let i=0;i<headers.length;i++){
     const normalized=normalizeHeader(headers[i]);
-    if(normalized==='bus' || normalized==='p&t support vehicle' || normalized==='vehicle' || normalized.includes('vehicle')){
+    if(isVehicleNormalizedHeader(normalized)){
       return i;
     }
   }
@@ -526,7 +583,7 @@ function findStatusIndices(headers){
   if(!Array.isArray(headers)) return [];
   const results=[];
   headers.forEach((text,index)=>{
-    if(normalizeHeader(text)==='status') results.push(index);
+    if(isStatusHeader(text)) results.push(index);
   });
   return results;
 }
@@ -591,6 +648,26 @@ function parseCsv(text){
   return rows;
 }
 
+function computeKioskSignature(data){
+  if(!kioskMode) return null;
+  try{
+    if(!data || !Array.isArray(data.sections)) return '[]';
+    const payload=data.sections.map(section=>({
+      title:section && section.title || '',
+      headers:Array.isArray(section && section.headers) ? section.headers.slice() : [],
+      rows:Array.isArray(section && section.rows) ? section.rows.map(row=>({
+        values:Array.isArray(row && row.values) ? row.values.slice() : Array.isArray(row) ? row.slice() : [],
+        statusText:row && row.statusText || '',
+        displayDate:row && row.displayDate || '',
+      })) : [],
+    }));
+    return JSON.stringify(payload);
+  }catch(err){
+    console.warn('Unable to compute kiosk render signature', err);
+    return null;
+  }
+}
+
 function cleanCell(value){
   if(value==null) return '';
   return String(value).replace(/\r\n?/g,'\n').trim();
@@ -626,19 +703,45 @@ function parseSheet(csvText){
   if(!rawRows.length) return { headerLine:[], sections:[] };
   const rows = rawRows.map(r => r.map(cleanCell));
   const headerLine = rows.shift() || [];
-  const sections=[];
+  const intermediateSections=[];
   let current=null;
   for(const row of rows){
     if(row.every(cell => !cell)) continue;
     const first=row[0];
     if(first==='Bus' || first==='P&T Support Vehicle'){
       current={ title:first, headers:row.slice(), rows:[] };
-      sections.push(current);
+      intermediateSections.push(current);
       continue;
     }
     if(!current) continue;
     current.rows.push(row.slice());
   }
+
+  const cutoff=getDeliveryCutoff();
+  const sections=intermediateSections.map(section => {
+    const headers=Array.isArray(section.headers) ? section.headers.slice() : [];
+    const deliveryIndex=findDeliveryDateIndex(headers);
+    const downIndex=findDownDateIndex(headers);
+    const processedRows=[];
+    const rawRows=Array.isArray(section.rows) ? section.rows : [];
+    rawRows.forEach(row => {
+      const values=Array.isArray(row) ? row.slice() : [];
+      while(values.length<headers.length){ values.push(''); }
+      const statusText=getPreferredStatus(values, headers);
+      if(shouldHideByDeliveryDate(values, deliveryIndex, cutoff, statusText)) return;
+      processedRows.push({
+        values,
+        statusText,
+        displayDate:getDisplayDate(values, deliveryIndex, downIndex),
+      });
+    });
+    return {
+      title:section.title,
+      headers,
+      rows:processedRows,
+    };
+  });
+
   return { headerLine, sections };
 }
 
@@ -682,17 +785,35 @@ function renderSection(section){
   const table=document.createElement('table');
   const thead=document.createElement('thead');
   const headRow=document.createElement('tr');
-  const visibleColumns=section.headers
-    .map((text,index)=>({ text, index }))
-    .filter(col=>!isHiddenHeader(col.text));
+  const headers=Array.isArray(section.headers) ? section.headers.slice() : [];
+  const visibleColumns=[];
+  headers.forEach((text,index)=>{
+    const normalized=normalizeHeader(text);
+    if(isHiddenNormalizedHeader(normalized)) return;
+    visibleColumns.push({
+      text,
+      index,
+      normalized,
+      isVehicle:isVehicleNormalizedHeader(normalized),
+      allowsWrapping:allowsWrappingForNormalizedHeader(normalized),
+      isStatus:isStatusNormalizedHeader(normalized),
+      mobileLabel:getMobileLabel(text),
+    });
+  });
+
+  if(!visibleColumns.length){
+    const empty=document.createElement('div');
+    empty.className='empty-indicator';
+    empty.textContent='No records to display.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
 
   visibleColumns.forEach(col => {
     const text=abbreviateHeaderLabel(col.text);
     const th=document.createElement('th');
     const normalized=normalizeHeader(text);
-    const originalNormalized=normalizeHeader(col.text);
-    const isVehicleColumn=originalNormalized==='bus' || originalNormalized==='p&t support vehicle' || originalNormalized==='vehicle' || originalNormalized.includes('vehicle');
-    if(isVehicleColumn) th.classList.add('vehicle-column');
+    if(col.isVehicle) th.classList.add('vehicle-column');
     if(text && normalized!=='bus' && normalized!=='p&t support vehicle'){
       th.textContent=String(text).replace(/[\n\r]+/g,' ').replace(/\s{2,}/g,' ').trim();
     }else{
@@ -704,33 +825,30 @@ function renderSection(section){
   table.appendChild(thead);
 
   const tbody=document.createElement('tbody');
-  const diagnosticIndex=findDiagnosticDateIndex(section.headers);
-  const deliveryIndex=findDeliveryDateIndex(section.headers);
-  const deliveryCutoff=getDeliveryCutoff();
-  const downIndex=findDownDateIndex(section.headers);
-  const vehicleIndex=findVehicleIndex(section.headers);
-  const mobileList=document.createElement('div');
-  mobileList.className='mobile-list';
+  const deliveryIndex=findDeliveryDateIndex(headers);
+  const downIndex=findDownDateIndex(headers);
+  const vehicleIndex=findVehicleIndex(headers);
+  const shouldBuildMobileCards=!kioskMode;
+  const mobileList=shouldBuildMobileCards ? document.createElement('div') : null;
+  if(mobileList) mobileList.className='mobile-list';
   section.rows.forEach(row => {
     const tr=document.createElement('tr');
-    const padded=row.slice();
-    while(padded.length<section.headers.length){ padded.push(''); }
-    const statusText=getPreferredStatus(padded, section.headers);
-    if(shouldHideByDeliveryDate(padded, deliveryIndex, deliveryCutoff, statusText)) return;
-    const diagnosticValue=(diagnosticIndex>=0 && diagnosticIndex<padded.length) ? padded[diagnosticIndex] : '';
-    const hasDiagnosticDate=!!(diagnosticValue && String(diagnosticValue).trim());
-    const displayDate=getDisplayDate(padded, deliveryIndex, downIndex);
+    const values=Array.isArray(row && row.values) ? row.values.slice()
+      : Array.isArray(row) ? row.slice() : [];
+    while(values.length<headers.length){ values.push(''); }
+    if(values.length>headers.length){ values.length=headers.length; }
+    const statusText=(row && typeof row.statusText==='string') ? row.statusText
+      : getPreferredStatus(values, headers);
+    const displayDate=(row && typeof row.displayDate==='string') ? row.displayDate
+      : getDisplayDate(values, deliveryIndex, downIndex);
     visibleColumns.forEach(col => {
-      const { index, text: headerText } = col;
-      const cell=padded[index];
+      const { index, isVehicle, allowsWrapping, isStatus } = col;
+      const cell=index<values.length ? values[index] : '';
       const td=document.createElement('td');
-      const text=cell;
-      const normalizedHeader=normalizeHeader(headerText);
-      const isVehicleColumn=normalizedHeader==='bus' || normalizedHeader==='p&t support vehicle' || normalizedHeader==='vehicle' || normalizedHeader.includes('vehicle');
-      const allowsWrapping=allowsWrappingForHeader(headerText);
-      if(isVehicleColumn) td.classList.add('vehicle-column');
+      const text=cell==null ? '' : cell;
+      if(isVehicle) td.classList.add('vehicle-column');
       if(allowsWrapping) td.classList.add('wrap-allowed');
-      if(isStatusHeader(headerText)){
+      if(isStatus){
         const cls=getStatusClass(text);
         td.className='status';
         if(text && cls){
@@ -751,91 +869,96 @@ function renderSection(section){
     });
     tbody.appendChild(tr);
 
-    const card=document.createElement('div');
-    card.className='mobile-card';
-    const summaryButton=document.createElement('button');
-    summaryButton.type='button';
-    summaryButton.className='card-summary';
-    summaryButton.setAttribute('aria-expanded','false');
+    if(shouldBuildMobileCards){
+      const card=document.createElement('div');
+      card.className='mobile-card';
+      const summaryButton=document.createElement('button');
+      summaryButton.type='button';
+      summaryButton.className='card-summary';
+      summaryButton.setAttribute('aria-expanded','false');
 
-    const vehicleLabel=document.createElement('span');
-    vehicleLabel.className='vehicle';
-    vehicleLabel.textContent=padded[vehicleIndex] || 'Unknown Vehicle';
-    summaryButton.appendChild(vehicleLabel);
+      const vehicleLabel=document.createElement('span');
+      vehicleLabel.className='vehicle';
+      const vehicleValue=(vehicleIndex>=0 && vehicleIndex<values.length && values[vehicleIndex])
+        ? values[vehicleIndex]
+        : (values.find(v=>v) || 'Unknown Vehicle');
+      vehicleLabel.textContent=vehicleValue;
+      summaryButton.appendChild(vehicleLabel);
 
-    const summaryMeta=document.createElement('div');
-    summaryMeta.className='summary-meta';
+      const summaryMeta=document.createElement('div');
+      summaryMeta.className='summary-meta';
 
-    if(statusText){
-      const statusCls=getStatusClass(statusText);
-      const pill=document.createElement('span');
-      pill.className='pill';
-      if(statusCls) pill.classList.add(statusCls);
-      const label=document.createElement('span');
-      label.textContent=statusText;
-      pill.appendChild(label);
-      summaryMeta.appendChild(pill);
-    }
+      if(statusText){
+        const statusCls=getStatusClass(statusText);
+        const pill=document.createElement('span');
+        pill.className='pill';
+        if(statusCls) pill.classList.add(statusCls);
+        const label=document.createElement('span');
+        label.textContent=statusText;
+        pill.appendChild(label);
+        summaryMeta.appendChild(pill);
+      }
 
-    const dateEl=document.createElement('span');
-    dateEl.className='summary-date';
-    dateEl.textContent=displayDate || '—';
-    summaryMeta.appendChild(dateEl);
+      const dateEl=document.createElement('span');
+      dateEl.className='summary-date';
+      dateEl.textContent=displayDate || '—';
+      summaryMeta.appendChild(dateEl);
 
-    const chevron=document.createElement('span');
-    chevron.className='chevron';
-    chevron.textContent='›';
-    chevron.setAttribute('aria-hidden','true');
+      const chevron=document.createElement('span');
+      chevron.className='chevron';
+      chevron.textContent='›';
+      chevron.setAttribute('aria-hidden','true');
 
-    summaryButton.appendChild(summaryMeta);
-    summaryButton.appendChild(chevron);
+      summaryButton.appendChild(summaryMeta);
+      summaryButton.appendChild(chevron);
 
-    const details=document.createElement('dl');
-    details.className='card-details';
-    visibleColumns.forEach(col => {
-      const { index, text: headerText } = col;
-      const value=padded[index];
-      if(!value) return;
-      const dt=document.createElement('dt');
-      dt.textContent=getMobileLabel(headerText);
-      const dd=document.createElement('dd');
-      if(isStatusHeader(headerText)){
-        const cls=getStatusClass(value);
-        if(value && cls){
-          const pill=document.createElement('span');
-          pill.className='pill';
-          pill.classList.add(cls);
-          const label=document.createElement('span');
-          label.textContent=value;
-          pill.appendChild(label);
-          dd.appendChild(pill);
+      const details=document.createElement('dl');
+      details.className='card-details';
+      visibleColumns.forEach(col => {
+        const { index, isStatus, mobileLabel } = col;
+        const value=index<values.length ? values[index] : '';
+        if(!value) return;
+        const dt=document.createElement('dt');
+        dt.textContent=mobileLabel;
+        const dd=document.createElement('dd');
+        if(isStatus){
+          const cls=getStatusClass(value);
+          if(value && cls){
+            const pill=document.createElement('span');
+            pill.className='pill';
+            pill.classList.add(cls);
+            const label=document.createElement('span');
+            label.textContent=value;
+            pill.appendChild(label);
+            dd.appendChild(pill);
+          }else{
+            dd.textContent=value;
+          }
         }else{
           dd.textContent=value;
         }
-      }else{
-        dd.textContent=value;
+        details.appendChild(dt);
+        details.appendChild(dd);
+      });
+
+      const hasDetails=details.children.length>0;
+      if(!hasDetails){
+        chevron.style.visibility='hidden';
+        summaryButton.setAttribute('aria-expanded','false');
       }
-      details.appendChild(dt);
-      details.appendChild(dd);
-    });
 
-    const hasDetails=details.children.length>0;
-    if(!hasDetails){
-      chevron.style.visibility='hidden';
-      summaryButton.setAttribute('aria-expanded','false');
+      summaryButton.addEventListener('click',()=>{
+        if(!hasDetails) return;
+        const expanded=!card.classList.contains('expanded');
+        card.classList.toggle('expanded');
+        summaryButton.setAttribute('aria-expanded', expanded ? 'true':'false');
+        scheduleFontAdjustment();
+      });
+
+      card.appendChild(summaryButton);
+      card.appendChild(details);
+      mobileList.appendChild(card);
     }
-
-    summaryButton.addEventListener('click',()=>{
-      if(!hasDetails) return;
-      const expanded=!card.classList.contains('expanded');
-      card.classList.toggle('expanded');
-      summaryButton.setAttribute('aria-expanded', expanded ? 'true':'false');
-      scheduleFontAdjustment();
-    });
-
-    card.appendChild(summaryButton);
-    card.appendChild(details);
-    mobileList.appendChild(card);
   });
   if(!tbody.children.length){
     const empty=document.createElement('div');
@@ -847,19 +970,29 @@ function renderSection(section){
   table.appendChild(tbody);
   tableWrapper.appendChild(table);
   wrapper.appendChild(tableWrapper);
-  if(mobileList.children.length){
+  if(shouldBuildMobileCards && mobileList.children.length){
     wrapper.appendChild(mobileList);
   }
   return wrapper;
 }
 
 function renderSheet(data){
-  sectionsContainer.innerHTML='';
+  let kioskSignature=null;
+  if(kioskMode){
+    kioskSignature=computeKioskSignature(data);
+    if(kioskSignature && kioskSignature===kioskRenderSignature){
+      return;
+    }
+  }else{
+    kioskRenderSignature=null;
+  }
+
   if(!data.sections.length){
     const empty=document.createElement('div');
     empty.className='empty-indicator';
     empty.textContent='Unable to load downed vehicle data.';
-    sectionsContainer.appendChild(empty);
+    sectionsContainer.replaceChildren(empty);
+    if(kioskMode) kioskRenderSignature=kioskSignature;
     scheduleFontAdjustment();
     return;
   }
@@ -871,18 +1004,26 @@ function renderSheet(data){
       return a.index-b.index;
     })
     .map(item=>item.section);
+  const fragment=document.createDocumentFragment();
   orderedSections.forEach(section => {
-    sectionsContainer.appendChild(renderSection(section));
+    fragment.appendChild(renderSection(section));
   });
+  sectionsContainer.replaceChildren(fragment);
+  if(kioskMode) kioskRenderSignature=kioskSignature;
   scheduleFontAdjustment();
 }
 
 async function loadSheet(){
   try{
-    const res=await fetch(ENDPOINT,{cache:'no-store'});
+    const res=await fetch(DOWNED_ENDPOINT,{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
-    const csv=await res.text();
-    renderSheet(parseSheet(csv));
+    const payload=await res.json();
+    if(payload && payload.error){
+      console.warn('Downed endpoint reported error:', payload.error);
+    }
+    const sections=Array.isArray(payload && payload.sections) ? payload.sections : [];
+    const headerLine=Array.isArray(payload && payload.headerLine) ? payload.headerLine : [];
+    renderSheet({ headerLine, sections });
   }catch(err){
     console.error('Failed to load downed vehicles sheet', err);
     renderSheet({ headerLine:[], sections:[] });
@@ -901,7 +1042,12 @@ document.addEventListener('visibilitychange',()=>{
 });
 
 start();
+
+if(!kioskMode){
+  const navScript=document.createElement('script');
+  navScript.src='nav-bar.js';
+  document.body.appendChild(navScript);
+}
 </script>
-<script src="nav-bar.js"></script>
 </body>
 </html>

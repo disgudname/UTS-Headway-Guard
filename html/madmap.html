@@ -2,6 +2,9 @@
 <html>
   <head>
 <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
     <title>Live Map - UTS Operations Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -407,29 +410,14 @@
       window.addEventListener("resize", positionRouteTab);
 
       function loadAgencies() {
-        return fetch('https://admin.ridesystems.net/api/Clients/GetClients')
-          .then(response => {
-            const contentType = response.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-              return response.json();
-            }
-            return response.text().then(text => {
-              const parser = new DOMParser();
-              const xml = parser.parseFromString(text, 'application/xml');
-              return Array.from(xml.getElementsByTagName('Client')).map(c => ({
-                Name: c.getElementsByTagName('Name')[0]?.textContent.trim(),
-                WebAddress: c.getElementsByTagName('WebAddress')[0]?.textContent.trim()
-              }));
-            });
-          })
-          .then(clients => {
+        return fetch('/v1/testmap/ridesystems/clients')
+          .then(response => response.json())
+          .then(payload => {
+            const clients = payload?.clients || [];
             agencies = clients.map(c => {
-              const name = c.Name?.trim();
-              const webAddress = c.WebAddress?.trim();
-              if (!name || !webAddress) return null;
-              const url = webAddress.startsWith('http')
-                ? webAddress.replace(/^http:\/\//i, 'https://')
-                : `https://${webAddress}`;
+              const name = c.name?.trim();
+              const url = c.url?.trim();
+              if (!name || !url) return null;
               return { name, url };
             }).filter(Boolean);
             agencies.sort((a, b) => a.name.localeCompare(b.name));

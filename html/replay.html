@@ -2,6 +2,9 @@
 <html>
 <head>
 <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
   <title>Replay Map - UTS Operations Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -803,8 +806,12 @@
   <div id="controls" class="playback-controls">
     <div class="controls-row controls-row--filters">
       <div class="control-field">
-        <label for="datePicker">Date</label>
-        <input id="datePicker" placeholder="Date">
+        <label for="startDatePicker">From Date</label>
+        <input id="startDatePicker" placeholder="Start date">
+      </div>
+      <div class="control-field">
+        <label for="endDatePicker">To Date</label>
+        <input id="endDatePicker" placeholder="End date">
       </div>
       <div class="control-field">
         <label for="startTime">From</label>
@@ -972,6 +979,9 @@
     const ROTATION_SMOOTHING_DURATION_MULTIPLIER = 0.9;
     const ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE = 0.6;
     const ROTATION_SMOOTHING_HEADING_EXPONENT = 1.35;
+    const ONDEMAND_DEFAULT_COLOR = '#ec4899';
+    const ONDEMAND_VEHICLE_RADIUS = 8;
+    const ONDEMAND_STOP_RADIUS = 7;
 
     let map = null;
 
@@ -1003,11 +1013,17 @@
     let pendingMarkerScaleMetrics = null;
     let markerScaleUpdateFrame = null;
     let textMeasurementCanvas = null;
+    const onDemandVehicleMarkers = new Map();
+    const onDemandStopMarkers = new Map();
+    const onDemandVehicleColors = new Map();
+    const onDemandServiceColors = new Map();
 
     let timer = null;       // handle for scheduled frame advance
     let playbackSpeed = 1;  // 1x, 2x, 4x, 8x, 10x, 30x, 100x, 200x, 500x, 1000x
     let routeColors = {};
     let allRoutes = {};
+    let loadedRouteDays = new Set();
+    let missingRouteDays = new Set();
     let routeSelections = {};
     let activeRoutes = new Set();
     let allBuses = {};
@@ -1016,6 +1032,9 @@
     let showSpeed = true;
     let showBlockNumbers = false;
     let showNameBubbles = true;
+    let showOnDemand = false;
+    let onDemandDataAvailable = false;
+    let onDemandPreferenceSet = false;
     let currentFrameIndex = 0;
     let lastFrameDisplayMs = null;
     let lastFrameRealTime = null;
@@ -3198,6 +3217,18 @@
         busesPane.style.zIndex = 500;
         busesPane.style.pointerEvents = 'auto';
       }
+      map.createPane('ondemandPane');
+      const ondemandPane = map.getPane('ondemandPane');
+      if (ondemandPane) {
+        ondemandPane.style.zIndex = 505;
+        ondemandPane.style.pointerEvents = 'auto';
+      }
+      map.createPane('ondemandStopsPane');
+      const ondemandStopsPane = map.getPane('ondemandStopsPane');
+      if (ondemandStopsPane) {
+        ondemandStopsPane.style.zIndex = 455;
+        ondemandStopsPane.style.pointerEvents = 'auto';
+      }
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(map);
@@ -3231,10 +3262,48 @@
 
     initializeMap();
 
-    flatpickr("#datePicker", {
+    const defaultDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    let endDatePickerInstance = null;
+    const startDatePickerInstance = flatpickr("#startDatePicker", {
       dateFormat: "Y-m-d",
-      defaultDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+      defaultDate: defaultDateStr,
+      onChange(selectedDates) {
+        if (!selectedDates || !selectedDates.length) return;
+        const selectedDate = selectedDates[0];
+        if (endDatePickerInstance) {
+          endDatePickerInstance.set('minDate', selectedDate);
+          const [currentEnd] = endDatePickerInstance.selectedDates;
+          if (!currentEnd || currentEnd < selectedDate) {
+            endDatePickerInstance.setDate(selectedDate, true);
+          }
+        }
+      }
     });
+    endDatePickerInstance = flatpickr("#endDatePicker", {
+      dateFormat: "Y-m-d",
+      defaultDate: defaultDateStr,
+      onChange(selectedDates) {
+        if (!selectedDates || !selectedDates.length) return;
+        const selectedDate = selectedDates[0];
+        if (startDatePickerInstance) {
+          startDatePickerInstance.set('maxDate', selectedDate);
+          const [currentStart] = startDatePickerInstance.selectedDates;
+          if (currentStart && currentStart > selectedDate) {
+            startDatePickerInstance.setDate(selectedDate, true);
+          }
+        }
+      }
+    });
+    if (startDatePickerInstance && endDatePickerInstance) {
+      const [initialStart] = startDatePickerInstance.selectedDates;
+      const [initialEnd] = endDatePickerInstance.selectedDates;
+      if (initialStart) {
+        endDatePickerInstance.set('minDate', initialStart);
+      }
+      if (initialEnd) {
+        startDatePickerInstance.set('maxDate', initialEnd);
+      }
+    }
     flatpickr("#startTime", {
       enableTime: true,
       noCalendar: true,
@@ -3525,6 +3594,53 @@
       }
     }
 
+    function mergeRouteMetadata(route) {
+      if (!route) return;
+      const rawId = route.RouteID ?? route.RouteId ?? route.routeID ?? route.routeId ?? route.id;
+      let numericId = Number(rawId);
+      if (!Number.isFinite(numericId)) {
+        if (typeof rawId === 'string' && rawId.trim()) {
+          const parsed = Number(rawId.trim());
+          if (Number.isFinite(parsed)) {
+            numericId = parsed;
+          } else {
+            return;
+          }
+        } else {
+          return;
+        }
+      }
+
+      const merged = Object.assign({}, allRoutes[numericId] || {}, route);
+
+      const colorRaw = route.MapLineColor ?? route.mapLineColor ?? route.RouteColor ?? route.Color;
+      const color = typeof colorRaw === 'string' ? colorRaw.trim() : '';
+      if (color) {
+        routeColors[numericId] = color;
+        merged.MapLineColor = color;
+      }
+
+      const encodedPolylineRaw = route.EncodedPolyline ?? route.encodedPolyline ?? route.Polyline ?? route.polyline;
+      const encoded = typeof encodedPolylineRaw === 'string' ? encodedPolylineRaw.trim() : '';
+      if (encoded) {
+        merged.EncodedPolyline = encoded;
+      } else {
+        delete merged.EncodedPolyline;
+      }
+
+      ['Description', 'RouteName', 'InfoText'].forEach(key => {
+        const value = route[key];
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed) {
+            merged[key] = trimmed;
+          }
+        }
+      });
+
+      allRoutes[numericId] = merged;
+    }
+
     async function fetchRoutes() {
       try {
         const response = await fetch('/v1/transloc/routes');
@@ -3533,29 +3649,8 @@
           return;
         }
 
-        data.forEach(route => {
-          if (!route) return;
-          const numericId = Number(route.RouteID);
-          if (!Number.isFinite(numericId)) return;
-
-          const merged = Object.assign({}, allRoutes[numericId] || {}, route);
-
-          const color = typeof route.MapLineColor === 'string' ? route.MapLineColor.trim() : '';
-          if (color) {
-            routeColors[numericId] = color;
-            merged.MapLineColor = color;
-          }
-
-          const encodedPolylineRaw = route.EncodedPolyline ?? route.encodedPolyline;
-          const encoded = typeof encodedPolylineRaw === 'string' ? encodedPolylineRaw.trim() : '';
-          if (encoded) {
-            merged.EncodedPolyline = encoded;
-          } else {
-            delete merged.EncodedPolyline;
-          }
-
-          allRoutes[numericId] = merged;
-        });
+        data.forEach(route => mergeRouteMetadata(route));
+        updateRouteSelector(activeRoutes, { force: true });
       } catch (err) {
         console.error('Error fetching routes', err);
       }
@@ -3620,6 +3715,38 @@
 
     async function toggleNameBubbles() {
       showNameBubbles = !showNameBubbles;
+      updateRouteSelector(activeRoutes, { force: true });
+      await refreshReplay();
+    }
+
+    function hasOnDemandContent(entry) {
+      if (!entry || typeof entry !== 'object') return false;
+      const payload = entry.ondemand || entry.onDemand;
+      if (!payload || typeof payload !== 'object') return false;
+      const vehicles = Array.isArray(payload?.vehicles) ? payload.vehicles : [];
+      const stops = Array.isArray(payload?.ondemandStops) ? payload.ondemandStops : [];
+      return vehicles.length > 0 || stops.length > 0;
+    }
+
+    function recomputeOnDemandAvailability() {
+      const previousAvailability = onDemandDataAvailable;
+      const previousVisibility = showOnDemand;
+      onDemandDataAvailable = playbackData.some(hasOnDemandContent);
+      if (!onDemandDataAvailable) {
+        showOnDemand = false;
+        clearOnDemandLayers();
+      } else if (!onDemandPreferenceSet && !showOnDemand) {
+        showOnDemand = true;
+      }
+      if (previousAvailability !== onDemandDataAvailable || previousVisibility !== showOnDemand) {
+        updateRouteSelector(activeRoutes, { force: true });
+      }
+    }
+
+    async function toggleOnDemandOverlay() {
+      if (!onDemandDataAvailable) return;
+      onDemandPreferenceSet = true;
+      showOnDemand = !showOnDemand;
       updateRouteSelector(activeRoutes, { force: true });
       await refreshReplay();
     }
@@ -3844,7 +3971,9 @@
         active: activeSnapshot,
         showSpeed: !!showSpeed,
         showBlockNumbers: !!showBlockNumbers,
-        showNameBubbles: !!showNameBubbles
+        showNameBubbles: !!showNameBubbles,
+        showOnDemand: !!showOnDemand,
+        onDemandDataAvailable: !!onDemandDataAvailable
       });
 
       if (!forceUpdate && nextStateKey === lastRouteSelectorStateKey) {
@@ -3872,6 +4001,10 @@
             <div class="selector-group">
               <div class="selector-label">Name Bubbles</div>
               <button type="button" class="pill-button ${showNameBubbles ? 'is-active' : ''}" onclick="toggleNameBubbles()">${showNameBubbles ? 'Hide Name Bubbles' : 'Show Name Bubbles'}</button>
+            </div>
+            <div class="selector-group">
+              <div class="selector-label">OnDemand</div>
+              <button type="button" class="pill-button ${showOnDemand ? 'is-active' : ''}" ${onDemandDataAvailable ? '' : 'disabled'} onclick="toggleOnDemandOverlay()">${showOnDemand ? 'Hide OnDemand' : 'Show OnDemand'}</button>
             </div>
             <div class="selector-group selector-group--route-actions">
               <div class="selector-label">Route Shortcuts</div>
@@ -4088,11 +4221,37 @@
       return `${y}${m}${day}_${h}`;
     }
 
+    async function loadRoutesForDay(dayKey) {
+      if (!dayKey) return;
+      if (loadedRouteDays.has(dayKey) || missingRouteDays.has(dayKey)) return;
+      try {
+        const response = await fetch(`/vehicle_log/${dayKey}_routes.json`, { cache: 'no-store' });
+        if (!response.ok) {
+          if (response.status === 404) {
+            missingRouteDays.add(dayKey);
+          }
+          return;
+        }
+        const data = await response.json();
+        if (!Array.isArray(data)) {
+          loadedRouteDays.add(dayKey);
+          return;
+        }
+        data.forEach(route => mergeRouteMetadata(route));
+        loadedRouteDays.add(dayKey);
+        updateRouteSelector(activeRoutes, { force: true });
+      } catch (err) {
+        console.error(`Failed to load routes for ${dayKey}`, err);
+      }
+    }
+
     async function loadHour(ms) {
       const key = hourKey(ms);
       if (loadedHours.has(key)) return;
+      const dayKey = key.split('_')[0];
       beginRangeLoad();
       try {
+        await loadRoutesForDay(dayKey);
         const resp = await fetch(`/vehicle_log/${key}.jsonl`, { cache: 'no-store' });
         if (!resp.ok) { loadedHours.add(key); return; }
         const text = await resp.text();
@@ -4108,6 +4267,7 @@
           return (!startTime || t >= startTime) && (!userEndTime || t <= userEndTime);
         });
         playbackTimes = playbackData.map(e => new Date(e.ts).getTime());
+        recomputeOnDemandAvailability();
         loadedHours.add(key);
         if (playbackTimes.length) {
           const lastMs = playbackTimes[playbackTimes.length - 1];
@@ -4172,8 +4332,34 @@
       busMarkerStates = {};
       pendingBusVisualUpdates.clear();
       busBlocks = {};
+      clearOnDemandLayers();
       lastFrameDisplayMs = null;
       lastFrameRealTime = null;
+    }
+
+    function clearOnDemandLayers() {
+      onDemandVehicleMarkers.forEach(marker => {
+        if (!marker) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+      });
+      onDemandVehicleMarkers.clear();
+      onDemandStopMarkers.forEach(marker => {
+        if (!marker) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+      });
+      onDemandStopMarkers.clear();
+      onDemandVehicleColors.clear();
+      onDemandServiceColors.clear();
     }
 
     function drawRoutes() {
@@ -4326,6 +4512,144 @@
       };
     }
 
+    function normalizeOnDemandVehicleId(entry) {
+      const candidate = entry?.vehicleId
+        ?? entry?.vehicle_id
+        ?? entry?.vehicleID
+        ?? entry?.deviceUuid
+        ?? entry?.device_uuid
+        ?? entry?.deviceId;
+      if (candidate == null) return '';
+      const text = `${candidate}`.trim();
+      return text;
+    }
+
+    function getOnDemandServiceColor(serviceId) {
+      const key = typeof serviceId === 'string' ? serviceId.trim() : '';
+      if (!key) return ONDEMAND_DEFAULT_COLOR;
+      if (onDemandServiceColors.has(key)) {
+        return onDemandServiceColors.get(key);
+      }
+      const hash = key.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+      const hue = hash % 360;
+      const color = `hsl(${hue}, 70%, 45%)`;
+      onDemandServiceColors.set(key, color);
+      return color;
+    }
+
+    function renderOnDemandFrame(payload, animationOptions) {
+      if (!map) return;
+      if (!showOnDemand) {
+        clearOnDemandLayers();
+        return;
+      }
+      const vehicles = Array.isArray(payload?.vehicles) ? payload.vehicles : [];
+      const stops = Array.isArray(payload?.ondemandStops) ? payload.ondemandStops : [];
+
+      const seenVehicles = new Set();
+      vehicles.forEach(vehicle => {
+        const vehicleId = normalizeOnDemandVehicleId(vehicle);
+        if (!vehicleId) return;
+        const lat = Number.isFinite(vehicle.lat) ? vehicle.lat : Number(vehicle.lat);
+        const lng = Number.isFinite(vehicle.lng) ? vehicle.lng : Number(vehicle.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const pos = [lat, lng];
+        const markerColor = (typeof vehicle.markerColor === 'string' && vehicle.markerColor.trim())
+          ? vehicle.markerColor.trim()
+          : ONDEMAND_DEFAULT_COLOR;
+        onDemandVehicleColors.set(vehicleId, markerColor);
+        const existing = onDemandVehicleMarkers.get(vehicleId);
+        if (existing) {
+          animateMarkerTo(existing, pos, animationOptions);
+          if (typeof existing.setStyle === 'function') {
+            existing.setStyle({ color: markerColor, fillColor: markerColor });
+          }
+        } else if (typeof L === 'object' && typeof L.circleMarker === 'function') {
+          const marker = L.circleMarker(pos, {
+            radius: ONDEMAND_VEHICLE_RADIUS,
+            color: markerColor,
+            weight: 2,
+            fillColor: markerColor,
+            fillOpacity: 0.8,
+            pane: 'ondemandPane'
+          });
+          marker.addTo(map);
+          onDemandVehicleMarkers.set(vehicleId, marker);
+        }
+        const marker = onDemandVehicleMarkers.get(vehicleId);
+        if (marker && typeof marker.bindTooltip === 'function') {
+          const labelParts = [];
+          if (vehicle.callName) labelParts.push(`${vehicle.callName}`.trim());
+          if (vehicle.driverName) labelParts.push(`${vehicle.driverName}`.trim());
+          if (vehicle.serviceId) labelParts.push(`Service ${vehicle.serviceId}`);
+          const tooltip = labelParts.filter(Boolean).join(' • ');
+          if (tooltip) {
+            marker.bindTooltip(tooltip, { direction: 'top', offset: [0, -6] });
+          }
+        }
+        seenVehicles.add(vehicleId);
+      });
+      onDemandVehicleMarkers.forEach((marker, key) => {
+        if (seenVehicles.has(key)) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+        onDemandVehicleMarkers.delete(key);
+        onDemandVehicleColors.delete(key);
+      });
+
+      const seenStops = new Set();
+      stops.forEach(stop => {
+        if (!stop || typeof stop !== 'object') return;
+        const lat = Number(stop.lat ?? stop.latitude);
+        const lng = Number(stop.lng ?? stop.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const stopType = typeof stop.stopType === 'string' ? stop.stopType : '';
+        const stopKey = `${stop.vehicleId || ''}|${stop.stopTimestamp || stop.timestamp || ''}|${lat.toFixed(5)}|${lng.toFixed(5)}|${stopType}`;
+        seenStops.add(stopKey);
+        const color = onDemandVehicleColors.get(stop.vehicleId) || getOnDemandServiceColor(stop.serviceId);
+        const existing = onDemandStopMarkers.get(stopKey);
+        const position = [lat, lng];
+        if (existing) {
+          animateMarkerTo(existing, position, animationOptions);
+          if (typeof existing.setStyle === 'function') {
+            existing.setStyle({ color, fillColor: color });
+          }
+        } else if (typeof L === 'object' && typeof L.circleMarker === 'function') {
+          const marker = L.circleMarker(position, {
+            radius: ONDEMAND_STOP_RADIUS,
+            color,
+            weight: 2,
+            fillColor: color,
+            fillOpacity: 0.5,
+            pane: 'ondemandStopsPane'
+          });
+          let label = stop.stopType === 'pickup' ? 'Pickup' : (stop.stopType === 'dropoff' ? 'Dropoff' : 'Stop');
+          if (stop.address) {
+            label += ` • ${stop.address}`;
+          }
+          if (marker && typeof marker.bindTooltip === 'function') {
+            marker.bindTooltip(label, { direction: 'top', offset: [0, -4] });
+          }
+          marker.addTo(map);
+          onDemandStopMarkers.set(stopKey, marker);
+        }
+      });
+      onDemandStopMarkers.forEach((marker, key) => {
+        if (seenStops.has(key)) return;
+        stopMarkerAnimation(marker);
+        if (typeof marker.remove === 'function') {
+          marker.remove();
+        } else if (map && typeof map.removeLayer === 'function') {
+          map.removeLayer(marker);
+        }
+        onDemandStopMarkers.delete(key);
+      });
+    }
+
 
     function findFrameIndex(ms) {
       let idx = 0;
@@ -4389,6 +4713,9 @@
       updateBusSelector(activeBusesSet);
 
       drawRoutes();
+
+      const ondemandPayload = entry.ondemand || entry.onDemand || null;
+      renderOnDemandFrame(ondemandPayload, markerAnimationOptions);
 
       const blocks = entry.blocks || {};
       const seen = new Set();
@@ -4620,32 +4947,75 @@
     async function applyRange(initial = false) {
       beginRangeLoad();
       try {
-        const dateStr = document.getElementById('datePicker').value;
+        const startDateInput = document.getElementById('startDatePicker');
+        const endDateInput = document.getElementById('endDatePicker');
+        const startDateStr = (startDateInput && startDateInput.value) ? startDateInput.value : defaultDateStr;
+        let endDateStr = (endDateInput && endDateInput.value) ? endDateInput.value : startDateStr;
         const startStr = document.getElementById('startTime').value || '00:00';
         const endStr = document.getElementById('endTime').value || '23:59';
-        startTime = new Date(`${dateStr}T${startStr}:00`);
-        userEndTime = new Date(`${dateStr}T${endStr}:00`);
+        startTime = new Date(`${startDateStr}T${startStr}:00`);
+        userEndTime = new Date(`${endDateStr}T${endStr}:00`);
 
-        // If the selected date is today, don't try to load data beyond the current time
+        if (userEndTime < startTime) {
+          userEndTime = new Date(startTime);
+          if (endDateInput && endDateInput._flatpickr) {
+            endDateInput._flatpickr.setDate(startTime, true);
+          }
+          const endTimeInput = document.getElementById('endTime');
+          if (endTimeInput && endTimeInput._flatpickr) {
+            endTimeInput._flatpickr.setDate(startTime, true);
+          }
+          endDateStr = startDateStr;
+        }
+
+        // If the selected end date is today, don't try to load data beyond the current time
         const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-        let lastHour = new Date(`${dateStr}T23:00:00`);
-        if (dateStr === todayStr) {
+        let lastHour = new Date(userEndTime);
+        lastHour.setMinutes(0, 0, 0);
+        if (endDateStr === todayStr) {
           const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
           if (userEndTime > now) {
             userEndTime = now;
+            if (endDateInput && endDateInput._flatpickr) {
+              endDateInput._flatpickr.setDate(now, true);
+            }
+            const endTimeInput = document.getElementById('endTime');
+            if (endTimeInput && endTimeInput._flatpickr) {
+              endTimeInput._flatpickr.setDate(now, true);
+            }
           }
-          // For the current day only load up to the current hour
-          lastHour = new Date(`${dateStr}T${String(now.getHours()).padStart(2, '0')}:00:00`);
+          lastHour = new Date(userEndTime);
+          lastHour.setMinutes(0, 0, 0);
+        }
+
+        if (startTime > userEndTime) {
+          startTime = new Date(userEndTime);
+          if (startDateInput && startDateInput._flatpickr) {
+            startDateInput._flatpickr.setDate(startTime, true);
+          }
+          const startTimeInput = document.getElementById('startTime');
+          if (startTimeInput && startTimeInput._flatpickr) {
+            startTimeInput._flatpickr.setDate(startTime, true);
+          }
         }
 
         endTime = userEndTime;
         playbackData = [];
         playbackTimes = [];
         loadedHours = new Set();
+        allRoutes = {};
+        routeColors = {};
+        loadedRouteDays = new Set();
+        missingRouteDays = new Set();
         clearMarkers();
         routeLayers.forEach(layer => map.removeLayer(layer));
         routeLayers = [];
         routePolylineCache.clear();
+        showOnDemand = false;
+        onDemandDataAvailable = false;
+        onDemandPreferenceSet = false;
+        clearOnDemandLayers();
+        updateRouteSelector(activeRoutes, { force: true });
         const timeline = document.getElementById('timeline');
         timeline.min = startTime.getTime();
         timeline.max = userEndTime.getTime();
@@ -4683,7 +5053,8 @@
     // Periodically check for newly available data in the selected day
     function startAutoRefresh() {
       setInterval(async () => {
-        const dateStr = document.getElementById('datePicker').value;
+        const endDateInput = document.getElementById('endDatePicker');
+        const dateStr = endDateInput ? endDateInput.value : '';
         const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
         if (dateStr !== todayStr) return;
 
@@ -4693,6 +5064,13 @@
           endTime = now;
           const timeline = document.getElementById('timeline');
           timeline.max = now.getTime();
+          if (endDateInput && endDateInput._flatpickr) {
+            endDateInput._flatpickr.setDate(now, true);
+          }
+          const endTimeInput = document.getElementById('endTime');
+          if (endTimeInput && endTimeInput._flatpickr) {
+            endTimeInput._flatpickr.setDate(now, true);
+          }
           await loadHour(now.getTime());
         }
       }, 60000);
@@ -4707,8 +5085,10 @@
       replayInitialized = true;
       try {
         pause();
-        await fetchRoutes();
         await applyRange(true);
+        if (missingRouteDays.size > 0 || Object.keys(allRoutes).length === 0) {
+          await fetchRoutes();
+        }
         startAutoRefresh();
       } catch (err) {
         replayInitialized = false;
@@ -4746,6 +5126,9 @@
     document.getElementById('loadRangeBtn').onclick = async () => {
       pause();
       await applyRange(false);
+      if (missingRouteDays.size > 0 || Object.keys(allRoutes).length === 0) {
+        await fetchRoutes();
+      }
     };
 
     if (disclaimerOverlay) {

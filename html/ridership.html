@@ -2,6 +2,9 @@
 <html>
 <head>
 <link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
 <meta charset="utf-8" />
 <title>Ridership Counts - UTS Operations Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -70,7 +73,7 @@
   .export-status.error{color:var(--danger);}
 </style>
 </head>
-<body>
+<body data-hg-nav-requires-auth="true">
 <div id="ridership-app" hidden>
 <h1>Ridership Counts</h1>
 <div class="controls">
@@ -255,7 +258,7 @@ loadBtn.disabled=true;
 const MAX_EXTENDED_HOUR=27;
 const MAX_EXTENDED_MINUTES=MAX_EXTENDED_HOUR*60;
 
-const ROUTE_INFO_URL='https://uva.transloc.com/Services/JSONPRelay.svc/GetRoutesForMapWithScheduleWithEncodedLine?APIKey=8882812681';
+const ROUTE_INFO_URL='/v1/transloc/routes_with_shapes';
 
 let ridershipByRoute={};
 let routeList=[];
@@ -501,7 +504,7 @@ function load(){
   const startStr=(start.getMonth()+1)+"/"+start.getDate()+"/"+start.getFullYear();
   const endStr=(end.getMonth()+1)+"/"+end.getDate()+"/"+end.getFullYear();
   const bounds={start,nextStart,end};
-  const url=`https://uva.transloc.com/Services/JSONPRelay.svc/GetRidershipData?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
+  const url=`/v1/transloc/ridership?startDate=${encodeURIComponent(startStr)}&endDate=${encodeURIComponent(endStr)}`;
   const ridershipPromise=fetch(url).then(r=>r.json()).catch(err=>{
     console.error(err);
     return [];
