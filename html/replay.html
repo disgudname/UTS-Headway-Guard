@@ -1034,6 +1034,7 @@
     let showBlockNumbers = false;
     let showNameBubbles = true;
     let showOnDemand = false;
+    let showStaleOnDemand = false;
     let onDemandDataAvailable = false;
     let onDemandPreferenceSet = false;
     let currentFrameIndex = 0;
@@ -3735,6 +3736,7 @@
       onDemandDataAvailable = playbackData.some(hasOnDemandContent);
       if (!onDemandDataAvailable) {
         showOnDemand = false;
+        showStaleOnDemand = false;
         clearOnDemandLayers();
       } else if (!onDemandPreferenceSet && !showOnDemand) {
         showOnDemand = true;
@@ -3748,6 +3750,13 @@
       if (!onDemandDataAvailable) return;
       onDemandPreferenceSet = true;
       showOnDemand = !showOnDemand;
+      updateRouteSelector(activeRoutes, { force: true });
+      await refreshReplay();
+    }
+
+    async function toggleStaleOnDemand() {
+      if (!onDemandDataAvailable) return;
+      showStaleOnDemand = !showStaleOnDemand;
       updateRouteSelector(activeRoutes, { force: true });
       await refreshReplay();
     }
@@ -3974,6 +3983,7 @@
         showBlockNumbers: !!showBlockNumbers,
         showNameBubbles: !!showNameBubbles,
         showOnDemand: !!showOnDemand,
+        showStaleOnDemand: !!showStaleOnDemand,
         onDemandDataAvailable: !!onDemandDataAvailable
       });
 
@@ -4005,7 +4015,10 @@
             </div>
             <div class="selector-group">
               <div class="selector-label">OnDemand</div>
-              <button type="button" class="pill-button ${showOnDemand ? 'is-active' : ''}" ${onDemandDataAvailable ? '' : 'disabled'} onclick="toggleOnDemandOverlay()">${showOnDemand ? 'Hide OnDemand' : 'Show OnDemand'}</button>
+              <div class="display-mode-group">
+                <button type="button" class="pill-button ${showOnDemand ? 'is-active' : ''}" ${onDemandDataAvailable ? '' : 'disabled'} onclick="toggleOnDemandOverlay()">${showOnDemand ? 'Hide OnDemand' : 'Show OnDemand'}</button>
+                <button type="button" class="pill-button ${showStaleOnDemand ? 'is-active' : ''}" ${onDemandDataAvailable ? '' : 'disabled'} onclick="toggleStaleOnDemand()">${showStaleOnDemand ? 'Hide Stale OnDemand' : 'Show Stale OnDemand'}</button>
+              </div>
             </div>
             <div class="selector-group selector-group--route-actions">
               <div class="selector-label">Route Shortcuts</div>
@@ -4583,6 +4596,8 @@
         const lat = Number.isFinite(vehicle.lat) ? vehicle.lat : Number(vehicle.lat);
         const lng = Number.isFinite(vehicle.lng) ? vehicle.lng : Number(vehicle.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        const isStale = vehicle.stale === true;
+        if (!showStaleOnDemand && isStale) continue;
         const pos = [lat, lng];
         const markerColor = (typeof vehicle.markerColor === 'string' && vehicle.markerColor.trim())
           ? vehicle.markerColor.trim()
@@ -4606,7 +4621,7 @@
         state.glyphColor = glyphColor;
         state.headingDeg = headingDeg;
         state.accessibleLabel = accessibleLabel;
-        state.isStale = vehicle.stale === true;
+        state.isStale = isStale;
         state.isStopped = isBusConsideredStopped(speedMph);
         state.groundSpeed = speedMph;
         state.lastUpdateTimestamp = Date.now();
