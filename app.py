@@ -160,6 +160,15 @@ else:
     _tickets_commit_name = str(TICKETS_PATH)
 tickets_store = TicketStore(TICKETS_PATH)
 
+MIMIC3_BASE_URL = os.getenv("MIMIC3_BASE_URL", "http://mimic3:59125")
+MIMIC3_DEFAULT_VOICE = os.getenv("MIMIC3_DEFAULT_VOICE", "en_UK/apope_low#default")
+MIMIC3_TIMEOUT_S = int(os.getenv("MIMIC3_TIMEOUT_S", "10"))
+MIMIC3_MAX_CONCURRENT = int(os.getenv("MIMIC3_MAX_CONCURRENT", "2"))
+TTS_CACHE_DIR = Path(
+    os.getenv("TTS_CACHE_DIR", str(PRIMARY_DATA_DIR / "tts_audio"))
+)
+TTS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
@@ -188,6 +197,9 @@ _NON_SECRET_ENV_PREFIXES = (
     "CAAS_",
     "GPG_",
 )
+
+_tts_client: Optional[httpx.AsyncClient] = None
+_tts_semaphore = asyncio.Semaphore(MIMIC3_MAX_CONCURRENT)
 
 
 def _refresh_dispatch_passwords(force: bool = False) -> None:
@@ -335,6 +347,13 @@ def _atomic_write(path: Path, data: str) -> None:
     tmp.replace(path)
 
 
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{int(time.time()*1000)}.tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
 def _write_data_file(name: str, data: str) -> None:
     path_obj = Path(name)
     if path_obj.is_absolute():
@@ -345,6 +364,66 @@ def _write_data_file(name: str, data: str) -> None:
 
 
 tickets_store.set_commit_handler(lambda payload: _write_data_file(_tickets_commit_name, payload))
+
+
+async def synthesize_tts(text: str, voice: Optional[str] = None) -> tuple[Path, str, bool]:
+    """
+    Synthesize text with Mimic 3, returning (path_to_wav, effective_voice, from_cache).
+    """
+
+    text_value = text.strip() if isinstance(text, str) else ""
+    if not text_value:
+        raise HTTPException(status_code=400, detail="text is required")
+    if len(text_value) > 4000:
+        raise HTTPException(status_code=400, detail="text too long")
+
+    resolved_voice = voice.strip() if isinstance(voice, str) and voice.strip() else MIMIC3_DEFAULT_VOICE
+    cache_key = hashlib.sha256(f"{resolved_voice}\n{text_value}".encode("utf-8")).hexdigest()
+    cache_path = TTS_CACHE_DIR / f"{cache_key}.wav"
+
+    try:
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            return cache_path, resolved_voice, True
+    except OSError:
+        pass
+
+    client = _tts_client
+    if client is None:
+        client = httpx.AsyncClient(timeout=MIMIC3_TIMEOUT_S)
+        globals()["_tts_client"] = client
+
+    url = f"{MIMIC3_BASE_URL.rstrip('/')}/api/tts"
+    params = {"voice": resolved_voice} if resolved_voice else None
+    headers = {"Content-Type": "text/plain; charset=utf-8"}
+    try:
+        async with _tts_semaphore:
+            response = await client.post(
+                url,
+                content=text_value.encode("utf-8"),
+                params=params,
+                headers=headers,
+                timeout=MIMIC3_TIMEOUT_S,
+            )
+    except httpx.ReadTimeout:
+        print("[tts] timeout talking to mimic3")
+        raise HTTPException(status_code=502, detail="TTS backend timeout")
+    except httpx.HTTPError as exc:
+        print(f"[tts] error talking to mimic3: {exc}")
+        raise HTTPException(status_code=502, detail="TTS backend error")
+    except Exception as exc:
+        print(f"[tts] unexpected error: {exc}")
+        raise HTTPException(status_code=502, detail="TTS backend error")
+
+    if response.status_code != 200 or not response.content:
+        raise HTTPException(status_code=502, detail="TTS backend error")
+
+    try:
+        _atomic_write_bytes(cache_path, response.content)
+    except Exception as exc:
+        print(f"[tts] failed to write cache: {exc}")
+        raise HTTPException(status_code=500, detail="failed to write audio")
+
+    return cache_path, resolved_voice, False
 
 # ---------------------------
 # Geometry helpers
@@ -875,6 +954,22 @@ async def shutdown_ondemand_client() -> None:
     client = getattr(app.state, "ondemand_client", None)
     if client is not None:
         await client.aclose()
+
+
+@app.on_event("startup")
+async def init_tts_client() -> None:
+    global _tts_client
+    if _tts_client is None:
+        _tts_client = httpx.AsyncClient(timeout=MIMIC3_TIMEOUT_S)
+
+
+@app.on_event("shutdown")
+async def shutdown_tts_client() -> None:
+    global _tts_client
+    client = _tts_client
+    if client is not None:
+        await client.aclose()
+        _tts_client = None
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_DIR = BASE_DIR / "html"
@@ -2347,6 +2442,38 @@ async def api_ondemand_positions_legacy(request: Request):
     data = await _build_ondemand_payload(request)
     vehicles = data.get("vehicles") if isinstance(data, dict) else []
     return {"vehicles": vehicles}
+
+
+# ---------------------------
+# TTS
+# ---------------------------
+@app.post("/api/tts")
+async def api_tts(payload: Dict[str, Any] = Body(...)):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="invalid payload")
+    text = payload.get("text")
+    voice = payload.get("voice") if isinstance(payload.get("voice"), str) else None
+    path, effective_voice, from_cache = await synthesize_tts(text, voice)
+    return JSONResponse(
+        {
+            "url": f"/api/tts/audio/{path.stem}.wav",
+            "voice": effective_voice,
+            "cached": from_cache,
+        }
+    )
+
+
+@app.get("/api/tts/audio/{file_id}.wav")
+async def get_tts_audio(file_id: str):
+    path = TTS_CACHE_DIR / f"{file_id}.wav"
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    if size <= 0:
+        raise HTTPException(status_code=404, detail="audio not found")
+    headers = {"Cache-Control": "public, max-age=86400"}
+    return FileResponse(path, media_type="audio/wav", headers=headers)
 
 
 # ---------------------------
