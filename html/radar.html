@@ -507,6 +507,9 @@
           : [38.0520183812322, -78.50408223428101];
         const ZOOM = Number.isFinite(Number(MAP_DEFAULTS.zoom)) ? Number(MAP_DEFAULTS.zoom) : 14;
         const REFRESH_INTERVAL_MS = 5000;
+        const TRANSLOC_VEHICLES_ENDPOINT = '/v1/testmap/transloc/vehicles';
+        const TRANSLOC_METADATA_ENDPOINT = '/v1/testmap/transloc/metadata';
+        const TRANSLOC_METADATA_TTL_MS = 60000;
         const SWEEP_SPEED_DEG_PER_SEC = 60;
         const RING_COUNT = 4;
         const RING_ALPHA_BASE = 0.14;
@@ -695,6 +698,7 @@
         const pendingUpdates = new Map();
         const latestFetchSeen = new Set();
         const routeColors = new Map();
+        const metadataCache = { data: null, promise: null, timestamp: 0 };
         let busMarkerSvgText = RADAR_MARKER_SVG.trim();
         let busMarkerSvgPromise = Promise.resolve(busMarkerSvgText);
         let fetchTimeout = null;
@@ -709,6 +713,50 @@
           iconAnchor: [8, 8],
           popupAnchor: [0, -8],
         });
+
+        function applyRouteColors(metadata) {
+          routeColors.clear();
+          const routes = Array.isArray(metadata?.routes) ? metadata.routes : [];
+          routes.forEach(route => {
+            const rid = route?.RouteID ?? route?.routeID ?? route?.RouteId ?? route?.id;
+            const color = normalizeColor(route?.Color ?? route?.color ?? route?.RouteColor);
+            if (rid !== undefined && rid !== null) {
+              routeColors.set(String(rid), color);
+            }
+          });
+        }
+
+        function loadTranslocMetadata(force = false) {
+          const now = Date.now();
+          if (!force && metadataCache.data && (now - metadataCache.timestamp) < TRANSLOC_METADATA_TTL_MS) {
+            applyRouteColors(metadataCache.data);
+            return Promise.resolve(metadataCache.data);
+          }
+          if (metadataCache.promise) {
+            return metadataCache.promise;
+          }
+          metadataCache.promise = fetch(TRANSLOC_METADATA_ENDPOINT, { cache: 'no-store' })
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+              }
+              return response.json();
+            })
+            .then(data => {
+              metadataCache.data = data || {};
+              metadataCache.timestamp = Date.now();
+              applyRouteColors(metadataCache.data);
+              return metadataCache.data;
+            })
+            .catch(error => {
+              console.error('Failed to load TransLoc metadata:', error);
+              throw error;
+            })
+            .finally(() => {
+              metadataCache.promise = null;
+            });
+          return metadataCache.promise;
+        }
 
         function requestBusMarkerSvg() {
           return busMarkerSvgPromise;
@@ -934,22 +982,24 @@
 
         async function fetchVehicles() {
           const fetchStartedAt = Date.now();
+          const metadataPromise = loadTranslocMetadata(!metadataCache.data);
           try {
-            const response = await fetch('/v1/testmap/transloc', { cache: 'no-store' });
+            const response = await fetch(TRANSLOC_VEHICLES_ENDPOINT, { cache: 'no-store' });
             if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
             }
             const payload = await response.json();
             latestFetchSeen.clear();
-            routeColors.clear();
-            if (Array.isArray(payload?.routes)) {
-              payload.routes.forEach(route => {
-                const rid = route?.RouteID ?? route?.routeID ?? route?.RouteId ?? route?.id;
-                const color = normalizeColor(route?.Color ?? route?.color ?? route?.RouteColor);
-                if (rid !== undefined && rid !== null) {
-                  routeColors.set(String(rid), color);
-                }
-              });
+            try {
+              const metadata = await metadataPromise;
+              if (metadata) {
+                applyRouteColors(metadata);
+              }
+            } catch (metaError) {
+              console.error('Radar page failed to refresh metadata:', metaError);
+              if (!metadataCache.data) {
+                routeColors.clear();
+              }
             }
             if (Array.isArray(payload?.vehicles)) {
               payload.vehicles.forEach(vehicle => {

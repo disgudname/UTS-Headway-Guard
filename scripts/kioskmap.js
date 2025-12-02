@@ -27,6 +27,9 @@
   const ENABLE_OVERLAP_DASH_RENDERING = true;
   const STOP_ICON_SIZE_PX = 24;
   const STOP_GROUPING_PIXEL_DISTANCE = 20;
+  const TRANSLOC_VEHICLES_ENDPOINT = '/v1/testmap/transloc/vehicles';
+  const TRANSLOC_METADATA_ENDPOINT = '/v1/testmap/transloc/metadata';
+  const TRANSLOC_METADATA_TTL_MS = 60000;
 
   const BUS_MARKER_SVG_URL = 'busmarker.svg';
   const BUS_MARKER_VIEWBOX_WIDTH = 52.99;
@@ -2498,6 +2501,55 @@
   let hasInitialView = false;
   let refreshTimerId = null;
   let hasRenderedSnapshot = false;
+  const metadataCache = { data: null, promise: null, timestamp: 0 };
+
+  function loadTranslocMetadata(force = false) {
+    if (!force && metadataCache.data && (Date.now() - metadataCache.timestamp) < TRANSLOC_METADATA_TTL_MS) {
+      return Promise.resolve(metadataCache.data);
+    }
+    if (metadataCache.promise) {
+      return metadataCache.promise;
+    }
+    metadataCache.promise = fetch(TRANSLOC_METADATA_ENDPOINT, { cache: 'no-store' })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        metadataCache.data = data || {};
+        metadataCache.timestamp = Date.now();
+        return metadataCache.data;
+      })
+      .catch(error => {
+        console.error('Failed to load TransLoc metadata:', error);
+        throw error;
+      })
+      .finally(() => {
+        metadataCache.promise = null;
+      });
+    return metadataCache.promise;
+  }
+
+  async function fetchVehiclesPayload() {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeoutId = controller ? window.setTimeout(() => controller.abort(), 15000) : null;
+    try {
+      const response = await fetch(TRANSLOC_VEHICLES_ENDPOINT, {
+        cache: 'no-store',
+        signal: controller ? controller.signal : undefined
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return await response.json();
+    } finally {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    }
+  }
 
   async function applySnapshot(snapshot) {
     const routes = Array.isArray(snapshot?.routes) ? snapshot.routes : [];
@@ -2541,17 +2593,19 @@
   }
 
   async function fetchSnapshot() {
-    const controller = typeof AbortController === 'function' ? new AbortController() : null;
-    const timeoutId = controller ? window.setTimeout(() => controller.abort(), 15000) : null;
     try {
-      const response = await fetch('/v1/testmap/transloc', {
-        cache: 'no-store',
-        signal: controller ? controller.signal : undefined
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const snapshot = await response.json();
+      const [metadata, vehiclePayload] = await Promise.all([
+        loadTranslocMetadata(!hasRenderedSnapshot),
+        fetchVehiclesPayload()
+      ]);
+      const snapshot = {
+        routes: Array.isArray(metadata?.routes) ? metadata.routes : [],
+        stops: Array.isArray(metadata?.stops) ? metadata.stops : [],
+        blocks: (metadata && typeof metadata.blocks === 'object' && metadata.blocks !== null) ? metadata.blocks : {},
+        vehicles: Array.isArray(vehiclePayload?.vehicles) ? vehiclePayload.vehicles : [],
+        arrivals: Array.isArray(vehiclePayload?.arrivals) ? vehiclePayload.arrivals : [],
+        fetched_at: vehiclePayload?.fetched_at || metadata?.fetched_at || Math.round(Date.now() / 1000)
+      };
       await applySnapshot(snapshot);
       if (!hasRenderedSnapshot) {
         setLoadingVisible(false);
@@ -2563,9 +2617,6 @@
         setLoadingVisible(true, 'Unable to load data. Retrying…');
       }
     } finally {
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
       scheduleNextRefresh();
     }
   }
