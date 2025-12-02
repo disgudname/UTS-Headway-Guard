@@ -6466,10 +6466,20 @@ schedulePlaneStyleOverride();
                   ? computeMinutesSinceTimestamp(lastActiveTimestamp)
                   : null;
               const stopPlan = normalizeOnDemandStopPlan(vehicle.stops);
+              const pickupRiders = new Set(
+                stopPlan
+                  .filter(entry => entry.stopType === 'pickup')
+                  .flatMap(entry => (Array.isArray(entry.riders) ? entry.riders : []))
+                  .map(name => (typeof name === 'string' ? name.trim().toLowerCase() : ''))
+                  .filter(Boolean)
+              );
               const onboardRiders = stopPlan
                 .filter(entry => entry.stopType === 'dropoff')
                 .flatMap(entry => (Array.isArray(entry.riders) ? entry.riders : []))
-                .filter(Boolean);
+                .filter(name => {
+                  const normalized = typeof name === 'string' ? name.trim().toLowerCase() : '';
+                  return normalized && !pickupRiders.has(normalized);
+                });
               const stopListHtml = renderOnDemandStopList(stopPlan);
               const popupSections = [];
               if (vehicleCallName) {
