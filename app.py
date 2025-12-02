@@ -36,6 +36,13 @@ from collections import deque, defaultdict
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
+from headway_storage import HeadwayStorage, parse_iso8601_utc
+from headway_tracker import (
+    HeadwayTracker,
+    VehicleSnapshot,
+    load_headway_config,
+    HEADWAY_DISTANCE_THRESHOLD_M,
+)
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import (
@@ -149,6 +156,7 @@ VEH_LOG_DIRS = [
     ).split(":")
 ]
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
+HEADWAY_DIR = PRIMARY_DATA_DIR / "headway"
 
 TICKETS_PATH = Path(os.getenv("TICKETS_PATH", str(PRIMARY_DATA_DIR / "tickets.json")))
 if TICKETS_PATH.is_absolute():
@@ -1372,6 +1380,7 @@ class State:
         # Per-day mileage and block history
         self.bus_days: Dict[str, Dict[str, BusDay]] = {}
         self.vehicles_raw: List[Dict[str, Any]] = []
+        self.stops: List[Dict[str, Any]] = []
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -2350,6 +2359,69 @@ async def api_ondemand_positions_legacy(request: Request):
 
 
 # ---------------------------
+# REST: Headway tracking
+# ---------------------------
+
+
+def _get_headway_storage() -> HeadwayStorage:
+    storage = getattr(app.state, "headway_storage", None)
+    if storage is None:
+        raise HTTPException(status_code=503, detail="headway storage unavailable")
+    return storage
+
+
+@app.get("/api/headway")
+async def api_headway(
+    start: str = Query(..., description="Start timestamp (ISO-8601 UTC)"),
+    end: str = Query(..., description="End timestamp (ISO-8601 UTC)"),
+    route_ids: Optional[str] = Query(None, description="Comma-separated route IDs"),
+    stop_ids: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+):
+    start_dt = _parse_headway_timestamp(start)
+    end_dt = _parse_headway_timestamp(end)
+    routes = _parse_headway_ids(route_ids)
+    stops = _parse_headway_ids(stop_ids)
+    storage = _get_headway_storage()
+    events = storage.query_events(
+        start_dt,
+        end_dt,
+        route_ids=routes if routes else None,
+        stop_ids=stops if stops else None,
+    )
+    return {"events": [ev.to_dict() for ev in events]}
+
+
+@app.get("/api/headway/export")
+async def api_headway_export(
+    start: str = Query(..., description="Start timestamp (ISO-8601 UTC)"),
+    end: str = Query(..., description="End timestamp (ISO-8601 UTC)"),
+    route_ids: Optional[str] = Query(None, description="Comma-separated route IDs"),
+    stop_ids: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+):
+    start_dt = _parse_headway_timestamp(start)
+    end_dt = _parse_headway_timestamp(end)
+    routes = _parse_headway_ids(route_ids)
+    stops = _parse_headway_ids(stop_ids)
+    storage = _get_headway_storage()
+    events = storage.query_events(
+        start_dt,
+        end_dt,
+        route_ids=routes if routes else None,
+        stop_ids=stops if stops else None,
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for ev in events:
+        writer.writerow(ev.to_row())
+    payload = buf.getvalue()
+    headers = {
+        "Content-Disposition": "attachment; filename=\"headway_export.csv\"",
+        "Content-Type": "text/csv",
+    }
+    return Response(content=payload, media_type="text/csv", headers=headers)
+
+
+# ---------------------------
 # Startup background updater
 # ---------------------------
 @app.on_event("startup")
@@ -2358,11 +2430,28 @@ async def startup():
         load_bus_days()
         load_vehicle_headings()
 
+    try:
+        headway_route_ids, headway_stop_ids = load_headway_config()
+        headway_storage = HeadwayStorage(HEADWAY_DIR)
+        headway_tracker = HeadwayTracker(
+            storage=headway_storage,
+            distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
+            tracked_route_ids=headway_route_ids,
+            tracked_stop_ids=headway_stop_ids,
+        )
+        app.state.headway_storage = headway_storage
+        app.state.headway_tracker = headway_tracker
+    except Exception as exc:
+        print(f"[headway] initialization failed: {exc}")
+        app.state.headway_storage = None
+        app.state.headway_tracker = None
+
     async def updater():
         await asyncio.sleep(0.1)
         async with httpx.AsyncClient() as client:
             while True:
                 start = time.time()
+                headway_snapshots: List[VehicleSnapshot] = []
                 try:
                     routes_catalog: List[Dict[str, Any]] = []
                     routes_raw = await fetch_routes_with_shapes(client)
@@ -2384,6 +2473,17 @@ async def startup():
                         state.routes_raw = routes_raw
                         state.routes_catalog_raw = routes_catalog
                         state.vehicles_raw = vehicles_raw
+                        try:
+                            trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
+                            if routes_catalog:
+                                trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog)
+                            stops = _build_transloc_stops(trimmed_routes)
+                            state.stops = stops
+                            tracker_ref = getattr(app.state, "headway_tracker", None)
+                            if tracker_ref is not None:
+                                tracker_ref.update_stops(stops)
+                        except Exception as e:
+                            print(f"[headway] failed to refresh stops: {e}")
                         # Update complete routes & roster (all buses/all routes)
                         try:
                             state.routes_all = {}
@@ -2538,6 +2638,23 @@ async def startup():
                             new_map[rid][vid] = veh
                             state.last_dir_sign[vid] = dir_sign
                         state.vehicles_by_route = new_map
+                        for rid, vehs in new_map.items():
+                            for veh in vehs.values():
+                                if veh.lat is None or veh.lon is None:
+                                    continue
+                                try:
+                                    ts_dt = datetime.fromtimestamp(veh.ts_ms / 1000.0, timezone.utc)
+                                except Exception:
+                                    ts_dt = datetime.now(timezone.utc)
+                                headway_snapshots.append(
+                                    VehicleSnapshot(
+                                        vehicle_id=str(veh.id) if veh.id is not None else None,
+                                        lat=veh.lat,
+                                        lon=veh.lon,
+                                        route_id=str(rid) if rid is not None else None,
+                                        timestamp=ts_dt,
+                                    )
+                                )
                         current_vehicle_ids: set[int] = set()
                         for vehs in new_map.values():
                             for veh in vehs.values():
@@ -2641,6 +2758,9 @@ async def startup():
                                         bd = bus_days.setdefault(bus, BusDay())
                                         bd.blocks.add(bid)
                         save_bus_days()
+                    tracker = getattr(app.state, "headway_tracker", None)
+                    if tracker and headway_snapshots:
+                        tracker.process_snapshots(headway_snapshots)
                 except Exception as e:
                     # record last error for UI surfacing
                     try:
@@ -4008,6 +4128,24 @@ def _vehicle_age_seconds(seconds_since_report: Any = None, timestamp: Any = None
     if age < 0:
         return 0.0
     return age
+
+
+def _parse_headway_ids(param: Optional[str]) -> Set[str]:
+    ids: Set[str] = set()
+    if not param:
+        return ids
+    for part in param.split(","):
+        text = part.strip()
+        if text:
+            ids.add(text)
+    return ids
+
+
+def _parse_headway_timestamp(value: str) -> datetime:
+    try:
+        return parse_iso8601_utc(value)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid timestamp format; use ISO-8601")
 
 
 async def build_transloc_snapshot(
