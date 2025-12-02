@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
-from datetime import datetime, timedelta, time as dtime, timezone
+from datetime import date, datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 import httpx
@@ -57,6 +57,12 @@ from urllib.parse import quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from tickets_store import TicketStore
 from ondemand_client import OnDemandClient
+from uva_athletics import (
+    NY_TZ as UVA_TZ,
+    ensure_uva_athletics_cache,
+    is_home_location,
+    load_cached_events,
+)
 
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
@@ -2419,6 +2425,115 @@ async def api_headway_export(
         "Content-Type": "text/csv",
     }
     return Response(content=payload, media_type="text/csv", headers=headers)
+
+
+# ---------------------------
+# REST: UVA Athletics (home games)
+# ---------------------------
+
+
+def _parse_local_date_param(value: Optional[str], label: str) -> Optional[date]:
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"invalid {label} format; expected YYYY-MM-DD")
+
+
+def _parse_local_time_param(value: Optional[str], label: str) -> Optional[dtime]:
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"invalid {label} format; expected HH:MM")
+
+
+def _load_cached_uva_events(now: datetime) -> List[Dict[str, Any]]:
+    cache = ensure_uva_athletics_cache(now=now)
+    events = cache.get("events") if isinstance(cache, dict) else None
+    if isinstance(events, list):
+        return events
+    return load_cached_events()
+
+
+@app.get("/api/uva_athletics/home")
+async def api_uva_home_events(
+    start_date: Optional[str] = Query(None, description="Local start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Local end date (YYYY-MM-DD)"),
+    start_time: Optional[str] = Query(None, description="Local start time filter (HH:MM, 24-hour)"),
+    end_time: Optional[str] = Query(None, description="Local end time filter (HH:MM, 24-hour)"),
+):
+    """
+    Return cached UVA athletics home games sourced from the WMT ICS feed.
+
+    The cache refreshes once per day shortly after 03:00 America/New_York, or on
+    the first request after that threshold if the service was offline. Query
+    parameters filter by local date and time; when no date window is provided the
+    endpoint defaults to upcoming events (start time after "now").
+    """
+
+    now = datetime.now(UVA_TZ)
+    start_date_val = _parse_local_date_param(start_date, "start_date")
+    end_date_val = _parse_local_date_param(end_date, "end_date")
+    if start_date_val and end_date_val and end_date_val < start_date_val:
+        raise HTTPException(status_code=400, detail="end_date must be on or after start_date")
+
+    start_time_val = _parse_local_time_param(start_time, "start_time")
+    end_time_val = _parse_local_time_param(end_time, "end_time")
+    if start_time_val and end_time_val and end_time_val < start_time_val:
+        raise HTTPException(status_code=400, detail="end_time must be on or after start_time")
+
+    cached_events = _load_cached_uva_events(now)
+    filtered: List[Dict[str, Any]] = []
+    for ev in cached_events:
+        if not ev.get("is_home") and not is_home_location(ev.get("raw_location", "")):
+            continue
+
+        start_str = ev.get("start_time")
+        end_str = ev.get("end_time")
+        if not start_str or not end_str:
+            continue
+        try:
+            start_dt = datetime.fromisoformat(start_str)
+            end_dt = datetime.fromisoformat(end_str)
+        except ValueError:
+            continue
+
+        start_local = start_dt.astimezone(UVA_TZ)
+        end_local = end_dt.astimezone(UVA_TZ)
+
+        if not start_date_val and not end_date_val and start_local < now:
+            continue
+        if start_date_val and start_local.date() < start_date_val:
+            continue
+        if end_date_val and start_local.date() > end_date_val:
+            continue
+
+        start_local_time = start_local.time()
+        if start_time_val and start_local_time < start_time_val:
+            continue
+        if end_time_val and start_local_time > end_time_val:
+            continue
+
+        filtered.append(
+            {
+                "start_time": start_local.isoformat(),
+                "end_time": end_local.isoformat(),
+                "sport": ev.get("sport", ""),
+                "opponent": ev.get("opponent", ""),
+                "city": ev.get("city", ""),
+                "state": ev.get("state", ""),
+                "extra_location_detail": ev.get("extra_location_detail"),
+                "raw_summary": ev.get("raw_summary", ""),
+                "raw_location": ev.get("raw_location", ""),
+                "uid": ev.get("uid", ""),
+            }
+        )
+
+    filtered.sort(key=lambda e: e["start_time"])
+    return {"events": filtered}
 
 
 # ---------------------------

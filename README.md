@@ -65,6 +65,38 @@ Run the scripted end-to-end verification (exercises ticket creation, updates, pu
 scripts/acceptance.sh
 ```
 
+## UVA athletics home games feed
+
+The FastAPI service exposes UVA athletics home events at `/api/uva_athletics/home`. Events are ingested daily from the WMT ICS feed and cached locally after 03:00 America/New_York (or on the first request after that window if the process was offline).
+
+**Query parameters** (all optional, local to America/New_York):
+
+- `start_date` / `end_date` – `YYYY-MM-DD` bounds on the event start date. If neither is provided the endpoint defaults to upcoming events.
+- `start_time` / `end_time` – `HH:MM` (24-hour) bounds on the local start time of day.
+
+**Response shape**
+
+```json
+{
+  "events": [
+    {
+      "start_time": "2025-12-20T18:00:00-05:00",
+      "end_time": "2025-12-20T20:00:00-05:00",
+      "sport": "Men's Basketball",
+      "opponent": "Maryland Eastern Shore",
+      "city": "Charlottesville",
+      "state": "VA",
+      "extra_location_detail": null,
+      "raw_summary": "Virginia Men's Basketball vs. Maryland Eastern Shore",
+      "raw_location": "Charlottesville, Va.",
+      "uid": "<ics uid>"
+    }
+  ]
+}
+```
+
+Only events with Charlottesville locations are returned. The cache is refreshed once per day; regular requests are served directly from the cached JSON.
+
 ## Getting started
 1. Install Python dependencies (for the legacy FastAPI dashboards):
    ```bash
