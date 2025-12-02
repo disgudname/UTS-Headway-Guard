@@ -2386,7 +2386,6 @@ async def testmap_ondemand_route(
             response = await client.post(
                 ORS_DIRECTIONS_URL,
                 headers={"Authorization": ORS_KEY},
-                params={"format": "geojson"},
                 json={"coordinates": coordinates},
             )
             record_api_call("POST", str(response.request.url), response.status_code)
@@ -2397,66 +2396,20 @@ async def testmap_ondemand_route(
         raise HTTPException(status_code=502, detail=detail) from exc
 
     route_coords: List[List[float]] = []
-
-    def _append_lat_lng_pairs(pairs: Iterable[Iterable[float]]):
-        for pair in pairs:
-            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
-                continue
-            try:
-                lng, lat = float(pair[0]), float(pair[1])
-            except (TypeError, ValueError):
-                continue
-            route_coords.append([lat, lng])
-
-    def _decode_polyline(encoded: str) -> List[List[float]]:
-        if not encoded:
-            return []
-        coords: List[List[float]] = []
-        index = 0
-        lat = lng = 0
-
-        while index < len(encoded):
-            for coord in ("lat", "lng"):
-                result = 0
-                shift = 0
-
-                while index < len(encoded):
-                    b = ord(encoded[index]) - 63
-                    index += 1
-                    result |= (b & 0x1F) << shift
-                    shift += 5
-                    if b < 0x20:
-                        break
-
-                delta = ~(result >> 1) if result & 1 else result >> 1
-                if coord == "lat":
-                    lat += delta
-                else:
-                    lng += delta
-
-            coords.append([lng / 1e5, lat / 1e5])
-
-        return coords
-
     if isinstance(payload, dict):
         features = payload.get("features")
         if isinstance(features, list) and features:
             feature = features[0]
             geometry = feature.get("geometry") if isinstance(feature, dict) else None
             if isinstance(geometry, dict) and geometry.get("type") == "LineString":
-                _append_lat_lng_pairs(geometry.get("coordinates") or [])
-
-        if not route_coords:
-            routes = payload.get("routes")
-            if isinstance(routes, list) and routes:
-                first_route = routes[0]
-                geometry_data = first_route.get("geometry") if isinstance(first_route, dict) else None
-
-                if isinstance(geometry_data, str):
-                    decoded = _decode_polyline(geometry_data)
-                    _append_lat_lng_pairs(decoded)
-                elif isinstance(geometry_data, dict):
-                    _append_lat_lng_pairs(geometry_data.get("coordinates") or [])
+                for pair in geometry.get("coordinates") or []:
+                    if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                        continue
+                    try:
+                        lng, lat = float(pair[0]), float(pair[1])
+                    except (TypeError, ValueError):
+                        continue
+                    route_coords.append([lat, lng])
 
     if len(route_coords) < 2:
         raise HTTPException(
@@ -2465,27 +2418,16 @@ async def testmap_ondemand_route(
 
     summary: Dict[str, Any] = {}
     if isinstance(payload, dict):
-        summary_data: Optional[Dict[str, Any]] = None
         features = payload.get("features")
         if isinstance(features, list) and features:
             properties = features[0].get("properties") if isinstance(features[0], dict) else None
             if isinstance(properties, dict):
-                potential_summary = properties.get("summary")
-                if isinstance(potential_summary, dict):
-                    summary_data = potential_summary
-
-        if summary_data is None:
-            routes = payload.get("routes")
-            if isinstance(routes, list) and routes:
-                potential_summary = routes[0].get("summary") if isinstance(routes[0], dict) else None
-                if isinstance(potential_summary, dict):
-                    summary_data = potential_summary
-
-        if isinstance(summary_data, dict):
-            if summary_data.get("distance") is not None:
-                summary["distance"] = summary_data.get("distance")
-            if summary_data.get("duration") is not None:
-                summary["duration"] = summary_data.get("duration")
+                summary_data = properties.get("summary")
+                if isinstance(summary_data, dict):
+                    if summary_data.get("distance") is not None:
+                        summary["distance"] = summary_data.get("distance")
+                    if summary_data.get("duration") is not None:
+                        summary["duration"] = summary_data.get("duration")
 
     response_body: Dict[str, Any] = {"coordinates": route_coords}
     if summary:
