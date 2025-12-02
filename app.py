@@ -1423,7 +1423,7 @@ def _is_within_ondemand_operating_window(now: Optional[datetime] = None) -> bool
     current = now.astimezone(tz) if now else datetime.now(tz)
     minutes = current.hour * 60 + current.minute + current.second / 60.0
     start_minutes = 19 * 60 + 30
-    end_minutes = 2 * 60 + 30
+    end_minutes = 5 * 60 + 30
     return minutes >= start_minutes or minutes < end_minutes
 
 PULSEPOINT_FIRST_ON_SCENE: Dict[str, Dict[str, Any]] = {}
