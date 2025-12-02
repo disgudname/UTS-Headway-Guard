@@ -172,12 +172,25 @@ def parse_location(location: str) -> Tuple[str, str, Optional[str]]:
 
 
 def is_home_location(location: str) -> bool:
+    """
+    Return True if the location indicates a home game.
+    Home games always take place in Charlottesville,
+    and the ICS location field often contains variations like 'Charlottesville, Va.'.
+    A simple case-insensitive substring check is sufficient.
+    """
     if not location:
         return False
-    if _CHARLOTTESVILLE_RE.search(location):
+
+    loc = location.lower()
+    if "charlottesville" in loc:
         return True
+
+    # Fallback to parsed fields if needed
     city, state, _ = parse_location(location)
-    return city.lower() == "charlottesville" and state.upper() == "VA"
+    if city and city.lower() == "charlottesville":
+        return True
+
+    return False
 
 
 def _load_cache() -> Dict[str, Any]:
