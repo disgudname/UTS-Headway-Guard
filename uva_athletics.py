@@ -151,23 +151,24 @@ def _normalize_state(state: str) -> str:
 
 def parse_location(location: str) -> Tuple[str, str, Optional[str]]:
     raw = location or ""
-    parts = _CITY_STATE_RE.split(raw)
     extra_detail = None
+
+    city_state_part = raw
+    if " | " in raw:
+        city_state_part, extra_detail = raw.split(" | ", 1)
+
+    city_state_part = city_state_part.replace("\\,", ",").strip()
+
     city = ""
     state = ""
-    if len(parts) == 1:
-        city = raw.strip()
-    elif len(parts) >= 2:
-        city = parts[-2].strip()
-        state = _normalize_state(parts[-1])
-        if len(parts) > 2:
-            extra_detail = ", ".join(parts[:-2]).strip()
-        elif len(parts) == 2 and raw.lower().startswith(city.lower()) is False:
-            potential_extra = raw.replace(parts[-2], "", 1).split(",")
-            if potential_extra:
-                prefix = potential_extra[0].strip()
-                if prefix and prefix.lower() != city.lower():
-                    extra_detail = prefix
+    if "," in city_state_part:
+        city_part, state_part = [p.strip() for p in city_state_part.rsplit(",", 1)]
+        city = city_part
+        cleaned_state = re.sub(r"[^\w\s]", "", state_part)
+        state = _normalize_state(cleaned_state)
+    else:
+        city = city_state_part
+
     return city or "", state or "", extra_detail
 
 
