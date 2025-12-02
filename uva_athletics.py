@@ -102,15 +102,13 @@ def parse_ics_events(ics_text: str) -> List[ParsedEvent]:
         if ":" not in line:
             continue
         key_part, value = line.split(":", 1)
-        key_upper = key_part.upper()
+        main_part, *param_parts = key_part.split(";")
+        key_upper = main_part.upper()
         params: Dict[str, str] = {}
-        if ";" in key_upper:
-            main, *rest = key_upper.split(";")
-            key_upper = main
-            for param in rest:
-                if "=" in param:
-                    pkey, pval = param.split("=", 1)
-                    params[pkey] = pval
+        for param in param_parts:
+            if "=" in param:
+                pkey, pval = param.split("=", 1)
+                params[pkey.upper()] = pval
         tzid = params.get("TZID")
         if key_upper == "DTSTART":
             dtstart = _parse_datetime(value.strip(), tzid)
