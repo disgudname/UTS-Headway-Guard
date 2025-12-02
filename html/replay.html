@@ -653,6 +653,24 @@
         gap: 4px;
         width: 100%;
       }
+      #controls .controls-row--filters {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: 8px;
+      }
+      #controls .controls-row--filters .control-field {
+        flex: 1 1 calc(50% - 8px);
+        max-height: none;
+      }
+      #controls .controls-row--filters .control-field--button {
+        flex-basis: 100%;
+        order: 5;
+      }
+      #controls .controls-row--filters .control-field--start-date { order: 1; }
+      #controls .controls-row--filters .control-field--start-time { order: 2; }
+      #controls .controls-row--filters .control-field--end-date { order: 3; }
+      #controls .controls-row--filters .control-field--end-time { order: 4; }
       #controls .controls-row--playback {
         order: -1;
       }
@@ -805,19 +823,19 @@
   <div id="routeSelectorTab" class="panel-toggle panel-toggle--right" onclick="toggleRoutePanel()" title="Toggle route selector">&#9654;</div>
   <div id="controls" class="playback-controls">
     <div class="controls-row controls-row--filters">
-      <div class="control-field">
+      <div class="control-field control-field--start-date">
         <label for="startDatePicker">From Date</label>
         <input id="startDatePicker" placeholder="Start date">
       </div>
-      <div class="control-field">
+      <div class="control-field control-field--end-date">
         <label for="endDatePicker">To Date</label>
         <input id="endDatePicker" placeholder="End date">
       </div>
-      <div class="control-field">
+      <div class="control-field control-field--start-time">
         <label for="startTime">From</label>
         <input id="startTime" placeholder="Start time">
       </div>
-      <div class="control-field">
+      <div class="control-field control-field--end-time">
         <label for="endTime">To</label>
         <input id="endTime" placeholder="End time">
       </div>
