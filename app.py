@@ -107,6 +107,11 @@ W2W_TIME_RE = re.compile(
 _W2W_KEY_QUERY_RE = re.compile(r"(?i)(key=)([^&'\"\s]+)")
 _W2W_KEY_ENCODED_RE = re.compile(r"(?i)(key%3D)([^&'\"\s]+)")
 TRAIN_TARGET_STATION_CODE = os.getenv("TRAIN_TARGET_STATION_CODE", "").strip().upper()
+ORS_KEY = (os.getenv("ORS_KEY") or "").strip()
+ORS_DIRECTIONS_URL = os.getenv(
+    "ORS_DIRECTIONS_URL", "https://api.openrouteservice.org/v2/directions/driving-car"
+).strip()
+ORS_HTTP_TIMEOUT_S = float(os.getenv("ORS_HTTP_TIMEOUT_S", "10"))
 
 VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "10"))
 ROUTE_REFRESH_S = int(os.getenv("ROUTE_REFRESH_S", "60"))
@@ -2049,6 +2054,128 @@ def _format_rider_name(rider: Any) -> Optional[str]:
     return None
 
 
+def build_ondemand_next_stop_targets(
+    schedules: Sequence[Dict[str, Any]],
+    now: datetime,
+    pending_ride_ids: Optional[Set[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    targets: Dict[str, Dict[str, Any]] = {}
+    if not schedules:
+        return targets
+
+    pending_lookup: Set[str] = set()
+    if pending_ride_ids:
+        pending_lookup = {ride_id.lower() for ride_id in pending_ride_ids if ride_id}
+
+    for vehicle in schedules:
+        if not isinstance(vehicle, dict):
+            continue
+        vehicle_id_raw = vehicle.get("vehicle_id") or vehicle.get("vehicleId")
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw is not None else ""
+        if not vehicle_id:
+            continue
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+
+        best_future: tuple[datetime, Dict[str, Any]] | None = None
+        best_past: tuple[datetime, Dict[str, Any]] | None = None
+
+        for stop in stops:
+            if not isinstance(stop, dict):
+                continue
+            position = stop.get("position") or {}
+            lat = _coerce_float(
+                position.get("latitude")
+                or position.get("lat")
+                or stop.get("latitude")
+                or stop.get("lat")
+            )
+            lng = _coerce_float(
+                position.get("longitude")
+                or position.get("lon")
+                or position.get("lng")
+                or stop.get("longitude")
+                or stop.get("lon")
+            )
+            if lat is None or lng is None:
+                continue
+
+            stop_timestamp = _parse_timestamp(stop.get("timestamp") or stop.get("time"))
+            if stop_timestamp is None:
+                continue
+            if stop_timestamp.tzinfo is None:
+                stop_timestamp = stop_timestamp.replace(tzinfo=timezone.utc)
+            else:
+                stop_timestamp = stop_timestamp.astimezone(timezone.utc)
+
+            rides = stop.get("rides")
+            if not isinstance(rides, list):
+                continue
+
+            address_value = stop.get("address") or stop.get("label") or ""
+            address = str(address_value).strip() or "Stop"
+
+            riders: List[str] = []
+            chosen_stop_type = ""
+
+            for ride in rides:
+                if not isinstance(ride, dict):
+                    continue
+                status_val = ride.get("status")
+                status_normalized = (
+                    str(status_val).strip().lower() if status_val not in {None, ""} else ""
+                )
+                if status_normalized.startswith("pending"):
+                    continue
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id_normalized = (
+                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
+                )
+                if ride_id_normalized and ride_id_normalized in pending_lookup:
+                    continue
+                stop_type_raw = ride.get("stop_type") or ride.get("stopType")
+                stop_type = str(stop_type_raw or "").strip().lower()
+                if stop_type not in {"pickup", "dropoff"}:
+                    continue
+
+                chosen_stop_type = chosen_stop_type or stop_type
+                rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+                if rider_name:
+                    riders.append(rider_name)
+                extra_riders = ride.get("riders") or ride.get("passengers")
+                if isinstance(extra_riders, list):
+                    for extra in extra_riders:
+                        formatted = _format_rider_name(extra)
+                        if formatted:
+                            riders.append(formatted)
+
+            if not chosen_stop_type:
+                continue
+
+            target: Dict[str, Any] = {
+                "lat": lat,
+                "lng": lng,
+                "address": address,
+                "stopType": chosen_stop_type,
+                "stopTimestamp": stop_timestamp.isoformat(),
+            }
+            if riders:
+                target["riders"] = riders
+
+            if stop_timestamp >= now:
+                if best_future is None or stop_timestamp < best_future[0]:
+                    best_future = (stop_timestamp, target)
+            elif best_past is None or stop_timestamp > best_past[0]:
+                best_past = (stop_timestamp, target)
+
+        selected = best_future or best_past
+        if selected:
+            targets[vehicle_id] = selected[1]
+
+    return targets
+
+
 def build_ondemand_vehicle_stop_plans(
     schedules: Sequence[Dict[str, Any]],
     pending_ride_ids: Optional[Set[str]] = None,
@@ -2245,6 +2372,9 @@ async def _collect_ondemand_data(
         print(f"[ondemand] rides processing failed: {exc}")
 
     stop_plans = build_ondemand_vehicle_stop_plans(schedules, pending_ride_ids)
+    next_stop_targets = build_ondemand_next_stop_targets(
+        schedules, current_dt, pending_ride_ids
+    )
 
     vehicles: List[Dict[str, Any]] = []
     positions_list = raw_positions if isinstance(raw_positions, list) else []
@@ -2332,6 +2462,9 @@ async def _collect_ondemand_data(
         stop_plan = stop_plans.get(vehicle_id)
         if stop_plan:
             vehicle_payload["stops"] = stop_plan
+        next_stop = next_stop_targets.get(vehicle_id)
+        if next_stop:
+            vehicle_payload["nextStop"] = next_stop
         vehicles.append(vehicle_payload)
 
     ondemand_stops = build_ondemand_virtual_stops(
@@ -2339,6 +2472,76 @@ async def _collect_ondemand_data(
     )
 
     return {"vehicles": vehicles, "ondemandStops": ondemand_stops}
+
+
+def _extract_ors_coordinates(payload: Any) -> List[List[float]]:
+    coordinates: List[Any] = []
+    if not isinstance(payload, dict):
+        return []
+
+    routes = payload.get("routes")
+    if isinstance(routes, list) and routes:
+        first_route = routes[0] if isinstance(routes[0], dict) else None
+        geometry = first_route.get("geometry") if isinstance(first_route, dict) else None
+        if isinstance(geometry, dict):
+            coordinates = geometry.get("coordinates") or []
+        elif isinstance(geometry, list):
+            coordinates = geometry
+
+    if not coordinates:
+        features = payload.get("features")
+        if isinstance(features, list) and features:
+            first_feature = features[0] if isinstance(features[0], dict) else None
+            geometry = first_feature.get("geometry") if isinstance(first_feature, dict) else None
+            if isinstance(geometry, dict):
+                coordinates = geometry.get("coordinates") or []
+
+    if not isinstance(coordinates, list):
+        return []
+
+    flattened: List[Any] = []
+    if coordinates and isinstance(coordinates[0], (list, tuple)) and coordinates[0]:
+        if isinstance(coordinates[0][0], (list, tuple)):
+            for segment in coordinates:
+                if not isinstance(segment, (list, tuple)):
+                    continue
+                for point in segment:
+                    flattened.append(point)
+        else:
+            flattened = coordinates
+
+    latlngs: List[List[float]] = []
+    for point in flattened:
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            continue
+        lng = _coerce_float(point[0])
+        lat = _coerce_float(point[1])
+        if lat is None or lng is None:
+            continue
+        latlngs.append([lat, lng])
+
+    return latlngs
+
+
+async def _fetch_openrouteservice_route(
+    start_lat: float, start_lng: float, end_lat: float, end_lng: float
+) -> List[List[float]]:
+    if not ORS_KEY:
+        raise RuntimeError("ORS_KEY is not configured")
+
+    params = {
+        "start": f"{start_lng},{start_lat}",
+        "end": f"{end_lng},{end_lat}",
+        "geometry_format": "geojson",
+    }
+    headers = {"Authorization": ORS_KEY}
+
+    async with httpx.AsyncClient(timeout=ORS_HTTP_TIMEOUT_S) as client:
+        response = await client.get(ORS_DIRECTIONS_URL, params=params, headers=headers)
+    response.raise_for_status()
+
+    data = response.json()
+    return _extract_ors_coordinates(data)
 
 
 async def _build_ondemand_payload(request: Request) -> Dict[str, Any]:
@@ -2362,6 +2565,91 @@ async def api_ondemand_positions_legacy(request: Request):
     data = await _build_ondemand_payload(request)
     vehicles = data.get("vehicles") if isinstance(data, dict) else []
     return {"vehicles": vehicles}
+
+
+@app.post("/api/ondemand/routes")
+async def api_ondemand_routes(
+    request: Request, payload: Optional[Dict[str, Any]] = Body(None)
+):
+    _require_dispatcher_access(request)
+    if not ORS_KEY:
+        raise HTTPException(status_code=503, detail="openrouteservice not configured")
+
+    client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
+    if client is None:
+        raise HTTPException(status_code=503, detail="ondemand client not configured")
+
+    vehicle_filter: Set[str] = set()
+    if isinstance(payload, dict):
+        requested_ids = payload.get("vehicleIds")
+        if isinstance(requested_ids, list):
+            for value in requested_ids:
+                value_text = str(value).strip()
+                if value_text:
+                    vehicle_filter.add(value_text)
+
+    data = await _collect_ondemand_data(client)
+    vehicles = data.get("vehicles") if isinstance(data, dict) else []
+
+    routes: List[Dict[str, Any]] = []
+    for entry in vehicles:
+        if not isinstance(entry, dict):
+            continue
+        vehicle_id_raw = (
+            entry.get("vehicleId")
+            or entry.get("vehicle_id")
+            or entry.get("VehicleID")
+            or entry.get("deviceUuid")
+            or entry.get("device_id")
+            or entry.get("deviceId")
+        )
+        vehicle_id = str(vehicle_id_raw).strip() if vehicle_id_raw not in {None, ""} else ""
+        if not vehicle_id:
+            continue
+        if vehicle_filter and vehicle_id not in vehicle_filter:
+            continue
+
+        start_lat = _coerce_float(entry.get("lat"))
+        start_lng = _coerce_float(entry.get("lng"))
+        if start_lat is None or start_lng is None:
+            continue
+
+        next_stop = entry.get("nextStop") if isinstance(entry.get("nextStop"), dict) else None
+        if not next_stop:
+            continue
+        end_lat = _coerce_float(next_stop.get("lat"))
+        end_lng = _coerce_float(next_stop.get("lng"))
+        if end_lat is None or end_lng is None:
+            continue
+
+        try:
+            coordinates = await _fetch_openrouteservice_route(
+                start_lat, start_lng, end_lat, end_lng
+            )
+        except httpx.HTTPError as exc:
+            print(f"[ondemand] ORS request failed for {vehicle_id}: {exc}")
+            continue
+        except Exception as exc:
+            print(f"[ondemand] unexpected ORS error for {vehicle_id}: {exc}")
+            continue
+
+        if not coordinates:
+            continue
+
+        color = (
+            _normalize_hex_color(entry.get("markerColor"))
+            or _normalize_hex_color(entry.get("color_hex"))
+            or _normalize_hex_color(entry.get("color"))
+            or ONDEMAND_DEFAULT_MARKER_COLOR
+        )
+
+        routes.append({
+            "vehicleId": vehicle_id,
+            "coordinates": coordinates,
+            "color": color,
+        })
+
+    return {"routes": routes}
 
 
 # ---------------------------
