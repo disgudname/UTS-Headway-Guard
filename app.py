@@ -552,7 +552,10 @@ def is_default_transloc_base(base_url: Optional[str]) -> bool:
     return sanitized is None or sanitized == DEFAULT_TRANSLOC_BASE
 
 
-async def fetch_routes_with_shapes(client: httpx.AsyncClient, base_url: Optional[str] = None):
+async def fetch_routes_with_shapes(
+    client: Optional[httpx.AsyncClient] = None, base_url: Optional[str] = None
+):
+    client = client or await _get_transloc_client()
     url = build_transloc_url(base_url, f"GetRoutesForMapWithScheduleWithEncodedLine?APIKey={TRANSLOC_KEY}")
     r = await client.get(url, timeout=20)
     record_api_call("GET", url, r.status_code)
@@ -561,7 +564,10 @@ async def fetch_routes_with_shapes(client: httpx.AsyncClient, base_url: Optional
     return data if isinstance(data, list) else data.get("d", [])
 
 
-async def fetch_routes_catalog(client: httpx.AsyncClient, base_url: Optional[str] = None):
+async def fetch_routes_catalog(
+    client: Optional[httpx.AsyncClient] = None, base_url: Optional[str] = None
+):
+    client = client or await _get_transloc_client()
     url = build_transloc_url(base_url, f"GetRoutes?APIKey={TRANSLOC_KEY}")
     r = await client.get(url, timeout=20)
     record_api_call("GET", url, r.status_code)
@@ -574,12 +580,13 @@ async def fetch_routes_catalog(client: httpx.AsyncClient, base_url: Optional[str
     return []
 
 async def fetch_vehicles(
-    client: httpx.AsyncClient,
+    client: Optional[httpx.AsyncClient] = None,
     include_unassigned: bool = True,
     base_url: Optional[str] = None,
 ):
     # returnVehiclesNotAssignedToRoute=true returns vehicles even if not assigned to a route
     flag = "true" if include_unassigned else "false"
+    client = client or await _get_transloc_client()
     url = build_transloc_url(
         base_url,
         f"GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute={flag}",
@@ -591,13 +598,14 @@ async def fetch_vehicles(
     return data if isinstance(data, list) else data.get("d", [])
 
 async def fetch_block_groups(
-    client: httpx.AsyncClient,
+    client: Optional[httpx.AsyncClient] = None,
     base_url: Optional[str] = None,
     *,
     include_metadata: bool = False,
 ) -> Union[List[Dict], Tuple[List[Dict], Dict[str, Any]]]:
     d = datetime.now(ZoneInfo("America/New_York"))
     ds = f"{d.month}/{d.day}/{d.year}"
+    client = client or await _get_transloc_client()
     r1_url = build_transloc_url(
         base_url, f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
     )
@@ -861,6 +869,14 @@ def project_vehicle_to_route(v: Vehicle, route: Route, prev_idx: Optional[int] =
 app = FastAPI(title="UTS Operations Dashboard")
 
 
+async def _get_transloc_client() -> httpx.AsyncClient:
+    client: Optional[httpx.AsyncClient] = getattr(app.state, "transloc_client", None)
+    if client is None:
+        client = httpx.AsyncClient(timeout=20)
+        app.state.transloc_client = client
+    return client
+
+
 @app.on_event("startup")
 async def init_ondemand_client() -> None:
     try:
@@ -868,6 +884,7 @@ async def init_ondemand_client() -> None:
     except RuntimeError as exc:
         print(f"[ondemand] client not configured: {exc}")
         app.state.ondemand_client = None
+    app.state.transloc_client = httpx.AsyncClient(timeout=20)
 
 
 @app.on_event("shutdown")
@@ -875,6 +892,9 @@ async def shutdown_ondemand_client() -> None:
     client = getattr(app.state, "ondemand_client", None)
     if client is not None:
         await client.aclose()
+    transloc_client = getattr(app.state, "transloc_client", None)
+    if transloc_client is not None:
+        await transloc_client.aclose()
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_DIR = BASE_DIR / "html"
@@ -2360,62 +2380,62 @@ async def startup():
 
     async def updater():
         await asyncio.sleep(0.1)
-        async with httpx.AsyncClient() as client:
-            while True:
-                start = time.time()
+        client = await _get_transloc_client()
+        while True:
+            start = time.time()
+            try:
+                routes_catalog: List[Dict[str, Any]] = []
+                routes_raw = await fetch_routes_with_shapes(client)
                 try:
-                    routes_catalog: List[Dict[str, Any]] = []
-                    routes_raw = await fetch_routes_with_shapes(client)
+                    routes_catalog = await fetch_routes_catalog(client)
+                except Exception as e:
+                    routes_catalog = []
+                    print(f"[updater] routes catalog fetch error: {e}")
+                vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
+                try:
+                    block_groups, block_meta = await fetch_block_groups(
+                        client, include_metadata=True
+                    )
+                except Exception as e:
+                    block_groups = []
+                    block_meta = {}
+                    print(f"[updater] block fetch error: {e}")
+                async with state.lock:
+                    state.routes_raw = routes_raw
+                    state.routes_catalog_raw = routes_catalog
+                    state.vehicles_raw = vehicles_raw
+                    # Update complete routes & roster (all buses/all routes)
                     try:
-                        routes_catalog = await fetch_routes_catalog(client)
+                        state.routes_all = {}
+                        combined_routes: List[Dict[str, Any]] = []
+                        if routes_catalog:
+                            combined_routes.extend(routes_catalog)
+                        if routes_raw:
+                            combined_routes.extend(routes_raw)
+                        for r in combined_routes:
+                            rid = r.get("RouteID") or r.get("RouteId")
+                            if not rid:
+                                continue
+                            desc = (
+                                r.get("Description")
+                                or r.get("RouteName")
+                                or f"Route {rid}"
+                            )
+                            info = (
+                                r.get("InfoText")
+                                or r.get("Info")
+                                or ""
+                            ).strip()
+                            disp = f"{desc} — {info}" if info else desc
+                            state.routes_all[rid] = disp
+                        if not hasattr(state, "roster_names"):
+                            state.roster_names = set()
+                        for _v in vehicles_raw or []:
+                            nm = str(_v.get("Name") or "-")
+                            if nm:
+                                state.roster_names.add(nm)
                     except Exception as e:
-                        routes_catalog = []
-                        print(f"[updater] routes catalog fetch error: {e}")
-                    vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
-                    try:
-                        block_groups, block_meta = await fetch_block_groups(
-                            client, include_metadata=True
-                        )
-                    except Exception as e:
-                        block_groups = []
-                        block_meta = {}
-                        print(f"[updater] block fetch error: {e}")
-                    async with state.lock:
-                        state.routes_raw = routes_raw
-                        state.routes_catalog_raw = routes_catalog
-                        state.vehicles_raw = vehicles_raw
-                        # Update complete routes & roster (all buses/all routes)
-                        try:
-                            state.routes_all = {}
-                            combined_routes: List[Dict[str, Any]] = []
-                            if routes_catalog:
-                                combined_routes.extend(routes_catalog)
-                            if routes_raw:
-                                combined_routes.extend(routes_raw)
-                            for r in combined_routes:
-                                rid = r.get("RouteID") or r.get("RouteId")
-                                if not rid:
-                                    continue
-                                desc = (
-                                    r.get("Description")
-                                    or r.get("RouteName")
-                                    or f"Route {rid}"
-                                )
-                                info = (
-                                    r.get("InfoText")
-                                    or r.get("Info")
-                                    or ""
-                                ).strip()
-                                disp = f"{desc} — {info}" if info else desc
-                                state.routes_all[rid] = disp
-                            if not hasattr(state, "roster_names"):
-                                state.roster_names = set()
-                            for _v in vehicles_raw or []:
-                                nm = str(_v.get("Name") or "-")
-                                if nm:
-                                    state.roster_names.add(nm)
-                        except Exception as e:
-                            print(f"[updater] roster/routes_all error: {e}")
+                        print(f"[updater] roster/routes_all error: {e}")
                         # Build active routes set (with grace window to prevent flicker)
                         fresh = []
                         fresh_all = []  # includes unassigned vehicles for mileage tracking
@@ -2641,18 +2661,18 @@ async def startup():
                                         bd = bus_days.setdefault(bus, BusDay())
                                         bd.blocks.add(bid)
                         save_bus_days()
-                except Exception as e:
-                    # record last error for UI surfacing
-                    try:
-                        async with state.lock:
-                            state.last_error = str(e)
-                            state.last_error_ts = time.time()
-                    except Exception as inner:
-                        print(f"[updater] failed recording last_error: {inner}")
-                    print("[updater] error:", e)
-                # sleep until next
-                dt = max(0.5, VEH_REFRESH_S - (time.time()-start))
-                await asyncio.sleep(dt)
+            except Exception as e:
+                # record last error for UI surfacing
+                try:
+                    async with state.lock:
+                        state.last_error = str(e)
+                        state.last_error_ts = time.time()
+                except Exception as inner:
+                    print(f"[updater] failed recording last_error: {inner}")
+                print("[updater] error:", e)
+            # sleep until next
+            dt = max(0.5, VEH_REFRESH_S - (time.time()-start))
+            await asyncio.sleep(dt)
     async def vehicle_logger():
         await asyncio.sleep(0.1)
         async with httpx.AsyncClient(timeout=20) as client:
@@ -3857,12 +3877,12 @@ def _trim_arrivals_payload(data: Any) -> List[Dict[str, Any]]:
 
 
 async def _fetch_transloc_arrivals_for_base(base_url: Optional[str]) -> List[Dict[str, Any]]:
-    async with httpx.AsyncClient() as client:
-        url = build_transloc_url(base_url, f"GetStopArrivalTimes?APIKey={TRANSLOC_KEY}")
-        resp = await client.get(url, timeout=20)
-        record_api_call("GET", url, resp.status_code)
-        resp.raise_for_status()
-        data = resp.json()
+    client = await _get_transloc_client()
+    url = build_transloc_url(base_url, f"GetStopArrivalTimes?APIKey={TRANSLOC_KEY}")
+    resp = await client.get(url, timeout=20)
+    record_api_call("GET", url, resp.status_code)
+    resp.raise_for_status()
+    data = resp.json()
     return _trim_arrivals_payload(data)
 
 
@@ -3914,8 +3934,8 @@ def _build_block_mapping(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
 
 
 async def _fetch_transloc_blocks_for_base(base_url: Optional[str]) -> Dict[str, str]:
-    async with httpx.AsyncClient() as client:
-        block_groups = await fetch_block_groups(client, base_url=base_url)
+    client = await _get_transloc_client()
+    block_groups = await fetch_block_groups(client, base_url=base_url)
     return _build_block_mapping(block_groups)
 
 
@@ -3958,11 +3978,11 @@ def _transloc_error_detail(exc: httpx.HTTPError, base_url: Optional[str]) -> str
 
 async def _proxy_transloc_get(url: str, *, params: Optional[Dict[str, Any]] = None, base_url: Optional[str] = None):
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(url, params=params, timeout=20)
-            record_api_call("GET", str(r.url), r.status_code)
-            r.raise_for_status()
-            return r.json()
+        client = await _get_transloc_client()
+        r = await client.get(url, params=params, timeout=20)
+        record_api_call("GET", str(r.url), r.status_code)
+        r.raise_for_status()
+        return r.json()
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url or url)
         raise HTTPException(status_code=502, detail=detail) from exc
@@ -4028,16 +4048,16 @@ async def build_transloc_snapshot(
                     assigned[veh.id] = (rid, veh)
             raw_vehicle_records = list(getattr(state, "vehicles_raw", []))
     else:
-        async with httpx.AsyncClient() as client:
-            routes_raw = await fetch_routes_with_shapes(client, base_url=base_url)
-            try:
-                extra_routes_raw = await fetch_routes_catalog(client, base_url=base_url)
-            except Exception as e:
-                extra_routes_raw = []
-                print(f"[snapshot] routes catalog fetch error: {e}")
-            vehicles_raw = await fetch_vehicles(
-                client, include_unassigned=True, base_url=base_url
-            )
+        client = await _get_transloc_client()
+        routes_raw = await fetch_routes_with_shapes(client, base_url=base_url)
+        try:
+            extra_routes_raw = await fetch_routes_catalog(client, base_url=base_url)
+        except Exception as e:
+            extra_routes_raw = []
+            print(f"[snapshot] routes catalog fetch error: {e}")
+        vehicles_raw = await fetch_vehicles(
+            client, include_unassigned=True, base_url=base_url
+        )
         assigned = {}
         raw_vehicle_records = list(vehicles_raw)
     raw_routes = [_trim_transloc_route(r) for r in routes_raw]
@@ -5315,8 +5335,7 @@ async def ridesystems_clients_endpoint():
 @app.get("/v1/transloc/routes_with_shapes")
 async def transloc_routes_with_shapes(base_url: Optional[str] = Query(None)):
     try:
-        async with httpx.AsyncClient() as client:
-            return await fetch_routes_with_shapes(client, base_url=base_url)
+        return await fetch_routes_with_shapes(base_url=base_url)
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url)
         raise HTTPException(status_code=502, detail=detail) from exc
@@ -5365,10 +5384,10 @@ async def transloc_client_logo(base_url: Optional[str] = Query(None)):
     root = transloc_host_base(base_url)
     url = f"{root}/Images/clientLogo.jpg"
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(url, timeout=20)
-            record_api_call("GET", str(r.url), r.status_code)
-            r.raise_for_status()
+        client = await _get_transloc_client()
+        r = await client.get(url, timeout=20)
+        record_api_call("GET", str(r.url), r.status_code)
+        r.raise_for_status()
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url or url)
         raise HTTPException(status_code=502, detail=detail) from exc
@@ -5409,12 +5428,12 @@ async def anti_bunching_raw():
         if state.anti_cache and now - state.anti_cache_ts < VEH_REFRESH_S:
             return state.anti_cache
     try:
-        async with httpx.AsyncClient() as client:
-            url = f"{TRANSLOC_BASE}/GetAntiBunching"
-            r = await client.get(url, timeout=20)
-            record_api_call("GET", url, r.status_code)
-            r.raise_for_status()
-            data = r.json()
+        client = await _get_transloc_client()
+        url = f"{TRANSLOC_BASE}/GetAntiBunching"
+        r = await client.get(url, timeout=20)
+        record_api_call("GET", url, r.status_code)
+        r.raise_for_status()
+        data = r.json()
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, TRANSLOC_BASE)
         raise HTTPException(status_code=502, detail=detail) from exc
