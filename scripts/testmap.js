@@ -6465,7 +6465,12 @@ schedulePlaneStyleOverride();
                 vehicle.eligible === false && !isStale
                   ? computeMinutesSinceTimestamp(lastActiveTimestamp)
                   : null;
-              const stopListHtml = renderOnDemandStopList(vehicle.stops);
+              const stopPlan = normalizeOnDemandStopPlan(vehicle.stops);
+              const onboardRiders = stopPlan
+                .filter(entry => entry.stopType === 'dropoff')
+                .flatMap(entry => (Array.isArray(entry.riders) ? entry.riders : []))
+                .filter(Boolean);
+              const stopListHtml = renderOnDemandStopList(stopPlan);
               const popupSections = [];
               if (vehicleCallName) {
                 popupSections.push(
@@ -6498,11 +6503,21 @@ schedulePlaneStyleOverride();
                   ].join('')
                 );
               }
+              if (onboardRiders.length) {
+                const riderList = onboardRiders.join(', ');
+                popupSections.push(
+                  [
+                    '<div class="ondemand-driver-popup__section">',
+                    '<div class="ondemand-driver-popup__label">Passengers on board</div>',
+                    `<div class="ondemand-driver-popup__value">${escapeHtml(riderList)}</div>`,
+                    '</div>'
+                  ].join('')
+                );
+              }
               if (stopListHtml) {
                 popupSections.push(stopListHtml);
               }
               if (popupSections.length) {
-                const stopPlan = normalizeOnDemandStopPlan(vehicle.stops);
                 const ariaParts = [];
                 if (Number.isFinite(pausedMinutes)) {
                   const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
@@ -6513,6 +6528,9 @@ schedulePlaneStyleOverride();
                 }
                 if (driverName) {
                   ariaParts.push(`Driver ${driverName}`);
+                }
+                if (onboardRiders.length) {
+                  ariaParts.push(`Passengers on board: ${onboardRiders.join(', ')}`);
                 }
                 if (stopPlan.length) {
                   const stopSummaries = stopPlan.map(entry => {
