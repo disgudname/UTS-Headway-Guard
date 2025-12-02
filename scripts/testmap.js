@@ -2013,7 +2013,6 @@ schedulePlaneStyleOverride();
       const ONDEMAND_MARKER_PREFIX = 'ondemand:';
       const ONDEMAND_MARKER_DEFAULT_COLOR = '#ec4899';
       const ONDEMAND_REFRESH_INTERVAL_MS = 5000;
-      const ONDEMAND_ROUTE_ENDPOINT = '/v1/testmap/ondemand/route';
       const ONDEMAND_STOP_ROUTE_PREFIX = 'ondemand-stop:';
       const ONDEMAND_STOP_TOOLTIP_CLASS = 'ondemand-stop-tooltip';
 
@@ -2818,7 +2817,6 @@ schedulePlaneStyleOverride();
       let includeStaleVehicles = false;
       let onDemandVehiclesEnabled = false;
       let onDemandStopsEnabled = true;
-      let onDemandRoutingEnabled = false;
       let onDemandPollingTimerId = null;
       let onDemandPollingPausedForVisibility = false;
       let onDemandFetchPromise = null;
@@ -2827,9 +2825,6 @@ schedulePlaneStyleOverride();
       let onDemandStopDataCache = [];
       const onDemandStopMarkerCache = new Map();
       let onDemandStopMarkers = [];
-      const onDemandRouteLayers = new Map();
-      const onDemandRouteCache = new Map();
-      const onDemandRouteFetches = new Map();
       const ADMIN_KIOSK_UVA_HEALTH_NAME = 'University of Virginia Health';
       const ADMIN_KIOSK_UVA_HEALTH_START_MINUTES = 2 * 60 + 30;
       const ADMIN_KIOSK_UVA_HEALTH_END_MINUTES = 4 * 60 + 30;
@@ -5535,32 +5530,11 @@ schedulePlaneStyleOverride();
         }
       }
 
-      function updateOnDemandRoutingButton() {
-        const button = document.getElementById('onDemandRoutingToggleButton');
-        if (!button) return;
-        const authorized = userIsAuthorizedForOnDemand();
-        if (typeof button.disabled === 'boolean') {
-          button.disabled = !authorized;
-        }
-        if (!authorized) {
-          button.setAttribute('aria-disabled', 'true');
-        } else {
-          button.removeAttribute('aria-disabled');
-        }
-        const isActive = !!onDemandRoutingEnabled;
-        button.classList.toggle('is-active', isActive);
-        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-        const indicator = button.querySelector('.toggle-indicator');
-        if (indicator) {
-          indicator.textContent = isActive ? 'On' : 'Off';
-        }
-      }
-
       function shouldPollOnDemandData() {
         if (!userIsAuthorizedForOnDemand()) {
           return false;
         }
-        return !!(onDemandVehiclesEnabled || onDemandStopsEnabled || onDemandRoutingEnabled);
+        return !!(onDemandVehiclesEnabled || onDemandStopsEnabled);
       }
 
       function updateOnDemandVehicleColorMap(vehicles) {
@@ -5674,255 +5648,6 @@ schedulePlaneStyleOverride();
         });
 
         purgeOrphanedBusMarkers();
-        clearOnDemandRoutes();
-      }
-
-      function clearOnDemandRoutes() {
-        if (!onDemandRouteLayers.size) {
-          return;
-        }
-        onDemandRouteLayers.forEach(entry => {
-          const layer = entry && entry.layer ? entry.layer : null;
-          if (layer && map && typeof map.removeLayer === 'function') {
-            map.removeLayer(layer);
-          }
-        });
-        onDemandRouteLayers.clear();
-      }
-
-      function refreshOnDemandRouteStyles() {
-        if (!map) {
-          return;
-        }
-        const weight = getRouteStrokeWeight();
-        onDemandRouteLayers.forEach(entry => {
-          const layer = entry && entry.layer ? entry.layer : null;
-          if (layer && typeof layer.setStyle === 'function') {
-            layer.setStyle({ weight });
-          }
-        });
-      }
-
-      function findNextOnDemandStop(vehicleId) {
-        const normalizedId = typeof vehicleId === 'string' ? vehicleId.trim() : `${vehicleId || ''}`.trim();
-        if (!normalizedId) {
-          return null;
-        }
-        const stops = Array.isArray(onDemandStopDataCache) ? onDemandStopDataCache : [];
-        const nowMs = Date.now();
-        let bestFuture = null;
-        let bestAny = null;
-
-        stops.forEach(stop => {
-          if (!stop || typeof stop !== 'object') {
-            return;
-          }
-          const rawVehicleId = stop.vehicleId ?? stop.vehicleID;
-          const stopVehicleId = typeof rawVehicleId === 'string'
-            ? rawVehicleId.trim()
-            : `${rawVehicleId || ''}`.trim();
-          if (!stopVehicleId || stopVehicleId !== normalizedId) {
-            return;
-          }
-          const lat = Number(stop.lat ?? stop.latitude);
-          const lng = Number(stop.lng ?? stop.lon ?? stop.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            return;
-          }
-          const timestampMs = Date.parse(stop.stopTimestamp || '');
-          const candidate = {
-            lat,
-            lng,
-            stopType: typeof stop.stopType === 'string' ? stop.stopType.toLowerCase() : '',
-            stopTimestamp: typeof stop.stopTimestamp === 'string' ? stop.stopTimestamp : '',
-            timestampMs: Number.isFinite(timestampMs) ? timestampMs : null
-          };
-          if (Number.isFinite(candidate.timestampMs) && candidate.timestampMs >= nowMs) {
-            if (!bestFuture || candidate.timestampMs < bestFuture.timestampMs) {
-              bestFuture = candidate;
-            }
-          }
-          if (!bestAny) {
-            bestAny = candidate;
-          } else if (
-            Number.isFinite(candidate.timestampMs)
-            && (!Number.isFinite(bestAny.timestampMs) || candidate.timestampMs < bestAny.timestampMs)
-          ) {
-            bestAny = candidate;
-          }
-        });
-
-        return bestFuture || bestAny;
-      }
-
-      function buildOnDemandRouteKey(vehicleId, vehiclePosition, stopDetails) {
-        const startLat = Number(vehiclePosition?.lat);
-        const startLng = Number(vehiclePosition?.lng);
-        const endLat = Number(stopDetails?.lat);
-        const endLng = Number(stopDetails?.lng);
-        if (![startLat, startLng, endLat, endLng].every(Number.isFinite)) {
-          return '';
-        }
-        const rounded = value => value.toFixed(4);
-        const parts = [
-          `${vehicleId || ''}`.trim(),
-          rounded(startLat),
-          rounded(startLng),
-          rounded(endLat),
-          rounded(endLng),
-          `${stopDetails?.stopTimestamp || ''}`.trim(),
-          `${stopDetails?.stopType || ''}`.trim().toLowerCase()
-        ];
-        return parts.join('|');
-      }
-
-      async function fetchOnDemandRouteCoordinates(routeKey, start, end) {
-        if (!routeKey) {
-          return null;
-        }
-        if (onDemandRouteCache.has(routeKey)) {
-          return onDemandRouteCache.get(routeKey);
-        }
-        if (onDemandRouteFetches.has(routeKey)) {
-          return onDemandRouteFetches.get(routeKey);
-        }
-        const params = new URLSearchParams({
-          start_lat: start.lat,
-          start_lng: start.lng,
-          end_lat: end.lat,
-          end_lng: end.lng
-        });
-        const fetchPromise = (async () => {
-          try {
-            const response = await fetch(`${ONDEMAND_ROUTE_ENDPOINT}?${params.toString()}`, { cache: 'no-store' });
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-            const payload = await response.json();
-            const coords = Array.isArray(payload?.coordinates) ? payload.coordinates : [];
-            const latLngs = [];
-            coords.forEach(point => {
-              if (Array.isArray(point) && point.length >= 2) {
-                const lat = Number(point[0]);
-                const lng = Number(point[1]);
-                if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                  latLngs.push([lat, lng]);
-                }
-                return;
-              }
-              const lat = Number(point?.lat ?? point?.latitude);
-              const lng = Number(point?.lng ?? point?.lon ?? point?.longitude);
-              if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                latLngs.push([lat, lng]);
-              }
-            });
-            if (latLngs.length < 2) {
-              return null;
-            }
-            onDemandRouteCache.set(routeKey, latLngs);
-            return latLngs;
-          } catch (error) {
-            console.error('Failed to fetch OnDemand route:', error);
-            return null;
-          } finally {
-            onDemandRouteFetches.delete(routeKey);
-          }
-        })();
-        onDemandRouteFetches.set(routeKey, fetchPromise);
-        return fetchPromise;
-      }
-
-      function applyOnDemandRouteLayer(vehicleId, routeKey, latLngs, color) {
-        if (!Array.isArray(latLngs) || latLngs.length < 2 || !map) {
-          return;
-        }
-        const weight = getRouteStrokeWeight();
-        const existing = onDemandRouteLayers.get(vehicleId);
-        if (existing && existing.routeKey === routeKey && existing.layer) {
-          if (typeof existing.layer.setStyle === 'function') {
-            existing.layer.setStyle({ color, weight });
-          }
-          return;
-        }
-        if (existing && existing.layer && typeof map.removeLayer === 'function') {
-          map.removeLayer(existing.layer);
-        }
-        const polyline = L.polyline(latLngs, {
-          color,
-          weight,
-          opacity: 0.85,
-          pane: 'ondemandRoutesPane',
-          interactive: false,
-          lineCap: 'round',
-          lineJoin: 'round'
-        }).addTo(map);
-        onDemandRouteLayers.set(vehicleId, { layer: polyline, routeKey });
-      }
-
-      async function updateOnDemandRoutes(vehicles) {
-        if (!onDemandRoutingEnabled || !map) {
-          clearOnDemandRoutes();
-          return;
-        }
-        const vehicleList = Array.isArray(vehicles) ? vehicles : [];
-        const activeVehicleIds = new Set();
-
-        for (const vehicle of vehicleList) {
-          if (!vehicle || typeof vehicle !== 'object') {
-            continue;
-          }
-          const rawId = vehicle.vehicleId ?? vehicle.vehicleID;
-          const vehicleId = typeof rawId === 'string' ? rawId.trim() : `${rawId || ''}`.trim();
-          if (!vehicleId) {
-            continue;
-          }
-          const lat = Number(vehicle.lat);
-          const lng = Number(vehicle.lng);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            continue;
-          }
-          const nextStop = findNextOnDemandStop(vehicleId);
-          if (!nextStop) {
-            if (onDemandRouteLayers.has(vehicleId)) {
-              const entry = onDemandRouteLayers.get(vehicleId);
-              if (entry?.layer && map && typeof map.removeLayer === 'function') {
-                map.removeLayer(entry.layer);
-              }
-              onDemandRouteLayers.delete(vehicleId);
-            }
-            continue;
-          }
-          const routeKey = buildOnDemandRouteKey(vehicleId, { lat, lng }, nextStop);
-          if (!routeKey) {
-            continue;
-          }
-          const routeColor = getOnDemandVehicleColor(vehicleId);
-          const existing = onDemandRouteLayers.get(vehicleId);
-          if (existing && existing.routeKey === routeKey) {
-            if (existing.layer && typeof existing.layer.setStyle === 'function') {
-              existing.layer.setStyle({ color: routeColor, weight: getRouteStrokeWeight() });
-            }
-            activeVehicleIds.add(vehicleId);
-            continue;
-          }
-          const latLngs = await fetchOnDemandRouteCoordinates(routeKey, { lat, lng }, nextStop);
-          if (!latLngs || latLngs.length < 2) {
-            continue;
-          }
-          applyOnDemandRouteLayer(vehicleId, routeKey, latLngs, routeColor);
-          activeVehicleIds.add(vehicleId);
-        }
-
-        Array.from(onDemandRouteLayers.keys()).forEach(vehicleId => {
-          if (activeVehicleIds.has(vehicleId)) {
-            return;
-          }
-          const entry = onDemandRouteLayers.get(vehicleId);
-          if (entry?.layer && map && typeof map.removeLayer === 'function') {
-            map.removeLayer(entry.layer);
-          }
-          onDemandRouteLayers.delete(vehicleId);
-        });
       }
 
       function stopOnDemandPolling() {
@@ -6021,44 +5746,6 @@ schedulePlaneStyleOverride();
           return;
         }
         setOnDemandStopsEnabled(!onDemandStopsEnabled);
-      }
-
-      function setOnDemandRoutingEnabled(value) {
-        const authorized = userIsAuthorizedForOnDemand();
-        const requestedEnable = !!value;
-        if (requestedEnable && !authorized) {
-          updateOnDemandRoutingButton();
-          return;
-        }
-        if (onDemandRoutingEnabled === requestedEnable) {
-          updateOnDemandRoutingButton();
-          return;
-        }
-        const pollingBefore = shouldPollOnDemandData();
-        onDemandRoutingEnabled = requestedEnable;
-        if (onDemandRoutingEnabled && !onDemandVehiclesEnabled) {
-          setOnDemandVehiclesEnabled(true);
-        }
-        if (!onDemandRoutingEnabled) {
-          clearOnDemandRoutes();
-        }
-        const pollingAfter = shouldPollOnDemandData();
-        if (pollingAfter && !pollingBefore) {
-          startOnDemandPolling();
-        } else if (!pollingAfter && pollingBefore) {
-          stopOnDemandPolling();
-        } else if (onDemandRoutingEnabled) {
-          fetchOnDemandVehicles().catch(error => console.error('Failed to refresh OnDemand routes:', error));
-        }
-        updateOnDemandRoutingButton();
-      }
-
-      function toggleOnDemandRouting() {
-        if (!userIsAuthorizedForOnDemand()) {
-          updateOnDemandRoutingButton();
-          return;
-        }
-        setOnDemandRoutingEnabled(!onDemandRoutingEnabled);
       }
 
       function normalizeOnDemandStopsForClustering(stops) {
@@ -6995,11 +6682,6 @@ schedulePlaneStyleOverride();
               }
             });
             purgeOrphanedBusMarkers();
-            if (onDemandRoutingEnabled) {
-              updateOnDemandRoutes(vehicles).catch(error => console.error('Failed to update OnDemand routes:', error));
-            } else {
-              clearOnDemandRoutes();
-            }
             return vehicles;
           } catch (error) {
             console.error('Failed to fetch OnDemand vehicles:', error);
@@ -8908,9 +8590,6 @@ ${trainPlaneMarkup}
               <button type="button" id="onDemandStopsToggleButton" class="pill-button ondemand-stops-toggle-button${onDemandStopsEnabled ? ' is-active' : ''}" aria-pressed="${onDemandStopsEnabled ? 'true' : 'false'}" onclick="toggleOnDemandStops()">
                 OnDemand Stops<span class="toggle-indicator">${onDemandStopsEnabled ? 'On' : 'Off'}</span>
               </button>
-              <button type="button" id="onDemandRoutingToggleButton" class="pill-button ondemand-routing-toggle-button${onDemandRoutingEnabled ? ' is-active' : ''}" aria-pressed="${onDemandRoutingEnabled ? 'true' : 'false'}" onclick="toggleOnDemandRouting()">
-                OnDemand Routing<span class="toggle-indicator">${onDemandRoutingEnabled ? 'On' : 'Off'}</span>
-              </button>
             </div>
           `;
         }
@@ -8936,7 +8615,6 @@ ${trainPlaneMarkup}
         updateStaleVehiclesButton();
         updateOnDemandButton();
         updateOnDemandStopsButton();
-        updateOnDemandRoutingButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
       }
@@ -10145,7 +9823,6 @@ ${trainPlaneMarkup}
           });
           map.on('moveend', renderOnDemandStops);
           map.on('zoomend', renderOnDemandStops);
-          map.on('zoomend', refreshOnDemandRouteStyles);
           map.createPane(RADAR_PANE_NAME);
           const radarPane = map.getPane(RADAR_PANE_NAME);
           if (radarPane) {
@@ -10167,12 +9844,6 @@ ${trainPlaneMarkup}
           if (ondemandStopsPane) {
               ondemandStopsPane.style.zIndex = 455;
               ondemandStopsPane.style.pointerEvents = 'auto';
-          }
-          map.createPane('ondemandRoutesPane');
-          const ondemandRoutesPane = map.getPane('ondemandRoutesPane');
-          if (ondemandRoutesPane) {
-              ondemandRoutesPane.style.zIndex = 460;
-              ondemandRoutesPane.style.pointerEvents = 'none';
           }
           map.createPane('busesPane');
           const busesPane = map.getPane('busesPane');

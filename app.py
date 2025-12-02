@@ -319,8 +319,6 @@ ONDEMAND_DEFAULT_MARKER_COLOR = (os.getenv("ONDEMAND_DEFAULT_MARKER_COLOR") or "
 if not ONDEMAND_DEFAULT_MARKER_COLOR.startswith("#"):
     ONDEMAND_DEFAULT_MARKER_COLOR = f"#{ONDEMAND_DEFAULT_MARKER_COLOR.lstrip('#')}"
 ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
-ORS_KEY = (os.getenv("ORS_KEY") or "").strip()
-ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/driving-car"
 DISPATCHER_DOWNED_SHEET_URL = os.getenv(
     "DISPATCHER_DOWNED_SHEET_URL",
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv",
@@ -2364,75 +2362,6 @@ async def api_ondemand_positions_legacy(request: Request):
     data = await _build_ondemand_payload(request)
     vehicles = data.get("vehicles") if isinstance(data, dict) else []
     return {"vehicles": vehicles}
-
-
-@app.get("/v1/testmap/ondemand/route")
-async def testmap_ondemand_route(
-    request: Request,
-    start_lat: float = Query(...),
-    start_lng: float = Query(...),
-    end_lat: float = Query(...),
-    end_lng: float = Query(...),
-):
-    _require_dispatcher_access(request)
-    if not ORS_KEY:
-        raise HTTPException(
-            status_code=503, detail="OpenRouteService key not configured"
-        )
-
-    coordinates = [[start_lng, start_lat], [end_lng, end_lat]]
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
-                ORS_DIRECTIONS_URL,
-                headers={"Authorization": ORS_KEY},
-                json={"coordinates": coordinates},
-            )
-            record_api_call("POST", str(response.request.url), response.status_code)
-            response.raise_for_status()
-            payload = response.json()
-    except httpx.HTTPError as exc:
-        detail = f"Failed to fetch OnDemand route: {exc}"
-        raise HTTPException(status_code=502, detail=detail) from exc
-
-    route_coords: List[List[float]] = []
-    if isinstance(payload, dict):
-        features = payload.get("features")
-        if isinstance(features, list) and features:
-            feature = features[0]
-            geometry = feature.get("geometry") if isinstance(feature, dict) else None
-            if isinstance(geometry, dict) and geometry.get("type") == "LineString":
-                for pair in geometry.get("coordinates") or []:
-                    if not isinstance(pair, (list, tuple)) or len(pair) < 2:
-                        continue
-                    try:
-                        lng, lat = float(pair[0]), float(pair[1])
-                    except (TypeError, ValueError):
-                        continue
-                    route_coords.append([lat, lng])
-
-    if len(route_coords) < 2:
-        raise HTTPException(
-            status_code=502, detail="OpenRouteService returned no route geometry"
-        )
-
-    summary: Dict[str, Any] = {}
-    if isinstance(payload, dict):
-        features = payload.get("features")
-        if isinstance(features, list) and features:
-            properties = features[0].get("properties") if isinstance(features[0], dict) else None
-            if isinstance(properties, dict):
-                summary_data = properties.get("summary")
-                if isinstance(summary_data, dict):
-                    if summary_data.get("distance") is not None:
-                        summary["distance"] = summary_data.get("distance")
-                    if summary_data.get("duration") is not None:
-                        summary["duration"] = summary_data.get("duration")
-
-    response_body: Dict[str, Any] = {"coordinates": route_coords}
-    if summary:
-        response_body["summary"] = summary
-    return response_body
 
 
 # ---------------------------
