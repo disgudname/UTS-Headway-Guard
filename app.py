@@ -4266,41 +4266,107 @@ def _parse_headway_timestamp(value: str) -> datetime:
 async def build_transloc_snapshot(
     base_url: Optional[str] = None, include_stale: bool = False
 ) -> Dict[str, Any]:
-    use_default = is_default_transloc_base(base_url)
-    routes_raw: List[Dict[str, Any]] = []
-    extra_routes_raw: List[Dict[str, Any]] = []
-    assigned: Dict[Any, Tuple[int, Vehicle]] = {}
-    if use_default:
+    if is_default_transloc_base(base_url):
+        routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
+        assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
+    else:
+        async with httpx.AsyncClient() as client:
+            routes_raw, extra_routes_raw = await _load_transloc_route_sources(
+                base_url, client=client
+            )
+            assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(
+                base_url, client=client
+            )
+
+    metadata = await _assemble_transloc_metadata(
+        base_url=base_url, routes_raw=routes_raw, extra_routes_raw=extra_routes_raw
+    )
+    arrivals = await _get_transloc_arrivals(base_url)
+    vehicles = _assemble_transloc_vehicles(
+        raw_vehicle_records=raw_vehicle_records,
+        assigned=assigned,
+        include_stale=include_stale,
+    )
+    return {
+        "fetched_at": int(time.time()),
+        **metadata,
+        "vehicles": vehicles,
+        "arrivals": arrivals,
+    }
+
+
+async def _load_transloc_route_sources(
+    base_url: Optional[str], client: Optional[httpx.AsyncClient] = None
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if is_default_transloc_base(base_url):
         async with state.lock:
             routes_raw = list(getattr(state, "routes_raw", []))
             extra_routes_raw = list(getattr(state, "routes_catalog_raw", []))
+            return routes_raw, extra_routes_raw
+    created_client = False
+    if client is None:
+        client = httpx.AsyncClient()
+        created_client = True
+    try:
+        routes_raw = await fetch_routes_with_shapes(client, base_url=base_url)
+        try:
+            extra_routes_raw = await fetch_routes_catalog(client, base_url=base_url)
+        except Exception as e:
+            extra_routes_raw = []
+            print(f"[snapshot] routes catalog fetch error: {e}")
+        return routes_raw, extra_routes_raw
+    finally:
+        if created_client:
+            await client.aclose()
+
+
+async def _load_transloc_vehicle_sources(
+    base_url: Optional[str], client: Optional[httpx.AsyncClient] = None
+) -> Tuple[Dict[Any, Tuple[int, Vehicle]], List[Dict[str, Any]]]:
+    if is_default_transloc_base(base_url):
+        async with state.lock:
+            assigned: Dict[Any, Tuple[int, Vehicle]] = {}
             for rid, vehs in state.vehicles_by_route.items():
                 for veh in vehs.values():
                     if veh.id is None:
                         continue
                     assigned[veh.id] = (rid, veh)
             raw_vehicle_records = list(getattr(state, "vehicles_raw", []))
-    else:
-        async with httpx.AsyncClient() as client:
-            routes_raw = await fetch_routes_with_shapes(client, base_url=base_url)
-            try:
-                extra_routes_raw = await fetch_routes_catalog(client, base_url=base_url)
-            except Exception as e:
-                extra_routes_raw = []
-                print(f"[snapshot] routes catalog fetch error: {e}")
-            vehicles_raw = await fetch_vehicles(
-                client, include_unassigned=True, base_url=base_url
-            )
-        assigned = {}
-        raw_vehicle_records = list(vehicles_raw)
+            return assigned, raw_vehicle_records
+    created_client = False
+    if client is None:
+        client = httpx.AsyncClient()
+        created_client = True
+    try:
+        vehicles_raw = await fetch_vehicles(
+            client, include_unassigned=True, base_url=base_url
+        )
+        return {}, list(vehicles_raw)
+    finally:
+        if created_client:
+            await client.aclose()
+
+
+async def _assemble_transloc_metadata(
+    *,
+    base_url: Optional[str],
+    routes_raw: List[Dict[str, Any]],
+    extra_routes_raw: List[Dict[str, Any]],
+) -> Dict[str, Any]:
     raw_routes = [_trim_transloc_route(r) for r in routes_raw]
     if extra_routes_raw:
         raw_routes = _merge_transloc_route_metadata(raw_routes, extra_routes_raw)
-
     stops = _build_transloc_stops(raw_routes)
-    arrivals = await _get_transloc_arrivals(base_url)
     blocks = await _get_transloc_blocks(base_url)
+    return {"routes": raw_routes, "stops": stops, "blocks": blocks}
 
+
+def _assemble_transloc_vehicles(
+    *,
+    raw_vehicle_records: List[Dict[str, Any]],
+    assigned: Dict[Any, Tuple[int, Vehicle]],
+    include_stale: bool,
+) -> List[Dict[str, Any]]:
     vehicles: List[Dict[str, Any]] = []
     for rec in raw_vehicle_records:
         vid = rec.get("VehicleID") or rec.get("VehicleId")
@@ -4315,7 +4381,6 @@ async def build_transloc_snapshot(
         ground_speed = rec.get("GroundSpeed") or rec.get("Speed") or 0.0
         seconds_raw = rec.get("Seconds") or rec.get("SecondsSinceReport")
         seconds = _coerce_float(seconds_raw)
-        is_stale = False
         assigned_rec = assigned.get(vid)
         if assigned_rec:
             rid = assigned_rec[0]
@@ -4356,15 +4421,7 @@ async def build_transloc_snapshot(
                 "IsStale": is_stale,
             }
         )
-
-    return {
-        "fetched_at": int(time.time()),
-        "routes": raw_routes,
-        "stops": stops,
-        "vehicles": vehicles,
-        "arrivals": arrivals,
-        "blocks": blocks,
-    }
+    return vehicles
 
 
 @app.get("/v1/testmap/transloc")
@@ -4373,6 +4430,44 @@ async def testmap_transloc_snapshot(
 ):
     try:
         return await build_transloc_snapshot(base_url=base_url, include_stale=stale)
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+
+@app.get("/v1/testmap/transloc/vehicles")
+async def testmap_transloc_vehicles(
+    base_url: Optional[str] = Query(None), stale: bool = Query(False)
+):
+    try:
+        assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
+        arrivals = await _get_transloc_arrivals(base_url)
+        vehicles = _assemble_transloc_vehicles(
+            raw_vehicle_records=raw_vehicle_records,
+            assigned=assigned,
+            include_stale=stale,
+        )
+        return {
+            "fetched_at": int(time.time()),
+            "vehicles": vehicles,
+            "arrivals": arrivals,
+        }
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+
+@app.get("/v1/testmap/transloc/metadata")
+async def testmap_transloc_metadata(base_url: Optional[str] = Query(None)):
+    try:
+        routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
+        metadata = await _assemble_transloc_metadata(
+            base_url=base_url,
+            routes_raw=routes_raw,
+            extra_routes_raw=extra_routes_raw,
+        )
+        metadata["fetched_at"] = int(time.time())
+        return metadata
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url)
         raise HTTPException(status_code=502, detail=detail) from exc

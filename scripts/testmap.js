@@ -1912,8 +1912,10 @@ schedulePlaneStyleOverride();
 
       const outOfServiceRouteColor = '#000000';
 
-      const TRANSLOC_SNAPSHOT_ENDPOINT = '/v1/testmap/transloc';
-      const TRANSLOC_SNAPSHOT_TTL_MS = 2000;
+      const TRANSLOC_VEHICLES_ENDPOINT = '/v1/testmap/transloc/vehicles';
+      const TRANSLOC_METADATA_ENDPOINT = '/v1/testmap/transloc/metadata';
+      const TRANSLOC_VEHICLES_TTL_MS = 2000;
+      const TRANSLOC_METADATA_TTL_MS = 60000;
       const PULSEPOINT_ENDPOINT = '/v1/pulsepoint/incidents';
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
       const FALLBACK_INCIDENT_ICON_SIZE = 36;
@@ -3187,50 +3189,63 @@ schedulePlaneStyleOverride();
       updateLowPerformanceMode();
 
       const TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY = '__default__';
-      const translocSnapshotCache = new Map();
+      const translocVehiclesCache = new Map();
+      const translocMetadataCache = new Map();
 
-      function getTranslocSnapshotCacheKey(base, includeStale = includeStaleVehicles) {
-        const baseKey = base || TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY;
+      function getTranslocCacheKey(base) {
+        return base || TRANSLOC_SNAPSHOT_DEFAULT_CACHE_KEY;
+      }
+
+      function getVehicleCacheKey(base, includeStale = includeStaleVehicles) {
+        const baseKey = getTranslocCacheKey(base);
         return includeStale ? `${baseKey}::stale` : `${baseKey}::fresh`;
       }
 
-      function getOrCreateTranslocSnapshotEntry(cacheKey) {
-        let entry = translocSnapshotCache.get(cacheKey);
+      function getOrCreateCacheEntry(cache, cacheKey) {
+        let entry = cache.get(cacheKey);
         if (!entry) {
           entry = { data: null, promise: null, timestamp: 0 };
-          translocSnapshotCache.set(cacheKey, entry);
+          cache.set(cacheKey, entry);
         }
         return entry;
       }
 
       function resetTranslocSnapshotCache() {
-        translocSnapshotCache.clear();
+        translocVehiclesCache.clear();
+        translocMetadataCache.clear();
       }
 
-      function loadTranslocSnapshot(force = false) {
-        if (!utsOverlayEnabled) {
-          return Promise.resolve({ routes: [], vehicles: [], stops: [], arrivals: [], blocks: {} });
+      function buildTranslocQuery(base, extraParts = []) {
+        const queryParts = [];
+        if (base) {
+          queryParts.push(`base_url=${encodeURIComponent(base)}`);
         }
+        if (Array.isArray(extraParts)) {
+          extraParts.forEach(part => {
+            if (typeof part === 'string' && part.length > 0) {
+              queryParts.push(part);
+            }
+          });
+        }
+        if (queryParts.length === 0) {
+          return '';
+        }
+        return `?${queryParts.join('&')}`;
+      }
+
+      function loadTranslocMetadata(force = false) {
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
-        const cacheKey = getTranslocSnapshotCacheKey(sanitizedBaseURL, includeStaleVehicles);
-        const entry = getOrCreateTranslocSnapshotEntry(cacheKey);
+        const cacheKey = getTranslocCacheKey(sanitizedBaseURL);
+        const entry = getOrCreateCacheEntry(translocMetadataCache, cacheKey);
         const now = Date.now();
-        if (!force && entry.data && (now - entry.timestamp) < TRANSLOC_SNAPSHOT_TTL_MS) {
+        if (!force && entry.data && (now - entry.timestamp) < TRANSLOC_METADATA_TTL_MS) {
           return Promise.resolve(entry.data);
         }
         if (entry.promise) {
           return entry.promise;
         }
-        const queryParts = [];
-        if (sanitizedBaseURL) {
-          queryParts.push(`base_url=${encodeURIComponent(sanitizedBaseURL)}`);
-        }
-        if (includeStaleVehicles) {
-          queryParts.push('stale=true');
-        }
-        const endpoint = queryParts.length > 0
-          ? `${TRANSLOC_SNAPSHOT_ENDPOINT}?${queryParts.join('&')}`
-          : TRANSLOC_SNAPSHOT_ENDPOINT;
+        const query = buildTranslocQuery(sanitizedBaseURL);
+        const endpoint = `${TRANSLOC_METADATA_ENDPOINT}${query}`;
         entry.promise = fetch(endpoint, { cache: 'no-store' })
           .then(response => {
             if (!response || !response.ok) {
@@ -3241,18 +3256,79 @@ schedulePlaneStyleOverride();
           .then(data => {
             entry.data = data || {};
             entry.timestamp = Date.now();
-            clearKioskTranslocErrorState();
             return entry.data;
           })
           .catch(error => {
-            console.error('Failed to load TransLoc snapshot:', error);
-            markKioskTranslocError();
+            console.error('Failed to load TransLoc metadata:', error);
             throw error;
           })
           .finally(() => {
             entry.promise = null;
           });
         return entry.promise;
+      }
+
+      function loadTranslocVehicles(force = false) {
+        const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
+        const cacheKey = getVehicleCacheKey(sanitizedBaseURL, includeStaleVehicles);
+        const entry = getOrCreateCacheEntry(translocVehiclesCache, cacheKey);
+        const now = Date.now();
+        if (!force && entry.data && (now - entry.timestamp) < TRANSLOC_VEHICLES_TTL_MS) {
+          return Promise.resolve(entry.data);
+        }
+        if (entry.promise) {
+          return entry.promise;
+        }
+        const queryParts = [];
+        if (includeStaleVehicles) {
+          queryParts.push('stale=true');
+        }
+        const query = buildTranslocQuery(sanitizedBaseURL, queryParts);
+        const endpoint = `${TRANSLOC_VEHICLES_ENDPOINT}${query}`;
+        entry.promise = fetch(endpoint, { cache: 'no-store' })
+          .then(response => {
+            if (!response || !response.ok) {
+              throw new Error(response ? `HTTP ${response.status}` : 'No response');
+            }
+            return response.json();
+          })
+          .then(data => {
+            entry.data = data || {};
+            entry.timestamp = Date.now();
+            return entry.data;
+          })
+          .catch(error => {
+            console.error('Failed to load TransLoc vehicles:', error);
+            throw error;
+          })
+          .finally(() => {
+            entry.promise = null;
+          });
+        return entry.promise;
+      }
+
+      function loadTranslocSnapshot(force = false) {
+        if (!utsOverlayEnabled) {
+          return Promise.resolve({ routes: [], vehicles: [], stops: [], arrivals: [], blocks: {} });
+        }
+        return Promise.all([loadTranslocMetadata(force), loadTranslocVehicles(force)])
+          .then(([metadata, vehiclePayload]) => {
+            const routes = Array.isArray(metadata?.routes) ? metadata.routes : [];
+            const stops = Array.isArray(metadata?.stops) ? metadata.stops : [];
+            const blocks = (metadata && typeof metadata.blocks === 'object' && metadata.blocks !== null)
+              ? metadata.blocks
+              : {};
+            const vehicles = Array.isArray(vehiclePayload?.vehicles) ? vehiclePayload.vehicles : [];
+            const arrivals = Array.isArray(vehiclePayload?.arrivals) ? vehiclePayload.arrivals : [];
+            const fetchedAt = vehiclePayload?.fetched_at || metadata?.fetched_at || Math.round(Date.now() / 1000);
+            clearKioskTranslocErrorState();
+            return { routes, stops, blocks, vehicles, arrivals, fetched_at: fetchedAt };
+          })
+          .catch(error => {
+            console.error('Failed to load TransLoc snapshot:', error);
+            markKioskTranslocError();
+            throw error;
+          });
       }
 
       const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
