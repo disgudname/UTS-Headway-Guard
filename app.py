@@ -1012,6 +1012,7 @@ LOGIN_HTML = _load_html("login.html")
 REPAIRS_HTML = _load_html("repairs.html")
 REPAIRS_SCREEN_HTML = _load_html("repairsscreen.html")
 REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
+HEADWAY_HTML = _load_html("headway.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -6872,6 +6873,16 @@ async def ridership_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(RIDERSHIP_HTML)
+    return _login_redirect(request)
+
+# ---------------------------
+# HEADWAY PAGE
+# ---------------------------
+@app.get("/headway")
+async def headway_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(HEADWAY_HTML)
     return _login_redirect(request)
 
 # ---------------------------
