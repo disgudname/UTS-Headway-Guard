@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Headway Explorer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #0d0d0d;
+      color: #f5f5f5;
+      line-height: 1.5;
+    }
+    header {
+      background: linear-gradient(120deg, #12345b, #0f1f3a);
+      padding: 1.5rem 2rem;
+      color: #e6f0ff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.8rem;
+      letter-spacing: 0.02em;
+    }
+    header p {
+      margin: 0.25rem 0 0;
+      color: #b9d4ff;
+    }
+    main {
+      padding: 2rem;
+      display: grid;
+      gap: 1.5rem;
+    }
+    .card {
+      background: #161616;
+      border: 1px solid #222;
+      border-radius: 10px;
+      padding: 1.25rem;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
+    }
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      font-size: 1.2rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem 1.5rem;
+      align-items: start;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      color: #d9e2ff;
+    }
+    input, select, button {
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 8px;
+      border: 1px solid #2d2d2d;
+      background: #0f0f0f;
+      color: #f3f4f6;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.95rem;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    select[multiple] {
+      height: 12rem;
+    }
+    button {
+      background: linear-gradient(120deg, #1f7aff, #16a1ff);
+      border: none;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      box-shadow: 0 6px 18px rgba(31, 122, 255, 0.35);
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 28px rgba(31, 122, 255, 0.45);
+    }
+    button.secondary {
+      background: #202020;
+      border: 1px solid #2b2b2b;
+      box-shadow: none;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .status {
+      margin-top: 0.75rem;
+      color: #9fb7ff;
+      font-size: 0.95rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      background: #0f0f0f;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid #1f1f1f;
+      text-align: left;
+    }
+    th {
+      background: #111827;
+      color: #e5edff;
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    tr:nth-child(even) td { background: #131313; }
+    tr:hover td { background: #1a1a1a; }
+    .pill {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      background: #1f2937;
+      color: #cde2ff;
+      font-size: 0.8rem;
+      border: 1px solid #253041;
+      margin-left: 0.35rem;
+    }
+    .empty-state {
+      padding: 1rem;
+      background: #111;
+      border: 1px dashed #2d2d2d;
+      border-radius: 8px;
+      color: #9ca3af;
+      text-align: center;
+    }
+    @media (max-width: 640px) {
+      select[multiple] { height: 10rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Headway Explorer</h1>
+    <p>Select routes, stops, and a window to inspect recorded headway events.</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Filters</h2>
+      <div class="grid">
+        <div>
+          <label for="from-date">From date</label>
+          <input type="date" id="from-date" />
+        </div>
+        <div>
+          <label for="from-time">From time</label>
+          <input type="time" id="from-time" step="60" />
+        </div>
+        <div>
+          <label for="to-date">To date</label>
+          <input type="date" id="to-date" />
+        </div>
+        <div>
+          <label for="to-time">To time</label>
+          <input type="time" id="to-time" step="60" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top: 1rem;">
+        <div>
+          <label for="route-select">Routes (select one or more)</label>
+          <select id="route-select" multiple></select>
+        </div>
+        <div>
+          <label for="stop-select">Stops (select one or more)</label>
+          <select id="stop-select" multiple></select>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="load-btn">Load headway</button>
+        <button id="export-btn" class="secondary">Export CSV</button>
+        <button id="clear-btn" class="secondary">Clear selections</button>
+      </div>
+      <div class="status" id="status">Loading routes and stops…</div>
+    </section>
+
+    <section class="card">
+      <h2>Results</h2>
+      <div id="summary" class="status"></div>
+      <div id="results-container">
+        <div class="empty-state">No data loaded yet.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const routeSelect = document.getElementById('route-select');
+    const stopSelect = document.getElementById('stop-select');
+    const statusEl = document.getElementById('status');
+    const summaryEl = document.getElementById('summary');
+    const resultsContainer = document.getElementById('results-container');
+
+    let allRoutes = [];
+    let allStops = [];
+
+    function formatRouteLabel(route) {
+      const id = route.RouteID ?? route.RouteId ?? route.id ?? '';
+      const name = route.RouteName || route.Description || route.LongName || route.ShortName || `Route ${id}`;
+      const short = route.ShortName || route.InfoText;
+      return short && short !== name ? `${name} (${short})` : name;
+    }
+
+    function getStopId(stop) {
+      return stop.StopID ?? stop.StopId ?? stop.id ?? stop.stop_id ?? stop.Stop?.StopID ?? null;
+    }
+
+    function formatStopLabel(stop) {
+      const id = getStopId(stop) ?? '';
+      const name = stop.Name || stop.Description || stop.StopName || `Stop ${id}`;
+      const routes = (stop.RouteIDs || stop.RouteIds || stop.RouteIds || stop.Routes || [])
+        .map(r => typeof r === 'object' ? (r.RouteID ?? r.RouteId ?? r.id) : r)
+        .filter(Boolean);
+      return routes.length ? `${name} — ${routes.join(', ')}` : name;
+    }
+
+    function setStatus(message, isError = false) {
+      statusEl.textContent = message;
+      statusEl.style.color = isError ? '#fca5a5' : '#9fb7ff';
+    }
+
+    function populateRoutes() {
+      routeSelect.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      allRoutes.forEach(route => {
+        const opt = document.createElement('option');
+        const id = route.RouteID ?? route.RouteId ?? route.id;
+        opt.value = id;
+        opt.textContent = formatRouteLabel(route);
+        frag.appendChild(opt);
+      });
+      routeSelect.appendChild(frag);
+    }
+
+    function populateStops(filterRoutes = []) {
+      stopSelect.innerHTML = '';
+      const filterSet = new Set(filterRoutes);
+      const frag = document.createDocumentFragment();
+      allStops
+        .filter(stop => {
+          if (!filterSet.size) return true;
+          const routes = stop._routeIds || [];
+          return routes.some(r => filterSet.has(String(r)));
+        })
+        .forEach(stop => {
+          const id = getStopId(stop);
+          if (!id) return;
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = formatStopLabel(stop);
+          frag.appendChild(opt);
+        });
+      stopSelect.appendChild(frag);
+    }
+
+    function getSelected(selectEl) {
+      return Array.from(selectEl.selectedOptions).map(opt => opt.value).filter(Boolean);
+    }
+
+    function setDefaults() {
+      const now = new Date();
+      const toDate = now.toISOString().slice(0, 10);
+      const toTime = now.toTimeString().slice(0, 5);
+      const from = new Date(now.getTime() - 60 * 60 * 1000);
+      document.getElementById('to-date').value = toDate;
+      document.getElementById('to-time').value = toTime;
+      document.getElementById('from-date').value = from.toISOString().slice(0, 10);
+      document.getElementById('from-time').value = from.toTimeString().slice(0, 5);
+    }
+
+    async function loadMetadata() {
+      try {
+        const res = await fetch('/v1/testmap/transloc/metadata');
+        if (!res.ok) throw new Error(`Metadata fetch failed (${res.status})`);
+        const data = await res.json();
+        allRoutes = Array.isArray(data.routes) ? data.routes : [];
+        const stopMap = new Map();
+        (Array.isArray(data.stops) ? data.stops : []).forEach(stop => {
+          const id = getStopId(stop);
+          if (!id) return;
+          const routes = new Set([
+            ...(stop.RouteIds || stop.RouteIDs || stop.RouteIds || []),
+            ...(Array.isArray(stop.Routes) ? stop.Routes.map(r => r.RouteID ?? r.RouteId ?? r.id) : []),
+            stop.RouteID ?? stop.RouteId ?? stop.RouteId,
+          ].filter(Boolean).map(String));
+          const existing = stopMap.get(id) || { ...stop, _routeIds: [] };
+          const merged = new Set([...(existing._routeIds || []), ...routes]);
+          stopMap.set(id, { ...existing, ...stop, _routeIds: Array.from(merged) });
+        });
+        allStops = Array.from(stopMap.values()).sort((a, b) => {
+          const aName = formatStopLabel(a).toLowerCase();
+          const bName = formatStopLabel(b).toLowerCase();
+          return aName.localeCompare(bName);
+        });
+        populateRoutes();
+        populateStops();
+        setStatus('Routes and stops loaded. Choose filters and load headway.');
+      } catch (err) {
+        console.error(err);
+        setStatus('Unable to load routes/stops. Try refreshing.', true);
+      }
+    }
+
+    function combineDateTime(dateInputId, timeInputId) {
+      const dateVal = document.getElementById(dateInputId).value;
+      const timeVal = document.getElementById(timeInputId).value || '00:00';
+      if (!dateVal) {
+        throw new Error('Please select both start and end dates.');
+      }
+      const dt = new Date(`${dateVal}T${timeVal}:00`);
+      if (Number.isNaN(dt.getTime())) {
+        throw new Error('Invalid date or time provided.');
+      }
+      return dt.toISOString();
+    }
+
+    function buildQuery(base) {
+      const start = combineDateTime('from-date', 'from-time');
+      const end = combineDateTime('to-date', 'to-time');
+      if (end < start) {
+        throw new Error('End time must be after start time.');
+      }
+      const routes = getSelected(routeSelect);
+      const stops = getSelected(stopSelect);
+      const params = new URLSearchParams({ start, end });
+      if (routes.length) params.set('route_ids', routes.join(','));
+      if (stops.length) params.set('stop_ids', stops.join(','));
+      return `${base}?${params.toString()}`;
+    }
+
+    function renderTable(events) {
+      if (!events.length) {
+        resultsContainer.innerHTML = '<div class="empty-state">No headway events found for the selected window.</div>';
+        summaryEl.textContent = '';
+        return;
+      }
+      const rows = events.map(ev => {
+        const tsLocal = new Date(ev.timestamp).toLocaleString();
+        const headway = ev.headway_seconds != null ? `${ev.headway_seconds.toFixed(1)}s` : '';
+        const dwell = ev.dwell_seconds != null ? `${ev.dwell_seconds.toFixed(1)}s` : '';
+        const route = ev.route_id || '';
+        const stop = ev.stop_id || '';
+        return `<tr>
+          <td>${tsLocal}</td>
+          <td>${route}</td>
+          <td>${stop}</td>
+          <td>${ev.vehicle_id || ''}</td>
+          <td>${ev.event_type}</td>
+          <td>${headway}</td>
+          <td>${dwell}</td>
+        </tr>`;
+      }).join('');
+      resultsContainer.innerHTML = `<div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp (local)</th>
+              <th>Route</th>
+              <th>Stop</th>
+              <th>Vehicle</th>
+              <th>Event</th>
+              <th>Headway</th>
+              <th>Dwell</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+      const selection = [];
+      const routeCount = getSelected(routeSelect).length;
+      const stopCount = getSelected(stopSelect).length;
+      if (routeCount) selection.push(`${routeCount} route${routeCount === 1 ? '' : 's'}`);
+      if (stopCount) selection.push(`${stopCount} stop${stopCount === 1 ? '' : 's'}`);
+      summaryEl.textContent = `${events.length} event${events.length === 1 ? '' : 's'} loaded${selection.length ? ` for ${selection.join(' and ')}` : ''}.`;
+    }
+
+    async function fetchHeadway() {
+      try {
+        setStatus('Loading headway…');
+        const url = buildQuery('/api/headway');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Headway fetch failed (${res.status})`);
+        const data = await res.json();
+        const events = Array.isArray(data.events) ? data.events : [];
+        renderTable(events);
+        setStatus('Headway loaded.');
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Failed to load headway.', true);
+      }
+    }
+
+    function exportCsv() {
+      try {
+        const url = buildQuery('/api/headway/export');
+        window.location.href = url;
+      } catch (err) {
+        setStatus(err.message || 'Unable to export right now.', true);
+      }
+    }
+
+    function clearSelections() {
+      routeSelect.selectedIndex = -1;
+      stopSelect.selectedIndex = -1;
+      populateStops();
+      summaryEl.textContent = '';
+      resultsContainer.innerHTML = '<div class="empty-state">Selections cleared. Choose filters and load headway.</div>';
+      setStatus('Selections cleared.');
+    }
+
+    document.getElementById('load-btn').addEventListener('click', fetchHeadway);
+    document.getElementById('export-btn').addEventListener('click', exportCsv);
+    document.getElementById('clear-btn').addEventListener('click', clearSelections);
+    routeSelect.addEventListener('change', () => {
+      populateStops(getSelected(routeSelect));
+    });
+
+    setDefaults();
+    loadMetadata();
+  </script>
+</body>
+</html>
