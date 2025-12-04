@@ -25,7 +25,7 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set
+from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set, Mapping
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
 from datetime import date, datetime, timedelta, time as dtime, timezone
@@ -330,6 +330,25 @@ DISPATCHER_DOWNED_SHEET_URL = os.getenv(
 )
 DISPATCHER_DOWNED_REFRESH_S = int(os.getenv("DISPATCHER_DOWNED_REFRESH_S", "60"))
 
+
+VEHICLE_STALE_FIELDS = (
+    "IsStale",
+    "Stale",
+    "StaleGPS",
+    "HasValidGps",
+    "IsRealtime",
+    "SecondsSinceReport",
+    "SecondsSinceLastReport",
+    "SecondsSinceLastUpdate",
+    "SecondsSinceUpdate",
+    "SecondsSinceLastGps",
+    "LastGpsAgeSeconds",
+    "LocationAge",
+    "GPSSignalAge",
+    "Age",
+    "AgeInSeconds",
+)
+
 def prune_old_entries() -> None:
     cutoff = int(time.time() * 1000) - VEH_LOG_RETENTION_MS
     for log_dir in VEH_LOG_DIRS:
@@ -398,6 +417,64 @@ def decode_polyline(enc: str) -> List[Tuple[float, float]]:
         lng += dlng
         points.append((lat / 1e5, lng / 1e5))
     return points
+
+
+def _serialize_vehicle_for_log(vehicle: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(vehicle, Mapping):
+        return None
+    vid = vehicle.get("VehicleID")
+    lat_raw = vehicle.get("Latitude")
+    lon_raw = vehicle.get("Longitude")
+    if vid is None or lat_raw is None or lon_raw is None:
+        return None
+    try:
+        lat = float(lat_raw)
+        lon = float(lon_raw)
+    except (TypeError, ValueError):
+        return None
+
+    entry: Dict[str, Any] = {
+        "VehicleID": vid,
+        "Latitude": lat,
+        "Longitude": lon,
+    }
+
+    route_id = vehicle.get("RouteID") or vehicle.get("RouteId")
+    if route_id is not None:
+        entry["RouteID"] = route_id
+
+    heading = vehicle.get("Heading")
+    if heading is not None:
+        entry["Heading"] = heading
+
+    speed = vehicle.get("GroundSpeed")
+    if speed is not None:
+        entry["GroundSpeed"] = speed
+
+    name = vehicle.get("Name") or vehicle.get("Label") or vehicle.get("CallName")
+    if name not in (None, ""):
+        entry["Name"] = name
+        entry.setdefault("Label", name)
+
+    call_name = vehicle.get("CallName")
+    if call_name not in (None, "", name):
+        entry["CallName"] = call_name
+
+    timestamp = (
+        vehicle.get("Timestamp")
+        or vehicle.get("TimeStamp")
+        or vehicle.get("ReportTimestamp")
+        or vehicle.get("UpdatedOn")
+        or vehicle.get("UpdatedAt")
+    )
+    if timestamp is not None:
+        entry["Timestamp"] = timestamp
+
+    for flag in VEHICLE_STALE_FIELDS:
+        if flag in vehicle:
+            entry[flag] = vehicle.get(flag)
+
+    return entry
 
 def ll_to_xy(lat: float, lon: float, ref_lat: float, ref_lon: float) -> Tuple[float, float]:
     """Approximate meters in a local tangent plane using equirectangular scaling.
@@ -3192,17 +3269,16 @@ async def startup():
                     valid: list[dict] = []
                     moved = False
                     for v in vehicles:
-                        vid = v.get("VehicleID")
-                        lat = v.get("Latitude")
-                        lon = v.get("Longitude")
-                        if vid is None or lat is None or lon is None:
+                        serialized = _serialize_vehicle_for_log(v)
+                        if not serialized:
                             continue
-                        pos = (lat, lon)
+                        vid = serialized["VehicleID"]
+                        pos = (serialized["Latitude"], serialized["Longitude"])
                         last = LAST_LOG_POS.get(vid)
                         if not moved and (last is None or haversine(pos, last) >= VEH_LOG_MIN_MOVE_M):
                             moved = True
                         LAST_LOG_POS[vid] = pos
-                        valid.append(v)
+                        valid.append(serialized)
                     vehicles = valid
                     vehicle_ids = {v.get("VehicleID") for v in vehicles}
 
