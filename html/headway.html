@@ -220,7 +220,7 @@
     }
 
     function getStopId(stop) {
-      return stop.StopID ?? stop.StopId ?? stop.id ?? stop.stop_id ?? stop.Stop?.StopID ?? null;
+      return stop.StopID ?? stop.StopId ?? stop.RouteStopID ?? stop.RouteStopId ?? stop.id ?? stop.stop_id ?? stop.Stop?.StopID ?? null;
     }
 
     function formatStopLabel(stop) {
