@@ -282,6 +282,9 @@ schedulePlaneStyleOverride();
           return ondemandAllowed;
         }
         navAuthorized = normalized;
+        if (!navAuthorized) {
+          clearOffRouteBusIndicators();
+        }
         if (!userIsAuthorizedForOnDemand()) {
           setOnDemandVehiclesEnabled(false);
           setOnDemandStopsEnabled(false);
@@ -5018,6 +5021,35 @@ schedulePlaneStyleOverride();
         return minDistance;
       }
 
+      function computeOffRouteDistanceMeters(position, routeId) {
+        if (!Array.isArray(position) || position.length < 2) {
+          return null;
+        }
+        const lat = Number(position[0]);
+        const lon = Number(position[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          return null;
+        }
+        const projection = L?.Projection?.SphericalMercator;
+        if (!projection || typeof projection.project !== 'function') {
+          return null;
+        }
+        const routeEntry = routePolylineCache.get(routeId);
+        if (!routeEntry) {
+          return null;
+        }
+        const projectedPath = ensureRouteProjectedPath(routeEntry);
+        if (!Array.isArray(projectedPath) || projectedPath.length < 2) {
+          return null;
+        }
+        const projectedPoint = projection.project(L.latLng(lat, lon));
+        if (!projectedPoint) {
+          return null;
+        }
+        const distance = computeDistanceFromProjectedPointToPathMeters(projectedPoint, projectedPath);
+        return Number.isFinite(distance) ? distance : null;
+      }
+
       function getRouteDisplayName(routeId) {
         const numericRouteId = Number(routeId);
         const candidates = [];
@@ -6960,6 +6992,7 @@ schedulePlaneStyleOverride();
       const BUS_MARKER_STOPPED_SQUARE_SIZE_PX = 20;
       const BUS_MARKER_STOPPED_SQUARE_ID = 'center_square';
       const BUS_MARKER_CENTER_RING_ID = 'center_ring';
+      const BUS_OFF_ROUTE_DISTANCE_THRESHOLD_METERS = 60;
       let BUS_MARKER_SVG_TEXT = null;
       let BUS_MARKER_SVG_LOAD_PROMISE = null;
       let busMarkerVisibleExtents = null;
@@ -13504,6 +13537,13 @@ ${trainPlaneMarkup}
                   const accessibleLabel = buildBusMarkerAccessibleLabel(busName, headingDeg, groundSpeed);
                   const gpsIsStale = isVehicleGpsStale(v);
                   const isStopped = isBusConsideredStopped(groundSpeed);
+                  const offRouteDistanceMeters = navAuthorized && !isOnDemandVehicleId(vehicleID)
+                      ? computeOffRouteDistanceMeters(newPosition, routeID)
+                      : null;
+                  const isOffRoute = navAuthorized
+                      && !isOnDemandVehicleId(vehicleID)
+                      && Number.isFinite(offRouteDistanceMeters)
+                      && offRouteDistanceMeters > BUS_OFF_ROUTE_DISTANCE_THRESHOLD_METERS;
 
                   state.busName = busName;
                   state.routeID = routeID;
@@ -13515,6 +13555,10 @@ ${trainPlaneMarkup}
                   state.isStopped = isStopped;
                   state.groundSpeed = groundSpeed;
                   state.lastUpdateTimestamp = Date.now();
+                  state.isOffRoute = isOffRoute;
+                  state.offRouteDistanceMeters = Number.isFinite(offRouteDistanceMeters)
+                      ? offRouteDistanceMeters
+                      : null;
                   rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
 
                   if (!state.size) {
@@ -13530,7 +13574,9 @@ ${trainPlaneMarkup}
                           headingDeg,
                           stale: gpsIsStale,
                           accessibleLabel,
-                          stopped: isStopped
+                          stopped: isStopped,
+                          offRoute: isOffRoute,
+                          offRouteDistanceMeters: state.offRouteDistanceMeters
                       });
                   } else {
                       try {
@@ -13549,6 +13595,7 @@ ${trainPlaneMarkup}
                           updateBusMarkerRootClasses(state);
                           updateBusMarkerZIndex(state);
                           applyBusMarkerOutlineWidth(state);
+                          applyBusMarkerOffRouteIndicator(state);
                       } catch (error) {
                           console.error(`Failed to create bus marker icon for vehicle ${vehicleID}:`, error);
                       }
@@ -16067,21 +16114,35 @@ ${trainPlaneMarkup}
                   vehicleID,
                   positionHistory: [],
                   headingDeg: Number.isFinite(cachedHeading) ? cachedHeading : BUS_MARKER_DEFAULT_HEADING,
-                  fillColor: defaultRouteColor,
-                  glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
-                  accessibleLabel: '',
-                  isStale: false,
-                  isStopped: false,
-                  isSelected: false,
-                  isHovered: false,
-                  lastUpdateTimestamp: 0,
-                  size: null,
-                  elements: null,
-                  marker: null,
-                  markerEventsBound: false
+              fillColor: defaultRouteColor,
+              glyphColor: computeBusMarkerGlyphColor(defaultRouteColor),
+              accessibleLabel: '',
+              isStale: false,
+              isStopped: false,
+              isSelected: false,
+              isHovered: false,
+              isOffRoute: false,
+              offRouteDistanceMeters: null,
+              lastUpdateTimestamp: 0,
+              size: null,
+              elements: null,
+              marker: null,
+              markerEventsBound: false
               };
           }
           return busMarkerStates[vehicleID];
+      }
+
+      function clearOffRouteBusIndicators() {
+          Object.keys(busMarkerStates).forEach(vehicleID => {
+              const state = busMarkerStates[vehicleID];
+              if (!state) {
+                  return;
+              }
+              state.isOffRoute = false;
+              state.offRouteDistanceMeters = null;
+              queueBusMarkerVisualUpdate(vehicleID, { offRoute: false, offRouteDistanceMeters: null });
+          });
       }
 
       function setBusMarkerSize(state, metrics) {
@@ -16857,6 +16918,17 @@ ${trainPlaneMarkup}
           root.style.cursor = 'default';
           root.appendChild(svgEl);
 
+          const offRouteBadge = document.createElement('div');
+          offRouteBadge.className = 'bus-marker__offroute-badge';
+          offRouteBadge.textContent = '!';
+          offRouteBadge.title = formatOffRouteTooltip(state.offRouteDistanceMeters);
+          offRouteBadge.setAttribute('aria-label', formatOffRouteTooltip(state.offRouteDistanceMeters));
+          offRouteBadge.setAttribute('role', 'img');
+          offRouteBadge.style.pointerEvents = 'auto';
+          offRouteBadge.style.cursor = 'default';
+          offRouteBadge.style.display = state.isOffRoute ? 'flex' : 'none';
+          root.appendChild(offRouteBadge);
+
           const wrapper = document.createElement('div');
           wrapper.appendChild(root);
 
@@ -16907,6 +16979,7 @@ ${trainPlaneMarkup}
           const centerSquare = svg ? ensureCenterSquareElement(svg) : null;
           const centerRing = svg ? svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`) : null;
           const heading = svg ? svg.querySelector('#heading') : null;
+          const offRouteBadge = root ? root.querySelector('.bus-marker__offroute-badge') : null;
           state.elements = {
               icon: iconElement,
               root,
@@ -16915,7 +16988,8 @@ ${trainPlaneMarkup}
               routeColor: routeShape,
               centerRing,
               centerSquare,
-              heading
+              heading,
+              offRouteBadge
           };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
@@ -16937,6 +17011,7 @@ ${trainPlaneMarkup}
           }
           updateBusMarkerColorElements(state);
           applyBusMarkerStoppedVisualState(state);
+          applyBusMarkerOffRouteIndicator(state);
           return state.elements;
       }
 
@@ -16988,6 +17063,14 @@ ${trainPlaneMarkup}
           if (update && Object.prototype.hasOwnProperty.call(update, 'stopped')) {
               state.isStopped = Boolean(update.stopped);
           }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'offRoute')) {
+              state.isOffRoute = Boolean(update.offRoute);
+          }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'offRouteDistanceMeters')) {
+              state.offRouteDistanceMeters = Number.isFinite(update.offRouteDistanceMeters)
+                  ? update.offRouteDistanceMeters
+                  : null;
+          }
           applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
@@ -17005,6 +17088,7 @@ ${trainPlaneMarkup}
           updateBusMarkerRootClasses(state);
           updateBusMarkerZIndex(state);
           applyBusMarkerOutlineWidth(state);
+          applyBusMarkerOffRouteIndicator(state);
       }
 
       function applyBusMarkerOutlineWidth(state) {
@@ -17022,6 +17106,7 @@ ${trainPlaneMarkup}
           root.classList.toggle('is-stale', Boolean(state.isStale));
           root.classList.toggle('is-selected', Boolean(state.isSelected));
           root.classList.toggle('is-hover', Boolean(state.isHovered));
+          root.classList.toggle('is-offroute', Boolean(state.isOffRoute));
       }
 
       function updateBusMarkerZIndex(state) {
@@ -17036,6 +17121,30 @@ ${trainPlaneMarkup}
               offset = Math.max(offset, 1000);
           }
           state.marker.setZIndexOffset(offset);
+      }
+
+      function formatOffRouteTooltip(distanceMeters) {
+          if (Number.isFinite(distanceMeters)) {
+              const rounded = Math.max(0, Math.round(distanceMeters));
+              return `Bus is off-route (~${rounded} m from path)`;
+          }
+          return 'Bus is off-route';
+      }
+
+      function applyBusMarkerOffRouteIndicator(state) {
+          if (!state?.elements?.root) {
+              return;
+          }
+          const badge = state.elements.offRouteBadge;
+          const isOffRoute = Boolean(state.isOffRoute);
+          state.elements.root.classList.toggle('is-offroute', isOffRoute);
+          if (!badge) {
+              return;
+          }
+          const tooltip = formatOffRouteTooltip(state.offRouteDistanceMeters);
+          badge.style.display = isOffRoute ? 'flex' : 'none';
+          badge.title = tooltip;
+          badge.setAttribute('aria-label', tooltip);
       }
 
       function setBusMarkerHovered(vehicleID, isHovered) {
