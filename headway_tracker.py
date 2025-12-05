@@ -136,8 +136,12 @@ class HeadwayTracker:
                     dwell_seconds = max(dwell_seconds, 0.0)
                 if prev_stop:
                     route_for_departure = prev_state.route_id or route_id_norm
+                    keys = []
                     if route_for_departure:
-                        self.last_departure[(route_for_departure, prev_stop)] = departure_timestamp
+                        keys.append((route_for_departure, prev_stop))
+                    keys.append((None, prev_stop))
+                    for key in keys:
+                        self.last_departure[key] = departure_timestamp
                 events.append(
                     HeadwayEvent(
                         timestamp=departure_timestamp,
@@ -206,12 +210,23 @@ class HeadwayTracker:
     def _record_arrival_headways(
         self, route_id: Optional[str], stop_id: Optional[str], timestamp: datetime
     ) -> Tuple[Optional[float], Optional[float]]:
-        if route_id is None or stop_id is None:
+        if stop_id is None:
             return None, None
-        key = (route_id, stop_id)
-        prev_arrival = self.last_arrival.get(key)
-        prev_departure = self.last_departure.get(key)
-        self.last_arrival[key] = timestamp
+        keys: List[Tuple[Optional[str], str]] = []
+        if route_id is not None:
+            keys.append((route_id, stop_id))
+        keys.append((None, stop_id))
+
+        prev_arrival = None
+        prev_departure = None
+        for key in keys:
+            if prev_arrival is None:
+                prev_arrival = self.last_arrival.get(key)
+            if prev_departure is None:
+                prev_departure = self.last_departure.get(key)
+
+        for key in keys:
+            self.last_arrival[key] = timestamp
         arrival_arrival = None
         departure_arrival = None
         if prev_arrival is not None:
