@@ -776,21 +776,41 @@
         let etaInfo = null;
         if (etaRes.ok) {
           const etaPayload = await etaRes.json();
-          const arrivals = Array.isArray(etaPayload?.Arrivals) ? etaPayload.Arrivals : [];
+          const arrivals = Array.isArray(etaPayload?.Arrivals)
+            ? etaPayload.Arrivals
+            : Array.isArray(etaPayload)
+              ? etaPayload
+              : [];
+
+          const parseArrivalTimeMs = arrival => {
+            const raw = arrival?.EstimateTime || arrival?.Time;
+            if (typeof raw === 'string') {
+              const match = /\/Date\((\d+)\)\//.exec(raw);
+              if (match) return Number(match[1]);
+            }
+            const parsed = Date.parse(raw);
+            return Number.isFinite(parsed) ? parsed : null;
+          };
+
           arrivals.forEach(stop => {
             const stopIdFromPayload = String(stop?.StopId ?? stop?.StopID ?? stop?.stop_id ?? '');
             if (stopIdSet.size && stopIdFromPayload && !stopIdSet.has(stopIdFromPayload)) return;
-            const stopArrivals = Array.isArray(stop?.Arrivals) ? stop.Arrivals : [];
+            const stopArrivals = Array.isArray(stop?.Arrivals) ? stop.Arrivals : Array.isArray(stop?.Times) ? stop.Times : [];
             stopArrivals.forEach(arrival => {
-              const routeMatch = String(arrival.RouteId ?? arrival.RouteID ?? stop.RouteId ?? stop.RouteID ?? '') === String(routeId);
+              const arrivalRouteId = arrival.RouteId ?? arrival.RouteID ?? stop.RouteId ?? stop.RouteID ?? arrival.route_id;
+              const routeMatch = String(arrivalRouteId || '') === String(routeId);
               if (!routeMatch) return;
-              const seconds = Number(arrival.SecondsToArrival ?? arrival.SecondsToDeparture ?? arrival.Seconds ?? arrival.seconds);
+              let seconds = Number(arrival.SecondsToArrival ?? arrival.SecondsToDeparture ?? arrival.Seconds ?? arrival.seconds);
+              const arrivalTimeMs = parseArrivalTimeMs(arrival);
+              if (!Number.isFinite(seconds) && Number.isFinite(arrivalTimeMs)) {
+                seconds = (arrivalTimeMs - Date.now()) / 1000;
+              }
               if (!Number.isFinite(seconds)) return;
-              const arrivalTimeMs = Date.now() + seconds * 1000;
+              const timeMs = Number.isFinite(arrivalTimeMs) ? arrivalTimeMs : Date.now() + seconds * 1000;
               if (!etaInfo || seconds < etaInfo.secondsToArrival) {
                 etaInfo = {
                   secondsToArrival: seconds,
-                  arrivalTimeMs,
+                  arrivalTimeMs: timeMs,
                 };
               }
             });
