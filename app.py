@@ -4428,8 +4428,8 @@ def _build_transloc_stops(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if not entry.get("StopID") and not entry.get("StopId"):
                 alt_stop_id = entry.get("RouteStopID") or entry.get("RouteStopId")
                 if alt_stop_id is not None:
-                    entry.setdefault("StopID", alt_stop_id)
-                    entry.setdefault("StopId", alt_stop_id)
+                    entry["StopID"] = alt_stop_id
+                    entry["StopId"] = alt_stop_id
             entry.setdefault("RouteID", rid)
             entry.setdefault("RouteIds", [rid] if rid is not None else [])
             entry.setdefault("RouteIDs", [rid] if rid is not None else [])
