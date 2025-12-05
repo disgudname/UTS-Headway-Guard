@@ -12,6 +12,7 @@ from headway_storage import HeadwayEvent, HeadwayStorage
 
 HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
 DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
+DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 
 
 @dataclass
@@ -38,6 +39,8 @@ class StopPoint:
     lat: float
     lon: float
     route_ids: Set[str]
+    approach_bearing_deg: Optional[float] = None
+    approach_tolerance_deg: Optional[float] = None
 
 
 class HeadwayTracker:
@@ -49,12 +52,15 @@ class HeadwayTracker:
         departure_distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
         tracked_route_ids: Optional[Set[str]] = None,
         tracked_stop_ids: Optional[Set[str]] = None,
+        stop_approach: Optional[Dict[str, Tuple[float, float]]] = None,
+        stop_approach_config_path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH,
     ):
         self.storage = storage
         self.arrival_distance_threshold_m = min(arrival_distance_threshold_m, departure_distance_threshold_m)
         self.departure_distance_threshold_m = max(arrival_distance_threshold_m, departure_distance_threshold_m)
         self.tracked_route_ids = tracked_route_ids or set()
         self.tracked_stop_ids = tracked_stop_ids or set()
+        self.stop_approach = stop_approach or load_stop_approach_config(stop_approach_config_path)
         self.vehicle_states: Dict[str, VehiclePresence] = {}
         self.last_arrival: Dict[Tuple[str, str], datetime] = {}
         self.last_departure: Dict[Tuple[str, str], datetime] = {}
@@ -89,7 +95,23 @@ class HeadwayTracker:
             except (TypeError, ValueError):
                 continue
             route_ids = self._extract_route_ids(stop)
-            updated.append(StopPoint(stop_id=str(stop_id), lat=lat_f, lon=lon_f, route_ids=route_ids))
+            approach_bearing = _parse_float(stop.get("ApproachBearingDeg"))
+            approach_tolerance = _parse_float(stop.get("ApproachToleranceDeg"))
+            config_approach = self.stop_approach.get(str(stop_id))
+            if approach_bearing is None and config_approach:
+                approach_bearing = config_approach[0]
+            if approach_tolerance is None and config_approach:
+                approach_tolerance = config_approach[1]
+            updated.append(
+                StopPoint(
+                    stop_id=str(stop_id),
+                    lat=lat_f,
+                    lon=lon_f,
+                    route_ids=route_ids,
+                    approach_bearing_deg=approach_bearing,
+                    approach_tolerance_deg=approach_tolerance,
+                )
+            )
         self.stops = updated
         self.stop_lookup = {stop.stop_id: stop for stop in updated}
         if not updated:
@@ -287,6 +309,10 @@ class HeadwayTracker:
                 continue
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
             if dist <= threshold:
+                if stop.approach_bearing_deg is not None and stop.approach_tolerance_deg is not None:
+                    bearing = self._bearing_degrees(lat, lon, stop.lat, stop.lon)
+                    if not _is_within_bearing(bearing, stop.approach_bearing_deg, stop.approach_tolerance_deg):
+                        continue
                 if best is None or dist < best[2]:
                     associated_route = route_id
                     if not associated_route and stop.route_ids:
@@ -338,6 +364,15 @@ class HeadwayTracker:
         a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
         return 2 * r_earth * math.asin(math.sqrt(a))
 
+    def _bearing_degrees(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        dlon = math.radians(lon2 - lon1)
+        x = math.sin(dlon) * math.cos(lat2_rad)
+        y = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon)
+        bearing = math.degrees(math.atan2(x, y))
+        return (bearing + 360.0) % 360.0
+
     def _distance_to_stop(self, stop_id: Optional[str], lat: float, lon: float) -> Optional[float]:
         if stop_id is None:
             return None
@@ -368,3 +403,37 @@ def load_headway_config(path: Path = DEFAULT_HEADWAY_CONFIG_PATH) -> Tuple[Set[s
         except Exception as exc:
             print(f"[headway] failed to load config {path}: {exc}")
     return route_ids, stop_ids
+
+
+def load_stop_approach_config(path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH) -> Dict[str, Tuple[float, float]]:
+    config: Dict[str, Tuple[float, float]] = {}
+    if not path.exists():
+        return config
+    try:
+        raw = json.loads(path.read_text())
+        if isinstance(raw, dict):
+            for stop_id, entry in raw.items():
+                if not isinstance(entry, dict):
+                    continue
+                bearing = _parse_float(entry.get("bearing_deg") or entry.get("bearing"))
+                tolerance = _parse_float(entry.get("tolerance_deg") or entry.get("tolerance"))
+                if bearing is None or tolerance is None:
+                    continue
+                config[str(stop_id)] = (bearing, max(0.0, tolerance))
+    except Exception as exc:
+        print(f"[headway] failed to load stop approach config {path}: {exc}")
+    return config
+
+
+def _parse_float(value: Optional[object]) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_within_bearing(actual: float, target: float, tolerance: float) -> bool:
+    normalized = abs((actual - target + 180.0) % 360.0 - 180.0)
+    return normalized <= tolerance
