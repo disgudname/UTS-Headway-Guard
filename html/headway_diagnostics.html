@@ -121,6 +121,13 @@
       return `${meters.toFixed(1)} m`;
     }
 
+    function formatTime(value) {
+      if (!value) return 'n/a';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return 'n/a';
+      return date.toLocaleTimeString();
+    }
+
     function renderRouteMismatches(failures, container) {
       if (!container) return;
       if (!failures || !failures.length) {
@@ -172,10 +179,16 @@
           const approach = item.approach_bearing_deg != null && isFinite(item.approach_bearing_deg)
             ? `${Number(item.approach_bearing_deg).toFixed(1)}° ± ${Number(item.approach_tolerance_deg || 0).toFixed(1)}°`
             : 'n/a';
+          const prevArrival = formatTime(item.previous_arrival_time);
+          const prevDepart = formatTime(item.previous_departure_started_at);
+          const lastArrival = formatTime(item.last_vehicle_arrival);
+          const lastDeparture = formatTime(item.last_vehicle_departure);
+          const previousStop = item.previous_stop_id ? `prev stop ${item.previous_stop_id}` : 'prev stop n/a';
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
               <div><strong>${item.vehicle_id || 'unknown vehicle'}</strong> · ${stopInfo} · <span class="pill">${reason}</span></div>
               <div class="muted">${ts} · route ${item.route_id || 'n/a'} · ${distance} away · heading ${heading} · approach ${approach}</div>
+              <div class="muted">${previousStop} · prev arrival ${prevArrival} · prev depart ${prevDepart} · last arrival ${lastArrival} · last departure ${lastDeparture}</div>
             </div>
           `;
         })

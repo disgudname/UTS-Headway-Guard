@@ -207,6 +207,7 @@ class HeadwayTracker:
             arrival_route_id = route_id_norm
             arrival_time = None
             arrival_suppression_reason = None
+            arrival_key = None
             if current_stop is not None:
                 arrival_stop_id, arrival_route_id = current_stop
                 if arrival_route_id is None:
@@ -258,6 +259,7 @@ class HeadwayTracker:
                 arrival_suppression_reason = "still_at_previous_stop"
 
             if arrival_stop_id and arrival_suppression_reason:
+                arrival_key = arrival_key or (vid, arrival_stop_id)
                 self._log_arrival_suppression(
                     snap,
                     arrival_stop_id,
@@ -265,6 +267,11 @@ class HeadwayTracker:
                     arrival_suppression_reason,
                     distance_from_prev_stop,
                     has_left_prev_stop,
+                    previous_stop_id=prev_stop,
+                    previous_arrival_time=prev_state.arrival_time,
+                    previous_departure_started_at=movement_start_time,
+                    last_vehicle_arrival=self.last_vehicle_arrival.get(arrival_key) if arrival_key else None,
+                    last_vehicle_departure=self.last_vehicle_departure.get(arrival_key) if arrival_key else None,
                 )
 
             self.vehicle_states[vid] = VehiclePresence(
@@ -354,6 +361,12 @@ class HeadwayTracker:
         reason: str,
         distance_from_prev_stop: Optional[float],
         has_left_prev_stop: bool,
+        *,
+        previous_stop_id: Optional[str] = None,
+        previous_arrival_time: Optional[datetime] = None,
+        previous_departure_started_at: Optional[datetime] = None,
+        last_vehicle_arrival: Optional[datetime] = None,
+        last_vehicle_departure: Optional[datetime] = None,
     ) -> None:
         stop_distance = None
         stop_heading = None
@@ -385,6 +398,11 @@ class HeadwayTracker:
                 "approach_tolerance_deg": tolerance,
                 "approach_radius_m": radius,
                 "heading_deg": snap.heading_deg,
+                "previous_stop_id": previous_stop_id,
+                "previous_arrival_time": self._isoformat(previous_arrival_time),
+                "previous_departure_started_at": self._isoformat(previous_departure_started_at),
+                "last_vehicle_arrival": self._isoformat(last_vehicle_arrival),
+                "last_vehicle_departure": self._isoformat(last_vehicle_departure),
             }
         )
 
