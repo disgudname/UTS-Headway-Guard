@@ -17114,8 +17114,11 @@ ${trainPlaneMarkup}
               return;
           }
           let offset = 0;
+          if (state.isOffRoute) {
+              offset = 600;
+          }
           if (state.isSelected) {
-              offset = 800;
+              offset = Math.max(offset, 800);
           }
           if (state.isHovered) {
               offset = Math.max(offset, 1000);
