@@ -2768,6 +2768,22 @@ def _get_headway_storage() -> HeadwayStorage:
     return storage
 
 
+def _attach_vehicle_names(events: Sequence[HeadwayEvent]) -> Dict[str, str]:
+    mapping = dict(getattr(app.state, "headway_vehicle_names", {}) or {})
+    for ev in events:
+        vehicle_id = ev.vehicle_id
+        if vehicle_id is None:
+            continue
+        key = str(vehicle_id)
+        if ev.vehicle_name:
+            mapping[key] = ev.vehicle_name
+        else:
+            name = mapping.get(key)
+            if name:
+                ev.vehicle_name = name
+    return mapping
+
+
 @app.post("/v1/headway/clear")
 async def clear_headway_logs(request: Request):
     _require_dispatcher_access(request)
@@ -2798,7 +2814,8 @@ async def api_headway(
         route_ids=routes if routes else None,
         stop_ids=stops if stops else None,
     )
-    return {"events": [ev.to_dict() for ev in events]}
+    vehicle_names = _attach_vehicle_names(events)
+    return {"events": [ev.to_dict() for ev in events], "vehicle_names": vehicle_names}
 
 
 @app.get("/api/headway/export")
@@ -2853,6 +2870,7 @@ async def api_headway_export(
             "route_id",
             "stop_id",
             "vehicle_id",
+            "vehicle_name",
             "event_type",
             "headway_arrival_arrival_seconds",
             "headway_departure_arrival_seconds",
@@ -3031,6 +3049,7 @@ async def startup():
                         routes_catalog = []
                         print(f"[updater] routes catalog fetch error: {e}")
                     vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
+                    vehicle_name_lookup = _build_vehicle_name_lookup(vehicles_raw)
                     try:
                         block_groups, block_meta = await fetch_block_groups(
                             client, include_metadata=True
@@ -3221,9 +3240,13 @@ async def startup():
                                     ts_dt = datetime.fromtimestamp(veh.ts_ms / 1000.0, timezone.utc)
                                 except Exception:
                                     ts_dt = datetime.now(timezone.utc)
+                                snapshot_name = vehicle_name_lookup.get(str(vid))
+                                if snapshot_name is None and name and name != "-":
+                                    snapshot_name = str(name)
                                 headway_snapshots.append(
                                     VehicleSnapshot(
                                         vehicle_id=str(veh.id) if veh.id is not None else None,
+                                        vehicle_name=snapshot_name,
                                         lat=veh.lat,
                                         lon=veh.lon,
                                         route_id=str(rid) if rid is not None else None,
@@ -3314,6 +3337,18 @@ async def startup():
                         plain_language_blocks = _extract_plain_language_blocks(
                             block_groups, vehicle_roster=vehicle_roster
                         )
+
+                        for block in plain_language_blocks:
+                            vid = _normalize_vehicle_id_str(
+                                block.get("vehicle_id")
+                                or block.get("VehicleID")
+                                or block.get("vehicleId")
+                            )
+                            name = _pick_vehicle_name_record(block)
+                            if vid and name and vid not in vehicle_name_lookup:
+                                vehicle_name_lookup[vid] = name
+
+                        state.headway_vehicle_names = vehicle_name_lookup
 
                         state.blocks_cache = {
                             "block_groups": block_groups,
@@ -4848,6 +4883,49 @@ def _parse_headway_timestamp(value: str) -> datetime:
         return parse_iso8601_utc(value)
     except Exception:
         raise HTTPException(status_code=400, detail="invalid timestamp format; use ISO-8601")
+
+
+def _normalize_vehicle_id_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        return str(int(value))
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        return text or None
+
+
+def _pick_vehicle_name_record(record: Dict[str, Any]) -> str:
+    for key in (
+        "vehicle_name",
+        "VehicleName",
+        "Name",
+        "Label",
+        "vehicle_label",
+        "VehicleLabel",
+    ):
+        val = record.get(key)
+        if val:
+            text = str(val).strip()
+            if text:
+                return text
+    return ""
+
+
+def _build_vehicle_name_lookup(records: Sequence[Dict[str, Any]]) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    for rec in records or []:
+        vid = (
+            rec.get("VehicleID")
+            or rec.get("VehicleId")
+            or rec.get("vehicle_id")
+            or rec.get("vehicleId")
+        )
+        vid_norm = _normalize_vehicle_id_str(vid)
+        name = _pick_vehicle_name_record(rec)
+        if vid_norm and name:
+            mapping[vid_norm] = name
+    return mapping
 
 
 async def build_transloc_snapshot(
