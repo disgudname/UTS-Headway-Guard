@@ -105,6 +105,14 @@
     <div id="route-mismatches"></div>
   </div>
 
+  <div class="card">
+    <h2 style="margin-top: 0; margin-bottom: 0.35rem;">Arrival suppressions</h2>
+    <p class="muted" style="margin-top: 0;">
+      Recent arrival attempts that were ignored (duplicate arrivals or vehicles that never left the previous stop).
+    </p>
+    <div id="arrival-suppressions"></div>
+  </div>
+
   <textarea id="payload" class="export-block" readonly>Loading…</textarea>
 
   <script>
@@ -142,6 +150,40 @@
       container.innerHTML = rows;
     }
 
+    function renderArrivalSuppressions(suppressions, container) {
+      if (!container) return;
+      if (!suppressions || !suppressions.length) {
+        container.innerHTML = '<div class="muted">No recent arrival suppressions.</div>';
+        return;
+      }
+
+      const recent = suppressions.slice(-12).reverse();
+      const rows = recent
+        .map((item) => {
+          const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'unknown time';
+          const reason = (item.reason || 'unknown').replace(/_/g, ' ');
+          const stopInfo = item.stop_id ? `stop ${item.stop_id}` : 'unknown stop';
+          const distance = item.distance_from_stop != null && isFinite(item.distance_from_stop)
+            ? `${Number(item.distance_from_stop).toFixed(1)} m`
+            : 'n/a';
+          const heading = item.heading_deg != null && isFinite(item.heading_deg)
+            ? `${Number(item.heading_deg).toFixed(1)}°`
+            : 'n/a';
+          const approach = item.approach_bearing_deg != null && isFinite(item.approach_bearing_deg)
+            ? `${Number(item.approach_bearing_deg).toFixed(1)}° ± ${Number(item.approach_tolerance_deg || 0).toFixed(1)}°`
+            : 'n/a';
+          return `
+            <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
+              <div><strong>${item.vehicle_id || 'unknown vehicle'}</strong> · ${stopInfo} · <span class="pill">${reason}</span></div>
+              <div class="muted">${ts} · route ${item.route_id || 'n/a'} · ${distance} away · heading ${heading} · approach ${approach}</div>
+            </div>
+          `;
+        })
+        .join('');
+
+      container.innerHTML = rows;
+    }
+
     function buildExportPayload(raw) {
       const exportedAt = new Date().toISOString();
       const payload = {
@@ -158,6 +200,7 @@
       const payloadEl = document.getElementById('payload');
       const errorEl = document.getElementById('error');
       const mismatchesEl = document.getElementById('route-mismatches');
+      const suppressionsEl = document.getElementById('arrival-suppressions');
       const copyBtn = document.getElementById('copy');
       statusEl.textContent = 'Fetching…';
       errorEl.textContent = '';
@@ -171,12 +214,14 @@
         const data = await res.json();
         statusEl.textContent = `Updated ${new Date().toLocaleString()}`;
         renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl);
+        renderArrivalSuppressions(data.recent_arrival_suppressions || [], suppressionsEl);
         payloadEl.value = buildExportPayload(data);
         copyBtn.disabled = false;
       } catch (err) {
         statusEl.textContent = '';
         errorEl.textContent = err.message || 'Unable to fetch diagnostics';
         mismatchesEl.innerHTML = '<div class="muted">Unable to load stop association drops.</div>';
+        suppressionsEl.innerHTML = '<div class="muted">Unable to load arrival suppressions.</div>';
         payloadEl.value = 'error: unable to fetch diagnostics';
       }
     }
