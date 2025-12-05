@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 import json
 import math
+import os
 
 from headway_storage import HeadwayEvent, HeadwayStorage
 
@@ -14,6 +15,7 @@ HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
 STOP_APPROACH_DEFAULT_RADIUS_M = float(60.0)
 DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
+DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 
 
 @dataclass
@@ -406,12 +408,42 @@ def load_headway_config(path: Path = DEFAULT_HEADWAY_CONFIG_PATH) -> Tuple[Set[s
     return route_ids, stop_ids
 
 
-def load_stop_approach_config(path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH) -> Dict[str, Tuple[float, float, float]]:
+def _read_data_file(
+    path: Path,
+    *,
+    data_dirs: Optional[Sequence[Path]] = None,
+) -> Tuple[Optional[Path], Optional[str]]:
+    if data_dirs is None:
+        data_dirs = DEFAULT_DATA_DIRS
+    path_obj = Path(path)
+    candidates: List[Path]
+    if path_obj.is_absolute():
+        candidates = [path_obj]
+    else:
+        candidates = [base / path_obj for base in data_dirs]
+        candidates.append(path_obj)
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            return candidate, candidate.read_text()
+        except Exception as exc:
+            print(f"[headway] failed to read data file {candidate}: {exc}")
+            return candidate, None
+    return None, None
+
+
+def load_stop_approach_config(
+    path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH,
+    *,
+    data_dirs: Optional[Sequence[Path]] = None,
+) -> Dict[str, Tuple[float, float, float]]:
     config: Dict[str, Tuple[float, float, float]] = {}
-    if not path.exists():
+    resolved_path, raw_text = _read_data_file(path, data_dirs=data_dirs)
+    if not raw_text:
         return config
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(raw_text)
         if isinstance(raw, dict):
             for stop_id, entry in raw.items():
                 if not isinstance(entry, dict):
@@ -429,7 +461,7 @@ def load_stop_approach_config(path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH) ->
                     max(0.0, radius),
                 )
     except Exception as exc:
-        print(f"[headway] failed to load stop approach config {path}: {exc}")
+        print(f"[headway] failed to load stop approach config {resolved_path or path}: {exc}")
     return config
 
 

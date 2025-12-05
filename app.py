@@ -3018,7 +3018,7 @@ async def startup():
 
     try:
         headway_route_ids, headway_stop_ids = load_headway_config()
-        stop_approach_config = load_stop_approach_config()
+        stop_approach_config = load_stop_approach_config(data_dirs=DATA_DIRS)
         headway_storage = HeadwayStorage(HEADWAY_DIR)
         headway_tracker = HeadwayTracker(
             storage=headway_storage,
