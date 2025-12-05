@@ -271,6 +271,7 @@
     let routeNameById = new Map();
     let stopNameById = new Map();
     let stopIdsByCanonical = new Map();
+    let vehicleNameById = new Map();
     let liveIntervalId = null;
     const LIVE_WINDOW_MS = 60 * 60 * 1000;
     const LIVE_REFRESH_MS = 30 * 1000;
@@ -335,15 +336,19 @@
     }
 
     function formatVehicleLabel(ev) {
-      return (
+      const directLabel = (
         ev.vehicle_name ||
         ev.vehicle_label ||
-        ev.vehicle ||
         ev.vehicle_fleet_no ||
         ev.vehicle_no ||
-        ev.vehicle_id ||
         ''
       );
+      if (directLabel) return directLabel;
+      const id = ev.vehicle_id || ev.vehicle;
+      if (!id) return '';
+      const nameFromMap = vehicleNameById.get(String(id));
+      if (nameFromMap) return nameFromMap;
+      return `Vehicle ${id}`;
     }
 
     function formatMinutesSeconds(seconds) {
@@ -482,6 +487,16 @@
               const id = route.RouteID ?? route.RouteId ?? route.id;
               if (id == null) return null;
               return [String(id), formatRouteLabel(route)];
+            })
+            .filter(Boolean)
+        );
+        vehicleNameById = new Map(
+          (Array.isArray(data.blocks) ? data.blocks : [])
+            .map(block => {
+              const id = block.vehicle_id ?? block.VehicleID ?? block.vehicleId;
+              const name = block.vehicle_name ?? block.VehicleName ?? block.name;
+              if (id == null || !name) return null;
+              return [String(id), String(name)];
             })
             .filter(Boolean)
         );
