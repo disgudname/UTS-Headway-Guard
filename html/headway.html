@@ -283,8 +283,22 @@
       return short && short !== name ? `${name} (${short})` : name;
     }
 
+    function collectStopIds(stop) {
+      return [
+        stop.StopID,
+        stop.StopId,
+        stop.stop_id,
+        stop.Stop?.StopID,
+        stop.Stop?.StopId,
+        stop.RouteStopID,
+        stop.RouteStopId,
+        stop.id,
+      ].filter(id => id !== undefined && id !== null);
+    }
+
     function getStopId(stop) {
-      return stop.StopID ?? stop.StopId ?? stop.RouteStopID ?? stop.RouteStopId ?? stop.id ?? stop.stop_id ?? stop.Stop?.StopID ?? null;
+      const candidates = collectStopIds(stop);
+      return candidates.length ? candidates[0] : null;
     }
 
     function normalizeStopName(stop) {
@@ -485,7 +499,8 @@
         allRoutes = Array.isArray(data.routes) ? data.routes : [];
         const stopMap = new Map();
         (Array.isArray(data.stops) ? data.stops : []).forEach(stop => {
-          const id = getStopId(stop);
+          const candidateIds = collectStopIds(stop);
+          const id = candidateIds[0];
           const key = getStopKey(stop);
           if (!key || !id) return;
           const routes = new Set([
@@ -495,7 +510,7 @@
           ].filter(Boolean).map(String));
           const existing = stopMap.get(key) || { ...stop, _routeIds: [], _allIds: [] };
           const mergedRoutes = new Set([...(existing._routeIds || []), ...routes]);
-          const mergedIds = new Set([...(existing._allIds || []), String(id)]);
+          const mergedIds = new Set([...(existing._allIds || []), ...candidateIds.map(String)]);
           const canonicalId = getStopId(existing) ?? id;
           stopMap.set(key, {
             ...existing,
@@ -541,7 +556,8 @@
           const id = getStopId(stop);
           if (id == null) return;
           const name = stop.Name || stop.Description || stop.StopName || formatStopLabel(stop);
-          const ids = stop._allIds?.length ? stop._allIds.map(String) : [String(id)];
+          const ids = stop._allIds?.length ? stop._allIds.map(String) : collectStopIds(stop).map(String);
+          if (!ids.length) ids.push(String(id));
           stopIdsByCanonical.set(String(id), ids);
           ids.forEach(mappedId => stopNameById.set(mappedId, name));
         });
