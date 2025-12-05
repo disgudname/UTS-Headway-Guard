@@ -377,6 +377,23 @@
       });
     }
 
+    async function refreshVehicleRoster() {
+      try {
+        const res = await fetch('/v1/vehicles?include_stale=1&include_unassigned=1');
+        if (!res.ok) throw new Error(`Vehicle roster fetch failed (${res.status})`);
+        const data = await res.json();
+        const rosterNames = (Array.isArray(data.vehicles) ? data.vehicles : []).reduce((acc, entry) => {
+          const id = entry.VehicleID ?? entry.VehicleId ?? entry.id;
+          const name = entry.name || entry.Name;
+          if (id != null && name) acc[id] = name;
+          return acc;
+        }, {});
+        updateVehicleNameLookup([], rosterNames);
+      } catch (err) {
+        console.warn('Unable to refresh vehicle roster for name lookup', err);
+      }
+    }
+
     function formatVehicleLabel(ev) {
       const directLabel = ev?.vehicle_name || pickVehicleName(ev);
       if (directLabel) return directLabel;
@@ -543,6 +560,7 @@
         populateStops();
         populateLiveStops();
         setStatus('Routes and stops loaded. Choose filters and load headway.');
+        refreshVehicleRoster();
       } catch (err) {
         console.error(err);
         setStatus('Unable to load routes/stops. Try refreshing.', true);
