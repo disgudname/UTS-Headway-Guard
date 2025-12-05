@@ -3283,6 +3283,7 @@ async def startup():
                                         lon=veh.lon,
                                         route_id=str(rid) if rid is not None else None,
                                         timestamp=ts_dt,
+                                        heading_deg=veh.heading,
                                     )
                                 )
                         current_vehicle_ids: set[int] = set()
