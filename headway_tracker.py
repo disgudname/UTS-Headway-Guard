@@ -75,6 +75,7 @@ class HeadwayTracker:
         self.stops: List[StopPoint] = []
         self.stop_lookup: Dict[str, StopPoint] = {}
         self.recent_stop_association_failures: deque = deque(maxlen=25)
+        self.recent_arrival_suppressions: deque = deque(maxlen=25)
         print(
             f"[headway] tracker initialized routes={sorted(self.tracked_route_ids) if self.tracked_route_ids else 'all'} "
             f"stops={sorted(self.tracked_stop_ids) if self.tracked_stop_ids else 'all'}"
@@ -205,6 +206,7 @@ class HeadwayTracker:
             arrival_stop_id = None
             arrival_route_id = route_id_norm
             arrival_time = None
+            arrival_suppression_reason = None
             if current_stop is not None:
                 arrival_stop_id, arrival_route_id = current_stop
                 if arrival_route_id is None:
@@ -243,14 +245,27 @@ class HeadwayTracker:
                     arrival_time = timestamp
                 elif duplicate_arrival:
                     arrival_time = prev_vehicle_arrival or prev_state.arrival_time or timestamp
+                    arrival_suppression_reason = "duplicate_arrival_same_vehicle"
                 else:
                     arrival_stop_id = prev_stop
                     arrival_route_id = prev_state.route_id or arrival_route_id
                     arrival_time = prev_state.arrival_time
+                    arrival_suppression_reason = "has_not_left_previous_stop"
             elif prev_stop and not has_left_prev_stop:
                 arrival_stop_id = prev_stop
                 arrival_route_id = prev_state.route_id or route_id_norm
                 arrival_time = prev_state.arrival_time
+                arrival_suppression_reason = "still_at_previous_stop"
+
+            if arrival_stop_id and arrival_suppression_reason:
+                self._log_arrival_suppression(
+                    snap,
+                    arrival_stop_id,
+                    arrival_route_id,
+                    arrival_suppression_reason,
+                    distance_from_prev_stop,
+                    has_left_prev_stop,
+                )
 
             self.vehicle_states[vid] = VehiclePresence(
                 current_stop_id=arrival_stop_id,
@@ -330,6 +345,48 @@ class HeadwayTracker:
         }
         detail.update(diagnosis)
         self.recent_stop_association_failures.append(detail)
+
+    def _log_arrival_suppression(
+        self,
+        snap: VehicleSnapshot,
+        stop_id: str,
+        route_id: Optional[str],
+        reason: str,
+        distance_from_prev_stop: Optional[float],
+        has_left_prev_stop: bool,
+    ) -> None:
+        stop_distance = None
+        stop_heading = None
+        approach_bearing = None
+        tolerance = None
+        radius = None
+        stop = self.stop_lookup.get(stop_id)
+        if stop:
+            stop_distance = self._haversine(snap.lat, snap.lon, stop.lat, stop.lon)
+            if stop.approach_bearing_deg is not None:
+                approach_bearing = stop.approach_bearing_deg
+                tolerance = stop.approach_tolerance_deg
+                radius = stop.approach_radius_m
+                stop_heading = self._bearing_degrees(stop.lat, stop.lon, snap.lat, snap.lon)
+
+        self.recent_arrival_suppressions.append(
+            {
+                "timestamp": self._isoformat(snap.timestamp),
+                "vehicle_id": self._normalize_id(snap.vehicle_id),
+                "vehicle_name": snap.vehicle_name,
+                "route_id": route_id,
+                "stop_id": stop_id,
+                "reason": reason,
+                "distance_from_prev_stop": distance_from_prev_stop,
+                "has_left_prev_stop": has_left_prev_stop,
+                "distance_from_stop": stop_distance,
+                "stop_bearing": stop_heading,
+                "approach_bearing_deg": approach_bearing,
+                "approach_tolerance_deg": tolerance,
+                "approach_radius_m": radius,
+                "heading_deg": snap.heading_deg,
+            }
+        )
 
     def _diagnose_stop_association(
         self,
