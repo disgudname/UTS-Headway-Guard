@@ -1,5 +1,5 @@
 (() => {
-  const STOP_APPROACH_ENDPOINT = '/v1/stop-approach';
+  const STOP_APPROACH_ENDPOINT = '/api/stop-approach';
   const DEFAULT_RADIUS_M = 60;
   const DEFAULT_TOLERANCE = 30;
   const DEFAULT_BEARING = 0;
