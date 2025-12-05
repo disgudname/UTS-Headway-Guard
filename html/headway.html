@@ -144,6 +144,13 @@
       color: #9ca3af;
       text-align: center;
     }
+    .highlight-row td {
+      background: #3a0d0d;
+      color: #ffdede;
+    }
+    .highlight-row:hover td {
+      background: #4a1010;
+    }
     @media (max-width: 640px) {
       select[multiple] { height: 10rem; }
     }
@@ -190,6 +197,10 @@
             <option value="arrival_arrival" selected>Arrival to arrival</option>
             <option value="departure_arrival">Departure to arrival</option>
           </select>
+        </div>
+        <div>
+          <label for="highlight-threshold">Highlight Above (min)</label>
+          <input type="number" id="highlight-threshold" min="0" step="1" placeholder="e.g. 15" />
         </div>
       </div>
       <div class="actions">
@@ -253,6 +264,7 @@
     const liveStatusEl = document.getElementById('live-status');
     const liveSummaryEl = document.getElementById('live-summary');
     const liveResultsEl = document.getElementById('live-results');
+    const highlightInput = document.getElementById('highlight-threshold');
 
     let allRoutes = [];
     let allStops = [];
@@ -522,20 +534,31 @@
       return `${base}?${params.toString()}`;
     }
 
+    function getHighlightThresholdSeconds() {
+      const val = Number.parseFloat(highlightInput.value);
+      if (Number.isNaN(val) || val <= 0) return null;
+      return val * 60;
+    }
+
     function renderTable(events) {
       if (!events.length) {
         resultsContainer.innerHTML = '<div class="empty-state">No headway events found for the selected window.</div>';
         summaryEl.textContent = '';
         return;
       }
+      const highlightThresholdSeconds = getHighlightThresholdSeconds();
       const rows = events.map(ev => {
         const tsLocal = new Date(ev.timestamp).toLocaleString();
-        const headway = formatMinutesSeconds(getHeadwayValue(ev, headwayTypeSelect));
+        const headwaySeconds = getHeadwayValue(ev, headwayTypeSelect);
+        const headway = formatMinutesSeconds(headwaySeconds);
         const dwell = formatMinutesSeconds(ev.dwell_seconds);
         const route = getRouteName(ev.route_id || ev.route) || ev.route_name || ev.route || '';
         const stop = getStopName(ev.stop_id || ev.stop) || ev.stop_name || ev.stop || '';
         const vehicle = formatVehicleLabel(ev);
-        return `<tr>
+        const exceedsThreshold =
+          highlightThresholdSeconds != null && headwaySeconds != null && Number(headwaySeconds) > highlightThresholdSeconds;
+        const rowClass = exceedsThreshold ? ' class="highlight-row"' : '';
+        return `<tr${rowClass}>
           <td>${tsLocal}</td>
           <td>${route}</td>
           <td>${stop}</td>
