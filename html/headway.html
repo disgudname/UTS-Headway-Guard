@@ -518,7 +518,7 @@
       return dt.toISOString();
     }
 
-    function buildQuery(base) {
+    function buildQuery(base, extraParams = {}) {
       const start = combineDateTime('from-date', 'from-time');
       const end = combineDateTime('to-date', 'to-time');
       if (end < start) {
@@ -531,6 +531,10 @@
       const params = new URLSearchParams({ start, end });
       if (routes.length) params.set('route_ids', routes.join(','));
       if (uniqueStops.length) params.set('stop_ids', uniqueStops.join(','));
+      Object.entries(extraParams).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        params.set(key, String(value));
+      });
       return `${base}?${params.toString()}`;
     }
 
@@ -717,7 +721,14 @@
 
     function exportCsv() {
       try {
-        const url = buildQuery('/api/headway/export');
+        const thresholdSeconds = getHighlightThresholdSeconds();
+        const thresholdMinutes = thresholdSeconds != null ? thresholdSeconds / 60 : null;
+        const url = buildQuery('/api/headway/export', {
+          threshold_minutes: thresholdMinutes,
+          headway_type: resolveHeadwayField(headwayTypeSelect) === 'headway_departure_arrival'
+            ? 'departure_arrival'
+            : 'arrival_arrival',
+        });
         window.location.href = url;
       } catch (err) {
         setStatus(err.message || 'Unable to export right now.', true);

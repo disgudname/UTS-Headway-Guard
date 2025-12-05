@@ -2795,6 +2795,13 @@ async def api_headway_export(
     end: str = Query(..., description="End timestamp (ISO-8601 UTC)"),
     route_ids: Optional[str] = Query(None, description="Comma-separated route IDs"),
     stop_ids: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+    threshold_minutes: Optional[float] = Query(
+        None, description="Headway threshold in minutes for flagging rows"
+    ),
+    headway_type: str = Query(
+        "arrival_arrival",
+        description="Headway type to evaluate threshold (arrival_arrival or departure_arrival)",
+    ),
 ):
     start_dt = _parse_headway_timestamp(start)
     end_dt = _parse_headway_timestamp(end)
@@ -2807,10 +2814,48 @@ async def api_headway_export(
         route_ids=routes if routes else None,
         stop_ids=stops if stops else None,
     )
+
+    headway_field = (
+        "headway_departure_arrival" if headway_type == "departure_arrival" else "headway_arrival_arrival"
+    )
+    threshold_seconds: Optional[float] = None
+    if threshold_minutes is not None:
+        try:
+            threshold_val = float(threshold_minutes)
+            if threshold_val > 0:
+                threshold_seconds = threshold_val * 60
+        except (TypeError, ValueError):
+            threshold_seconds = None
+
+    threshold_label = (
+        f"exceeds_threshold_{threshold_minutes:g}_min"
+        if threshold_seconds is not None and threshold_minutes is not None
+        else "exceeds_threshold"
+    )
+
     buf = io.StringIO()
     writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "timestamp",
+            "route_id",
+            "stop_id",
+            "vehicle_id",
+            "event_type",
+            "headway_arrival_arrival_seconds",
+            "headway_departure_arrival_seconds",
+            "dwell_seconds",
+            threshold_label,
+        ]
+    )
     for ev in events:
-        writer.writerow(ev.to_row())
+        row = ev.to_row()
+        exceeds = ""
+        if threshold_seconds is not None:
+            value = getattr(ev, headway_field, None)
+            exceeds = "yes" if value is not None and value > threshold_seconds else "no"
+        row.append(exceeds)
+        writer.writerow(row)
     payload = buf.getvalue()
     headers = {
         "Content-Disposition": "attachment; filename=\"headway_export.csv\"",
