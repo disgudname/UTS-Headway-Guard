@@ -6820,8 +6820,11 @@ async def debug_page():
 # STOP APPROACH PAGE
 # ---------------------------
 @app.get("/stop-approach")
-async def stop_approach_page():
-    return HTMLResponse(STOP_APPROACH_HTML)
+async def stop_approach_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(STOP_APPROACH_HTML)
+    return _login_redirect(request)
 
 
 # ---------------------------
@@ -6883,7 +6886,9 @@ async def set_config(payload: Dict[str, Any]):
 
 
 @app.get("/v1/stop-approach")
-async def get_stop_approach(base_url: Optional[str] = Query(None)):
+@app.get("/api/stop-approach")
+async def get_stop_approach(request: Request, base_url: Optional[str] = Query(None)):
+    _require_dispatcher_access(request)
     try:
         routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
         stops_raw = await _get_transloc_stops(base_url)
@@ -6904,7 +6909,9 @@ async def get_stop_approach(base_url: Optional[str] = Query(None)):
 
 
 @app.post("/v1/stop-approach")
-async def set_stop_approach(payload: Dict[str, Any]):
+@app.post("/api/stop-approach")
+async def set_stop_approach(request: Request, payload: Dict[str, Any]):
+    _require_dispatcher_access(request)
     stop_id = payload.get("stop_id") or payload.get("StopId") or payload.get("StopID")
     if stop_id is None:
         raise HTTPException(status_code=400, detail="stop_id is required")
