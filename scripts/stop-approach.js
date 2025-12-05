@@ -137,16 +137,18 @@
         draggable: true,
         title: 'Drag to rotate cone',
       }).addTo(map);
-      handleMarker.on('drag', (e) => {
-        const newBearing = bearingBetween(center, e.latlng);
-        const toleranceVal = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
-        const radiusVal = Number(radiusInput.value) || DEFAULT_RADIUS_M;
-        bearingInput.value = newBearing.toFixed(0);
-        updateConeGraphics(stop, newBearing, toleranceVal, radiusVal);
-      });
     } else {
       handleMarker.setLatLng(handlePoint);
     }
+
+    handleMarker.off('drag');
+    handleMarker.on('drag', (e) => {
+      const newBearing = bearingBetween(center, e.latlng);
+      const toleranceVal = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
+      const radiusVal = Number(radiusInput.value) || DEFAULT_RADIUS_M;
+      bearingInput.value = newBearing.toFixed(0);
+      updateConeGraphics(stop, newBearing, toleranceVal, radiusVal);
+    });
 
     map.flyTo(center, Math.max(map.getZoom(), 16));
   }
