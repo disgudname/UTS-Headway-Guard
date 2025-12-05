@@ -280,7 +280,7 @@ def test_headway_tracker_respects_stop_approach_cone():
     )
 
     nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=70.0)
-    assert nearest == ("EAST", None)
+    assert nearest == ("WEST", None)
 
 
 def test_headway_tracker_uses_approach_radius_instead_of_circle():
@@ -300,7 +300,7 @@ def test_headway_tracker_uses_approach_radius_instead_of_circle():
         ]
     )
 
-    nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=30.0)
+    nearest = tracker._nearest_stop(0.0, 0.0012, None, threshold=30.0)
     assert nearest == ("EAST", None)
 
 
@@ -327,10 +327,10 @@ def test_headway_tracker_requires_vehicle_heading_for_cone():
                 vehicle_id="east",
                 vehicle_name=None,
                 lat=0.0,
-                lon=0.0,
+                lon=0.0006,
                 route_id="R1",
                 timestamp=base,
-                heading_deg=270.0,
+                heading_deg=90.0,
             )
         ]
     )
@@ -343,10 +343,10 @@ def test_headway_tracker_requires_vehicle_heading_for_cone():
                 vehicle_id="east",
                 vehicle_name=None,
                 lat=0.0,
-                lon=0.0,
+                lon=0.0006,
                 route_id="R1",
                 timestamp=base + timedelta(seconds=30),
-                heading_deg=95.0,
+                heading_deg=260.0,
             )
         ]
     )
@@ -373,13 +373,13 @@ def test_headway_tracker_requires_entering_saved_cone_for_arrival():
 
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-    # Vehicle is north of the stop (outside the cone) but within distance
+    # Vehicle is south of the stop (outside the north-facing cone) but within distance
     tracker.process_snapshots(
         [
             VehicleSnapshot(
                 vehicle_id="cone",
                 vehicle_name=None,
-                lat=0.0005,
+                lat=-0.0005,
                 lon=0.0,
                 route_id="R1",
                 timestamp=base,
@@ -389,13 +389,13 @@ def test_headway_tracker_requires_entering_saved_cone_for_arrival():
 
     assert storage.events == []
 
-    # Vehicle enters the cone from the south
+    # Vehicle enters the cone from the south, ending up north of the stop
     tracker.process_snapshots(
         [
             VehicleSnapshot(
                 vehicle_id="cone",
                 vehicle_name=None,
-                lat=-0.0005,
+                lat=0.0005,
                 lon=0.0,
                 route_id="R1",
                 timestamp=base + timedelta(seconds=30),
@@ -404,6 +404,61 @@ def test_headway_tracker_requires_entering_saved_cone_for_arrival():
     )
 
     assert [e.event_type for e in storage.events] == ["arrival"]
+
+
+def test_headway_tracker_cone_uses_stop_to_vehicle_bearing_and_opposing_heading():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(
+        storage=storage,
+        arrival_distance_threshold_m=80.0,
+        departure_distance_threshold_m=80.0,
+        stop_approach={},
+    )
+
+    tracker.update_stops([
+        {"StopID": "EASTBOUND", "Latitude": 0.0, "Longitude": 0.0},
+    ])
+
+    # Cone opens to the west of the stop (bearing 270), expecting vehicles to travel eastbound
+    tracker.stop_approach = {"EASTBOUND": (270.0, 20.0, 80.0)}
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    # Vehicle is west of the stop and heading east; should be accepted
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="eastbound",
+                vehicle_name=None,
+                lat=0.0,
+                lon=-0.0006,
+                route_id="R1",
+                timestamp=base,
+                heading_deg=90.0,
+            )
+        ]
+    )
+
+    assert [e.event_type for e in storage.events] == ["arrival"]
+
+    # Vehicle on same side of stop but cone pointed the wrong way should be rejected
+    storage.events.clear()
+    tracker.stop_approach = {"EASTBOUND": (90.0, 20.0, 80.0)}
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="eastbound",
+                vehicle_name=None,
+                lat=0.0,
+                lon=-0.0006,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
+                heading_deg=90.0,
+            )
+        ]
+    )
+
+    assert storage.events == []
 
 
 def test_build_transloc_stops_merges_approach_config():

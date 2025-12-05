@@ -347,10 +347,11 @@ class HeadwayTracker:
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
             if dist <= effective_threshold:
                 if requires_cone:
-                    position_bearing = self._bearing_degrees(lat, lon, stop.lat, stop.lon)
+                    position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
                     heading_ok = True
                     if heading_deg is not None and math.isfinite(heading_deg):
-                        heading_ok = _is_within_bearing(heading_deg, approach_bearing, approach_tolerance)
+                        target_heading = (approach_bearing + 180.0) % 360.0
+                        heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
                     if not heading_ok or not _is_within_bearing(
                         position_bearing, approach_bearing, approach_tolerance
                     ):
