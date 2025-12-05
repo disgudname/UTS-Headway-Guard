@@ -57,6 +57,8 @@ class HeadwayTracker:
         self.vehicle_states: Dict[str, VehiclePresence] = {}
         self.last_arrival: Dict[Tuple[str, str], datetime] = {}
         self.last_departure: Dict[Tuple[str, str], datetime] = {}
+        self.last_vehicle_arrival: Dict[Tuple[str, str], datetime] = {}
+        self.last_vehicle_departure: Dict[Tuple[str, str], datetime] = {}
         self.stops: List[StopPoint] = []
         self.stop_lookup: Dict[str, StopPoint] = {}
         print(
@@ -142,6 +144,7 @@ class HeadwayTracker:
                     keys.append((None, prev_stop))
                     for key in keys:
                         self.last_departure[key] = departure_timestamp
+                    self.last_vehicle_departure[(vid, prev_stop)] = departure_timestamp
                 events.append(
                     HeadwayEvent(
                         timestamp=departure_timestamp,
@@ -165,7 +168,18 @@ class HeadwayTracker:
                     arrival_route_id = route_id_norm
                 if arrival_route_id is None:
                     arrival_route_id = current_stop[1]
-                if prev_stop != arrival_stop_id and (prev_stop is None or has_left_prev_stop):
+                duplicate_arrival = False
+                arrival_key = (vid, arrival_stop_id)
+                prev_vehicle_arrival = self.last_vehicle_arrival.get(arrival_key)
+                prev_vehicle_departure = self.last_vehicle_departure.get(arrival_key)
+                if prev_vehicle_arrival is not None and (
+                    prev_vehicle_departure is None or prev_vehicle_departure <= prev_vehicle_arrival
+                ):
+                    duplicate_arrival = True
+
+                if prev_stop == arrival_stop_id:
+                    arrival_time = prev_state.arrival_time or prev_vehicle_arrival or timestamp
+                elif not duplicate_arrival and (prev_stop is None or has_left_prev_stop):
                     headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
                         arrival_route_id, arrival_stop_id, timestamp
                     )
@@ -181,9 +195,10 @@ class HeadwayTracker:
                             dwell_seconds=None,
                         )
                     )
+                    self.last_vehicle_arrival[arrival_key] = timestamp
                     arrival_time = timestamp
-                elif prev_stop == arrival_stop_id:
-                    arrival_time = prev_state.arrival_time or timestamp
+                elif duplicate_arrival:
+                    arrival_time = prev_vehicle_arrival or prev_state.arrival_time or timestamp
                 else:
                     arrival_stop_id = prev_stop
                     arrival_route_id = prev_state.route_id or arrival_route_id
