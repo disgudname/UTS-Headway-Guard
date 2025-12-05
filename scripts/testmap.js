@@ -17115,7 +17115,7 @@ ${trainPlaneMarkup}
           }
           let offset = 0;
           if (state.isOffRoute) {
-              offset = 600;
+              offset = 1200;
           }
           if (state.isSelected) {
               offset = Math.max(offset, 800);
