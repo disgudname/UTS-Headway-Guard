@@ -764,9 +764,10 @@
           route_ids: routeId,
           stop_ids: stopIds.join(','),
         });
+        const stopIdSet = new Set(stopIds.map(String));
         const [headwayRes, etaRes] = await Promise.all([
           fetch(`/api/headway?${headwayParams.toString()}`),
-          fetch(`/v1/transloc/stop_arrivals?stopIDs=${encodeURIComponent(stopIds.join(','))}`),
+          fetch('/v1/transloc/stop_arrivals'),
         ]);
         if (!headwayRes.ok) throw new Error(`Live headway fetch failed (${headwayRes.status})`);
         const data = await headwayRes.json();
@@ -777,6 +778,8 @@
           const etaPayload = await etaRes.json();
           const arrivals = Array.isArray(etaPayload?.Arrivals) ? etaPayload.Arrivals : [];
           arrivals.forEach(stop => {
+            const stopIdFromPayload = String(stop?.StopId ?? stop?.StopID ?? stop?.stop_id ?? '');
+            if (stopIdSet.size && stopIdFromPayload && !stopIdSet.has(stopIdFromPayload)) return;
             const stopArrivals = Array.isArray(stop?.Arrivals) ? stop.Arrivals : [];
             stopArrivals.forEach(arrival => {
               const routeMatch = String(arrival.RouteId ?? arrival.RouteID ?? stop.RouteId ?? stop.RouteID ?? '') === String(routeId);
