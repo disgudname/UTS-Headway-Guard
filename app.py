@@ -2768,6 +2768,18 @@ def _get_headway_storage() -> HeadwayStorage:
     return storage
 
 
+@app.post("/v1/headway/clear")
+async def clear_headway_logs(request: Request):
+    _require_dispatcher_access(request)
+    storage = _get_headway_storage()
+    try:
+        deleted_files = storage.clear()
+    except Exception as exc:
+        print(f"[headway] failed to clear logs: {exc}")
+        raise HTTPException(status_code=500, detail="failed to clear headway logs") from exc
+    return {"deleted_files": deleted_files}
+
+
 @app.get("/api/headway")
 async def api_headway(
     start: str = Query(..., description="Start timestamp (ISO-8601 UTC)"),
