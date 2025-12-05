@@ -47,6 +47,11 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 <form id="cfg"></form>
 <button id="save">Save</button>
 <button id="forceRefresh">Force Refresh</button>
+<div class="panel" id="headwayPanel">
+  <h2>Headway Logs</h2>
+  <p>Delete all stored headway log files from disk.</p>
+  <button type="button" id="clearHeadway">Clear headway logs</button>
+</div>
 <div class="panel" id="secretPanel">
   <h2>Environment Secrets</h2>
   <div id="secrets"></div>
@@ -193,6 +198,7 @@ document.getElementById('forceRefresh').onclick=()=>{
   fetch('/v1/servicecrew/refresh',{method:'POST'});
 };
 const logoutButton=document.getElementById('logoutButton');
+const clearHeadwayButton=document.getElementById('clearHeadway');
 if(logoutButton){
   const defaultLabel=logoutButton.textContent;
   logoutButton.addEventListener('click',async ()=>{
@@ -206,6 +212,34 @@ if(logoutButton){
       logoutButton.disabled=false;
       logoutButton.textContent=defaultLabel;
       alert('Unable to log out. Please try again.');
+    }
+  });
+}
+if(clearHeadwayButton){
+  const defaultLabel=clearHeadwayButton.textContent;
+  clearHeadwayButton.addEventListener('click',async ()=>{
+    const confirmed=window.confirm('This will permanently delete all stored headway logs. Continue?');
+    if(!confirmed) return;
+    clearHeadwayButton.disabled=true;
+    clearHeadwayButton.textContent='Clearing...';
+    try{
+      const resp=await fetch('/v1/headway/clear',{method:'POST'});
+      if(resp.status===401){
+        redirectToLogin();
+        return;
+      }
+      if(!resp.ok){
+        throw new Error('Failed to clear');
+      }
+      const data=await resp.json().catch(()=>({}));
+      const countMessage=typeof data.deleted_files==='number'?`Cleared ${data.deleted_files} file(s).`:'Headway logs cleared.';
+      alert(countMessage);
+    }catch(err){
+      console.error('Failed to clear headway logs',err);
+      alert('Unable to clear headway logs. Please try again.');
+    }finally{
+      clearHeadwayButton.disabled=false;
+      clearHeadwayButton.textContent=defaultLabel;
     }
   });
 }

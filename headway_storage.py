@@ -91,6 +91,18 @@ class HeadwayStorage:
             writer = csv.writer(f)
             writer.writerows(rows)
 
+    def clear(self) -> int:
+        if not self.base_dir.exists():
+            return 0
+        deleted = 0
+        for path in self.base_dir.glob("*.csv"):
+            try:
+                path.unlink()
+                deleted += 1
+            except FileNotFoundError:
+                continue
+        return deleted
+
     def _iter_files(self, start: datetime, end: datetime) -> Iterable[Tuple[datetime, Path]]:
         current = _to_utc(start).date()
         end_date = _to_utc(end).date()
