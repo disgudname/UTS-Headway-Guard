@@ -242,6 +242,7 @@
     let allStops = [];
     let routeNameById = new Map();
     let stopNameById = new Map();
+    let stopIdsByCanonical = new Map();
     let liveIntervalId = null;
     const LIVE_WINDOW_MS = 60 * 60 * 1000;
     const LIVE_REFRESH_MS = 30 * 1000;
@@ -255,6 +256,28 @@
 
     function getStopId(stop) {
       return stop.StopID ?? stop.StopId ?? stop.RouteStopID ?? stop.RouteStopId ?? stop.id ?? stop.stop_id ?? stop.Stop?.StopID ?? null;
+    }
+
+    function normalizeStopName(stop) {
+      const name = stop.Name || stop.Description || stop.StopName || '';
+      return name.trim().toLowerCase();
+    }
+
+    function getStopCoords(stop) {
+      const lat = stop.Latitude ?? stop.latitude ?? stop.lat ?? stop.StopLat ?? stop.StopLatitude ?? stop.Lat;
+      const lon = stop.Longitude ?? stop.longitude ?? stop.lon ?? stop.Lon ?? stop.StopLon ?? stop.StopLongitude ?? stop.Lng;
+      if (lat == null || lon == null || Number.isNaN(Number(lat)) || Number.isNaN(Number(lon))) return null;
+      return { lat: Number(lat), lon: Number(lon) };
+    }
+
+    function getStopKey(stop) {
+      const id = getStopId(stop);
+      const name = normalizeStopName(stop);
+      const coords = getStopCoords(stop);
+      if (name && coords) return `${name}|${coords.lat.toFixed(5)},${coords.lon.toFixed(5)}`;
+      if (coords) return `coords:${coords.lat.toFixed(5)},${coords.lon.toFixed(5)}`;
+      if (name) return `name:${name}`;
+      return id != null ? `id:${id}` : null;
     }
 
     function formatStopLabel(stop) {
@@ -379,46 +402,55 @@
         if (!res.ok) throw new Error(`Metadata fetch failed (${res.status})`);
         const data = await res.json();
         allRoutes = Array.isArray(data.routes) ? data.routes : [];
-      const stopMap = new Map();
-      (Array.isArray(data.stops) ? data.stops : []).forEach(stop => {
-        const id = getStopId(stop);
-          if (!id) return;
+        const stopMap = new Map();
+        (Array.isArray(data.stops) ? data.stops : []).forEach(stop => {
+          const id = getStopId(stop);
+          const key = getStopKey(stop);
+          if (!key || !id) return;
           const routes = new Set([
             ...(stop.RouteIds || stop.RouteIDs || stop.RouteIds || []),
             ...(Array.isArray(stop.Routes) ? stop.Routes.map(r => r.RouteID ?? r.RouteId ?? r.id) : []),
             stop.RouteID ?? stop.RouteId ?? stop.RouteId,
           ].filter(Boolean).map(String));
-          const existing = stopMap.get(id) || { ...stop, _routeIds: [] };
-          const merged = new Set([...(existing._routeIds || []), ...routes]);
-          stopMap.set(id, { ...existing, ...stop, _routeIds: Array.from(merged) });
+          const existing = stopMap.get(key) || { ...stop, _routeIds: [], _allIds: [] };
+          const mergedRoutes = new Set([...(existing._routeIds || []), ...routes]);
+          const mergedIds = new Set([...(existing._allIds || []), String(id)]);
+          const canonicalId = getStopId(existing) ?? id;
+          stopMap.set(key, {
+            ...existing,
+            ...stop,
+            StopID: canonicalId,
+            _routeIds: Array.from(mergedRoutes),
+            _allIds: Array.from(mergedIds),
+          });
         });
-      allStops = Array.from(stopMap.values()).sort((a, b) => {
-        const aName = formatStopLabel(a).toLowerCase();
-        const bName = formatStopLabel(b).toLowerCase();
-        return aName.localeCompare(bName);
-      });
-      routeNameById = new Map(
-        allRoutes
-          .map(route => {
-            const id = route.RouteID ?? route.RouteId ?? route.id;
-            if (id == null) return null;
-            return [String(id), formatRouteLabel(route)];
-          })
-          .filter(Boolean)
-      );
-      stopNameById = new Map(
-        allStops
-          .map(stop => {
-            const id = getStopId(stop);
-            if (id == null) return null;
-            const name = stop.Name || stop.Description || stop.StopName;
-            return [String(id), name || formatStopLabel(stop)];
-          })
-          .filter(Boolean)
-      );
-      populateRoutes();
-      populateStops();
-      populateLiveStops();
+        allStops = Array.from(stopMap.values()).sort((a, b) => {
+          const aName = formatStopLabel(a).toLowerCase();
+          const bName = formatStopLabel(b).toLowerCase();
+          return aName.localeCompare(bName);
+        });
+        routeNameById = new Map(
+          allRoutes
+            .map(route => {
+              const id = route.RouteID ?? route.RouteId ?? route.id;
+              if (id == null) return null;
+              return [String(id), formatRouteLabel(route)];
+            })
+            .filter(Boolean)
+        );
+        stopIdsByCanonical = new Map();
+        stopNameById = new Map();
+        allStops.forEach(stop => {
+          const id = getStopId(stop);
+          if (id == null) return;
+          const name = stop.Name || stop.Description || stop.StopName || formatStopLabel(stop);
+          const ids = stop._allIds?.length ? stop._allIds.map(String) : [String(id)];
+          stopIdsByCanonical.set(String(id), ids);
+          ids.forEach(mappedId => stopNameById.set(mappedId, name));
+        });
+        populateRoutes();
+        populateStops();
+        populateLiveStops();
         setStatus('Routes and stops loaded. Choose filters and load headway.');
       } catch (err) {
         console.error(err);
@@ -446,10 +478,12 @@
         throw new Error('End time must be after start time.');
       }
       const routes = getSelected(routeSelect);
-      const stops = getSelected(stopSelect);
+      const stops = getSelected(stopSelect)
+        .flatMap(id => stopIdsByCanonical.get(String(id)) || [id]);
+      const uniqueStops = Array.from(new Set(stops));
       const params = new URLSearchParams({ start, end });
       if (routes.length) params.set('route_ids', routes.join(','));
-      if (stops.length) params.set('stop_ids', stops.join(','));
+      if (uniqueStops.length) params.set('stop_ids', uniqueStops.join(','));
       return `${base}?${params.toString()}`;
     }
 
@@ -567,11 +601,12 @@
         setLiveStatus('Loading live headway…');
         const now = new Date();
         const start = new Date(now.getTime() - LIVE_WINDOW_MS);
+        const stopIds = stopIdsByCanonical.get(String(stopId)) || [stopId];
         const params = new URLSearchParams({
           start: start.toISOString(),
           end: now.toISOString(),
           route_ids: routeId,
-          stop_ids: stopId,
+          stop_ids: stopIds.join(','),
         });
         const res = await fetch(`/api/headway?${params.toString()}`);
         if (!res.ok) throw new Error(`Live headway fetch failed (${res.status})`);
