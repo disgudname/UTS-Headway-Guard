@@ -2942,7 +2942,8 @@ async def startup():
         headway_storage = HeadwayStorage(HEADWAY_DIR)
         headway_tracker = HeadwayTracker(
             storage=headway_storage,
-            distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
+            arrival_distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
+            departure_distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
             tracked_route_ids=headway_route_ids,
             tracked_stop_ids=headway_stop_ids,
         )
