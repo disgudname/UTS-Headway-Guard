@@ -304,6 +304,56 @@ def test_headway_tracker_uses_approach_radius_instead_of_circle():
     assert nearest == ("EAST", None)
 
 
+def test_headway_tracker_requires_vehicle_heading_for_cone():
+    storage = MemoryHeadwayStorage()
+    approach_config = {
+        "EAST": (90.0, 20.0, 80.0),
+    }
+    tracker = HeadwayTracker(
+        storage=storage,
+        arrival_distance_threshold_m=80.0,
+        departure_distance_threshold_m=80.0,
+        stop_approach=approach_config,
+    )
+    tracker.update_stops([
+        {"StopID": "EAST", "Latitude": 0.0, "Longitude": 0.0004},
+    ])
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="east",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base,
+                heading_deg=270.0,
+            )
+        ]
+    )
+
+    assert storage.events == []
+
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="east",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
+                heading_deg=95.0,
+            )
+        ]
+    )
+
+    assert [e.event_type for e in storage.events] == ["arrival"]
+
+
 def test_headway_tracker_requires_entering_saved_cone_for_arrival():
     storage = MemoryHeadwayStorage()
     tracker = HeadwayTracker(

@@ -26,6 +26,7 @@ class VehicleSnapshot:
     lon: float
     route_id: Optional[str]
     timestamp: datetime
+    heading_deg: Optional[float] = None
 
 
 @dataclass
@@ -138,7 +139,11 @@ class HeadwayTracker:
             if self.tracked_route_ids and (route_id_norm is None or route_id_norm not in self.tracked_route_ids):
                 continue
             current_stop = self._nearest_stop(
-                snap.lat, snap.lon, route_id_norm, threshold=self.arrival_distance_threshold_m
+                snap.lat,
+                snap.lon,
+                route_id_norm,
+                threshold=self.arrival_distance_threshold_m,
+                heading_deg=snap.heading_deg,
             )
             vid = self._normalize_id(snap.vehicle_id)
             if vid is None:
@@ -307,7 +312,13 @@ class HeadwayTracker:
         return arrival_arrival, departure_arrival
 
     def _nearest_stop(
-        self, lat: float, lon: float, route_id: Optional[str], *, threshold: float
+        self,
+        lat: float,
+        lon: float,
+        route_id: Optional[str],
+        *,
+        threshold: float,
+        heading_deg: Optional[float] = None,
     ) -> Optional[Tuple[str, Optional[str]]]:
         best: Optional[Tuple[str, Optional[str], float]] = None
         for stop in self.stops:
@@ -336,8 +347,13 @@ class HeadwayTracker:
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
             if dist <= effective_threshold:
                 if requires_cone:
-                    bearing = self._bearing_degrees(lat, lon, stop.lat, stop.lon)
-                    if not _is_within_bearing(bearing, approach_bearing, approach_tolerance):
+                    position_bearing = self._bearing_degrees(lat, lon, stop.lat, stop.lon)
+                    heading_ok = True
+                    if heading_deg is not None and math.isfinite(heading_deg):
+                        heading_ok = _is_within_bearing(heading_deg, approach_bearing, approach_tolerance)
+                    if not heading_ok or not _is_within_bearing(
+                        position_bearing, approach_bearing, approach_tolerance
+                    ):
                         continue
                 if best is None or dist < best[2]:
                     associated_route = route_id
