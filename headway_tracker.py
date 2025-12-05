@@ -44,6 +44,7 @@ class StopPoint:
     route_ids: Set[str]
     approach_bearing_deg: Optional[float] = None
     approach_tolerance_deg: Optional[float] = None
+    approach_radius_m: Optional[float] = None
 
 
 class HeadwayTracker:
@@ -100,11 +101,16 @@ class HeadwayTracker:
             route_ids = self._extract_route_ids(stop)
             approach_bearing = _parse_float(stop.get("ApproachBearingDeg"))
             approach_tolerance = _parse_float(stop.get("ApproachToleranceDeg"))
+            approach_radius = _parse_float(stop.get("ApproachRadiusM"))
             config_approach = self.stop_approach.get(str(stop_id))
             if approach_bearing is None and config_approach:
                 approach_bearing = config_approach[0]
             if approach_tolerance is None and config_approach:
                 approach_tolerance = config_approach[1]
+            if approach_radius is None and config_approach and len(config_approach) > 2:
+                approach_radius = config_approach[2]
+            if (approach_bearing is not None and approach_tolerance is not None) and approach_radius is None:
+                approach_radius = STOP_APPROACH_DEFAULT_RADIUS_M
             updated.append(
                 StopPoint(
                     stop_id=str(stop_id),
@@ -113,6 +119,7 @@ class HeadwayTracker:
                     route_ids=route_ids,
                     approach_bearing_deg=approach_bearing,
                     approach_tolerance_deg=approach_tolerance,
+                    approach_radius_m=approach_radius,
                 )
             )
         self.stops = updated
@@ -310,9 +317,12 @@ class HeadwayTracker:
                 continue
             if route_id and stop.route_ids and route_id not in stop.route_ids:
                 continue
+            requires_cone = stop.approach_bearing_deg is not None and stop.approach_tolerance_deg is not None
+            cone_radius = stop.approach_radius_m if requires_cone else None
+            effective_threshold = cone_radius if cone_radius is not None else threshold
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
-            if dist <= threshold:
-                if stop.approach_bearing_deg is not None and stop.approach_tolerance_deg is not None:
+            if dist <= effective_threshold:
+                if requires_cone:
                     bearing = self._bearing_degrees(lat, lon, stop.lat, stop.lon)
                     if not _is_within_bearing(bearing, stop.approach_bearing_deg, stop.approach_tolerance_deg):
                         continue

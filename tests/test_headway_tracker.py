@@ -263,8 +263,8 @@ def test_headway_tracker_uses_stop_history_when_route_missing():
 def test_headway_tracker_respects_stop_approach_cone():
     storage = MemoryHeadwayStorage()
     approach_config = {
-        "EAST": (90.0, 30.0),
-        "WEST": (90.0, 10.0),
+        "EAST": (90.0, 30.0, 70.0),
+        "WEST": (90.0, 10.0, 70.0),
     }
     tracker = HeadwayTracker(
         storage=storage,
@@ -280,6 +280,27 @@ def test_headway_tracker_respects_stop_approach_cone():
     )
 
     nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=70.0)
+    assert nearest == ("EAST", None)
+
+
+def test_headway_tracker_uses_approach_radius_instead_of_circle():
+    storage = MemoryHeadwayStorage()
+    approach_config = {
+        "EAST": (90.0, 20.0, 80.0),
+    }
+    tracker = HeadwayTracker(
+        storage=storage,
+        arrival_distance_threshold_m=30.0,
+        departure_distance_threshold_m=70.0,
+        stop_approach=approach_config,
+    )
+    tracker.update_stops(
+        [
+            {"StopID": "EAST", "Latitude": 0.0, "Longitude": 0.0007},
+        ]
+    )
+
+    nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=30.0)
     assert nearest == ("EAST", None)
 
 
