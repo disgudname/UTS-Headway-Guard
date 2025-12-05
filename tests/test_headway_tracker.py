@@ -131,3 +131,38 @@ def test_headway_tracker_departure_time_tracks_movement_start():
     assert [e.event_type for e in storage.events] == ["arrival", "departure"]
     assert storage.events[-1].timestamp == movement_start
     assert storage.events[-1].dwell_seconds == 30
+
+
+def test_headway_tracker_uses_stop_history_when_route_missing():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(
+        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
+    )
+    tracker.update_stops([
+        {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
+    ])
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    tracker.process_snapshots(
+        [VehicleSnapshot(vehicle_id="5", lat=0.0, lon=0.0, route_id=None, timestamp=base)]
+    )
+
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="5", lat=0.0, lon=0.0007, route_id=None, timestamp=base + timedelta(seconds=60)
+            )
+        ]
+    )
+
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="5", lat=0.0, lon=0.0, route_id="R1", timestamp=base + timedelta(seconds=120)
+            )
+        ]
+    )
+
+    assert [e.event_type for e in storage.events] == ["arrival", "departure", "arrival"]
+    assert storage.events[-1].headway_departure_arrival == 60
