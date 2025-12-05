@@ -19,6 +19,13 @@
       margin-top: 0;
       color: #4b5563;
     }
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
     button {
       padding: 0.5rem 0.9rem;
       border-radius: 6px;
@@ -36,15 +43,19 @@
       margin-top: 0.25rem;
       font-size: 0.9rem;
     }
-    pre {
+    textarea.export-block {
+      width: 100%;
+      min-height: 260px;
       background: #0b1727;
       color: #e5e7eb;
       padding: 1rem;
       border-radius: 8px;
-      overflow-x: auto;
       border: 1px solid #111827;
       box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-      white-space: pre-wrap;
+      white-space: pre;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.9rem;
+      resize: vertical;
     }
     .error {
       color: #b91c1c;
@@ -79,7 +90,10 @@
     Fetches the current headway tracker settings, stop approach angles, cached arrival/departure state,
     and the most recent logged events so you can paste them into a ticket or text file.
   </p>
-  <button id="refresh">Refresh diagnostics</button>
+  <div class="actions">
+    <button id="refresh">Refresh diagnostics</button>
+    <button id="copy" disabled>Copy diagnostics</button>
+  </div>
   <div class="meta" id="status"></div>
   <div id="error" class="error"></div>
 
@@ -91,7 +105,7 @@
     <div id="route-mismatches"></div>
   </div>
 
-  <pre id="payload">Loading…</pre>
+  <textarea id="payload" class="export-block" readonly>Loading…</textarea>
 
   <script>
     function formatDistance(meters) {
@@ -128,13 +142,26 @@
       container.innerHTML = rows;
     }
 
+    function buildExportPayload(raw) {
+      const exportedAt = new Date().toISOString();
+      const payload = {
+        exported_at: exportedAt,
+        recent_stop_association_failures: raw?.recent_stop_association_failures || [],
+        headway_diagnostics: raw || {},
+      };
+
+      return JSON.stringify(payload, null, 2);
+    }
+
     async function loadDiagnostics() {
       const statusEl = document.getElementById('status');
       const payloadEl = document.getElementById('payload');
       const errorEl = document.getElementById('error');
       const mismatchesEl = document.getElementById('route-mismatches');
+      const copyBtn = document.getElementById('copy');
       statusEl.textContent = 'Fetching…';
       errorEl.textContent = '';
+      copyBtn.disabled = true;
       try {
         const res = await fetch('/api/dispatch/headway/diagnostics');
         if (!res.ok) {
@@ -144,16 +171,28 @@
         const data = await res.json();
         statusEl.textContent = `Updated ${new Date().toLocaleString()}`;
         renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl);
-        payloadEl.textContent = JSON.stringify(data, null, 2);
+        payloadEl.value = buildExportPayload(data);
+        copyBtn.disabled = false;
       } catch (err) {
         statusEl.textContent = '';
         errorEl.textContent = err.message || 'Unable to fetch diagnostics';
         mismatchesEl.innerHTML = '<div class="muted">Unable to load stop association drops.</div>';
-        payloadEl.textContent = '';
+        payloadEl.value = 'error: unable to fetch diagnostics';
       }
     }
 
     document.getElementById('refresh').addEventListener('click', loadDiagnostics);
+    document.getElementById('copy').addEventListener('click', async () => {
+      const payloadEl = document.getElementById('payload');
+      try {
+        await navigator.clipboard.writeText(payloadEl.value);
+        const statusEl = document.getElementById('status');
+        statusEl.textContent = 'Copied to clipboard';
+      } catch (err) {
+        alert('Unable to copy diagnostics to clipboard');
+      }
+    });
+
     loadDiagnostics();
   </script>
 </body>
