@@ -335,14 +335,43 @@
       return stopNameById.get(key) || `Stop ${key}`;
     }
 
-    function formatVehicleLabel(ev) {
-      const directLabel = (
-        ev.vehicle_name ||
-        ev.vehicle_label ||
-        ev.vehicle_fleet_no ||
-        ev.vehicle_no ||
+    function pickVehicleName(record) {
+      if (!record) return '';
+      return (
+        record.Name ||
+        record.VehicleName ||
+        record.vehicle_name ||
+        record.vehicle_label ||
+        record.vehicle_fleet_no ||
+        record.vehicle_no ||
         ''
       );
+    }
+
+    async function fetchVehicleNameMap() {
+      try {
+        const res = await fetch('/v1/testmap/transloc/vehicles');
+        if (!res.ok) throw new Error(`Vehicle fetch failed (${res.status})`);
+        const data = await res.json();
+        const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+        return new Map(
+          vehicles
+            .map(v => {
+              const id = v.VehicleID ?? v.VehicleId ?? v.vehicle_id ?? v.vehicleId;
+              const name = pickVehicleName(v);
+              if (id == null || !name) return null;
+              return [String(id), String(name)];
+            })
+            .filter(Boolean)
+        );
+      } catch (err) {
+        console.error('Unable to load vehicle names', err);
+        return null;
+      }
+    }
+
+    function formatVehicleLabel(ev) {
+      const directLabel = pickVehicleName(ev);
       if (directLabel) return directLabel;
       const id = ev.vehicle_id || ev.vehicle;
       if (!id) return '';
@@ -494,12 +523,18 @@
           (Array.isArray(data.blocks) ? data.blocks : [])
             .map(block => {
               const id = block.vehicle_id ?? block.VehicleID ?? block.vehicleId;
-              const name = block.vehicle_name ?? block.VehicleName ?? block.name;
+              const name = pickVehicleName(block);
               if (id == null || !name) return null;
               return [String(id), String(name)];
             })
             .filter(Boolean)
         );
+        const vehicleNameMap = await fetchVehicleNameMap();
+        if (vehicleNameMap) {
+          vehicleNameMap.forEach((name, id) => {
+            vehicleNameById.set(id, name);
+          });
+        }
         stopIdsByCanonical = new Map();
         stopNameById = new Map();
         allStops.forEach(stop => {
@@ -734,18 +769,87 @@
       }
     }
 
-    function exportCsv() {
+    function formatThresholdLabel(minutes) {
+      if (minutes == null) return 'exceeds_threshold';
+      const numeric = Number(minutes);
+      const label = Number.isFinite(numeric) ? numeric.toString() : String(minutes);
+      return `exceeds_threshold_${label}_min`;
+    }
+
+    function escapeCsv(value) {
+      if (value == null) return '';
+      const text = String(value);
+      if (text.includes('"') || text.includes(',') || text.includes('\n')) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    }
+
+    function formatSecondsCell(value) {
+      if (value == null || Number.isNaN(Number(value))) return '';
+      return Number(value).toFixed(3);
+    }
+
+    async function exportCsv() {
       try {
+        setStatus('Preparing CSV export…');
+        const url = buildQuery('/api/headway');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Headway fetch failed (${res.status})`);
+        const data = await res.json();
+        const events = Array.isArray(data.events) ? data.events : [];
         const thresholdSeconds = getHighlightThresholdSeconds();
         const thresholdMinutes = thresholdSeconds != null ? thresholdSeconds / 60 : null;
-        const url = buildQuery('/api/headway/export', {
-          threshold_minutes: thresholdMinutes,
-          headway_type: resolveHeadwayField(headwayTypeSelect) === 'headway_departure_arrival'
-            ? 'departure_arrival'
-            : 'arrival_arrival',
+        const headwayField = resolveHeadwayField(headwayTypeSelect);
+        const thresholdLabel = formatThresholdLabel(thresholdMinutes);
+
+        const header = [
+          'timestamp',
+          'route_id',
+          'stop_id',
+          'vehicle',
+          'event_type',
+          'headway_arrival_arrival_seconds',
+          'headway_departure_arrival_seconds',
+          'dwell_seconds',
+          thresholdLabel,
+        ];
+
+        const rows = events.map(ev => {
+          const exceeds = (() => {
+            if (thresholdSeconds == null) return '';
+            const val = ev[headwayField];
+            if (val == null || Number.isNaN(Number(val))) return 'no';
+            return Number(val) > thresholdSeconds ? 'yes' : 'no';
+          })();
+          return [
+            ev.timestamp,
+            ev.route_id || ev.route || '',
+            ev.stop_id || ev.stop || '',
+            formatVehicleLabel(ev),
+            ev.event_type,
+            formatSecondsCell(ev.headway_arrival_arrival),
+            formatSecondsCell(ev.headway_departure_arrival),
+            formatSecondsCell(ev.dwell_seconds),
+            exceeds,
+          ];
         });
-        window.location.href = url;
+
+        const csvText = [header, ...rows]
+          .map(cols => cols.map(escapeCsv).join(','))
+          .join('\n');
+        const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+        const dlUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = dlUrl;
+        link.download = 'headway_export.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(dlUrl);
+        setStatus('CSV exported.');
       } catch (err) {
+        console.error(err);
         setStatus(err.message || 'Unable to export right now.', true);
       }
     }
