@@ -43,17 +43,20 @@ class HeadwayTracker:
         self,
         storage: HeadwayStorage,
         *,
-        distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
+        arrival_distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
+        departure_distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
         tracked_route_ids: Optional[Set[str]] = None,
         tracked_stop_ids: Optional[Set[str]] = None,
     ):
         self.storage = storage
-        self.distance_threshold_m = distance_threshold_m
+        self.arrival_distance_threshold_m = min(arrival_distance_threshold_m, departure_distance_threshold_m)
+        self.departure_distance_threshold_m = max(arrival_distance_threshold_m, departure_distance_threshold_m)
         self.tracked_route_ids = tracked_route_ids or set()
         self.tracked_stop_ids = tracked_stop_ids or set()
         self.vehicle_states: Dict[str, VehiclePresence] = {}
         self.last_arrival: Dict[Tuple[str, str], datetime] = {}
         self.stops: List[StopPoint] = []
+        self.stop_lookup: Dict[str, StopPoint] = {}
         print(
             f"[headway] tracker initialized routes={sorted(self.tracked_route_ids) if self.tracked_route_ids else 'all'} "
             f"stops={sorted(self.tracked_stop_ids) if self.tracked_stop_ids else 'all'}"
@@ -65,8 +68,14 @@ class HeadwayTracker:
             stop_id = stop.get("StopID") or stop.get("StopId")
             if stop_id is None:
                 continue
-            lat = stop.get("Latitude") or stop.get("Lat")
-            lon = stop.get("Longitude") or stop.get("Lon") or stop.get("Lng")
+            lat = stop.get("Latitude")
+            if lat is None:
+                lat = stop.get("Lat")
+            lon = stop.get("Longitude")
+            if lon is None:
+                lon = stop.get("Lon")
+            if lon is None:
+                lon = stop.get("Lng")
             if lat is None or lon is None:
                 continue
             try:
@@ -77,6 +86,7 @@ class HeadwayTracker:
             route_ids = self._extract_route_ids(stop)
             updated.append(StopPoint(stop_id=str(stop_id), lat=lat_f, lon=lon_f, route_ids=route_ids))
         self.stops = updated
+        self.stop_lookup = {stop.stop_id: stop for stop in updated}
         if not updated:
             print("[headway] stop update received no stops; tracker inputs unavailable")
 
@@ -90,18 +100,25 @@ class HeadwayTracker:
             route_id_norm = self._normalize_id(snap.route_id)
             if self.tracked_route_ids and (route_id_norm is None or route_id_norm not in self.tracked_route_ids):
                 continue
-            current_stop = self._nearest_stop(snap.lat, snap.lon, route_id_norm)
+            current_stop = self._nearest_stop(
+                snap.lat, snap.lon, route_id_norm, threshold=self.arrival_distance_threshold_m
+            )
             vid = self._normalize_id(snap.vehicle_id)
             if vid is None:
                 continue
             prev_state = self.vehicle_states.get(vid, VehiclePresence())
             prev_stop = prev_state.current_stop_id
+            distance_from_prev_stop = self._distance_to_stop(prev_stop, snap.lat, snap.lon)
 
             timestamp = snap.timestamp if snap.timestamp.tzinfo else snap.timestamp.replace(tzinfo=timezone.utc)
             timestamp = timestamp.astimezone(timezone.utc)
 
             # Departure detection
-            if prev_stop and (current_stop is None or current_stop[0] != prev_stop):
+            has_left_prev_stop = True
+            if prev_stop is not None and distance_from_prev_stop is not None:
+                has_left_prev_stop = distance_from_prev_stop >= self.departure_distance_threshold_m
+
+            if prev_stop and has_left_prev_stop and (current_stop is None or current_stop[0] != prev_stop):
                 dwell_seconds = None
                 if prev_state.arrival_time:
                     dwell_seconds = (timestamp - prev_state.arrival_time).total_seconds()
@@ -128,7 +145,7 @@ class HeadwayTracker:
                     arrival_route_id = route_id_norm
                 if arrival_route_id is None:
                     arrival_route_id = current_stop[1]
-                if prev_stop != arrival_stop_id:
+                if prev_stop != arrival_stop_id and (prev_stop is None or has_left_prev_stop):
                     headway_seconds = self._record_arrival(arrival_route_id, arrival_stop_id, timestamp)
                     events.append(
                         HeadwayEvent(
@@ -142,13 +159,21 @@ class HeadwayTracker:
                         )
                     )
                     arrival_time = timestamp
-                else:
+                elif prev_stop == arrival_stop_id:
                     arrival_time = prev_state.arrival_time or timestamp
+                else:
+                    arrival_stop_id = prev_stop
+                    arrival_route_id = prev_state.route_id or arrival_route_id
+                    arrival_time = prev_state.arrival_time
+            elif prev_stop and not has_left_prev_stop:
+                arrival_stop_id = prev_stop
+                arrival_route_id = prev_state.route_id or route_id_norm
+                arrival_time = prev_state.arrival_time
 
             self.vehicle_states[vid] = VehiclePresence(
-                current_stop_id=arrival_stop_id if current_stop else None,
-                arrival_time=arrival_time if current_stop else None,
-                route_id=arrival_route_id if current_stop else None,
+                current_stop_id=arrival_stop_id,
+                arrival_time=arrival_time if arrival_stop_id else None,
+                route_id=arrival_route_id if arrival_stop_id else None,
             )
 
         if events:
@@ -169,7 +194,9 @@ class HeadwayTracker:
         delta = (timestamp - prev).total_seconds()
         return max(delta, 0.0)
 
-    def _nearest_stop(self, lat: float, lon: float, route_id: Optional[str]) -> Optional[Tuple[str, Optional[str]]]:
+    def _nearest_stop(
+        self, lat: float, lon: float, route_id: Optional[str], *, threshold: float
+    ) -> Optional[Tuple[str, Optional[str]]]:
         best: Optional[Tuple[str, Optional[str], float]] = None
         for stop in self.stops:
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
@@ -179,7 +206,7 @@ class HeadwayTracker:
             if route_id and stop.route_ids and route_id not in stop.route_ids:
                 continue
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
-            if dist <= self.distance_threshold_m:
+            if dist <= threshold:
                 if best is None or dist < best[2]:
                     associated_route = route_id
                     if not associated_route and stop.route_ids:
@@ -230,6 +257,14 @@ class HeadwayTracker:
         dlon = math.radians(lon2 - lon1)
         a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
         return 2 * r_earth * math.asin(math.sqrt(a))
+
+    def _distance_to_stop(self, stop_id: Optional[str], lat: float, lon: float) -> Optional[float]:
+        if stop_id is None:
+            return None
+        stop = self.stop_lookup.get(stop_id)
+        if stop is None:
+            return None
+        return self._haversine(lat, lon, stop.lat, stop.lon)
 
 
 def load_headway_config(path: Path = DEFAULT_HEADWAY_CONFIG_PATH) -> Tuple[Set[str], Set[str]]:
