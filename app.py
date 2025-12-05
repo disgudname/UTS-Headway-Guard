@@ -3066,6 +3066,26 @@ async def startup():
                         block_groups = []
                         block_meta = {}
                         print(f"[updater] block fetch error: {e}")
+
+                    # Enrich vehicle name lookup with roster information from block metadata
+                    if isinstance(block_meta, dict):
+                        roster_entries: List[Dict[str, Any]] = []
+                        vehicles_meta = block_meta.get("Vehicles")
+                        if isinstance(vehicles_meta, list):
+                            roster_entries.extend(vehicles_meta)
+                        sched_trip = block_meta.get("ScheduleTripVehicles")
+                        if isinstance(sched_trip, list):
+                            roster_entries.extend(sched_trip)
+                        for rec in roster_entries:
+                            vid = _normalize_vehicle_id_str(
+                                rec.get("VehicleID")
+                                or rec.get("VehicleId")
+                                or rec.get("vehicle_id")
+                                or rec.get("vehicleId")
+                            )
+                            name = _pick_vehicle_name_record(rec)
+                            if vid and name and vid not in vehicle_name_lookup:
+                                vehicle_name_lookup[vid] = name
                     async with state.lock:
                         state.routes_raw = routes_raw
                         state.routes_catalog_raw = routes_catalog
