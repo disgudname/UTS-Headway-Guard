@@ -77,6 +77,8 @@ class HeadwayTracker:
             route_ids = self._extract_route_ids(stop)
             updated.append(StopPoint(stop_id=str(stop_id), lat=lat_f, lon=lon_f, route_ids=route_ids))
         self.stops = updated
+        if not updated:
+            print("[headway] stop update received no stops; tracker inputs unavailable")
 
     def process_snapshots(self, snapshots: Sequence[VehicleSnapshot]) -> None:
         if not self.stops:
