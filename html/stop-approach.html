@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stop Approach Editor - UTS Operations Dashboard</title>
+    <link rel="icon" type="image/png" href="UTSShield.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-uW8y+4VDaIhqE1G8gGLa2/KY6j0O+iYp3l+kG8Z8cLw="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="/stop-approach.css" />
+    <script
+      defer
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-o9N1j7kG2W3o+DdVvZJgGI2UwHGbYqUXcY5F3vY+4GM="
+      crossorigin=""
+    ></script>
+    <script defer src="/stop-approach.js"></script>
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <h1>Stop Approach Editor</h1>
+        <p class="subtitle">Adjust approach cones and stop radii for headway detection.</p>
+      </div>
+      <div class="header-actions">
+        <button id="refreshButton" type="button">Reload stops</button>
+      </div>
+    </header>
+    <main class="layout">
+      <section class="map-wrapper" aria-label="Stop map">
+        <div id="map" role="presentation"></div>
+      </section>
+      <section class="controls" aria-label="Stop controls">
+        <div class="control-group">
+          <label for="stopSelect">Stop</label>
+          <select id="stopSelect"></select>
+          <div class="hint" id="stopMeta"></div>
+        </div>
+        <div class="control-group inline">
+          <div>
+            <label for="radiusInput">Radius (m)</label>
+            <input id="radiusInput" type="range" min="10" max="200" step="5" />
+            <div class="value" id="radiusValue">--</div>
+          </div>
+          <div>
+            <label for="toleranceInput">Tolerance (°)</label>
+            <input id="toleranceInput" type="range" min="0" max="180" step="1" />
+            <div class="value" id="toleranceValue">--</div>
+          </div>
+        </div>
+        <div class="control-group">
+          <label for="bearingInput">Bearing (°)</label>
+          <input id="bearingInput" type="number" min="0" max="359" step="1" />
+          <p class="hint">Drag the map handle or edit the number to rotate the cone.</p>
+        </div>
+        <div class="control-actions">
+          <button id="saveButton" type="button">Save stop settings</button>
+          <div class="status" id="saveStatus" aria-live="polite"></div>
+        </div>
+      </section>
+    </main>
+    <script defer src="/nav-bar.js"></script>
+  </body>
+</html>

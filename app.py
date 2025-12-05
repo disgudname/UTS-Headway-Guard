@@ -42,6 +42,8 @@ from headway_tracker import (
     VehicleSnapshot,
     load_headway_config,
     load_stop_approach_config,
+    DEFAULT_STOP_APPROACH_CONFIG_PATH,
+    STOP_APPROACH_DEFAULT_RADIUS_M,
     HEADWAY_DISTANCE_THRESHOLD_M,
 )
 
@@ -1033,6 +1035,7 @@ BUS_TABLE_HTML = _load_html("buses.html")
 NOT_FOUND_HTML = _load_html("404.html")
 RADAR_HTML = _load_html("radar.html")
 EINK_BLOCK_HTML = _load_html("eink-block.html")
+STOP_APPROACH_HTML = _load_html("stop-approach.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
 LOGIN_HTML = _load_html("login.html")
@@ -4669,7 +4672,7 @@ def _build_transloc_stops(
     routes: List[Dict[str, Any]],
     extra_stops: Optional[Iterable[Dict[str, Any]]] = None,
     *,
-    approach_config: Optional[Mapping[str, Tuple[float, float]]] = None,
+    approach_config: Optional[Mapping[str, Tuple[float, float, float]]] = None,
 ) -> List[Dict[str, Any]]:
     route_membership = _route_membership_from_routes(routes)
     merged: Dict[str, Dict[str, Any]] = {}
@@ -4690,6 +4693,8 @@ def _build_transloc_stops(
             if approach:
                 normalized["ApproachBearingDeg"] = approach[0]
                 normalized["ApproachToleranceDeg"] = approach[1]
+                if len(approach) > 2:
+                    normalized["ApproachRadiusM"] = approach[2]
         existing = merged.get(str(stop_id))
         if existing:
             merged[str(stop_id)] = _merge_stop_entry(existing, normalized)
@@ -4705,6 +4710,49 @@ def _build_transloc_stops(
             _ingest(stop, fallback_route_id=rid)
 
     return list(merged.values())
+
+
+def _apply_stop_approach_to_stops(
+    stops: Iterable[Dict[str, Any]],
+    approach_config: Optional[Mapping[str, Tuple[float, float, float]]],
+) -> None:
+    if not approach_config:
+        return
+    for stop in stops:
+        stop_id = stop.get("StopID") or stop.get("StopId")
+        if stop_id is None:
+            continue
+        approach = approach_config.get(str(stop_id))
+        if not approach:
+            continue
+        stop["ApproachBearingDeg"] = approach[0]
+        stop["ApproachToleranceDeg"] = approach[1]
+        if len(approach) > 2:
+            stop["ApproachRadiusM"] = approach[2]
+
+
+def _serialize_stop_approach_config(
+    config: Mapping[str, Tuple[float, float, float]]
+) -> Dict[str, Dict[str, float]]:
+    serialized: Dict[str, Dict[str, float]] = {}
+    for stop_id, values in config.items():
+        try:
+            bearing = float(values[0])
+            tolerance = float(values[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        radius = STOP_APPROACH_DEFAULT_RADIUS_M
+        if len(values) > 2:
+            try:
+                radius = float(values[2])
+            except (TypeError, ValueError):
+                radius = STOP_APPROACH_DEFAULT_RADIUS_M
+        serialized[str(stop_id)] = {
+            "bearing_deg": bearing,
+            "tolerance_deg": max(0.0, tolerance),
+            "radius_m": max(0.0, radius),
+        }
+    return serialized
 
 
 def _trim_arrivals_payload(data: Any) -> List[Dict[str, Any]]:
@@ -4738,6 +4786,28 @@ async def _fetch_transloc_arrivals_for_base(base_url: Optional[str]) -> List[Dic
         resp.raise_for_status()
         data = resp.json()
     return _trim_arrivals_payload(data)
+
+
+async def _get_transloc_stops(
+    base_url: Optional[str] = None, *, client: Optional[httpx.AsyncClient] = None
+) -> List[Dict[str, Any]]:
+    if is_default_transloc_base(base_url):
+        async with state.lock:
+            cached = getattr(state, "stops_raw", None)
+            if cached:
+                return list(cached)
+    created_client = False
+    if client is None:
+        client = httpx.AsyncClient()
+        created_client = True
+    try:
+        return await fetch_stops(client, base_url=base_url)
+    except Exception as exc:
+        print(f"[_get_transloc_stops] fetch error: {exc}")
+        return []
+    finally:
+        if created_client:
+            await client.aclose()
 
 
 async def _get_transloc_arrivals(base_url: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -6631,6 +6701,16 @@ async def testmap_css():
     return _serve_css_asset("testmap.css")
 
 
+@app.get("/stop-approach.js", include_in_schema=False)
+async def stop_approach_js():
+    return _serve_js_asset("stop-approach.js")
+
+
+@app.get("/stop-approach.css", include_in_schema=False)
+async def stop_approach_css():
+    return _serve_css_asset("stop-approach.css")
+
+
 @app.get("/kioskmap.css", include_in_schema=False)
 async def kioskmap_css():
     return _serve_css_asset("kioskmap.css")
@@ -6737,6 +6817,14 @@ async def debug_page():
 
 
 # ---------------------------
+# STOP APPROACH PAGE
+# ---------------------------
+@app.get("/stop-approach")
+async def stop_approach_page():
+    return HTMLResponse(STOP_APPROACH_HTML)
+
+
+# ---------------------------
 # ADMIN PAGE
 # ---------------------------
 @app.get("/admin")
@@ -6792,6 +6880,79 @@ async def set_config(payload: Dict[str, Any]):
     response_body.update(config_snapshot)
     response_body["saved_at"] = metadata.get("saved_at") if metadata else None
     return JSONResponse(response_body, headers=headers)
+
+
+@app.get("/v1/stop-approach")
+async def get_stop_approach(base_url: Optional[str] = Query(None)):
+    try:
+        routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
+        stops_raw = await _get_transloc_stops(base_url)
+        stops = _build_transloc_stops(
+            routes_raw,
+            stops_raw,
+            approach_config=getattr(app.state, "stop_approach_config", None),
+        )
+    except httpx.HTTPError as exc:
+        detail = _transloc_error_detail(exc, base_url)
+        raise HTTPException(status_code=502, detail=detail) from exc
+    config_snapshot = _serialize_stop_approach_config(getattr(app.state, "stop_approach_config", {}))
+    return {
+        "stops": stops,
+        "config": config_snapshot,
+        "fetched_at": int(time.time()),
+    }
+
+
+@app.post("/v1/stop-approach")
+async def set_stop_approach(payload: Dict[str, Any]):
+    stop_id = payload.get("stop_id") or payload.get("StopId") or payload.get("StopID")
+    if stop_id is None:
+        raise HTTPException(status_code=400, detail="stop_id is required")
+
+    bearing = _coerce_float(payload.get("bearing_deg") or payload.get("bearing"))
+    tolerance = _coerce_float(payload.get("tolerance_deg") or payload.get("tolerance"))
+    radius = _coerce_float(payload.get("radius_m") or payload.get("radius"))
+
+    if bearing is None or tolerance is None:
+        raise HTTPException(status_code=400, detail="bearing_deg and tolerance_deg are required")
+    bearing_norm = float(((bearing % 360.0) + 360.0) % 360.0)
+    tolerance_norm = max(0.0, float(tolerance))
+    radius_norm = max(0.0, float(radius) if radius is not None else STOP_APPROACH_DEFAULT_RADIUS_M)
+
+    updated_config = dict(getattr(app.state, "stop_approach_config", {}) or {})
+    updated_config[str(stop_id)] = (bearing_norm, tolerance_norm, radius_norm)
+
+    serialized = _serialize_stop_approach_config(updated_config)
+    try:
+        encoded = json.dumps(serialized)
+    except Exception as exc:
+        print(f"[stop-approach] failed to encode config: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to encode config") from exc
+
+    try:
+        _write_data_file(str(DEFAULT_STOP_APPROACH_CONFIG_PATH), encoded)
+    except Exception as exc:
+        print(f"[stop-approach] failed to persist config: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to save config") from exc
+
+    async with state.lock:
+        app.state.stop_approach_config = updated_config
+        cached_stops = getattr(state, "stops", [])
+        _apply_stop_approach_to_stops(cached_stops, updated_config)
+        tracker = getattr(app.state, "headway_tracker", None)
+        if tracker:
+            tracker.stop_approach = updated_config
+            if cached_stops:
+                tracker.update_stops(cached_stops)
+
+    return {
+        "ok": True,
+        "stop_id": str(stop_id),
+        "saved_at": int(time.time()),
+        "bearing_deg": bearing_norm,
+        "tolerance_deg": tolerance_norm,
+        "radius_m": radius_norm,
+    }
 
 
 @app.get("/v1/secrets")

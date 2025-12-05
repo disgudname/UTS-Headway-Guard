@@ -11,6 +11,7 @@ from headway_storage import HeadwayEvent, HeadwayStorage
 
 
 HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
+STOP_APPROACH_DEFAULT_RADIUS_M = float(60.0)
 DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 
@@ -52,7 +53,7 @@ class HeadwayTracker:
         departure_distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
         tracked_route_ids: Optional[Set[str]] = None,
         tracked_stop_ids: Optional[Set[str]] = None,
-        stop_approach: Optional[Dict[str, Tuple[float, float]]] = None,
+        stop_approach: Optional[Dict[str, Tuple[float, float, float]]] = None,
         stop_approach_config_path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH,
     ):
         self.storage = storage
@@ -405,8 +406,8 @@ def load_headway_config(path: Path = DEFAULT_HEADWAY_CONFIG_PATH) -> Tuple[Set[s
     return route_ids, stop_ids
 
 
-def load_stop_approach_config(path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH) -> Dict[str, Tuple[float, float]]:
-    config: Dict[str, Tuple[float, float]] = {}
+def load_stop_approach_config(path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH) -> Dict[str, Tuple[float, float, float]]:
+    config: Dict[str, Tuple[float, float, float]] = {}
     if not path.exists():
         return config
     try:
@@ -417,9 +418,16 @@ def load_stop_approach_config(path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH) ->
                     continue
                 bearing = _parse_float(entry.get("bearing_deg") or entry.get("bearing"))
                 tolerance = _parse_float(entry.get("tolerance_deg") or entry.get("tolerance"))
+                radius = _parse_float(entry.get("radius_m") or entry.get("radius"))
+                if radius is None:
+                    radius = STOP_APPROACH_DEFAULT_RADIUS_M
                 if bearing is None or tolerance is None:
                     continue
-                config[str(stop_id)] = (bearing, max(0.0, tolerance))
+                config[str(stop_id)] = (
+                    bearing,
+                    max(0.0, tolerance),
+                    max(0.0, radius),
+                )
     except Exception as exc:
         print(f"[headway] failed to load stop approach config {path}: {exc}")
     return config
