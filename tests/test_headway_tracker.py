@@ -215,6 +215,25 @@ def test_headway_tracker_departure_time_tracks_movement_start():
     assert storage.events[-1].dwell_seconds == 30
 
 
+def test_headway_tracker_merges_route_ids_for_shared_locations():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(
+        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
+    )
+    tracker.update_stops(
+        [
+            {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0, "Routes": [{"RouteID": "R1"}]},
+            {"StopID": "B", "Latitude": 0.0, "Longitude": 0.0, "Routes": [{"RouteID": "R2"}]},
+        ]
+    )
+
+    assert tracker.stop_lookup["A"].route_ids == {"R1", "R2"}
+    assert tracker.stop_lookup["B"].route_ids == {"R1", "R2"}
+
+    nearest = tracker._nearest_stop(0.0, 0.0, "R2", threshold=30.0)
+    assert nearest == ("A", "R2")
+
+
 def test_headway_tracker_uses_stop_history_when_route_missing():
     storage = MemoryHeadwayStorage()
     tracker = HeadwayTracker(

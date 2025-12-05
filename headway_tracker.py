@@ -126,6 +126,24 @@ class HeadwayTracker:
                     approach_radius_m=approach_radius,
                 )
             )
+
+        # Merge route IDs across stops that share the same physical location. Some
+        # providers, like TransLoc, emit unique stop IDs per route even when the
+        # latitude/longitude are identical. Without merging, vehicles can be inside
+        # the arrival radius but still hit a route_mismatch diagnostic.
+        location_routes: Dict[Tuple[float, float], Set[str]] = {}
+        for stop in updated:
+            key = (round(stop.lat, 6), round(stop.lon, 6))
+            if key not in location_routes:
+                location_routes[key] = set()
+            location_routes[key].update(stop.route_ids)
+
+        for stop in updated:
+            key = (round(stop.lat, 6), round(stop.lon, 6))
+            merged_routes = set(stop.route_ids)
+            merged_routes.update(location_routes.get(key, set()))
+            stop.route_ids = merged_routes
+
         self.stops = updated
         self.stop_lookup = {stop.stop_id: stop for stop in updated}
         if not updated:
