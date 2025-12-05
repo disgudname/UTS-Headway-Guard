@@ -669,6 +669,19 @@ async def fetch_routes_catalog(client: httpx.AsyncClient, base_url: Optional[str
         return data.get("d", [])
     return []
 
+
+async def fetch_stops(client: httpx.AsyncClient, base_url: Optional[str] = None) -> List[Dict[str, Any]]:
+    url = build_transloc_url(base_url, f"GetStops?APIKey={TRANSLOC_KEY}")
+    r = await client.get(url, timeout=20)
+    record_api_call("GET", url, r.status_code)
+    r.raise_for_status()
+    data = r.json()
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return data.get("d", [])
+    return []
+
 async def fetch_vehicles(
     client: httpx.AsyncClient,
     include_unassigned: bool = True,
@@ -2936,6 +2949,11 @@ async def startup():
                 try:
                     routes_catalog: List[Dict[str, Any]] = []
                     routes_raw = await fetch_routes_with_shapes(client)
+                    stops_raw: List[Dict[str, Any]] = []
+                    try:
+                        stops_raw = await fetch_stops(client)
+                    except Exception as e:
+                        print(f"[updater] stops fetch error: {e}")
                     try:
                         routes_catalog = await fetch_routes_catalog(client)
                     except Exception as e:
@@ -2954,15 +2972,20 @@ async def startup():
                         state.routes_raw = routes_raw
                         state.routes_catalog_raw = routes_catalog
                         state.vehicles_raw = vehicles_raw
+                        state.stops_raw = stops_raw
                         try:
                             trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
                             if routes_catalog:
                                 trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog)
-                            stops = _build_transloc_stops(trimmed_routes)
+                            stops = _build_transloc_stops(trimmed_routes, stops_raw)
                             state.stops = stops
                             tracker_ref = getattr(app.state, "headway_tracker", None)
                             if tracker_ref is not None:
-                                tracker_ref.update_stops(stops)
+                                if stops:
+                                    tracker_ref.update_stops(stops)
+                                else:
+                                    state.headway_stop_warning_ts = time.time()
+                                    print("[headway] no stops available to update tracker")
                         except Exception as e:
                             print(f"[headway] failed to refresh stops: {e}")
                         # Update complete routes & roster (all buses/all routes)
@@ -4419,23 +4442,146 @@ def _merge_transloc_route_metadata(
     return list(route_by_id.values())
 
 
-def _build_transloc_stops(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    stops: List[Dict[str, Any]] = []
+def _route_membership_from_routes(routes: List[Dict[str, Any]]) -> Dict[str, Set[str]]:
+    membership: Dict[str, Set[str]] = defaultdict(set)
+    for route in routes:
+        rid = route.get("RouteID") or route.get("RouteId")
+        if rid is None:
+            continue
+        try:
+            rid_norm = str(int(rid))
+        except Exception:
+            rid_norm = str(rid)
+        for stop in route.get("Stops", []) or []:
+            sid = stop.get("StopID") or stop.get("StopId") or stop.get("RouteStopID") or stop.get("RouteStopId")
+            if sid is None:
+                continue
+            membership[str(sid)].add(rid_norm)
+    return membership
+
+
+def _normalize_transloc_stop(stop: Dict[str, Any], *, route_membership: Mapping[str, Set[str]], fallback_route_id: Any = None) -> Optional[Dict[str, Any]]:
+    stop_id = stop.get("StopID") or stop.get("StopId") or stop.get("RouteStopID") or stop.get("RouteStopId")
+    if stop_id is None:
+        return None
+    name = (
+        stop.get("StopName")
+        or stop.get("Name")
+        or stop.get("Description")
+        or "Stop"
+    )
+    route_ids: Set[str] = set()
+    for key in ("RouteIds", "RouteIDs"):
+        vals = stop.get(key)
+        if isinstance(vals, list):
+            for val in vals:
+                if val is None:
+                    continue
+                try:
+                    route_ids.add(str(int(val)))
+                except Exception:
+                    route_ids.add(str(val))
+    if isinstance(stop.get("Routes"), list):
+        for entry in stop["Routes"]:
+            if not isinstance(entry, dict):
+                continue
+            rid_val = entry.get("RouteID") or entry.get("RouteId")
+            if rid_val is None:
+                continue
+            try:
+                route_ids.add(str(int(rid_val)))
+            except Exception:
+                route_ids.add(str(rid_val))
+    direct_route = stop.get("RouteID") or stop.get("RouteId") or fallback_route_id
+    if direct_route is not None:
+        try:
+            route_ids.add(str(int(direct_route)))
+        except Exception:
+            route_ids.add(str(direct_route))
+    for rid in route_membership.get(str(stop_id), set()):
+        route_ids.add(rid)
+
+    normalized = {
+        "RouteStopID": stop.get("RouteStopID") or stop.get("RouteStopId"),
+        "RouteStopId": stop.get("RouteStopID") or stop.get("RouteStopId"),
+        "StopID": stop_id,
+        "StopId": stop_id,
+        "StopName": name,
+        "Name": name,
+        "Description": stop.get("Description") or name,
+        "Latitude": stop.get("Latitude") or stop.get("Lat"),
+        "Longitude": stop.get("Longitude") or stop.get("Lon") or stop.get("Lng"),
+        "AddressID": stop.get("AddressID") or stop.get("AddressId"),
+    }
+
+    if route_ids:
+        routes_list = [{"RouteID": rid} for rid in sorted(route_ids)]
+        normalized.update(
+            {
+                "RouteID": next(iter(route_ids)),
+                "RouteIds": sorted(route_ids),
+                "RouteIDs": sorted(route_ids),
+                "Routes": routes_list,
+            }
+        )
+    return normalized
+
+
+def _merge_stop_entry(target: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    for key, value in incoming.items():
+        if value is None:
+            continue
+        if key in ("RouteIds", "RouteIDs"):
+            current = target.setdefault(key, [])
+            if isinstance(current, list):
+                for item in value:
+                    if item not in current:
+                        current.append(item)
+            continue
+        if key == "Routes":
+            current_routes = target.setdefault("Routes", [])
+            if isinstance(current_routes, list):
+                for entry in value:
+                    if entry not in current_routes:
+                        current_routes.append(entry)
+            continue
+        if target.get(key) is None:
+            target[key] = value
+    return target
+
+
+def _build_transloc_stops(
+    routes: List[Dict[str, Any]], extra_stops: Optional[Iterable[Dict[str, Any]]] = None
+) -> List[Dict[str, Any]]:
+    route_membership = _route_membership_from_routes(routes)
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    def _ingest(stop: Optional[Dict[str, Any]], fallback_route_id: Any = None) -> None:
+        if not stop:
+            return
+        normalized = _normalize_transloc_stop(
+            stop, route_membership=route_membership, fallback_route_id=fallback_route_id
+        )
+        if not normalized:
+            return
+        stop_id = normalized.get("StopID") or normalized.get("StopId")
+        if stop_id is None:
+            return
+        existing = merged.get(str(stop_id))
+        if existing:
+            merged[str(stop_id)] = _merge_stop_entry(existing, normalized)
+        else:
+            merged[str(stop_id)] = dict(normalized)
+
+    for stop in extra_stops or []:
+        _ingest(stop)
+
     for route in routes:
         rid = route.get("RouteID")
-        for stop in route.get("Stops", []):
-            entry = dict(stop)
-            if not entry.get("StopID") and not entry.get("StopId"):
-                alt_stop_id = entry.get("RouteStopID") or entry.get("RouteStopId")
-                if alt_stop_id is not None:
-                    entry["StopID"] = alt_stop_id
-                    entry["StopId"] = alt_stop_id
-            entry.setdefault("RouteID", rid)
-            entry.setdefault("RouteIds", [rid] if rid is not None else [])
-            entry.setdefault("RouteIDs", [rid] if rid is not None else [])
-            entry.setdefault("Routes", [{"RouteID": rid}] if rid is not None else [])
-            stops.append(entry)
-    return stops
+        for stop in route.get("Stops", []) or []:
+            _ingest(stop, fallback_route_id=rid)
+
+    return list(merged.values())
 
 
 def _trim_arrivals_payload(data: Any) -> List[Dict[str, Any]]:
@@ -4636,9 +4782,11 @@ def _parse_headway_timestamp(value: str) -> datetime:
 async def build_transloc_snapshot(
     base_url: Optional[str] = None, include_stale: bool = False
 ) -> Dict[str, Any]:
+    stops_raw: List[Dict[str, Any]] = []
     if is_default_transloc_base(base_url):
         routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
         assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
+        stops_raw = await _load_transloc_stop_sources(base_url)
     else:
         async with httpx.AsyncClient() as client:
             routes_raw, extra_routes_raw = await _load_transloc_route_sources(
@@ -4647,9 +4795,13 @@ async def build_transloc_snapshot(
             assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(
                 base_url, client=client
             )
+            stops_raw = await _load_transloc_stop_sources(base_url, client=client)
 
     metadata = await _assemble_transloc_metadata(
-        base_url=base_url, routes_raw=routes_raw, extra_routes_raw=extra_routes_raw
+        base_url=base_url,
+        routes_raw=routes_raw,
+        extra_routes_raw=extra_routes_raw,
+        stops_raw=stops_raw,
     )
     arrivals = await _get_transloc_arrivals(base_url)
     vehicles = _assemble_transloc_vehicles(
@@ -4717,16 +4869,37 @@ async def _load_transloc_vehicle_sources(
             await client.aclose()
 
 
+async def _load_transloc_stop_sources(
+    base_url: Optional[str], client: Optional[httpx.AsyncClient] = None
+) -> List[Dict[str, Any]]:
+    if is_default_transloc_base(base_url):
+        async with state.lock:
+            return list(getattr(state, "stops_raw", []))
+    created_client = False
+    if client is None:
+        client = httpx.AsyncClient()
+        created_client = True
+    try:
+        return await fetch_stops(client, base_url=base_url)
+    except Exception as exc:
+        print(f"[snapshot] stop fetch error: {exc}")
+        return []
+    finally:
+        if created_client:
+            await client.aclose()
+
+
 async def _assemble_transloc_metadata(
     *,
     base_url: Optional[str],
     routes_raw: List[Dict[str, Any]],
     extra_routes_raw: List[Dict[str, Any]],
+    stops_raw: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     raw_routes = [_trim_transloc_route(r) for r in routes_raw]
     if extra_routes_raw:
         raw_routes = _merge_transloc_route_metadata(raw_routes, extra_routes_raw)
-    stops = _build_transloc_stops(raw_routes)
+    stops = _build_transloc_stops(raw_routes, stops_raw)
     blocks = await _get_transloc_blocks(base_url)
     return {"routes": raw_routes, "stops": stops, "blocks": blocks}
 
