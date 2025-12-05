@@ -4,15 +4,22 @@
   const DEFAULT_TOLERANCE = 30;
   const DEFAULT_BEARING = 0;
 
-  const map = L.map('map', {
-    zoomControl: true,
-  });
-  const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19,
-  });
-  tiles.addTo(map);
-  map.setView([38.0336, -78.508], 14);
+  const hasLeaflet = typeof L !== 'undefined';
+  const map = hasLeaflet
+    ? L.map('map', {
+        zoomControl: true,
+      })
+    : null;
+  if (map) {
+    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
+    });
+    tiles.addTo(map);
+    map.setView([38.0336, -78.508], 14);
+  } else {
+    console.error('Leaflet failed to load; map features disabled');
+  }
 
   const stopSelect = document.getElementById('stopSelect');
   const radiusInput = document.getElementById('radiusInput');
@@ -95,6 +102,7 @@
   }
 
   function updateConeGraphics(stop, bearingDeg, toleranceDeg, radiusMeters) {
+    if (!map || !hasLeaflet) return;
     const center = L.latLng(stop.Latitude || stop.Lat || stop.lat, stop.Longitude || stop.Lon || stop.lng);
     const conePoints = buildConePoints(center, bearingDeg, toleranceDeg, radiusMeters);
 
@@ -205,22 +213,24 @@
         const targetId = selectedStopId || stops[0].StopID || stops[0].StopId;
         stopSelect.value = targetId;
         onStopSelected(targetId);
-        stops.forEach((stop) => {
-          const id = stop.StopID || stop.StopId;
-          if (!id) return;
-          const marker = L.circleMarker([stop.Latitude || stop.Lat || 0, stop.Longitude || stop.Lon || 0], {
-            radius: 4,
-            color: '#c084fc',
-            fillOpacity: 0.7,
+        if (map && hasLeaflet) {
+          stops.forEach((stop) => {
+            const id = stop.StopID || stop.StopId;
+            if (!id) return;
+            const marker = L.circleMarker([stop.Latitude || stop.Lat || 0, stop.Longitude || stop.Lon || 0], {
+              radius: 4,
+              color: '#c084fc',
+              fillOpacity: 0.7,
+            });
+            marker.on('click', () => {
+              stopSelect.value = id;
+              onStopSelected(id);
+            });
+            marker.addTo(map);
+            stopMarkers.set(id.toString(), marker);
           });
-          marker.on('click', () => {
-            stopSelect.value = id;
-            onStopSelected(id);
-          });
-          marker.addTo(map);
-          stopMarkers.set(id.toString(), marker);
-        });
-        map.fitBounds(L.featureGroup(Array.from(stopMarkers.values())).getBounds().pad(0.15));
+          map.fitBounds(L.featureGroup(Array.from(stopMarkers.values())).getBounds().pad(0.15));
+        }
       }
       setStatus('Ready');
     } catch (error) {
