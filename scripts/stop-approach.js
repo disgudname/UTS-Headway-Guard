@@ -33,6 +33,8 @@
   const refreshButton = document.getElementById('refreshButton');
 
   let stops = [];
+  let dedupedStops = [];
+  const stopGroupsByKey = new Map();
   const stopMarkers = new Map();
   let selectedStopId = null;
   let circleLayer = null;
@@ -149,6 +151,17 @@
     map.flyTo(center, Math.max(map.getZoom(), 16));
   }
 
+  function getStopName(stop) {
+    return stop.StopName || stop.Name || stop.Description || '';
+  }
+
+  function getStopCoords(stop) {
+    const lat = Number(stop.Latitude ?? stop.Lat ?? stop.lat);
+    const lng = Number(stop.Longitude ?? stop.Lon ?? stop.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  }
+
   function formatRoutes(stop) {
     const ids = stop.RouteIDs || stop.RouteIds || stop.RouteId || stop.RouteID || stop.Routes;
     if (!ids) return '';
@@ -161,34 +174,49 @@
     return ids.toString();
   }
 
-  function applyStopToControls(stop) {
+  function applyStopToControls(stop, group) {
     const radius = Number(stop.ApproachRadiusM) || DEFAULT_RADIUS_M;
     const tolerance = Number(stop.ApproachToleranceDeg) || DEFAULT_TOLERANCE;
     const bearing = normalizeBearing(stop.ApproachBearingDeg ?? DEFAULT_BEARING);
     radiusInput.value = radius;
     toleranceInput.value = tolerance;
     bearingInput.value = bearing.toFixed(0);
-    stopMeta.textContent = `${stop.Name || stop.StopName || 'Stop'} • Routes: ${formatRoutes(stop) || 'unknown'}`;
+    const linkedCount = group && group.ids ? group.ids.length : 1;
+    const linkedText = linkedCount > 1 ? ` • Linked stops: ${linkedCount}` : '';
+    stopMeta.textContent = `${stop.Name || stop.StopName || 'Stop'} • Routes: ${
+      formatRoutes(stop) || 'unknown'
+    }${linkedText}`;
     updateDisplayValues(radius, tolerance, bearing);
     updateConeGraphics(stop, bearing, tolerance, radius);
   }
 
-  function onStopSelected(id) {
-    selectedStopId = id;
-    const stop = stops.find((s) => `${s.StopID || s.StopId}` === `${id}`);
+  function pickStopWithConfig(stopsList) {
+    return (
+      stopsList.find(
+        (s) => s.ApproachRadiusM !== undefined || s.ApproachToleranceDeg !== undefined || s.ApproachBearingDeg !== undefined
+      ) || stopsList[0]
+    );
+  }
+
+  function onStopSelected(key) {
+    selectedStopId = key;
+    const group = stopGroupsByKey.get(key);
+    if (!group) return;
+    const stop = pickStopWithConfig(group.stops);
     if (!stop) return;
-    applyStopToControls(stop);
+    applyStopToControls(stop, group);
   }
 
   function populateStops(list) {
     stopSelect.innerHTML = '';
     list
       .slice()
-      .sort((a, b) => (a.StopName || a.Name || '').localeCompare(b.StopName || b.Name || ''))
-      .forEach((stop) => {
+      .sort((a, b) => (a.label || '').localeCompare(b.label || ''))
+      .forEach((entry) => {
         const option = document.createElement('option');
-        option.value = stop.StopID || stop.StopId;
-        option.textContent = `${stop.StopName || stop.Name || stop.Description || option.value}`;
+        option.value = entry.key;
+        const suffix = entry.ids.length > 1 ? ` (${entry.ids.length} stops)` : '';
+        option.textContent = `${entry.label}${suffix}`;
         stopSelect.appendChild(option);
       });
   }
@@ -196,6 +224,37 @@
   function setStatus(text, isError = false) {
     saveStatus.textContent = text;
     saveStatus.style.color = isError ? '#f87171' : '#9ca3af';
+  }
+
+  function dedupeStops(rawStops) {
+    stopGroupsByKey.clear();
+    const groups = [];
+
+    rawStops.forEach((stop) => {
+      const name = getStopName(stop).trim();
+      const coords = getStopCoords(stop);
+      const id = stop.StopID || stop.StopId;
+      const key = name && coords ? `${name.toLowerCase()}|${coords.lat.toFixed(6)}|${coords.lng.toFixed(6)}` : `${id}`;
+      const group = stopGroupsByKey.get(key);
+      if (!group) {
+        const newGroup = {
+          key,
+          label: name || `${id || 'Stop'}`,
+          coords,
+          ids: id ? [id] : [],
+          stops: [stop],
+        };
+        stopGroupsByKey.set(key, newGroup);
+        groups.push(newGroup);
+      } else {
+        if (id && !group.ids.includes(id)) {
+          group.ids.push(id);
+        }
+        group.stops.push(stop);
+      }
+    });
+
+    return groups;
   }
 
   async function fetchStops() {
@@ -208,16 +267,17 @@
       const payload = await response.json();
       const data = Array.isArray(payload.stops) ? payload.stops : [];
       stops = data;
-      populateStops(stops);
-      if (stops.length > 0) {
-        const targetId = selectedStopId || stops[0].StopID || stops[0].StopId;
-        stopSelect.value = targetId;
-        onStopSelected(targetId);
+      dedupedStops = dedupeStops(stops);
+      populateStops(dedupedStops);
+      if (dedupedStops.length > 0) {
+        const targetKey = selectedStopId || dedupedStops[0].key;
+        stopSelect.value = targetKey;
+        onStopSelected(targetKey);
         if (map && hasLeaflet) {
-          stops.forEach((stop) => {
-            const id = stop.StopID || stop.StopId;
-            if (!id) return;
-            const marker = L.circleMarker([stop.Latitude || stop.Lat || 0, stop.Longitude || stop.Lon || 0], {
+          dedupedStops.forEach((group) => {
+            const id = group.key;
+            if (!group.coords) return;
+            const marker = L.circleMarker([group.coords.lat, group.coords.lng], {
               radius: 4,
               color: '#c084fc',
               fillOpacity: 0.7,
@@ -244,36 +304,49 @@
       setStatus('Select a stop first', true);
       return;
     }
-    const stop = stops.find((s) => `${s.StopID || s.StopId}` === `${selectedStopId}`);
-    if (!stop) {
+    const group = stopGroupsByKey.get(selectedStopId);
+    if (!group) {
       setStatus('Stop not found', true);
       return;
     }
 
-    const payload = {
-      stop_id: selectedStopId,
-      radius_m: Number(radiusInput.value) || DEFAULT_RADIUS_M,
-      tolerance_deg: Number(toleranceInput.value) || DEFAULT_TOLERANCE,
-      bearing_deg: normalizeBearing(bearingInput.value),
-    };
+    const radiusVal = Number(radiusInput.value) || DEFAULT_RADIUS_M;
+    const toleranceVal = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
+    const bearingVal = normalizeBearing(bearingInput.value);
+
+    const payloads = group.ids.map((id) => ({
+      stop_id: id,
+      radius_m: radiusVal,
+      tolerance_deg: toleranceVal,
+      bearing_deg: bearingVal,
+    }));
     setStatus('Saving…');
     saveButton.disabled = true;
     try {
-      const response = await fetch(STOP_APPROACH_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const result = await response.json();
-      stop.ApproachBearingDeg = result.bearing_deg;
-      stop.ApproachToleranceDeg = result.tolerance_deg;
-      stop.ApproachRadiusM = result.radius_m;
-      applyStopToControls(stop);
+      await Promise.all(
+        payloads.map(async (payload) => {
+          const response = await fetch(STOP_APPROACH_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const result = await response.json();
+          group.stops
+            .filter((s) => `${s.StopID || s.StopId}` === `${payload.stop_id}`)
+            .forEach((s) => {
+              s.ApproachBearingDeg = result.bearing_deg;
+              s.ApproachToleranceDeg = result.tolerance_deg;
+              s.ApproachRadiusM = result.radius_m;
+            });
+        })
+      );
+      const representativeStop = pickStopWithConfig(group.stops);
+      applyStopToControls(representativeStop, group);
       setStatus('Saved');
     } catch (error) {
       console.error('Save failed', error);
@@ -289,7 +362,8 @@
     const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
     const bearing = normalizeBearing(bearingInput.value);
     updateDisplayValues(radius, tolerance, bearing);
-    const stop = stops.find((s) => `${s.StopID || s.StopId}` === `${selectedStopId}`);
+    const group = stopGroupsByKey.get(selectedStopId);
+    const stop = group ? pickStopWithConfig(group.stops) : null;
     if (stop) {
       updateConeGraphics(stop, bearing, tolerance, radius);
     }
@@ -299,7 +373,8 @@
     const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
     const bearing = normalizeBearing(bearingInput.value);
     updateDisplayValues(radius, tolerance, bearing);
-    const stop = stops.find((s) => `${s.StopID || s.StopId}` === `${selectedStopId}`);
+    const group = stopGroupsByKey.get(selectedStopId);
+    const stop = group ? pickStopWithConfig(group.stops) : null;
     if (stop) {
       updateConeGraphics(stop, bearing, tolerance, radius);
     }
@@ -309,7 +384,8 @@
     const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
     const bearing = normalizeBearing(bearingInput.value);
     updateDisplayValues(radius, tolerance, bearing);
-    const stop = stops.find((s) => `${s.StopID || s.StopId}` === `${selectedStopId}`);
+    const group = stopGroupsByKey.get(selectedStopId);
+    const stop = group ? pickStopWithConfig(group.stops) : null;
     if (stop) {
       updateConeGraphics(stop, bearing, tolerance, radius);
     }
