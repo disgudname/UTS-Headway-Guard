@@ -240,6 +240,8 @@
 
     let allRoutes = [];
     let allStops = [];
+    let routeNameById = new Map();
+    let stopNameById = new Map();
     let liveIntervalId = null;
     const LIVE_WINDOW_MS = 60 * 60 * 1000;
     const LIVE_REFRESH_MS = 30 * 1000;
@@ -262,6 +264,39 @@
         .map(r => typeof r === 'object' ? (r.RouteID ?? r.RouteId ?? r.id) : r)
         .filter(Boolean);
       return routes.length ? `${name} — ${routes.join(', ')}` : name;
+    }
+
+    function getRouteName(id) {
+      if (!id) return '';
+      const key = String(id);
+      return routeNameById.get(key) || `Route ${key}`;
+    }
+
+    function getStopName(id) {
+      if (!id) return '';
+      const key = String(id);
+      return stopNameById.get(key) || `Stop ${key}`;
+    }
+
+    function formatVehicleLabel(ev) {
+      return (
+        ev.vehicle_name ||
+        ev.vehicle_label ||
+        ev.vehicle ||
+        ev.vehicle_fleet_no ||
+        ev.vehicle_no ||
+        ev.vehicle_id ||
+        ''
+      );
+    }
+
+    function formatMinutesSeconds(seconds) {
+      if (seconds == null || Number.isNaN(Number(seconds))) return '';
+      const total = Number(seconds);
+      const minutes = Math.floor(total / 60);
+      const secs = Math.round((total % 60) * 10) / 10;
+      const paddedSeconds = secs < 10 ? `0${secs.toFixed(secs % 1 === 0 ? 0 : 1)}` : secs.toFixed(secs % 1 === 0 ? 0 : 1);
+      return `${minutes}m ${paddedSeconds}s`;
     }
 
     function setStatus(message, isError = false) {
@@ -344,9 +379,9 @@
         if (!res.ok) throw new Error(`Metadata fetch failed (${res.status})`);
         const data = await res.json();
         allRoutes = Array.isArray(data.routes) ? data.routes : [];
-        const stopMap = new Map();
-        (Array.isArray(data.stops) ? data.stops : []).forEach(stop => {
-          const id = getStopId(stop);
+      const stopMap = new Map();
+      (Array.isArray(data.stops) ? data.stops : []).forEach(stop => {
+        const id = getStopId(stop);
           if (!id) return;
           const routes = new Set([
             ...(stop.RouteIds || stop.RouteIDs || stop.RouteIds || []),
@@ -357,14 +392,33 @@
           const merged = new Set([...(existing._routeIds || []), ...routes]);
           stopMap.set(id, { ...existing, ...stop, _routeIds: Array.from(merged) });
         });
-        allStops = Array.from(stopMap.values()).sort((a, b) => {
-          const aName = formatStopLabel(a).toLowerCase();
-          const bName = formatStopLabel(b).toLowerCase();
-          return aName.localeCompare(bName);
-        });
-        populateRoutes();
-        populateStops();
-        populateLiveStops();
+      allStops = Array.from(stopMap.values()).sort((a, b) => {
+        const aName = formatStopLabel(a).toLowerCase();
+        const bName = formatStopLabel(b).toLowerCase();
+        return aName.localeCompare(bName);
+      });
+      routeNameById = new Map(
+        allRoutes
+          .map(route => {
+            const id = route.RouteID ?? route.RouteId ?? route.id;
+            if (id == null) return null;
+            return [String(id), formatRouteLabel(route)];
+          })
+          .filter(Boolean)
+      );
+      stopNameById = new Map(
+        allStops
+          .map(stop => {
+            const id = getStopId(stop);
+            if (id == null) return null;
+            const name = stop.Name || stop.Description || stop.StopName;
+            return [String(id), name || formatStopLabel(stop)];
+          })
+          .filter(Boolean)
+      );
+      populateRoutes();
+      populateStops();
+      populateLiveStops();
         setStatus('Routes and stops loaded. Choose filters and load headway.');
       } catch (err) {
         console.error(err);
@@ -407,15 +461,16 @@
       }
       const rows = events.map(ev => {
         const tsLocal = new Date(ev.timestamp).toLocaleString();
-        const headway = ev.headway_seconds != null ? `${ev.headway_seconds.toFixed(1)}s` : '';
-        const dwell = ev.dwell_seconds != null ? `${ev.dwell_seconds.toFixed(1)}s` : '';
-        const route = ev.route_id || '';
-        const stop = ev.stop_id || '';
+        const headway = formatMinutesSeconds(ev.headway_seconds);
+        const dwell = formatMinutesSeconds(ev.dwell_seconds);
+        const route = getRouteName(ev.route_id || ev.route) || ev.route_name || ev.route || '';
+        const stop = getStopName(ev.stop_id || ev.stop) || ev.stop_name || ev.stop || '';
+        const vehicle = formatVehicleLabel(ev);
         return `<tr>
           <td>${tsLocal}</td>
           <td>${route}</td>
           <td>${stop}</td>
-          <td>${ev.vehicle_id || ''}</td>
+          <td>${vehicle}</td>
           <td>${ev.event_type}</td>
           <td>${headway}</td>
           <td>${dwell}</td>
