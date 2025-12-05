@@ -517,7 +517,7 @@ def parse_msajax(s: Optional[str]) -> Optional[int]:
             hours = int(offset_raw[1:3])
             minutes = int(offset_raw[3:])
             offset_ms = sign * (hours * 60 + minutes) * 60 * 1000
-            return base_ms - offset_ms
+            return base_ms + offset_ms
         except ValueError:
             return base_ms
     except ValueError as e:
