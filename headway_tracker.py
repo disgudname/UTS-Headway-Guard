@@ -28,6 +28,7 @@ class VehiclePresence:
     current_stop_id: Optional[str] = None
     arrival_time: Optional[datetime] = None
     route_id: Optional[str] = None
+    departure_started_at: Optional[datetime] = None
 
 
 @dataclass
@@ -118,14 +119,23 @@ class HeadwayTracker:
             if prev_stop is not None and distance_from_prev_stop is not None:
                 has_left_prev_stop = distance_from_prev_stop >= self.departure_distance_threshold_m
 
+            movement_start_time = prev_state.departure_started_at
+            if prev_stop is not None and distance_from_prev_stop is not None:
+                if distance_from_prev_stop >= self.arrival_distance_threshold_m:
+                    if movement_start_time is None:
+                        movement_start_time = timestamp
+                else:
+                    movement_start_time = None
+
             if prev_stop and has_left_prev_stop and (current_stop is None or current_stop[0] != prev_stop):
                 dwell_seconds = None
+                departure_timestamp = movement_start_time or timestamp
                 if prev_state.arrival_time:
-                    dwell_seconds = (timestamp - prev_state.arrival_time).total_seconds()
+                    dwell_seconds = (departure_timestamp - prev_state.arrival_time).total_seconds()
                     dwell_seconds = max(dwell_seconds, 0.0)
                 events.append(
                     HeadwayEvent(
-                        timestamp=timestamp,
+                        timestamp=departure_timestamp,
                         route_id=prev_state.route_id,
                         stop_id=prev_stop,
                         vehicle_id=vid,
@@ -174,6 +184,7 @@ class HeadwayTracker:
                 current_stop_id=arrival_stop_id,
                 arrival_time=arrival_time if arrival_stop_id else None,
                 route_id=arrival_route_id if arrival_stop_id else None,
+                departure_started_at=movement_start_time if arrival_stop_id else None,
             )
 
         if events:
