@@ -1,336 +1,48 @@
 {
-  "exported_at": "2025-12-05T20:15:58.788Z",
+  "exported_at": "2025-12-05T20:20:33.891Z",
   "recent_stop_association_failures": [
     {
-      "timestamp": "2025-12-05T20:15:59Z",
-      "vehicle_id": "19",
-      "vehicle_name": "19232",
-      "route_id": "56",
-      "lat": 38.0294519646,
-      "lon": -78.5195046086,
-      "heading_deg": 347.84127947413094,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "629",
-      "nearest_stop_route_ids": [
-        "52"
-      ],
-      "distance_m": 0,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:15:58Z",
-      "vehicle_id": "33",
-      "vehicle_name": "19232",
-      "route_id": "56",
-      "lat": 38.04574,
-      "lon": -78.50844,
-      "heading_deg": 120.95461944674969,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "834",
-      "nearest_stop_route_ids": [
-        "57"
-      ],
-      "distance_m": 20.945034062038527,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:15:57Z",
-      "vehicle_id": "13",
-      "vehicle_name": "19232",
-      "route_id": "58",
-      "lat": 38.03263,
-      "lon": -78.49985,
-      "heading_deg": 65.37180670187843,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "606",
-      "nearest_stop_route_ids": [
-        "45"
-      ],
-      "distance_m": 52.683151756206875,
-      "threshold_m": 45
-    },
-    {
-      "timestamp": "2025-12-05T20:15:57Z",
-      "vehicle_id": "44",
-      "vehicle_name": "19232",
-      "route_id": "58",
-      "lat": 38.04443,
-      "lon": -78.50528,
-      "heading_deg": 119.12401343867919,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "788",
-      "nearest_stop_route_ids": [
-        "56"
-      ],
-      "distance_m": 130.53195630761167,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:10Z",
-      "vehicle_id": "49",
-      "vehicle_name": "19232",
-      "route_id": "45",
-      "lat": 38.03058,
-      "lon": -78.49906,
-      "heading_deg": 115.65260041885159,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "605",
-      "nearest_stop_route_ids": [
-        "45"
-      ],
-      "distance_m": 157.85300382802163,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:10Z",
-      "vehicle_id": "31",
-      "vehicle_name": "19232",
-      "route_id": "45",
-      "lat": 38.041401,
-      "lon": -78.509224,
-      "heading_deg": 310.9416081526773,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "729",
-      "nearest_stop_route_ids": [
-        "58"
-      ],
-      "distance_m": 0,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:10Z",
-      "vehicle_id": "45",
-      "vehicle_name": "19232",
-      "route_id": "45",
-      "lat": 38.03766,
-      "lon": -78.50752,
-      "heading_deg": 195.87797916097577,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "648",
-      "nearest_stop_route_ids": [
-        "52"
-      ],
-      "distance_m": 78.8484124111532,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:09Z",
-      "vehicle_id": "17",
-      "vehicle_name": "19232",
-      "route_id": "45",
-      "lat": 38.03248,
-      "lon": -78.5006,
-      "heading_deg": 270.5770874284076,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "619",
-      "nearest_stop_route_ids": [
-        "46"
-      ],
-      "distance_m": 17.03785007061304,
-      "threshold_m": 45
-    },
-    {
-      "timestamp": "2025-12-05T20:16:07Z",
-      "vehicle_id": "48",
-      "vehicle_name": "19232",
-      "route_id": "48",
-      "lat": 38.031257,
-      "lon": -78.500824,
-      "heading_deg": 132.03286780728183,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "604",
-      "nearest_stop_route_ids": [
-        "45"
-      ],
-      "distance_m": 0,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:09Z",
-      "vehicle_id": "36",
-      "vehicle_name": "19232",
-      "route_id": "48",
-      "lat": 38.029557,
-      "lon": -78.514843,
-      "heading_deg": 13.486070716271001,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "615",
-      "nearest_stop_route_ids": [
-        "46"
-      ],
-      "distance_m": 0,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:10Z",
-      "vehicle_id": "42",
-      "vehicle_name": "19232",
-      "route_id": "48",
-      "lat": 38.0317698454,
-      "lon": -78.4980769737,
-      "heading_deg": 299.67839034802114,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "605",
-      "nearest_stop_route_ids": [
-        "45"
-      ],
-      "distance_m": 0,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:07Z",
-      "vehicle_id": "15",
-      "vehicle_name": "19232",
-      "route_id": "48",
-      "lat": 38.02714,
-      "lon": -78.51617,
-      "heading_deg": 161.14964968560935,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "686",
-      "nearest_stop_route_ids": [
-        "53"
-      ],
-      "distance_m": 26.185301120164464,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:11Z",
-      "vehicle_id": "38",
-      "vehicle_name": "19232",
-      "route_id": "48",
-      "lat": 38.0265,
-      "lon": -78.51531,
-      "heading_deg": 334.54684193792104,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "685",
-      "nearest_stop_route_ids": [
-        "53"
-      ],
-      "distance_m": 79.19248983396537,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:11Z",
-      "vehicle_id": "29",
-      "vehicle_name": "19232",
-      "route_id": "52",
-      "lat": 38.03694,
-      "lon": -78.50394,
-      "heading_deg": 101.86674665231413,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "647",
-      "nearest_stop_route_ids": [
-        "52"
-      ],
-      "distance_m": 81.24057435031021,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:11Z",
-      "vehicle_id": "27",
-      "vehicle_name": "19232",
-      "route_id": "52",
-      "lat": 38.02851,
-      "lon": -78.52001,
-      "heading_deg": 266.3368271658285,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "629",
-      "nearest_stop_route_ids": [
-        "52"
-      ],
-      "distance_m": 113.7115914743183,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:07Z",
-      "vehicle_id": "1",
-      "vehicle_name": "19232",
-      "route_id": "53",
-      "lat": 38.03231,
-      "lon": -78.50111,
-      "heading_deg": 230.73875821311094,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "716",
-      "nearest_stop_route_ids": [
-        "55"
-      ],
-      "distance_m": 23.31436714423142,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:08Z",
-      "vehicle_id": "20",
-      "vehicle_name": "19232",
-      "route_id": "53",
-      "lat": 38.03205,
-      "lon": -78.50611,
-      "heading_deg": 92.00561152451525,
-      "reason": "beyond_distance",
-      "nearest_stop_id": "607",
-      "nearest_stop_route_ids": [
-        "45"
-      ],
-      "distance_m": 178.9594948240062,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:07Z",
-      "vehicle_id": "12",
-      "vehicle_name": "19232",
-      "route_id": "53",
-      "lat": 38.037374,
-      "lon": -78.497805,
-      "heading_deg": 21.901267455072627,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "718",
-      "nearest_stop_route_ids": [
-        "55"
-      ],
-      "distance_m": 0,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:11Z",
+      "timestamp": "2025-12-05T20:20:31Z",
       "vehicle_id": "34",
       "vehicle_name": "19232",
       "route_id": "53",
-      "lat": 38.03244,
-      "lon": -78.51433,
-      "heading_deg": 68.79860035981932,
+      "lat": 38.0321,
+      "lon": -78.51208,
+      "heading_deg": 103.14085324218462,
       "reason": "beyond_distance",
       "nearest_stop_id": "634",
       "nearest_stop_route_ids": [
         "52"
       ],
-      "distance_m": 130.97741047650678,
+      "distance_m": 70.28319514293311,
       "threshold_m": 60
     },
     {
-      "timestamp": "2025-12-05T20:16:07Z",
+      "timestamp": "2025-12-05T20:20:32Z",
       "vehicle_id": "39",
       "vehicle_name": "19232",
       "route_id": "56",
-      "lat": 38.03548525,
-      "lon": -78.50832373,
-      "heading_deg": 14.63739330278247,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "649",
+      "lat": 38.04643,
+      "lon": -78.5098,
+      "heading_deg": 299.20901701591924,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "786",
       "nearest_stop_route_ids": [
-        "52"
+        "56"
       ],
-      "distance_m": 0,
+      "distance_m": 120.7605457463297,
       "threshold_m": 60
     },
     {
-      "timestamp": "2025-12-05T20:16:08Z",
+      "timestamp": "2025-12-05T20:20:34Z",
       "vehicle_id": "2",
       "vehicle_name": "19232",
       "route_id": "56",
-      "lat": 38.051897,
-      "lon": -78.509797,
-      "heading_deg": 92.63853892245265,
+      "lat": 38.048796,
+      "lon": -78.505219,
+      "heading_deg": 314.56168280910947,
       "reason": "route_mismatch",
-      "nearest_stop_id": "827",
+      "nearest_stop_id": "829",
       "nearest_stop_route_ids": [
         "57"
       ],
@@ -338,72 +50,360 @@
       "threshold_m": 60
     },
     {
-      "timestamp": "2025-12-05T20:16:09Z",
-      "vehicle_id": "19",
-      "vehicle_name": "19232",
-      "route_id": "56",
-      "lat": 38.0294519646,
-      "lon": -78.5195046086,
-      "heading_deg": 347.84127947413094,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "629",
-      "nearest_stop_route_ids": [
-        "52"
-      ],
-      "distance_m": 0,
-      "threshold_m": 60
-    },
-    {
-      "timestamp": "2025-12-05T20:16:08Z",
+      "timestamp": "2025-12-05T20:20:33Z",
       "vehicle_id": "33",
       "vehicle_name": "19232",
       "route_id": "56",
-      "lat": 38.0456,
-      "lon": -78.50807,
-      "heading_deg": 115.50589635870625,
-      "reason": "route_mismatch",
-      "nearest_stop_id": "824",
+      "lat": 38.03293,
+      "lon": -78.50913,
+      "heading_deg": 186.03726439513525,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "650",
       "nearest_stop_route_ids": [
-        "57"
+        "52"
       ],
-      "distance_m": 27.33686675285182,
+      "distance_m": 224.89596481666374,
       "threshold_m": 60
     },
     {
-      "timestamp": "2025-12-05T20:16:12Z",
+      "timestamp": "2025-12-05T20:20:32Z",
       "vehicle_id": "13",
       "vehicle_name": "19232",
       "route_id": "58",
-      "lat": 38.03308,
-      "lon": -78.49841,
-      "heading_deg": 68.49724242632027,
+      "lat": 38.03632,
+      "lon": -78.50214,
+      "heading_deg": 298.62117133341974,
       "reason": "beyond_distance",
-      "nearest_stop_id": "605",
+      "nearest_stop_id": "727",
       "nearest_stop_route_ids": [
-        "45"
+        "58"
       ],
-      "distance_m": 148.57376534931115,
+      "distance_m": 67.21952650239204,
       "threshold_m": 60
     },
     {
-      "timestamp": "2025-12-05T20:16:07Z",
+      "timestamp": "2025-12-05T20:20:32Z",
       "vehicle_id": "44",
       "vehicle_name": "19232",
       "route_id": "58",
-      "lat": 38.04443,
-      "lon": -78.50528,
-      "heading_deg": 119.12401343867919,
+      "lat": 38.03194,
+      "lon": -78.50812,
+      "heading_deg": 94.24114285117639,
       "reason": "beyond_distance",
+      "nearest_stop_id": "694",
+      "nearest_stop_route_ids": [
+        "53"
+      ],
+      "distance_m": 103.52277909882933,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:45Z",
+      "vehicle_id": "49",
+      "vehicle_name": "19232",
+      "route_id": "45",
+      "lat": 38.032126,
+      "lon": -78.504069,
+      "heading_deg": 274.560356398998,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "620",
+      "nearest_stop_route_ids": [
+        "46"
+      ],
+      "distance_m": 0,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:45Z",
+      "vehicle_id": "31",
+      "vehicle_name": "19232",
+      "route_id": "45",
+      "lat": 38.04326,
+      "lon": -78.5055,
+      "heading_deg": 192.95266914529873,
+      "reason": "route_mismatch",
       "nearest_stop_id": "788",
       "nearest_stop_route_ids": [
         "56"
       ],
-      "distance_m": 130.53195630761167,
+      "distance_m": 6.7327543433097095,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:40Z",
+      "vehicle_id": "45",
+      "vehicle_name": "19232",
+      "route_id": "45",
+      "lat": 38.03091,
+      "lon": -78.49979,
+      "heading_deg": 122.82156137121501,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "604",
+      "nearest_stop_route_ids": [
+        "45"
+      ],
+      "distance_m": 98.4405017483233,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:44Z",
+      "vehicle_id": "17",
+      "vehicle_name": "19232",
+      "route_id": "45",
+      "lat": 38.03795,
+      "lon": -78.50729,
+      "heading_deg": 15.701821922377746,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "648",
+      "nearest_stop_route_ids": [
+        "52"
+      ],
+      "distance_m": 44.26805709022077,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:42Z",
+      "vehicle_id": "48",
+      "vehicle_name": "19232",
+      "route_id": "48",
+      "lat": 38.03249,
+      "lon": -78.50064,
+      "heading_deg": 238.09154671657348,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "606",
+      "nearest_stop_route_ids": [
+        "45"
+      ],
+      "distance_m": 19.336251365962102,
+      "threshold_m": 45
+    },
+    {
+      "timestamp": "2025-12-05T20:20:44Z",
+      "vehicle_id": "36",
+      "vehicle_name": "19232",
+      "route_id": "48",
+      "lat": 38.02842,
+      "lon": -78.51648,
+      "heading_deg": 176.8322650963879,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "736",
+      "nearest_stop_route_ids": [
+        "59"
+      ],
+      "distance_m": 34.15732679159984,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:41Z",
+      "vehicle_id": "42",
+      "vehicle_name": "19232",
+      "route_id": "48",
+      "lat": 38.02783,
+      "lon": -78.51114,
+      "heading_deg": 231.87994507428812,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "692",
+      "nearest_stop_route_ids": [
+        "53"
+      ],
+      "distance_m": 18.959569917879136,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:43Z",
+      "vehicle_id": "15",
+      "vehicle_name": "19232",
+      "route_id": "48",
+      "lat": 38.03178,
+      "lon": -78.5017,
+      "heading_deg": 157.73547870927882,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "696",
+      "nearest_stop_route_ids": [
+        "53"
+      ],
+      "distance_m": 95.91467711569979,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:41Z",
+      "vehicle_id": "38",
+      "vehicle_name": "19232",
+      "route_id": "48",
+      "lat": 38.02996,
+      "lon": -78.51559,
+      "heading_deg": 309.02171860050953,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "615",
+      "nearest_stop_route_ids": [
+        "46"
+      ],
+      "distance_m": 79.30229689261847,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:42Z",
+      "vehicle_id": "1",
+      "vehicle_name": "19232",
+      "route_id": "53",
+      "lat": 38.028783985,
+      "lon": -78.5098208221,
+      "heading_deg": 212.48779849170683,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "665",
+      "nearest_stop_route_ids": [
+        "54"
+      ],
+      "distance_m": 0,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:43Z",
+      "vehicle_id": "20",
+      "vehicle_name": "19232",
+      "route_id": "53",
+      "lat": 38.03356,
+      "lon": -78.49869,
+      "heading_deg": 293.43027824984244,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "680",
+      "nearest_stop_route_ids": [
+        "53"
+      ],
+      "distance_m": 124.97060090688746,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:42Z",
+      "vehicle_id": "12",
+      "vehicle_name": "19232",
+      "route_id": "53",
+      "lat": 38.041785,
+      "lon": -78.493186,
+      "heading_deg": 93.67239574190137,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "641",
+      "nearest_stop_route_ids": [
+        "52"
+      ],
+      "distance_m": 0,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:41Z",
+      "vehicle_id": "34",
+      "vehicle_name": "19232",
+      "route_id": "53",
+      "lat": 38.03174,
+      "lon": -78.51153,
+      "heading_deg": 129.5284030748627,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "650",
+      "nearest_stop_route_ids": [
+        "52"
+      ],
+      "distance_m": 31.66386221509782,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:42Z",
+      "vehicle_id": "39",
+      "vehicle_name": "19232",
+      "route_id": "56",
+      "lat": 38.04692,
+      "lon": -78.5109,
+      "heading_deg": 299.3223437743658,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "772",
+      "nearest_stop_route_ids": [
+        "56"
+      ],
+      "distance_m": 168.41359827458322,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:44Z",
+      "vehicle_id": "2",
+      "vehicle_name": "19232",
+      "route_id": "56",
+      "lat": 38.048796,
+      "lon": -78.505219,
+      "heading_deg": 314.56168280910947,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "829",
+      "nearest_stop_route_ids": [
+        "57"
+      ],
+      "distance_m": 0,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:44Z",
+      "vehicle_id": "19",
+      "vehicle_name": "19232",
+      "route_id": "56",
+      "lat": 38.030505,
+      "lon": -78.519591,
+      "heading_deg": 93.19270854443698,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "630",
+      "nearest_stop_route_ids": [
+        "52"
+      ],
+      "distance_m": 0,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:43Z",
+      "vehicle_id": "33",
+      "vehicle_name": "19232",
+      "route_id": "56",
+      "lat": 38.03259,
+      "lon": -78.50924,
+      "heading_deg": 194.39314745678064,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "650",
+      "nearest_stop_route_ids": [
+        "52"
+      ],
+      "distance_m": 195.80836023179808,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:42Z",
+      "vehicle_id": "13",
+      "vehicle_name": "19232",
+      "route_id": "58",
+      "lat": 38.03658,
+      "lon": -78.50297,
+      "heading_deg": 291.5507870237376,
+      "reason": "route_mismatch",
+      "nearest_stop_id": "743",
+      "nearest_stop_route_ids": [
+        "59"
+      ],
+      "distance_m": 15.544368170584319,
+      "threshold_m": 60
+    },
+    {
+      "timestamp": "2025-12-05T20:20:42Z",
+      "vehicle_id": "44",
+      "vehicle_name": "19232",
+      "route_id": "58",
+      "lat": 38.03194,
+      "lon": -78.50812,
+      "heading_deg": 94.24114285117639,
+      "reason": "beyond_distance",
+      "nearest_stop_id": "694",
+      "nearest_stop_route_ids": [
+        "53"
+      ],
+      "distance_m": 103.52277909882933,
       "threshold_m": 60
     }
   ],
   "headway_diagnostics": {
-    "fetched_at": "2025-12-05T20:15:58.194717Z",
+    "fetched_at": "2025-12-05T20:20:33.269406Z",
     "thresholds_m": {
       "arrival_distance_threshold_m": 60,
       "departure_distance_threshold_m": 60
@@ -2495,9 +2495,9 @@
     "vehicle_states": [
       {
         "vehicle_id": "49",
-        "route_id": null,
-        "current_stop_id": null,
-        "arrival_time": null,
+        "route_id": "45",
+        "current_stop_id": "607",
+        "arrival_time": "2025-12-05T20:20:15Z",
         "departure_started_at": null
       },
       {
@@ -2523,9 +2523,9 @@
       },
       {
         "vehicle_id": "48",
-        "route_id": null,
-        "current_stop_id": null,
-        "arrival_time": null,
+        "route_id": "48",
+        "current_stop_id": "625",
+        "arrival_time": "2025-12-05T20:20:12Z",
         "departure_started_at": null
       },
       {
@@ -2558,16 +2558,16 @@
       },
       {
         "vehicle_id": "29",
-        "route_id": null,
-        "current_stop_id": null,
-        "arrival_time": null,
+        "route_id": "52",
+        "current_stop_id": "641",
+        "arrival_time": "2025-12-05T20:20:22Z",
         "departure_started_at": null
       },
       {
         "vehicle_id": "27",
-        "route_id": null,
-        "current_stop_id": null,
-        "arrival_time": null,
+        "route_id": "52",
+        "current_stop_id": "629",
+        "arrival_time": "2025-12-05T20:19:56Z",
         "departure_started_at": null
       },
       {
@@ -2614,9 +2614,9 @@
       },
       {
         "vehicle_id": "19",
-        "route_id": null,
-        "current_stop_id": null,
-        "arrival_time": null,
+        "route_id": "56",
+        "current_stop_id": "755",
+        "arrival_time": "2025-12-05T20:20:34Z",
         "departure_started_at": null
       },
       {
@@ -2641,341 +2641,162 @@
         "departure_started_at": null
       }
     ],
-    "last_arrivals": [],
-    "last_departures": [],
-    "last_vehicle_arrivals": [],
-    "last_vehicle_departures": [],
+    "last_arrivals": [
+      {
+        "stop_id": "52",
+        "vehicle_id": "629",
+        "timestamp": "2025-12-05T20:19:56Z"
+      },
+      {
+        "stop_id": null,
+        "vehicle_id": "629",
+        "timestamp": "2025-12-05T20:19:56Z"
+      },
+      {
+        "stop_id": "45",
+        "vehicle_id": "607",
+        "timestamp": "2025-12-05T20:20:15Z"
+      },
+      {
+        "stop_id": null,
+        "vehicle_id": "607",
+        "timestamp": "2025-12-05T20:20:15Z"
+      },
+      {
+        "stop_id": "45",
+        "vehicle_id": "604",
+        "timestamp": "2025-12-05T20:20:10Z"
+      },
+      {
+        "stop_id": null,
+        "vehicle_id": "604",
+        "timestamp": "2025-12-05T20:20:10Z"
+      },
+      {
+        "stop_id": "48",
+        "vehicle_id": "625",
+        "timestamp": "2025-12-05T20:20:12Z"
+      },
+      {
+        "stop_id": null,
+        "vehicle_id": "625",
+        "timestamp": "2025-12-05T20:20:12Z"
+      },
+      {
+        "stop_id": "52",
+        "vehicle_id": "641",
+        "timestamp": "2025-12-05T20:20:22Z"
+      },
+      {
+        "stop_id": null,
+        "vehicle_id": "641",
+        "timestamp": "2025-12-05T20:20:22Z"
+      },
+      {
+        "stop_id": "56",
+        "vehicle_id": "755",
+        "timestamp": "2025-12-05T20:20:34Z"
+      },
+      {
+        "stop_id": null,
+        "vehicle_id": "755",
+        "timestamp": "2025-12-05T20:20:34Z"
+      }
+    ],
+    "last_departures": [
+      {
+        "stop_id": "45",
+        "vehicle_id": "604",
+        "timestamp": "2025-12-05T20:20:40Z"
+      },
+      {
+        "stop_id": null,
+        "vehicle_id": "604",
+        "timestamp": "2025-12-05T20:20:40Z"
+      }
+    ],
+    "last_vehicle_arrivals": [
+      {
+        "stop_id": "27",
+        "vehicle_id": "629",
+        "timestamp": "2025-12-05T20:19:56Z"
+      },
+      {
+        "stop_id": "49",
+        "vehicle_id": "607",
+        "timestamp": "2025-12-05T20:20:15Z"
+      },
+      {
+        "stop_id": "45",
+        "vehicle_id": "604",
+        "timestamp": "2025-12-05T20:20:10Z"
+      },
+      {
+        "stop_id": "48",
+        "vehicle_id": "625",
+        "timestamp": "2025-12-05T20:20:12Z"
+      },
+      {
+        "stop_id": "29",
+        "vehicle_id": "641",
+        "timestamp": "2025-12-05T20:20:22Z"
+      },
+      {
+        "stop_id": "19",
+        "vehicle_id": "755",
+        "timestamp": "2025-12-05T20:20:34Z"
+      }
+    ],
+    "last_vehicle_departures": [
+      {
+        "stop_id": "45",
+        "vehicle_id": "604",
+        "timestamp": "2025-12-05T20:20:40Z"
+      }
+    ],
     "recent_stop_association_failures": [
       {
-        "timestamp": "2025-12-05T20:15:59Z",
-        "vehicle_id": "19",
-        "vehicle_name": "19232",
-        "route_id": "56",
-        "lat": 38.0294519646,
-        "lon": -78.5195046086,
-        "heading_deg": 347.84127947413094,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "629",
-        "nearest_stop_route_ids": [
-          "52"
-        ],
-        "distance_m": 0,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:15:58Z",
-        "vehicle_id": "33",
-        "vehicle_name": "19232",
-        "route_id": "56",
-        "lat": 38.04574,
-        "lon": -78.50844,
-        "heading_deg": 120.95461944674969,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "834",
-        "nearest_stop_route_ids": [
-          "57"
-        ],
-        "distance_m": 20.945034062038527,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:15:57Z",
-        "vehicle_id": "13",
-        "vehicle_name": "19232",
-        "route_id": "58",
-        "lat": 38.03263,
-        "lon": -78.49985,
-        "heading_deg": 65.37180670187843,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "606",
-        "nearest_stop_route_ids": [
-          "45"
-        ],
-        "distance_m": 52.683151756206875,
-        "threshold_m": 45
-      },
-      {
-        "timestamp": "2025-12-05T20:15:57Z",
-        "vehicle_id": "44",
-        "vehicle_name": "19232",
-        "route_id": "58",
-        "lat": 38.04443,
-        "lon": -78.50528,
-        "heading_deg": 119.12401343867919,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "788",
-        "nearest_stop_route_ids": [
-          "56"
-        ],
-        "distance_m": 130.53195630761167,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:10Z",
-        "vehicle_id": "49",
-        "vehicle_name": "19232",
-        "route_id": "45",
-        "lat": 38.03058,
-        "lon": -78.49906,
-        "heading_deg": 115.65260041885159,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "605",
-        "nearest_stop_route_ids": [
-          "45"
-        ],
-        "distance_m": 157.85300382802163,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:10Z",
-        "vehicle_id": "31",
-        "vehicle_name": "19232",
-        "route_id": "45",
-        "lat": 38.041401,
-        "lon": -78.509224,
-        "heading_deg": 310.9416081526773,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "729",
-        "nearest_stop_route_ids": [
-          "58"
-        ],
-        "distance_m": 0,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:10Z",
-        "vehicle_id": "45",
-        "vehicle_name": "19232",
-        "route_id": "45",
-        "lat": 38.03766,
-        "lon": -78.50752,
-        "heading_deg": 195.87797916097577,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "648",
-        "nearest_stop_route_ids": [
-          "52"
-        ],
-        "distance_m": 78.8484124111532,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:09Z",
-        "vehicle_id": "17",
-        "vehicle_name": "19232",
-        "route_id": "45",
-        "lat": 38.03248,
-        "lon": -78.5006,
-        "heading_deg": 270.5770874284076,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "619",
-        "nearest_stop_route_ids": [
-          "46"
-        ],
-        "distance_m": 17.03785007061304,
-        "threshold_m": 45
-      },
-      {
-        "timestamp": "2025-12-05T20:16:07Z",
-        "vehicle_id": "48",
-        "vehicle_name": "19232",
-        "route_id": "48",
-        "lat": 38.031257,
-        "lon": -78.500824,
-        "heading_deg": 132.03286780728183,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "604",
-        "nearest_stop_route_ids": [
-          "45"
-        ],
-        "distance_m": 0,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:09Z",
-        "vehicle_id": "36",
-        "vehicle_name": "19232",
-        "route_id": "48",
-        "lat": 38.029557,
-        "lon": -78.514843,
-        "heading_deg": 13.486070716271001,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "615",
-        "nearest_stop_route_ids": [
-          "46"
-        ],
-        "distance_m": 0,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:10Z",
-        "vehicle_id": "42",
-        "vehicle_name": "19232",
-        "route_id": "48",
-        "lat": 38.0317698454,
-        "lon": -78.4980769737,
-        "heading_deg": 299.67839034802114,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "605",
-        "nearest_stop_route_ids": [
-          "45"
-        ],
-        "distance_m": 0,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:07Z",
-        "vehicle_id": "15",
-        "vehicle_name": "19232",
-        "route_id": "48",
-        "lat": 38.02714,
-        "lon": -78.51617,
-        "heading_deg": 161.14964968560935,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "686",
-        "nearest_stop_route_ids": [
-          "53"
-        ],
-        "distance_m": 26.185301120164464,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:11Z",
-        "vehicle_id": "38",
-        "vehicle_name": "19232",
-        "route_id": "48",
-        "lat": 38.0265,
-        "lon": -78.51531,
-        "heading_deg": 334.54684193792104,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "685",
-        "nearest_stop_route_ids": [
-          "53"
-        ],
-        "distance_m": 79.19248983396537,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:11Z",
-        "vehicle_id": "29",
-        "vehicle_name": "19232",
-        "route_id": "52",
-        "lat": 38.03694,
-        "lon": -78.50394,
-        "heading_deg": 101.86674665231413,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "647",
-        "nearest_stop_route_ids": [
-          "52"
-        ],
-        "distance_m": 81.24057435031021,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:11Z",
-        "vehicle_id": "27",
-        "vehicle_name": "19232",
-        "route_id": "52",
-        "lat": 38.02851,
-        "lon": -78.52001,
-        "heading_deg": 266.3368271658285,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "629",
-        "nearest_stop_route_ids": [
-          "52"
-        ],
-        "distance_m": 113.7115914743183,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:07Z",
-        "vehicle_id": "1",
-        "vehicle_name": "19232",
-        "route_id": "53",
-        "lat": 38.03231,
-        "lon": -78.50111,
-        "heading_deg": 230.73875821311094,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "716",
-        "nearest_stop_route_ids": [
-          "55"
-        ],
-        "distance_m": 23.31436714423142,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:08Z",
-        "vehicle_id": "20",
-        "vehicle_name": "19232",
-        "route_id": "53",
-        "lat": 38.03205,
-        "lon": -78.50611,
-        "heading_deg": 92.00561152451525,
-        "reason": "beyond_distance",
-        "nearest_stop_id": "607",
-        "nearest_stop_route_ids": [
-          "45"
-        ],
-        "distance_m": 178.9594948240062,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:07Z",
-        "vehicle_id": "12",
-        "vehicle_name": "19232",
-        "route_id": "53",
-        "lat": 38.037374,
-        "lon": -78.497805,
-        "heading_deg": 21.901267455072627,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "718",
-        "nearest_stop_route_ids": [
-          "55"
-        ],
-        "distance_m": 0,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:11Z",
+        "timestamp": "2025-12-05T20:20:31Z",
         "vehicle_id": "34",
         "vehicle_name": "19232",
         "route_id": "53",
-        "lat": 38.03244,
-        "lon": -78.51433,
-        "heading_deg": 68.79860035981932,
+        "lat": 38.0321,
+        "lon": -78.51208,
+        "heading_deg": 103.14085324218462,
         "reason": "beyond_distance",
         "nearest_stop_id": "634",
         "nearest_stop_route_ids": [
           "52"
         ],
-        "distance_m": 130.97741047650678,
+        "distance_m": 70.28319514293311,
         "threshold_m": 60
       },
       {
-        "timestamp": "2025-12-05T20:16:07Z",
+        "timestamp": "2025-12-05T20:20:32Z",
         "vehicle_id": "39",
         "vehicle_name": "19232",
         "route_id": "56",
-        "lat": 38.03548525,
-        "lon": -78.50832373,
-        "heading_deg": 14.63739330278247,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "649",
+        "lat": 38.04643,
+        "lon": -78.5098,
+        "heading_deg": 299.20901701591924,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "786",
         "nearest_stop_route_ids": [
-          "52"
+          "56"
         ],
-        "distance_m": 0,
+        "distance_m": 120.7605457463297,
         "threshold_m": 60
       },
       {
-        "timestamp": "2025-12-05T20:16:08Z",
+        "timestamp": "2025-12-05T20:20:34Z",
         "vehicle_id": "2",
         "vehicle_name": "19232",
         "route_id": "56",
-        "lat": 38.051897,
-        "lon": -78.509797,
-        "heading_deg": 92.63853892245265,
+        "lat": 38.048796,
+        "lon": -78.505219,
+        "heading_deg": 314.56168280910947,
         "reason": "route_mismatch",
-        "nearest_stop_id": "827",
+        "nearest_stop_id": "829",
         "nearest_stop_route_ids": [
           "57"
         ],
@@ -2983,68 +2804,502 @@
         "threshold_m": 60
       },
       {
-        "timestamp": "2025-12-05T20:16:09Z",
-        "vehicle_id": "19",
-        "vehicle_name": "19232",
-        "route_id": "56",
-        "lat": 38.0294519646,
-        "lon": -78.5195046086,
-        "heading_deg": 347.84127947413094,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "629",
-        "nearest_stop_route_ids": [
-          "52"
-        ],
-        "distance_m": 0,
-        "threshold_m": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:16:08Z",
+        "timestamp": "2025-12-05T20:20:33Z",
         "vehicle_id": "33",
         "vehicle_name": "19232",
         "route_id": "56",
-        "lat": 38.0456,
-        "lon": -78.50807,
-        "heading_deg": 115.50589635870625,
-        "reason": "route_mismatch",
-        "nearest_stop_id": "824",
+        "lat": 38.03293,
+        "lon": -78.50913,
+        "heading_deg": 186.03726439513525,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "650",
         "nearest_stop_route_ids": [
-          "57"
+          "52"
         ],
-        "distance_m": 27.33686675285182,
+        "distance_m": 224.89596481666374,
         "threshold_m": 60
       },
       {
-        "timestamp": "2025-12-05T20:16:12Z",
+        "timestamp": "2025-12-05T20:20:32Z",
         "vehicle_id": "13",
         "vehicle_name": "19232",
         "route_id": "58",
-        "lat": 38.03308,
-        "lon": -78.49841,
-        "heading_deg": 68.49724242632027,
+        "lat": 38.03632,
+        "lon": -78.50214,
+        "heading_deg": 298.62117133341974,
         "reason": "beyond_distance",
-        "nearest_stop_id": "605",
+        "nearest_stop_id": "727",
         "nearest_stop_route_ids": [
-          "45"
+          "58"
         ],
-        "distance_m": 148.57376534931115,
+        "distance_m": 67.21952650239204,
         "threshold_m": 60
       },
       {
-        "timestamp": "2025-12-05T20:16:07Z",
+        "timestamp": "2025-12-05T20:20:32Z",
         "vehicle_id": "44",
         "vehicle_name": "19232",
         "route_id": "58",
-        "lat": 38.04443,
-        "lon": -78.50528,
-        "heading_deg": 119.12401343867919,
+        "lat": 38.03194,
+        "lon": -78.50812,
+        "heading_deg": 94.24114285117639,
         "reason": "beyond_distance",
+        "nearest_stop_id": "694",
+        "nearest_stop_route_ids": [
+          "53"
+        ],
+        "distance_m": 103.52277909882933,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:45Z",
+        "vehicle_id": "49",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "lat": 38.032126,
+        "lon": -78.504069,
+        "heading_deg": 274.560356398998,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "620",
+        "nearest_stop_route_ids": [
+          "46"
+        ],
+        "distance_m": 0,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:45Z",
+        "vehicle_id": "31",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "lat": 38.04326,
+        "lon": -78.5055,
+        "heading_deg": 192.95266914529873,
+        "reason": "route_mismatch",
         "nearest_stop_id": "788",
         "nearest_stop_route_ids": [
           "56"
         ],
-        "distance_m": 130.53195630761167,
+        "distance_m": 6.7327543433097095,
         "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:40Z",
+        "vehicle_id": "45",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "lat": 38.03091,
+        "lon": -78.49979,
+        "heading_deg": 122.82156137121501,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "604",
+        "nearest_stop_route_ids": [
+          "45"
+        ],
+        "distance_m": 98.4405017483233,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:44Z",
+        "vehicle_id": "17",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "lat": 38.03795,
+        "lon": -78.50729,
+        "heading_deg": 15.701821922377746,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "648",
+        "nearest_stop_route_ids": [
+          "52"
+        ],
+        "distance_m": 44.26805709022077,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:42Z",
+        "vehicle_id": "48",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "lat": 38.03249,
+        "lon": -78.50064,
+        "heading_deg": 238.09154671657348,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "606",
+        "nearest_stop_route_ids": [
+          "45"
+        ],
+        "distance_m": 19.336251365962102,
+        "threshold_m": 45
+      },
+      {
+        "timestamp": "2025-12-05T20:20:44Z",
+        "vehicle_id": "36",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "lat": 38.02842,
+        "lon": -78.51648,
+        "heading_deg": 176.8322650963879,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "736",
+        "nearest_stop_route_ids": [
+          "59"
+        ],
+        "distance_m": 34.15732679159984,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:41Z",
+        "vehicle_id": "42",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "lat": 38.02783,
+        "lon": -78.51114,
+        "heading_deg": 231.87994507428812,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "692",
+        "nearest_stop_route_ids": [
+          "53"
+        ],
+        "distance_m": 18.959569917879136,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:43Z",
+        "vehicle_id": "15",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "lat": 38.03178,
+        "lon": -78.5017,
+        "heading_deg": 157.73547870927882,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "696",
+        "nearest_stop_route_ids": [
+          "53"
+        ],
+        "distance_m": 95.91467711569979,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:41Z",
+        "vehicle_id": "38",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "lat": 38.02996,
+        "lon": -78.51559,
+        "heading_deg": 309.02171860050953,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "615",
+        "nearest_stop_route_ids": [
+          "46"
+        ],
+        "distance_m": 79.30229689261847,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:42Z",
+        "vehicle_id": "1",
+        "vehicle_name": "19232",
+        "route_id": "53",
+        "lat": 38.028783985,
+        "lon": -78.5098208221,
+        "heading_deg": 212.48779849170683,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "665",
+        "nearest_stop_route_ids": [
+          "54"
+        ],
+        "distance_m": 0,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:43Z",
+        "vehicle_id": "20",
+        "vehicle_name": "19232",
+        "route_id": "53",
+        "lat": 38.03356,
+        "lon": -78.49869,
+        "heading_deg": 293.43027824984244,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "680",
+        "nearest_stop_route_ids": [
+          "53"
+        ],
+        "distance_m": 124.97060090688746,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:42Z",
+        "vehicle_id": "12",
+        "vehicle_name": "19232",
+        "route_id": "53",
+        "lat": 38.041785,
+        "lon": -78.493186,
+        "heading_deg": 93.67239574190137,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "641",
+        "nearest_stop_route_ids": [
+          "52"
+        ],
+        "distance_m": 0,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:41Z",
+        "vehicle_id": "34",
+        "vehicle_name": "19232",
+        "route_id": "53",
+        "lat": 38.03174,
+        "lon": -78.51153,
+        "heading_deg": 129.5284030748627,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "650",
+        "nearest_stop_route_ids": [
+          "52"
+        ],
+        "distance_m": 31.66386221509782,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:42Z",
+        "vehicle_id": "39",
+        "vehicle_name": "19232",
+        "route_id": "56",
+        "lat": 38.04692,
+        "lon": -78.5109,
+        "heading_deg": 299.3223437743658,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "772",
+        "nearest_stop_route_ids": [
+          "56"
+        ],
+        "distance_m": 168.41359827458322,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:44Z",
+        "vehicle_id": "2",
+        "vehicle_name": "19232",
+        "route_id": "56",
+        "lat": 38.048796,
+        "lon": -78.505219,
+        "heading_deg": 314.56168280910947,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "829",
+        "nearest_stop_route_ids": [
+          "57"
+        ],
+        "distance_m": 0,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:44Z",
+        "vehicle_id": "19",
+        "vehicle_name": "19232",
+        "route_id": "56",
+        "lat": 38.030505,
+        "lon": -78.519591,
+        "heading_deg": 93.19270854443698,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "630",
+        "nearest_stop_route_ids": [
+          "52"
+        ],
+        "distance_m": 0,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:43Z",
+        "vehicle_id": "33",
+        "vehicle_name": "19232",
+        "route_id": "56",
+        "lat": 38.03259,
+        "lon": -78.50924,
+        "heading_deg": 194.39314745678064,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "650",
+        "nearest_stop_route_ids": [
+          "52"
+        ],
+        "distance_m": 195.80836023179808,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:42Z",
+        "vehicle_id": "13",
+        "vehicle_name": "19232",
+        "route_id": "58",
+        "lat": 38.03658,
+        "lon": -78.50297,
+        "heading_deg": 291.5507870237376,
+        "reason": "route_mismatch",
+        "nearest_stop_id": "743",
+        "nearest_stop_route_ids": [
+          "59"
+        ],
+        "distance_m": 15.544368170584319,
+        "threshold_m": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:20:42Z",
+        "vehicle_id": "44",
+        "vehicle_name": "19232",
+        "route_id": "58",
+        "lat": 38.03194,
+        "lon": -78.50812,
+        "heading_deg": 94.24114285117639,
+        "reason": "beyond_distance",
+        "nearest_stop_id": "694",
+        "nearest_stop_route_ids": [
+          "53"
+        ],
+        "distance_m": 103.52277909882933,
+        "threshold_m": 60
+      }
+    ],
+    "recent_arrival_suppressions": [
+      {
+        "timestamp": "2025-12-05T20:20:25Z",
+        "vehicle_id": "49",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "stop_id": "607",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 0,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 0,
+        "stop_bearing": 0,
+        "approach_bearing_deg": 98,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 60,
+        "heading_deg": 274.560356398998
+      },
+      {
+        "timestamp": "2025-12-05T20:20:20Z",
+        "vehicle_id": "45",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "stop_id": "604",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 28.328938698776852,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 28.328938698776852,
+        "stop_bearing": 109.96739021047262,
+        "approach_bearing_deg": 304,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 60,
+        "heading_deg": 121.14996728718273
+      },
+      {
+        "timestamp": "2025-12-05T20:20:22Z",
+        "vehicle_id": "48",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "stop_id": "625",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 0,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 0,
+        "stop_bearing": 0,
+        "approach_bearing_deg": 80,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 45,
+        "heading_deg": 268.56802798456135
+      },
+      {
+        "timestamp": "2025-12-05T20:20:35Z",
+        "vehicle_id": "49",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "stop_id": "607",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 0,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 0,
+        "stop_bearing": 0,
+        "approach_bearing_deg": 98,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 60,
+        "heading_deg": 274.560356398998
+      },
+      {
+        "timestamp": "2025-12-05T20:20:30Z",
+        "vehicle_id": "45",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "stop_id": "604",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 54.75407396913162,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 54.75407396913162,
+        "stop_bearing": 104.94604241086239,
+        "approach_bearing_deg": 304,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 60,
+        "heading_deg": 99.54155485242916
+      },
+      {
+        "timestamp": "2025-12-05T20:20:32Z",
+        "vehicle_id": "48",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "stop_id": "625",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 19.904005605521974,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 19.904005605521974,
+        "stop_bearing": 237.9105589289357,
+        "approach_bearing_deg": 80,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 45,
+        "heading_deg": 238.09154671657348
+      },
+      {
+        "timestamp": "2025-12-05T20:20:45Z",
+        "vehicle_id": "49",
+        "vehicle_name": "19232",
+        "route_id": "45",
+        "stop_id": "607",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 0,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 0,
+        "stop_bearing": 0,
+        "approach_bearing_deg": 98,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 60,
+        "heading_deg": 274.560356398998
+      },
+      {
+        "timestamp": "2025-12-05T20:20:42Z",
+        "vehicle_id": "48",
+        "vehicle_name": "19232",
+        "route_id": "48",
+        "stop_id": "625",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 19.336251365962102,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 19.336251365962102,
+        "stop_bearing": 240.70312099784704,
+        "approach_bearing_deg": 80,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 45,
+        "heading_deg": 238.09154671657348
+      },
+      {
+        "timestamp": "2025-12-05T20:20:44Z",
+        "vehicle_id": "19",
+        "vehicle_name": "19232",
+        "route_id": "56",
+        "stop_id": "755",
+        "reason": "still_at_previous_stop",
+        "distance_from_prev_stop": 0,
+        "has_left_prev_stop": false,
+        "distance_from_stop": 0,
+        "stop_bearing": 0,
+        "approach_bearing_deg": 273,
+        "approach_tolerance_deg": 30,
+        "approach_radius_m": 60,
+        "heading_deg": 93.19270854443698
       }
     ],
     "stop_approach_overrides": [
@@ -4269,285 +4524,69 @@
     ],
     "recent_events": [
       {
-        "timestamp": "2025-12-05T20:12:36Z",
-        "route_id": "53",
-        "stop_id": "684",
-        "vehicle_id": "34",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 40
-      },
-      {
-        "timestamp": "2025-12-05T20:12:37Z",
-        "route_id": "53",
-        "stop_id": "679",
-        "vehicle_id": "1",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 536,
-        "headway_departure_arrival": 516,
-        "headway_seconds": 536,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:12:45Z",
-        "route_id": "48",
-        "stop_id": "622",
-        "vehicle_id": "42",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 50
-      },
-      {
-        "timestamp": "2025-12-05T20:12:47Z",
-        "route_id": "48",
-        "stop_id": "621",
-        "vehicle_id": "15",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 637,
-        "headway_departure_arrival": 597,
-        "headway_seconds": 637,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:12:54Z",
-        "route_id": "45",
-        "stop_id": "604",
-        "vehicle_id": "17",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 60
-      },
-      {
-        "timestamp": "2025-12-05T20:12:56Z",
-        "route_id": "48",
-        "stop_id": "626",
-        "vehicle_id": "38",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 20
-      },
-      {
-        "timestamp": "2025-12-05T20:12:56Z",
-        "route_id": "52",
-        "stop_id": "649",
-        "vehicle_id": "27",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 40
-      },
-      {
-        "timestamp": "2025-12-05T20:12:56Z",
-        "route_id": "53",
-        "stop_id": "685",
-        "vehicle_id": "34",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 924,
-        "headway_departure_arrival": 864,
-        "headway_seconds": 924,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:13:04Z",
+        "timestamp": "2025-12-05T20:16:17Z",
         "route_id": "56",
-        "stop_id": "799",
-        "vehicle_id": "19",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 30
-      },
-      {
-        "timestamp": "2025-12-05T20:13:05Z",
-        "route_id": "48",
-        "stop_id": "623",
-        "vehicle_id": "42",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 364,
-        "headway_departure_arrival": 314,
-        "headway_seconds": 364,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:13:13Z",
-        "route_id": "56",
-        "stop_id": "783",
-        "vehicle_id": "33",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 1621,
-        "headway_departure_arrival": 1606,
-        "headway_seconds": 1621,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:13:17Z",
-        "route_id": "53",
-        "stop_id": "679",
-        "vehicle_id": "1",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 40
-      },
-      {
-        "timestamp": "2025-12-05T20:13:33Z",
-        "route_id": "53",
-        "stop_id": "691",
-        "vehicle_id": "20",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 1501,
-        "headway_departure_arrival": 1451,
-        "headway_seconds": 1501,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:13:33Z",
-        "route_id": "56",
-        "stop_id": "783",
-        "vehicle_id": "33",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 20
-      },
-      {
-        "timestamp": "2025-12-05T20:13:37Z",
-        "route_id": "48",
-        "stop_id": "621",
-        "vehicle_id": "15",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 50
-      },
-      {
-        "timestamp": "2025-12-05T20:13:46Z",
-        "route_id": "52",
-        "stop_id": "636",
-        "vehicle_id": "29",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 1245,
-        "headway_departure_arrival": 1215,
-        "headway_seconds": 1245,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:13:47Z",
-        "route_id": "56",
-        "stop_id": "762",
+        "stop_id": "764",
         "vehicle_id": "39",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 479,
-        "headway_departure_arrival": 429,
-        "headway_seconds": 479,
+        "headway_arrival_arrival": 1364,
+        "headway_departure_arrival": 1314,
+        "headway_seconds": 1364,
         "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:14:06Z",
-        "route_id": "53",
-        "stop_id": "685",
-        "vehicle_id": "34",
+        "timestamp": "2025-12-05T20:16:17Z",
+        "route_id": "58",
+        "stop_id": "721",
+        "vehicle_id": "44",
         "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 70
+        "event_type": "arrival",
+        "headway_arrival_arrival": 2691,
+        "headway_departure_arrival": 2681,
+        "headway_seconds": 2691,
+        "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:14:06Z",
+        "timestamp": "2025-12-05T20:16:21Z",
         "route_id": "53",
-        "stop_id": "686",
+        "stop_id": "688",
         "vehicle_id": "34",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 934,
-        "headway_departure_arrival": 914,
-        "headway_seconds": 934,
+        "headway_arrival_arrival": 974,
+        "headway_departure_arrival": 363,
+        "headway_seconds": 974,
         "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:14:06Z",
+        "timestamp": "2025-12-05T20:16:33Z",
         "route_id": "53",
-        "stop_id": "686",
-        "vehicle_id": "34",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 0
-      },
-      {
-        "timestamp": "2025-12-05T20:14:13Z",
-        "route_id": "53",
-        "stop_id": "691",
+        "stop_id": "695",
         "vehicle_id": "20",
         "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 40
+        "event_type": "arrival",
+        "headway_arrival_arrival": 1987,
+        "headway_departure_arrival": 1937,
+        "headway_seconds": 1987,
+        "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:14:15Z",
-        "route_id": "48",
-        "stop_id": "623",
-        "vehicle_id": "42",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 70
-      },
-      {
-        "timestamp": "2025-12-05T20:14:16Z",
+        "timestamp": "2025-12-05T20:16:41Z",
         "route_id": "52",
-        "stop_id": "636",
-        "vehicle_id": "29",
+        "stop_id": "629",
+        "vehicle_id": "27",
         "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 30
+        "event_type": "arrival",
+        "headway_arrival_arrival": 1045,
+        "headway_departure_arrival": 650,
+        "headway_seconds": 1045,
+        "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:14:22Z",
+        "timestamp": "2025-12-05T20:16:52Z",
         "route_id": "56",
-        "stop_id": "762",
+        "stop_id": "764",
         "vehicle_id": "39",
         "vehicle_name": "19232",
         "event_type": "departure",
@@ -4557,106 +4596,58 @@
         "dwell_seconds": 35
       },
       {
-        "timestamp": "2025-12-05T20:14:22Z",
+        "timestamp": "2025-12-05T20:16:52Z",
         "route_id": "58",
-        "stop_id": "720",
+        "stop_id": "721",
+        "vehicle_id": "44",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 35
+      },
+      {
+        "timestamp": "2025-12-05T20:17:02Z",
+        "route_id": "58",
+        "stop_id": "722",
         "vehicle_id": "44",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 1111,
-        "headway_departure_arrival": 1720,
-        "headway_seconds": 1111,
+        "headway_arrival_arrival": 911,
+        "headway_departure_arrival": 901,
+        "headway_seconds": 911,
         "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:14:23Z",
-        "route_id": "56",
-        "stop_id": "772",
-        "vehicle_id": "2",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 960,
-        "headway_departure_arrival": 930,
-        "headway_seconds": 960,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:14:23Z",
-        "route_id": "56",
-        "stop_id": "785",
-        "vehicle_id": "33",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 704,
-        "headway_departure_arrival": 674,
-        "headway_seconds": 704,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:14:24Z",
-        "route_id": "45",
-        "stop_id": "605",
-        "vehicle_id": "17",
-        "vehicle_name": "19232",
-        "event_type": "arrival",
-        "headway_arrival_arrival": 794,
-        "headway_departure_arrival": 604,
-        "headway_seconds": 794,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:14:53Z",
+        "timestamp": "2025-12-05T20:17:07Z",
         "route_id": "53",
-        "stop_id": "693",
-        "vehicle_id": "20",
+        "stop_id": "699",
+        "vehicle_id": "12",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 481,
-        "headway_departure_arrival": 466,
-        "headway_seconds": 481,
+        "headway_arrival_arrival": 955,
+        "headway_departure_arrival": 940,
+        "headway_seconds": 955,
         "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:14:55Z",
-        "route_id": "45",
-        "stop_id": "604",
-        "vehicle_id": "49",
+        "timestamp": "2025-12-05T20:17:12Z",
+        "route_id": "52",
+        "stop_id": "638",
+        "vehicle_id": "29",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 181,
-        "headway_departure_arrival": 121,
-        "headway_seconds": 181,
-        "dwell_seconds": null
-      },
-      {
-        "timestamp": "2025-12-05T20:15:03Z",
-        "route_id": "56",
-        "stop_id": "772",
-        "vehicle_id": "2",
-        "vehicle_name": "19232",
-        "event_type": "departure",
         "headway_arrival_arrival": null,
         "headway_departure_arrival": null,
         "headway_seconds": null,
-        "dwell_seconds": 40
+        "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:15:03Z",
-        "route_id": "56",
-        "stop_id": "785",
-        "vehicle_id": "33",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 40
-      },
-      {
-        "timestamp": "2025-12-05T20:15:08Z",
-        "route_id": "53",
-        "stop_id": "693",
-        "vehicle_id": "20",
+        "timestamp": "2025-12-05T20:17:17Z",
+        "route_id": "58",
+        "stop_id": "722",
+        "vehicle_id": "44",
         "vehicle_name": "19232",
         "event_type": "departure",
         "headway_arrival_arrival": null,
@@ -4665,87 +4656,351 @@
         "dwell_seconds": 15
       },
       {
-        "timestamp": "2025-12-05T20:15:16Z",
-        "route_id": "52",
-        "stop_id": "651",
-        "vehicle_id": "27",
+        "timestamp": "2025-12-05T20:17:18Z",
+        "route_id": "56",
+        "stop_id": "776",
+        "vehicle_id": "2",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 1085,
-        "headway_departure_arrival": 1065,
-        "headway_seconds": 1085,
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
         "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:15:19Z",
+        "timestamp": "2025-12-05T20:17:21Z",
+        "route_id": "52",
+        "stop_id": "638",
+        "vehicle_id": "29",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 9
+      },
+      {
+        "timestamp": "2025-12-05T20:17:38Z",
+        "route_id": "56",
+        "stop_id": "790",
+        "vehicle_id": "33",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 699,
+        "headway_departure_arrival": 669,
+        "headway_seconds": 699,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:17:39Z",
         "route_id": "45",
-        "stop_id": "605",
+        "stop_id": "607",
+        "vehicle_id": "17",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 659,
+        "headway_departure_arrival": 619,
+        "headway_seconds": 659,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:17:58Z",
+        "route_id": "53",
+        "stop_id": "695",
+        "vehicle_id": "20",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 85
+      },
+      {
+        "timestamp": "2025-12-05T20:17:58Z",
+        "route_id": "56",
+        "stop_id": "790",
+        "vehicle_id": "33",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 20
+      },
+      {
+        "timestamp": "2025-12-05T20:18:07Z",
+        "route_id": "53",
+        "stop_id": "699",
+        "vehicle_id": "12",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 60
+      },
+      {
+        "timestamp": "2025-12-05T20:18:09Z",
+        "route_id": "45",
+        "stop_id": "607",
         "vehicle_id": "17",
         "vehicle_name": "19232",
         "event_type": "departure",
         "headway_arrival_arrival": null,
         "headway_departure_arrival": null,
         "headway_seconds": null,
-        "dwell_seconds": 55
+        "dwell_seconds": 30
       },
       {
-        "timestamp": "2025-12-05T20:15:31Z",
-        "route_id": "52",
-        "stop_id": "651",
-        "vehicle_id": "27",
+        "timestamp": "2025-12-05T20:18:09Z",
+        "route_id": "56",
+        "stop_id": "776",
+        "vehicle_id": "2",
         "vehicle_name": "19232",
         "event_type": "departure",
         "headway_arrival_arrival": null,
         "headway_departure_arrival": null,
         "headway_seconds": null,
-        "dwell_seconds": 15
+        "dwell_seconds": 51
       },
       {
-        "timestamp": "2025-12-05T20:15:32Z",
-        "route_id": "48",
-        "stop_id": "623",
-        "vehicle_id": "48",
+        "timestamp": "2025-12-05T20:18:18Z",
+        "route_id": "56",
+        "stop_id": "791",
+        "vehicle_id": "33",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 147,
-        "headway_departure_arrival": 77,
-        "headway_seconds": 147,
+        "headway_arrival_arrival": 689,
+        "headway_departure_arrival": 659,
+        "headway_seconds": 689,
         "dwell_seconds": null
       },
       {
-        "timestamp": "2025-12-05T20:15:32Z",
-        "route_id": "58",
-        "stop_id": "720",
-        "vehicle_id": "44",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 70
-      },
-      {
-        "timestamp": "2025-12-05T20:15:45Z",
-        "route_id": "45",
-        "stop_id": "604",
-        "vehicle_id": "49",
-        "vehicle_name": "19232",
-        "event_type": "departure",
-        "headway_arrival_arrival": null,
-        "headway_departure_arrival": null,
-        "headway_seconds": null,
-        "dwell_seconds": 50
-      },
-      {
-        "timestamp": "2025-12-05T20:15:45Z",
+        "timestamp": "2025-12-05T20:18:20Z",
         "route_id": "48",
-        "stop_id": "624",
+        "stop_id": "626",
         "vehicle_id": "42",
         "vehicle_name": "19232",
         "event_type": "arrival",
-        "headway_arrival_arrival": 557,
-        "headway_departure_arrival": 507,
-        "headway_seconds": 557,
+        "headway_arrival_arrival": 344,
+        "headway_departure_arrival": 324,
+        "headway_seconds": 344,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:18:32Z",
+        "route_id": "58",
+        "stop_id": "724",
+        "vehicle_id": "44",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 851,
+        "headway_departure_arrival": 831,
+        "headway_seconds": 851,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:18:40Z",
+        "route_id": "48",
+        "stop_id": "626",
+        "vehicle_id": "42",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 20
+      },
+      {
+        "timestamp": "2025-12-05T20:18:47Z",
+        "route_id": "48",
+        "stop_id": "624",
+        "vehicle_id": "48",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 182,
+        "headway_departure_arrival": 689,
+        "headway_seconds": 182,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:18:51Z",
+        "route_id": "48",
+        "stop_id": "621",
+        "vehicle_id": "38",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 364,
+        "headway_departure_arrival": 314,
+        "headway_seconds": 364,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:18:52Z",
+        "route_id": "52",
+        "stop_id": "640",
+        "vehicle_id": "29",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 1291,
+        "headway_departure_arrival": 1241,
+        "headway_seconds": 1291,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:18:58Z",
+        "route_id": "56",
+        "stop_id": "791",
+        "vehicle_id": "33",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 40
+      },
+      {
+        "timestamp": "2025-12-05T20:19:07Z",
+        "route_id": "56",
+        "stop_id": "769",
+        "vehicle_id": "39",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 1794,
+        "headway_departure_arrival": 1754,
+        "headway_seconds": 1794,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:19:17Z",
+        "route_id": "56",
+        "stop_id": "769",
+        "vehicle_id": "39",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 10
+      },
+      {
+        "timestamp": "2025-12-05T20:19:17Z",
+        "route_id": "58",
+        "stop_id": "724",
+        "vehicle_id": "44",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 45
+      },
+      {
+        "timestamp": "2025-12-05T20:19:18Z",
+        "route_id": "56",
+        "stop_id": "794",
+        "vehicle_id": "33",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 679,
+        "headway_departure_arrival": 629,
+        "headway_seconds": 679,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:19:30Z",
+        "route_id": "45",
+        "stop_id": "603",
+        "vehicle_id": "45",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 541,
+        "headway_departure_arrival": 1866,
+        "headway_seconds": 541,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:19:31Z",
+        "route_id": "48",
+        "stop_id": "621",
+        "vehicle_id": "38",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 40
+      },
+      {
+        "timestamp": "2025-12-05T20:19:32Z",
+        "route_id": "48",
+        "stop_id": "624",
+        "vehicle_id": "48",
+        "vehicle_name": "19232",
+        "event_type": "departure",
+        "headway_arrival_arrival": null,
+        "headway_departure_arrival": null,
+        "headway_seconds": null,
+        "dwell_seconds": 45
+      },
+      {
+        "timestamp": "2025-12-05T20:19:56Z",
+        "route_id": "52",
+        "stop_id": "629",
+        "vehicle_id": "27",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 195,
+        "headway_departure_arrival": 845,
+        "headway_seconds": 195,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:20:10Z",
+        "route_id": "45",
+        "stop_id": "604",
+        "vehicle_id": "45",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 315,
+        "headway_departure_arrival": 265,
+        "headway_seconds": 315,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:20:12Z",
+        "route_id": "48",
+        "stop_id": "625",
+        "vehicle_id": "48",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 1210,
+        "headway_departure_arrival": 1160,
+        "headway_seconds": 1210,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:20:15Z",
+        "route_id": "45",
+        "stop_id": "607",
+        "vehicle_id": "49",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 156,
+        "headway_departure_arrival": 126,
+        "headway_seconds": 156,
+        "dwell_seconds": null
+      },
+      {
+        "timestamp": "2025-12-05T20:20:22Z",
+        "route_id": "52",
+        "stop_id": "641",
+        "vehicle_id": "29",
+        "vehicle_name": "19232",
+        "event_type": "arrival",
+        "headway_arrival_arrival": 1311,
+        "headway_departure_arrival": 2081,
+        "headway_seconds": 1311,
         "dwell_seconds": null
       }
     ]
