@@ -56,6 +56,7 @@ class HeadwayTracker:
         self.tracked_stop_ids = tracked_stop_ids or set()
         self.vehicle_states: Dict[str, VehiclePresence] = {}
         self.last_arrival: Dict[Tuple[str, str], datetime] = {}
+        self.last_departure: Dict[Tuple[str, str], datetime] = {}
         self.stops: List[StopPoint] = []
         self.stop_lookup: Dict[str, StopPoint] = {}
         print(
@@ -133,6 +134,10 @@ class HeadwayTracker:
                 if prev_state.arrival_time:
                     dwell_seconds = (departure_timestamp - prev_state.arrival_time).total_seconds()
                     dwell_seconds = max(dwell_seconds, 0.0)
+                if prev_stop:
+                    route_for_departure = prev_state.route_id or route_id_norm
+                    if route_for_departure:
+                        self.last_departure[(route_for_departure, prev_stop)] = departure_timestamp
                 events.append(
                     HeadwayEvent(
                         timestamp=departure_timestamp,
@@ -140,7 +145,8 @@ class HeadwayTracker:
                         stop_id=prev_stop,
                         vehicle_id=vid,
                         event_type="departure",
-                        headway_seconds=None,
+                        headway_arrival_arrival=None,
+                        headway_departure_arrival=None,
                         dwell_seconds=dwell_seconds,
                     )
                 )
@@ -156,7 +162,9 @@ class HeadwayTracker:
                 if arrival_route_id is None:
                     arrival_route_id = current_stop[1]
                 if prev_stop != arrival_stop_id and (prev_stop is None or has_left_prev_stop):
-                    headway_seconds = self._record_arrival(arrival_route_id, arrival_stop_id, timestamp)
+                    headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
+                        arrival_route_id, arrival_stop_id, timestamp
+                    )
                     events.append(
                         HeadwayEvent(
                             timestamp=timestamp,
@@ -164,7 +172,8 @@ class HeadwayTracker:
                             stop_id=arrival_stop_id,
                             vehicle_id=vid,
                             event_type="arrival",
-                            headway_seconds=headway_seconds,
+                            headway_arrival_arrival=headway_arrival_arrival,
+                            headway_departure_arrival=headway_departure_arrival,
                             dwell_seconds=None,
                         )
                     )
@@ -194,16 +203,22 @@ class HeadwayTracker:
             except Exception as exc:
                 print(f"[headway] failed to write events: {exc}")
 
-    def _record_arrival(self, route_id: Optional[str], stop_id: Optional[str], timestamp: datetime) -> Optional[float]:
+    def _record_arrival_headways(
+        self, route_id: Optional[str], stop_id: Optional[str], timestamp: datetime
+    ) -> Tuple[Optional[float], Optional[float]]:
         if route_id is None or stop_id is None:
-            return None
+            return None, None
         key = (route_id, stop_id)
-        prev = self.last_arrival.get(key)
+        prev_arrival = self.last_arrival.get(key)
+        prev_departure = self.last_departure.get(key)
         self.last_arrival[key] = timestamp
-        if prev is None:
-            return None
-        delta = (timestamp - prev).total_seconds()
-        return max(delta, 0.0)
+        arrival_arrival = None
+        departure_arrival = None
+        if prev_arrival is not None:
+            arrival_arrival = max((timestamp - prev_arrival).total_seconds(), 0.0)
+        if prev_departure is not None:
+            departure_arrival = max((timestamp - prev_departure).total_seconds(), 0.0)
+        return arrival_arrival, departure_arrival
 
     def _nearest_stop(
         self, lat: float, lon: float, route_id: Optional[str], *, threshold: float

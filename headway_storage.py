@@ -39,7 +39,8 @@ class HeadwayEvent:
     stop_id: Optional[str]
     vehicle_id: Optional[str]
     event_type: str
-    headway_seconds: Optional[float]
+    headway_arrival_arrival: Optional[float]
+    headway_departure_arrival: Optional[float]
     dwell_seconds: Optional[float]
 
     def to_row(self) -> List[str]:
@@ -49,7 +50,12 @@ class HeadwayEvent:
             self.stop_id or "",
             self.vehicle_id or "",
             self.event_type,
-            "" if self.headway_seconds is None else f"{self.headway_seconds:.3f}",
+            ""
+            if self.headway_arrival_arrival is None
+            else f"{self.headway_arrival_arrival:.3f}",
+            ""
+            if self.headway_departure_arrival is None
+            else f"{self.headway_departure_arrival:.3f}",
             "" if self.dwell_seconds is None else f"{self.dwell_seconds:.3f}",
         ]
 
@@ -60,7 +66,10 @@ class HeadwayEvent:
             "stop_id": self.stop_id,
             "vehicle_id": self.vehicle_id,
             "event_type": self.event_type,
-            "headway_seconds": self.headway_seconds,
+            "headway_arrival_arrival": self.headway_arrival_arrival,
+            "headway_departure_arrival": self.headway_departure_arrival,
+            # Backwards compatibility for consumers expecting the legacy key.
+            "headway_seconds": self.headway_arrival_arrival,
             "dwell_seconds": self.dwell_seconds,
         }
 
@@ -127,16 +136,29 @@ class HeadwayStorage:
                         continue
                     vehicle_id = row[3] or None
                     event_type = row[4]
-                    headway_seconds = None
+                    headway_arrival_arrival = None
+                    headway_departure_arrival = None
                     dwell_seconds = None
                     if len(row) > 5 and row[5]:
                         try:
-                            headway_seconds = float(row[5])
+                            headway_arrival_arrival = float(row[5])
                         except ValueError:
-                            headway_seconds = None
-                    if len(row) > 6 and row[6]:
+                            headway_arrival_arrival = None
+                    if len(row) > 6:
+                        val = row[6]
+                        if val:
+                            try:
+                                headway_departure_arrival = float(val)
+                            except ValueError:
+                                headway_departure_arrival = None
+                        if headway_departure_arrival is None and len(row) == 7 and val:
+                            try:
+                                dwell_seconds = float(val)
+                            except ValueError:
+                                dwell_seconds = None
+                    if len(row) > 7 and row[7]:
                         try:
-                            dwell_seconds = float(row[6])
+                            dwell_seconds = float(row[7])
                         except ValueError:
                             dwell_seconds = None
                     events.append(
@@ -146,7 +168,8 @@ class HeadwayStorage:
                             stop_id=stop_id,
                             vehicle_id=vehicle_id,
                             event_type=event_type,
-                            headway_seconds=headway_seconds,
+                            headway_arrival_arrival=headway_arrival_arrival,
+                            headway_departure_arrival=headway_departure_arrival,
                             dwell_seconds=dwell_seconds,
                         )
                     )

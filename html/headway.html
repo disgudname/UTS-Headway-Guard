@@ -184,6 +184,13 @@
           <label for="stop-select">Stops (select one or more)</label>
           <select id="stop-select" multiple></select>
         </div>
+        <div>
+          <label for="headway-type">Headway type</label>
+          <select id="headway-type">
+            <option value="arrival_arrival" selected>Arrival to arrival</option>
+            <option value="departure_arrival">Departure to arrival</option>
+          </select>
+        </div>
       </div>
       <div class="actions">
         <button id="load-btn">Load headway</button>
@@ -204,6 +211,13 @@
         <div>
           <label for="live-stop">Stop</label>
           <select id="live-stop"></select>
+        </div>
+        <div>
+          <label for="live-headway-type">Headway type</label>
+          <select id="live-headway-type">
+            <option value="arrival_arrival" selected>Arrival to arrival</option>
+            <option value="departure_arrival">Departure to arrival</option>
+          </select>
         </div>
       </div>
       <div class="actions">
@@ -234,6 +248,8 @@
     const resultsContainer = document.getElementById('results-container');
     const liveRouteSelect = document.getElementById('live-route');
     const liveStopSelect = document.getElementById('live-stop');
+    const headwayTypeSelect = document.getElementById('headway-type');
+    const liveHeadwayTypeSelect = document.getElementById('live-headway-type');
     const liveStatusEl = document.getElementById('live-status');
     const liveSummaryEl = document.getElementById('live-summary');
     const liveResultsEl = document.getElementById('live-results');
@@ -325,6 +341,20 @@
       const secs = Math.round((total % 60) * 10) / 10;
       const paddedSeconds = secs < 10 ? `0${secs.toFixed(secs % 1 === 0 ? 0 : 1)}` : secs.toFixed(secs % 1 === 0 ? 0 : 1);
       return `${minutes}m ${paddedSeconds}s`;
+    }
+
+    function resolveHeadwayField(selectEl) {
+      return selectEl?.value === 'departure_arrival'
+        ? 'headway_departure_arrival'
+        : 'headway_arrival_arrival';
+    }
+
+    function getHeadwayValue(ev, selectEl) {
+      const field = resolveHeadwayField(selectEl);
+      if (ev[field] != null) return ev[field];
+      if (field !== 'headway_arrival_arrival' && ev.headway_arrival_arrival != null) return ev.headway_arrival_arrival;
+      if (ev.headway_seconds != null) return ev.headway_seconds;
+      return null;
     }
 
     function setStatus(message, isError = false) {
@@ -500,7 +530,7 @@
       }
       const rows = events.map(ev => {
         const tsLocal = new Date(ev.timestamp).toLocaleString();
-        const headway = formatMinutesSeconds(ev.headway_seconds);
+        const headway = formatMinutesSeconds(getHeadwayValue(ev, headwayTypeSelect));
         const dwell = formatMinutesSeconds(ev.dwell_seconds);
         const route = getRouteName(ev.route_id || ev.route) || ev.route_name || ev.route || '';
         const stop = getStopName(ev.stop_id || ev.stop) || ev.stop_name || ev.stop || '';
@@ -555,7 +585,8 @@
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       const latest = arrivals[0];
       if (latest) {
-        const headway = latest.headway_seconds != null ? `${(latest.headway_seconds / 60).toFixed(1)} min` : 'N/A';
+        const latestHeadwaySeconds = getHeadwayValue(latest, liveHeadwayTypeSelect);
+        const headway = latestHeadwaySeconds != null ? `${(latestHeadwaySeconds / 60).toFixed(1)} min` : 'N/A';
         const time = new Date(latest.timestamp).toLocaleTimeString();
         liveSummaryEl.textContent = `Latest arrival at ${time}. Headway: ${headway}.`;
       } else {
@@ -568,7 +599,8 @@
         .slice(0, 10);
       const rows = recent.map(ev => {
         const tsLocal = new Date(ev.timestamp).toLocaleTimeString();
-        const headway = ev.headway_seconds != null ? `${(ev.headway_seconds / 60).toFixed(1)} min` : '';
+        const headwaySeconds = getHeadwayValue(ev, liveHeadwayTypeSelect);
+        const headway = headwaySeconds != null ? `${(headwaySeconds / 60).toFixed(1)} min` : '';
         const dwell = ev.dwell_seconds != null ? `${ev.dwell_seconds.toFixed(1)}s` : '';
         return `<tr>
           <td>${tsLocal}</td>
