@@ -16,6 +16,9 @@ class MemoryHeadwayStorage:
     def write_events(self, events):
         self.events.extend(events)
 
+    def query_events(self, *args, **kwargs):
+        return []
+
 
 def test_headway_tracker_ignores_jitter_near_departure_boundary():
     storage = MemoryHeadwayStorage()
@@ -29,14 +32,19 @@ def test_headway_tracker_ignores_jitter_near_departure_boundary():
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="1", lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+        [VehicleSnapshot(vehicle_id="1", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
     )
     assert [e.event_type for e in storage.events] == ["arrival"]
 
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="1", lat=0.0, lon=0.00036, route_id="R1", timestamp=base + timedelta(seconds=30)
+                vehicle_id="1",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.00036,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
             )
         ]
     )
@@ -45,7 +53,12 @@ def test_headway_tracker_ignores_jitter_near_departure_boundary():
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="1", lat=0.0, lon=0.0001, route_id="R1", timestamp=base + timedelta(seconds=60)
+                vehicle_id="1",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0001,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=60),
             )
         ]
     )
@@ -54,7 +67,12 @@ def test_headway_tracker_ignores_jitter_near_departure_boundary():
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="1", lat=0.0, lon=0.001, route_id="R1", timestamp=base + timedelta(seconds=120)
+                vehicle_id="1",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.001,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=120),
             )
         ]
     )
@@ -70,14 +88,27 @@ def test_headway_tracker_discards_duplicate_arrivals_at_same_stop():
 
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="dup", lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+        [
+            VehicleSnapshot(
+                vehicle_id="dup", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base
+            )
+        ]
     )
     assert [e.event_type for e in storage.events] == ["arrival"]
 
     tracker.vehicle_states.clear()
 
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="dup", lat=0.0, lon=0.0, route_id="R1", timestamp=base + timedelta(seconds=30))]
+        [
+            VehicleSnapshot(
+                vehicle_id="dup",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
+            )
+        ]
     )
 
     assert [e.event_type for e in storage.events] == ["arrival"]
@@ -99,14 +130,19 @@ def test_headway_tracker_waits_for_departure_threshold_before_switching_stops():
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="9", lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+        [VehicleSnapshot(vehicle_id="9", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
     )
     assert [e.event_type for e in storage.events] == ["arrival"]
 
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="9", lat=0.0, lon=0.0004, route_id="R1", timestamp=base + timedelta(seconds=45)
+                vehicle_id="9",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0004,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=45),
             )
         ]
     )
@@ -115,7 +151,12 @@ def test_headway_tracker_waits_for_departure_threshold_before_switching_stops():
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="9", lat=0.0, lon=0.0009, route_id="R1", timestamp=base + timedelta(seconds=120)
+                vehicle_id="9",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0009,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=120),
             )
         ]
     )
@@ -137,18 +178,36 @@ def test_headway_tracker_departure_time_tracks_movement_start():
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="3", lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+        [VehicleSnapshot(vehicle_id="3", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
     )
 
     movement_start = base + timedelta(seconds=30)
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="3", lat=0.0, lon=0.00032, route_id="R1", timestamp=movement_start)]
+        [
+            VehicleSnapshot(
+                vehicle_id="3",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.00032,
+                route_id="R1",
+                timestamp=movement_start,
+            )
+        ]
     )
     assert len(storage.events) == 1
 
     exit_time = base + timedelta(seconds=90)
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="3", lat=0.0, lon=0.0007, route_id="R1", timestamp=exit_time)]
+        [
+            VehicleSnapshot(
+                vehicle_id="3",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0007,
+                route_id="R1",
+                timestamp=exit_time,
+            )
+        ]
     )
 
     assert [e.event_type for e in storage.events] == ["arrival", "departure"]
@@ -168,13 +227,18 @@ def test_headway_tracker_uses_stop_history_when_route_missing():
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="5", lat=0.0, lon=0.0, route_id=None, timestamp=base)]
+        [VehicleSnapshot(vehicle_id="5", vehicle_name=None, lat=0.0, lon=0.0, route_id=None, timestamp=base)]
     )
 
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="5", lat=0.0, lon=0.0007, route_id=None, timestamp=base + timedelta(seconds=60)
+                vehicle_id="5",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0007,
+                route_id=None,
+                timestamp=base + timedelta(seconds=60),
             )
         ]
     )
@@ -182,10 +246,58 @@ def test_headway_tracker_uses_stop_history_when_route_missing():
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="5", lat=0.0, lon=0.0, route_id="R1", timestamp=base + timedelta(seconds=120)
+                vehicle_id="5",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=120),
             )
         ]
     )
 
     assert [e.event_type for e in storage.events] == ["arrival", "departure", "arrival"]
     assert storage.events[-1].headway_departure_arrival == 60
+
+
+def test_headway_tracker_respects_stop_approach_cone():
+    storage = MemoryHeadwayStorage()
+    approach_config = {
+        "EAST": (90.0, 30.0),
+        "WEST": (90.0, 10.0),
+    }
+    tracker = HeadwayTracker(
+        storage=storage,
+        arrival_distance_threshold_m=70.0,
+        departure_distance_threshold_m=70.0,
+        stop_approach=approach_config,
+    )
+    tracker.update_stops(
+        [
+            {"StopID": "EAST", "Latitude": 0.0, "Longitude": 0.0003},
+            {"StopID": "WEST", "Latitude": 0.0, "Longitude": -0.0003},
+        ]
+    )
+
+    nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=70.0)
+    assert nearest == ("EAST", None)
+
+
+def test_build_transloc_stops_merges_approach_config():
+    from app import _build_transloc_stops
+
+    approach_config = {"123": (45.0, 15.0)}
+    stops = _build_transloc_stops(
+        [
+            {
+                "RouteID": "1",
+                "Stops": [
+                    {"StopID": "123", "Latitude": 0.0, "Longitude": 0.0},
+                ],
+            }
+        ],
+        approach_config=approach_config,
+    )
+
+    assert stops[0]["ApproachBearingDeg"] == 45.0
+    assert stops[0]["ApproachToleranceDeg"] == 15.0

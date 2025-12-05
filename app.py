@@ -41,6 +41,7 @@ from headway_tracker import (
     HeadwayTracker,
     VehicleSnapshot,
     load_headway_config,
+    load_stop_approach_config,
     HEADWAY_DISTANCE_THRESHOLD_M,
 )
 
@@ -3014,6 +3015,7 @@ async def startup():
 
     try:
         headway_route_ids, headway_stop_ids = load_headway_config()
+        stop_approach_config = load_stop_approach_config()
         headway_storage = HeadwayStorage(HEADWAY_DIR)
         headway_tracker = HeadwayTracker(
             storage=headway_storage,
@@ -3021,13 +3023,16 @@ async def startup():
             departure_distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
             tracked_route_ids=headway_route_ids,
             tracked_stop_ids=headway_stop_ids,
+            stop_approach=stop_approach_config,
         )
         app.state.headway_storage = headway_storage
         app.state.headway_tracker = headway_tracker
+        app.state.stop_approach_config = stop_approach_config
     except Exception as exc:
         print(f"[headway] initialization failed: {exc}")
         app.state.headway_storage = None
         app.state.headway_tracker = None
+        app.state.stop_approach_config = {}
 
     async def updater():
         await asyncio.sleep(0.1)
@@ -3067,7 +3072,11 @@ async def startup():
                             trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
                             if routes_catalog:
                                 trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog)
-                            stops = _build_transloc_stops(trimmed_routes, stops_raw)
+                            stops = _build_transloc_stops(
+                                trimmed_routes,
+                                stops_raw,
+                                approach_config=getattr(app.state, "stop_approach_config", None),
+                            )
                             state.stops = stops
                             tracker_ref = getattr(app.state, "headway_tracker", None)
                             if tracker_ref is not None:
@@ -4657,7 +4666,10 @@ def _merge_stop_entry(target: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[
 
 
 def _build_transloc_stops(
-    routes: List[Dict[str, Any]], extra_stops: Optional[Iterable[Dict[str, Any]]] = None
+    routes: List[Dict[str, Any]],
+    extra_stops: Optional[Iterable[Dict[str, Any]]] = None,
+    *,
+    approach_config: Optional[Mapping[str, Tuple[float, float]]] = None,
 ) -> List[Dict[str, Any]]:
     route_membership = _route_membership_from_routes(routes)
     merged: Dict[str, Dict[str, Any]] = {}
@@ -4673,6 +4685,11 @@ def _build_transloc_stops(
         stop_id = normalized.get("StopID") or normalized.get("StopId")
         if stop_id is None:
             return
+        if approach_config:
+            approach = approach_config.get(str(stop_id))
+            if approach:
+                normalized["ApproachBearingDeg"] = approach[0]
+                normalized["ApproachToleranceDeg"] = approach[1]
         existing = merged.get(str(stop_id))
         if existing:
             merged[str(stop_id)] = _merge_stop_entry(existing, normalized)
@@ -5048,7 +5065,9 @@ async def _assemble_transloc_metadata(
     raw_routes = [_trim_transloc_route(r) for r in routes_raw]
     if extra_routes_raw:
         raw_routes = _merge_transloc_route_metadata(raw_routes, extra_routes_raw)
-    stops = _build_transloc_stops(raw_routes, stops_raw)
+    stops = _build_transloc_stops(
+        raw_routes, stops_raw, approach_config=getattr(app.state, "stop_approach_config", None)
+    )
     blocks = await _get_transloc_blocks(base_url)
     return {"routes": raw_routes, "stops": stops, "blocks": blocks}
 
