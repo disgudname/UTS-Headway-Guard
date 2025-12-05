@@ -3206,22 +3206,18 @@ async def startup():
                             lat = v.get("Latitude")
                             lon = v.get("Longitude")
                             prev = prev_map.get(rid, {}).get(vid)
-                            raw_heading = v.get("Heading")
-                            try:
-                                heading = float(raw_heading) if raw_heading is not None else 0.0
-                            except (TypeError, ValueError):
-                                heading = 0.0
-                            if (prev is None or getattr(prev, "heading", None) is None) and vid is not None:
-                                cached = state.last_headings.get(vid)
-                                cached_heading = cached.get("heading") if isinstance(cached, dict) else None
-                                if cached_heading is not None and math.isfinite(cached_heading):
-                                    heading = float(cached_heading)
+                            heading = None
                             if prev and prev.lat is not None and prev.lon is not None and lat is not None and lon is not None:
                                 move = haversine((prev.lat, prev.lon), (lat, lon))
                                 if move >= HEADING_JITTER_M:
                                     heading = bearing_between((prev.lat, prev.lon), (lat, lon))
                                 else:
                                     heading = prev.heading
+                            if heading is None and vid is not None:
+                                cached = state.last_headings.get(vid)
+                                cached_heading = cached.get("heading") if isinstance(cached, dict) else None
+                                if cached_heading is not None and math.isfinite(cached_heading):
+                                    heading = float(cached_heading)
                             if heading is None or not math.isfinite(heading):
                                 heading = 0.0
                             heading = normalize_heading_deg(float(heading))
