@@ -501,12 +501,25 @@ def cumulative_distance(poly: List[Tuple[float,float]]) -> Tuple[List[float], fl
     return cum, cum[-1] if cum else 0.0
 
 def parse_msajax(s: Optional[str]) -> Optional[int]:
-    """Extract milliseconds from TransLoc's ``/Date(ms-offset)/`` format."""
+    """Extract UTC milliseconds from TransLoc's ``/Date(ms±offset)/`` format."""
     if not s:
         return None
     try:
-        m = re.search(r"/Date\((\d+)(?:[-+]\d{4})?\)/", s)
-        return int(m.group(1)) if m else None
+        m = re.search(r"/Date\((\d+)([-+]\d{4})?\)/", s)
+        if not m:
+            return None
+        base_ms = int(m.group(1))
+        offset_raw = m.group(2)
+        if not offset_raw:
+            return base_ms
+        try:
+            sign = 1 if offset_raw.startswith("+") else -1
+            hours = int(offset_raw[1:3])
+            minutes = int(offset_raw[3:])
+            offset_ms = sign * (hours * 60 + minutes) * 60 * 1000
+            return base_ms - offset_ms
+        except ValueError:
+            return base_ms
     except ValueError as e:
         print(f"[parse_msajax] invalid timestamp {s!r}: {e}")
         return None
