@@ -17,6 +17,7 @@ DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 @dataclass
 class VehicleSnapshot:
     vehicle_id: Optional[str]
+    vehicle_name: Optional[str]
     lat: float
     lon: float
     route_id: Optional[str]
@@ -151,6 +152,7 @@ class HeadwayTracker:
                         route_id=prev_state.route_id,
                         stop_id=prev_stop,
                         vehicle_id=vid,
+                        vehicle_name=snap.vehicle_name,
                         event_type="departure",
                         headway_arrival_arrival=None,
                         headway_departure_arrival=None,
@@ -185,15 +187,16 @@ class HeadwayTracker:
                     )
                     events.append(
                         HeadwayEvent(
-                            timestamp=timestamp,
-                            route_id=arrival_route_id,
-                            stop_id=arrival_stop_id,
-                            vehicle_id=vid,
-                            event_type="arrival",
-                            headway_arrival_arrival=headway_arrival_arrival,
-                            headway_departure_arrival=headway_departure_arrival,
-                            dwell_seconds=None,
-                        )
+                        timestamp=timestamp,
+                        route_id=arrival_route_id,
+                        stop_id=arrival_stop_id,
+                        vehicle_id=vid,
+                        vehicle_name=snap.vehicle_name,
+                        event_type="arrival",
+                        headway_arrival_arrival=headway_arrival_arrival,
+                        headway_departure_arrival=headway_departure_arrival,
+                        dwell_seconds=None,
+                    )
                     )
                     self.last_vehicle_arrival[arrival_key] = timestamp
                     arrival_time = timestamp

@@ -352,9 +352,9 @@
     function pickVehicleName(record) {
       if (!record) return '';
       return (
+        record.vehicle_name ||
         record.Name ||
         record.VehicleName ||
-        record.vehicle_name ||
         record.vehicle_label ||
         record.vehicle_fleet_no ||
         record.vehicle_no ||
@@ -362,30 +362,23 @@
       );
     }
 
-    async function fetchVehicleNameMap() {
-      try {
-        const res = await fetch('/v1/testmap/transloc/vehicles');
-        if (!res.ok) throw new Error(`Vehicle fetch failed (${res.status})`);
-        const data = await res.json();
-        const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
-        return new Map(
-          vehicles
-            .map(v => {
-              const id = v.VehicleID ?? v.VehicleId ?? v.vehicle_id ?? v.vehicleId;
-              const name = pickVehicleName(v);
-              if (id == null || !name) return null;
-              return [String(id), String(name)];
-            })
-            .filter(Boolean)
-        );
-      } catch (err) {
-        console.error('Unable to load vehicle names', err);
-        return null;
+    function updateVehicleNameLookup(events = [], vehicleNames = null) {
+      if (vehicleNames && typeof vehicleNames === 'object') {
+        Object.entries(vehicleNames).forEach(([id, name]) => {
+          if (id == null || !name) return;
+          vehicleNameById.set(String(id), String(name));
+        });
       }
+      events.forEach(ev => {
+        const id = ev.vehicle_id || ev.vehicle;
+        const name = ev.vehicle_name || pickVehicleName(ev);
+        if (id == null || !name) return;
+        vehicleNameById.set(String(id), String(name));
+      });
     }
 
     function formatVehicleLabel(ev) {
-      const directLabel = pickVehicleName(ev);
+      const directLabel = ev?.vehicle_name || pickVehicleName(ev);
       if (directLabel) return directLabel;
       const id = ev.vehicle_id || ev.vehicle;
       if (!id) return '';
@@ -534,22 +527,7 @@
             })
             .filter(Boolean)
         );
-        vehicleNameById = new Map(
-          (Array.isArray(data.blocks) ? data.blocks : [])
-            .map(block => {
-              const id = block.vehicle_id ?? block.VehicleID ?? block.vehicleId;
-              const name = pickVehicleName(block);
-              if (id == null || !name) return null;
-              return [String(id), String(name)];
-            })
-            .filter(Boolean)
-        );
-        const vehicleNameMap = await fetchVehicleNameMap();
-        if (vehicleNameMap) {
-          vehicleNameMap.forEach((name, id) => {
-            vehicleNameById.set(id, name);
-          });
-        }
+        vehicleNameById = new Map();
         stopIdsByCanonical = new Map();
         stopNameById = new Map();
         allStops.forEach(stop => {
@@ -772,6 +750,7 @@
         if (!headwayRes.ok) throw new Error(`Live headway fetch failed (${headwayRes.status})`);
         const data = await headwayRes.json();
         const events = Array.isArray(data.events) ? data.events : [];
+        updateVehicleNameLookup(events, data.vehicle_names);
 
         let etaInfo = null;
         if (etaRes.ok) {
@@ -863,6 +842,7 @@
         if (!res.ok) throw new Error(`Headway fetch failed (${res.status})`);
         const data = await res.json();
         const events = Array.isArray(data.events) ? data.events : [];
+        updateVehicleNameLookup(events, data.vehicle_names);
         renderTable(events);
         setStatus('Headway loaded.');
       } catch (err) {
@@ -900,6 +880,7 @@
         if (!res.ok) throw new Error(`Headway fetch failed (${res.status})`);
         const data = await res.json();
         const events = Array.isArray(data.events) ? data.events : [];
+        updateVehicleNameLookup(events, data.vehicle_names);
         const thresholdSeconds = getHighlightThresholdSeconds();
         const thresholdMinutes = thresholdSeconds != null ? thresholdSeconds / 60 : null;
         const headwayField = resolveHeadwayField(headwayTypeSelect);
