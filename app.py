@@ -3387,12 +3387,15 @@ async def startup():
                                     ts_dt = datetime.fromtimestamp(veh.ts_ms / 1000.0, timezone.utc)
                                 except Exception:
                                     ts_dt = datetime.now(timezone.utc)
-                                snapshot_name = vehicle_name_lookup.get(str(vid))
-                                if snapshot_name is None and name and name != "-":
-                                    snapshot_name = str(name)
+
+                                veh_id_text = str(veh.id) if veh.id is not None else None
+                                snapshot_name = vehicle_name_lookup.get(veh_id_text) if veh_id_text else None
+                                if snapshot_name is None and veh.name and veh.name != "-":
+                                    snapshot_name = str(veh.name)
+
                                 headway_snapshots.append(
                                     VehicleSnapshot(
-                                        vehicle_id=str(veh.id) if veh.id is not None else None,
+                                        vehicle_id=veh_id_text,
                                         vehicle_name=snapshot_name,
                                         lat=veh.lat,
                                         lon=veh.lon,
