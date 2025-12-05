@@ -317,14 +317,27 @@ class HeadwayTracker:
                 continue
             if route_id and stop.route_ids and route_id not in stop.route_ids:
                 continue
-            requires_cone = stop.approach_bearing_deg is not None and stop.approach_tolerance_deg is not None
-            cone_radius = stop.approach_radius_m if requires_cone else None
+            approach_config = self.stop_approach.get(stop.stop_id)
+            approach_bearing = stop.approach_bearing_deg
+            approach_tolerance = stop.approach_tolerance_deg
+            approach_radius = stop.approach_radius_m
+
+            if approach_config:
+                if approach_bearing is None:
+                    approach_bearing = approach_config[0]
+                if approach_tolerance is None:
+                    approach_tolerance = approach_config[1]
+                if approach_radius is None and len(approach_config) > 2:
+                    approach_radius = approach_config[2]
+
+            requires_cone = approach_bearing is not None and approach_tolerance is not None
+            cone_radius = approach_radius if requires_cone else None
             effective_threshold = cone_radius if cone_radius is not None else threshold
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
             if dist <= effective_threshold:
                 if requires_cone:
                     bearing = self._bearing_degrees(lat, lon, stop.lat, stop.lon)
-                    if not _is_within_bearing(bearing, stop.approach_bearing_deg, stop.approach_tolerance_deg):
+                    if not _is_within_bearing(bearing, approach_bearing, approach_tolerance):
                         continue
                 if best is None or dist < best[2]:
                     associated_route = route_id
