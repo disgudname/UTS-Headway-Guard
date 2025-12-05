@@ -1043,6 +1043,7 @@ REPAIRS_HTML = _load_html("repairs.html")
 REPAIRS_SCREEN_HTML = _load_html("repairsscreen.html")
 REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
 HEADWAY_HTML = _load_html("headway.html")
+HEADWAY_DIAGNOSTICS_HTML = _load_html("headway_diagnostics.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -2786,6 +2787,103 @@ def _attach_vehicle_names(events: Sequence[HeadwayEvent]) -> Dict[str, str]:
             if name:
                 ev.vehicle_name = name
     return mapping
+
+
+def _iso_or_none(dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+@app.get("/api/dispatch/headway/diagnostics")
+async def headway_diagnostics(
+    request: Request,
+    recent_hours: float = Query(
+        2.0,
+        description="How many recent hours of events to include (capped at 12)",
+    ),
+):
+    _require_dispatcher_access(request)
+    tracker = getattr(app.state, "headway_tracker", None)
+    if tracker is None:
+        raise HTTPException(status_code=503, detail="headway tracker unavailable")
+    storage = _get_headway_storage()
+
+    try:
+        recent_window_hours = max(0.1, min(float(recent_hours), 12.0))
+    except (TypeError, ValueError):
+        recent_window_hours = 2.0
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=recent_window_hours)
+    recent_events = storage.query_events(start, end)
+    if len(recent_events) > 40:
+        recent_events = recent_events[-40:]
+
+    stop_approach_config = getattr(app.state, "stop_approach_config", {}) or {}
+
+    stops_payload = [
+        {
+            "stop_id": stop.stop_id,
+            "lat": stop.lat,
+            "lon": stop.lon,
+            "route_ids": sorted(stop.route_ids),
+            "approach_bearing_deg": stop.approach_bearing_deg,
+            "approach_tolerance_deg": stop.approach_tolerance_deg,
+            "approach_radius_m": stop.approach_radius_m,
+        }
+        for stop in tracker.stops
+    ]
+
+    vehicle_states = [
+        {
+            "vehicle_id": vid,
+            "route_id": state.route_id,
+            "current_stop_id": state.current_stop_id,
+            "arrival_time": _iso_or_none(state.arrival_time),
+            "departure_started_at": _iso_or_none(state.departure_started_at),
+        }
+        for vid, state in tracker.vehicle_states.items()
+    ]
+
+    def _dict_from_time_map(data: Mapping[Tuple[str, str], datetime]) -> List[dict]:
+        return [
+            {"stop_id": stop_id, "vehicle_id": veh_id, "timestamp": _iso_or_none(ts)}
+            for (stop_id, veh_id), ts in data.items()
+        ]
+
+    response = {
+        "fetched_at": _iso_or_none(end),
+        "thresholds_m": {
+            "arrival_distance_threshold_m": tracker.arrival_distance_threshold_m,
+            "departure_distance_threshold_m": tracker.departure_distance_threshold_m,
+        },
+        "tracked_route_ids": sorted(tracker.tracked_route_ids) if tracker.tracked_route_ids else [],
+        "tracked_stop_ids": sorted(tracker.tracked_stop_ids) if tracker.tracked_stop_ids else [],
+        "stop_count": len(tracker.stops),
+        "stops": stops_payload,
+        "vehicle_states": vehicle_states,
+        "last_arrivals": _dict_from_time_map(tracker.last_arrival),
+        "last_departures": _dict_from_time_map(tracker.last_departure),
+        "last_vehicle_arrivals": _dict_from_time_map(tracker.last_vehicle_arrival),
+        "last_vehicle_departures": _dict_from_time_map(tracker.last_vehicle_departure),
+        "stop_approach_overrides": [
+            {
+                "stop_id": stop_id,
+                "approach_bearing_deg": cfg[0],
+                "approach_tolerance_deg": cfg[1],
+                "approach_radius_m": cfg[2] if len(cfg) > 2 else None,
+            }
+            for stop_id, cfg in stop_approach_config.items()
+        ],
+        "recent_events": [ev.to_dict() for ev in recent_events],
+    }
+
+    return response
 
 
 @app.post("/v1/headway/clear")
@@ -7414,6 +7512,14 @@ async def headway_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(HEADWAY_HTML)
+    return _login_redirect(request)
+
+
+@app.get("/headway-diagnostics")
+async def headway_diagnostics_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(HEADWAY_DIAGNOSTICS_HTML)
     return _login_redirect(request)
 
 # ---------------------------
