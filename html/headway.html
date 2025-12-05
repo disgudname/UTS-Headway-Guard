@@ -283,9 +283,14 @@
     function formatStopLabel(stop) {
       const id = getStopId(stop) ?? '';
       const name = stop.Name || stop.Description || stop.StopName || `Stop ${id}`;
-      const routes = (stop.RouteIDs || stop.RouteIds || stop.RouteIds || stop.Routes || [])
-        .map(r => typeof r === 'object' ? (r.RouteID ?? r.RouteId ?? r.id) : r)
-        .filter(Boolean);
+      const routeIds = new Set([
+        ...(stop.RouteIDs || stop.RouteIds || stop.RouteIds || stop.Routes || []),
+        ...(stop._routeIds || []),
+      ]
+        .map(r => (typeof r === 'object' ? (r.RouteID ?? r.RouteId ?? r.id) : r))
+        .filter(Boolean)
+        .map(String));
+      const routes = Array.from(routeIds);
       return routes.length ? `${name} — ${routes.join(', ')}` : name;
     }
 
