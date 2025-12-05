@@ -651,7 +651,7 @@
       liveStatusEl.style.color = isError ? '#fca5a5' : '#9fb7ff';
     }
 
-    function renderLiveResults(events) {
+    function renderLiveResults(events, etaInfo = null) {
       if (!events.length) {
         liveResultsEl.innerHTML = '<div class="empty-state">No headway events recorded in the past hour for this stop.</div>';
         liveSummaryEl.textContent = '';
@@ -661,19 +661,45 @@
         .filter(ev => ev.event_type === 'arrival')
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       const latest = arrivals[0];
+      const summaryParts = [];
       if (latest) {
         const latestHeadwaySeconds = getHeadwayValue(latest, liveHeadwayTypeSelect);
         const headway = latestHeadwaySeconds != null ? `${(latestHeadwaySeconds / 60).toFixed(1)} min` : 'N/A';
         const time = new Date(latest.timestamp).toLocaleTimeString();
-        liveSummaryEl.textContent = `Latest arrival at ${time}. Headway: ${headway}.`;
+        summaryParts.push(`Latest arrival at ${time}. Headway: ${headway}.`);
       } else {
-        liveSummaryEl.textContent = 'No arrivals recorded yet for this stop in the past hour.';
+        summaryParts.push('No arrivals recorded yet for this stop in the past hour.');
       }
+
+      if (etaInfo && etaInfo.secondsToArrival != null) {
+        const etaMinutes = (etaInfo.secondsToArrival / 60).toFixed(1);
+        const etaTime = new Date(etaInfo.arrivalTimeMs).toLocaleTimeString();
+        if (latest) {
+          const latestTs = new Date(latest.timestamp).getTime();
+          const estimatedHeadwaySeconds = (etaInfo.arrivalTimeMs - latestTs) / 1000;
+          const estimatedHeadway = estimatedHeadwaySeconds > 0 ? `${(estimatedHeadwaySeconds / 60).toFixed(1)} min` : null;
+          const headwayPart = estimatedHeadway ? `Estimated current headway: ${estimatedHeadway}.` : 'Current headway estimate unavailable.';
+          summaryParts.push(`${headwayPart} Next arrival in ${etaMinutes} min at ${etaTime}.`);
+        } else {
+          summaryParts.push(`Next arrival in ${etaMinutes} min at ${etaTime}.`);
+        }
+      }
+
+      liveSummaryEl.textContent = summaryParts.join(' ');
 
       const recent = events
         .slice()
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
         .slice(0, 10);
+      const etaRow = etaInfo && etaInfo.arrivalTimeMs
+        ? `<tr class="highlight-row">
+          <td>${new Date(etaInfo.arrivalTimeMs).toLocaleTimeString()}</td>
+          <td>ETA</td>
+          <td>${etaInfo.estimatedHeadwaySeconds != null ? `${(etaInfo.estimatedHeadwaySeconds / 60).toFixed(1)} min` : ''}</td>
+          <td></td>
+        </tr>`
+        : '';
+
       const rows = recent.map(ev => {
         const tsLocal = new Date(ev.timestamp).toLocaleTimeString();
         const headwaySeconds = getHeadwayValue(ev, liveHeadwayTypeSelect);
@@ -697,7 +723,7 @@
               <th>Dwell</th>
             </tr>
           </thead>
-          <tbody>${rows}</tbody>
+          <tbody>${etaRow}${rows}</tbody>
         </table>
       </div>`;
     }
@@ -716,17 +742,54 @@
         const now = new Date();
         const start = new Date(now.getTime() - LIVE_WINDOW_MS);
         const stopIds = stopIdsByCanonical.get(String(stopId)) || [stopId];
-        const params = new URLSearchParams({
+        const headwayParams = new URLSearchParams({
           start: start.toISOString(),
           end: now.toISOString(),
           route_ids: routeId,
           stop_ids: stopIds.join(','),
         });
-        const res = await fetch(`/api/headway?${params.toString()}`);
-        if (!res.ok) throw new Error(`Live headway fetch failed (${res.status})`);
-        const data = await res.json();
+        const [headwayRes, etaRes] = await Promise.all([
+          fetch(`/api/headway?${headwayParams.toString()}`),
+          fetch(`/v1/transloc/stop_arrivals?stopIDs=${encodeURIComponent(stopIds.join(','))}`),
+        ]);
+        if (!headwayRes.ok) throw new Error(`Live headway fetch failed (${headwayRes.status})`);
+        const data = await headwayRes.json();
         const events = Array.isArray(data.events) ? data.events : [];
-        renderLiveResults(events);
+
+        let etaInfo = null;
+        if (etaRes.ok) {
+          const etaPayload = await etaRes.json();
+          const arrivals = Array.isArray(etaPayload?.Arrivals) ? etaPayload.Arrivals : [];
+          arrivals.forEach(stop => {
+            const stopArrivals = Array.isArray(stop?.Arrivals) ? stop.Arrivals : [];
+            stopArrivals.forEach(arrival => {
+              const routeMatch = String(arrival.RouteId ?? arrival.RouteID ?? stop.RouteId ?? stop.RouteID ?? '') === String(routeId);
+              if (!routeMatch) return;
+              const seconds = Number(arrival.SecondsToArrival ?? arrival.SecondsToDeparture ?? arrival.Seconds ?? arrival.seconds);
+              if (!Number.isFinite(seconds)) return;
+              const arrivalTimeMs = Date.now() + seconds * 1000;
+              if (!etaInfo || seconds < etaInfo.secondsToArrival) {
+                etaInfo = {
+                  secondsToArrival: seconds,
+                  arrivalTimeMs,
+                };
+              }
+            });
+          });
+          if (etaInfo && events.length) {
+            const latestArrival = events
+              .filter(ev => ev.event_type === 'arrival')
+              .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+            if (latestArrival) {
+              etaInfo.estimatedHeadwaySeconds = Math.max(
+                0,
+                (etaInfo.arrivalTimeMs - new Date(latestArrival.timestamp).getTime()) / 1000,
+              );
+            }
+          }
+        }
+
+        renderLiveResults(events, etaInfo);
         setLiveStatus('Live headway updated.');
       } catch (err) {
         console.error(err);
