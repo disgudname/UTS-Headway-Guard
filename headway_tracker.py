@@ -240,6 +240,27 @@ class HeadwayTracker:
             if prev_departure is None:
                 prev_departure = self.last_departure.get(key)
 
+        # If the tracker was restarted, the in-memory caches will be empty even
+        # though earlier events exist on disk. To avoid emitting `null` headways
+        # in that case, backfill the most recent arrival/departure from storage
+        # when no cached values are present. Keep the lookup narrow (same day)
+        # to avoid expensive scans.
+        if prev_arrival is None or prev_departure is None:
+            day_start = datetime.combine(timestamp.date(), datetime.min.time(), tzinfo=timezone.utc)
+            history = self.storage.query_events(
+                start=day_start,
+                end=timestamp,
+                route_ids={route_id} if route_id else None,
+                stop_ids={stop_id},
+            )
+            for event in reversed(history):
+                if prev_arrival is None and event.event_type == "arrival":
+                    prev_arrival = event.timestamp
+                if prev_departure is None and event.event_type == "departure":
+                    prev_departure = event.timestamp
+                if prev_arrival is not None and prev_departure is not None:
+                    break
+
         for key in keys:
             self.last_arrival[key] = timestamp
         arrival_arrival = None
