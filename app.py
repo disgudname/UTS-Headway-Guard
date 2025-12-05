@@ -2824,9 +2824,10 @@ async def headway_diagnostics(
     if len(recent_events) > 40:
         recent_events = recent_events[-40:]
 
-    vehicle_name_lookup = dict(getattr(app.state, "headway_vehicle_names", {}) or {})
-    vehicle_name_lookup = {str(k): v for k, v in vehicle_name_lookup.items() if v}
     attached_vehicle_names = _attach_vehicle_names(recent_events)
+    if attached_vehicle_names:
+        app.state.headway_vehicle_names = attached_vehicle_names
+    vehicle_name_lookup = {str(k): v for k, v in attached_vehicle_names.items() if v}
     unmatched_vehicle_events = [
         {
             "vehicle_id": ev.vehicle_id,
