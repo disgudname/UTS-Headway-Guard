@@ -2824,6 +2824,21 @@ async def headway_diagnostics(
     if len(recent_events) > 40:
         recent_events = recent_events[-40:]
 
+    vehicle_name_lookup = dict(getattr(app.state, "headway_vehicle_names", {}) or {})
+    vehicle_name_lookup = {str(k): v for k, v in vehicle_name_lookup.items() if v}
+    attached_vehicle_names = _attach_vehicle_names(recent_events)
+    unmatched_vehicle_events = [
+        {
+            "vehicle_id": ev.vehicle_id,
+            "route_id": ev.route_id,
+            "stop_id": ev.stop_id,
+            "event_type": ev.event_type,
+            "timestamp": _iso_or_none(ev.timestamp),
+        }
+        for ev in recent_events
+        if ev.vehicle_id and not ev.vehicle_name
+    ]
+
     stop_approach_config = getattr(app.state, "stop_approach_config", {}) or {}
 
     stops_payload = [
@@ -2873,6 +2888,9 @@ async def headway_diagnostics(
         "last_vehicle_departures": _dict_from_time_map(tracker.last_vehicle_departure),
         "recent_stop_association_failures": list(tracker.recent_stop_association_failures),
         "recent_arrival_suppressions": list(tracker.recent_arrival_suppressions),
+        "vehicle_name_lookup": vehicle_name_lookup,
+        "attached_vehicle_names": attached_vehicle_names,
+        "unmatched_vehicle_events": unmatched_vehicle_events,
         "stop_approach_overrides": [
             {
                 "stop_id": stop_id,

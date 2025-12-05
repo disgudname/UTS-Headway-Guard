@@ -113,6 +113,16 @@
     <div id="arrival-suppressions"></div>
   </div>
 
+  <div class="card">
+    <h2 style="margin-top: 0; margin-bottom: 0.35rem;">Vehicle name cache</h2>
+    <p class="muted" style="margin-top: 0;">
+      Snapshot of the vehicle ID → vehicle name lookup the headway tracker has cached, plus the most recent events where we
+      could not attach a vehicle name.
+    </p>
+    <div id="vehicle-names"></div>
+    <div id="unmatched-vehicles" style="margin-top: 0.75rem;"></div>
+  </div>
+
   <textarea id="payload" class="export-block" readonly>Loading…</textarea>
 
   <script>
@@ -203,9 +213,53 @@
         exported_at: exportedAt,
         recent_stop_association_failures: raw?.recent_stop_association_failures || [],
         headway_diagnostics: raw || {},
+        vehicle_name_lookup: raw?.vehicle_name_lookup || {},
+        attached_vehicle_names: raw?.attached_vehicle_names || {},
+        unmatched_vehicle_events: raw?.unmatched_vehicle_events || [],
       };
 
       return JSON.stringify(payload, null, 2);
+    }
+
+    function renderVehicleNames(mapping, container) {
+      if (!container) return;
+      const entries = Object.entries(mapping || {});
+      if (!entries.length) {
+        container.innerHTML = '<div class="muted">No cached vehicle name mappings found.</div>';
+        return;
+      }
+
+      const rows = entries
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([vid, name]) => `<div style="padding: 0.2rem 0; border-bottom: 1px solid #f3f4f6;"><strong>${vid}</strong> · ${name}</div>`)
+        .join('');
+
+      container.innerHTML = `<div class="muted" style="margin-bottom: 0.35rem;">${entries.length} cached entries</div>${rows}`;
+    }
+
+    function renderUnmatchedVehicles(events, container) {
+      if (!container) return;
+      if (!events || !events.length) {
+        container.innerHTML = '<div class="muted">All recent events had a vehicle name attached.</div>';
+        return;
+      }
+
+      const recent = events.slice(-12).reverse();
+      const rows = recent
+        .map((item) => {
+          const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'unknown time';
+          const stop = item.stop_id ? `stop ${item.stop_id}` : 'stop n/a';
+          const route = item.route_id || 'route n/a';
+          return `
+            <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
+              <div><strong>${item.vehicle_id}</strong> · ${stop} · <span class="pill">${item.event_type || 'event'}</span></div>
+              <div class="muted">${ts} · ${route}</div>
+            </div>
+          `;
+        })
+        .join('');
+
+      container.innerHTML = `<div class="muted" style="margin-bottom: 0.35rem;">${events.length} recent events missing vehicle names</div>${rows}`;
     }
 
     async function loadDiagnostics() {
@@ -214,6 +268,8 @@
       const errorEl = document.getElementById('error');
       const mismatchesEl = document.getElementById('route-mismatches');
       const suppressionsEl = document.getElementById('arrival-suppressions');
+      const vehicleNamesEl = document.getElementById('vehicle-names');
+      const unmatchedVehiclesEl = document.getElementById('unmatched-vehicles');
       const copyBtn = document.getElementById('copy');
       statusEl.textContent = 'Fetching…';
       errorEl.textContent = '';
@@ -228,6 +284,8 @@
         statusEl.textContent = `Updated ${new Date().toLocaleString()}`;
         renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl);
         renderArrivalSuppressions(data.recent_arrival_suppressions || [], suppressionsEl);
+        renderVehicleNames(data.vehicle_name_lookup || {}, vehicleNamesEl);
+        renderUnmatchedVehicles(data.unmatched_vehicle_events || [], unmatchedVehiclesEl);
         payloadEl.value = buildExportPayload(data);
         copyBtn.disabled = false;
       } catch (err) {
@@ -235,6 +293,8 @@
         errorEl.textContent = err.message || 'Unable to fetch diagnostics';
         mismatchesEl.innerHTML = '<div class="muted">Unable to load stop association drops.</div>';
         suppressionsEl.innerHTML = '<div class="muted">Unable to load arrival suppressions.</div>';
+        vehicleNamesEl.innerHTML = '<div class="muted">Unable to load vehicle name cache.</div>';
+        unmatchedVehiclesEl.innerHTML = '<div class="muted">Unable to load events missing vehicle names.</div>';
         payloadEl.value = 'error: unable to fetch diagnostics';
       }
     }
