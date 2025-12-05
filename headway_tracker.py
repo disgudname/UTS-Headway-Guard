@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from collections import deque
 import json
 import math
 import os
@@ -73,6 +74,7 @@ class HeadwayTracker:
         self.last_vehicle_departure: Dict[Tuple[str, str], datetime] = {}
         self.stops: List[StopPoint] = []
         self.stop_lookup: Dict[str, StopPoint] = {}
+        self.recent_stop_association_failures: deque = deque(maxlen=25)
         print(
             f"[headway] tracker initialized routes={sorted(self.tracked_route_ids) if self.tracked_route_ids else 'all'} "
             f"stops={sorted(self.tracked_stop_ids) if self.tracked_stop_ids else 'all'}"
@@ -148,6 +150,8 @@ class HeadwayTracker:
             vid = self._normalize_id(snap.vehicle_id)
             if vid is None:
                 continue
+            if current_stop is None:
+                self._log_stop_association_failure(snap, route_id_norm)
             prev_state = self.vehicle_states.get(vid, VehiclePresence())
             prev_stop = prev_state.current_stop_id
             distance_from_prev_stop = self._distance_to_stop(prev_stop, snap.lat, snap.lon)
@@ -311,6 +315,110 @@ class HeadwayTracker:
             departure_arrival = max((timestamp - prev_departure).total_seconds(), 0.0)
         return arrival_arrival, departure_arrival
 
+    def _log_stop_association_failure(
+        self, snap: VehicleSnapshot, route_id_norm: Optional[str]
+    ) -> None:
+        diagnosis = self._diagnose_stop_association(snap.lat, snap.lon, route_id_norm, snap.heading_deg)
+        detail = {
+            "timestamp": self._isoformat(snap.timestamp),
+            "vehicle_id": self._normalize_id(snap.vehicle_id),
+            "vehicle_name": snap.vehicle_name,
+            "route_id": route_id_norm,
+            "lat": snap.lat,
+            "lon": snap.lon,
+            "heading_deg": snap.heading_deg,
+        }
+        detail.update(diagnosis)
+        self.recent_stop_association_failures.append(detail)
+
+    def _diagnose_stop_association(
+        self,
+        lat: float,
+        lon: float,
+        route_id: Optional[str],
+        heading_deg: Optional[float],
+    ) -> dict:
+        if not self.stops:
+            return {"reason": "no_stops"}
+
+        nearest_any: Optional[Tuple[StopPoint, float, float]] = None
+        nearest_route_mismatch: Optional[Tuple[StopPoint, float, float]] = None
+        nearest_cone_block: Optional[Tuple[StopPoint, float, float]] = None
+
+        for stop in self.stops:
+            if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
+                continue
+            approach_config = self.stop_approach.get(stop.stop_id)
+            approach_bearing = stop.approach_bearing_deg
+            approach_tolerance = stop.approach_tolerance_deg
+            approach_radius = stop.approach_radius_m
+
+            if approach_config:
+                if approach_bearing is None:
+                    approach_bearing = approach_config[0]
+                if approach_tolerance is None:
+                    approach_tolerance = approach_config[1]
+                if approach_radius is None and len(approach_config) > 2:
+                    approach_radius = approach_config[2]
+
+            requires_cone = approach_bearing is not None and approach_tolerance is not None
+            cone_radius = approach_radius if requires_cone else None
+            effective_threshold = cone_radius if cone_radius is not None else self.arrival_distance_threshold_m
+            dist = self._haversine(lat, lon, stop.lat, stop.lon)
+
+            if nearest_any is None or dist < nearest_any[1]:
+                nearest_any = (stop, dist, effective_threshold)
+
+            if route_id and stop.route_ids and route_id not in stop.route_ids:
+                if dist <= effective_threshold and (
+                    nearest_route_mismatch is None or dist < nearest_route_mismatch[1]
+                ):
+                    nearest_route_mismatch = (stop, dist, effective_threshold)
+                continue
+
+            if dist <= effective_threshold:
+                if requires_cone:
+                    position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
+                    heading_ok = True
+                    if heading_deg is not None and math.isfinite(heading_deg):
+                        target_heading = (approach_bearing + 180.0) % 360.0
+                        heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
+                    if not heading_ok or not _is_within_bearing(
+                        position_bearing, approach_bearing, approach_tolerance
+                    ):
+                        if nearest_cone_block is None or dist < nearest_cone_block[1]:
+                            nearest_cone_block = (stop, dist, effective_threshold)
+                        continue
+
+        if nearest_route_mismatch is not None:
+            stop, dist, threshold = nearest_route_mismatch
+            return {
+                "reason": "route_mismatch",
+                "nearest_stop_id": stop.stop_id,
+                "nearest_stop_route_ids": sorted(stop.route_ids),
+                "distance_m": dist,
+                "threshold_m": threshold,
+            }
+        if nearest_cone_block is not None:
+            stop, dist, threshold = nearest_cone_block
+            return {
+                "reason": "outside_cone",
+                "nearest_stop_id": stop.stop_id,
+                "nearest_stop_route_ids": sorted(stop.route_ids),
+                "distance_m": dist,
+                "threshold_m": threshold,
+            }
+        if nearest_any is not None:
+            stop, dist, threshold = nearest_any
+            return {
+                "reason": "beyond_distance",
+                "nearest_stop_id": stop.stop_id,
+                "nearest_stop_route_ids": sorted(stop.route_ids),
+                "distance_m": dist,
+                "threshold_m": threshold,
+            }
+        return {"reason": "unknown"}
+
     def _nearest_stop(
         self,
         lat: float,
@@ -399,6 +507,13 @@ class HeadwayTracker:
                 return str(value)
             except Exception:
                 return None
+
+    def _isoformat(self, dt: Optional[datetime]) -> Optional[str]:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
     def _haversine(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         r_earth = 6371000.0

@@ -2871,6 +2871,7 @@ async def headway_diagnostics(
         "last_departures": _dict_from_time_map(tracker.last_departure),
         "last_vehicle_arrivals": _dict_from_time_map(tracker.last_vehicle_arrival),
         "last_vehicle_departures": _dict_from_time_map(tracker.last_vehicle_departure),
+        "recent_stop_association_failures": list(tracker.recent_stop_association_failures),
         "stop_approach_overrides": [
             {
                 "stop_id": stop_id,

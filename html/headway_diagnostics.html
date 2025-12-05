@@ -50,6 +50,27 @@
       color: #b91c1c;
       font-weight: 600;
     }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .pill {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #312e81;
+      font-size: 0.85rem;
+      margin-left: 0.35rem;
+    }
+    .muted {
+      color: #6b7280;
+      font-size: 0.9rem;
+    }
   </style>
 </head>
 <body>
@@ -61,13 +82,57 @@
   <button id="refresh">Refresh diagnostics</button>
   <div class="meta" id="status"></div>
   <div id="error" class="error"></div>
+
+  <div class="card">
+    <h2 style="margin-top: 0; margin-bottom: 0.35rem;">Stop association drops</h2>
+    <p class="muted" style="margin-top: 0;">
+      Most recent snapshots that could not be tied to a stop. Route mismatches are highlighted.
+    </p>
+    <div id="route-mismatches"></div>
+  </div>
+
   <pre id="payload">Loading…</pre>
 
   <script>
+    function formatDistance(meters) {
+      if (meters === undefined || meters === null || Number.isNaN(meters)) return 'n/a';
+      return `${meters.toFixed(1)} m`;
+    }
+
+    function renderRouteMismatches(failures, container) {
+      if (!container) return;
+      if (!failures || !failures.length) {
+        container.innerHTML = '<div class="muted">No recent stop association drops.</div>';
+        return;
+      }
+
+      const recent = failures.slice(-8).reverse();
+      const rows = recent
+        .map((f) => {
+          const reason = (f.reason || 'unknown').replace(/_/g, ' ');
+          const ts = f.timestamp ? new Date(f.timestamp).toLocaleTimeString() : 'unknown time';
+          const stopInfo = f.nearest_stop_id
+            ? `near stop ${f.nearest_stop_id} (${formatDistance(Number(f.distance_m))})`
+            : 'no nearby stop';
+          const badgeColor = f.reason === 'route_mismatch' ? '#fee2e2' : '#e5e7eb';
+          const badgeTextColor = f.reason === 'route_mismatch' ? '#991b1b' : '#374151';
+          return `
+            <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
+              <div><strong>${f.vehicle_id || 'unknown vehicle'}</strong> <span class="pill" style="background:${badgeColor}; color:${badgeTextColor};">${reason}</span></div>
+              <div class="muted">${ts} · route ${f.route_id || 'n/a'} · ${stopInfo}</div>
+            </div>
+          `;
+        })
+        .join('');
+
+      container.innerHTML = rows;
+    }
+
     async function loadDiagnostics() {
       const statusEl = document.getElementById('status');
       const payloadEl = document.getElementById('payload');
       const errorEl = document.getElementById('error');
+      const mismatchesEl = document.getElementById('route-mismatches');
       statusEl.textContent = 'Fetching…';
       errorEl.textContent = '';
       try {
@@ -78,10 +143,12 @@
         }
         const data = await res.json();
         statusEl.textContent = `Updated ${new Date().toLocaleString()}`;
+        renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl);
         payloadEl.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
         statusEl.textContent = '';
         errorEl.textContent = err.message || 'Unable to fetch diagnostics';
+        mismatchesEl.innerHTML = '<div class="muted">Unable to load stop association drops.</div>';
         payloadEl.textContent = '';
       }
     }
