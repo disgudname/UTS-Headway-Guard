@@ -304,6 +304,58 @@ def test_headway_tracker_uses_approach_radius_instead_of_circle():
     assert nearest == ("EAST", None)
 
 
+def test_headway_tracker_requires_entering_saved_cone_for_arrival():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(
+        storage=storage,
+        arrival_distance_threshold_m=70.0,
+        departure_distance_threshold_m=70.0,
+        stop_approach={},
+    )
+
+    tracker.update_stops([
+        {"StopID": "NORTH", "Latitude": 0.0, "Longitude": 0.0},
+    ])
+
+    # Saved cone pointing north with a reasonable tolerance and radius, but
+    # the tracker never receives refreshed stops that include it.
+    tracker.stop_approach = {"NORTH": (0.0, 15.0, 70.0)}
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    # Vehicle is north of the stop (outside the cone) but within distance
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="cone",
+                vehicle_name=None,
+                lat=0.0005,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base,
+            )
+        ]
+    )
+
+    assert storage.events == []
+
+    # Vehicle enters the cone from the south
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="cone",
+                vehicle_name=None,
+                lat=-0.0005,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
+            )
+        ]
+    )
+
+    assert [e.event_type for e in storage.events] == ["arrival"]
+
+
 def test_build_transloc_stops_merges_approach_config():
     from app import _build_transloc_stops
 
