@@ -2829,6 +2829,7 @@ schedulePlaneStyleOverride();
       const onDemandVehicleColorMap = new Map();
       const onDemandVehicleNameMap = new Map();
       const onDemandRouteLayers = new Map();
+      let onDemandVisibleRideIdsByVehicle = new Map();
       let onDemandStopDataCache = [];
       const onDemandStopMarkerCache = new Map();
       let onDemandStopMarkers = [];
@@ -6019,24 +6020,39 @@ schedulePlaneStyleOverride();
           if (!stop || typeof stop !== 'object') {
             return;
           }
-          const rideStatus = stop.status || stop.rideStatus || stop.ride_status;
-          const rideList = Array.isArray(stop.rides) ? stop.rides : null;
-          const hasOnlyPendingRides = rideList
-            ? rideList.every(ride => isPendingRideStatus(ride?.status || ride?.rideStatus || ride?.ride_status))
-            : false;
-          if (isPendingRideStatus(rideStatus) || hasOnlyPendingRides) {
-            return;
-          }
-          const lat = Number(stop.lat ?? stop.latitude);
-          const lon = Number(stop.lng ?? stop.lon ?? stop.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-            return;
-          }
           const rawVehicleId = stop.vehicleId ?? stop.vehicleID;
           const vehicleId = typeof rawVehicleId === 'string'
             ? rawVehicleId.trim()
             : `${rawVehicleId || ''}`.trim();
           if (!vehicleId) {
+            return;
+          }
+          const visibleRideIds = onDemandVisibleRideIdsByVehicle.get(vehicleId) || null;
+          const rideStatus = stop.status || stop.rideStatus || stop.ride_status;
+          const rideId = stop.rideId || stop.ride_id || '';
+          const rideList = Array.isArray(stop.rides) ? stop.rides : null;
+          let hasVisibleRide = false;
+          if (rideList && rideList.length) {
+            hasVisibleRide = rideList.some(ride => {
+              if (!ride || typeof ride !== 'object') {
+                return false;
+              }
+              const rideStatusValue = ride.status || ride.rideStatus || ride.ride_status;
+              const rideIdValue = ride.rideId || ride.ride_id || ride.id || rideId;
+              const rideStopType = ride.stop_type || ride.stopType || stop.stopType || stop.stop_type;
+              const rideIdText = typeof rideIdValue === 'string' ? rideIdValue.trim() : `${rideIdValue || ''}`.trim();
+              return shouldDisplayOnDemandRide(rideIdText, rideStatusValue, rideStopType, visibleRideIds);
+            });
+          } else {
+            const rideIdText = typeof rideId === 'string' ? rideId.trim() : `${rideId || ''}`.trim();
+            hasVisibleRide = shouldDisplayOnDemandRide(rideIdText, rideStatus, stop.stopType || stop.stop_type, visibleRideIds);
+          }
+          if (!hasVisibleRide) {
+            return;
+          }
+          const lat = Number(stop.lat ?? stop.latitude);
+          const lon = Number(stop.lng ?? stop.lon ?? stop.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
             return;
           }
           const routeId = `${ONDEMAND_STOP_ROUTE_PREFIX}${vehicleId}`;
@@ -6561,13 +6577,161 @@ schedulePlaneStyleOverride();
       }
 
       function isPendingRideStatus(status) {
-        if (typeof status !== 'string') {
-          return false;
-        }
-        return status.trim().toLowerCase() === 'pending';
+        return normalizeRideStatus(status) === 'pending';
       }
 
-      function normalizeOnDemandStopPlan(rawStops) {
+      function normalizeRideStatus(status) {
+        if (typeof status !== 'string') {
+          return '';
+        }
+        return status.trim().toLowerCase();
+      }
+
+      function isTerminalOnDemandRideStatus(status) {
+        const normalized = normalizeRideStatus(status);
+        if (!normalized) {
+          return false;
+        }
+        return (
+          normalized === 'no_show'
+          || normalized === 'no show'
+          || normalized === 'noshow'
+          || normalized === 'cancelled'
+          || normalized === 'canceled'
+          || normalized === 'denied'
+          || normalized === 'completed'
+          || normalized === 'complete'
+          || normalized === 'finished'
+          || normalized === 'done'
+          || normalized === 'ended'
+        );
+      }
+
+      function shouldDisplayOnDemandRide(rideId, rideStatus, stopType, visibleRideIds) {
+        const normalizedStatus = normalizeRideStatus(rideStatus);
+        const normalizedStopType = `${stopType ?? ''}`.trim().toLowerCase();
+        if (isTerminalOnDemandRideStatus(normalizedStatus)) {
+          return false;
+        }
+        if (normalizedStatus === 'pending') {
+          if (!rideId) {
+            return false;
+          }
+          const visibleSet = visibleRideIds instanceof Set ? visibleRideIds : null;
+          return Boolean(visibleSet?.has(rideId));
+        }
+        if (normalizedStatus === 'in_progress') {
+          return true;
+        }
+        if (normalizedStopType !== 'pickup' && normalizedStopType !== 'dropoff') {
+          return false;
+        }
+        return true;
+      }
+
+      function collectOnDemandRideStopEntries(rawStops) {
+        if (!Array.isArray(rawStops)) {
+          return [];
+        }
+
+        const entries = [];
+        let fallbackOrder = 1;
+
+        const appendEntry = (order, stopType, rideId, rideStatus) => {
+          const rideIdText = typeof rideId === 'string' ? rideId.trim() : `${rideId || ''}`.trim();
+          const stopTypeNormalized = `${stopType ?? ''}`.trim().toLowerCase();
+          if (!rideIdText || (stopTypeNormalized !== 'pickup' && stopTypeNormalized !== 'dropoff')) {
+            return;
+          }
+          const orderValue = Number(order);
+          const resolvedOrder = Number.isFinite(orderValue) ? orderValue : fallbackOrder++;
+          entries.push({
+            order: resolvedOrder,
+            stopType: stopTypeNormalized,
+            rideId: rideIdText,
+            rideStatus
+          });
+        };
+
+        for (const stop of rawStops) {
+          if (!stop || typeof stop !== 'object') {
+            continue;
+          }
+
+          const rides = Array.isArray(stop.rides) ? stop.rides : null;
+          if (rides) {
+            const orderValue = Number(stop.order);
+            const baseOrder = Number.isFinite(orderValue) ? orderValue : fallbackOrder;
+            for (const ride of rides) {
+              if (!ride || typeof ride !== 'object') {
+                continue;
+              }
+              const rideStatus = ride.status || ride.rideStatus || ride.ride_status;
+              const rideId = ride.rideId || ride.ride_id || ride.id || '';
+              const stopType = ride.stop_type || ride.stopType || stop.stopType || stop.stop_type;
+              appendEntry(baseOrder, stopType, rideId, rideStatus);
+            }
+            continue;
+          }
+
+          const rideStatus = stop.status || stop.rideStatus || stop.ride_status;
+          const rideId = stop.rideId || stop.ride_id || '';
+          const stopType = stop.stopType || stop.stop_type;
+          appendEntry(stop.order, stopType, rideId, rideStatus);
+        }
+
+        entries.sort((a, b) => a.order - b.order);
+        return entries;
+      }
+
+      function findEarliestPendingPickupRideId(entries) {
+        if (!Array.isArray(entries) || entries.length === 0) {
+          return null;
+        }
+        const pendingPickups = entries
+          .filter(entry => normalizeRideStatus(entry.rideStatus) === 'pending' && entry.stopType === 'pickup')
+          .sort((a, b) => a.order - b.order);
+        return pendingPickups.length > 0 ? pendingPickups[0].rideId : null;
+      }
+
+      function computeVisibleOnDemandRideIds(vehicles) {
+        const visibilityMap = new Map();
+        if (!Array.isArray(vehicles)) {
+          return visibilityMap;
+        }
+
+        vehicles.forEach(vehicle => {
+          if (!vehicle || typeof vehicle !== 'object') {
+            return;
+          }
+          const rawId = vehicle.vehicleId ?? vehicle.deviceUuid ?? vehicle.deviceId ?? vehicle.callName ?? '';
+          const vehicleId = `${rawId}`.trim();
+          if (!vehicleId) {
+            return;
+          }
+          const entries = collectOnDemandRideStopEntries(vehicle.stops);
+          const earliestPendingRideId = findEarliestPendingPickupRideId(entries);
+          const visibleRideIds = new Set();
+          entries.forEach(entry => {
+            const normalizedStatus = normalizeRideStatus(entry.rideStatus);
+            if (isTerminalOnDemandRideStatus(normalizedStatus)) {
+              return;
+            }
+            if (normalizedStatus === 'pending') {
+              if (entry.rideId && entry.rideId === earliestPendingRideId) {
+                visibleRideIds.add(entry.rideId);
+              }
+              return;
+            }
+            visibleRideIds.add(entry.rideId);
+          });
+          visibilityMap.set(vehicleId, visibleRideIds);
+        });
+
+        return visibilityMap;
+      }
+
+      function normalizeOnDemandStopPlan(rawStops, visibleRideIds) {
         if (!Array.isArray(rawStops)) {
           return [];
         }
@@ -6576,10 +6740,19 @@ schedulePlaneStyleOverride();
         let fallbackOrder = 1;
 
         const appendEntry = (order, stopType, address, riders, rideId, rideStatus) => {
-          if (isPendingRideStatus(rideStatus)) {
+          const stopTypeNormalized = `${stopType ?? ''}`.trim().toLowerCase();
+          const rideIdText = typeof rideId === 'string' ? rideId.trim() : `${rideId || ''}`.trim();
+          const rideStatusText = typeof rideStatus === 'string' ? rideStatus.trim() : '';
+          if (
+            !shouldDisplayOnDemandRide(
+              rideIdText,
+              rideStatusText,
+              stopTypeNormalized,
+              visibleRideIds instanceof Set ? visibleRideIds : null
+            )
+          ) {
             return;
           }
-          const stopTypeNormalized = `${stopType ?? ''}`.trim().toLowerCase();
           if (stopTypeNormalized !== 'pickup' && stopTypeNormalized !== 'dropoff') {
             return;
           }
@@ -6597,11 +6770,9 @@ schedulePlaneStyleOverride();
             address: typeof address === 'string' ? address.trim() : '',
             riders: riderList,
           };
-          const rideIdText = typeof rideId === 'string' ? rideId.trim() : '';
           if (rideIdText) {
             entry.rideId = rideIdText;
           }
-          const rideStatusText = typeof rideStatus === 'string' ? rideStatus.trim() : '';
           if (rideStatusText) {
             entry.rideStatus = rideStatusText;
           }
@@ -6633,11 +6804,6 @@ schedulePlaneStyleOverride();
             }
             continue;
           }
-
-          if (isPendingRideStatus(stopRideStatus)) {
-            continue;
-          }
-
           appendEntry(
             stop.order,
             stop.stopType || stop.stop_type,
@@ -6653,7 +6819,7 @@ schedulePlaneStyleOverride();
       }
 
       function renderOnDemandStopList(stopPlan) {
-        const stops = normalizeOnDemandStopPlan(stopPlan);
+        const stops = Array.isArray(stopPlan) ? stopPlan : [];
         if (!stops.length) {
           return '';
         }
@@ -6732,6 +6898,7 @@ schedulePlaneStyleOverride();
             }
             const vehicles = Array.isArray(payload?.vehicles) ? payload.vehicles : [];
             const ondemandStops = Array.isArray(payload?.ondemandStops) ? payload.ondemandStops : [];
+            onDemandVisibleRideIdsByVehicle = computeVisibleOnDemandRideIds(vehicles);
             updateOnDemandVehicleColorMap(vehicles);
             onDemandStopDataCache = ondemandStops.slice();
             if (onDemandStopsEnabled) {
@@ -6799,7 +6966,8 @@ schedulePlaneStyleOverride();
                   ? computeMinutesSinceTimestamp(lastActiveTimestamp)
                   : null;
               const isPaused = Number.isFinite(pausedMinutes);
-              const stopPlan = normalizeOnDemandStopPlan(vehicle.stops);
+              const visibleRideIds = onDemandVisibleRideIdsByVehicle.get(normalizedId) || new Set();
+              const stopPlan = normalizeOnDemandStopPlan(vehicle.stops, visibleRideIds);
               const pickupRiders = new Set(
                 stopPlan
                   .filter(entry => entry.stopType === 'pickup')
