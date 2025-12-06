@@ -6769,6 +6769,7 @@ schedulePlaneStyleOverride();
                 vehicle.eligible === false && !isStale
                   ? computeMinutesSinceTimestamp(lastActiveTimestamp)
                   : null;
+              const isPaused = Number.isFinite(pausedMinutes);
               const stopPlan = normalizeOnDemandStopPlan(vehicle.stops);
               const pickupRiders = new Set(
                 stopPlan
@@ -6806,7 +6807,7 @@ schedulePlaneStyleOverride();
                   ].join('')
                 );
               }
-              if (Number.isFinite(pausedMinutes)) {
+              if (isPaused) {
                 const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
                 popupSections.push(
                   [
@@ -6833,7 +6834,7 @@ schedulePlaneStyleOverride();
               }
               if (popupSections.length) {
                 const ariaParts = [];
-                if (Number.isFinite(pausedMinutes)) {
+                if (isPaused) {
                   const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
                   ariaParts.push(`Paused for ${pausedMinutes} ${minutesLabel}`);
                 }
@@ -6935,7 +6936,9 @@ schedulePlaneStyleOverride();
               }
 
               if (adminMode && !kioskMode) {
-                const nameIcon = createNameBubbleDivIcon(displayName, fillColor, markerMetricsForZoom.scale, headingDeg);
+                const nameIcon = createNameBubbleDivIcon(displayName, fillColor, markerMetricsForZoom.scale, headingDeg, {
+                  textDecoration: isPaused ? 'line-through' : ''
+                });
                 nameBubbles[markerKey] = nameBubbles[markerKey] || {};
                 if (nameIcon) {
                   if (nameBubbles[markerKey].nameMarker) {
@@ -16623,12 +16626,13 @@ ${trainPlaneMarkup}
           });
       }
 
-      function createNameBubbleDivIcon(busName, routeColor, scale, headingDeg) {
+      function createNameBubbleDivIcon(busName, routeColor, scale, headingDeg, options) {
           if (typeof busName !== 'string' || busName.trim().length === 0) {
               return null;
           }
           const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
           const name = busName.trim();
+          const textDecoration = options?.textDecoration === 'line-through' ? 'line-through' : '';
           const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
               ? routeColor
               : BUS_MARKER_DEFAULT_ROUTE_COLOR;
@@ -16659,7 +16663,7 @@ ${trainPlaneMarkup}
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
                       <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}"${textDecoration ? ' style="text-decoration: line-through;"' : ''}>${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
