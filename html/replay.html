@@ -3809,10 +3809,26 @@
     }
 
     function buildConePoints(center, bearingDeg, toleranceDeg, radiusMeters) {
-      const entryLeft = destinationPoint(center, bearingDeg - toleranceDeg, radiusMeters);
-      const entryRight = destinationPoint(center, bearingDeg + toleranceDeg, radiusMeters);
+      const arcPoints = buildConeArcPoints(center, bearingDeg, toleranceDeg, radiusMeters);
       const apex = destinationPoint(center, normalizeBearing(bearingDeg + 180), radiusMeters);
-      return [entryLeft, entryRight, apex, entryLeft];
+      return [apex, ...arcPoints, apex];
+    }
+
+    function buildConeArcPoints(center, bearingDeg, toleranceDeg, radiusMeters) {
+      const arcPoints = [];
+      const startBearing = bearingDeg - toleranceDeg;
+      const endBearing = bearingDeg + toleranceDeg;
+      const span = Math.max(0, endBearing - startBearing);
+      const step = Math.max(2, Math.min(10, toleranceDeg / 2 || 5));
+      const segments = Math.max(1, Math.ceil(span / step));
+      const actualStep = segments > 0 ? span / segments : 0;
+
+      for (let i = 0; i <= segments; i += 1) {
+        const currentBearing = startBearing + actualStep * i;
+        arcPoints.push(destinationPoint(center, currentBearing, radiusMeters));
+      }
+
+      return arcPoints;
     }
 
     function normalizeStopLatLng(stop) {
