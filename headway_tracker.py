@@ -18,6 +18,7 @@ DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 STOP_SPEED_THRESHOLD_MPS = 0.5
+MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 5.0
 
 
 @dataclass
@@ -92,6 +93,7 @@ class HeadwayTracker:
         self.recent_snapshot_diagnostics: deque = deque(maxlen=50)
         self.vehicle_approaches: Dict[str, ApproachState] = {}
         self.last_snapshots: Dict[str, VehicleSnapshot] = {}
+        self.pending_departure_movements: Dict[str, Dict[str, object]] = {}
         print(
             f"[headway] tracker initialized routes={sorted(self.tracked_route_ids) if self.tracked_route_ids else 'all'} "
             f"stops={sorted(self.tracked_stop_ids) if self.tracked_stop_ids else 'all'}"
@@ -194,6 +196,7 @@ class HeadwayTracker:
             timestamp = timestamp.astimezone(timezone.utc)
             snap.timestamp = timestamp
             departure_recorded = False
+            departure_trigger = None
 
             prev_snap = self.last_snapshots.get(vid)
 
@@ -212,16 +215,62 @@ class HeadwayTracker:
                 has_left_prev_stop = distance_from_prev_stop >= self.departure_distance_threshold_m
 
             movement_start_time = prev_state.departure_started_at
+            movement_confirmed = False
+            pending_movement = self.pending_departure_movements.get(vid)
             if prev_stop is not None and distance_from_prev_stop is not None:
                 if speed_mps is not None and speed_mps > STOP_SPEED_THRESHOLD_MPS:
                     if distance_from_prev_stop < self.departure_distance_threshold_m and movement_start_time is None:
                         movement_start_time = timestamp
+                    if movement_start_time is not None:
+                        if pending_movement is None or pending_movement.get("start_time") != movement_start_time:
+                            pending_movement = {
+                                "start_time": movement_start_time,
+                                "start_lat": snap.lat,
+                                "start_lon": snap.lon,
+                                "start_distance": distance_from_prev_stop,
+                                "movement_count": 1,
+                            }
+                            self.pending_departure_movements[vid] = pending_movement
+                        else:
+                            pending_movement["movement_count"] = pending_movement.get("movement_count", 1) + 1
                 elif distance_from_prev_stop < self.arrival_distance_threshold_m:
                     movement_start_time = None
+                    self.pending_departure_movements.pop(vid, None)
                 elif distance_from_prev_stop >= self.arrival_distance_threshold_m and movement_start_time is None:
                     movement_start_time = timestamp
+                    self.pending_departure_movements.pop(vid, None)
+            elif prev_stop is None:
+                self.pending_departure_movements.pop(vid, None)
 
-            if prev_stop and has_left_prev_stop and (current_stop is None or current_stop[0] != prev_stop):
+            pending_movement = self.pending_departure_movements.get(vid)
+            if pending_movement:
+                movement_displacement = self._haversine(
+                    pending_movement.get("start_lat", snap.lat),
+                    pending_movement.get("start_lon", snap.lon),
+                    snap.lat,
+                    snap.lon,
+                )
+                movement_count = pending_movement.get("movement_count", 1)
+                start_distance = pending_movement.get("start_distance")
+                moving_away = (
+                    distance_from_prev_stop is None
+                    or start_distance is None
+                    or distance_from_prev_stop >= start_distance
+                )
+                if moving_away and (
+                    movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M or movement_count >= 2
+                ):
+                    movement_confirmed = True
+                    movement_start_time = pending_movement.get("start_time") or movement_start_time
+                    self.pending_departure_movements.pop(vid, None)
+
+            if movement_confirmed:
+                has_left_prev_stop = True
+                departure_trigger = "movement"
+
+            if prev_stop and (
+                movement_confirmed or (has_left_prev_stop and (current_stop is None or current_stop[0] != prev_stop))
+            ):
                 dwell_seconds = None
                 departure_timestamp = movement_start_time or timestamp
                 if prev_state.arrival_time:
@@ -239,6 +288,9 @@ class HeadwayTracker:
                     for arrival_key in list(self.last_vehicle_arrival.keys()):
                         if arrival_key[0] == vid and arrival_key[1] == prev_stop:
                             self.last_vehicle_departure[arrival_key] = departure_timestamp
+                if departure_trigger is None:
+                    departure_trigger = "distance"
+                self.pending_departure_movements.pop(vid, None)
                 events.append(
                     HeadwayEvent(
                         timestamp=departure_timestamp,
@@ -380,6 +432,7 @@ class HeadwayTracker:
                     "duplicate_arrival": arrival_key in self.last_vehicle_arrival if arrival_key else False,
                     "departure_recorded": departure_recorded,
                     "departure_started_at": self._isoformat(movement_start_time),
+                    "departure_trigger": departure_trigger,
                     "speed_mps": speed_mps,
                     "approach_bearing_deg": getattr(stop_meta, "approach_bearing_deg", None),
                     "approach_tolerance_deg": getattr(stop_meta, "approach_tolerance_deg", None),
