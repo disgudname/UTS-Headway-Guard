@@ -7224,9 +7224,15 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
     if stop_id is None:
         raise HTTPException(status_code=400, detail="stop_id is required")
 
-    bearing = _coerce_float(payload.get("bearing_deg") or payload.get("bearing"))
-    tolerance = _coerce_float(payload.get("tolerance_deg") or payload.get("tolerance"))
-    radius = _coerce_float(payload.get("radius_m") or payload.get("radius"))
+    def _payload_value(*keys: str) -> Any:
+        for key in keys:
+            if key in payload:
+                return payload.get(key)
+        return None
+
+    bearing = _coerce_float(_payload_value("bearing_deg", "bearing"))
+    tolerance = _coerce_float(_payload_value("tolerance_deg", "tolerance"))
+    radius = _coerce_float(_payload_value("radius_m", "radius"))
 
     if bearing is None or tolerance is None:
         raise HTTPException(status_code=400, detail="bearing_deg and tolerance_deg are required")
