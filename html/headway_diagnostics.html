@@ -161,12 +161,33 @@
           const stopInfo = f.nearest_stop_id
             ? `near stop ${f.nearest_stop_id} (${formatDistance(Number(f.distance_m))})`
             : 'no nearby stop';
+          const approachDetails = [];
+          if (Number.isFinite(f.position_bearing_deg)) {
+            approachDetails.push(`bearing to stop ${Number(f.position_bearing_deg).toFixed(1)}°`);
+          }
+          if (Number.isFinite(f.approach_bearing_deg)) {
+            const tolerance = Number(f.approach_tolerance_deg || 0).toFixed(1);
+            approachDetails.push(`approach ${Number(f.approach_bearing_deg).toFixed(1)}° ± ${tolerance}°`);
+          }
+          if (Number.isFinite(f.target_heading_deg)) {
+            approachDetails.push(`target heading ${Number(f.target_heading_deg).toFixed(1)}°`);
+          }
+          if (Number.isFinite(f.approach_radius_m)) {
+            approachDetails.push(`cone radius ${Number(f.approach_radius_m).toFixed(1)} m`);
+          }
+          if (typeof f.heading_within_cone === 'boolean') {
+            approachDetails.push(`heading ok: ${f.heading_within_cone ? 'yes' : 'no'}`);
+          }
+          const approachText = approachDetails.length
+            ? `<div class="muted">${approachDetails.join(' · ')}</div>`
+            : '';
           const badgeColor = f.reason === 'route_mismatch' ? '#fee2e2' : '#e5e7eb';
           const badgeTextColor = f.reason === 'route_mismatch' ? '#991b1b' : '#374151';
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
               <div><strong>${f.vehicle_id || 'unknown vehicle'}</strong> <span class="pill" style="background:${badgeColor}; color:${badgeTextColor};">${reason}</span></div>
               <div class="muted">${ts} · route ${f.route_id || 'n/a'} · ${stopInfo}</div>
+              ${approachText}
             </div>
           `;
         })
