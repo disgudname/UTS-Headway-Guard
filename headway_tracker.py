@@ -278,33 +278,37 @@ class HeadwayTracker:
                     dwell_seconds = max(dwell_seconds, 0.0)
                 if prev_stop:
                     route_for_departure = prev_state.route_id or route_id_norm
-                    keys = []
-                    if route_for_departure:
-                        keys.append((route_for_departure, prev_stop))
-                    keys.append((None, prev_stop))
-                    for key in keys:
-                        self.last_departure[key] = departure_timestamp
-                    self.last_vehicle_departure[(vid, prev_stop, route_for_departure)] = departure_timestamp
-                    for arrival_key in list(self.last_vehicle_arrival.keys()):
-                        if arrival_key[0] == vid and arrival_key[1] == prev_stop:
-                            self.last_vehicle_departure[arrival_key] = departure_timestamp
-                if departure_trigger is None:
-                    departure_trigger = "distance"
-                self.pending_departure_movements.pop(vid, None)
-                events.append(
-                    HeadwayEvent(
-                        timestamp=departure_timestamp,
-                        route_id=prev_state.route_id,
-                        stop_id=prev_stop,
-                        vehicle_id=vid,
-                        vehicle_name=snap.vehicle_name,
-                        event_type="departure",
-                        headway_arrival_arrival=None,
-                        headway_departure_arrival=None,
-                        dwell_seconds=dwell_seconds,
-                    )
-                )
-                departure_recorded = True
+                    existing_departure = self.last_vehicle_departure.get((vid, prev_stop, route_for_departure))
+                    if not existing_departure or (
+                        prev_state.arrival_time is not None and existing_departure <= prev_state.arrival_time
+                    ):
+                        keys = []
+                        if route_for_departure:
+                            keys.append((route_for_departure, prev_stop))
+                        keys.append((None, prev_stop))
+                        for key in keys:
+                            self.last_departure[key] = departure_timestamp
+                        self.last_vehicle_departure[(vid, prev_stop, route_for_departure)] = departure_timestamp
+                        for arrival_key in list(self.last_vehicle_arrival.keys()):
+                            if arrival_key[0] == vid and arrival_key[1] == prev_stop:
+                                self.last_vehicle_departure[arrival_key] = departure_timestamp
+                        if departure_trigger is None:
+                            departure_trigger = "distance"
+                        self.pending_departure_movements.pop(vid, None)
+                        events.append(
+                            HeadwayEvent(
+                                timestamp=departure_timestamp,
+                                route_id=prev_state.route_id,
+                                stop_id=prev_stop,
+                                vehicle_id=vid,
+                                vehicle_name=snap.vehicle_name,
+                                event_type="departure",
+                                headway_arrival_arrival=None,
+                                headway_departure_arrival=None,
+                                dwell_seconds=dwell_seconds,
+                            )
+                        )
+                        departure_recorded = True
 
             # Arrival detection
             arrival_stop_id = None
