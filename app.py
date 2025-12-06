@@ -2533,6 +2533,33 @@ async def _collect_ondemand_data(
             for ride_id, status in ride_status_map.items()
             if str(status).strip().lower().startswith("pending")
         }
+
+        # Enrich the schedule rides with statuses from the rides endpoint so every
+        # ride in the final payload carries a status.
+        for vehicle in schedules or []:
+            if not isinstance(vehicle, dict):
+                continue
+            stops = vehicle.get("stops")
+            if not isinstance(stops, list):
+                continue
+            for stop in stops:
+                if not isinstance(stop, dict):
+                    continue
+                rides = stop.get("rides")
+                if not isinstance(rides, list):
+                    continue
+                for ride in rides:
+                    if not isinstance(ride, dict):
+                        continue
+                    ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                    ride_id_key = (
+                        str(ride_id_val).strip().lower() if ride_id_val not in {None, ""} else ""
+                    )
+                    if not ride_id_key:
+                        continue
+                    status_value = ride_status_map.get(ride_id_key)
+                    if status_value not in {None, ""}:
+                        ride["status"] = status_value
     except Exception as exc:
         print(f"[ondemand] rides processing failed: {exc}")
 
