@@ -18,7 +18,7 @@ DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 STOP_SPEED_THRESHOLD_MPS = 0.5
-MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 5.0
+MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 2.0
 
 
 @dataclass
@@ -257,16 +257,26 @@ class HeadwayTracker:
                     or start_distance is None
                     or distance_from_prev_stop >= start_distance
                 )
+                fast_departure = (
+                    moving_away
+                    and speed_mps is not None
+                    and speed_mps > STOP_SPEED_THRESHOLD_MPS
+                    and distance_from_prev_stop is not None
+                    and distance_from_prev_stop < self.departure_distance_threshold_m
+                )
                 if moving_away and (
-                    movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M or movement_count >= 2
+                    fast_departure
+                    or movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
+                    or movement_count >= 2
                 ):
                     movement_confirmed = True
                     movement_start_time = pending_movement.get("start_time") or movement_start_time
+                    departure_trigger = "speed" if fast_departure else departure_trigger
                     self.pending_departure_movements.pop(vid, None)
 
             if movement_confirmed:
                 has_left_prev_stop = True
-                departure_trigger = "movement"
+                departure_trigger = departure_trigger or "movement"
 
             if prev_stop and (
                 movement_confirmed or (has_left_prev_stop and (current_stop is None or current_stop[0] != prev_stop))
