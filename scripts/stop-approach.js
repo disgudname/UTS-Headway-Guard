@@ -27,6 +27,7 @@
   const bearingInput = document.getElementById('bearingInput');
   const radiusValue = document.getElementById('radiusValue');
   const toleranceValue = document.getElementById('toleranceValue');
+  const radius100Button = document.getElementById('radius100Button');
   const stopMeta = document.getElementById('stopMeta');
   const saveButton = document.getElementById('saveButton');
   const saveStatus = document.getElementById('saveStatus');
@@ -101,6 +102,18 @@
     radiusValue.textContent = `${radius.toFixed(0)} m`;
     toleranceValue.textContent = `${tolerance.toFixed(0)}°`;
     bearingInput.value = bearing.toFixed(0);
+  }
+
+  function syncGraphicsFromInputs() {
+    const radius = Number(radiusInput.value) || DEFAULT_RADIUS_M;
+    const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
+    const bearing = normalizeBearing(bearingInput.value);
+    updateDisplayValues(radius, tolerance, bearing);
+    const group = stopGroupsByKey.get(selectedStopId);
+    const stop = group ? pickStopWithConfig(group.stops) : null;
+    if (stop) {
+      updateConeGraphics(stop, bearing, tolerance, radius);
+    }
   }
 
   function updateConeGraphics(stop, bearingDeg, toleranceDeg, radiusMeters) {
@@ -359,39 +372,16 @@
   }
 
   stopSelect.addEventListener('change', (e) => onStopSelected(e.target.value));
-  radiusInput.addEventListener('input', () => {
-    const radius = Number(radiusInput.value) || DEFAULT_RADIUS_M;
-    const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
-    const bearing = normalizeBearing(bearingInput.value);
-    updateDisplayValues(radius, tolerance, bearing);
-    const group = stopGroupsByKey.get(selectedStopId);
-    const stop = group ? pickStopWithConfig(group.stops) : null;
-    if (stop) {
-      updateConeGraphics(stop, bearing, tolerance, radius);
-    }
-  });
-  toleranceInput.addEventListener('input', () => {
-    const radius = Number(radiusInput.value) || DEFAULT_RADIUS_M;
-    const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
-    const bearing = normalizeBearing(bearingInput.value);
-    updateDisplayValues(radius, tolerance, bearing);
-    const group = stopGroupsByKey.get(selectedStopId);
-    const stop = group ? pickStopWithConfig(group.stops) : null;
-    if (stop) {
-      updateConeGraphics(stop, bearing, tolerance, radius);
-    }
-  });
-  bearingInput.addEventListener('input', () => {
-    const radius = Number(radiusInput.value) || DEFAULT_RADIUS_M;
-    const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
-    const bearing = normalizeBearing(bearingInput.value);
-    updateDisplayValues(radius, tolerance, bearing);
-    const group = stopGroupsByKey.get(selectedStopId);
-    const stop = group ? pickStopWithConfig(group.stops) : null;
-    if (stop) {
-      updateConeGraphics(stop, bearing, tolerance, radius);
-    }
-  });
+  radiusInput.addEventListener('input', syncGraphicsFromInputs);
+  toleranceInput.addEventListener('input', syncGraphicsFromInputs);
+  bearingInput.addEventListener('input', syncGraphicsFromInputs);
+
+  if (radius100Button) {
+    radius100Button.addEventListener('click', () => {
+      radiusInput.value = 100;
+      syncGraphicsFromInputs();
+    });
+  }
 
   saveButton.addEventListener('click', saveStop);
   refreshButton.addEventListener('click', () => {
