@@ -33,16 +33,28 @@ def _build_schedule_with_pending(status: str):
     ]
 
 
-def test_virtual_stops_ignore_pending_status_without_pending_ids():
+def test_virtual_stops_include_pending_status():
     schedules = _build_schedule_with_pending("pending")
     stops = build_ondemand_virtual_stops(schedules, datetime.now(timezone.utc))
-    assert stops == []
+    assert len(stops) == 1
+    stop = stops[0]
+    assert stop.get("rideStatus") == "pending"
+    assert stop.get("rideId") == "ride-1"
 
 
-def test_stop_plans_ignore_pending_status_without_pending_ids():
+def test_stop_plans_include_pending_status():
     schedules = _build_schedule_with_pending("Pending driver accept")
     plans = build_ondemand_vehicle_stop_plans(schedules)
-    assert plans == {}
+    assert "veh-1" in plans
+    entries = plans["veh-1"]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.get("rideStatus") == "Pending driver accept"
+    assert entry.get("rideId") == "ride-1"
+    ride_details = entry.get("rides")
+    assert isinstance(ride_details, list) and len(ride_details) == 1
+    assert ride_details[0].get("rideStatus") == "Pending driver accept"
+    assert ride_details[0].get("rideId") == "ride-1"
 
 
 def test_virtual_stops_include_ride_status_and_id():
@@ -67,3 +79,14 @@ def test_stop_plans_include_ride_status_and_id():
     assert isinstance(ride_details, list) and len(ride_details) == 1
     assert ride_details[0].get("rideStatus") == "accepted"
     assert ride_details[0].get("rideId") == "ride-1"
+
+
+def test_status_falls_back_to_status_map_when_missing_from_schedule():
+    schedules = _build_schedule_with_pending("")
+    status_map = {"ride-1": "in_progress"}
+    stops = build_ondemand_virtual_stops(
+        schedules, datetime.now(timezone.utc), ride_status_map=status_map
+    )
+    assert len(stops) == 1
+    stop = stops[0]
+    assert stop.get("rideStatus") == "in_progress"

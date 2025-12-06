@@ -100,6 +100,10 @@
         font-size: 12px;
         color: rgba(15, 23, 42, 0.7);
       }
+      .ondemand-driver-popup__stop-meta {
+        font-size: 12px;
+        color: #374151;
+      }
       .custom-popup {
         position: absolute;
         background: linear-gradient(135deg, var(--navy), var(--navy-dark));
