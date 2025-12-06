@@ -88,11 +88,15 @@ class HeadwayStorage:
         if not events:
             return
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        rows = [e.to_row() for e in events]
-        path = self._file_for_date(events[0].timestamp)
-        with path.open("a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerows(rows)
+        grouped_rows: dict[Path, List[List[str]]] = {}
+        for event in events:
+            path = self._file_for_date(event.timestamp)
+            grouped_rows.setdefault(path, []).append(event.to_row())
+
+        for path, rows in grouped_rows.items():
+            with path.open("a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerows(rows)
 
     def clear(self) -> int:
         if not self.base_dir.exists():
