@@ -13,7 +13,7 @@ from headway_storage import HeadwayEvent, HeadwayStorage
 
 
 HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
-STOP_APPROACH_DEFAULT_RADIUS_M = float(60.0)
+STOP_APPROACH_DEFAULT_RADIUS_M = float(100.0)
 DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
