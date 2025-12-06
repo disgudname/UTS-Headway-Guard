@@ -19,6 +19,7 @@ DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 STOP_SPEED_THRESHOLD_MPS = 0.5
 MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 2.0
+MOVEMENT_CONFIRMATION_MIN_DURATION_S = 20.0
 
 
 @dataclass
@@ -245,6 +246,10 @@ class HeadwayTracker:
 
             pending_movement = self.pending_departure_movements.get(vid)
             if pending_movement:
+                movement_duration = None
+                start_time = pending_movement.get("start_time")
+                if start_time:
+                    movement_duration = (timestamp - start_time).total_seconds()
                 movement_displacement = self._haversine(
                     pending_movement.get("start_lat", snap.lat),
                     pending_movement.get("start_lon", snap.lon),
@@ -253,6 +258,10 @@ class HeadwayTracker:
                 )
                 movement_count = pending_movement.get("movement_count", 1)
                 start_distance = pending_movement.get("start_distance")
+                near_stop = (
+                    distance_from_prev_stop is not None
+                    and distance_from_prev_stop < self.departure_distance_threshold_m
+                )
                 moving_away = (
                     distance_from_prev_stop is None
                     or start_distance is None
@@ -265,10 +274,20 @@ class HeadwayTracker:
                     and distance_from_prev_stop is not None
                     and distance_from_prev_stop < self.departure_distance_threshold_m
                 )
-                if moving_away and (
-                    fast_departure
-                    or movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
-                    or movement_count >= 2
+                sustained_movement = (
+                    not near_stop
+                    or (
+                        movement_duration is not None
+                        and movement_duration >= MOVEMENT_CONFIRMATION_MIN_DURATION_S
+                    )
+                )
+                if sustained_movement and (
+                    moving_away
+                    and (
+                        fast_departure
+                        or movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
+                        or movement_count >= 2
+                    )
                 ):
                     movement_confirmed = True
                     movement_start_time = pending_movement.get("start_time") or movement_start_time
