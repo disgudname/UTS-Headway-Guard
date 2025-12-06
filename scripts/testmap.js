@@ -6553,30 +6553,72 @@ schedulePlaneStyleOverride();
       }
 
       function normalizeOnDemandStopPlan(rawStops) {
+        const isPendingStatus = value => {
+          const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+          return text.startsWith('pending');
+        };
+
         if (!Array.isArray(rawStops)) {
           return [];
         }
+
         const normalized = [];
-        for (const stop of rawStops) {
-          if (!stop || typeof stop !== 'object') {
-            continue;
+        let fallbackOrder = 1;
+
+        const appendEntry = (order, stopType, address, riders) => {
+          const stopTypeNormalized = `${stopType ?? ''}`.trim().toLowerCase();
+          if (stopTypeNormalized !== 'pickup' && stopTypeNormalized !== 'dropoff') {
+            return;
           }
-          const stopTypeRaw = typeof stop.stopType === 'string' ? stop.stopType : stop.stop_type;
-          const stopType = `${stopTypeRaw ?? ''}`.trim().toLowerCase();
-          if (stopType !== 'pickup' && stopType !== 'dropoff') {
-            continue;
-          }
-          const orderValue = Number(stop.order);
-          const order = Number.isFinite(orderValue) ? orderValue : normalized.length + 1;
-          const address = typeof stop.address === 'string' ? stop.address.trim() : '';
-          const riders = Array.isArray(stop.riders)
-            ? stop.riders
+          const riderList = Array.isArray(riders)
+            ? riders
                 .map(rider => (typeof rider === 'string' ? rider : ''))
                 .map(name => name.trim())
                 .filter(Boolean)
             : [];
-          normalized.push({ order, stopType, address, riders });
+          const orderValue = Number(order);
+          const resolvedOrder = Number.isFinite(orderValue) ? orderValue : fallbackOrder++;
+          normalized.push({
+            order: resolvedOrder,
+            stopType: stopTypeNormalized,
+            address: typeof address === 'string' ? address.trim() : '',
+            riders: riderList,
+          });
+        };
+
+        for (const stop of rawStops) {
+          if (!stop || typeof stop !== 'object') {
+            continue;
+          }
+
+          const baseAddress = typeof stop.address === 'string' ? stop.address.trim() : '';
+          const stopStatus = stop.status || stop.rideStatus || stop.ride_status;
+          if (isPendingStatus(stopStatus)) {
+            continue;
+          }
+
+          const rides = Array.isArray(stop.rides) ? stop.rides : null;
+          if (rides) {
+            const orderValue = Number(stop.order);
+            const baseOrder = Number.isFinite(orderValue) ? orderValue : fallbackOrder;
+            for (const ride of rides) {
+              if (!ride || typeof ride !== 'object') {
+                continue;
+              }
+              const rideStatus = ride.status || ride.rideStatus || ride.ride_status;
+              if (isPendingStatus(rideStatus)) {
+                continue;
+              }
+              const stopType = ride.stop_type || ride.stopType || stop.stopType || stop.stop_type;
+              const riders = Array.isArray(ride.riders) ? ride.riders : ride.passengers;
+              appendEntry(baseOrder, stopType, baseAddress, riders);
+            }
+            continue;
+          }
+
+          appendEntry(stop.order, stop.stopType || stop.stop_type, baseAddress, stop.riders);
         }
+
         normalized.sort((a, b) => a.order - b.order);
         return normalized;
       }
