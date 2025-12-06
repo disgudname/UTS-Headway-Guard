@@ -19,7 +19,7 @@ DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 STOP_SPEED_THRESHOLD_MPS = 0.5
 MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 2.0
-MOVEMENT_CONFIRMATION_MIN_DURATION_S = 20.0
+MOVEMENT_CONFIRMATION_MIN_DURATION_S = 10.0
 QUICK_DEPARTURE_MIN_DURATION_S = 5.0
 
 
@@ -282,13 +282,25 @@ class HeadwayTracker:
                     and distance_from_prev_stop is not None
                     and distance_from_prev_stop >= self.arrival_distance_threshold_m
                 )
+                clear_pull_away = (
+                    moving_away
+                    and distance_from_prev_stop is not None
+                    and distance_from_prev_stop >= max(
+                        self.arrival_distance_threshold_m * 0.5, MOVEMENT_CONFIRMATION_DISPLACEMENT_M
+                    )
+                    and (
+                        movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
+                        or movement_count >= 2
+                    )
+                )
                 sustained_movement = (
                     not near_stop
+                    or quick_departure
                     or (
                         movement_duration is not None
                         and movement_duration >= MOVEMENT_CONFIRMATION_MIN_DURATION_S
                     )
-                    or quick_departure
+                    or clear_pull_away
                 )
                 if sustained_movement and (
                     moving_away
