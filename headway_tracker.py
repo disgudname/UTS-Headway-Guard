@@ -17,6 +17,7 @@ STOP_APPROACH_DEFAULT_RADIUS_M = float(100.0)
 DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
+STOP_SPEED_THRESHOLD_MPS = 0.5
 
 
 @dataclass
@@ -36,6 +37,18 @@ class VehiclePresence:
     arrival_time: Optional[datetime] = None
     route_id: Optional[str] = None
     departure_started_at: Optional[datetime] = None
+
+
+@dataclass
+class ApproachState:
+    stop_id: str
+    route_id: Optional[str]
+    entered_at: datetime
+    closest_time: datetime
+    closest_distance: float
+    best_stop_time: Optional[datetime] = None
+    best_stop_distance: Optional[float] = None
+    last_seen: Optional[datetime] = None
 
 
 @dataclass
@@ -77,6 +90,8 @@ class HeadwayTracker:
         self.recent_stop_association_failures: deque = deque(maxlen=25)
         self.recent_arrival_suppressions: deque = deque(maxlen=25)
         self.recent_snapshot_diagnostics: deque = deque(maxlen=50)
+        self.vehicle_approaches: Dict[str, ApproachState] = {}
+        self.last_snapshots: Dict[str, VehicleSnapshot] = {}
         print(
             f"[headway] tracker initialized routes={sorted(self.tracked_route_ids) if self.tracked_route_ids else 'all'} "
             f"stops={sorted(self.tracked_stop_ids) if self.tracked_stop_ids else 'all'}"
@@ -178,7 +193,10 @@ class HeadwayTracker:
 
             timestamp = snap.timestamp if snap.timestamp.tzinfo else snap.timestamp.replace(tzinfo=timezone.utc)
             timestamp = timestamp.astimezone(timezone.utc)
+            snap.timestamp = timestamp
             departure_recorded = False
+
+            pending_arrival = self._track_approach_progress(vid, snap, current_stop, route_id_norm)
 
             # Departure detection
             has_left_prev_stop = True
@@ -233,12 +251,17 @@ class HeadwayTracker:
             arrival_suppression_reason = None
             arrival_key = None
             arrival_recorded = False
-            if current_stop is not None:
-                arrival_stop_id, arrival_route_id = current_stop
+            arrival_target = current_stop
+            arrival_override_time = None
+            if pending_arrival:
+                arrival_target = (pending_arrival[0], pending_arrival[1])
+                arrival_override_time = pending_arrival[2]
+            if arrival_target is not None:
+                arrival_stop_id, arrival_route_id = arrival_target
                 if arrival_route_id is None:
                     arrival_route_id = route_id_norm
                 if arrival_route_id is None:
-                    arrival_route_id = current_stop[1]
+                    arrival_route_id = arrival_target[1]
                 duplicate_arrival = False
                 arrival_key = (vid, arrival_stop_id, arrival_route_id)
                 prev_vehicle_arrival = self.last_vehicle_arrival.get(arrival_key)
@@ -250,11 +273,11 @@ class HeadwayTracker:
 
                 if prev_stop == arrival_stop_id and prev_state.route_id != arrival_route_id and not duplicate_arrival:
                     headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
-                        arrival_route_id, arrival_stop_id, timestamp
+                        arrival_route_id, arrival_stop_id, arrival_override_time or timestamp
                     )
                     events.append(
                         HeadwayEvent(
-                        timestamp=timestamp,
+                        timestamp=arrival_override_time or timestamp,
                         route_id=arrival_route_id,
                         stop_id=arrival_stop_id,
                         vehicle_id=vid,
@@ -266,17 +289,17 @@ class HeadwayTracker:
                     )
                     )
                     self.last_vehicle_arrival[arrival_key] = timestamp
-                    arrival_time = prev_state.arrival_time or timestamp
+                    arrival_time = prev_state.arrival_time or arrival_override_time or timestamp
                     arrival_recorded = True
                 elif prev_stop == arrival_stop_id:
-                    arrival_time = prev_state.arrival_time or prev_vehicle_arrival or timestamp
+                    arrival_time = prev_state.arrival_time or prev_vehicle_arrival or arrival_override_time or timestamp
                 elif not duplicate_arrival and (prev_stop is None or has_left_prev_stop):
                     headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
-                        arrival_route_id, arrival_stop_id, timestamp
+                        arrival_route_id, arrival_stop_id, arrival_override_time or timestamp
                     )
                     events.append(
                         HeadwayEvent(
-                        timestamp=timestamp,
+                        timestamp=arrival_override_time or timestamp,
                         route_id=arrival_route_id,
                         stop_id=arrival_stop_id,
                         vehicle_id=vid,
@@ -287,11 +310,11 @@ class HeadwayTracker:
                         dwell_seconds=None,
                     )
                     )
-                    self.last_vehicle_arrival[arrival_key] = timestamp
-                    arrival_time = timestamp
+                    self.last_vehicle_arrival[arrival_key] = arrival_override_time or timestamp
+                    arrival_time = arrival_override_time or timestamp
                     arrival_recorded = True
                 elif duplicate_arrival:
-                    arrival_time = prev_vehicle_arrival or prev_state.arrival_time or timestamp
+                    arrival_time = prev_vehicle_arrival or prev_state.arrival_time or arrival_override_time or timestamp
                     arrival_suppression_reason = "duplicate_arrival_same_vehicle"
                 else:
                     arrival_stop_id = prev_stop
@@ -359,6 +382,84 @@ class HeadwayTracker:
                 print(f"[headway] recorded {len(events)} events")
             except Exception as exc:
                 print(f"[headway] failed to write events: {exc}")
+
+    def _track_approach_progress(
+        self,
+        vid: str,
+        snap: VehicleSnapshot,
+        current_stop: Optional[Tuple[str, Optional[str]]],
+        route_id_norm: Optional[str],
+    ) -> Optional[Tuple[str, Optional[str], datetime]]:
+        approach = self.vehicle_approaches.get(vid)
+        target_stop_id = current_stop[0] if current_stop else (approach.stop_id if approach else None)
+        if target_stop_id is None:
+            self.last_snapshots[vid] = snap
+            return None
+
+        stop = self.stop_lookup.get(target_stop_id)
+        stop_distance = self._distance_to_stop(target_stop_id, snap.lat, snap.lon)
+        approach_radius = stop.approach_radius_m if stop and stop.approach_radius_m else self.arrival_distance_threshold_m
+
+        inside_cone = False
+        if stop and stop.approach_bearing_deg is not None and stop.approach_tolerance_deg is not None:
+            inside_cone, _ = self._is_within_approach_cone(
+                snap.lat,
+                snap.lon,
+                stop.lat,
+                stop.lon,
+                stop.approach_bearing_deg,
+                stop.approach_tolerance_deg,
+                approach_radius,
+            )
+        elif stop_distance is not None:
+            inside_cone = stop_distance <= approach_radius
+
+        speed_mps = None
+        prev_snap = self.last_snapshots.get(vid)
+        if prev_snap:
+            delta_seconds = (snap.timestamp - prev_snap.timestamp).total_seconds()
+            if delta_seconds > 0:
+                movement_distance = self._haversine(prev_snap.lat, prev_snap.lon, snap.lat, snap.lon)
+                speed_mps = movement_distance / delta_seconds
+
+        if inside_cone:
+            if approach is None or approach.stop_id != target_stop_id:
+                approach = ApproachState(
+                    stop_id=target_stop_id,
+                    route_id=current_stop[1] if current_stop else route_id_norm,
+                    entered_at=snap.timestamp,
+                    closest_time=snap.timestamp,
+                    closest_distance=stop_distance if stop_distance is not None else float("inf"),
+                    last_seen=snap.timestamp,
+                )
+            else:
+                approach.last_seen = snap.timestamp
+                if current_stop and approach.route_id is None:
+                    approach.route_id = current_stop[1] or route_id_norm
+
+            if stop_distance is not None and stop_distance < approach.closest_distance:
+                approach.closest_distance = stop_distance
+                approach.closest_time = snap.timestamp
+
+            if speed_mps is not None and speed_mps <= STOP_SPEED_THRESHOLD_MPS:
+                dist_for_stop = stop_distance if stop_distance is not None else approach.closest_distance
+                if approach.best_stop_distance is None or dist_for_stop < approach.best_stop_distance:
+                    approach.best_stop_distance = dist_for_stop
+                    approach.best_stop_time = snap.timestamp
+
+            self.vehicle_approaches[vid] = approach
+            self.last_snapshots[vid] = snap
+            return None
+
+        self.last_snapshots[vid] = snap
+        if approach is None:
+            return None
+
+        arrival_time = approach.best_stop_time or approach.closest_time
+        arrival_route_id = approach.route_id or (current_stop[1] if current_stop else route_id_norm)
+        arrival_stop_id = approach.stop_id
+        self.vehicle_approaches.pop(vid, None)
+        return (arrival_stop_id, arrival_route_id, arrival_time)
 
     def _record_arrival_headways(
         self, route_id: Optional[str], stop_id: Optional[str], timestamp: datetime
