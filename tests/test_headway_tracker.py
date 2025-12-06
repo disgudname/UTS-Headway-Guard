@@ -79,6 +79,65 @@ def test_headway_tracker_ignores_jitter_near_departure_boundary():
     assert [e.event_type for e in storage.events] == ["arrival", "departure"]
 
 
+def test_headway_tracker_requires_sustained_movement_near_stop():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(
+        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
+    )
+    tracker.update_stops([
+        {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
+    ])
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    tracker.process_snapshots(
+        [VehicleSnapshot(vehicle_id="1", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+    )
+    assert [e.event_type for e in storage.events] == ["arrival"]
+
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="1",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.00005,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=5),
+            )
+        ]
+    )
+
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="1",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0001,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=10),
+            )
+        ]
+    )
+    assert len(storage.events) == 1
+
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="1",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.001,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=70),
+            )
+        ]
+    )
+
+    assert [e.event_type for e in storage.events] == ["arrival", "departure"]
+
+
 def test_headway_tracker_discards_duplicate_arrivals_at_same_stop():
     storage = MemoryHeadwayStorage()
     tracker = HeadwayTracker(storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0)
