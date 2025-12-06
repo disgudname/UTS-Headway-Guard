@@ -568,11 +568,27 @@ class HeadwayTracker:
         if angular_diff > tolerance_deg:
             return False, {}
 
+        entry_center = self._destination_point(stop_lat, stop_lon, bearing_deg, radius_m)
+        apex = self._destination_point(stop_lat, stop_lon, (bearing_deg + 180.0) % 360.0, radius_m)
+
+        if tolerance_deg <= 0.0:
+            dist = self._haversine(lat, lon, stop_lat, stop_lon)
+            inside = dist <= radius_m
+            return inside, {
+                "cone_entry_lat": entry_center[0],
+                "cone_entry_lon": entry_center[1],
+                "cone_entry_left_lat": entry_center[0],
+                "cone_entry_left_lon": entry_center[1],
+                "cone_entry_right_lat": entry_center[0],
+                "cone_entry_right_lon": entry_center[1],
+                "cone_apex_lat": apex[0],
+                "cone_apex_lon": apex[1],
+            }
+
         polygon = self._approach_cone_points(stop_lat, stop_lon, bearing_deg, tolerance_deg, radius_m)
         px, py = self._project_to_meters(lat, lon, stop_lat, stop_lon)
         projected = [self._project_to_meters(pt[0], pt[1], stop_lat, stop_lon) for pt in polygon]
         inside = self._point_in_polygon(px, py, projected)
-        entry_center = self._destination_point(stop_lat, stop_lon, bearing_deg, radius_m)
         entry_left = polygon[1] if len(polygon) > 1 else entry_center
         entry_right = polygon[-2] if len(polygon) > 2 else entry_center
         apex = polygon[0] if polygon else entry_center
