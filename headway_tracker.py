@@ -515,12 +515,23 @@ class HeadwayTracker:
 
             position_bearing = None
             target_heading = None
-            heading_ok = None
+            heading_ok: Optional[bool] = None
+            distance_from_cone_start = None
+            cone_start_lat = None
+            cone_start_lon = None
             heading_missing = heading_deg is None or not math.isfinite(heading_deg)
+            cone_position_ok = None
             if requires_cone:
-                position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
+                cone_start_lat, cone_start_lon = self._destination_point(
+                    stop.lat, stop.lon, approach_bearing, effective_threshold
+                )
+                target_heading = (approach_bearing + 180.0) % 360.0
+                position_bearing = self._bearing_degrees(cone_start_lat, cone_start_lon, lat, lon)
+                distance_from_cone_start = self._haversine(cone_start_lat, cone_start_lon, lat, lon)
+                cone_position_ok = distance_from_cone_start <= effective_threshold and _is_within_bearing(
+                    position_bearing, target_heading, approach_tolerance
+                )
                 if not heading_missing:
-                    target_heading = (approach_bearing + 180.0) % 360.0
                     heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
 
             stop_meta = {
@@ -531,6 +542,10 @@ class HeadwayTracker:
                 "target_heading_deg": target_heading,
                 "heading_within_cone": heading_ok,
                 "heading_missing": heading_missing if requires_cone else None,
+                "cone_start_lat": cone_start_lat,
+                "cone_start_lon": cone_start_lon,
+                "distance_from_cone_start": distance_from_cone_start,
+                "position_within_cone": cone_position_ok,
             }
 
             if requires_cone and heading_ok is None:
@@ -549,9 +564,7 @@ class HeadwayTracker:
 
             if dist <= effective_threshold:
                 if requires_cone:
-                    if heading_ok is False or not _is_within_bearing(
-                        position_bearing, approach_bearing, approach_tolerance
-                    ):
+                    if heading_ok is False or not cone_position_ok:
                         if nearest_cone_block is None or dist < nearest_cone_block[1]:
                             nearest_cone_block = (stop, dist, effective_threshold, stop_meta)
                         continue
@@ -624,14 +637,19 @@ class HeadwayTracker:
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
             if dist <= effective_threshold:
                 if requires_cone:
-                    position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
+                    cone_start_lat, cone_start_lon = self._destination_point(
+                        stop.lat, stop.lon, approach_bearing, effective_threshold
+                    )
+                    position_bearing = self._bearing_degrees(cone_start_lat, cone_start_lon, lat, lon)
+                    distance_from_cone_start = self._haversine(cone_start_lat, cone_start_lon, lat, lon)
+                    target_heading = (approach_bearing + 180.0) % 360.0
+                    position_ok = distance_from_cone_start <= effective_threshold and _is_within_bearing(
+                        position_bearing, target_heading, approach_tolerance
+                    )
                     heading_ok = False
                     if heading_deg is not None and math.isfinite(heading_deg):
-                        target_heading = (approach_bearing + 180.0) % 360.0
                         heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
-                    if not heading_ok or not _is_within_bearing(
-                        position_bearing, approach_bearing, approach_tolerance
-                    ):
+                    if not heading_ok or not position_ok:
                         continue
                 if best is None or dist < best[2]:
                     associated_route = route_id
@@ -683,6 +701,24 @@ class HeadwayTracker:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _destination_point(self, lat_deg: float, lon_deg: float, bearing_deg: float, distance_m: float) -> Tuple[float, float]:
+        radius_earth = 6371000.0
+        bearing_rad = math.radians(bearing_deg)
+        lat1 = math.radians(lat_deg)
+        lon1 = math.radians(lon_deg)
+        ratio = distance_m / radius_earth
+
+        lat2 = math.asin(
+            math.sin(lat1) * math.cos(ratio)
+            + math.cos(lat1) * math.sin(ratio) * math.cos(bearing_rad)
+        )
+        lon2 = lon1 + math.atan2(
+            math.sin(bearing_rad) * math.sin(ratio) * math.cos(lat1),
+            math.cos(ratio) - math.sin(lat1) * math.sin(lat2),
+        )
+
+        return math.degrees(lat2), math.degrees(lon2)
 
     def _haversine(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         r_earth = 6371000.0
