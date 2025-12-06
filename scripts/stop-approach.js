@@ -1,7 +1,7 @@
 (() => {
   const STOP_APPROACH_ENDPOINT = '/api/stop-approach';
-  const DEFAULT_RADIUS_M = 60;
-  const DEFAULT_TOLERANCE = 30;
+  const DEFAULT_RADIUS_M = 100;
+  const DEFAULT_TOLERANCE = 70;
   const DEFAULT_BEARING = 0;
 
   const hasLeaflet = typeof L !== 'undefined';
@@ -32,6 +32,7 @@
   const saveButton = document.getElementById('saveButton');
   const saveStatus = document.getElementById('saveStatus');
   const refreshButton = document.getElementById('refreshButton');
+  const resetAllButton = document.getElementById('resetAllButton');
 
   let stops = [];
   let dedupedStops = [];
@@ -374,6 +375,72 @@
     }
   }
 
+  async function resetAllStops() {
+    if (!dedupedStops.length) {
+      setStatus('Load stops before resetting', true);
+      return;
+    }
+
+    const uniqueIds = new Set();
+    dedupedStops.forEach((group) => {
+      group.ids.forEach((id) => uniqueIds.add(id));
+    });
+
+    if (uniqueIds.size === 0) {
+      setStatus('No stop IDs available to reset', true);
+      return;
+    }
+
+    const payloadTemplate = {
+      radius_m: DEFAULT_RADIUS_M,
+      tolerance_deg: DEFAULT_TOLERANCE,
+      bearing_deg: DEFAULT_BEARING,
+    };
+
+    setStatus('Resetting all stops…');
+    resetAllButton.disabled = true;
+    try {
+      await Promise.all(
+        Array.from(uniqueIds).map(async (id) => {
+          const response = await fetch(STOP_APPROACH_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ stop_id: id, ...payloadTemplate }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          stops
+            .filter((stop) => `${stop.StopID || stop.StopId}` === `${id}`)
+            .forEach((stop) => {
+              stop.ApproachRadiusM = payloadTemplate.radius_m;
+              stop.ApproachToleranceDeg = payloadTemplate.tolerance_deg;
+              stop.ApproachBearingDeg = payloadTemplate.bearing_deg;
+            });
+        })
+      );
+
+      if (selectedStopId) {
+        const group = stopGroupsByKey.get(selectedStopId);
+        const stop = group ? pickStopWithConfig(group.stops) : null;
+        if (stop) {
+          applyStopToControls(stop, group);
+        }
+      }
+
+      setStatus('All stops reset');
+    } catch (error) {
+      console.error('Reset failed', error);
+      setStatus('Reset failed', true);
+    } finally {
+      resetAllButton.disabled = false;
+    }
+  }
+
   stopSelect.addEventListener('change', (e) => onStopSelected(e.target.value));
   radiusInput.addEventListener('input', syncGraphicsFromInputs);
   toleranceInput.addEventListener('input', syncGraphicsFromInputs);
@@ -392,6 +459,10 @@
     stopMarkers.clear();
     fetchStops();
   });
+
+  if (resetAllButton) {
+    resetAllButton.addEventListener('click', resetAllStops);
+  }
 
   fetchStops();
 })();
