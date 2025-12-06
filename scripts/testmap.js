@@ -6019,6 +6019,14 @@ schedulePlaneStyleOverride();
           if (!stop || typeof stop !== 'object') {
             return;
           }
+          const rideStatus = stop.status || stop.rideStatus || stop.ride_status;
+          const rideList = Array.isArray(stop.rides) ? stop.rides : null;
+          const hasOnlyPendingRides = rideList
+            ? rideList.every(ride => isPendingRideStatus(ride?.status || ride?.rideStatus || ride?.ride_status))
+            : false;
+          if (isPendingRideStatus(rideStatus) || hasOnlyPendingRides) {
+            return;
+          }
           const lat = Number(stop.lat ?? stop.latitude);
           const lon = Number(stop.lng ?? stop.lon ?? stop.longitude);
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -6552,6 +6560,13 @@ schedulePlaneStyleOverride();
         }
       }
 
+      function isPendingRideStatus(status) {
+        if (typeof status !== 'string') {
+          return false;
+        }
+        return status.trim().toLowerCase() === 'pending';
+      }
+
       function normalizeOnDemandStopPlan(rawStops) {
         if (!Array.isArray(rawStops)) {
           return [];
@@ -6561,6 +6576,9 @@ schedulePlaneStyleOverride();
         let fallbackOrder = 1;
 
         const appendEntry = (order, stopType, address, riders, rideId, rideStatus) => {
+          if (isPendingRideStatus(rideStatus)) {
+            return;
+          }
           const stopTypeNormalized = `${stopType ?? ''}`.trim().toLowerCase();
           if (stopTypeNormalized !== 'pickup' && stopTypeNormalized !== 'dropoff') {
             return;
@@ -6613,6 +6631,10 @@ schedulePlaneStyleOverride();
               const riders = Array.isArray(ride.riders) ? ride.riders : ride.passengers;
               appendEntry(baseOrder, stopType, baseAddress, riders, rideId, rideStatus);
             }
+            continue;
+          }
+
+          if (isPendingRideStatus(stopRideStatus)) {
             continue;
           }
 
