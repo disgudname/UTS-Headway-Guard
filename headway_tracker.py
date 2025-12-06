@@ -478,6 +478,81 @@ class HeadwayTracker:
             }
         )
 
+    def _project_to_meters(
+        self, lat: float, lon: float, origin_lat: float, origin_lon: float
+    ) -> Tuple[float, float]:
+        r_earth = 6371000.0
+        lat_rad = math.radians(lat)
+        origin_lat_rad = math.radians(origin_lat)
+        dlat = lat_rad - origin_lat_rad
+        dlon = math.radians(lon - origin_lon)
+        x = dlon * math.cos(origin_lat_rad) * r_earth
+        y = dlat * r_earth
+        return x, y
+
+    def _point_in_triangle(
+        self,
+        px: float,
+        py: float,
+        ax: float,
+        ay: float,
+        bx: float,
+        by: float,
+        cx: float,
+        cy: float,
+    ) -> bool:
+        denom = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
+        if denom == 0:
+            return False
+        w1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / denom
+        w2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / denom
+        w3 = 1.0 - w1 - w2
+        epsilon = -1e-6
+        return w1 >= epsilon and w2 >= epsilon and w3 >= epsilon
+
+    def _approach_cone_vertices(
+        self,
+        lat: float,
+        lon: float,
+        bearing_deg: float,
+        tolerance_deg: float,
+        radius_m: float,
+    ) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
+        entry_center = self._destination_point(lat, lon, bearing_deg, radius_m)
+        entry_left = self._destination_point(lat, lon, bearing_deg - tolerance_deg, radius_m)
+        entry_right = self._destination_point(lat, lon, bearing_deg + tolerance_deg, radius_m)
+        apex = self._destination_point(lat, lon, (bearing_deg + 180.0) % 360.0, radius_m)
+        return entry_center, entry_left, entry_right, apex
+
+    def _is_within_approach_cone(
+        self,
+        lat: float,
+        lon: float,
+        stop_lat: float,
+        stop_lon: float,
+        bearing_deg: float,
+        tolerance_deg: float,
+        radius_m: float,
+    ) -> Tuple[bool, dict]:
+        entry_center, entry_left, entry_right, apex = self._approach_cone_vertices(
+            stop_lat, stop_lon, bearing_deg, tolerance_deg, radius_m
+        )
+        px, py = self._project_to_meters(lat, lon, stop_lat, stop_lon)
+        ax, ay = self._project_to_meters(entry_left[0], entry_left[1], stop_lat, stop_lon)
+        bx, by = self._project_to_meters(entry_right[0], entry_right[1], stop_lat, stop_lon)
+        cx, cy = self._project_to_meters(apex[0], apex[1], stop_lat, stop_lon)
+        inside = self._point_in_triangle(px, py, ax, ay, bx, by, cx, cy)
+        return inside, {
+            "cone_entry_lat": entry_center[0],
+            "cone_entry_lon": entry_center[1],
+            "cone_entry_left_lat": entry_left[0],
+            "cone_entry_left_lon": entry_left[1],
+            "cone_entry_right_lat": entry_right[0],
+            "cone_entry_right_lon": entry_right[1],
+            "cone_apex_lat": apex[0],
+            "cone_apex_lon": apex[1],
+        }
+
     def _diagnose_stop_association(
         self,
         lat: float,
@@ -516,21 +591,14 @@ class HeadwayTracker:
             position_bearing = None
             target_heading = None
             heading_ok: Optional[bool] = None
-            distance_from_cone_start = None
-            cone_start_lat = None
-            cone_start_lon = None
             heading_missing = heading_deg is None or not math.isfinite(heading_deg)
             cone_position_ok = None
             if requires_cone:
-                cone_start_lat, cone_start_lon = self._destination_point(
-                    stop.lat, stop.lon, approach_bearing, effective_threshold
-                )
                 target_heading = (approach_bearing + 180.0) % 360.0
-                position_bearing = self._bearing_degrees(cone_start_lat, cone_start_lon, lat, lon)
-                distance_from_cone_start = self._haversine(cone_start_lat, cone_start_lon, lat, lon)
-                cone_position_ok = distance_from_cone_start <= effective_threshold and _is_within_bearing(
-                    position_bearing, target_heading, approach_tolerance
+                cone_position_ok, cone_meta = self._is_within_approach_cone(
+                    lat, lon, stop.lat, stop.lon, approach_bearing, approach_tolerance, effective_threshold
                 )
+                position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
                 if not heading_missing:
                     heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
 
@@ -542,11 +610,10 @@ class HeadwayTracker:
                 "target_heading_deg": target_heading,
                 "heading_within_cone": heading_ok,
                 "heading_missing": heading_missing if requires_cone else None,
-                "cone_start_lat": cone_start_lat,
-                "cone_start_lon": cone_start_lon,
-                "distance_from_cone_start": distance_from_cone_start,
                 "position_within_cone": cone_position_ok,
             }
+            if requires_cone:
+                stop_meta.update(cone_meta)
 
             if requires_cone and heading_ok is None:
                 heading_ok = False
@@ -637,15 +704,11 @@ class HeadwayTracker:
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
             if dist <= effective_threshold:
                 if requires_cone:
-                    cone_start_lat, cone_start_lon = self._destination_point(
-                        stop.lat, stop.lon, approach_bearing, effective_threshold
-                    )
-                    position_bearing = self._bearing_degrees(cone_start_lat, cone_start_lon, lat, lon)
-                    distance_from_cone_start = self._haversine(cone_start_lat, cone_start_lon, lat, lon)
                     target_heading = (approach_bearing + 180.0) % 360.0
-                    position_ok = distance_from_cone_start <= effective_threshold and _is_within_bearing(
-                        position_bearing, target_heading, approach_tolerance
+                    position_ok, _cone_meta = self._is_within_approach_cone(
+                        lat, lon, stop.lat, stop.lon, approach_bearing, approach_tolerance, effective_threshold
                     )
+                    position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
                     heading_ok = False
                     if heading_deg is not None and math.isfinite(heading_deg):
                         heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
