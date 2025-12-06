@@ -510,19 +510,45 @@ class HeadwayTracker:
         epsilon = -1e-6
         return w1 >= epsilon and w2 >= epsilon and w3 >= epsilon
 
-    def _approach_cone_vertices(
+    def _approach_cone_points(
         self,
         lat: float,
         lon: float,
         bearing_deg: float,
         tolerance_deg: float,
         radius_m: float,
-    ) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Tuple[float, float]]:
-        entry_center = self._destination_point(lat, lon, bearing_deg, radius_m)
-        entry_left = self._destination_point(lat, lon, bearing_deg - tolerance_deg, radius_m)
-        entry_right = self._destination_point(lat, lon, bearing_deg + tolerance_deg, radius_m)
+    ) -> List[Tuple[float, float]]:
+        start_bearing = bearing_deg - tolerance_deg
+        end_bearing = bearing_deg + tolerance_deg
+        span = max(0.0, end_bearing - start_bearing)
+        step = max(2.0, min(10.0, (tolerance_deg / 2.0) if tolerance_deg else 5.0))
+        segments = max(1, math.ceil(span / step))
+        actual_step = span / segments if segments > 0 else 0.0
+
+        arc_points = [
+            self._destination_point(lat, lon, start_bearing + actual_step * i, radius_m)
+            for i in range(segments + 1)
+        ]
+
         apex = self._destination_point(lat, lon, (bearing_deg + 180.0) % 360.0, radius_m)
-        return entry_center, entry_left, entry_right, apex
+        return [apex, *arc_points, apex]
+
+    @staticmethod
+    def _point_in_polygon(px: float, py: float, vertices: Sequence[Tuple[float, float]]) -> bool:
+        inside = False
+        count = len(vertices)
+        if count < 3:
+            return False
+
+        for i in range(count):
+            x1, y1 = vertices[i]
+            x2, y2 = vertices[(i + 1) % count]
+            intersects = ((y1 > py) != (y2 > py)) and (
+                px < (x2 - x1) * (py - y1) / ((y2 - y1) or 1e-12) + x1
+            )
+            if intersects:
+                inside = not inside
+        return inside
 
     def _is_within_approach_cone(
         self,
@@ -534,14 +560,22 @@ class HeadwayTracker:
         tolerance_deg: float,
         radius_m: float,
     ) -> Tuple[bool, dict]:
-        entry_center, entry_left, entry_right, apex = self._approach_cone_vertices(
-            stop_lat, stop_lon, bearing_deg, tolerance_deg, radius_m
-        )
+        position_bearing = self._bearing_degrees(stop_lat, stop_lon, lat, lon)
+        if not math.isfinite(position_bearing):
+            return False, {}
+
+        angular_diff = abs((position_bearing - bearing_deg + 540.0) % 360.0 - 180.0)
+        if angular_diff > tolerance_deg:
+            return False, {}
+
+        polygon = self._approach_cone_points(stop_lat, stop_lon, bearing_deg, tolerance_deg, radius_m)
         px, py = self._project_to_meters(lat, lon, stop_lat, stop_lon)
-        ax, ay = self._project_to_meters(entry_left[0], entry_left[1], stop_lat, stop_lon)
-        bx, by = self._project_to_meters(entry_right[0], entry_right[1], stop_lat, stop_lon)
-        cx, cy = self._project_to_meters(apex[0], apex[1], stop_lat, stop_lon)
-        inside = self._point_in_triangle(px, py, ax, ay, bx, by, cx, cy)
+        projected = [self._project_to_meters(pt[0], pt[1], stop_lat, stop_lon) for pt in polygon]
+        inside = self._point_in_polygon(px, py, projected)
+        entry_center = self._destination_point(stop_lat, stop_lon, bearing_deg, radius_m)
+        entry_left = polygon[1] if len(polygon) > 1 else entry_center
+        entry_right = polygon[-2] if len(polygon) > 2 else entry_center
+        apex = polygon[0] if polygon else entry_center
         return inside, {
             "cone_entry_lat": entry_center[0],
             "cone_entry_lon": entry_center[1],
