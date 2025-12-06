@@ -507,7 +507,7 @@
         justify-content: center;
         pointer-events: auto;
         box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
-        z-index: 2;
+        z-index: 10;
       }
       .bus-label-icon {
         pointer-events: none !important;
