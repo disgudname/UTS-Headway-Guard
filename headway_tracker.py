@@ -70,8 +70,8 @@ class HeadwayTracker:
         self.vehicle_states: Dict[str, VehiclePresence] = {}
         self.last_arrival: Dict[Tuple[str, str], datetime] = {}
         self.last_departure: Dict[Tuple[str, str], datetime] = {}
-        self.last_vehicle_arrival: Dict[Tuple[str, str], datetime] = {}
-        self.last_vehicle_departure: Dict[Tuple[str, str], datetime] = {}
+        self.last_vehicle_arrival: Dict[Tuple[str, str, Optional[str]], datetime] = {}
+        self.last_vehicle_departure: Dict[Tuple[str, str, Optional[str]], datetime] = {}
         self.stops: List[StopPoint] = []
         self.stop_lookup: Dict[str, StopPoint] = {}
         self.recent_stop_association_failures: deque = deque(maxlen=25)
@@ -207,7 +207,10 @@ class HeadwayTracker:
                     keys.append((None, prev_stop))
                     for key in keys:
                         self.last_departure[key] = departure_timestamp
-                    self.last_vehicle_departure[(vid, prev_stop)] = departure_timestamp
+                    self.last_vehicle_departure[(vid, prev_stop, route_for_departure)] = departure_timestamp
+                    for arrival_key in list(self.last_vehicle_arrival.keys()):
+                        if arrival_key[0] == vid and arrival_key[1] == prev_stop:
+                            self.last_vehicle_departure[arrival_key] = departure_timestamp
                 events.append(
                     HeadwayEvent(
                         timestamp=departure_timestamp,
@@ -237,7 +240,7 @@ class HeadwayTracker:
                 if arrival_route_id is None:
                     arrival_route_id = current_stop[1]
                 duplicate_arrival = False
-                arrival_key = (vid, arrival_stop_id)
+                arrival_key = (vid, arrival_stop_id, arrival_route_id)
                 prev_vehicle_arrival = self.last_vehicle_arrival.get(arrival_key)
                 prev_vehicle_departure = self.last_vehicle_departure.get(arrival_key)
                 if prev_vehicle_arrival is not None and (
@@ -245,7 +248,27 @@ class HeadwayTracker:
                 ):
                     duplicate_arrival = True
 
-                if prev_stop == arrival_stop_id:
+                if prev_stop == arrival_stop_id and prev_state.route_id != arrival_route_id and not duplicate_arrival:
+                    headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
+                        arrival_route_id, arrival_stop_id, timestamp
+                    )
+                    events.append(
+                        HeadwayEvent(
+                        timestamp=timestamp,
+                        route_id=arrival_route_id,
+                        stop_id=arrival_stop_id,
+                        vehicle_id=vid,
+                        vehicle_name=snap.vehicle_name,
+                        event_type="arrival",
+                        headway_arrival_arrival=headway_arrival_arrival,
+                        headway_departure_arrival=headway_departure_arrival,
+                        dwell_seconds=None,
+                    )
+                    )
+                    self.last_vehicle_arrival[arrival_key] = timestamp
+                    arrival_time = prev_state.arrival_time or timestamp
+                    arrival_recorded = True
+                elif prev_stop == arrival_stop_id:
                     arrival_time = prev_state.arrival_time or prev_vehicle_arrival or timestamp
                 elif not duplicate_arrival and (prev_stop is None or has_left_prev_stop):
                     headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
@@ -282,7 +305,7 @@ class HeadwayTracker:
                 arrival_suppression_reason = "still_at_previous_stop"
 
             if arrival_stop_id and arrival_suppression_reason:
-                arrival_key = arrival_key or (vid, arrival_stop_id)
+                arrival_key = arrival_key or (vid, arrival_stop_id, arrival_route_id)
                 self._log_arrival_suppression(
                     snap,
                     arrival_stop_id,
