@@ -2000,6 +2000,8 @@ async def fetch_ondemand_rides(
                     if not isinstance(rides, list):
                         continue
                     for ride in rides:
+                        if not isinstance(ride, dict):
+                            continue
                         ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
                         ride_id_normalized = _normalize_ride_id(ride_id_val)
                         if ride_id_normalized:
