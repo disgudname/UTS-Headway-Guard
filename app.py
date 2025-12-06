@@ -2866,10 +2866,16 @@ async def headway_diagnostics(
         for vid, state in tracker.vehicle_states.items()
     ]
 
-    def _dict_from_time_map(data: Mapping[Tuple[str, str], datetime]) -> List[dict]:
+    def _dict_from_route_stop_time_map(data: Mapping[Tuple[Optional[str], str], datetime]) -> List[dict]:
         return [
-            {"stop_id": stop_id, "vehicle_id": veh_id, "timestamp": _iso_or_none(ts)}
-            for (stop_id, veh_id), ts in data.items()
+            {"route_id": route_id, "stop_id": stop_id, "timestamp": _iso_or_none(ts)}
+            for (route_id, stop_id), ts in data.items()
+        ]
+
+    def _dict_from_vehicle_stop_time_map(data: Mapping[Tuple[str, str], datetime]) -> List[dict]:
+        return [
+            {"vehicle_id": vehicle_id, "stop_id": stop_id, "timestamp": _iso_or_none(ts)}
+            for (vehicle_id, stop_id), ts in data.items()
         ]
 
     response = {
@@ -2883,10 +2889,10 @@ async def headway_diagnostics(
         "stop_count": len(tracker.stops),
         "stops": stops_payload,
         "vehicle_states": vehicle_states,
-        "last_arrivals": _dict_from_time_map(tracker.last_arrival),
-        "last_departures": _dict_from_time_map(tracker.last_departure),
-        "last_vehicle_arrivals": _dict_from_time_map(tracker.last_vehicle_arrival),
-        "last_vehicle_departures": _dict_from_time_map(tracker.last_vehicle_departure),
+        "last_arrivals": _dict_from_route_stop_time_map(tracker.last_arrival),
+        "last_departures": _dict_from_route_stop_time_map(tracker.last_departure),
+        "last_vehicle_arrivals": _dict_from_vehicle_stop_time_map(tracker.last_vehicle_arrival),
+        "last_vehicle_departures": _dict_from_vehicle_stop_time_map(tracker.last_vehicle_departure),
         "recent_stop_association_failures": list(tracker.recent_stop_association_failures),
         "recent_arrival_suppressions": list(tracker.recent_arrival_suppressions),
         "recent_snapshot_diagnostics": list(tracker.recent_snapshot_diagnostics),
