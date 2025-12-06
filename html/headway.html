@@ -707,7 +707,8 @@
         ? `<tr class="highlight-row">
           <td>${new Date(etaInfo.arrivalTimeMs).toLocaleTimeString()}</td>
           <td>ETA</td>
-          <td>${etaInfo.estimatedHeadwaySeconds != null ? `${(etaInfo.estimatedHeadwaySeconds / 60).toFixed(1)} min` : ''}</td>
+          <td></td>
+          <td>${formatMinutesSeconds(etaInfo.estimatedHeadwaySeconds)}</td>
           <td></td>
         </tr>`
         : '';
@@ -715,11 +716,13 @@
       const rows = recent.map(ev => {
         const tsLocal = new Date(ev.timestamp).toLocaleTimeString();
         const headwaySeconds = getHeadwayValue(ev, liveHeadwayTypeSelect);
-        const headway = headwaySeconds != null ? `${(headwaySeconds / 60).toFixed(1)} min` : '';
-        const dwell = ev.dwell_seconds != null ? `${ev.dwell_seconds.toFixed(1)}s` : '';
+        const headway = formatMinutesSeconds(headwaySeconds);
+        const dwell = formatMinutesSeconds(ev.dwell_seconds);
+        const vehicle = formatVehicleLabel(ev);
         return `<tr>
           <td>${tsLocal}</td>
           <td>${ev.event_type}</td>
+          <td>${vehicle}</td>
           <td>${headway}</td>
           <td>${dwell}</td>
         </tr>`;
@@ -731,6 +734,7 @@
             <tr>
               <th>Time</th>
               <th>Event</th>
+              <th>Vehicle</th>
               <th>Headway</th>
               <th>Dwell</th>
             </tr>
