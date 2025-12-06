@@ -298,7 +298,7 @@ def test_headway_tracker_respects_stop_approach_cone():
         ]
     )
 
-    nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=70.0)
+    nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=70.0, heading_deg=270.0)
     assert nearest == ("WEST", None)
 
 
@@ -319,8 +319,59 @@ def test_headway_tracker_uses_approach_radius_instead_of_circle():
         ]
     )
 
-    nearest = tracker._nearest_stop(0.0, 0.0012, None, threshold=30.0)
+    nearest = tracker._nearest_stop(0.0, 0.0012, None, threshold=30.0, heading_deg=270.0)
     assert nearest == ("EAST", None)
+
+
+def test_headway_tracker_rejects_missing_heading_in_cone():
+    storage = MemoryHeadwayStorage()
+    approach_config = {
+        "NORTH": (0.0, 20.0, 80.0),
+    }
+    tracker = HeadwayTracker(
+        storage=storage,
+        arrival_distance_threshold_m=80.0,
+        departure_distance_threshold_m=80.0,
+        stop_approach=approach_config,
+    )
+    tracker.update_stops([
+        {"StopID": "NORTH", "Latitude": 0.0, "Longitude": 0.0},
+    ])
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    # Vehicle is north of the stop and within the cone radius but has no heading
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="northbound",
+                vehicle_name=None,
+                lat=0.0005,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base,
+            )
+        ]
+    )
+
+    assert storage.events == []
+
+    # Same position with a valid heading toward the stop should be accepted
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="northbound",
+                vehicle_name=None,
+                lat=0.0005,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
+                heading_deg=180.0,
+            )
+        ]
+    )
+
+    assert [e.event_type for e in storage.events] == ["arrival"]
 
 
 def test_headway_tracker_requires_vehicle_heading_for_cone():
@@ -418,6 +469,7 @@ def test_headway_tracker_requires_entering_saved_cone_for_arrival():
                 lon=0.0,
                 route_id="R1",
                 timestamp=base + timedelta(seconds=30),
+                heading_deg=180.0,
             )
         ]
     )

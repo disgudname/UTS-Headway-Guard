@@ -493,9 +493,10 @@ class HeadwayTracker:
             position_bearing = None
             target_heading = None
             heading_ok = None
+            heading_missing = heading_deg is None or not math.isfinite(heading_deg)
             if requires_cone:
                 position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
-                if heading_deg is not None and math.isfinite(heading_deg):
+                if not heading_missing:
                     target_heading = (approach_bearing + 180.0) % 360.0
                     heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
 
@@ -506,10 +507,11 @@ class HeadwayTracker:
                 "position_bearing_deg": position_bearing,
                 "target_heading_deg": target_heading,
                 "heading_within_cone": heading_ok,
+                "heading_missing": heading_missing if requires_cone else None,
             }
 
             if requires_cone and heading_ok is None:
-                heading_ok = True
+                heading_ok = False
                 stop_meta["heading_within_cone"] = heading_ok
 
             if nearest_any is None or dist < nearest_any[1]:
@@ -600,7 +602,7 @@ class HeadwayTracker:
             if dist <= effective_threshold:
                 if requires_cone:
                     position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
-                    heading_ok = True
+                    heading_ok = False
                     if heading_deg is not None and math.isfinite(heading_deg):
                         target_heading = (approach_bearing + 180.0) % 360.0
                         heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
