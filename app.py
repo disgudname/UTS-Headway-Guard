@@ -2085,6 +2085,7 @@ def build_ondemand_virtual_stops(
                 if not isinstance(ride, dict):
                     continue
                 status_val = ride.get("status")
+                status_raw = status_val if status_val not in {None, ""} else None
                 status_normalized = (
                     str(status_val).strip().lower()
                     if status_val not in {None, ""}
@@ -2136,6 +2137,12 @@ def build_ondemand_virtual_stops(
                     "stopTimestamp": stop_timestamp.isoformat(),
                     "riders": riders,
                 }
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id = str(ride_id_val).strip() if ride_id_val not in {None, ""} else ""
+                if ride_id:
+                    record["rideId"] = ride_id
+                if status_raw is not None:
+                    record["rideStatus"] = status_raw
                 if call_name:
                     record["callName"] = call_name
                 records.append(record)
@@ -2314,10 +2321,12 @@ def build_ondemand_vehicle_stop_plans(
             address_value = stop.get("address") or stop.get("label") or ""
             address = str(address_value).strip() or "Unknown stop"
             grouped: Dict[str, List[str]] = {}
+            rides_by_type: Dict[str, List[Dict[str, Any]]] = {}
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
                 status_val = ride.get("status")
+                status_raw = status_val if status_val not in {None, ""} else None
                 status_normalized = (
                     str(status_val).strip().lower()
                     if status_val not in {None, ""}
@@ -2336,8 +2345,29 @@ def build_ondemand_vehicle_stop_plans(
                 if stop_type not in {"pickup", "dropoff"}:
                     continue
                 rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+                ride_riders: List[str] = []
                 if rider_name:
+                    ride_riders.append(rider_name)
                     grouped.setdefault(stop_type, []).append(rider_name)
+                extra_riders = ride.get("riders") or ride.get("passengers")
+                if isinstance(extra_riders, list):
+                    for extra in extra_riders:
+                        formatted = _format_rider_name(extra)
+                        if formatted:
+                            ride_riders.append(formatted)
+                            grouped.setdefault(stop_type, []).append(formatted)
+
+                ride_record: Dict[str, Any] = {"stopType": stop_type}
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id = str(ride_id_val).strip() if ride_id_val not in {None, ""} else ""
+                if ride_id:
+                    ride_record["rideId"] = ride_id
+                if status_raw is not None:
+                    ride_record["rideStatus"] = status_raw
+                if ride_riders:
+                    ride_record["riders"] = ride_riders
+
+                rides_by_type.setdefault(stop_type, []).append(ride_record)
             for stop_type, riders in grouped.items():
                 if not riders:
                     continue
@@ -2347,6 +2377,17 @@ def build_ondemand_vehicle_stop_plans(
                     "stopType": stop_type,
                     "riders": riders,
                 }
+                ride_details = rides_by_type.get(stop_type)
+                if ride_details:
+                    entry["rides"] = ride_details
+                    if len(ride_details) == 1:
+                        ride_detail = ride_details[0]
+                        ride_id = ride_detail.get("rideId")
+                        ride_status = ride_detail.get("rideStatus")
+                        if ride_id:
+                            entry["rideId"] = ride_id
+                        if ride_status not in {None, ""}:
+                            entry["rideStatus"] = ride_status
                 if entries:
                     last = entries[-1]
                     if (
@@ -2358,6 +2399,20 @@ def build_ondemand_vehicle_stop_plans(
                             if name not in existing_names:
                                 last.setdefault("riders", []).append(name)
                                 existing_names.add(name)
+                        if ride_details:
+                            existing_rides = last.setdefault("rides", [])
+                            existing_ids = {
+                                ride.get("rideId")
+                                for ride in existing_rides
+                                if isinstance(ride, dict)
+                            }
+                            for ride in ride_details:
+                                if not isinstance(ride, dict):
+                                    continue
+                                ride_id_value = ride.get("rideId")
+                                if ride_id_value and ride_id_value in existing_ids:
+                                    continue
+                                existing_rides.append(ride)
                         continue
                 entries.append(entry)
                 order += 1
