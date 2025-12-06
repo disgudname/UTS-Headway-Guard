@@ -1,0 +1,410 @@
+[
+    {
+        "stops": [],
+        "vehicle_id": "3843"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "3847"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "909"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "4885"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "4899"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "5033"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "4549"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "1105"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "729"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "731"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "733"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "735"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "98"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "99"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "100"
+    },
+    {
+        "stops": [],
+        "vehicle_id": "101"
+    },
+    {
+        "stops": [
+            {
+                "position": {
+                    "latitude": 38.0259859360997,
+                    "longitude": -78.5206652097702
+                },
+                "timestamp": "2025-12-06T08:22:37.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Henry",
+                            "username": "hsavage42",
+                            "email": "hkj9py@virginia.edu",
+                            "phone": "(202) 367-6433",
+                            "last_name": "Smith"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.0259859360997,
+                                "longitude": -78.5206652097702
+                            },
+                            "timestamp": null,
+                            "address": "Summit St @ Fontaine Ave Ext [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545023",
+                        "service_id": "2193",
+                        "capacity": 2
+                    }
+                ],
+                "address": "Summit St @ Fontaine Ave Ext [HUB]"
+            }
+        ],
+        "vehicle_id": "1347"
+    },
+    {
+        "stops": [
+            {
+                "position": {
+                    "latitude": 38.039534456763,
+                    "longitude": -78.5076940469742
+                },
+                "timestamp": "2025-12-06T08:17:52.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Lily",
+                            "username": "lilyyyyyian",
+                            "email": "kev5yp@virginia.edu",
+                            "phone": "(757) 378-8241",
+                            "last_name": "Brame"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.039534456763,
+                                "longitude": -78.5076940469742
+                            },
+                            "timestamp": null,
+                            "address": "International Residential College (IRC) [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545015",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "International Residential College (IRC) [HUB]"
+            },
+            {
+                "position": {
+                    "latitude": 38.0348,
+                    "longitude": -78.513183
+                },
+                "timestamp": "2025-12-06T08:22:23.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Foladayo",
+                            "username": "fola5999",
+                            "email": "phx8bk@virginia.edu",
+                            "phone": "(571) 392-0659",
+                            "last_name": "Akinbi"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.0348,
+                                "longitude": -78.513183
+                            },
+                            "timestamp": null,
+                            "address": "McCormick Rd @ Gilmer Hall [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545041",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "McCormick Rd @ Gilmer Hall [HUB]"
+            },
+            {
+                "position": {
+                    "latitude": 38.0518818567376,
+                    "longitude": -78.509821038723
+                },
+                "timestamp": "2025-12-06T08:30:34.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Nina",
+                            "username": "nina_goki",
+                            "email": "jdm7nq@virginia.edu",
+                            "phone": "(757) 788-6245",
+                            "last_name": "Gokita"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.0518818567376,
+                                "longitude": -78.509821038723
+                            },
+                            "timestamp": null,
+                            "address": "Copeley Apartments and Law School [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545035",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "Copeley Apartments and Law School [HUB]"
+            },
+            {
+                "position": {
+                    "latitude": 38.052324343154,
+                    "longitude": -78.5139140896797
+                },
+                "timestamp": "2025-12-06T08:34:30.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Jonathan",
+                            "username": "jlee032506",
+                            "email": "kkg2qc@virginia.edu",
+                            "phone": "(703) 508-2248",
+                            "last_name": "Lee"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.052324343154,
+                                "longitude": -78.5139140896797
+                            },
+                            "timestamp": null,
+                            "address": "Darden School of Business [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545047",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "Darden School of Business [HUB]"
+            }
+        ],
+        "vehicle_id": "3107"
+    },
+    {
+        "stops": [
+            {
+                "position": {
+                    "latitude": 38.0285804827098,
+                    "longitude": -78.5096775405407
+                },
+                "timestamp": "2025-12-06T08:19:30.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Jay",
+                            "username": "jaysikka",
+                            "email": "bmt7uk@virginia.edu",
+                            "phone": "(202) 999-8318",
+                            "last_name": "Sikka"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.0285804827098,
+                                "longitude": -78.5096775405407
+                            },
+                            "timestamp": null,
+                            "address": "Jefferson Park Ave @ Kent Ter [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545017",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "Jefferson Park Ave @ Kent Ter [HUB]"
+            }
+        ],
+        "vehicle_id": "4551"
+    },
+    {
+        "stops": [
+            {
+                "position": {
+                    "latitude": 38.0338960583202,
+                    "longitude": -78.5177483074665
+                },
+                "timestamp": "2025-12-06T08:17:08.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Nicholas",
+                            "username": "nicklutalo",
+                            "email": "kbv8de@virginia.edu",
+                            "phone": "(571) 328-8398",
+                            "last_name": "Lutalo"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.0338960583202,
+                                "longitude": -78.5177483074665
+                            },
+                            "timestamp": null,
+                            "address": "Kellogg House [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545009",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "Kellogg House [HUB]"
+            },
+            {
+                "position": {
+                    "latitude": 38.0324404402348,
+                    "longitude": -78.4937438778877
+                },
+                "timestamp": "2025-12-06T08:25:33.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "pickup",
+                        "rider": {
+                            "first_name": "Yordanose",
+                            "username": "tkc4wj-caf3659a5f39",
+                            "email": "tkc4wj@virginia.edu",
+                            "phone": "(571) 645-0062",
+                            "last_name": "Moges"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.0324404402348,
+                                "longitude": -78.4937438778877
+                            },
+                            "timestamp": "2025-12-06T08:15:28.000+0000",
+                            "address": "The Standard and The Flats [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545051",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "The Standard and The Flats [HUB]"
+            },
+            {
+                "position": {
+                    "latitude": 38.0418127797422,
+                    "longitude": -78.5042555564835
+                },
+                "timestamp": "2025-12-06T08:32:44.000+0000",
+                "rides": [
+                    {
+                        "stop_type": "dropoff",
+                        "rider": {
+                            "first_name": "Yordanose",
+                            "username": "tkc4wj-caf3659a5f39",
+                            "email": "tkc4wj@virginia.edu",
+                            "phone": "(571) 645-0062",
+                            "last_name": "Moges"
+                        },
+                        "location": {
+                            "position": {
+                                "latitude": 38.0418127797422,
+                                "longitude": -78.5042555564835
+                            },
+                            "timestamp": null,
+                            "address": "Lambeth Field Apartments [HUB]",
+                            "priority": 0
+                        },
+                        "fare": null,
+                        "note": null,
+                        "wheelchair": false,
+                        "bicycle": false,
+                        "ride_id": "32545051",
+                        "service_id": "2193",
+                        "capacity": 1
+                    }
+                ],
+                "address": "Lambeth Field Apartments [HUB]"
+            }
+        ],
+        "vehicle_id": "5031"
+    }
+]

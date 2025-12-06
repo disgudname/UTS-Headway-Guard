@@ -5,23 +5,23 @@
         "agency_phone": "(434) 924-7711",
         "bicycle": false,
         "capacity": 1,
-        "created_at": "2025-11-24T04:08:29.000+0000",
+        "created_at": "2025-12-06T08:15:27.000+0000",
         "created_by": {
-            "email": "cushingmolly@gmail.com",
-            "username": "marycushing",
-            "phone": "(434) 906-5660",
-            "last_name": "Cushing",
-            "first_name": "Mary"
+            "email": "tkc4wj@virginia.edu",
+            "username": "tkc4wj-caf3659a5f39",
+            "phone": "(571) 645-0062",
+            "last_name": "Moges",
+            "first_name": "Yordanose"
         },
         "destination": null,
         "dispatcher_assigned_vehicle_id": null,
         "dropoff": {
             "position": {
-                "longitude": -78.5145591609478,
-                "latitude": 38.0206898601507
+                "longitude": -78.5042555564835,
+                "latitude": 38.0418127797422
             },
             "timestamp": null,
-            "address": "Cleveland Ave @ Jefferson Park Ave [HUB]",
+            "address": "Lambeth Field Apartments [HUB]",
             "priority": 0
         },
         "fare": null,
@@ -31,25 +31,25 @@
         "origin": null,
         "pickup": {
             "position": {
-                "longitude": -78.4980769737139,
-                "latitude": 38.0317698453987
+                "longitude": -78.4937438778877,
+                "latitude": 38.0324404402348
             },
-            "timestamp": "2025-11-24T04:08:29.000+0000",
-            "address": "Lee St @ UVA Medical Center (Pickup Only) [RESTRICTED USE - PAIR WITH HUB]",
+            "timestamp": "2025-12-06T08:15:28.000+0000",
+            "address": "The Standard and The Flats [HUB]",
             "priority": 0
         },
-        "ride_id": "32357839",
+        "ride_id": "32545051",
         "rider": {
-            "email": "cushingmolly@gmail.com",
-            "username": "marycushing",
-            "phone": "(434) 906-5660",
-            "last_name": "Cushing",
-            "first_name": "Mary"
+            "email": "tkc4wj@virginia.edu",
+            "username": "tkc4wj-caf3659a5f39",
+            "phone": "(571) 645-0062",
+            "last_name": "Moges",
+            "first_name": "Yordanose"
         },
         "schedule": null,
-        "service_color": "3c31bd",
-        "service_id": "2191",
-        "service_name": "OnDemand | 10pm-2am",
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
         "service_token_transit_use_deeplink": false,
         "service_type": "on_demand",
         "source": "rider_microtransit",
@@ -57,7 +57,7 @@
         "status_history": [
             {
                 "status": "pending",
-                "timestamp": "2025-11-24T04:08:29.000+0000"
+                "timestamp": "2025-12-06T08:15:27.000+0000"
             }
         ],
         "terminal_reason": null,
@@ -70,23 +70,23 @@
         "agency_phone": "(434) 924-7711",
         "bicycle": false,
         "capacity": 1,
-        "created_at": "2025-11-24T04:04:43.000+0000",
+        "created_at": "2025-12-06T08:14:07.000+0000",
         "created_by": {
-            "email": "atk9sb@virginia.edu",
-            "username": "vickyrv",
-            "phone": "(240) 839-8857",
-            "last_name": "Rajagopal",
-            "first_name": "Vignesh"
+            "email": "kkg2qc@virginia.edu",
+            "username": "jlee032506",
+            "phone": "(703) 508-2248",
+            "last_name": "Lee",
+            "first_name": "Jonathan"
         },
         "destination": null,
         "dispatcher_assigned_vehicle_id": null,
         "dropoff": {
             "position": {
-                "longitude": -78.5052800588608,
-                "latitude": 38.0488508801947
+                "longitude": -78.5139140896797,
+                "latitude": 38.052324343154
             },
             "timestamp": null,
-            "address": "Barracks Road Shopping Center [HUB]",
+            "address": "Darden School of Business [HUB]",
             "priority": 0
         },
         "fare": null,
@@ -96,25 +96,25 @@
         "origin": null,
         "pickup": {
             "position": {
-                "longitude": -78.4932704679966,
-                "latitude": 38.0417759210604
+                "longitude": -78.5042555564835,
+                "latitude": 38.0418127797422
             },
-            "timestamp": "2025-11-24T04:04:43.000+0000",
-            "address": "Madison Ave @ Preston Ave [HUB]",
+            "timestamp": "2025-12-06T08:14:07.000+0000",
+            "address": "Lambeth Field Apartments [HUB]",
             "priority": 0
         },
-        "ride_id": "32357793",
+        "ride_id": "32545047",
         "rider": {
-            "email": "atk9sb@virginia.edu",
-            "username": "vickyrv",
-            "phone": "(240) 839-8857",
-            "last_name": "Rajagopal",
-            "first_name": "Vignesh"
+            "email": "kkg2qc@virginia.edu",
+            "username": "jlee032506",
+            "phone": "(703) 508-2248",
+            "last_name": "Lee",
+            "first_name": "Jonathan"
         },
         "schedule": null,
-        "service_color": "3c31bd",
-        "service_id": "2191",
-        "service_name": "OnDemand | 10pm-2am",
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
         "service_token_transit_use_deeplink": false,
         "service_type": "on_demand",
         "source": "rider_microtransit",
@@ -122,15 +122,15 @@
         "status_history": [
             {
                 "status": "pending",
-                "timestamp": "2025-11-24T04:04:43.000+0000"
+                "timestamp": "2025-12-06T08:14:07.000+0000"
             },
             {
                 "status": "in_progress",
-                "timestamp": "2025-11-24T04:07:25.000+0000"
+                "timestamp": "2025-12-06T08:16:26.000+0000"
             }
         ],
         "terminal_reason": null,
-        "vehicle_id": "4899",
+        "vehicle_id": "3107",
         "wheelchair": false
     },
     {
@@ -139,23 +139,23 @@
         "agency_phone": "(434) 924-7711",
         "bicycle": false,
         "capacity": 1,
-        "created_at": "2025-11-24T04:01:38.000+0000",
+        "created_at": "2025-12-06T08:10:03.000+0000",
         "created_by": {
-            "email": "kca6nh@virginia.edu",
-            "username": "kli20",
-            "phone": "(781) 439-7514",
-            "last_name": "Li",
-            "first_name": "Kylan"
+            "email": "phx8bk@virginia.edu",
+            "username": "fola5999",
+            "phone": "(571) 392-0659",
+            "last_name": "Akinbi",
+            "first_name": "Foladayo"
         },
         "destination": null,
         "dispatcher_assigned_vehicle_id": null,
         "dropoff": {
             "position": {
-                "longitude": -78.51549391,
-                "latitude": 38.02989991
+                "longitude": -78.513183,
+                "latitude": 38.0348
             },
             "timestamp": null,
-            "address": "Student Activities Building [RESTRICTED USE - PAIR WITH HUB]",
+            "address": "McCormick Rd @ Gilmer Hall [HUB]",
             "priority": 0
         },
         "fare": null,
@@ -165,25 +165,25 @@
         "origin": null,
         "pickup": {
             "position": {
-                "longitude": -78.5077637844086,
-                "latitude": 38.0359537332303
+                "longitude": -78.5042555564835,
+                "latitude": 38.0418127797422
             },
-            "timestamp": "2025-11-24T04:01:38.000+0000",
-            "address": "UVA Bookstore [HUB]",
+            "timestamp": "2025-12-06T08:10:03.000+0000",
+            "address": "Lambeth Field Apartments [HUB]",
             "priority": 0
         },
-        "ride_id": "32357753",
+        "ride_id": "32545041",
         "rider": {
-            "email": "kca6nh@virginia.edu",
-            "username": "kli20",
-            "phone": "(781) 439-7514",
-            "last_name": "Li",
-            "first_name": "Kylan"
+            "email": "phx8bk@virginia.edu",
+            "username": "fola5999",
+            "phone": "(571) 392-0659",
+            "last_name": "Akinbi",
+            "first_name": "Foladayo"
         },
         "schedule": null,
-        "service_color": "3c31bd",
-        "service_id": "2191",
-        "service_name": "OnDemand | 10pm-2am",
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
         "service_token_transit_use_deeplink": false,
         "service_type": "on_demand",
         "source": "rider_microtransit",
@@ -191,15 +191,360 @@
         "status_history": [
             {
                 "status": "pending",
-                "timestamp": "2025-11-24T04:01:38.000+0000"
+                "timestamp": "2025-12-06T08:10:03.000+0000"
             },
             {
                 "status": "in_progress",
-                "timestamp": "2025-11-24T04:06:40.000+0000"
+                "timestamp": "2025-12-06T08:14:20.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": "3107",
+        "wheelchair": false
+    },
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 1,
+        "created_at": "2025-12-06T08:08:25.000+0000",
+        "created_by": {
+            "email": "jdm7nq@virginia.edu",
+            "username": "nina_goki",
+            "phone": "(757) 788-6245",
+            "last_name": "Gokita",
+            "first_name": "Nina"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.509821038723,
+                "latitude": 38.0518818567376
+            },
+            "timestamp": null,
+            "address": "Copeley Apartments and Law School [HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.5042555564835,
+                "latitude": 38.0418127797422
+            },
+            "timestamp": "2025-12-06T08:08:25.000+0000",
+            "address": "Lambeth Field Apartments [HUB]",
+            "priority": 0
+        },
+        "ride_id": "32545035",
+        "rider": {
+            "email": "jdm7nq@virginia.edu",
+            "username": "nina_goki",
+            "phone": "(757) 788-6245",
+            "last_name": "Gokita",
+            "first_name": "Nina"
+        },
+        "schedule": null,
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "in_progress",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-12-06T08:08:25.000+0000"
+            },
+            {
+                "status": "in_progress",
+                "timestamp": "2025-12-06T08:14:20.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": "3107",
+        "wheelchair": false
+    },
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 2,
+        "created_at": "2025-12-06T08:05:18.000+0000",
+        "created_by": {
+            "email": "hkj9py@virginia.edu",
+            "username": "hsavage42",
+            "phone": "(202) 367-6433",
+            "last_name": "Smith",
+            "first_name": "Henry"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.5206652097702,
+                "latitude": 38.0259859360997
+            },
+            "timestamp": null,
+            "address": "Summit St @ Fontaine Ave Ext [HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.4978476576805,
+                "latitude": 38.037276191927
+            },
+            "timestamp": "2025-12-06T08:05:19.000+0000",
+            "address": "14th St NW @ John St [HUB]",
+            "priority": 0
+        },
+        "ride_id": "32545023",
+        "rider": {
+            "email": "hkj9py@virginia.edu",
+            "username": "hsavage42",
+            "phone": "(202) 367-6433",
+            "last_name": "Smith",
+            "first_name": "Henry"
+        },
+        "schedule": null,
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "in_progress",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-12-06T08:05:18.000+0000"
+            },
+            {
+                "status": "in_progress",
+                "timestamp": "2025-12-06T08:15:36.000+0000"
             }
         ],
         "terminal_reason": null,
         "vehicle_id": "1347",
+        "wheelchair": false
+    },
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 1,
+        "created_at": "2025-12-06T08:04:00.000+0000",
+        "created_by": {
+            "email": "bmt7uk@virginia.edu",
+            "username": "jaysikka",
+            "phone": "(202) 999-8318",
+            "last_name": "Sikka",
+            "first_name": "Jay"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.5096775405407,
+                "latitude": 38.0285804827098
+            },
+            "timestamp": null,
+            "address": "Jefferson Park Ave @ Kent Ter [HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.503574,
+                "latitude": 38.039741
+            },
+            "timestamp": "2025-12-06T08:04:01.000+0000",
+            "address": "Culbreth Road Garage [HUB]",
+            "priority": 0
+        },
+        "ride_id": "32545017",
+        "rider": {
+            "email": "bmt7uk@virginia.edu",
+            "username": "jaysikka",
+            "phone": "(202) 999-8318",
+            "last_name": "Sikka",
+            "first_name": "Jay"
+        },
+        "schedule": null,
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "in_progress",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-12-06T08:04:00.000+0000"
+            },
+            {
+                "status": "in_progress",
+                "timestamp": "2025-12-06T08:14:04.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": "4551",
+        "wheelchair": false
+    },
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 1,
+        "created_at": "2025-12-06T08:03:44.000+0000",
+        "created_by": {
+            "email": "kev5yp@virginia.edu",
+            "username": "lilyyyyyian",
+            "phone": "(757) 378-8241",
+            "last_name": "Brame",
+            "first_name": "Lily"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.5076940469742,
+                "latitude": 38.039534456763
+            },
+            "timestamp": null,
+            "address": "International Residential College (IRC) [HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.5042555564835,
+                "latitude": 38.0418127797422
+            },
+            "timestamp": "2025-12-06T08:03:44.000+0000",
+            "address": "Lambeth Field Apartments [HUB]",
+            "priority": 0
+        },
+        "ride_id": "32545015",
+        "rider": {
+            "email": "kev5yp@virginia.edu",
+            "username": "lilyyyyyian",
+            "phone": "(757) 378-8241",
+            "last_name": "Brame",
+            "first_name": "Lily"
+        },
+        "schedule": null,
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "in_progress",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-12-06T08:03:44.000+0000"
+            },
+            {
+                "status": "in_progress",
+                "timestamp": "2025-12-06T08:14:49.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": "3107",
+        "wheelchair": false
+    },
+    {
+        "agency": "uva",
+        "agency_long_name": "University of Virginia",
+        "agency_phone": "(434) 924-7711",
+        "bicycle": false,
+        "capacity": 1,
+        "created_at": "2025-12-06T08:02:36.000+0000",
+        "created_by": {
+            "email": "kbv8de@virginia.edu",
+            "username": "nicklutalo",
+            "phone": "(571) 328-8398",
+            "last_name": "Lutalo",
+            "first_name": "Nicholas"
+        },
+        "destination": null,
+        "dispatcher_assigned_vehicle_id": null,
+        "dropoff": {
+            "position": {
+                "longitude": -78.5177483074665,
+                "latitude": 38.0338960583202
+            },
+            "timestamp": null,
+            "address": "Kellogg House [HUB]",
+            "priority": 0
+        },
+        "fare": null,
+        "in_advance": false,
+        "last_edited_at": null,
+        "note": null,
+        "origin": null,
+        "pickup": {
+            "position": {
+                "longitude": -78.4944492988586,
+                "latitude": 38.0340164782597
+            },
+            "timestamp": "2025-12-06T08:02:36.000+0000",
+            "address": "Wertland St @ 10th St NW [HUB]",
+            "priority": 0
+        },
+        "ride_id": "32545009",
+        "rider": {
+            "email": "kbv8de@virginia.edu",
+            "username": "nicklutalo",
+            "phone": "(571) 328-8398",
+            "last_name": "Lutalo",
+            "first_name": "Nicholas"
+        },
+        "schedule": null,
+        "service_color": "9c27b0",
+        "service_id": "2193",
+        "service_name": "OnDemand Expanded | 2am-5am",
+        "service_token_transit_use_deeplink": false,
+        "service_type": "on_demand",
+        "source": "rider_microtransit",
+        "status": "in_progress",
+        "status_history": [
+            {
+                "status": "pending",
+                "timestamp": "2025-12-06T08:02:36.000+0000"
+            },
+            {
+                "status": "in_progress",
+                "timestamp": "2025-12-06T08:05:39.000+0000"
+            }
+        ],
+        "terminal_reason": null,
+        "vehicle_id": "5031",
         "wheelchair": false
     }
 ]
