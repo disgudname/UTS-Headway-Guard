@@ -3394,6 +3394,17 @@ async def startup():
                                 if snapshot_name is None and veh.name and veh.name != "-":
                                     snapshot_name = str(veh.name)
 
+                                snapshot_heading = veh.heading
+                                if snapshot_heading is not None:
+                                    try:
+                                        # If the bus is stationary, ignore heading when associating
+                                        # with approach cones to avoid blocking arrivals due to stale
+                                        # or default headings.
+                                        if abs(float(veh.along_mps or 0.0)) < 0.5:
+                                            snapshot_heading = None
+                                    except Exception:
+                                        snapshot_heading = None
+
                                 headway_snapshots.append(
                                     VehicleSnapshot(
                                         vehicle_id=veh_id_text,
@@ -3402,7 +3413,7 @@ async def startup():
                                         lon=veh.lon,
                                         route_id=str(rid) if rid is not None else None,
                                         timestamp=ts_dt,
-                                        heading_deg=veh.heading,
+                                        heading_deg=snapshot_heading,
                                     )
                                 )
                         current_vehicle_ids: set[int] = set()
