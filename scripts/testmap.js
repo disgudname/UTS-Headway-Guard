@@ -6553,11 +6553,6 @@ schedulePlaneStyleOverride();
       }
 
       function normalizeOnDemandStopPlan(rawStops) {
-        const isPendingStatus = value => {
-          const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
-          return text.startsWith('pending');
-        };
-
         if (!Array.isArray(rawStops)) {
           return [];
         }
@@ -6565,7 +6560,7 @@ schedulePlaneStyleOverride();
         const normalized = [];
         let fallbackOrder = 1;
 
-        const appendEntry = (order, stopType, address, riders) => {
+        const appendEntry = (order, stopType, address, riders, rideId, rideStatus) => {
           const stopTypeNormalized = `${stopType ?? ''}`.trim().toLowerCase();
           if (stopTypeNormalized !== 'pickup' && stopTypeNormalized !== 'dropoff') {
             return;
@@ -6578,12 +6573,21 @@ schedulePlaneStyleOverride();
             : [];
           const orderValue = Number(order);
           const resolvedOrder = Number.isFinite(orderValue) ? orderValue : fallbackOrder++;
-          normalized.push({
+          const entry = {
             order: resolvedOrder,
             stopType: stopTypeNormalized,
             address: typeof address === 'string' ? address.trim() : '',
             riders: riderList,
-          });
+          };
+          const rideIdText = typeof rideId === 'string' ? rideId.trim() : '';
+          if (rideIdText) {
+            entry.rideId = rideIdText;
+          }
+          const rideStatusText = typeof rideStatus === 'string' ? rideStatus.trim() : '';
+          if (rideStatusText) {
+            entry.rideStatus = rideStatusText;
+          }
+          normalized.push(entry);
         };
 
         for (const stop of rawStops) {
@@ -6592,10 +6596,8 @@ schedulePlaneStyleOverride();
           }
 
           const baseAddress = typeof stop.address === 'string' ? stop.address.trim() : '';
-          const stopStatus = stop.status || stop.rideStatus || stop.ride_status;
-          if (isPendingStatus(stopStatus)) {
-            continue;
-          }
+          const stopRideId = stop.rideId || stop.ride_id || '';
+          const stopRideStatus = stop.status || stop.rideStatus || stop.ride_status;
 
           const rides = Array.isArray(stop.rides) ? stop.rides : null;
           if (rides) {
@@ -6606,17 +6608,22 @@ schedulePlaneStyleOverride();
                 continue;
               }
               const rideStatus = ride.status || ride.rideStatus || ride.ride_status;
-              if (isPendingStatus(rideStatus)) {
-                continue;
-              }
+              const rideId = ride.rideId || ride.ride_id || ride.id || '';
               const stopType = ride.stop_type || ride.stopType || stop.stopType || stop.stop_type;
               const riders = Array.isArray(ride.riders) ? ride.riders : ride.passengers;
-              appendEntry(baseOrder, stopType, baseAddress, riders);
+              appendEntry(baseOrder, stopType, baseAddress, riders, rideId, rideStatus);
             }
             continue;
           }
 
-          appendEntry(stop.order, stop.stopType || stop.stop_type, baseAddress, stop.riders);
+          appendEntry(
+            stop.order,
+            stop.stopType || stop.stop_type,
+            baseAddress,
+            stop.riders,
+            stopRideId,
+            stopRideStatus
+          );
         }
 
         normalized.sort((a, b) => a.order - b.order);
@@ -6634,6 +6641,12 @@ schedulePlaneStyleOverride();
             const stopTypeLabel = entry.stopType === 'pickup' ? 'Pickup' : 'Dropoff';
             const addressText = entry.address || 'Stop';
             const riderNames = entry.riders?.length ? entry.riders.join(', ') : 'Rider';
+            const rideIdLine = entry.rideId
+              ? `<div class="ondemand-driver-popup__stop-meta">Ride ID: ${escapeHtml(entry.rideId)}</div>`
+              : '';
+            const rideStatusLine = entry.rideStatus
+              ? `<div class="ondemand-driver-popup__stop-meta">Status: ${escapeHtml(entry.rideStatus)}</div>`
+              : '';
             return [
               '<li class="ondemand-driver-popup__stop">',
               `<div class="ondemand-driver-popup__stop-order">${escapeHtml(orderLabel)}</div>`,
@@ -6641,6 +6654,8 @@ schedulePlaneStyleOverride();
               `<div class="ondemand-driver-popup__stop-type">${escapeHtml(stopTypeLabel)}</div>`,
               `<div class="ondemand-driver-popup__stop-address">${escapeHtml(addressText)}</div>`,
               `<div class="ondemand-driver-popup__stop-riders">${escapeHtml(riderNames)}</div>`,
+              rideIdLine,
+              rideStatusLine,
               '</div>',
               '</li>'
             ].join('');
