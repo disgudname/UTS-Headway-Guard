@@ -3,3 +3,5 @@ WARNING: user may be intoxicated. look for typos and do what makes sense.
 also, keep things as simple as possible, do not overcomplicate additions.
 
 Add any new user-facing pages to the sitemap when you create them.
+
+When explaining anything to the user, explain in laymans terms. Pull request descriptions used on github should remain the same.
