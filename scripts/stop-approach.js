@@ -39,6 +39,7 @@
   const stopGroupsByKey = new Map();
   const stopMarkers = new Map();
   let selectedStopId = null;
+  let hasUnsavedChanges = false;
   let circleLayer = null;
   let coneLayer = null;
   let handleMarker = null;
@@ -164,6 +165,7 @@
       const toleranceVal = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
       const radiusVal = Number(radiusInput.value) || DEFAULT_RADIUS_M;
       bearingInput.value = newBearing.toFixed(0);
+      hasUnsavedChanges = true;
       updateConeGraphics(stop, newBearing, toleranceVal, radiusVal);
     });
 
@@ -207,6 +209,8 @@
     }${linkedText}`;
     updateDisplayValues(radius, tolerance, bearing);
     updateConeGraphics(stop, bearing, tolerance, radius);
+    hasUnsavedChanges = false;
+    setStatus('Ready');
   }
 
   function pickStopWithConfig(stopsList) {
@@ -303,7 +307,7 @@
             });
             marker.on('click', () => {
               stopSelect.value = id;
-              onStopSelected(id);
+              handleStopChange(id);
             });
             marker.addTo(map);
             stopMarkers.set(id.toString(), marker);
@@ -321,12 +325,12 @@
   async function saveStop() {
     if (!selectedStopId) {
       setStatus('Select a stop first', true);
-      return;
+      return false;
     }
     const group = stopGroupsByKey.get(selectedStopId);
     if (!group) {
       setStatus('Stop not found', true);
-      return;
+      return false;
     }
 
     const radiusVal = Number(radiusInput.value) || DEFAULT_RADIUS_M;
@@ -367,9 +371,12 @@
       const representativeStop = pickStopWithConfig(group.stops);
       applyStopToControls(representativeStop, group);
       setStatus('Saved');
+      hasUnsavedChanges = false;
+      return true;
     } catch (error) {
       console.error('Save failed', error);
       setStatus('Save failed', true);
+      return false;
     } finally {
       saveButton.disabled = false;
     }
@@ -449,14 +456,44 @@
     }
   }
 
-  stopSelect.addEventListener('change', (e) => onStopSelected(e.target.value));
-  radiusInput.addEventListener('input', syncGraphicsFromInputs);
-  toleranceInput.addEventListener('input', syncGraphicsFromInputs);
-  bearingInput.addEventListener('input', syncGraphicsFromInputs);
+  async function saveCurrentStopIfNeeded() {
+    if (!hasUnsavedChanges) return true;
+    return saveStop();
+  }
+
+  async function handleStopChange(nextKey) {
+    if (!nextKey || nextKey === selectedStopId) return;
+    const previousKey = selectedStopId;
+    const saveSucceeded = await saveCurrentStopIfNeeded();
+    if (!saveSucceeded) {
+      if (previousKey !== null && stopSelect.value !== previousKey) {
+        stopSelect.value = previousKey;
+      }
+      return;
+    }
+    onStopSelected(nextKey);
+  }
+
+  stopSelect.addEventListener('change', (e) => {
+    handleStopChange(e.target.value);
+  });
+  radiusInput.addEventListener('input', () => {
+    hasUnsavedChanges = true;
+    syncGraphicsFromInputs();
+  });
+  toleranceInput.addEventListener('input', () => {
+    hasUnsavedChanges = true;
+    syncGraphicsFromInputs();
+  });
+  bearingInput.addEventListener('input', () => {
+    hasUnsavedChanges = true;
+    syncGraphicsFromInputs();
+  });
 
   if (radius100Button) {
     radius100Button.addEventListener('click', () => {
       radiusInput.value = 100;
+      hasUnsavedChanges = true;
       syncGraphicsFromInputs();
     });
   }
