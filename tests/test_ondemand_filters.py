@@ -90,3 +90,28 @@ def test_status_falls_back_to_status_map_when_missing_from_schedule():
     assert len(stops) == 1
     stop = stops[0]
     assert stop.get("rideStatus") == "in_progress"
+
+
+def test_status_map_overrides_schedule_value():
+    schedules = _build_schedule_with_pending("pending")
+    status_map = {"ride-1": "complete"}
+
+    stops = build_ondemand_virtual_stops(
+        schedules, datetime.now(timezone.utc), ride_status_map=status_map
+    )
+    assert len(stops) == 1
+    stop = stops[0]
+    assert stop.get("rideStatus") == "complete"
+
+    plans = build_ondemand_vehicle_stop_plans(
+        schedules, ride_status_map=status_map
+    )
+    assert "veh-1" in plans
+    entries = plans["veh-1"]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.get("rideStatus") == "complete"
+    assert entry.get("rideId") == "ride-1"
+    ride_details = entry.get("rides")
+    assert isinstance(ride_details, list) and len(ride_details) == 1
+    assert ride_details[0].get("rideStatus") == "complete"

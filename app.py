@@ -2089,9 +2089,9 @@ def build_ondemand_virtual_stops(
                 ride_id_normalized = (
                     str(ride_id_val).strip().lower() if ride_id_val is not None else ""
                 )
-                status_raw = ride.get("status")
-                if status_raw in {None, ""} and ride_id_normalized:
-                    status_raw = status_lookup.get(ride_id_normalized)
+                status_raw = status_lookup.get(ride_id_normalized)
+                if status_raw in {None, ""}:
+                    status_raw = ride.get("status")
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
@@ -2241,9 +2241,9 @@ def build_ondemand_next_stop_targets(
                 ride_id_normalized = (
                     str(ride_id_val).strip().lower() if ride_id_val is not None else ""
                 )
-                ride_status_raw = ride.get("status")
-                if ride_status_raw in {None, ""} and ride_id_normalized:
-                    ride_status_raw = status_lookup.get(ride_id_normalized)
+                ride_status_raw = status_lookup.get(ride_id_normalized)
+                if ride_status_raw in {None, ""}:
+                    ride_status_raw = ride.get("status")
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
@@ -2328,13 +2328,13 @@ def build_ondemand_vehicle_stop_plans(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
-                status_raw = ride.get("status")
                 ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
                 ride_id_normalized = (
                     str(ride_id_val).strip().lower() if ride_id_val is not None else ""
                 )
-                if status_raw in {None, ""} and ride_id_normalized:
-                    status_raw = status_lookup.get(ride_id_normalized)
+                status_raw = status_lookup.get(ride_id_normalized)
+                if status_raw in {None, ""}:
+                    status_raw = ride.get("status")
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
