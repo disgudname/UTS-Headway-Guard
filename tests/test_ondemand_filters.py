@@ -43,3 +43,27 @@ def test_stop_plans_ignore_pending_status_without_pending_ids():
     schedules = _build_schedule_with_pending("Pending driver accept")
     plans = build_ondemand_vehicle_stop_plans(schedules)
     assert plans == {}
+
+
+def test_virtual_stops_include_ride_status_and_id():
+    schedules = _build_schedule_with_pending("accepted")
+    stops = build_ondemand_virtual_stops(schedules, datetime.now(timezone.utc))
+    assert len(stops) == 1
+    stop = stops[0]
+    assert stop.get("rideStatus") == "accepted"
+    assert stop.get("rideId") == "ride-1"
+
+
+def test_stop_plans_include_ride_status_and_id():
+    schedules = _build_schedule_with_pending("accepted")
+    plans = build_ondemand_vehicle_stop_plans(schedules)
+    assert "veh-1" in plans
+    entries = plans["veh-1"]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.get("rideStatus") == "accepted"
+    assert entry.get("rideId") == "ride-1"
+    ride_details = entry.get("rides")
+    assert isinstance(ride_details, list) and len(ride_details) == 1
+    assert ride_details[0].get("rideStatus") == "accepted"
+    assert ride_details[0].get("rideId") == "ride-1"
