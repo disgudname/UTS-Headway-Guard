@@ -386,7 +386,13 @@
       group.ids.forEach((id) => uniqueIds.add(id));
     });
 
-    if (uniqueIds.size === 0) {
+    const validIds = Array.from(uniqueIds).filter((id) => {
+      if (id === null || id === undefined) return false;
+      const idStr = `${id}`.trim();
+      return idStr.length > 0 && idStr.toLowerCase() !== 'undefined';
+    });
+
+    if (validIds.length === 0) {
       setStatus('No stop IDs available to reset', true);
       return;
     }
@@ -401,7 +407,7 @@
     resetAllButton.disabled = true;
     try {
       await Promise.all(
-        Array.from(uniqueIds).map(async (id) => {
+        validIds.map(async (id) => {
           const response = await fetch(STOP_APPROACH_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -411,7 +417,9 @@
           });
 
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            const errorText = await response.text().catch(() => '');
+            const detail = errorText ? `: ${errorText}` : '';
+            throw new Error(`HTTP ${response.status}${detail}`);
           }
 
           stops
