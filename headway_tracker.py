@@ -76,6 +76,7 @@ class HeadwayTracker:
         self.stop_lookup: Dict[str, StopPoint] = {}
         self.recent_stop_association_failures: deque = deque(maxlen=25)
         self.recent_arrival_suppressions: deque = deque(maxlen=25)
+        self.recent_snapshot_diagnostics: deque = deque(maxlen=50)
         print(
             f"[headway] tracker initialized routes={sorted(self.tracked_route_ids) if self.tracked_route_ids else 'all'} "
             f"stops={sorted(self.tracked_stop_ids) if self.tracked_stop_ids else 'all'}"
@@ -177,6 +178,7 @@ class HeadwayTracker:
 
             timestamp = snap.timestamp if snap.timestamp.tzinfo else snap.timestamp.replace(tzinfo=timezone.utc)
             timestamp = timestamp.astimezone(timezone.utc)
+            departure_recorded = False
 
             # Departure detection
             has_left_prev_stop = True
@@ -219,6 +221,7 @@ class HeadwayTracker:
                         dwell_seconds=dwell_seconds,
                     )
                 )
+                departure_recorded = True
 
             # Arrival detection
             arrival_stop_id = None
@@ -226,6 +229,7 @@ class HeadwayTracker:
             arrival_time = None
             arrival_suppression_reason = None
             arrival_key = None
+            arrival_recorded = False
             if current_stop is not None:
                 arrival_stop_id, arrival_route_id = current_stop
                 if arrival_route_id is None:
@@ -262,6 +266,7 @@ class HeadwayTracker:
                     )
                     self.last_vehicle_arrival[arrival_key] = timestamp
                     arrival_time = timestamp
+                    arrival_recorded = True
                 elif duplicate_arrival:
                     arrival_time = prev_vehicle_arrival or prev_state.arrival_time or timestamp
                     arrival_suppression_reason = "duplicate_arrival_same_vehicle"
@@ -297,6 +302,32 @@ class HeadwayTracker:
                 arrival_time=arrival_time if arrival_stop_id else None,
                 route_id=arrival_route_id if arrival_stop_id else None,
                 departure_started_at=movement_start_time if arrival_stop_id else None,
+            )
+
+            target_stop_id = arrival_stop_id or (current_stop[0] if current_stop else None)
+            stop_meta = self.stop_lookup.get(target_stop_id)
+            self.recent_snapshot_diagnostics.append(
+                {
+                    "timestamp": self._isoformat(timestamp),
+                    "vehicle_id": vid,
+                    "vehicle_name": snap.vehicle_name,
+                    "route_id": route_id_norm,
+                    "heading_deg": snap.heading_deg,
+                    "previous_stop_id": prev_stop,
+                    "distance_from_previous_stop": distance_from_prev_stop,
+                    "has_left_previous_stop": has_left_prev_stop,
+                    "arrival_stop_id": target_stop_id,
+                    "arrival_route_id": arrival_route_id,
+                    "arrival_stop_distance": self._distance_to_stop(target_stop_id, snap.lat, snap.lon),
+                    "arrival_recorded": arrival_recorded,
+                    "arrival_suppressed_reason": arrival_suppression_reason,
+                    "duplicate_arrival": arrival_key in self.last_vehicle_arrival if arrival_key else False,
+                    "departure_recorded": departure_recorded,
+                    "departure_started_at": self._isoformat(movement_start_time),
+                    "approach_bearing_deg": getattr(stop_meta, "approach_bearing_deg", None),
+                    "approach_tolerance_deg": getattr(stop_meta, "approach_tolerance_deg", None),
+                    "approach_radius_m": getattr(stop_meta, "approach_radius_m", None),
+                }
             )
 
         if events:
