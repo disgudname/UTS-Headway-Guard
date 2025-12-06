@@ -20,6 +20,7 @@ DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")
 STOP_SPEED_THRESHOLD_MPS = 0.5
 MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 2.0
 MOVEMENT_CONFIRMATION_MIN_DURATION_S = 20.0
+QUICK_DEPARTURE_MIN_DURATION_S = 5.0
 
 
 @dataclass
@@ -274,12 +275,20 @@ class HeadwayTracker:
                     and distance_from_prev_stop is not None
                     and distance_from_prev_stop < self.departure_distance_threshold_m
                 )
+                quick_departure = (
+                    moving_away
+                    and movement_duration is not None
+                    and movement_duration >= QUICK_DEPARTURE_MIN_DURATION_S
+                    and distance_from_prev_stop is not None
+                    and distance_from_prev_stop >= self.arrival_distance_threshold_m
+                )
                 sustained_movement = (
                     not near_stop
                     or (
                         movement_duration is not None
                         and movement_duration >= MOVEMENT_CONFIRMATION_MIN_DURATION_S
                     )
+                    or quick_departure
                 )
                 if sustained_movement and (
                     moving_away
