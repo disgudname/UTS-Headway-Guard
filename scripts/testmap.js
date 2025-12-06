@@ -6641,12 +6641,6 @@ schedulePlaneStyleOverride();
             const stopTypeLabel = entry.stopType === 'pickup' ? 'Pickup' : 'Dropoff';
             const addressText = entry.address || 'Stop';
             const riderNames = entry.riders?.length ? entry.riders.join(', ') : 'Rider';
-            const rideIdLine = entry.rideId
-              ? `<div class="ondemand-driver-popup__stop-meta">Ride ID: ${escapeHtml(entry.rideId)}</div>`
-              : '';
-            const rideStatusLine = entry.rideStatus
-              ? `<div class="ondemand-driver-popup__stop-meta">Status: ${escapeHtml(entry.rideStatus)}</div>`
-              : '';
             return [
               '<li class="ondemand-driver-popup__stop">',
               `<div class="ondemand-driver-popup__stop-order">${escapeHtml(orderLabel)}</div>`,
@@ -6654,8 +6648,6 @@ schedulePlaneStyleOverride();
               `<div class="ondemand-driver-popup__stop-type">${escapeHtml(stopTypeLabel)}</div>`,
               `<div class="ondemand-driver-popup__stop-address">${escapeHtml(addressText)}</div>`,
               `<div class="ondemand-driver-popup__stop-riders">${escapeHtml(riderNames)}</div>`,
-              rideIdLine,
-              rideStatusLine,
               '</div>',
               '</li>'
             ].join('');
