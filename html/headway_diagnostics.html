@@ -114,6 +114,14 @@
   </div>
 
   <div class="card">
+    <h2 style="margin-top: 0; margin-bottom: 0.35rem;">Recent snapshot decisions</h2>
+    <p class="muted" style="margin-top: 0;">
+      Last few vehicle snapshots with their nearest stop match, distance, and whether an arrival or departure was recorded.
+    </p>
+    <div id="snapshot-diagnostics"></div>
+  </div>
+
+  <div class="card">
     <h2 style="margin-top: 0; margin-bottom: 0.35rem;">Vehicle name cache</h2>
     <p class="muted" style="margin-top: 0;">
       Snapshot of the vehicle ID → vehicle name lookup the headway tracker has cached, plus the most recent events where we
@@ -216,6 +224,7 @@
         vehicle_name_lookup: raw?.vehicle_name_lookup || {},
         attached_vehicle_names: raw?.attached_vehicle_names || {},
         unmatched_vehicle_events: raw?.unmatched_vehicle_events || [],
+        recent_snapshot_diagnostics: raw?.recent_snapshot_diagnostics || [],
       };
 
       return JSON.stringify(payload, null, 2);
@@ -262,12 +271,51 @@
       container.innerHTML = `<div class="muted" style="margin-bottom: 0.35rem;">${events.length} recent events missing vehicle names</div>${rows}`;
     }
 
+    function renderSnapshotDiagnostics(snapshots, container) {
+      if (!container) return;
+      if (!snapshots || !snapshots.length) {
+        container.innerHTML = '<div class="muted">No recent snapshot decisions captured.</div>';
+        return;
+      }
+
+      const recent = snapshots.slice(-12).reverse();
+      const rows = recent
+        .map((item) => {
+          const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'unknown time';
+          const nearest = item.arrival_stop_id || 'no stop match';
+          const distance = item.arrival_stop_distance != null && isFinite(item.arrival_stop_distance)
+            ? `${Number(item.arrival_stop_distance).toFixed(1)} m`
+            : 'n/a';
+          const arrivalStatus = item.arrival_recorded
+            ? '<span class="pill" style="background:#ecfdf3; color:#166534;">arrival recorded</span>'
+            : item.arrival_suppressed_reason
+              ? `<span class="pill" style="background:#fff7ed; color:#9a3412;">${item.arrival_suppressed_reason.replace(/_/g,' ')}</span>`
+              : '<span class="pill">no arrival</span>';
+          const departureStatus = item.departure_recorded
+            ? '<span class="pill" style="background:#e0f2fe; color:#075985;">departure recorded</span>'
+            : '<span class="pill" style="background:#f3f4f6; color:#374151;">no departure</span>';
+          const prevStop = item.previous_stop_id ? `prev stop ${item.previous_stop_id}` : 'prev stop n/a';
+          const leftPrev = item.has_left_previous_stop === false ? 'still inside threshold' : 'cleared threshold';
+          return `
+            <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
+              <div><strong>${item.vehicle_id || 'unknown vehicle'}</strong> · stop ${nearest} · ${arrivalStatus}</div>
+              <div class="muted">${ts} · route ${item.route_id || 'n/a'} · ${distance} away · heading ${item.heading_deg ?? 'n/a'}</div>
+              <div class="muted">${prevStop} · ${leftPrev} · ${departureStatus}</div>
+            </div>
+          `;
+        })
+        .join('');
+
+      container.innerHTML = rows;
+    }
+
     async function loadDiagnostics() {
       const statusEl = document.getElementById('status');
       const payloadEl = document.getElementById('payload');
       const errorEl = document.getElementById('error');
       const mismatchesEl = document.getElementById('route-mismatches');
       const suppressionsEl = document.getElementById('arrival-suppressions');
+      const snapshotsEl = document.getElementById('snapshot-diagnostics');
       const vehicleNamesEl = document.getElementById('vehicle-names');
       const unmatchedVehiclesEl = document.getElementById('unmatched-vehicles');
       const copyBtn = document.getElementById('copy');
@@ -284,6 +332,7 @@
         statusEl.textContent = `Updated ${new Date().toLocaleString()}`;
         renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl);
         renderArrivalSuppressions(data.recent_arrival_suppressions || [], suppressionsEl);
+        renderSnapshotDiagnostics(data.recent_snapshot_diagnostics || [], snapshotsEl);
         renderVehicleNames(data.vehicle_name_lookup || {}, vehicleNamesEl);
         renderUnmatchedVehicles(data.unmatched_vehicle_events || [], unmatchedVehiclesEl);
         payloadEl.value = buildExportPayload(data);
@@ -293,6 +342,7 @@
         errorEl.textContent = err.message || 'Unable to fetch diagnostics';
         mismatchesEl.innerHTML = '<div class="muted">Unable to load stop association drops.</div>';
         suppressionsEl.innerHTML = '<div class="muted">Unable to load arrival suppressions.</div>';
+        snapshotsEl.innerHTML = '<div class="muted">Unable to load snapshot decisions.</div>';
         vehicleNamesEl.innerHTML = '<div class="muted">Unable to load vehicle name cache.</div>';
         unmatchedVehiclesEl.innerHTML = '<div class="muted">Unable to load events missing vehicle names.</div>';
         payloadEl.value = 'error: unable to fetch diagnostics';
