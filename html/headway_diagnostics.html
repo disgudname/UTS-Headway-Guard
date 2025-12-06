@@ -143,6 +143,7 @@
     function buildFriendlyContext() {
       const vehicleNames = new Map();
       const routeNames = new Map();
+      const stopNames = new Map();
 
       const blocksPromise = fetch('/v1/dispatch/blocks')
         .then((res) => (res.ok ? res.json() : null))
@@ -150,8 +151,11 @@
       const routesPromise = fetch('/v1/routes_all')
         .then((res) => (res.ok ? res.json() : null))
         .catch(() => null);
+      const stopsPromise = fetch('/v1/testmap/transloc/metadata')
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null);
 
-      return Promise.all([blocksPromise, routesPromise]).then(([blocksData, routesData]) => {
+      return Promise.all([blocksPromise, routesPromise, stopsPromise]).then(([blocksData, routesData, stopsData]) => {
         const plainBlocks = Array.isArray(blocksData?.plain_language_blocks)
           ? blocksData.plain_language_blocks
           : [];
@@ -171,16 +175,36 @@
         }
 
         if (routesData && typeof routesData === 'object') {
-          Object.entries(routesData).forEach(([rid, name]) => {
-            const normalizedRid = normalizeId(rid);
-            const normalizedName = normalizeId(name);
-            if (normalizedRid && normalizedName && !routeNames.has(normalizedRid)) {
-              routeNames.set(normalizedRid, normalizedName);
-            }
-          });
+          const routesArray = Array.isArray(routesData.routes) ? routesData.routes : null;
+          if (routesArray) {
+            routesArray.forEach((route) => {
+              const normalizedRid = normalizeId(route?.id);
+              const normalizedName = normalizeId(route?.name);
+              if (normalizedRid && normalizedName && !routeNames.has(normalizedRid)) {
+                routeNames.set(normalizedRid, normalizedName);
+              }
+            });
+          } else {
+            Object.entries(routesData).forEach(([rid, name]) => {
+              const normalizedRid = normalizeId(rid);
+              const normalizedName = normalizeId(name);
+              if (normalizedRid && normalizedName && !routeNames.has(normalizedRid)) {
+                routeNames.set(normalizedRid, normalizedName);
+              }
+            });
+          }
         }
 
-        return { vehicleNames, routeNames };
+        const stops = Array.isArray(stopsData?.stops) ? stopsData.stops : [];
+        stops.forEach((stop) => {
+          const sid = normalizeId(stop?.StopID ?? stop?.stopID ?? stop?.stopId ?? stop?.id);
+          const sname = normalizeId(stop?.Name ?? stop?.Description ?? stop?.StopName);
+          if (sid && sname && !stopNames.has(sid)) {
+            stopNames.set(sid, sname);
+          }
+        });
+
+        return { vehicleNames, routeNames, stopNames };
       });
     }
 
@@ -195,11 +219,20 @@
 
     function describeRoute(routeId, friendlyRoutes) {
       const rid = normalizeId(routeId);
-      const friendly = rid ? friendlyRoutes.get(rid) : '';
+      const friendly = rid ? friendlyRoutes?.get?.(rid) : '';
       if (friendly && friendly !== rid) {
         return `${friendly} (${rid})`;
       }
       return rid ? `route ${rid}` : 'route n/a';
+    }
+
+    function describeStop(stopId, friendlyStops) {
+      const sid = normalizeId(stopId);
+      const friendly = sid ? friendlyStops?.get?.(sid) : '';
+      if (friendly && friendly !== sid) {
+        return `${friendly} (${sid})`;
+      }
+      return sid ? `stop ${sid}` : 'stop n/a';
     }
 
     function formatDistance(meters) {
@@ -214,7 +247,7 @@
       return date.toLocaleTimeString();
     }
 
-    function renderRouteMismatches(failures, container, friendlyVehicles, friendlyRoutes) {
+    function renderRouteMismatches(failures, container, friendlyVehicles, friendlyRoutes, friendlyStops) {
       if (!container) return;
       if (!failures || !failures.length) {
         container.innerHTML = '<div class="muted">No recent stop association drops.</div>';
@@ -227,7 +260,7 @@
           const reason = (f.reason || 'unknown').replace(/_/g, ' ');
           const ts = f.timestamp ? new Date(f.timestamp).toLocaleTimeString() : 'unknown time';
           const stopInfo = f.nearest_stop_id
-            ? `near stop ${f.nearest_stop_id} (${formatDistance(Number(f.distance_m))})`
+            ? `near ${describeStop(f.nearest_stop_id, friendlyStops)} (${formatDistance(Number(f.distance_m))})`
             : 'no nearby stop';
           const approachDetails = [];
           if (Number.isFinite(f.position_bearing_deg)) {
@@ -264,7 +297,7 @@
       container.innerHTML = rows;
     }
 
-    function renderArrivalSuppressions(suppressions, container, friendlyVehicles, friendlyRoutes) {
+    function renderArrivalSuppressions(suppressions, container, friendlyVehicles, friendlyRoutes, friendlyStops) {
       if (!container) return;
       if (!suppressions || !suppressions.length) {
         container.innerHTML = '<div class="muted">No recent arrival suppressions.</div>';
@@ -276,7 +309,7 @@
         .map((item) => {
           const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'unknown time';
           const reason = (item.reason || 'unknown').replace(/_/g, ' ');
-          const stopInfo = item.stop_id ? `stop ${item.stop_id}` : 'unknown stop';
+          const stopInfo = item.stop_id ? describeStop(item.stop_id, friendlyStops) : 'unknown stop';
           const distance = item.distance_from_stop != null && isFinite(item.distance_from_stop)
             ? `${Number(item.distance_from_stop).toFixed(1)} m`
             : 'n/a';
@@ -290,7 +323,9 @@
           const prevDepart = formatTime(item.previous_departure_started_at);
           const lastArrival = formatTime(item.last_vehicle_arrival);
           const lastDeparture = formatTime(item.last_vehicle_departure);
-          const previousStop = item.previous_stop_id ? `prev stop ${item.previous_stop_id}` : 'prev stop n/a';
+          const previousStop = item.previous_stop_id
+            ? `prev ${describeStop(item.previous_stop_id, friendlyStops)}`
+            : 'prev stop n/a';
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
               <div><strong>${describeVehicle(item.vehicle_id, friendlyVehicles)}</strong> · ${stopInfo} · <span class="pill">${reason}</span></div>
@@ -335,7 +370,7 @@
       container.innerHTML = `<div class="muted" style="margin-bottom: 0.35rem;">${entries.length} cached entries</div>${rows}`;
     }
 
-    function renderUnmatchedVehicles(events, container, friendlyVehicles, friendlyRoutes) {
+    function renderUnmatchedVehicles(events, container, friendlyVehicles, friendlyRoutes, friendlyStops) {
       if (!container) return;
       if (!events || !events.length) {
         container.innerHTML = '<div class="muted">All recent events had a vehicle name attached.</div>';
@@ -346,7 +381,7 @@
       const rows = recent
         .map((item) => {
           const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'unknown time';
-          const stop = item.stop_id ? `stop ${item.stop_id}` : 'stop n/a';
+          const stop = item.stop_id ? describeStop(item.stop_id, friendlyStops) : 'stop n/a';
           const route = describeRoute(item.route_id, friendlyRoutes);
           const friendlyVehicle = describeVehicle(item.vehicle_id, friendlyVehicles);
           return `
@@ -361,7 +396,7 @@
       container.innerHTML = `<div class="muted" style="margin-bottom: 0.35rem;">${events.length} recent events missing vehicle names</div>${rows}`;
     }
 
-    function renderSnapshotDiagnostics(snapshots, container, friendlyVehicles, friendlyRoutes) {
+    function renderSnapshotDiagnostics(snapshots, container, friendlyVehicles, friendlyRoutes, friendlyStops) {
       if (!container) return;
       if (!snapshots || !snapshots.length) {
         container.innerHTML = '<div class="muted">No recent snapshot decisions captured.</div>';
@@ -372,7 +407,9 @@
       const rows = recent
         .map((item) => {
           const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'unknown time';
-          const nearest = item.arrival_stop_id || 'no stop match';
+          const nearest = item.arrival_stop_id
+            ? describeStop(item.arrival_stop_id, friendlyStops)
+            : 'no stop match';
           const distance = item.arrival_stop_distance != null && isFinite(item.arrival_stop_distance)
             ? `${Number(item.arrival_stop_distance).toFixed(1)} m`
             : 'n/a';
@@ -384,7 +421,9 @@
           const departureStatus = item.departure_recorded
             ? '<span class="pill" style="background:#e0f2fe; color:#075985;">departure recorded</span>'
             : '<span class="pill" style="background:#f3f4f6; color:#374151;">no departure</span>';
-          const prevStop = item.previous_stop_id ? `prev stop ${item.previous_stop_id}` : 'prev stop n/a';
+          const prevStop = item.previous_stop_id
+            ? `prev ${describeStop(item.previous_stop_id, friendlyStops)}`
+            : 'prev stop n/a';
           const leftPrev = item.has_left_previous_stop === false ? 'still inside threshold' : 'cleared threshold';
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
@@ -424,11 +463,35 @@
           buildFriendlyContext(),
         ]);
         statusEl.textContent = `Updated ${new Date().toLocaleString()}`;
-        renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl, friendly.vehicleNames, friendly.routeNames);
-        renderArrivalSuppressions(data.recent_arrival_suppressions || [], suppressionsEl, friendly.vehicleNames, friendly.routeNames);
-        renderSnapshotDiagnostics(data.recent_snapshot_diagnostics || [], snapshotsEl, friendly.vehicleNames, friendly.routeNames);
+        renderRouteMismatches(
+          data.recent_stop_association_failures || [],
+          mismatchesEl,
+          friendly.vehicleNames,
+          friendly.routeNames,
+          friendly.stopNames,
+        );
+        renderArrivalSuppressions(
+          data.recent_arrival_suppressions || [],
+          suppressionsEl,
+          friendly.vehicleNames,
+          friendly.routeNames,
+          friendly.stopNames,
+        );
+        renderSnapshotDiagnostics(
+          data.recent_snapshot_diagnostics || [],
+          snapshotsEl,
+          friendly.vehicleNames,
+          friendly.routeNames,
+          friendly.stopNames,
+        );
         renderVehicleNames(data.vehicle_name_lookup || {}, vehicleNamesEl);
-        renderUnmatchedVehicles(data.unmatched_vehicle_events || [], unmatchedVehiclesEl, friendly.vehicleNames, friendly.routeNames);
+        renderUnmatchedVehicles(
+          data.unmatched_vehicle_events || [],
+          unmatchedVehiclesEl,
+          friendly.vehicleNames,
+          friendly.routeNames,
+          friendly.stopNames,
+        );
         payloadEl.value = buildExportPayload(data);
         copyBtn.disabled = false;
       } catch (err) {
