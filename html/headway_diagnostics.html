@@ -134,6 +134,74 @@
   <textarea id="payload" class="export-block" readonly>Loading…</textarea>
 
   <script>
+    function normalizeId(value) {
+      if (value === undefined || value === null) return '';
+      const str = String(value).trim();
+      return str || '';
+    }
+
+    function buildFriendlyContext() {
+      const vehicleNames = new Map();
+      const routeNames = new Map();
+
+      const blocksPromise = fetch('/v1/dispatch/blocks')
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null);
+      const routesPromise = fetch('/v1/routes_all')
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null);
+
+      return Promise.all([blocksPromise, routesPromise]).then(([blocksData, routesData]) => {
+        const plainBlocks = Array.isArray(blocksData?.plain_language_blocks)
+          ? blocksData.plain_language_blocks
+          : [];
+
+        for (const entry of plainBlocks) {
+          const vid = normalizeId(entry?.vehicle_id);
+          const vname = normalizeId(entry?.vehicle_name);
+          if (vid && vname) {
+            vehicleNames.set(vid, vname);
+          }
+
+          const rid = normalizeId(entry?.route_id);
+          const rname = normalizeId(entry?.route_name);
+          if (rid && rname) {
+            routeNames.set(rid, rname);
+          }
+        }
+
+        if (routesData && typeof routesData === 'object') {
+          Object.entries(routesData).forEach(([rid, name]) => {
+            const normalizedRid = normalizeId(rid);
+            const normalizedName = normalizeId(name);
+            if (normalizedRid && normalizedName && !routeNames.has(normalizedRid)) {
+              routeNames.set(normalizedRid, normalizedName);
+            }
+          });
+        }
+
+        return { vehicleNames, routeNames };
+      });
+    }
+
+    function describeVehicle(vehicleId, friendlyVehicles) {
+      const id = normalizeId(vehicleId);
+      const friendly = id ? friendlyVehicles.get(id) : '';
+      if (friendly && friendly !== id) {
+        return `${friendly} (${id})`;
+      }
+      return id || 'unknown vehicle';
+    }
+
+    function describeRoute(routeId, friendlyRoutes) {
+      const rid = normalizeId(routeId);
+      const friendly = rid ? friendlyRoutes.get(rid) : '';
+      if (friendly && friendly !== rid) {
+        return `${friendly} (${rid})`;
+      }
+      return rid ? `route ${rid}` : 'route n/a';
+    }
+
     function formatDistance(meters) {
       if (meters === undefined || meters === null || Number.isNaN(meters)) return 'n/a';
       return `${meters.toFixed(1)} m`;
@@ -146,7 +214,7 @@
       return date.toLocaleTimeString();
     }
 
-    function renderRouteMismatches(failures, container) {
+    function renderRouteMismatches(failures, container, friendlyVehicles, friendlyRoutes) {
       if (!container) return;
       if (!failures || !failures.length) {
         container.innerHTML = '<div class="muted">No recent stop association drops.</div>';
@@ -185,8 +253,8 @@
           const badgeTextColor = f.reason === 'route_mismatch' ? '#991b1b' : '#374151';
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
-              <div><strong>${f.vehicle_id || 'unknown vehicle'}</strong> <span class="pill" style="background:${badgeColor}; color:${badgeTextColor};">${reason}</span></div>
-              <div class="muted">${ts} · route ${f.route_id || 'n/a'} · ${stopInfo}</div>
+              <div><strong>${describeVehicle(f.vehicle_id, friendlyVehicles)}</strong> <span class="pill" style="background:${badgeColor}; color:${badgeTextColor};">${reason}</span></div>
+              <div class="muted">${ts} · ${describeRoute(f.route_id, friendlyRoutes)} · ${stopInfo}</div>
               ${approachText}
             </div>
           `;
@@ -196,7 +264,7 @@
       container.innerHTML = rows;
     }
 
-    function renderArrivalSuppressions(suppressions, container) {
+    function renderArrivalSuppressions(suppressions, container, friendlyVehicles, friendlyRoutes) {
       if (!container) return;
       if (!suppressions || !suppressions.length) {
         container.innerHTML = '<div class="muted">No recent arrival suppressions.</div>';
@@ -225,8 +293,8 @@
           const previousStop = item.previous_stop_id ? `prev stop ${item.previous_stop_id}` : 'prev stop n/a';
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
-              <div><strong>${item.vehicle_id || 'unknown vehicle'}</strong> · ${stopInfo} · <span class="pill">${reason}</span></div>
-              <div class="muted">${ts} · route ${item.route_id || 'n/a'} · ${distance} away · heading ${heading} · approach ${approach}</div>
+              <div><strong>${describeVehicle(item.vehicle_id, friendlyVehicles)}</strong> · ${stopInfo} · <span class="pill">${reason}</span></div>
+              <div class="muted">${ts} · ${describeRoute(item.route_id, friendlyRoutes)} · ${distance} away · heading ${heading} · approach ${approach}</div>
               <div class="muted">${previousStop} · prev arrival ${prevArrival} · prev depart ${prevDepart} · last arrival ${lastArrival} · last departure ${lastDeparture}</div>
             </div>
           `;
@@ -267,7 +335,7 @@
       container.innerHTML = `<div class="muted" style="margin-bottom: 0.35rem;">${entries.length} cached entries</div>${rows}`;
     }
 
-    function renderUnmatchedVehicles(events, container) {
+    function renderUnmatchedVehicles(events, container, friendlyVehicles, friendlyRoutes) {
       if (!container) return;
       if (!events || !events.length) {
         container.innerHTML = '<div class="muted">All recent events had a vehicle name attached.</div>';
@@ -279,10 +347,11 @@
         .map((item) => {
           const ts = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : 'unknown time';
           const stop = item.stop_id ? `stop ${item.stop_id}` : 'stop n/a';
-          const route = item.route_id || 'route n/a';
+          const route = describeRoute(item.route_id, friendlyRoutes);
+          const friendlyVehicle = describeVehicle(item.vehicle_id, friendlyVehicles);
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
-              <div><strong>${item.vehicle_id}</strong> · ${stop} · <span class="pill">${item.event_type || 'event'}</span></div>
+              <div><strong>${friendlyVehicle}</strong> · ${stop} · <span class="pill">${item.event_type || 'event'}</span></div>
               <div class="muted">${ts} · ${route}</div>
             </div>
           `;
@@ -292,7 +361,7 @@
       container.innerHTML = `<div class="muted" style="margin-bottom: 0.35rem;">${events.length} recent events missing vehicle names</div>${rows}`;
     }
 
-    function renderSnapshotDiagnostics(snapshots, container) {
+    function renderSnapshotDiagnostics(snapshots, container, friendlyVehicles, friendlyRoutes) {
       if (!container) return;
       if (!snapshots || !snapshots.length) {
         container.innerHTML = '<div class="muted">No recent snapshot decisions captured.</div>';
@@ -319,8 +388,8 @@
           const leftPrev = item.has_left_previous_stop === false ? 'still inside threshold' : 'cleared threshold';
           return `
             <div style="padding: 0.35rem 0; border-bottom: 1px solid #f3f4f6;">
-              <div><strong>${item.vehicle_id || 'unknown vehicle'}</strong> · stop ${nearest} · ${arrivalStatus}</div>
-              <div class="muted">${ts} · route ${item.route_id || 'n/a'} · ${distance} away · heading ${item.heading_deg ?? 'n/a'}</div>
+              <div><strong>${describeVehicle(item.vehicle_id, friendlyVehicles)}</strong> · stop ${nearest} · ${arrivalStatus}</div>
+              <div class="muted">${ts} · ${describeRoute(item.route_id, friendlyRoutes)} · ${distance} away · heading ${item.heading_deg ?? 'n/a'}</div>
               <div class="muted">${prevStop} · ${leftPrev} · ${departureStatus}</div>
             </div>
           `;
@@ -344,18 +413,22 @@
       errorEl.textContent = '';
       copyBtn.disabled = true;
       try {
-        const res = await fetch('/api/dispatch/headway/diagnostics');
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Request failed (${res.status}): ${text}`);
-        }
-        const data = await res.json();
+        const [data, friendly] = await Promise.all([
+          fetch('/api/dispatch/headway/diagnostics').then(async (res) => {
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(`Request failed (${res.status}): ${text}`);
+            }
+            return res.json();
+          }),
+          buildFriendlyContext(),
+        ]);
         statusEl.textContent = `Updated ${new Date().toLocaleString()}`;
-        renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl);
-        renderArrivalSuppressions(data.recent_arrival_suppressions || [], suppressionsEl);
-        renderSnapshotDiagnostics(data.recent_snapshot_diagnostics || [], snapshotsEl);
+        renderRouteMismatches(data.recent_stop_association_failures || [], mismatchesEl, friendly.vehicleNames, friendly.routeNames);
+        renderArrivalSuppressions(data.recent_arrival_suppressions || [], suppressionsEl, friendly.vehicleNames, friendly.routeNames);
+        renderSnapshotDiagnostics(data.recent_snapshot_diagnostics || [], snapshotsEl, friendly.vehicleNames, friendly.routeNames);
         renderVehicleNames(data.vehicle_name_lookup || {}, vehicleNamesEl);
-        renderUnmatchedVehicles(data.unmatched_vehicle_events || [], unmatchedVehiclesEl);
+        renderUnmatchedVehicles(data.unmatched_vehicle_events || [], unmatchedVehiclesEl, friendly.vehicleNames, friendly.routeNames);
         payloadEl.value = buildExportPayload(data);
         copyBtn.disabled = false;
       } catch (err) {
