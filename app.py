@@ -3019,10 +3019,26 @@ async def headway_diagnostics(
         ]
 
     def _dict_from_vehicle_stop_time_map(data: Mapping[Tuple[str, str], datetime]) -> List[dict]:
-        return [
-            {"vehicle_id": vehicle_id, "stop_id": stop_id, "timestamp": _iso_or_none(ts)}
-            for (vehicle_id, stop_id), ts in data.items()
-        ]
+        mapped: List[dict] = []
+        for key, ts in data.items():
+            if not isinstance(key, tuple):
+                continue
+            if len(key) == 2:
+                vehicle_id, stop_id = key
+                route_id = None
+            elif len(key) == 3:
+                vehicle_id, stop_id, route_id = key
+            else:
+                continue
+            mapped.append(
+                {
+                    "vehicle_id": vehicle_id,
+                    "stop_id": stop_id,
+                    "route_id": route_id,
+                    "timestamp": _iso_or_none(ts),
+                }
+            )
+        return mapped
 
     response = {
         "fetched_at": _iso_or_none(end),
