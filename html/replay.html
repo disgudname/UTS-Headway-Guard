@@ -997,6 +997,7 @@
     const ROTATION_SMOOTHING_DURATION_MULTIPLIER = 0.9;
     const ROTATION_SMOOTHING_HEADING_REDUCTION_SCALE = 0.6;
     const ROTATION_SMOOTHING_HEADING_EXPONENT = 1.35;
+    const STOP_APPROACH_DEFAULT_RADIUS_M = 60;
     const ONDEMAND_MARKER_PREFIX = 'ondemand:';
     const ONDEMAND_DEFAULT_COLOR = '#ec4899';
     const ONDEMAND_VEHICLE_RADIUS = 8;
@@ -1055,6 +1056,10 @@
     let showStaleOnDemand = false;
     let onDemandDataAvailable = false;
     let onDemandPreferenceSet = false;
+    let showStopApproachCones = false;
+    let stopApproachStops = [];
+    let stopApproachLayerGroup = null;
+    let stopApproachFetchPromise = null;
     let currentFrameIndex = 0;
     let lastFrameDisplayMs = null;
     let lastFrameRealTime = null;
@@ -3779,6 +3784,147 @@
       await refreshReplay();
     }
 
+    function degToRad(value) {
+      return (value * Math.PI) / 180;
+    }
+
+    function destinationPoint(center, bearingDeg, distanceMeters) {
+      const R = 6371000;
+      const bearingRad = degToRad(bearingDeg);
+      const lat1 = degToRad(center.lat);
+      const lon1 = degToRad(center.lng);
+      const ratio = distanceMeters / R;
+
+      const lat2 = Math.asin(
+        Math.sin(lat1) * Math.cos(ratio) + Math.cos(lat1) * Math.sin(ratio) * Math.cos(bearingRad)
+      );
+      const lon2 =
+        lon1 +
+        Math.atan2(
+          Math.sin(bearingRad) * Math.sin(ratio) * Math.cos(lat1),
+          Math.cos(ratio) - Math.sin(lat1) * Math.sin(lat2)
+        );
+
+      return L.latLng((lat2 * 180) / Math.PI, (lon2 * 180) / Math.PI);
+    }
+
+    function buildConePoints(center, bearingDeg, toleranceDeg, radiusMeters) {
+      const points = [center];
+      const start = bearingDeg - toleranceDeg;
+      const end = bearingDeg + toleranceDeg;
+      const step = Math.max(6, Math.round(Math.abs(toleranceDeg) / 2));
+      for (let angle = start; angle <= end; angle += step) {
+        points.push(destinationPoint(center, angle, radiusMeters));
+      }
+      points.push(destinationPoint(center, end, radiusMeters));
+      points.push(center);
+      return points;
+    }
+
+    function normalizeStopLatLng(stop) {
+      if (!stop) return null;
+      const lat = Number(stop.Latitude ?? stop.Lat ?? stop.lat);
+      const lng = Number(stop.Longitude ?? stop.Lon ?? stop.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return L.latLng(lat, lng);
+    }
+
+    function stopHasApproachConfig(stop) {
+      if (!stop || typeof stop !== 'object') return false;
+      const bearing = Number(stop.ApproachBearingDeg ?? stop.ApproachBearing);
+      const tolerance = Number(stop.ApproachToleranceDeg ?? stop.ApproachTolerance);
+      return Number.isFinite(bearing) && Number.isFinite(tolerance);
+    }
+
+    function clearStopApproachCones() {
+      if (stopApproachLayerGroup) {
+        stopApproachLayerGroup.clearLayers();
+        map?.removeLayer(stopApproachLayerGroup);
+      }
+      stopApproachLayerGroup = null;
+    }
+
+    function renderStopApproachCones() {
+      if (!map || !showStopApproachCones || !Array.isArray(stopApproachStops)) return;
+      if (!stopApproachLayerGroup) {
+        stopApproachLayerGroup = L.layerGroup([], { pane: 'stopsPane' });
+      } else {
+        stopApproachLayerGroup.clearLayers();
+      }
+
+      stopApproachStops.forEach(stop => {
+        if (!stopHasApproachConfig(stop)) return;
+        const center = normalizeStopLatLng(stop);
+        if (!center) return;
+        const bearing = Number(stop.ApproachBearingDeg ?? stop.ApproachBearing);
+        const tolerance = Math.max(0, Number(stop.ApproachToleranceDeg ?? stop.ApproachTolerance));
+        const radiusRaw = Number(stop.ApproachRadiusM ?? stop.ApproachRadius);
+        const radius = Number.isFinite(radiusRaw) && radiusRaw > 0 ? radiusRaw : STOP_APPROACH_DEFAULT_RADIUS_M;
+        const conePoints = buildConePoints(center, bearing, tolerance, radius);
+
+        const conePolygon = L.polygon(conePoints, {
+          color: '#0ea5e9',
+          weight: 2,
+          fillColor: '#0ea5e9',
+          fillOpacity: 0.14,
+          pane: 'stopsPane',
+          interactive: false
+        });
+        const radiusCircle = L.circle(center, {
+          radius,
+          color: '#22c55e',
+          weight: 1,
+          fillOpacity: 0,
+          pane: 'stopsPane',
+          interactive: false
+        });
+        stopApproachLayerGroup.addLayer(L.layerGroup([conePolygon, radiusCircle]));
+      });
+
+      if (stopApproachLayerGroup.getLayers().length > 0) {
+        stopApproachLayerGroup.addTo(map);
+      } else {
+        clearStopApproachCones();
+      }
+    }
+
+    async function ensureStopApproachData() {
+      if (stopApproachStops.length > 0) return true;
+      if (stopApproachFetchPromise) return stopApproachFetchPromise;
+      stopApproachFetchPromise = (async () => {
+        try {
+          const response = await fetch('/api/stop-approach');
+          const data = await response.json();
+          const stops = Array.isArray(data?.stops) ? data.stops : [];
+          stopApproachStops = stops.filter(stopHasApproachConfig);
+          return true;
+        } catch (err) {
+          console.error('Failed to load stop approach data', err);
+          stopApproachStops = [];
+          return false;
+        } finally {
+          stopApproachFetchPromise = null;
+        }
+      })();
+      return stopApproachFetchPromise;
+    }
+
+    async function toggleStopApproachCones() {
+      showStopApproachCones = !showStopApproachCones;
+      updateRouteSelector(activeRoutes, { force: true });
+      if (showStopApproachCones) {
+        const loaded = await ensureStopApproachData();
+        if (loaded) {
+          renderStopApproachCones();
+        } else {
+          showStopApproachCones = false;
+          updateRouteSelector(activeRoutes, { force: true });
+        }
+      } else {
+        clearStopApproachCones();
+      }
+    }
+
     function applyBusOptionState(inputElement) {
       if (!inputElement || typeof inputElement.closest !== 'function') return;
       const parentLabel = inputElement.closest('label.selector-option');
@@ -4002,7 +4148,8 @@
         showNameBubbles: !!showNameBubbles,
         showOnDemand: !!showOnDemand,
         showStaleOnDemand: !!showStaleOnDemand,
-        onDemandDataAvailable: !!onDemandDataAvailable
+        onDemandDataAvailable: !!onDemandDataAvailable,
+        showStopApproachCones: !!showStopApproachCones
       });
 
       if (!forceUpdate && nextStateKey === lastRouteSelectorStateKey) {
@@ -4095,6 +4242,11 @@
       }
 
       html += `
+            </div>
+            <div class="selector-group">
+              <div class="selector-label">Approach Cones</div>
+              <button type="button" class="pill-button ${showStopApproachCones ? 'is-active' : ''}" onclick="toggleStopApproachCones()">${showStopApproachCones ? 'Hide Approach Cones' : 'Show Approach Cones'}</button>
+              <div class="selector-option-detail">Displays all stops with configured approach cones.</div>
             </div>
           </div>
         </div>
