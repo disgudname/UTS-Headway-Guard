@@ -284,6 +284,8 @@ class HeadwayTracker:
                 )
                 sustained_movement = (
                     not near_stop
+                    or movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
+                    or movement_count >= 2
                     or (
                         movement_duration is not None
                         and movement_duration >= MOVEMENT_CONFIRMATION_MIN_DURATION_S
