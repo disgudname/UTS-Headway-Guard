@@ -1918,6 +1918,24 @@ def _extract_schedule_time_bounds(
     return (earliest, latest)
 
 
+def _normalize_ride_id(value: Any) -> str:
+    ride_id = str(value).strip() if value not in {None, ""} else ""
+    return ride_id.lower()
+
+
+def _resolve_ride_status(
+    ride: Mapping[str, Any], status_lookup: Mapping[str, str]
+) -> Optional[str]:
+    ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+    ride_id_normalized = _normalize_ride_id(ride_id_val)
+    if ride_id_normalized:
+        mapped = status_lookup.get(ride_id_normalized)
+        if mapped not in {None, ""}:
+            return mapped
+    status_raw = ride.get("status")
+    return status_raw if status_raw not in {None, ""} else None
+
+
 async def fetch_ondemand_rides(
     client: OnDemandClient, schedules: Optional[Sequence[Dict[str, Any]]] = None
 ) -> Dict[str, str]:
@@ -1961,14 +1979,13 @@ async def fetch_ondemand_rides(
             print(f"[ondemand] rides decode failed: {exc}")
             return {}
 
-        data: Sequence[Any]
+        data: Sequence[Any] = []
         if isinstance(payload, list):
             data = payload
         elif isinstance(payload, dict):
             candidate = payload.get("data")
-            data = candidate if isinstance(candidate, list) else []
-        else:
-            data = []
+            if isinstance(candidate, list):
+                data = candidate
 
         schedule_ride_ids: Set[str] = set()
         if schedules:
@@ -1983,33 +2000,24 @@ async def fetch_ondemand_rides(
                     if not isinstance(rides, list):
                         continue
                     for ride in rides:
-                        if not isinstance(ride, dict):
-                            continue
-                        ride_id_value = (
-                            ride.get("ride_id") or ride.get("rideId") or ride.get("id")
-                        )
-                        if ride_id_value is None:
-                            continue
-                        ride_id_text = str(ride_id_value).strip()
-                        if ride_id_text:
-                            schedule_ride_ids.add(ride_id_text.lower())
+                        ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                        ride_id_normalized = _normalize_ride_id(ride_id_val)
+                        if ride_id_normalized:
+                            schedule_ride_ids.add(ride_id_normalized)
 
         status_map: Dict[str, str] = {}
         for ride in data:
             if not isinstance(ride, dict):
                 continue
-            ride_id = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
-            if ride_id is None:
+            ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+            ride_id_normalized = _normalize_ride_id(ride_id_val)
+            if not ride_id_normalized:
                 continue
-            ride_id_str = str(ride_id).strip()
-            if not ride_id_str:
-                continue
-            ride_id_key = ride_id_str.lower()
-            if schedule_ride_ids and ride_id_key not in schedule_ride_ids:
+            if schedule_ride_ids and ride_id_normalized not in schedule_ride_ids:
                 continue
             status_val = ride.get("status")
             if status_val not in {None, ""}:
-                status_map[ride_id_key] = status_val
+                status_map[ride_id_normalized] = status_val
         return status_map
 
     return await ondemand_rides_cache.get(fetch)
@@ -2029,7 +2037,7 @@ def build_ondemand_virtual_stops(
     status_lookup: Dict[str, str] = {}
     if ride_status_map:
         status_lookup = {
-            str(key).lower(): value
+            _normalize_ride_id(key): value
             for key, value in ride_status_map.items()
             if key not in {None, ""}
         }
@@ -2085,13 +2093,7 @@ def build_ondemand_virtual_stops(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
-                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
-                ride_id_normalized = (
-                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
-                )
-                status_raw = status_lookup.get(ride_id_normalized)
-                if status_raw in {None, ""}:
-                    status_raw = ride.get("status")
+                status_raw = _resolve_ride_status(ride, status_lookup)
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
@@ -2176,7 +2178,7 @@ def build_ondemand_next_stop_targets(
     status_lookup: Dict[str, str] = {}
     if ride_status_map:
         status_lookup = {
-            str(key).lower(): value
+            _normalize_ride_id(key): value
             for key, value in ride_status_map.items()
             if key not in {None, ""}
         }
@@ -2237,13 +2239,7 @@ def build_ondemand_next_stop_targets(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
-                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
-                ride_id_normalized = (
-                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
-                )
-                ride_status_raw = status_lookup.get(ride_id_normalized)
-                if ride_status_raw in {None, ""}:
-                    ride_status_raw = ride.get("status")
+                ride_status_raw = _resolve_ride_status(ride, status_lookup)
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
@@ -2299,7 +2295,7 @@ def build_ondemand_vehicle_stop_plans(
     status_lookup: Dict[str, str] = {}
     if ride_status_map:
         status_lookup = {
-            str(key).lower(): value
+            _normalize_ride_id(key): value
             for key, value in ride_status_map.items()
             if key not in {None, ""}
         }
@@ -2328,13 +2324,7 @@ def build_ondemand_vehicle_stop_plans(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
-                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
-                ride_id_normalized = (
-                    str(ride_id_val).strip().lower() if ride_id_val is not None else ""
-                )
-                status_raw = status_lookup.get(ride_id_normalized)
-                if status_raw in {None, ""}:
-                    status_raw = ride.get("status")
+                status_raw = _resolve_ride_status(ride, status_lookup)
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
