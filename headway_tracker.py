@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from collections import deque
@@ -200,6 +200,7 @@ class HeadwayTracker:
 
             prev_snap = self.last_snapshots.get(vid)
 
+            delta_seconds = None
             speed_mps = None
             if prev_snap:
                 delta_seconds = (timestamp - prev_snap.timestamp).total_seconds()
@@ -283,6 +284,24 @@ class HeadwayTracker:
             ):
                 dwell_seconds = None
                 departure_timestamp = movement_start_time or timestamp
+                if (
+                    movement_confirmed
+                    and prev_snap
+                    and delta_seconds
+                    and delta_seconds > 0
+                    and speed_mps
+                    and speed_mps > 0
+                    and prev_stop is not None
+                    and distance_from_prev_stop is not None
+                ):
+                    prev_snap_distance = self._distance_to_stop(prev_stop, prev_snap.lat, prev_snap.lon)
+                    if prev_snap_distance is not None and prev_snap_distance <= self.arrival_distance_threshold_m:
+                        threshold_distance = max(prev_snap_distance, min(5.0, self.departure_distance_threshold_m))
+                        distance_delta = distance_from_prev_stop - prev_snap_distance
+                        if distance_delta > 0 and distance_from_prev_stop >= threshold_distance:
+                            fraction = (threshold_distance - prev_snap_distance) / distance_delta
+                            fraction = min(max(fraction, 0.0), 1.0)
+                            departure_timestamp = prev_snap.timestamp + timedelta(seconds=fraction * delta_seconds)
                 if prev_state.arrival_time:
                     dwell_seconds = (departure_timestamp - prev_state.arrival_time).total_seconds()
                     dwell_seconds = max(dwell_seconds, 0.0)
