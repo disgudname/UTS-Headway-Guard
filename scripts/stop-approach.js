@@ -88,19 +88,10 @@
   }
 
   function buildConePoints(center, bearingDeg, toleranceDeg, radiusMeters) {
-    const coneStart = destinationPoint(center, bearingDeg, radiusMeters);
-    const targetHeading = normalizeBearing(bearingDeg + 180);
-    const start = targetHeading - toleranceDeg;
-    const end = targetHeading + toleranceDeg;
-    const step = Math.max(6, Math.round(toleranceDeg / 2));
-    const points = [coneStart];
-
-    for (let angle = start; angle <= end; angle += step) {
-      points.push(destinationPoint(coneStart, angle, radiusMeters));
-    }
-    points.push(destinationPoint(coneStart, end, radiusMeters));
-    points.push(coneStart);
-    return points;
+    const entryLeft = destinationPoint(center, bearingDeg - toleranceDeg, radiusMeters);
+    const entryRight = destinationPoint(center, bearingDeg + toleranceDeg, radiusMeters);
+    const apex = destinationPoint(center, normalizeBearing(bearingDeg + 180), radiusMeters);
+    return [entryLeft, entryRight, apex, entryLeft];
   }
 
   function updateDisplayValues(radius, tolerance, bearing) {
