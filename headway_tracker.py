@@ -465,9 +465,9 @@ class HeadwayTracker:
         if not self.stops:
             return {"reason": "no_stops"}
 
-        nearest_any: Optional[Tuple[StopPoint, float, float]] = None
-        nearest_route_mismatch: Optional[Tuple[StopPoint, float, float]] = None
-        nearest_cone_block: Optional[Tuple[StopPoint, float, float]] = None
+        nearest_any: Optional[Tuple[StopPoint, float, float, dict]] = None
+        nearest_route_mismatch: Optional[Tuple[StopPoint, float, float, dict]] = None
+        nearest_cone_block: Optional[Tuple[StopPoint, float, float, dict]] = None
 
         for stop in self.stops:
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
@@ -490,56 +490,76 @@ class HeadwayTracker:
             effective_threshold = cone_radius if cone_radius is not None else self.arrival_distance_threshold_m
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
 
+            position_bearing = None
+            target_heading = None
+            heading_ok = None
+            if requires_cone:
+                position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
+                if heading_deg is not None and math.isfinite(heading_deg):
+                    target_heading = (approach_bearing + 180.0) % 360.0
+                    heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
+
+            stop_meta = {
+                "approach_bearing_deg": approach_bearing,
+                "approach_tolerance_deg": approach_tolerance,
+                "approach_radius_m": approach_radius,
+                "position_bearing_deg": position_bearing,
+                "target_heading_deg": target_heading,
+                "heading_within_cone": heading_ok,
+            }
+
+            if requires_cone and heading_ok is None:
+                heading_ok = True
+                stop_meta["heading_within_cone"] = heading_ok
+
             if nearest_any is None or dist < nearest_any[1]:
-                nearest_any = (stop, dist, effective_threshold)
+                nearest_any = (stop, dist, effective_threshold, stop_meta)
 
             if route_id and stop.route_ids and route_id not in stop.route_ids:
                 if dist <= effective_threshold and (
                     nearest_route_mismatch is None or dist < nearest_route_mismatch[1]
                 ):
-                    nearest_route_mismatch = (stop, dist, effective_threshold)
+                    nearest_route_mismatch = (stop, dist, effective_threshold, stop_meta)
                 continue
 
             if dist <= effective_threshold:
                 if requires_cone:
-                    position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
-                    heading_ok = True
-                    if heading_deg is not None and math.isfinite(heading_deg):
-                        target_heading = (approach_bearing + 180.0) % 360.0
-                        heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
-                    if not heading_ok or not _is_within_bearing(
+                    if heading_ok is False or not _is_within_bearing(
                         position_bearing, approach_bearing, approach_tolerance
                     ):
                         if nearest_cone_block is None or dist < nearest_cone_block[1]:
-                            nearest_cone_block = (stop, dist, effective_threshold)
+                            nearest_cone_block = (stop, dist, effective_threshold, stop_meta)
                         continue
 
         if nearest_route_mismatch is not None:
-            stop, dist, threshold = nearest_route_mismatch
+            stop, dist, threshold, meta = nearest_route_mismatch
             return {
                 "reason": "route_mismatch",
                 "nearest_stop_id": stop.stop_id,
                 "nearest_stop_route_ids": sorted(stop.route_ids),
                 "distance_m": dist,
                 "threshold_m": threshold,
+                **meta,
             }
         if nearest_cone_block is not None:
-            stop, dist, threshold = nearest_cone_block
+            stop, dist, threshold, meta = nearest_cone_block
             return {
                 "reason": "outside_cone",
                 "nearest_stop_id": stop.stop_id,
                 "nearest_stop_route_ids": sorted(stop.route_ids),
                 "distance_m": dist,
                 "threshold_m": threshold,
+                **meta,
             }
         if nearest_any is not None:
-            stop, dist, threshold = nearest_any
+            stop, dist, threshold, meta = nearest_any
             return {
                 "reason": "beyond_distance",
                 "nearest_stop_id": stop.stop_id,
                 "nearest_stop_route_ids": sorted(stop.route_ids),
                 "distance_m": dist,
                 "threshold_m": threshold,
+                **meta,
             }
         return {"reason": "unknown"}
 
