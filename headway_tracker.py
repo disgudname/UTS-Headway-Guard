@@ -190,11 +190,19 @@ class HeadwayTracker:
             prev_state = self.vehicle_states.get(vid, VehiclePresence())
             prev_stop = prev_state.current_stop_id
             distance_from_prev_stop = self._distance_to_stop(prev_stop, snap.lat, snap.lon)
-
             timestamp = snap.timestamp if snap.timestamp.tzinfo else snap.timestamp.replace(tzinfo=timezone.utc)
             timestamp = timestamp.astimezone(timezone.utc)
             snap.timestamp = timestamp
             departure_recorded = False
+
+            prev_snap = self.last_snapshots.get(vid)
+
+            speed_mps = None
+            if prev_snap:
+                delta_seconds = (timestamp - prev_snap.timestamp).total_seconds()
+                if delta_seconds > 0:
+                    movement_distance = self._haversine(prev_snap.lat, prev_snap.lon, snap.lat, snap.lon)
+                    speed_mps = movement_distance / delta_seconds
 
             pending_arrival = self._track_approach_progress(vid, snap, current_stop, route_id_norm)
 
@@ -205,11 +213,13 @@ class HeadwayTracker:
 
             movement_start_time = prev_state.departure_started_at
             if prev_stop is not None and distance_from_prev_stop is not None:
-                if distance_from_prev_stop >= self.arrival_distance_threshold_m:
-                    if movement_start_time is None:
+                if speed_mps is not None and speed_mps > STOP_SPEED_THRESHOLD_MPS:
+                    if distance_from_prev_stop < self.departure_distance_threshold_m and movement_start_time is None:
                         movement_start_time = timestamp
-                else:
+                elif distance_from_prev_stop < self.arrival_distance_threshold_m:
                     movement_start_time = None
+                elif distance_from_prev_stop >= self.arrival_distance_threshold_m and movement_start_time is None:
+                    movement_start_time = timestamp
 
             if prev_stop and has_left_prev_stop and (current_stop is None or current_stop[0] != prev_stop):
                 dwell_seconds = None
@@ -370,6 +380,7 @@ class HeadwayTracker:
                     "duplicate_arrival": arrival_key in self.last_vehicle_arrival if arrival_key else False,
                     "departure_recorded": departure_recorded,
                     "departure_started_at": self._isoformat(movement_start_time),
+                    "speed_mps": speed_mps,
                     "approach_bearing_deg": getattr(stop_meta, "approach_bearing_deg", None),
                     "approach_tolerance_deg": getattr(stop_meta, "approach_tolerance_deg", None),
                     "approach_radius_m": getattr(stop_meta, "approach_radius_m", None),
