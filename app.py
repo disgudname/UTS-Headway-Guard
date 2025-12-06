@@ -283,6 +283,75 @@ def _iter_loaded_secrets() -> Iterable[Tuple[str, str]]:
 
     items.sort(key=lambda item: item[0])
     return items
+
+
+EXPECTED_ENV_KEYS = sorted(
+    {
+        "ADSB_CACHE_TTL_S",
+        "AMTRAKER_TTL_S",
+        "AMTRAKER_URL",
+        "BLOCK_REFRESH_S",
+        "CAT_API_BASE",
+        "CAT_API_TOKEN",
+        "CAT_METADATA_TTL_S",
+        "CAT_SERVICE_ALERT_TTL_S",
+        "CAT_STOP_ETA_TTL_S",
+        "CAT_VEHICLE_TTL_S",
+        "DATA_DIRS",
+        "DISPATCHER_DOWNED_REFRESH_S",
+        "DISPATCH_COOKIE_MAX_AGE",
+        "DISPATCH_COOKIE_SECURE",
+        "EMA_ALPHA",
+        "FLY_ALLOC_ID",
+        "FLY_MACHINE_ID",
+        "FLY_REGION",
+        "HEADING_JITTER_M",
+        "MAX_SPEED_CEIL",
+        "MIN_SPEED_FLOOR",
+        "ONDEMAND_DEFAULT_MARKER_COLOR",
+        "ONDEMAND_POSITIONS_TTL_S",
+        "ONDEMAND_RIDES_LOOKAHEAD_MIN",
+        "ONDEMAND_RIDES_LOOKBACK_MIN",
+        "ONDEMAND_RIDES_TTL_S",
+        "ONDEMAND_RIDES_URL",
+        "ONDEMAND_RIDES_WINDOW_PADDING_MIN",
+        "ONDEMAND_SCHEDULES_URL",
+        "ONDEMAND_VIRTUAL_STOP_MAX_AGE_S",
+        "ORS_HTTP_TIMEOUT_S",
+        "ORS_KEY",
+        "OVERPASS_EP",
+        "PULSEPOINT_ICON_TTL_S",
+        "PULSEPOINT_PASSPHRASE",
+        "PULSEPOINT_TTL_S",
+        "RIDESYSTEMS_CLIENT_TTL_S",
+        "ROUTE_GRACE_S",
+        "ROUTE_REFRESH_S",
+        "STALE_FIX_S",
+        "SYNC_SECRET",
+        "TICKETS_PATH",
+        "TRAIN_TARGET_STATION_CODE",
+        "TRANSLOC_ARRIVALS_TTL_S",
+        "TRANSLOC_BASE",
+        "TRANSLOC_BLOCKS_TTL_S",
+        "TRANSLOC_KEY",
+        "VEHICLE_STALE_THRESHOLD_S",
+        "VEH_LOG_DIR",
+        "VEH_LOG_INTERVAL_S",
+        "VEH_LOG_MIN_MOVE_M",
+        "VEH_LOG_RETENTION_MS",
+        "VEH_REFRESH_S",
+        "W2W_ASSIGNMENT_TTL_S",
+        "W2W_KEY",
+    }
+)
+
+
+def _missing_env_vars() -> list[str]:
+    missing: list[str] = []
+    for key in EXPECTED_ENV_KEYS:
+        if not os.getenv(key):
+            missing.append(key)
+    return missing
 DISPATCH_COOKIE_NAME = "dispatcher_auth"
 DISPATCH_COOKIE_MAX_AGE = int(os.getenv("DISPATCH_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
 DISPATCH_COOKIE_SECURE = os.getenv("DISPATCH_COOKIE_SECURE", "").lower() in {
@@ -7191,6 +7260,11 @@ async def get_secrets():
         {"name": key, "value": value} for key, value in _iter_loaded_secrets()
     ]
     return {"secrets": secrets_payload}
+
+
+@app.get("/v1/missing-env")
+async def get_missing_env():
+    return {"missing": _missing_env_vars(), "checked": EXPECTED_ENV_KEYS}
 
 # ---------------------------
 # SERVICE CREW API

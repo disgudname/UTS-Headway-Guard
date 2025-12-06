@@ -56,6 +56,10 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
   <h2>Environment Secrets</h2>
   <div id="secrets"></div>
 </div>
+<div class="panel" id="missingEnvPanel">
+  <h2>Missing Environment Variables</h2>
+  <div id="missingEnv"></div>
+</div>
 <div class="credit">proof of concept created by pat cox • phc6j@virginia.edu</div>
 <script>
 async function load(){
@@ -140,6 +144,37 @@ async function load(){
       error.textContent='Unable to load environment secrets. Please try again.';
       secretRoot.appendChild(error);
     }
+  }
+}
+async function loadMissingEnv(){
+  const missingRoot=document.getElementById('missingEnv');
+  if(!missingRoot) return;
+  missingRoot.innerHTML='';
+  try{
+    const resp=await fetch('/v1/missing-env',{cache:'no-store'});
+    if(!resp.ok){
+      throw new Error('Failed to load missing environment variables');
+    }
+    const payload=await resp.json();
+    const missing=Array.isArray(payload?.missing)?payload.missing:[];
+    if(!missing.length){
+      const ok=document.createElement('div');
+      ok.textContent='All expected environment variables are set.';
+      missingRoot.appendChild(ok);
+      return;
+    }
+    const list=document.createElement('ul');
+    for(const key of missing){
+      const item=document.createElement('li');
+      item.textContent=key;
+      list.appendChild(item);
+    }
+    missingRoot.appendChild(list);
+  }catch(err){
+    console.error('Failed to load missing environment variables',err);
+    const error=document.createElement('div');
+    error.textContent='Unable to load missing environment variables. Please try again.';
+    missingRoot.appendChild(error);
   }
 }
 async function save(){
@@ -255,6 +290,7 @@ if(warningButton){
 async function bootstrap(){
   try{
     await load();
+    await loadMissingEnv();
     if(logoutButton) logoutButton.hidden=false;
   }catch(err){
     if(err && err.status===401){
