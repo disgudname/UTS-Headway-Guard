@@ -4335,6 +4335,16 @@ def _extract_block_from_position_name(value: Any) -> Tuple[Optional[str], str]:
     if value is None:
         return None, ""
     text = str(value)
+
+    # Check for OnDemand positions
+    text_lower = text.lower().strip()
+    if "ondemand" in text_lower:
+        # Normalize the OnDemand position name
+        if "eb" in text_lower:
+            return "OnDemand EB", "any"
+        elif "driver" in text_lower:
+            return "OnDemand Driver", "any"
+
     match = W2W_POSITION_RE.search(text)
     if match:
         number = match.group(1)
@@ -4673,6 +4683,73 @@ def _find_current_driver(
     return None
 
 
+def _normalize_driver_name(name: str) -> str:
+    """
+    Normalize driver names for matching between TransLoc and WhenToWork.
+
+    Removes extra whitespace, converts to lowercase for case-insensitive matching.
+    """
+    if not name:
+        return ""
+    # Remove extra whitespace and convert to lowercase
+    normalized = re.sub(r"\s+", " ", name.strip()).lower()
+    return normalized
+
+
+def _find_ondemand_driver_by_name(
+    driver_name: str,
+    assignments_by_block: Dict[str, Dict[str, List[Dict[str, Any]]]],
+    now_ts: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Find an ondemand driver assignment by matching driver name.
+
+    Args:
+        driver_name: Driver name from TransLoc ondemand data
+        assignments_by_block: W2W assignments structure
+        now_ts: Current timestamp in milliseconds
+
+    Returns:
+        Driver assignment dict with name, shift_end, block, etc., or None if no match
+    """
+    if not driver_name:
+        return None
+
+    normalized_search_name = _normalize_driver_name(driver_name)
+    if not normalized_search_name:
+        return None
+
+    # Check both OnDemand Driver and OnDemand EB blocks
+    for block_name in ["OnDemand Driver", "OnDemand EB"]:
+        if block_name not in assignments_by_block:
+            continue
+
+        periods_dict = assignments_by_block[block_name]
+        for period, drivers in periods_dict.items():
+            for driver in drivers:
+                start_ts = driver.get("start_ts", 0)
+                end_ts = driver.get("end_ts", 0)
+
+                # Check if current time is within this driver's shift
+                if start_ts <= now_ts < end_ts:
+                    w2w_driver_name = driver.get("name", "")
+                    normalized_w2w_name = _normalize_driver_name(w2w_driver_name)
+
+                    # Match driver names
+                    if normalized_w2w_name == normalized_search_name:
+                        # Return driver with block information
+                        return {
+                            "name": driver["name"],
+                            "start_ts": start_ts,
+                            "end_ts": end_ts,
+                            "start_label": driver.get("start_label"),
+                            "end_label": driver.get("end_label"),
+                            "block": block_name,
+                        }
+
+    return None
+
+
 async def _fetch_vehicle_drivers():
     """
     Build a mapping of vehicle_id -> {block, driver, shift_end, vehicle_name}.
@@ -4681,9 +4758,15 @@ async def _fetch_vehicle_drivers():
     1. TransLoc blocks (vehicle_id -> raw block like "[01]" or "[04]")
     2. W2W assignments (block number -> driver with time windows)
     3. Vehicle names from TransLoc vehicle data
+    4. OnDemand vehicles with driver names (matched by name to W2W assignments)
 
     Returns blocks the way WhenToWork does: individual blocks without interlining.
     Each vehicle is mapped to its current raw block assignment and the corresponding driver.
+
+    For ondemand vehicles:
+    - Driver names from TransLoc are matched with W2W "OnDemand Driver" or "OnDemand EB" positions
+    - If matched, the W2W block name and shift information are used
+    - If not matched, "OnDemand Driver" is used as the default block name
     """
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
@@ -4716,6 +4799,7 @@ async def _fetch_vehicle_drivers():
     # Build the vehicle -> driver mapping
     vehicle_drivers = {}
 
+    # Process regular buses with block assignments
     for vehicle_id, block_name in blocks_mapping.items():
         # Extract block number from raw block name (e.g., "[01]" -> "01")
         block_numbers = _split_interlined_blocks(block_name)
@@ -4748,6 +4832,71 @@ async def _fetch_vehicle_drivers():
                 "vehicle_name": vehicle_name,
             }
 
+    # Process ondemand vehicles
+    # Get ondemand client and fetch vehicle data
+    ondemand_client = getattr(app.state, "ondemand_client", None)
+    if ondemand_client is not None:
+        try:
+            ondemand_data = await _collect_ondemand_data(ondemand_client, now=now)
+            vehicles_list = ondemand_data.get("vehicles") if isinstance(ondemand_data, dict) else []
+
+            for vehicle_entry in vehicles_list:
+                if not isinstance(vehicle_entry, dict):
+                    continue
+
+                # Extract vehicle ID
+                vehicle_id = (
+                    vehicle_entry.get("vehicle_id")
+                    or vehicle_entry.get("VehicleID")
+                    or vehicle_entry.get("vehicleId")
+                )
+                if vehicle_id is None:
+                    continue
+                vehicle_id_str = str(vehicle_id).strip()
+                if not vehicle_id_str:
+                    continue
+
+                # Extract driver name from ondemand data
+                driver_name = vehicle_entry.get("driverName", "")
+                if not driver_name:
+                    continue
+
+                # Extract vehicle name
+                vehicle_name = (
+                    vehicle_entry.get("name")
+                    or vehicle_entry.get("vehicle_name")
+                    or vehicle_entry.get("VehicleName")
+                )
+
+                # Match driver name with W2W assignments
+                matched_driver = _find_ondemand_driver_by_name(
+                    driver_name, assignments_by_block, now_ts
+                )
+
+                if matched_driver:
+                    # Driver is on a scheduled shift
+                    vehicle_drivers[vehicle_id_str] = {
+                        "block": matched_driver["block"],
+                        "driver": matched_driver["name"],
+                        "shift_end": matched_driver["end_ts"],
+                        "shift_end_label": matched_driver["end_label"],
+                        "vehicle_name": vehicle_name,
+                    }
+                else:
+                    # Driver is logged in but not on a scheduled W2W shift
+                    # Still include them with the driver name from TransLoc
+                    # Use "OnDemand Driver" as the default block
+                    vehicle_drivers[vehicle_id_str] = {
+                        "block": "OnDemand Driver",
+                        "driver": driver_name,
+                        "shift_end": None,
+                        "shift_end_label": None,
+                        "vehicle_name": vehicle_name,
+                    }
+
+        except Exception as exc:
+            print(f"[vehicle_drivers] ondemand fetch failed: {exc}")
+
     return {
         "fetched_at": now_ts,
         "vehicle_drivers": vehicle_drivers,
@@ -4762,6 +4911,10 @@ async def dispatch_vehicle_drivers(request: Request):
     This endpoint joins TransLoc block assignments with WhenToWork driver assignments.
     Blocks are returned as individual raw blocks (e.g., "[01]", "[04]") matching the way
     WhenToWork tracks them, NOT as interlined blocks (e.g., "[01]/[04]").
+
+    Also includes ondemand vehicles matched by driver name to W2W assignments.
+    OnDemand vehicles use block names "OnDemand Driver" or "OnDemand EB" based on
+    their W2W position assignments.
 
     Returns:
         {
@@ -4780,6 +4933,13 @@ async def dispatch_vehicle_drivers(request: Request):
                     "shift_end": null,
                     "shift_end_label": null,
                     "vehicle_name": "Bus 456"
+                },
+                "789": {
+                    "block": "OnDemand Driver",
+                    "driver": "Jane Smith",
+                    "shift_end": <timestamp_ms>,
+                    "shift_end_label": "5p",
+                    "vehicle_name": "OnDemand 1"
                 }
             }
         }
