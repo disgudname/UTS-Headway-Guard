@@ -6004,6 +6004,7 @@ def _assemble_transloc_vehicles(
     include_stale: bool,
     capacities: Optional[Dict[int, Dict[str, Any]]] = None,
     stop_estimates: Optional[Dict[Any, List[Dict[str, Any]]]] = None,
+    route_id_to_name: Optional[Dict[Any, str]] = None,
 ) -> List[Dict[str, Any]]:
     vehicles: List[Dict[str, Any]] = []
     for rec in raw_vehicle_records:
@@ -6057,6 +6058,11 @@ def _assemble_transloc_vehicles(
             "SecondsSinceReport": seconds_output,
             "IsStale": is_stale,
         }
+        # Add route name if available
+        if route_id_to_name and rid is not None:
+            route_name = route_id_to_name.get(rid)
+            if route_name:
+                vehicle_data["RouteName"] = route_name
         # Add capacity data if available for this vehicle
         if capacities and vid in capacities:
             cap_data = capacities[vid]
@@ -6093,6 +6099,15 @@ async def testmap_transloc_vehicles(
         assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
         arrivals = await _get_transloc_arrivals(base_url)
 
+        # Load routes to build route ID to name mapping
+        routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
+        route_id_to_name = {}
+        for route in routes_raw:
+            rid = route.get("RouteID") or route.get("RouteId")
+            route_name = route.get("RouteName") or route.get("LongName") or route.get("ShortName")
+            if rid is not None and route_name:
+                route_id_to_name[rid] = route_name
+
         # Fetch capacities using the provided base_url
         async with httpx.AsyncClient() as client:
             try:
@@ -6121,6 +6136,7 @@ async def testmap_transloc_vehicles(
             include_stale=stale,
             capacities=capacities,
             stop_estimates=stop_estimates,
+            route_id_to_name=route_id_to_name,
         )
         return {
             "fetched_at": int(time.time()),
