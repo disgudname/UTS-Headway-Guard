@@ -14176,7 +14176,7 @@ ${trainPlaneMarkup}
 
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Capacity</div>',
+                  '<div class="ondemand-driver-popup__label">Occupancy</div>',
                   '<div class="bus-popup__capacity">',
                   '<div class="bus-popup__capacity-bar">',
                   `<div class="bus-popup__capacity-fill" style="width: ${percentage}%"></div>`,
