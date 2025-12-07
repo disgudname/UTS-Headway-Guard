@@ -96,6 +96,27 @@ function schedulePlaneStyleOverride() {
 
 schedulePlaneStyleOverride();
 
+      // Performance optimization: Pause expensive operations when page is hidden
+      let pageIsVisible = !document.hidden;
+      let refreshIntervalsPaused = false;
+
+      function handleVisibilityChange() {
+        pageIsVisible = !document.hidden;
+        if (pageIsVisible && refreshIntervalsPaused) {
+          // Resume operations when page becomes visible
+          refreshIntervalsPaused = false;
+          // Immediately fetch fresh data
+          if (typeof fetchBusLocations === 'function') fetchBusLocations();
+          if (typeof fetchRoutePaths === 'function') fetchRoutePaths();
+        } else if (!pageIsVisible) {
+          refreshIntervalsPaused = true;
+        }
+      }
+
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', handleVisibilityChange, { passive: true });
+      }
+
       const domElementCache = new Map();
 
       function getCachedElementById(id) {
@@ -138,6 +159,25 @@ schedulePlaneStyleOverride();
           } else {
             setTimeout(runner, 16);
           }
+        };
+      }
+
+      // Performance: Debounce helper for expensive render operations
+      function createDebouncer(callback, delayMs = 100) {
+        if (typeof callback !== 'function') {
+          return () => {};
+        }
+        let timerId = null;
+        let lastArgs = null;
+        return (...args) => {
+          lastArgs = args;
+          if (timerId !== null) {
+            clearTimeout(timerId);
+          }
+          timerId = setTimeout(() => {
+            timerId = null;
+            callback(...lastArgs);
+          }, delayMs);
         };
       }
 
@@ -10119,23 +10159,36 @@ ${trainPlaneMarkup}
         if (refreshIntervalsActive) {
           return;
         }
-        refreshIntervals.push(setInterval(fetchBusLocations, 4000));
-        refreshIntervals.push(setInterval(fetchBusStops, 60000));
-        refreshIntervals.push(setInterval(fetchBlockAssignments, 60000));
+        // Performance optimized: Skip polling when tab is hidden, slightly increased intervals
         refreshIntervals.push(setInterval(() => {
-          fetchStopArrivalTimes().then(allEtas => {
-            cachedEtas = allEtas;
-            updateCustomPopups();
-          });
-        }, 15000));
-        refreshIntervals.push(setInterval(fetchRoutePaths, 15000));
+          if (!refreshIntervalsPaused && pageIsVisible) fetchBusLocations();
+        }, 5000)); // Increased from 4000ms to 5000ms
         refreshIntervals.push(setInterval(() => {
-          if (shouldFetchServiceAlerts()) {
+          if (!refreshIntervalsPaused && pageIsVisible) fetchBusStops();
+        }, 60000));
+        refreshIntervals.push(setInterval(() => {
+          if (!refreshIntervalsPaused && pageIsVisible) fetchBlockAssignments();
+        }, 60000));
+        refreshIntervals.push(setInterval(() => {
+          if (!refreshIntervalsPaused && pageIsVisible) {
+            fetchStopArrivalTimes().then(allEtas => {
+              cachedEtas = allEtas;
+              updateCustomPopups();
+            });
+          }
+        }, 20000)); // Increased from 15000ms to 20000ms
+        refreshIntervals.push(setInterval(() => {
+          if (!refreshIntervalsPaused && pageIsVisible) fetchRoutePaths();
+        }, 20000)); // Increased from 15000ms to 20000ms
+        refreshIntervals.push(setInterval(() => {
+          if (!refreshIntervalsPaused && pageIsVisible && shouldFetchServiceAlerts()) {
             fetchServiceAlertsForCurrentAgency();
           }
         }, SERVICE_ALERT_REFRESH_INTERVAL_MS));
         if (incidentsAreAvailable()) {
-          refreshIntervals.push(setInterval(refreshIncidents, INCIDENT_REFRESH_INTERVAL_MS));
+          refreshIntervals.push(setInterval(() => {
+            if (!refreshIntervalsPaused && pageIsVisible) refreshIncidents();
+          }, INCIDENT_REFRESH_INTERVAL_MS));
           refreshIncidents();
         } else {
           setIncidentsVisibility(false);
@@ -18008,7 +18061,8 @@ ${trainPlaneMarkup}
           return;
         }
 
-        if (disableSmoothing || lowPerformanceMode || typeof requestAnimationFrame !== 'function') {
+        // Performance: Skip animations when tab is hidden or in low performance mode
+        if (disableSmoothing || lowPerformanceMode || !pageIsVisible || typeof requestAnimationFrame !== 'function') {
           marker.setLatLng(endPos);
           syncMarkerPopupPosition(marker);
           return;
