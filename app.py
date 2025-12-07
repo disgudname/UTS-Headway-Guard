@@ -5838,10 +5838,16 @@ async def build_transloc_snapshot(
         stops_raw=stops_raw,
     )
     arrivals = await _get_transloc_arrivals(base_url)
+
+    # Get cached capacities from state
+    async with state.lock:
+        capacities = state.vehicle_capacities.copy()
+
     vehicles = _assemble_transloc_vehicles(
         raw_vehicle_records=raw_vehicle_records,
         assigned=assigned,
         include_stale=include_stale,
+        capacities=capacities,
     )
     return {
         "fetched_at": int(time.time()),
@@ -5945,6 +5951,7 @@ def _assemble_transloc_vehicles(
     raw_vehicle_records: List[Dict[str, Any]],
     assigned: Dict[Any, Tuple[int, Vehicle]],
     include_stale: bool,
+    capacities: Optional[Dict[int, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     vehicles: List[Dict[str, Any]] = []
     for rec in raw_vehicle_records:
@@ -5986,20 +5993,28 @@ def _assemble_transloc_vehicles(
         ):
             continue
         seconds_output = seconds if seconds is not None else seconds_raw
-        vehicles.append(
-            {
-                "VehicleID": vid,
-                "RouteID": rid if rid is not None else 0,
-                "routeID": rid if rid is not None else 0,
-                "Latitude": lat,
-                "Longitude": lon,
-                "Heading": heading,
-                "GroundSpeed": ground_speed,
-                "Name": rec.get("Name") or rec.get("VehicleName"),
-                "SecondsSinceReport": seconds_output,
-                "IsStale": is_stale,
-            }
-        )
+        vehicle_data = {
+            "VehicleID": vid,
+            "RouteID": rid if rid is not None else 0,
+            "routeID": rid if rid is not None else 0,
+            "Latitude": lat,
+            "Longitude": lon,
+            "Heading": heading,
+            "GroundSpeed": ground_speed,
+            "Name": rec.get("Name") or rec.get("VehicleName"),
+            "SecondsSinceReport": seconds_output,
+            "IsStale": is_stale,
+        }
+        # Add capacity data if available for this vehicle
+        if capacities and vid in capacities:
+            cap_data = capacities[vid]
+            if cap_data.get("capacity") is not None:
+                vehicle_data["capacity"] = cap_data["capacity"]
+            if cap_data.get("current_occupation") is not None:
+                vehicle_data["current_occupation"] = cap_data["current_occupation"]
+            if cap_data.get("percentage") is not None:
+                vehicle_data["percentage"] = cap_data["percentage"]
+        vehicles.append(vehicle_data)
     return vehicles
 
 
@@ -6021,10 +6036,16 @@ async def testmap_transloc_vehicles(
     try:
         assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
         arrivals = await _get_transloc_arrivals(base_url)
+
+        # Get cached capacities from state
+        async with state.lock:
+            capacities = state.vehicle_capacities.copy()
+
         vehicles = _assemble_transloc_vehicles(
             raw_vehicle_records=raw_vehicle_records,
             assigned=assigned,
             include_stale=stale,
+            capacities=capacities,
         )
         return {
             "fetched_at": int(time.time()),
