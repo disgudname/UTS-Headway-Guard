@@ -3993,6 +3993,50 @@ async def vehicle_headings():
     return {"headings": payload}
 
 
+@app.get("/v1/vehicle_drivers")
+async def public_vehicle_drivers():
+    """
+    Public endpoint for vehicle ID to vehicle name mappings.
+    Returns ONLY vehicle names, stripping out sensitive information (driver names,
+    block assignments, shift times) that should not be publicly accessible.
+
+    Returns:
+        {
+            "fetched_at": <timestamp_ms>,
+            "vehicle_drivers": {
+                "123": {
+                    "vehicle_name": "Bus 123"
+                },
+                "456": {
+                    "vehicle_name": "Bus 456"
+                }
+            }
+        }
+    """
+    try:
+        full_data = await _fetch_vehicle_drivers()
+
+        # Strip out sensitive fields, only keep vehicle_name
+        filtered_vehicle_drivers = {}
+        for vehicle_id, info in full_data.get("vehicle_drivers", {}).items():
+            if isinstance(info, dict) and "vehicle_name" in info:
+                filtered_vehicle_drivers[vehicle_id] = {
+                    "vehicle_name": info["vehicle_name"]
+                }
+
+        return {
+            "fetched_at": full_data.get("fetched_at"),
+            "vehicle_drivers": filtered_vehicle_drivers
+        }
+    except Exception as exc:
+        print(f"[vehicle_drivers] fetch failed: {exc}")
+        detail = {
+            "message": "vehicle-driver mapping unavailable",
+            "reason": str(exc),
+        }
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+
 @app.get("/v1/routes/{route_id}/vehicles_raw")
 async def route_vehicles_raw(route_id: int):
     async with state.lock:
@@ -7229,6 +7273,29 @@ async def transloc_stop_arrivals(
 async def transloc_vehicle_capacities(base_url: Optional[str] = Query(None)):
     url = build_transloc_url(base_url, "GetVehicleCapacities")
     params = {"APIKey": TRANSLOC_KEY}
+    return await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+@app.get("/v1/transloc/vehicle_route_stop_estimates")
+async def transloc_vehicle_route_stop_estimates(
+    quantity: int = Query(3, ge=1, le=10),
+    vehicle_ids: str = Query(..., alias="vehicleIdStrings"),
+    base_url: Optional[str] = Query(None)
+):
+    """
+    Proxy for TransLoc GetVehicleRouteStopEstimates endpoint.
+    Returns ETA estimates for specified vehicles.
+
+    Args:
+        quantity: Number of stops to return per vehicle (1-10, default 3)
+        vehicle_ids: Comma-separated list of vehicle IDs
+        base_url: Optional TransLoc base URL override
+    """
+    url = build_transloc_url(base_url, "GetVehicleRouteStopEstimates")
+    params = {
+        "APIKey": TRANSLOC_KEY,
+        "quantity": quantity,
+        "vehicleIdStrings": vehicle_ids
+    }
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 @app.get("/v1/transloc/routes")
