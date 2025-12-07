@@ -166,18 +166,17 @@ class TestFindCurrentDriver(unittest.TestCase):
             self.assertNotEqual(driver["name"], "John Doe")
 
 
-class TestInterlinedBlockMapping(unittest.TestCase):
-    """Test the complete flow of mapping interlined blocks to drivers."""
+class TestRawBlockMapping(unittest.TestCase):
+    """Test the complete flow of mapping raw blocks to drivers."""
 
-    def test_interlined_block_scenario(self):
+    def test_raw_block_scenario(self):
         """
-        Test scenario where TransLoc says vehicle 123 is on block [01]/[04],
+        Test scenario where TransLoc returns raw block [01] (not interlined),
         and we need to find which driver is currently active.
         """
         # Scenario: It's 10:30 AM
         # - Block 01 AM driver: John Doe (6a-12p)
-        # - Block 04 driver: Bob Johnson (6a-6p, any period)
-        # We should find John Doe since his shift is active
+        # Vehicle is assigned to block [01], we should find John Doe
 
         tz = ZoneInfo("America/New_York")
         now = datetime(2025, 12, 7, 10, 30, tzinfo=tz)
@@ -185,8 +184,6 @@ class TestInterlinedBlockMapping(unittest.TestCase):
 
         am_start = datetime(2025, 12, 7, 6, 0, tzinfo=tz)
         am_end = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
-        all_day_start = datetime(2025, 12, 7, 6, 0, tzinfo=tz)
-        all_day_end = datetime(2025, 12, 7, 18, 0, tzinfo=tz)
 
         assignments_by_block = {
             "01": {
@@ -198,7 +195,35 @@ class TestInterlinedBlockMapping(unittest.TestCase):
                     "end_label": "12p",
                     "color_id": "0"
                 }]
-            },
+            }
+        }
+
+        # Extract block number from raw block
+        block_name = "[01]"
+        block_numbers = _split_interlined_blocks(block_name)
+        self.assertEqual(block_numbers, ["01"])
+
+        # Find driver for the block
+        driver = _find_current_driver(block_numbers[0], assignments_by_block, now_ts)
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "John Doe")
+
+    def test_different_raw_block_scenario(self):
+        """
+        Test scenario where TransLoc returns raw block [04] (not interlined).
+        """
+        # Scenario: It's 10:30 AM
+        # - Block 04 driver: Bob Johnson (6a-6p, any period)
+        # Vehicle is assigned to block [04], we should find Bob Johnson
+
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 10, 30, tzinfo=tz)
+        now_ts = int(now.timestamp() * 1000)
+
+        all_day_start = datetime(2025, 12, 7, 6, 0, tzinfo=tz)
+        all_day_end = datetime(2025, 12, 7, 18, 0, tzinfo=tz)
+
+        assignments_by_block = {
             "04": {
                 "any": [{
                     "name": "Bob Johnson",
@@ -211,27 +236,15 @@ class TestInterlinedBlockMapping(unittest.TestCase):
             }
         }
 
-        # Split the interlined block
-        block_name = "[01]/[04]"
+        # Extract block number from raw block
+        block_name = "[04]"
         block_numbers = _split_interlined_blocks(block_name)
-        self.assertEqual(block_numbers, ["01", "04"])
+        self.assertEqual(block_numbers, ["04"])
 
-        # Find driver for each component
-        drivers_found = []
-        for block_number in block_numbers:
-            driver = _find_current_driver(block_number, assignments_by_block, now_ts)
-            if driver:
-                drivers_found.append(driver)
-
-        # Should find both drivers since both shifts are active
-        self.assertEqual(len(drivers_found), 2)
-        driver_names = [d["name"] for d in drivers_found]
-        self.assertIn("John Doe", driver_names)
-        self.assertIn("Bob Johnson", driver_names)
-
-        # In the actual endpoint, we'd take the first one found
-        first_driver = drivers_found[0]
-        self.assertEqual(first_driver["name"], "John Doe")
+        # Find driver for the block
+        driver = _find_current_driver(block_numbers[0], assignments_by_block, now_ts)
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "Bob Johnson")
 
 
 if __name__ == "__main__":
