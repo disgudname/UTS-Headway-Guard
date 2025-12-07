@@ -5946,12 +5946,64 @@ async def _assemble_transloc_metadata(
     return {"routes": raw_routes, "stops": stops, "blocks": blocks}
 
 
+async def _fetch_vehicle_stop_estimates(
+    vehicle_ids: List[Any],
+    base_url: Optional[str] = None,
+    quantity: int = 3
+) -> Dict[Any, List[Dict[str, Any]]]:
+    """
+    Fetch stop estimates for multiple vehicles from TransLoc API.
+
+    Args:
+        vehicle_ids: List of vehicle IDs to fetch estimates for
+        base_url: Optional TransLoc base URL override
+        quantity: Number of stops to return per vehicle (default 3)
+
+    Returns:
+        Dict mapping vehicle ID to list of stop estimates
+    """
+    if not vehicle_ids:
+        return {}
+
+    try:
+        # Convert vehicle IDs to comma-separated string
+        vehicle_id_strings = ",".join(str(vid) for vid in vehicle_ids)
+
+        url = build_transloc_url(base_url, "GetVehicleRouteStopEstimates")
+        params = {
+            "APIKey": TRANSLOC_KEY,
+            "quantity": quantity,
+            "vehicleIdStrings": vehicle_id_strings
+        }
+
+        data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+
+        # Build a dict mapping vehicle ID to estimates
+        estimates_by_vehicle = {}
+        if data and isinstance(data, dict):
+            vehicles = data.get("Vehicles", [])
+            if isinstance(vehicles, list):
+                for vehicle in vehicles:
+                    if isinstance(vehicle, dict):
+                        vid = vehicle.get("VehicleID")
+                        estimates = vehicle.get("Estimates", [])
+                        if vid is not None and isinstance(estimates, list):
+                            estimates_by_vehicle[vid] = estimates
+
+        return estimates_by_vehicle
+    except Exception as e:
+        # If the estimates fetch fails, log it but don't fail the whole request
+        print(f"[vehicle_estimates] Failed to fetch stop estimates: {e}")
+        return {}
+
+
 def _assemble_transloc_vehicles(
     *,
     raw_vehicle_records: List[Dict[str, Any]],
     assigned: Dict[Any, Tuple[int, Vehicle]],
     include_stale: bool,
     capacities: Optional[Dict[int, Dict[str, Any]]] = None,
+    stop_estimates: Optional[Dict[Any, List[Dict[str, Any]]]] = None,
 ) -> List[Dict[str, Any]]:
     vehicles: List[Dict[str, Any]] = []
     for rec in raw_vehicle_records:
@@ -6014,6 +6066,9 @@ def _assemble_transloc_vehicles(
                 vehicle_data["current_occupation"] = cap_data["current_occupation"]
             if cap_data.get("percentage") is not None:
                 vehicle_data["percentage"] = cap_data["percentage"]
+        # Add stop estimates if available for this vehicle
+        if stop_estimates and vid in stop_estimates:
+            vehicle_data["Estimates"] = stop_estimates[vid]
         vehicles.append(vehicle_data)
     return vehicles
 
@@ -6041,11 +6096,26 @@ async def testmap_transloc_vehicles(
         async with state.lock:
             capacities = state.vehicle_capacities.copy()
 
+        # Extract vehicle IDs for fetching stop estimates
+        vehicle_ids = []
+        for rec in raw_vehicle_records:
+            vid = rec.get("VehicleID") or rec.get("VehicleId")
+            if vid is not None:
+                vehicle_ids.append(vid)
+
+        # Fetch stop estimates for all vehicles
+        stop_estimates = await _fetch_vehicle_stop_estimates(
+            vehicle_ids=vehicle_ids,
+            base_url=base_url,
+            quantity=3
+        )
+
         vehicles = _assemble_transloc_vehicles(
             raw_vehicle_records=raw_vehicle_records,
             assigned=assigned,
             include_stale=stale,
             capacities=capacities,
+            stop_estimates=stop_estimates,
         )
         return {
             "fetched_at": int(time.time()),
