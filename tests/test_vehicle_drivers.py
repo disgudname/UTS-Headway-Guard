@@ -247,5 +247,139 @@ class TestRawBlockMapping(unittest.TestCase):
         self.assertEqual(driver["name"], "Bob Johnson")
 
 
+class TestOnDemandPositions(unittest.TestCase):
+    """Test the OnDemand position name handling."""
+
+    def test_ondemand_driver_position(self):
+        """Test that 'OnDemand Driver' position is recognized."""
+        from app import _extract_block_from_position_name
+
+        block_number, period = _extract_block_from_position_name("OnDemand Driver")
+        self.assertEqual(block_number, "OnDemand Driver")
+        self.assertEqual(period, "any")
+
+    def test_eb_position_with_brackets(self):
+        """Test that '[EB]' position is recognized as 'OnDemand EB'."""
+        from app import _extract_block_from_position_name
+
+        block_number, period = _extract_block_from_position_name("[EB]")
+        self.assertEqual(block_number, "OnDemand EB")
+        self.assertEqual(period, "any")
+
+    def test_eb_position_without_brackets(self):
+        """Test that 'EB' position is recognized as 'OnDemand EB'."""
+        from app import _extract_block_from_position_name
+
+        block_number, period = _extract_block_from_position_name("EB")
+        self.assertEqual(block_number, "OnDemand EB")
+        self.assertEqual(period, "any")
+
+    def test_ondemand_driver_case_insensitive(self):
+        """Test that OnDemand Driver is case-insensitive."""
+        from app import _extract_block_from_position_name
+
+        block_number, period = _extract_block_from_position_name("ondemand driver")
+        self.assertEqual(block_number, "OnDemand Driver")
+        self.assertEqual(period, "any")
+
+    def test_eb_case_insensitive(self):
+        """Test that EB is case-insensitive."""
+        from app import _extract_block_from_position_name
+
+        block_number, period = _extract_block_from_position_name("[eb]")
+        self.assertEqual(block_number, "OnDemand EB")
+        self.assertEqual(period, "any")
+
+
+class TestDriverNameMatching(unittest.TestCase):
+    """Test driver name normalization and matching."""
+
+    def test_normalize_driver_name(self):
+        """Test that driver names are normalized correctly."""
+        from app import _normalize_driver_name
+
+        # Test basic normalization
+        self.assertEqual(_normalize_driver_name("John Doe"), "john doe")
+        self.assertEqual(_normalize_driver_name("JOHN DOE"), "john doe")
+        self.assertEqual(_normalize_driver_name("  John   Doe  "), "john doe")
+
+    def test_normalize_driver_name_empty(self):
+        """Test that empty driver names are handled."""
+        from app import _normalize_driver_name
+
+        self.assertEqual(_normalize_driver_name(""), "")
+        self.assertEqual(_normalize_driver_name("   "), "")
+
+    def test_match_driver_name_to_w2w(self):
+        """Test that driver names are matched to W2W assignments."""
+        from app import _match_driver_name_to_w2w
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 10, 30, tzinfo=tz)
+        now_ts = int(now.timestamp() * 1000)
+
+        start_dt = datetime(2025, 12, 7, 8, 0, tzinfo=tz)
+        end_dt = datetime(2025, 12, 7, 16, 0, tzinfo=tz)
+
+        block_assignments = {
+            "any": [
+                {
+                    "name": "John Doe",
+                    "start_ts": int(start_dt.timestamp() * 1000),
+                    "end_ts": int(end_dt.timestamp() * 1000),
+                    "start_label": "8a",
+                    "end_label": "4p",
+                    "color_id": "0"
+                }
+            ]
+        }
+
+        # Test exact match
+        matched = _match_driver_name_to_w2w("John Doe", block_assignments, now_ts)
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched["name"], "John Doe")
+
+        # Test case-insensitive match
+        matched = _match_driver_name_to_w2w("john doe", block_assignments, now_ts)
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched["name"], "John Doe")
+
+        # Test no match for different name
+        matched = _match_driver_name_to_w2w("Jane Smith", block_assignments, now_ts)
+        self.assertIsNone(matched)
+
+    def test_match_driver_name_outside_shift(self):
+        """Test that drivers outside their shift are not matched."""
+        from app import _match_driver_name_to_w2w
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 18, 0, tzinfo=tz)  # 6 PM
+        now_ts = int(now.timestamp() * 1000)
+
+        start_dt = datetime(2025, 12, 7, 8, 0, tzinfo=tz)
+        end_dt = datetime(2025, 12, 7, 16, 0, tzinfo=tz)  # Shift ends at 4 PM
+
+        block_assignments = {
+            "any": [
+                {
+                    "name": "John Doe",
+                    "start_ts": int(start_dt.timestamp() * 1000),
+                    "end_ts": int(end_dt.timestamp() * 1000),
+                    "start_label": "8a",
+                    "end_label": "4p",
+                    "color_id": "0"
+                }
+            ]
+        }
+
+        # Should not match because current time is after shift end
+        matched = _match_driver_name_to_w2w("John Doe", block_assignments, now_ts)
+        self.assertIsNone(matched)
+
+
 if __name__ == "__main__":
     unittest.main()

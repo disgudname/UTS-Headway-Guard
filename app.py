@@ -4335,6 +4335,14 @@ def _extract_block_from_position_name(value: Any) -> Tuple[Optional[str], str]:
     if value is None:
         return None, ""
     text = str(value)
+
+    # Handle OnDemand positions specially
+    text_lower = text.strip().lower()
+    if text_lower == "ondemand driver":
+        return "OnDemand Driver", "any"
+    if text_lower == "[eb]" or text_lower == "eb":
+        return "OnDemand EB", "any"
+
     match = W2W_POSITION_RE.search(text)
     if match:
         number = match.group(1)
@@ -4673,6 +4681,60 @@ def _find_current_driver(
     return None
 
 
+def _normalize_driver_name(name: str) -> str:
+    """
+    Normalize a driver name for matching purposes.
+    Converts to lowercase, removes extra whitespace, and standardizes format.
+    """
+    if not name:
+        return ""
+    # Convert to lowercase and normalize whitespace
+    normalized = " ".join(name.strip().lower().split())
+    return normalized
+
+
+def _match_driver_name_to_w2w(
+    driver_name: str,
+    block_assignments: Dict[str, List[Dict[str, Any]]],
+    now_ts: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Match a driver name from ondemand to a W2W assignment within the block.
+
+    Args:
+        driver_name: Driver name from ondemand vehicle (e.g., "John Doe")
+        block_assignments: Dictionary of period -> list of driver assignments for a block
+        now_ts: Current timestamp in milliseconds
+
+    Returns:
+        Matched driver assignment if found and currently active, None otherwise
+    """
+    if not driver_name:
+        return None
+
+    normalized_target = _normalize_driver_name(driver_name)
+    if not normalized_target:
+        return None
+
+    # Check all periods (am, pm, any) for active drivers
+    for period, drivers in block_assignments.items():
+        for driver in drivers:
+            start_ts = driver.get("start_ts", 0)
+            end_ts = driver.get("end_ts", 0)
+
+            # Only consider drivers who are currently active
+            if not (start_ts <= now_ts < end_ts):
+                continue
+
+            w2w_name = driver.get("name", "")
+            normalized_w2w = _normalize_driver_name(w2w_name)
+
+            if normalized_w2w == normalized_target:
+                return driver
+
+    return None
+
+
 async def _fetch_vehicle_drivers():
     """
     Build a mapping of vehicle_id -> {block, driver, shift_end, vehicle_name}.
@@ -4681,6 +4743,7 @@ async def _fetch_vehicle_drivers():
     1. TransLoc blocks (vehicle_id -> raw block like "[01]" or "[04]")
     2. W2W assignments (block number -> driver with time windows)
     3. Vehicle names from TransLoc vehicle data
+    4. OnDemand vehicles (vehicle_id -> driver name from ondemand API)
 
     Returns blocks the way WhenToWork does: individual blocks without interlining.
     Each vehicle is mapped to its current raw block assignment and the corresponding driver.
@@ -4713,7 +4776,7 @@ async def _fetch_vehicle_drivers():
                 if vname:
                     vehicle_names[str(vid)] = vname
 
-    # Build the vehicle -> driver mapping
+    # Build the vehicle -> driver mapping for fixed-route buses
     vehicle_drivers = {}
 
     for vehicle_id, block_name in blocks_mapping.items():
@@ -4747,6 +4810,72 @@ async def _fetch_vehicle_drivers():
                 "shift_end_label": None,
                 "vehicle_name": vehicle_name,
             }
+
+    # Fetch ondemand vehicles and match with W2W assignments
+    try:
+        ondemand_client = getattr(app.state, "ondemand_client", None)
+        if ondemand_client is not None:
+            ondemand_data = await _collect_ondemand_data(ondemand_client, now=now)
+            ondemand_vehicles = ondemand_data.get("vehicles", [])
+
+            for vehicle in ondemand_vehicles:
+                if not isinstance(vehicle, dict):
+                    continue
+
+                vehicle_id = vehicle.get("vehicleId")
+                if not vehicle_id:
+                    continue
+
+                vehicle_id_str = str(vehicle_id)
+                driver_name = vehicle.get("driverName", "")
+
+                # Get vehicle name if available
+                vehicle_name = vehicle.get("vehicleName") or vehicle.get("name")
+
+                # Try to match with OnDemand Driver assignments first
+                matched_driver = None
+                block_name = None
+
+                if "OnDemand Driver" in assignments_by_block:
+                    matched_driver = _match_driver_name_to_w2w(
+                        driver_name,
+                        assignments_by_block["OnDemand Driver"],
+                        now_ts
+                    )
+                    if matched_driver:
+                        block_name = "OnDemand Driver"
+
+                # If no match, try OnDemand EB assignments
+                if not matched_driver and "OnDemand EB" in assignments_by_block:
+                    matched_driver = _match_driver_name_to_w2w(
+                        driver_name,
+                        assignments_by_block["OnDemand EB"],
+                        now_ts
+                    )
+                    if matched_driver:
+                        block_name = "OnDemand EB"
+
+                # Add to vehicle_drivers mapping
+                if matched_driver and block_name:
+                    vehicle_drivers[vehicle_id_str] = {
+                        "block": block_name,
+                        "driver": matched_driver["name"],
+                        "shift_end": matched_driver["end_ts"],
+                        "shift_end_label": matched_driver["end_label"],
+                        "vehicle_name": vehicle_name,
+                    }
+                else:
+                    # Vehicle has a driver but no matching W2W assignment, or no driver at all
+                    # Use "OnDemand Driver" as default block
+                    vehicle_drivers[vehicle_id_str] = {
+                        "block": "OnDemand Driver",
+                        "driver": driver_name if driver_name else None,
+                        "shift_end": None,
+                        "shift_end_label": None,
+                        "vehicle_name": vehicle_name,
+                    }
+    except Exception as exc:
+        print(f"[vehicle_drivers] ondemand fetch failed: {exc}")
 
     return {
         "fetched_at": now_ts,
