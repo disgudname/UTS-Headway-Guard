@@ -6092,9 +6092,13 @@ async def testmap_transloc_vehicles(
         assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
         arrivals = await _get_transloc_arrivals(base_url)
 
-        # Get cached capacities from state
-        async with state.lock:
-            capacities = state.vehicle_capacities.copy()
+        # Fetch capacities using the provided base_url
+        async with httpx.AsyncClient() as client:
+            try:
+                capacities = await fetch_vehicle_capacities(client, base_url=base_url)
+            except Exception as e:
+                print(f"[testmap] capacity fetch error: {e}")
+                capacities = {}
 
         # Extract vehicle IDs for fetching stop estimates
         vehicle_ids = []
