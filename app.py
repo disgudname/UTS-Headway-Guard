@@ -784,6 +784,34 @@ async def fetch_vehicles(
     data = r.json()
     return data if isinstance(data, list) else data.get("d", [])
 
+async def fetch_vehicle_capacities(
+    client: httpx.AsyncClient,
+    base_url: Optional[str] = None,
+) -> Dict[int, Dict[str, Any]]:
+    """
+    Fetch vehicle capacities from TransLoc.
+    Returns a dict mapping vehicle_id -> {capacity, current_occupation, percentage}
+    """
+    url = build_transloc_url(base_url, f"GetVehicleCapacities?APIKey={TRANSLOC_KEY}")
+    r = await client.get(url, timeout=20)
+    record_api_call("GET", url, r.status_code)
+    r.raise_for_status()
+    data = r.json()
+    capacities_list = data if isinstance(data, list) else data.get("d", [])
+
+    # Convert list to dict keyed by VehicleID for fast lookup
+    capacities_dict: Dict[int, Dict[str, Any]] = {}
+    for item in capacities_list:
+        if isinstance(item, dict) and "VehicleID" in item:
+            vid = item.get("VehicleID")
+            if vid is not None:
+                capacities_dict[vid] = {
+                    "capacity": item.get("Capacity"),
+                    "current_occupation": item.get("CurrentOccupation"),
+                    "percentage": item.get("Percentage"),
+                }
+    return capacities_dict
+
 async def fetch_block_groups(
     client: httpx.AsyncClient,
     base_url: Optional[str] = None,
@@ -1570,6 +1598,8 @@ class State:
         self.bus_days: Dict[str, Dict[str, BusDay]] = {}
         self.vehicles_raw: List[Dict[str, Any]] = []
         self.stops: List[Dict[str, Any]] = []
+        # Vehicle capacities from GetVehicleCapacities API
+        self.vehicle_capacities: Dict[int, Dict[str, Any]] = {}
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -3346,6 +3376,12 @@ async def startup():
                         print(f"[updater] routes catalog fetch error: {e}")
                     vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
                     vehicle_name_lookup = _build_vehicle_name_lookup(vehicles_raw)
+                    # Fetch vehicle capacities
+                    try:
+                        vehicle_capacities = await fetch_vehicle_capacities(client)
+                    except Exception as e:
+                        vehicle_capacities = {}
+                        print(f"[updater] capacity fetch error: {e}")
                     try:
                         block_groups, block_meta = await fetch_block_groups(
                             client, include_metadata=True
@@ -3379,6 +3415,7 @@ async def startup():
                         state.routes_catalog_raw = routes_catalog
                         state.vehicles_raw = vehicles_raw
                         state.stops_raw = stops_raw
+                        state.vehicle_capacities = vehicle_capacities
                         try:
                             trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
                             if routes_catalog:
@@ -3952,6 +3989,10 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
     except Exception as e:
         raise HTTPException(502, f"transit feed error: {e}")
 
+    # Get cached capacities from state
+    async with state.lock:
+        capacities = state.vehicle_capacities.copy()
+
     items = []
     seen = set()
     for v in data or []:
@@ -3962,12 +4003,20 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
         age = v.get("Seconds")
         if not include_stale and (age is None or age > STALE_FIX_S):
             continue
-        items.append({
-            "id": v.get("VehicleID"),
+        vid = v.get("VehicleID")
+        item = {
+            "id": vid,
             "name": name,
             "route_id": v.get("RouteID"),
             "age_seconds": age,
-        })
+        }
+        # Add capacity data if available for this vehicle
+        if vid is not None and vid in capacities:
+            cap_data = capacities[vid]
+            item["capacity"] = cap_data.get("capacity")
+            item["current_occupation"] = cap_data.get("current_occupation")
+            item["percentage"] = cap_data.get("percentage")
+        items.append(item)
     items.sort(key=lambda x: str(x["name"]))
     return {"vehicles": items}
 
