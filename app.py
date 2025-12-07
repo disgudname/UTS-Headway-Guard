@@ -6092,14 +6092,19 @@ async def testmap_transloc_vehicles(
         assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
         arrivals = await _get_transloc_arrivals(base_url)
 
-        # Load routes to build route ID to name mapping
+        # Load routes to build route ID to name mapping (with InfoText in parentheses)
         routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
         route_id_to_name = {}
         for route in routes_raw:
             rid = route.get("RouteID") or route.get("RouteId")
             route_name = route.get("Description") or route.get("RouteName") or route.get("LongName") or route.get("ShortName")
             if rid is not None and route_name:
-                route_id_to_name[rid] = route_name
+                # Include InfoText in parentheses if it exists and is not empty
+                info_text = route.get("InfoText")
+                if info_text and isinstance(info_text, str) and info_text.strip():
+                    route_id_to_name[rid] = f"{route_name} ({info_text.strip()})"
+                else:
+                    route_id_to_name[rid] = route_name
 
         # Fetch capacities using the provided base_url
         async with httpx.AsyncClient() as client:
