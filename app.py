@@ -4752,7 +4752,7 @@ def _find_ondemand_driver_by_name(
 
 async def _fetch_vehicle_drivers():
     """
-    Build a mapping of vehicle_id -> {block, driver, shift_end, vehicle_name}.
+    Build a mapping of vehicle_id -> {block, driver, shift_start, shift_start_label, shift_end, shift_end_label, vehicle_name}.
 
     This joins:
     1. TransLoc blocks (vehicle_id -> raw block like "[01]" or "[04]")
@@ -4818,6 +4818,8 @@ async def _fetch_vehicle_drivers():
             vehicle_drivers[vehicle_id] = {
                 "block": block_name,
                 "driver": current_driver["name"],
+                "shift_start": current_driver["start_ts"],
+                "shift_start_label": current_driver["start_label"],
                 "shift_end": current_driver["end_ts"],
                 "shift_end_label": current_driver["end_label"],
                 "vehicle_name": vehicle_name,
@@ -4827,6 +4829,8 @@ async def _fetch_vehicle_drivers():
             vehicle_drivers[vehicle_id] = {
                 "block": block_name,
                 "driver": None,
+                "shift_start": None,
+                "shift_start_label": None,
                 "shift_end": None,
                 "shift_end_label": None,
                 "vehicle_name": vehicle_name,
@@ -4877,6 +4881,8 @@ async def _fetch_vehicle_drivers():
                     vehicle_drivers[vehicle_id_str] = {
                         "block": matched_driver["block"],
                         "driver": matched_driver["name"],
+                        "shift_start": matched_driver["start_ts"],
+                        "shift_start_label": matched_driver["start_label"],
                         "shift_end": matched_driver["end_ts"],
                         "shift_end_label": matched_driver["end_label"],
                         "vehicle_name": vehicle_name,
@@ -4912,6 +4918,8 @@ async def dispatch_vehicle_drivers(request: Request):
                 "123": {
                     "block": "[01]",
                     "driver": "John Doe",
+                    "shift_start": <timestamp_ms>,
+                    "shift_start_label": "6a",
                     "shift_end": <timestamp_ms>,
                     "shift_end_label": "8a",
                     "vehicle_name": "Bus 123"
@@ -4919,6 +4927,8 @@ async def dispatch_vehicle_drivers(request: Request):
                 "456": {
                     "block": "[05]",
                     "driver": null,  // No driver currently assigned
+                    "shift_start": null,
+                    "shift_start_label": null,
                     "shift_end": null,
                     "shift_end_label": null,
                     "vehicle_name": "Bus 456"
@@ -4926,6 +4936,8 @@ async def dispatch_vehicle_drivers(request: Request):
                 "789": {
                     "block": "OnDemand Driver",
                     "driver": "Jane Smith",
+                    "shift_start": <timestamp_ms>,
+                    "shift_start_label": "8a",
                     "shift_end": <timestamp_ms>,
                     "shift_end_label": "5p",
                     "vehicle_name": "OnDemand 1"
