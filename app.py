@@ -5217,9 +5217,6 @@ def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
         "RouteID": rid,
         "Description": raw.get("Description"),
         "InfoText": raw.get("InfoText"),
-        "RouteName": raw.get("RouteName"),
-        "LongName": raw.get("LongName"),
-        "ShortName": raw.get("ShortName"),
         "MapLineColor": _normalize_hex_color(color),
         "EncodedPolyline": raw.get("EncodedPolyline") or raw.get("Polyline"),
         "IsVisibleOnMap": raw.get("IsVisibleOnMap"),
@@ -5238,8 +5235,6 @@ def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "RouteStopID": route_stop_id,
                 "RouteStopId": route_stop_id,
-                "StopID": stop_id,
-                "StopId": stop_id,
                 "StopName": name,
                 "Name": name,
                 "Description": stop.get("Description") or name,
@@ -5376,8 +5371,6 @@ def _normalize_transloc_stop(stop: Dict[str, Any], *, route_membership: Mapping[
     normalized = {
         "RouteStopID": stop.get("RouteStopID") or stop.get("RouteStopId"),
         "RouteStopId": stop.get("RouteStopID") or stop.get("RouteStopId"),
-        "StopID": stop_id,
-        "StopId": stop_id,
         "StopName": name,
         "Name": name,
         "Description": stop.get("Description") or name,
