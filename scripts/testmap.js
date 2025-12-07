@@ -14153,7 +14153,6 @@ ${trainPlaneMarkup}
           }
 
           // Capacity section with progress bar
-          const state = busMarkerStates[vehicleID];
           if (state && state.capacity !== undefined && state.current_occupation !== undefined) {
               const capacity = state.capacity;
               const current = state.current_occupation;
