@@ -4712,15 +4712,18 @@ async def _fetch_vehicle_drivers():
 
         # Try to find a driver for any of the component blocks
         current_driver = None
+        active_block = None
         for block_number in block_numbers:
             driver = _find_current_driver(block_number, assignments_by_block, now_ts)
             if driver:
                 current_driver = driver
+                active_block = block_number
                 break  # Found a driver, use this one
 
-        if current_driver:
+        if current_driver and active_block:
+            # Return individual block (WhenToWork style) not interlined block
             vehicle_drivers[vehicle_id] = {
-                "block": block_name,
+                "block": f"[{active_block}]",
                 "driver": current_driver["name"],
                 "shift_end": current_driver["end_ts"],
                 "shift_end_label": current_driver["end_label"],
@@ -4728,7 +4731,7 @@ async def _fetch_vehicle_drivers():
         else:
             # Vehicle has a block but no current driver assigned
             vehicle_drivers[vehicle_id] = {
-                "block": block_name,
+                "block": None,
                 "driver": None,
                 "shift_end": None,
                 "shift_end_label": None,
@@ -4750,21 +4753,22 @@ async def dispatch_vehicle_drivers(request: Request):
     WhenToWork tracks individual blocks (e.g., "01" and "04" separately).
 
     For interlined blocks, the endpoint checks all component blocks and returns the
-    driver who is currently active based on time windows.
+    individual block number for the driver who is currently active, matching
+    WhenToWork's format (e.g., "[01]" not "[01]/[04]").
 
     Returns:
         {
             "fetched_at": <timestamp_ms>,
             "vehicle_drivers": {
                 "123": {
-                    "block": "[01]/[04]",
+                    "block": "[01]",         // Individual block, not interlined
                     "driver": "John Doe",
                     "shift_end": <timestamp_ms>,
                     "shift_end_label": "8a"
                 },
                 "456": {
-                    "block": "[05]",
-                    "driver": null,  // No driver currently assigned
+                    "block": null,           // No current driver assigned
+                    "driver": null,
                     "shift_end": null,
                     "shift_end_label": null
                 }

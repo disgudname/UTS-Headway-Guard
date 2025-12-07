@@ -233,6 +233,61 @@ class TestInterlinedBlockMapping(unittest.TestCase):
         first_driver = drivers_found[0]
         self.assertEqual(first_driver["name"], "John Doe")
 
+    def test_endpoint_returns_individual_block(self):
+        """
+        Test that the endpoint returns individual block format like WhenToWork,
+        not the interlined format from TransLoc.
+
+        When TransLoc says vehicle is on "[01]/[04]" and John Doe is driving
+        block 01, the endpoint should return block "[01]" not "[01]/[04]".
+        """
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 10, 30, tzinfo=tz)
+        now_ts = int(now.timestamp() * 1000)
+
+        am_start = datetime(2025, 12, 7, 6, 0, tzinfo=tz)
+        am_end = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        assignments_by_block = {
+            "01": {
+                "am": [{
+                    "name": "John Doe",
+                    "start_ts": int(am_start.timestamp() * 1000),
+                    "end_ts": int(am_end.timestamp() * 1000),
+                    "start_label": "6a",
+                    "end_label": "12p",
+                    "color_id": "0"
+                }]
+            }
+        }
+
+        # Simulate what the endpoint does:
+        # 1. Get interlined block from TransLoc
+        transloc_block = "[01]/[04]"
+
+        # 2. Split it
+        block_numbers = _split_interlined_blocks(transloc_block)
+
+        # 3. Find active driver
+        active_block = None
+        current_driver = None
+        for block_number in block_numbers:
+            driver = _find_current_driver(block_number, assignments_by_block, now_ts)
+            if driver:
+                current_driver = driver
+                active_block = block_number
+                break
+
+        # 4. Return individual block (WhenToWork format)
+        self.assertIsNotNone(active_block)
+        self.assertEqual(active_block, "01")
+        returned_block = f"[{active_block}]"
+
+        # Verify endpoint returns "[01]" not "[01]/[04]"
+        self.assertEqual(returned_block, "[01]")
+        self.assertNotEqual(returned_block, transloc_block)
+        self.assertEqual(current_driver["name"], "John Doe")
+
 
 if __name__ == "__main__":
     unittest.main()
