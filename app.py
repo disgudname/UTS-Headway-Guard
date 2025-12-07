@@ -6060,12 +6060,13 @@ def _assemble_transloc_vehicles(
         # Add capacity data if available for this vehicle
         if capacities and vid in capacities:
             cap_data = capacities[vid]
-            if cap_data.get("capacity") is not None:
+            # Only include capacity data if capacity is not None and not 0
+            if cap_data.get("capacity") is not None and cap_data.get("capacity") != 0:
                 vehicle_data["capacity"] = cap_data["capacity"]
-            if cap_data.get("current_occupation") is not None:
-                vehicle_data["current_occupation"] = cap_data["current_occupation"]
-            if cap_data.get("percentage") is not None:
-                vehicle_data["percentage"] = cap_data["percentage"]
+                if cap_data.get("current_occupation") is not None:
+                    vehicle_data["current_occupation"] = cap_data["current_occupation"]
+                if cap_data.get("percentage") is not None:
+                    vehicle_data["percentage"] = cap_data["percentage"]
         # Add stop estimates if available for this vehicle
         if stop_estimates and vid in stop_estimates:
             vehicle_data["Estimates"] = stop_estimates[vid]
