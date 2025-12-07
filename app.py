@@ -6104,7 +6104,7 @@ async def testmap_transloc_vehicles(
         route_id_to_name = {}
         for route in routes_raw:
             rid = route.get("RouteID") or route.get("RouteId")
-            route_name = route.get("RouteName") or route.get("LongName") or route.get("ShortName")
+            route_name = route.get("Description") or route.get("RouteName") or route.get("LongName") or route.get("ShortName")
             if rid is not None and route_name:
                 route_id_to_name[rid] = route_name
 
