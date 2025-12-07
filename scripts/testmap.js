@@ -13821,17 +13821,8 @@ ${trainPlaneMarkup}
               updateRouteSelector(activeRoutesSet);
               updateKioskStatusMessage({ known: true, hasActiveVehicles: activeRoutesSet.size > 0 });
 
-              // Fetch popup data for buses
-              const vehicleIds = vehicles.map(v => v.vehicleID).filter(id => id !== undefined && id !== null);
-              try {
-                  await Promise.all([
-                      fetchVehicleDrivers(),
-                      fetchBusCapacities(),
-                      fetchNextStops(vehicleIds)
-                  ]);
-              } catch (error) {
-                  console.warn('Failed to fetch some popup data:', error);
-              }
+              // Note: Popup data (driver, capacity, ETAs) is now fetched on-demand when user clicks a bus marker
+              // This eliminates unnecessary polling and reduces API load
 
               const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
 
@@ -14073,7 +14064,7 @@ ${trainPlaneMarkup}
 
       async function fetchVehicleDrivers() {
           try {
-              const response = await fetch('/v1/dispatch/vehicle-drivers');
+              const response = await fetch('/v1/vehicle_drivers');
               if (!response.ok) {
                   console.warn('Failed to fetch vehicle drivers:', response.status);
                   return {};
@@ -14089,8 +14080,7 @@ ${trainPlaneMarkup}
 
       async function fetchBusCapacities() {
           try {
-              const url = `https://uva.transloc.com/Services/JSONPRelay.svc/GetVehicleCapacities`;
-              const response = await fetch(url);
+              const response = await fetch('/v1/transloc/vehicle_capacities');
               if (!response.ok) {
                   console.warn('Failed to fetch bus capacities:', response.status);
                   return [];
@@ -14117,7 +14107,7 @@ ${trainPlaneMarkup}
           }
           try {
               const vehicleIdStrings = vehicleIds.join(',');
-              const url = `https://uva.transloc.com/Services/JSONPRelay.svc/GetVehicleRouteStopEstimates?quantity=3&vehicleIdStrings=${vehicleIdStrings}`;
+              const url = `/v1/transloc/vehicle_route_stop_estimates?vehicleIdStrings=${encodeURIComponent(vehicleIdStrings)}&quantity=3`;
               const response = await fetch(url);
               if (!response.ok) {
                   console.warn('Failed to fetch next stops:', response.status);
@@ -17708,8 +17698,12 @@ ${trainPlaneMarkup}
           if (svg) {
               svg.style.pointerEvents = 'none';
           }
+
           const driverPopupHtml = state.driverPopupContent;
-          if (!driverPopupHtml) {
+          const isOnDemandVehicle = isOnDemandVehicleId(vehicleID);
+
+          // For ondemand vehicles, only show popup if there's driver content
+          if (isOnDemandVehicle && !driverPopupHtml) {
               if (hadOpenPopup && typeof marker.closePopup === 'function') {
                   marker.closePopup();
               }
@@ -17720,6 +17714,7 @@ ${trainPlaneMarkup}
               return;
           }
 
+          // Make marker interactive
           if (marker.options) {
               marker.options.interactive = true;
               marker.options.keyboard = true;
@@ -17744,6 +17739,7 @@ ${trainPlaneMarkup}
           if (svg) {
               svg.style.pointerEvents = 'auto';
           }
+
           const popupOptions = {
               className: 'ondemand-driver-popup',
               closeButton: false,
@@ -17752,19 +17748,55 @@ ${trainPlaneMarkup}
               offset: [0, -20],
           };
 
-          if (existingPopup && typeof marker.unbindPopup === 'function') {
-              marker.unbindPopup();
+          // For ondemand vehicles with driver popup, use the driver popup HTML
+          if (isOnDemandVehicle && driverPopupHtml) {
+              if (existingPopup && typeof marker.unbindPopup === 'function') {
+                  marker.unbindPopup();
+              }
+              if (typeof marker.bindPopup === 'function') {
+                  marker.bindPopup(driverPopupHtml, popupOptions);
+              }
+              if (hadOpenPopup && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
+                  syncMarkerPopupPosition(marker);
+              } else if (hadOpenPopup && typeof marker.openPopup === 'function') {
+                  marker.openPopup();
+                  syncMarkerPopupPosition(marker);
+              }
+              state.markerEventsBound = true;
+              return;
           }
-          if (typeof marker.bindPopup === 'function') {
-              marker.bindPopup(driverPopupHtml, popupOptions);
+
+          // For regular bus markers, add click handler to fetch and show popup
+          if (!isOnDemandVehicle) {
+              const handleBusMarkerClick = async () => {
+                  try {
+                      // Fetch popup data on-demand
+                      await Promise.all([
+                          fetchVehicleDrivers(),
+                          fetchBusCapacities(),
+                          fetchNextStops([vehicleID])
+                      ]);
+
+                      // Build popup content
+                      const busName = state.busName || `Vehicle ${vehicleID}`;
+                      const popupHtml = buildBusPopupContent(vehicleID, busName);
+
+                      if (popupHtml && typeof marker.bindPopup === 'function') {
+                          marker.unbindPopup();
+                          marker.bindPopup(popupHtml, popupOptions);
+                          if (typeof marker.openPopup === 'function') {
+                              marker.openPopup();
+                              syncMarkerPopupPosition(marker);
+                          }
+                      }
+                  } catch (error) {
+                      console.error('Error fetching bus popup data:', error);
+                  }
+              };
+
+              marker.on('click', handleBusMarkerClick);
+              state.markerEventsBound = true;
           }
-          if (hadOpenPopup && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
-              syncMarkerPopupPosition(marker);
-          } else if (hadOpenPopup && typeof marker.openPopup === 'function') {
-              marker.openPopup();
-              syncMarkerPopupPosition(marker);
-          }
-          state.markerEventsBound = true;
       }
 
       async function updateBusMarkerSizes(metricsOverride = null) {
