@@ -859,28 +859,37 @@ class HeadwayTracker:
         tolerance_deg: float,
         radius_m: float,
     ) -> Tuple[bool, dict]:
-        # Calculate distance first to handle edge case of vehicle at stop
+        # Calculate distance first
         dist = self._haversine(lat, lon, stop_lat, stop_lon)
 
         position_bearing = self._bearing_degrees(stop_lat, stop_lon, lat, lon)
         if not math.isfinite(position_bearing):
             return False, {}
 
-        # Skip bearing check if vehicle is very close to stop (bearing becomes unstable)
+        # For very close distances (< 5m), still check angular difference but use more lenient tolerance
+        # This handles bearing instability while preventing wrong-stop matches (critical for cross-street stops)
         if dist < BEARING_CHECK_MIN_DISTANCE_M:
-            # Just check if within radius
+            # Use 2x tolerance when very close to handle bearing calculation instability
+            # But still enforce directionality to prevent cross-street mismatches
+            lenient_tolerance = min(tolerance_deg * 2.0, 90.0)  # Cap at 90° to maintain directionality
+            angular_diff = abs((position_bearing - bearing_deg + 540.0) % 360.0 - 180.0)
             entry_center = self._destination_point(stop_lat, stop_lon, bearing_deg, radius_m)
             apex = self._destination_point(stop_lat, stop_lon, (bearing_deg + 180.0) % 360.0, radius_m)
-            return dist <= radius_m, {
-                "cone_entry_lat": entry_center[0],
-                "cone_entry_lon": entry_center[1],
-                "cone_entry_left_lat": entry_center[0],
-                "cone_entry_left_lon": entry_center[1],
-                "cone_entry_right_lat": entry_center[0],
-                "cone_entry_right_lon": entry_center[1],
-                "cone_apex_lat": apex[0],
-                "cone_apex_lon": apex[1],
-            }
+
+            # Check both distance and lenient bearing
+            if dist <= radius_m and angular_diff <= lenient_tolerance:
+                return True, {
+                    "cone_entry_lat": entry_center[0],
+                    "cone_entry_lon": entry_center[1],
+                    "cone_entry_left_lat": entry_center[0],
+                    "cone_entry_left_lon": entry_center[1],
+                    "cone_entry_right_lat": entry_center[0],
+                    "cone_entry_right_lon": entry_center[1],
+                    "cone_apex_lat": apex[0],
+                    "cone_apex_lon": apex[1],
+                }
+            else:
+                return False, {}
 
         angular_diff = abs((position_bearing - bearing_deg + 540.0) % 360.0 - 180.0)
         if angular_diff > tolerance_deg:
@@ -1079,7 +1088,12 @@ class HeadwayTracker:
                     position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
                     heading_ok = False
                     if heading_deg is not None and math.isfinite(heading_deg):
-                        heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
+                        # Use more lenient tolerance for heading when very close (< 5m) to handle instability
+                        # But still enforce directionality to prevent cross-street mismatches
+                        heading_tolerance = approach_tolerance
+                        if dist < BEARING_CHECK_MIN_DISTANCE_M:
+                            heading_tolerance = min(approach_tolerance * 2.0, 90.0)
+                        heading_ok = _is_within_bearing(heading_deg, target_heading, heading_tolerance)
                     if not heading_ok or not position_ok:
                         continue
                 if best is None or dist < best[2]:
