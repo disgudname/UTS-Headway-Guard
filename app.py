@@ -4678,12 +4678,11 @@ async def _fetch_vehicle_drivers():
     Build a mapping of vehicle_id -> {block, driver, shift_end}.
 
     This joins:
-    1. TransLoc blocks (vehicle_id -> interlined block like "[01]/[04]")
+    1. TransLoc blocks (vehicle_id -> raw block like "[01]" or "[04]")
     2. W2W assignments (block number -> driver with time windows)
 
-    Handles the fact that TransLoc blocks are interlined while W2W blocks are individual.
-    For an interlined block like "[01]/[04]", we check both "01" and "04" in W2W and
-    return whichever driver is currently active.
+    Returns blocks the way WhenToWork does: individual blocks without interlining.
+    Each vehicle is mapped to its current raw block assignment and the corresponding driver.
     """
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
@@ -4691,7 +4690,7 @@ async def _fetch_vehicle_drivers():
 
     # Fetch both data sources
     try:
-        blocks_mapping = await _get_transloc_blocks()
+        blocks_mapping = await _get_transloc_blocks_raw()
     except Exception as exc:
         print(f"[vehicle_drivers] blocks fetch failed: {exc}")
         blocks_mapping = {}
@@ -4707,16 +4706,15 @@ async def _fetch_vehicle_drivers():
     vehicle_drivers = {}
 
     for vehicle_id, block_name in blocks_mapping.items():
-        # Split interlined blocks (e.g., "[01]/[04]" -> ["01", "04"])
+        # Extract block number from raw block name (e.g., "[01]" -> "01")
         block_numbers = _split_interlined_blocks(block_name)
 
-        # Try to find a driver for any of the component blocks
+        # Since we're using raw blocks, there should only be one block number
+        # But we'll use the splitting logic to handle the extraction safely
         current_driver = None
-        for block_number in block_numbers:
-            driver = _find_current_driver(block_number, assignments_by_block, now_ts)
-            if driver:
-                current_driver = driver
-                break  # Found a driver, use this one
+        if block_numbers:
+            block_number = block_numbers[0]
+            current_driver = _find_current_driver(block_number, assignments_by_block, now_ts)
 
         if current_driver:
             vehicle_drivers[vehicle_id] = {
@@ -4745,19 +4743,16 @@ async def dispatch_vehicle_drivers(request: Request):
     """
     Get the mapping of vehicle IDs to their current block assignments and drivers.
 
-    This endpoint joins TransLoc block assignments with WhenToWork driver assignments,
-    handling the fact that TransLoc uses interlined blocks (e.g., "[01]/[04]") while
-    WhenToWork tracks individual blocks (e.g., "01" and "04" separately).
-
-    For interlined blocks, the endpoint checks all component blocks and returns the
-    driver who is currently active based on time windows.
+    This endpoint joins TransLoc block assignments with WhenToWork driver assignments.
+    Blocks are returned as individual raw blocks (e.g., "[01]", "[04]") matching the way
+    WhenToWork tracks them, NOT as interlined blocks (e.g., "[01]/[04]").
 
     Returns:
         {
             "fetched_at": <timestamp_ms>,
             "vehicle_drivers": {
                 "123": {
-                    "block": "[01]/[04]",
+                    "block": "[01]",
                     "driver": "John Doe",
                     "shift_end": <timestamp_ms>,
                     "shift_end_label": "8a"
@@ -5344,10 +5339,43 @@ def _build_block_mapping(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
     return mapping
 
 
+def _build_block_mapping_raw(block_groups: List[Dict[str, Any]]) -> Dict[str, str]:
+    """
+    Build a vehicle-to-block mapping using raw block IDs without interlining.
+
+    This version does not apply the alias dictionary that combines blocks like
+    "[01]" and "[04]" into "[01]/[04]". Instead, it returns the raw BlockGroupId
+    as provided by TransLoc, matching how WhenToWork tracks individual blocks.
+    """
+    mapping: Dict[str, str] = {}
+    for group in block_groups or []:
+        raw_block = str(group.get("BlockGroupId") or "").strip()
+        if not raw_block:
+            continue
+        # Use raw_block directly without aliasing
+        vehicle_ids: List[Any] = []
+        vehicle_ids.append(group.get("VehicleId") or group.get("VehicleID"))
+        for block in group.get("Blocks") or []:
+            for trip in block.get("Trips") or []:
+                vehicle_ids.append(trip.get("VehicleID") or trip.get("VehicleId"))
+        for vid in vehicle_ids:
+            if vid is None:
+                continue
+            mapping[str(vid)] = raw_block
+    return mapping
+
+
 async def _fetch_transloc_blocks_for_base(base_url: Optional[str]) -> Dict[str, str]:
     async with httpx.AsyncClient() as client:
         block_groups = await fetch_block_groups(client, base_url=base_url)
     return _build_block_mapping(block_groups)
+
+
+async def _fetch_transloc_blocks_raw_for_base(base_url: Optional[str]) -> Dict[str, str]:
+    """Fetch TransLoc blocks without interlining, matching WhenToWork's block structure."""
+    async with httpx.AsyncClient() as client:
+        block_groups = await fetch_block_groups(client, base_url=base_url)
+    return _build_block_mapping_raw(block_groups)
 
 
 async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]:
@@ -5358,6 +5386,17 @@ async def _get_transloc_blocks(base_url: Optional[str] = None) -> Dict[str, str]
         return await transloc_blocks_cache.get(fetch)
 
     return await _fetch_transloc_blocks_for_base(base_url)
+
+
+async def _get_transloc_blocks_raw(base_url: Optional[str] = None) -> Dict[str, str]:
+    """Get TransLoc blocks without interlining, matching WhenToWork's block structure."""
+    if is_default_transloc_base(base_url):
+        async def fetch():
+            return await _fetch_transloc_blocks_raw_for_base(DEFAULT_TRANSLOC_BASE)
+
+        return await transloc_blocks_cache.get(fetch)
+
+    return await _fetch_transloc_blocks_raw_for_base(base_url)
 
 
 def _describe_transloc_source(base_url: Optional[str]) -> str:
