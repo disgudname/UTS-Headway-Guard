@@ -3996,11 +3996,38 @@ async def vehicle_headings():
 @app.get("/v1/vehicle_drivers")
 async def public_vehicle_drivers():
     """
-    Public endpoint for vehicle-to-driver mappings.
-    Returns the same data as /v1/dispatch/vehicle-drivers but without authentication.
+    Public endpoint for vehicle ID to vehicle name mappings.
+    Returns ONLY vehicle names, stripping out sensitive information (driver names,
+    block assignments, shift times) that should not be publicly accessible.
+
+    Returns:
+        {
+            "fetched_at": <timestamp_ms>,
+            "vehicle_drivers": {
+                "123": {
+                    "vehicle_name": "Bus 123"
+                },
+                "456": {
+                    "vehicle_name": "Bus 456"
+                }
+            }
+        }
     """
     try:
-        return await _fetch_vehicle_drivers()
+        full_data = await _fetch_vehicle_drivers()
+
+        # Strip out sensitive fields, only keep vehicle_name
+        filtered_vehicle_drivers = {}
+        for vehicle_id, info in full_data.get("vehicle_drivers", {}).items():
+            if isinstance(info, dict) and "vehicle_name" in info:
+                filtered_vehicle_drivers[vehicle_id] = {
+                    "vehicle_name": info["vehicle_name"]
+                }
+
+        return {
+            "fetched_at": full_data.get("fetched_at"),
+            "vehicle_drivers": filtered_vehicle_drivers
+        }
     except Exception as exc:
         print(f"[vehicle_drivers] fetch failed: {exc}")
         detail = {
