@@ -4606,6 +4606,185 @@ async def dispatch_blocks(request: Request):
         return res
 
 
+def _split_interlined_blocks(block_name: str) -> List[str]:
+    """
+    Split interlined block names from TransLoc into individual block numbers.
+
+    TransLoc uses interlined blocks like "[01]/[04]" while WhenToWork tracks
+    individual blocks "01" and "04" separately.
+
+    Examples:
+        "[01]/[04]" -> ["01", "04"]
+        "[20]/[10]" -> ["20", "10"]
+        "[01]" -> ["01"]
+        "[16] AM" -> ["16"]
+    """
+    if not block_name:
+        return []
+
+    # Split on "/" to handle interlined blocks
+    parts = block_name.split("/")
+    result = []
+
+    for part in parts:
+        # Extract just the number, removing brackets and AM/PM
+        # Match pattern like "[01]" or "[16] AM"
+        match = re.search(r'\[(\d{1,2})\]', part)
+        if match:
+            number = match.group(1)
+            # Zero-pad to 2 digits to match W2W format
+            normalized = str(int(number)).zfill(2)
+            result.append(normalized)
+
+    return result
+
+
+def _find_current_driver(
+    block_number: str,
+    assignments_by_block: Dict[str, Dict[str, List[Dict[str, Any]]]],
+    now_ts: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Find the driver currently assigned to a block based on time windows.
+
+    Args:
+        block_number: Zero-padded block number like "01" or "20"
+        assignments_by_block: W2W assignments structure from _build_driver_assignments
+        now_ts: Current timestamp in milliseconds
+
+    Returns:
+        Driver assignment dict with name, shift_end, etc., or None if no active driver
+    """
+    if block_number not in assignments_by_block:
+        return None
+
+    periods_dict = assignments_by_block[block_number]
+
+    # Check all periods (am, pm, any)
+    for period, drivers in periods_dict.items():
+        for driver in drivers:
+            start_ts = driver.get("start_ts", 0)
+            end_ts = driver.get("end_ts", 0)
+
+            # Check if current time is within this driver's shift
+            if start_ts <= now_ts < end_ts:
+                return driver
+
+    return None
+
+
+async def _fetch_vehicle_drivers():
+    """
+    Build a mapping of vehicle_id -> {block, driver, shift_end}.
+
+    This joins:
+    1. TransLoc blocks (vehicle_id -> interlined block like "[01]/[04]")
+    2. W2W assignments (block number -> driver with time windows)
+
+    Handles the fact that TransLoc blocks are interlined while W2W blocks are individual.
+    For an interlined block like "[01]/[04]", we check both "01" and "04" in W2W and
+    return whichever driver is currently active.
+    """
+    tz = ZoneInfo("America/New_York")
+    now = datetime.now(tz)
+    now_ts = int(now.timestamp() * 1000)
+
+    # Fetch both data sources
+    try:
+        blocks_mapping = await _get_transloc_blocks()
+    except Exception as exc:
+        print(f"[vehicle_drivers] blocks fetch failed: {exc}")
+        blocks_mapping = {}
+
+    try:
+        w2w_data = await w2w_assignments_cache.get(_fetch_w2w_assignments)
+        assignments_by_block = w2w_data.get("assignments_by_block", {})
+    except Exception as exc:
+        print(f"[vehicle_drivers] w2w fetch failed: {exc}")
+        assignments_by_block = {}
+
+    # Build the vehicle -> driver mapping
+    vehicle_drivers = {}
+
+    for vehicle_id, block_name in blocks_mapping.items():
+        # Split interlined blocks (e.g., "[01]/[04]" -> ["01", "04"])
+        block_numbers = _split_interlined_blocks(block_name)
+
+        # Try to find a driver for any of the component blocks
+        current_driver = None
+        for block_number in block_numbers:
+            driver = _find_current_driver(block_number, assignments_by_block, now_ts)
+            if driver:
+                current_driver = driver
+                break  # Found a driver, use this one
+
+        if current_driver:
+            vehicle_drivers[vehicle_id] = {
+                "block": block_name,
+                "driver": current_driver["name"],
+                "shift_end": current_driver["end_ts"],
+                "shift_end_label": current_driver["end_label"],
+            }
+        else:
+            # Vehicle has a block but no current driver assigned
+            vehicle_drivers[vehicle_id] = {
+                "block": block_name,
+                "driver": None,
+                "shift_end": None,
+                "shift_end_label": None,
+            }
+
+    return {
+        "fetched_at": now_ts,
+        "vehicle_drivers": vehicle_drivers,
+    }
+
+
+@app.get("/v1/dispatch/vehicle-drivers")
+async def dispatch_vehicle_drivers(request: Request):
+    """
+    Get the mapping of vehicle IDs to their current block assignments and drivers.
+
+    This endpoint joins TransLoc block assignments with WhenToWork driver assignments,
+    handling the fact that TransLoc uses interlined blocks (e.g., "[01]/[04]") while
+    WhenToWork tracks individual blocks (e.g., "01" and "04" separately).
+
+    For interlined blocks, the endpoint checks all component blocks and returns the
+    driver who is currently active based on time windows.
+
+    Returns:
+        {
+            "fetched_at": <timestamp_ms>,
+            "vehicle_drivers": {
+                "123": {
+                    "block": "[01]/[04]",
+                    "driver": "John Doe",
+                    "shift_end": <timestamp_ms>,
+                    "shift_end_label": "8a"
+                },
+                "456": {
+                    "block": "[05]",
+                    "driver": null,  // No driver currently assigned
+                    "shift_end": null,
+                    "shift_end_label": null
+                }
+            }
+        }
+    """
+    _require_dispatcher_access(request)
+    try:
+        return await _fetch_vehicle_drivers()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[vehicle_drivers] fetch failed: {exc}")
+        detail = {
+            "message": "vehicle-driver mapping unavailable",
+            "reason": str(exc),
+        }
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+
 @app.get("/v1/dispatcher/downed_buses")
 async def dispatcher_downed_buses(request: Request):
     _require_dispatcher_access(request)
