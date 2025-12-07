@@ -1,0 +1,302 @@
+[
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 1
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 2
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 3
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 4
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 5
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 6
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 7
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 8
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 9
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 10
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 11
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 12
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 13
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 14
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 15
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 2,
+        "Percentage": 0.0400,
+        "VehicleID": 16
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 17
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 18
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 19
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 20
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 2,
+        "Percentage": 0.0400,
+        "VehicleID": 21
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 22
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 23
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 24
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 7,
+        "Percentage": 0.1400,
+        "VehicleID": 25
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 26
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 27
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 3,
+        "Percentage": 0.0600,
+        "VehicleID": 28
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 29
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 7,
+        "Percentage": 0.1400,
+        "VehicleID": 30
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 31
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 32
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 33
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 2,
+        "Percentage": 0.0400,
+        "VehicleID": 34
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 35
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 36
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 38
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 39
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 42
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 43
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 44
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 45
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 48
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 1,
+        "Percentage": 0.0200,
+        "VehicleID": 49
+    },
+    {
+        "Capacity": 50,
+        "CurrentOccupation": 2,
+        "Percentage": 0.0400,
+        "VehicleID": 50
+    },
+    {
+        "Capacity": 18,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 55
+    },
+    {
+        "Capacity": 18,
+        "CurrentOccupation": 2,
+        "Percentage": 0.1111,
+        "VehicleID": 56
+    },
+    {
+        "Capacity": 18,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 57
+    },
+    {
+        "Capacity": 18,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 58
+    },
+    {
+        "Capacity": 18,
+        "CurrentOccupation": 0,
+        "Percentage": 0.0000,
+        "VehicleID": 59
+    }
+]
