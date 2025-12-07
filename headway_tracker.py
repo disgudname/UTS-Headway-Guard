@@ -21,6 +21,10 @@ STOP_SPEED_THRESHOLD_MPS = 0.5
 MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 2.0
 MOVEMENT_CONFIRMATION_MIN_DURATION_S = 20.0
 QUICK_DEPARTURE_MIN_DURATION_S = 5.0
+STOP_ASSOCIATION_HYSTERESIS_M = 15.0  # Extra distance needed to disassociate from a stop
+SPEED_HISTORY_SIZE = 3  # Number of speed samples to track for noise filtering
+SUSTAINED_STOP_MIN_DURATION_S = 3.0  # Minimum duration to confirm a stop
+BEARING_CHECK_MIN_DISTANCE_M = 5.0  # Skip bearing checks when closer than this
 
 
 @dataclass
@@ -40,6 +44,11 @@ class VehiclePresence:
     arrival_time: Optional[datetime] = None
     route_id: Optional[str] = None
     departure_started_at: Optional[datetime] = None
+    speed_history: List[float] = None  # Recent speed samples for noise filtering
+
+    def __post_init__(self):
+        if self.speed_history is None:
+            self.speed_history = []
 
 
 @dataclass
@@ -52,6 +61,7 @@ class ApproachState:
     best_stop_time: Optional[datetime] = None
     best_stop_distance: Optional[float] = None
     last_seen: Optional[datetime] = None
+    best_stop_start: Optional[datetime] = None  # When the sustained stop started
 
 
 @dataclass
@@ -204,18 +214,23 @@ class HeadwayTracker:
 
             delta_seconds = None
             speed_mps = None
+            raw_speed_mps = None
             if prev_snap:
                 delta_seconds = (timestamp - prev_snap.timestamp).total_seconds()
                 if delta_seconds > 0:
                     movement_distance = self._haversine(prev_snap.lat, prev_snap.lon, snap.lat, snap.lon)
-                    speed_mps = movement_distance / delta_seconds
+                    raw_speed_mps = movement_distance / delta_seconds
+                    # Apply GPS noise filtering using median of recent speeds
+                    speed_mps = self._calculate_filtered_speed(prev_state.speed_history, raw_speed_mps)
 
             pending_arrival = self._track_approach_progress(vid, snap, current_stop, route_id_norm)
 
-            # Departure detection
+            # Departure detection with hysteresis
+            # Use larger threshold for disassociation to prevent flapping at boundary
             has_left_prev_stop = True
             if prev_stop is not None and distance_from_prev_stop is not None:
-                has_left_prev_stop = distance_from_prev_stop >= self.departure_distance_threshold_m
+                departure_threshold = self.departure_distance_threshold_m + STOP_ASSOCIATION_HYSTERESIS_M
+                has_left_prev_stop = distance_from_prev_stop >= departure_threshold
 
             movement_start_time = prev_state.departure_started_at
             movement_confirmed = False
@@ -282,24 +297,24 @@ class HeadwayTracker:
                     and distance_from_prev_stop is not None
                     and distance_from_prev_stop >= self.arrival_distance_threshold_m
                 )
-                sustained_movement = (
-                    not near_stop
-                    or movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
-                    or movement_count >= 2
-                    or (
-                        movement_duration is not None
-                        and movement_duration >= MOVEMENT_CONFIRMATION_MIN_DURATION_S
-                    )
-                    or quick_departure
+                # Strengthen movement confirmation - require combination of conditions
+                # to prevent GPS noise from triggering false departures
+                has_displacement = movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
+                has_duration = (
+                    movement_duration is not None
+                    and movement_duration >= MOVEMENT_CONFIRMATION_MIN_DURATION_S
                 )
-                if sustained_movement and (
-                    moving_away
-                    and (
-                        fast_departure
-                        or movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
-                        or movement_count >= 2
-                    )
-                ):
+                has_multiple_observations = movement_count >= 2
+
+                # Require either (displacement AND multiple observations) OR sustained duration OR quick departure
+                sustained_movement = (
+                    (has_displacement and has_multiple_observations)
+                    or has_duration
+                    or quick_departure
+                    or not near_stop
+                )
+
+                if sustained_movement and moving_away and (fast_departure or has_displacement or quick_departure):
                     movement_confirmed = True
                     movement_start_time = pending_movement.get("start_time") or movement_start_time
                     departure_trigger = "speed" if fast_departure else departure_trigger
@@ -331,16 +346,24 @@ class HeadwayTracker:
                         if distance_delta > 0 and distance_from_prev_stop >= threshold_distance:
                             fraction = (threshold_distance - prev_snap_distance) / distance_delta
                             fraction = min(max(fraction, 0.0), 1.0)
-                            departure_timestamp = prev_snap.timestamp + timedelta(seconds=fraction * delta_seconds)
+                            interpolated_time = prev_snap.timestamp + timedelta(seconds=fraction * delta_seconds)
+                            # Ensure interpolated timestamp is within bounds
+                            departure_timestamp = max(prev_snap.timestamp, min(timestamp, interpolated_time))
                 if prev_state.arrival_time:
                     dwell_seconds = (departure_timestamp - prev_state.arrival_time).total_seconds()
                     dwell_seconds = max(dwell_seconds, 0.0)
                 if prev_stop:
                     route_for_departure = prev_state.route_id or route_id_norm
                     existing_departure = self.last_vehicle_departure.get((vid, prev_stop, route_for_departure))
-                    if not existing_departure or (
-                        prev_state.arrival_time is not None and existing_departure <= prev_state.arrival_time
-                    ):
+
+                    # Prevent duplicate departures - similar to arrival duplicate prevention
+                    duplicate_departure = False
+                    if existing_departure is not None:
+                        # Check if we already recorded a departure after the most recent arrival
+                        if prev_state.arrival_time is None or existing_departure > prev_state.arrival_time:
+                            duplicate_departure = True
+
+                    if not duplicate_departure:
                         keys = []
                         if route_for_departure:
                             keys.append((route_for_departure, prev_stop))
@@ -441,6 +464,38 @@ class HeadwayTracker:
                 elif duplicate_arrival:
                     arrival_time = prev_vehicle_arrival or prev_state.arrival_time or arrival_override_time or timestamp
                     arrival_suppression_reason = "duplicate_arrival_same_vehicle"
+                elif not duplicate_arrival and prev_stop is not None and arrival_stop_id != prev_stop:
+                    # Handle transfer points - allow arrival at different stop if it's clearly closer
+                    new_stop_distance = self._distance_to_stop(arrival_stop_id, snap.lat, snap.lon)
+                    prev_stop_distance = distance_from_prev_stop
+
+                    # Allow arrival if new stop is significantly closer (at least 20m closer)
+                    if (new_stop_distance is not None and prev_stop_distance is not None and
+                        new_stop_distance < prev_stop_distance - 20.0):
+                        headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
+                            arrival_route_id, arrival_stop_id, arrival_override_time or timestamp
+                        )
+                        events.append(
+                            HeadwayEvent(
+                            timestamp=arrival_override_time or timestamp,
+                            route_id=arrival_route_id,
+                            stop_id=arrival_stop_id,
+                            vehicle_id=vid,
+                            vehicle_name=snap.vehicle_name,
+                            event_type="arrival",
+                            headway_arrival_arrival=headway_arrival_arrival,
+                            headway_departure_arrival=headway_departure_arrival,
+                            dwell_seconds=None,
+                        )
+                        )
+                        self.last_vehicle_arrival[arrival_key] = arrival_override_time or timestamp
+                        arrival_time = arrival_override_time or timestamp
+                        arrival_recorded = True
+                    else:
+                        arrival_stop_id = prev_stop
+                        arrival_route_id = prev_state.route_id or arrival_route_id
+                        arrival_time = prev_state.arrival_time
+                        arrival_suppression_reason = "has_not_left_previous_stop"
                 else:
                     arrival_stop_id = prev_stop
                     arrival_route_id = prev_state.route_id or arrival_route_id
@@ -473,6 +528,7 @@ class HeadwayTracker:
                 arrival_time=arrival_time if arrival_stop_id else None,
                 route_id=arrival_route_id if arrival_stop_id else None,
                 departure_started_at=movement_start_time if arrival_stop_id else None,
+                speed_history=prev_state.speed_history,  # Preserve speed history for filtering
             )
 
             target_stop_id = arrival_stop_id or (current_stop[0] if current_stop else None)
@@ -568,11 +624,26 @@ class HeadwayTracker:
                 approach.closest_distance = stop_distance
                 approach.closest_time = snap.timestamp
 
+            # Track sustained stops - require vehicle to remain stopped for minimum duration
             if speed_mps is not None and speed_mps <= STOP_SPEED_THRESHOLD_MPS:
                 dist_for_stop = stop_distance if stop_distance is not None else approach.closest_distance
-                if approach.best_stop_distance is None or dist_for_stop < approach.best_stop_distance:
-                    approach.best_stop_distance = dist_for_stop
+
+                # Start tracking a new potential stop
+                if approach.best_stop_start is None:
+                    approach.best_stop_start = snap.timestamp
                     approach.best_stop_time = snap.timestamp
+                    approach.best_stop_distance = dist_for_stop
+                else:
+                    # Check if stop has been sustained long enough
+                    stop_duration = (snap.timestamp - approach.best_stop_start).total_seconds()
+                    if stop_duration >= SUSTAINED_STOP_MIN_DURATION_S:
+                        # Confirmed sustained stop - update if this position is closer
+                        if dist_for_stop < approach.best_stop_distance:
+                            approach.best_stop_time = snap.timestamp
+                            approach.best_stop_distance = dist_for_stop
+            else:
+                # Vehicle is moving - reset sustained stop tracking
+                approach.best_stop_start = None
 
             self.vehicle_approaches[vid] = approach
             self.last_snapshots[vid] = snap
@@ -788,9 +859,28 @@ class HeadwayTracker:
         tolerance_deg: float,
         radius_m: float,
     ) -> Tuple[bool, dict]:
+        # Calculate distance first to handle edge case of vehicle at stop
+        dist = self._haversine(lat, lon, stop_lat, stop_lon)
+
         position_bearing = self._bearing_degrees(stop_lat, stop_lon, lat, lon)
         if not math.isfinite(position_bearing):
             return False, {}
+
+        # Skip bearing check if vehicle is very close to stop (bearing becomes unstable)
+        if dist < BEARING_CHECK_MIN_DISTANCE_M:
+            # Just check if within radius
+            entry_center = self._destination_point(stop_lat, stop_lon, bearing_deg, radius_m)
+            apex = self._destination_point(stop_lat, stop_lon, (bearing_deg + 180.0) % 360.0, radius_m)
+            return dist <= radius_m, {
+                "cone_entry_lat": entry_center[0],
+                "cone_entry_lon": entry_center[1],
+                "cone_entry_left_lat": entry_center[0],
+                "cone_entry_left_lon": entry_center[1],
+                "cone_entry_right_lat": entry_center[0],
+                "cone_entry_right_lon": entry_center[1],
+                "cone_apex_lat": apex[0],
+                "cone_apex_lon": apex[1],
+            }
 
         angular_diff = abs((position_bearing - bearing_deg + 540.0) % 360.0 - 180.0)
         if angular_diff > tolerance_deg:
@@ -1084,6 +1174,31 @@ class HeadwayTracker:
         if stop is None:
             return None
         return self._haversine(lat, lon, stop.lat, stop.lon)
+
+    def _calculate_filtered_speed(
+        self, speed_history: List[float], current_speed: Optional[float]
+    ) -> Optional[float]:
+        """Calculate GPS noise-filtered speed using median of recent samples."""
+        if current_speed is None:
+            return None
+
+        # Add current speed to history
+        speed_history.append(current_speed)
+
+        # Keep only recent samples
+        while len(speed_history) > SPEED_HISTORY_SIZE:
+            speed_history.pop(0)
+
+        # Use median to filter out GPS noise spikes
+        if len(speed_history) >= 2:
+            sorted_speeds = sorted(speed_history)
+            mid = len(sorted_speeds) // 2
+            if len(sorted_speeds) % 2 == 0:
+                return (sorted_speeds[mid - 1] + sorted_speeds[mid]) / 2.0
+            else:
+                return sorted_speeds[mid]
+        else:
+            return current_speed
 
 
 def load_headway_config(path: Path = DEFAULT_HEADWAY_CONFIG_PATH) -> Tuple[Set[str], Set[str]]:
