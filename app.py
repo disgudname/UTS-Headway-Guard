@@ -4675,11 +4675,12 @@ def _find_current_driver(
 
 async def _fetch_vehicle_drivers():
     """
-    Build a mapping of vehicle_id -> {block, driver, shift_end}.
+    Build a mapping of vehicle_id -> {block, driver, shift_end, vehicle_name}.
 
     This joins:
     1. TransLoc blocks (vehicle_id -> raw block like "[01]" or "[04]")
     2. W2W assignments (block number -> driver with time windows)
+    3. Vehicle names from TransLoc vehicle data
 
     Returns blocks the way WhenToWork does: individual blocks without interlining.
     Each vehicle is mapped to its current raw block assignment and the corresponding driver.
@@ -4702,6 +4703,16 @@ async def _fetch_vehicle_drivers():
         print(f"[vehicle_drivers] w2w fetch failed: {exc}")
         assignments_by_block = {}
 
+    # Build vehicle_id -> vehicle_name mapping from raw vehicle data
+    vehicle_names = {}
+    async with state.lock:
+        for rec in state.vehicles_raw:
+            vid = rec.get("VehicleID") or rec.get("VehicleId")
+            if vid is not None:
+                vname = rec.get("Name") or rec.get("VehicleName")
+                if vname:
+                    vehicle_names[str(vid)] = vname
+
     # Build the vehicle -> driver mapping
     vehicle_drivers = {}
 
@@ -4716,12 +4727,16 @@ async def _fetch_vehicle_drivers():
             block_number = block_numbers[0]
             current_driver = _find_current_driver(block_number, assignments_by_block, now_ts)
 
+        # Get the vehicle name (may be None if not found)
+        vehicle_name = vehicle_names.get(vehicle_id)
+
         if current_driver:
             vehicle_drivers[vehicle_id] = {
                 "block": block_name,
                 "driver": current_driver["name"],
                 "shift_end": current_driver["end_ts"],
                 "shift_end_label": current_driver["end_label"],
+                "vehicle_name": vehicle_name,
             }
         else:
             # Vehicle has a block but no current driver assigned
@@ -4730,6 +4745,7 @@ async def _fetch_vehicle_drivers():
                 "driver": None,
                 "shift_end": None,
                 "shift_end_label": None,
+                "vehicle_name": vehicle_name,
             }
 
     return {
@@ -4755,13 +4771,15 @@ async def dispatch_vehicle_drivers(request: Request):
                     "block": "[01]",
                     "driver": "John Doe",
                     "shift_end": <timestamp_ms>,
-                    "shift_end_label": "8a"
+                    "shift_end_label": "8a",
+                    "vehicle_name": "Bus 123"
                 },
                 "456": {
                     "block": "[05]",
                     "driver": null,  // No driver currently assigned
                     "shift_end": null,
-                    "shift_end_label": null
+                    "shift_end_label": null,
+                    "vehicle_name": "Bus 456"
                 }
             }
         }
