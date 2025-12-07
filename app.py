@@ -4764,9 +4764,9 @@ async def _fetch_vehicle_drivers():
     Each vehicle is mapped to its current raw block assignment and the corresponding driver.
 
     For ondemand vehicles:
-    - Driver names from TransLoc are matched with W2W "OnDemand Driver" or "OnDemand EB" positions
-    - If matched, the W2W block name and shift information are used
-    - If not matched, "OnDemand Driver" is used as the default block name
+    - Driver names from ondemand positions are matched with W2W "OnDemand Driver" or "OnDemand EB" positions
+    - Only vehicles where the driver appears in BOTH ondemand and W2W are included
+    - Vehicle names are pulled from the "call_name" field in ondemand positions
     """
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
@@ -4861,11 +4861,10 @@ async def _fetch_vehicle_drivers():
                 if not driver_name:
                     continue
 
-                # Extract vehicle name
+                # Extract vehicle name from call_name field in ondemand positions
                 vehicle_name = (
-                    vehicle_entry.get("name")
-                    or vehicle_entry.get("vehicle_name")
-                    or vehicle_entry.get("VehicleName")
+                    vehicle_entry.get("callName")
+                    or vehicle_entry.get("call_name")
                 )
 
                 # Match driver name with W2W assignments
@@ -4873,24 +4872,13 @@ async def _fetch_vehicle_drivers():
                     driver_name, assignments_by_block, now_ts
                 )
 
+                # Only include vehicles where the driver appears in both ondemand and W2W
                 if matched_driver:
-                    # Driver is on a scheduled shift
                     vehicle_drivers[vehicle_id_str] = {
                         "block": matched_driver["block"],
                         "driver": matched_driver["name"],
                         "shift_end": matched_driver["end_ts"],
                         "shift_end_label": matched_driver["end_label"],
-                        "vehicle_name": vehicle_name,
-                    }
-                else:
-                    # Driver is logged in but not on a scheduled W2W shift
-                    # Still include them with the driver name from TransLoc
-                    # Use "OnDemand Driver" as the default block
-                    vehicle_drivers[vehicle_id_str] = {
-                        "block": "OnDemand Driver",
-                        "driver": driver_name,
-                        "shift_end": None,
-                        "shift_end_label": None,
                         "vehicle_name": vehicle_name,
                     }
 
@@ -4912,9 +4900,10 @@ async def dispatch_vehicle_drivers(request: Request):
     Blocks are returned as individual raw blocks (e.g., "[01]", "[04]") matching the way
     WhenToWork tracks them, NOT as interlined blocks (e.g., "[01]/[04]").
 
-    Also includes ondemand vehicles matched by driver name to W2W assignments.
-    OnDemand vehicles use block names "OnDemand Driver" or "OnDemand EB" based on
-    their W2W position assignments.
+    Also includes ondemand vehicles, but ONLY if their driver appears in both the
+    ondemand positions AND W2W assignments. OnDemand vehicles use block names
+    "OnDemand Driver" or "OnDemand EB" based on their W2W position assignments.
+    Vehicle names for ondemand vehicles come from the "call_name" field.
 
     Returns:
         {
