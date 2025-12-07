@@ -14069,7 +14069,9 @@ ${trainPlaneMarkup}
 
       async function fetchVehicleDrivers() {
           try {
-              const response = await fetch('/v1/vehicle_drivers');
+              // Use dispatch endpoint when authenticated to get driver names and block assignments
+              const endpoint = navAuthorized ? '/v1/dispatch/vehicle-drivers' : '/v1/vehicle_drivers';
+              const response = await fetch(endpoint);
               if (!response.ok) {
                   console.warn('Failed to fetch vehicle drivers:', response.status);
                   return {};
