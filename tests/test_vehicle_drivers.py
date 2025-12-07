@@ -12,7 +12,13 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from app import _split_interlined_blocks, _find_current_driver
+from app import (
+    _split_interlined_blocks,
+    _find_current_driver,
+    _normalize_driver_name,
+    _find_ondemand_driver_by_name,
+    _extract_block_from_position_name,
+)
 
 
 class TestSplitInterlinedBlocks(unittest.TestCase):
@@ -245,6 +251,195 @@ class TestRawBlockMapping(unittest.TestCase):
         driver = _find_current_driver(block_numbers[0], assignments_by_block, now_ts)
         self.assertIsNotNone(driver)
         self.assertEqual(driver["name"], "Bob Johnson")
+
+
+class TestExtractBlockFromPositionName(unittest.TestCase):
+    """Test the _extract_block_from_position_name function."""
+
+    def test_regular_block(self):
+        """Test regular block extraction."""
+        block, period = _extract_block_from_position_name("[01]")
+        self.assertEqual(block, "01")
+        self.assertEqual(period, "")
+
+    def test_block_with_am(self):
+        """Test block with AM designation."""
+        block, period = _extract_block_from_position_name("[16 AM]")
+        self.assertEqual(block, "16")
+        self.assertEqual(period, "am")
+
+    def test_block_with_pm(self):
+        """Test block with PM designation."""
+        block, period = _extract_block_from_position_name("[20 PM]")
+        self.assertEqual(block, "20")
+        self.assertEqual(period, "pm")
+
+    def test_ondemand_driver(self):
+        """Test OnDemand Driver position."""
+        block, period = _extract_block_from_position_name("OnDemand Driver")
+        self.assertEqual(block, "OnDemand Driver")
+        self.assertEqual(period, "any")
+
+    def test_ondemand_eb(self):
+        """Test OnDemand EB position."""
+        block, period = _extract_block_from_position_name("OnDemand EB")
+        self.assertEqual(block, "OnDemand EB")
+        self.assertEqual(period, "any")
+
+    def test_ondemand_case_insensitive(self):
+        """Test that OnDemand matching is case-insensitive."""
+        block, period = _extract_block_from_position_name("ondemand driver")
+        self.assertEqual(block, "OnDemand Driver")
+        self.assertEqual(period, "any")
+
+        block, period = _extract_block_from_position_name("ONDEMAND EB")
+        self.assertEqual(block, "OnDemand EB")
+        self.assertEqual(period, "any")
+
+    def test_none_input(self):
+        """Test None input."""
+        block, period = _extract_block_from_position_name(None)
+        self.assertIsNone(block)
+        self.assertEqual(period, "")
+
+
+class TestNormalizeDriverName(unittest.TestCase):
+    """Test the _normalize_driver_name function."""
+
+    def test_basic_name(self):
+        """Test basic name normalization."""
+        result = _normalize_driver_name("John Doe")
+        self.assertEqual(result, "john doe")
+
+    def test_extra_whitespace(self):
+        """Test name with extra whitespace."""
+        result = _normalize_driver_name("John   Doe")
+        self.assertEqual(result, "john doe")
+
+    def test_leading_trailing_whitespace(self):
+        """Test name with leading/trailing whitespace."""
+        result = _normalize_driver_name("  John Doe  ")
+        self.assertEqual(result, "john doe")
+
+    def test_mixed_case(self):
+        """Test mixed case name."""
+        result = _normalize_driver_name("JoHn DoE")
+        self.assertEqual(result, "john doe")
+
+    def test_empty_string(self):
+        """Test empty string."""
+        result = _normalize_driver_name("")
+        self.assertEqual(result, "")
+
+    def test_none_input(self):
+        """Test None input."""
+        result = _normalize_driver_name(None)
+        self.assertEqual(result, "")
+
+
+class TestFindOndemandDriverByName(unittest.TestCase):
+    """Test the _find_ondemand_driver_by_name function."""
+
+    def setUp(self):
+        """Set up test data."""
+        self.tz = ZoneInfo("America/New_York")
+        self.now = datetime(2025, 12, 7, 10, 30, tzinfo=self.tz)  # 10:30 AM
+        self.now_ts = int(self.now.timestamp() * 1000)
+
+        # Create sample W2W assignments structure
+        shift_start = datetime(2025, 12, 7, 8, 0, tzinfo=self.tz)  # 8:00 AM
+        shift_end = datetime(2025, 12, 7, 16, 0, tzinfo=self.tz)   # 4:00 PM
+
+        self.assignments_by_block = {
+            "OnDemand Driver": {
+                "any": [
+                    {
+                        "name": "Alice Johnson",
+                        "start_ts": int(shift_start.timestamp() * 1000),
+                        "end_ts": int(shift_end.timestamp() * 1000),
+                        "start_label": "8a",
+                        "end_label": "4p",
+                        "color_id": "0"
+                    }
+                ]
+            },
+            "OnDemand EB": {
+                "any": [
+                    {
+                        "name": "Bob Smith",
+                        "start_ts": int(shift_start.timestamp() * 1000),
+                        "end_ts": int(shift_end.timestamp() * 1000),
+                        "start_label": "8a",
+                        "end_label": "4p",
+                        "color_id": "1"
+                    }
+                ]
+            }
+        }
+
+    def test_find_ondemand_driver(self):
+        """Test finding an OnDemand Driver."""
+        driver = _find_ondemand_driver_by_name(
+            "Alice Johnson", self.assignments_by_block, self.now_ts
+        )
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "Alice Johnson")
+        self.assertEqual(driver["block"], "OnDemand Driver")
+
+    def test_find_ondemand_eb_driver(self):
+        """Test finding an OnDemand EB driver."""
+        driver = _find_ondemand_driver_by_name(
+            "Bob Smith", self.assignments_by_block, self.now_ts
+        )
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "Bob Smith")
+        self.assertEqual(driver["block"], "OnDemand EB")
+
+    def test_case_insensitive_match(self):
+        """Test that driver name matching is case-insensitive."""
+        driver = _find_ondemand_driver_by_name(
+            "alice johnson", self.assignments_by_block, self.now_ts
+        )
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "Alice Johnson")
+
+    def test_whitespace_normalization(self):
+        """Test that extra whitespace is normalized."""
+        driver = _find_ondemand_driver_by_name(
+            "Alice   Johnson", self.assignments_by_block, self.now_ts
+        )
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "Alice Johnson")
+
+    def test_no_match(self):
+        """Test when no driver matches."""
+        driver = _find_ondemand_driver_by_name(
+            "Charlie Brown", self.assignments_by_block, self.now_ts
+        )
+        self.assertIsNone(driver)
+
+    def test_outside_shift_time(self):
+        """Test when driver is not within shift time."""
+        late_night = datetime(2025, 12, 7, 22, 0, tzinfo=self.tz)  # 10:00 PM
+        late_ts = int(late_night.timestamp() * 1000)
+        driver = _find_ondemand_driver_by_name(
+            "Alice Johnson", self.assignments_by_block, late_ts
+        )
+        self.assertIsNone(driver)
+
+    def test_empty_driver_name(self):
+        """Test with empty driver name."""
+        driver = _find_ondemand_driver_by_name(
+            "", self.assignments_by_block, self.now_ts
+        )
+        self.assertIsNone(driver)
+
+    def test_none_driver_name(self):
+        """Test with None driver name."""
+        driver = _find_ondemand_driver_by_name(
+            None, self.assignments_by_block, self.now_ts
+        )
+        self.assertIsNone(driver)
 
 
 if __name__ == "__main__":
