@@ -7326,6 +7326,9 @@ schedulePlaneStyleOverride();
       let busBlocks = {};
       let previousBusData = {};
       let cachedEtas = {};
+      let cachedVehicleDrivers = {};
+      let cachedBusCapacities = {};
+      let cachedNextStops = {};
       let customPopups = [];
       let allRouteBounds = null;
       let mapHasFitAllRoutes = false;
@@ -13818,6 +13821,18 @@ ${trainPlaneMarkup}
               updateRouteSelector(activeRoutesSet);
               updateKioskStatusMessage({ known: true, hasActiveVehicles: activeRoutesSet.size > 0 });
 
+              // Fetch popup data for buses
+              const vehicleIds = vehicles.map(v => v.vehicleID).filter(id => id !== undefined && id !== null);
+              try {
+                  await Promise.all([
+                      fetchVehicleDrivers(),
+                      fetchBusCapacities(),
+                      fetchNextStops(vehicleIds)
+                  ]);
+              } catch (error) {
+                  console.warn('Failed to fetch some popup data:', error);
+              }
+
               const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
 
               for (const v of vehicles) {
@@ -13856,6 +13871,16 @@ ${trainPlaneMarkup}
                       : null;
                   rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
 
+                  // Build popup content for this bus
+                  const popupContent = buildBusPopupContent(vehicleID, busName);
+                  if (popupContent) {
+                      state.driverPopupContent = popupContent;
+                      state.driverPopupAriaLabel = `${busName} - Click for details`;
+                  } else {
+                      delete state.driverPopupContent;
+                      delete state.driverPopupAriaLabel;
+                  }
+
                   if (!state.size) {
                       setBusMarkerSize(state, markerMetricsForZoom);
                   }
@@ -13863,6 +13888,7 @@ ${trainPlaneMarkup}
                   if (markers[vehicleID]) {
                       animateMarkerTo(markers[vehicleID], newPosition);
                       markers[vehicleID].routeID = routeID;
+                      attachBusMarkerInteractions(vehicleID);
                       queueBusMarkerVisualUpdate(vehicleID, {
                           fillColor: routeColor,
                           glyphColor,
@@ -14043,6 +14069,158 @@ ${trainPlaneMarkup}
               }
           });
           return busLocationsFetchPromise;
+      }
+
+      async function fetchVehicleDrivers() {
+          try {
+              const response = await fetch('/v1/dispatch/vehicle-drivers');
+              if (!response.ok) {
+                  console.warn('Failed to fetch vehicle drivers:', response.status);
+                  return {};
+              }
+              const data = await response.json();
+              cachedVehicleDrivers = data?.vehicle_drivers || {};
+              return cachedVehicleDrivers;
+          } catch (error) {
+              console.error('Error fetching vehicle drivers:', error);
+              return {};
+          }
+      }
+
+      async function fetchBusCapacities() {
+          try {
+              const url = `https://uva.transloc.com/Services/JSONPRelay.svc/GetVehicleCapacities`;
+              const response = await fetch(url);
+              if (!response.ok) {
+                  console.warn('Failed to fetch bus capacities:', response.status);
+                  return [];
+              }
+              const data = await response.json();
+              if (Array.isArray(data)) {
+                  cachedBusCapacities = {};
+                  data.forEach(item => {
+                      if (item && item.VehicleID !== undefined) {
+                          cachedBusCapacities[item.VehicleID] = item;
+                      }
+                  });
+              }
+              return cachedBusCapacities;
+          } catch (error) {
+              console.error('Error fetching bus capacities:', error);
+              return {};
+          }
+      }
+
+      async function fetchNextStops(vehicleIds) {
+          if (!Array.isArray(vehicleIds) || vehicleIds.length === 0) {
+              return {};
+          }
+          try {
+              const vehicleIdStrings = vehicleIds.join(',');
+              const url = `https://uva.transloc.com/Services/JSONPRelay.svc/GetVehicleRouteStopEstimates?quantity=3&vehicleIdStrings=${vehicleIdStrings}`;
+              const response = await fetch(url);
+              if (!response.ok) {
+                  console.warn('Failed to fetch next stops:', response.status);
+                  return {};
+              }
+              const data = await response.json();
+              if (Array.isArray(data)) {
+                  const result = {};
+                  data.forEach(item => {
+                      if (item && item.VehicleID !== undefined && Array.isArray(item.Estimates)) {
+                          result[item.VehicleID] = item.Estimates.slice(0, 3);
+                      }
+                  });
+                  Object.assign(cachedNextStops, result);
+                  return result;
+              }
+              return {};
+          } catch (error) {
+              console.error('Error fetching next stops:', error);
+              return {};
+          }
+      }
+
+      function buildBusPopupContent(vehicleID, busName) {
+          const popupSections = [];
+
+          // Vehicle section
+          if (busName) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">VEHICLE</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(busName)}</div>`,
+                  '</div>'
+              ].join(''));
+          }
+
+          // Driver section
+          const driverInfo = cachedVehicleDrivers[vehicleID];
+          if (driverInfo && driverInfo.driver) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Driver</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(driverInfo.driver)}</div>`,
+                  '</div>'
+              ].join(''));
+          }
+
+          // Capacity section with progress bar
+          const capacityInfo = cachedBusCapacities[vehicleID];
+          if (capacityInfo && capacityInfo.Capacity !== undefined && capacityInfo.CurrentOccupation !== undefined) {
+              const capacity = capacityInfo.Capacity;
+              const current = capacityInfo.CurrentOccupation;
+              const percentage = capacity > 0 ? (current / capacity) * 100 : 0;
+
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Capacity</div>',
+                  '<div class="bus-popup__capacity">',
+                  '<div class="bus-popup__capacity-bar">',
+                  `<div class="bus-popup__capacity-fill" style="width: ${percentage}%"></div>`,
+                  '</div>',
+                  `<div class="bus-popup__capacity-text">${current}/${capacity}</div>`,
+                  '</div>',
+                  '</div>'
+              ].join(''));
+          }
+
+          // Next stops section
+          const nextStops = cachedNextStops[vehicleID];
+          if (Array.isArray(nextStops) && nextStops.length > 0) {
+              const stopsHtml = nextStops.map(stop => {
+                  const description = stop.Description || 'Unknown Stop';
+                  const seconds = stop.Seconds || 0;
+                  const minutes = Math.max(0, Math.round(seconds / 60));
+                  const minutesText = minutes === 0 ? 'Arriving' : `${minutes} min`;
+
+                  return [
+                      '<div class="bus-popup__stop">',
+                      `<div class="bus-popup__stop-name">${escapeHtml(description)}</div>`,
+                      `<div class="bus-popup__stop-eta">${escapeHtml(minutesText)}</div>`,
+                      '</div>'
+                  ].join('');
+              }).join('');
+
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Next Stops</div>',
+                  '<div class="bus-popup__stops">',
+                  stopsHtml,
+                  '</div>',
+                  '</div>'
+              ].join(''));
+          }
+
+          if (popupSections.length === 0) {
+              return null;
+          }
+
+          return [
+              '<div class="ondemand-driver-popup__content">',
+              popupSections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>'),
+              '</div>'
+          ].join('');
       }
 
       function clamp(value, min, max) {
