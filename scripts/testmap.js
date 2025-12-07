@@ -13896,7 +13896,7 @@ ${trainPlaneMarkup}
                           if (!icon) {
                               continue;
                           }
-                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
+                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true, keyboard: true });
                           marker.routeID = routeID;
                           marker.addTo(map);
                           markers[vehicleID] = marker;
