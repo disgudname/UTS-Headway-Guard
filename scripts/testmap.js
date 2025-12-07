@@ -13811,6 +13811,7 @@ ${trainPlaneMarkup}
                       isMoving,
                       busName,
                       routeID: effectiveRouteId,
+                      routeName: vehicle.RouteName,
                       heading: vehicle.Heading,
                       groundSpeed,
                       capacity: vehicle.capacity,
@@ -13829,7 +13830,7 @@ ${trainPlaneMarkup}
               const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
 
               for (const v of vehicles) {
-                  const { vehicleID, newPosition, busName, routeID, heading, groundSpeed, capacity, current_occupation, percentage } = v;
+                  const { vehicleID, newPosition, busName, routeID, routeName, heading, groundSpeed, capacity, current_occupation, percentage } = v;
                   if (!isRouteSelected(routeID)) continue;
                   currentBusData[vehicleID] = true;
                   const state = ensureBusMarkerState(vehicleID);
@@ -13850,6 +13851,7 @@ ${trainPlaneMarkup}
 
                   state.busName = busName;
                   state.routeID = routeID;
+                  state.routeName = routeName;
                   state.fillColor = routeColor;
                   state.glyphColor = glyphColor;
                   state.headingDeg = headingDeg;
@@ -14124,6 +14126,17 @@ ${trainPlaneMarkup}
                   '<div class="ondemand-driver-popup__section">',
                   '<div class="ondemand-driver-popup__label">VEHICLE</div>',
                   `<div class="ondemand-driver-popup__value">${escapeHtml(busName)}</div>`,
+                  '</div>'
+              ].join(''));
+          }
+
+          // Route section
+          const state = busMarkerStates[vehicleID];
+          if (state && state.routeName) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">ROUTE</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(state.routeName)}</div>`,
                   '</div>'
               ].join(''));
           }
