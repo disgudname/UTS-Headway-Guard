@@ -675,10 +675,16 @@
       const latest = arrivals[0];
       const summaryParts = [];
       if (latest) {
-        const latestHeadwaySeconds = getHeadwayValue(latest, liveHeadwayTypeSelect);
-        const headway = latestHeadwaySeconds != null ? `${(latestHeadwaySeconds / 60).toFixed(1)} min` : 'N/A';
         const time = new Date(latest.timestamp).toLocaleTimeString();
-        summaryParts.push(`Latest arrival at ${time}. Headway: ${headway}.`);
+        // Calculate average headway over the last hour
+        const headwayValues = arrivals
+          .map(ev => getHeadwayValue(ev, liveHeadwayTypeSelect))
+          .filter(hw => hw != null && !Number.isNaN(hw));
+        const avgHeadway = headwayValues.length > 0
+          ? headwayValues.reduce((sum, hw) => sum + hw, 0) / headwayValues.length
+          : null;
+        const avgHeadwayDisplay = avgHeadway != null ? `${(avgHeadway / 60).toFixed(1)} min` : 'N/A';
+        summaryParts.push(`Latest arrival at ${time}. Avg headway (1hr): ${avgHeadwayDisplay}.`);
       } else {
         summaryParts.push('No arrivals recorded yet for this stop in the past hour.');
       }
