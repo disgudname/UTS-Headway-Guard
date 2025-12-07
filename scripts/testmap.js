@@ -7102,6 +7102,14 @@ schedulePlaneStyleOverride();
                 if (ariaLabel) {
                   state.driverPopupAriaLabel = ariaLabel;
                 }
+
+                // Update popup content if it's currently open
+                const marker = markers[markerKey];
+                if (marker && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
+                  if (typeof marker.setPopupContent === 'function') {
+                    marker.setPopupContent(state.driverPopupContent);
+                  }
+                }
               } else {
                 delete state.driverPopupContent;
                 delete state.driverPopupAriaLabel;
@@ -13874,6 +13882,14 @@ ${trainPlaneMarkup}
                   if (popupContent) {
                       state.driverPopupContent = popupContent;
                       state.driverPopupAriaLabel = `${busName} - Click for details`;
+
+                      // Update popup content if it's currently open
+                      const marker = markers[vehicleID];
+                      if (marker && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
+                          if (typeof marker.setPopupContent === 'function') {
+                              marker.setPopupContent(popupContent);
+                          }
+                      }
                   } else {
                       delete state.driverPopupContent;
                       delete state.driverPopupAriaLabel;
