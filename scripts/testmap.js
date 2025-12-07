@@ -7327,7 +7327,6 @@ schedulePlaneStyleOverride();
       let previousBusData = {};
       let cachedEtas = {};
       let cachedVehicleDrivers = {};
-      let cachedBusCapacities = {};
       let cachedNextStops = {};
       let customPopups = [];
       let allRouteBounds = null;
@@ -13813,7 +13812,10 @@ ${trainPlaneMarkup}
                       busName,
                       routeID: effectiveRouteId,
                       heading: vehicle.Heading,
-                      groundSpeed
+                      groundSpeed,
+                      capacity: vehicle.capacity,
+                      current_occupation: vehicle.current_occupation,
+                      percentage: vehicle.percentage
                   });
               });
 
@@ -13827,7 +13829,7 @@ ${trainPlaneMarkup}
               const markerMetricsForZoom = computeBusMarkerMetrics(map && typeof map?.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
 
               for (const v of vehicles) {
-                  const { vehicleID, newPosition, busName, routeID, heading, groundSpeed } = v;
+                  const { vehicleID, newPosition, busName, routeID, heading, groundSpeed, capacity, current_occupation, percentage } = v;
                   if (!isRouteSelected(routeID)) continue;
                   currentBusData[vehicleID] = true;
                   const state = ensureBusMarkerState(vehicleID);
@@ -13860,6 +13862,9 @@ ${trainPlaneMarkup}
                   state.offRouteDistanceMeters = Number.isFinite(offRouteDistanceMeters)
                       ? offRouteDistanceMeters
                       : null;
+                  state.capacity = capacity;
+                  state.current_occupation = current_occupation;
+                  state.percentage = percentage;
                   rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
 
                   // Build popup content for this bus
@@ -14078,29 +14083,6 @@ ${trainPlaneMarkup}
           }
       }
 
-      async function fetchBusCapacities() {
-          try {
-              const response = await fetch('/v1/transloc/vehicle_capacities');
-              if (!response.ok) {
-                  console.warn('Failed to fetch bus capacities:', response.status);
-                  return [];
-              }
-              const data = await response.json();
-              if (Array.isArray(data)) {
-                  cachedBusCapacities = {};
-                  data.forEach(item => {
-                      if (item && item.VehicleID !== undefined) {
-                          cachedBusCapacities[item.VehicleID] = item;
-                      }
-                  });
-              }
-              return cachedBusCapacities;
-          } catch (error) {
-              console.error('Error fetching bus capacities:', error);
-              return {};
-          }
-      }
-
       async function fetchNextStops(vehicleIds) {
           if (!Array.isArray(vehicleIds) || vehicleIds.length === 0) {
               return {};
@@ -14156,10 +14138,10 @@ ${trainPlaneMarkup}
           }
 
           // Capacity section with progress bar
-          const capacityInfo = cachedBusCapacities[vehicleID];
-          if (capacityInfo && capacityInfo.Capacity !== undefined && capacityInfo.CurrentOccupation !== undefined) {
-              const capacity = capacityInfo.Capacity;
-              const current = capacityInfo.CurrentOccupation;
+          const state = busMarkerStates[vehicleID];
+          if (state && state.capacity !== undefined && state.current_occupation !== undefined) {
+              const capacity = state.capacity;
+              const current = state.current_occupation;
               const percentage = capacity > 0 ? (current / capacity) * 100 : 0;
 
               popupSections.push([
@@ -17773,7 +17755,6 @@ ${trainPlaneMarkup}
                       // Fetch popup data on-demand
                       await Promise.all([
                           fetchVehicleDrivers(),
-                          fetchBusCapacities(),
                           fetchNextStops([vehicleID])
                       ]);
 
