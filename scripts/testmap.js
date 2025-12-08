@@ -6233,9 +6233,10 @@ TM.registerVisibilityResumeHandler(() => {
           if (!markerEntry || !markerEntry.marker) {
             const marker = L.marker(groupInfo.position, { icon, pane: 'ondemandStopsPane', interactive: true, keyboard: true });
             marker.addTo(map);
-            if (typeof marker.bindTooltip === 'function') {
-              marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
-            }
+            // Tooltip removed per user request
+            // if (typeof marker.bindTooltip === 'function') {
+            //   marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
+            // }
             const handleClick = (e) => {
               const clickedLatLng = marker.getLatLng();
               const overlappingItems = findOverlappingClickableItems(clickedLatLng);
@@ -6273,12 +6274,13 @@ TM.registerVisibilityResumeHandler(() => {
             if (markerEntry.iconSignature !== iconSignature && typeof markerEntry.marker.setIcon === 'function') {
               markerEntry.marker.setIcon(icon);
             }
-            const tooltip = typeof markerEntry.marker.getTooltip === 'function' ? markerEntry.marker.getTooltip() : null;
-            if (tooltip && typeof tooltip.setContent === 'function') {
-              tooltip.setContent(tooltipHtml);
-            } else if (typeof markerEntry.marker.bindTooltip === 'function') {
-              markerEntry.marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
-            }
+            // Tooltip removed per user request
+            // const tooltip = typeof markerEntry.marker.getTooltip === 'function' ? markerEntry.marker.getTooltip() : null;
+            // if (tooltip && typeof tooltip.setContent === 'function') {
+            //   tooltip.setContent(tooltipHtml);
+            // } else if (typeof markerEntry.marker.bindTooltip === 'function') {
+            //   markerEntry.marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
+            // }
             if (!markerEntry.clickHandler && typeof markerEntry.marker.on === 'function') {
               const handleClick = (e) => {
                 const clickedLatLng = markerEntry.marker.getLatLng();
