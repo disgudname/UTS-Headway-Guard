@@ -10780,15 +10780,24 @@ ${trainPlaneMarkup}
                       if (state) {
                           const busName = state.busName || `Bus ${vehicleID}`;
                           const routeColor = state.fillColor || '#0f172a';
+                          const isOnDemand = isOnDemandVehicleId(vehicleID);
 
                           items.push({
                               latlng: markerLatLng,
                               color: routeColor,
                               label: busName,
                               onClick: () => {
-                                  // Trigger the marker's click event to use the existing handler
-                                  if (marker && typeof marker.fire === 'function') {
-                                      marker.fire('click');
+                                  // For ondemand vehicles, directly open the popup to avoid re-checking overlaps
+                                  if (isOnDemand && typeof marker.openPopup === 'function') {
+                                      marker.openPopup();
+                                      if (typeof syncMarkerPopupPosition === 'function') {
+                                          syncMarkerPopupPosition(marker);
+                                      }
+                                  } else {
+                                      // For regular buses, trigger the click event to use the existing handler
+                                      if (marker && typeof marker.fire === 'function') {
+                                          marker.fire('click');
+                                      }
                                   }
                               }
                           });
@@ -18158,9 +18167,48 @@ ${trainPlaneMarkup}
               if (existingPopup && typeof marker.unbindPopup === 'function') {
                   marker.unbindPopup();
               }
+              // Bind popup but prevent automatic opening - we'll control it manually
               if (typeof marker.bindPopup === 'function') {
                   marker.bindPopup(driverPopupHtml, popupOptions);
               }
+              
+              // Remove Leaflet's default click handler that opens popup automatically
+              // We'll add our own that checks for overlaps first
+              if (typeof marker.off === 'function') {
+                  marker.off('click');
+              }
+              
+              // Add click handler to check for overlapping markers
+              const handleOnDemandMarkerClick = (e) => {
+                  if (e && e.originalEvent) {
+                      L.DomEvent.stopPropagation(e.originalEvent);
+                  }
+                  
+                  const clickedLatLng = marker.getLatLng();
+                  const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+                  if (overlappingItems.length >= 2) {
+                      // Show selection menu for overlapping markers
+                      if (typeof MarkerSelectionMenu !== 'undefined') {
+                          if (e && e.originalEvent) {
+                              L.DomEvent.preventDefault(e.originalEvent);
+                          }
+                          MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                          return;
+                      }
+                  }
+
+                  // Single marker or fallback, open popup manually
+                  if (typeof marker.openPopup === 'function') {
+                      marker.openPopup();
+                      if (typeof syncMarkerPopupPosition === 'function') {
+                          syncMarkerPopupPosition(marker);
+                      }
+                  }
+              };
+
+              marker.on('click', handleOnDemandMarkerClick);
+              
               if (hadOpenPopup && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
                   syncMarkerPopupPosition(marker);
               } else if (hadOpenPopup && typeof marker.openPopup === 'function') {
