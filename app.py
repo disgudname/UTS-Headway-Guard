@@ -370,6 +370,7 @@ LAST_ROUTE_SNAPSHOT_HASH: Dict[Tuple[str, str], str] = {}
 
 TRANSLOC_ARRIVALS_TTL_S = int(os.getenv("TRANSLOC_ARRIVALS_TTL_S", "15"))
 TRANSLOC_BLOCKS_TTL_S = int(os.getenv("TRANSLOC_BLOCKS_TTL_S", "60"))
+TRANSLOC_VEHICLE_ESTIMATES_TTL_S = int(os.getenv("TRANSLOC_VEHICLE_ESTIMATES_TTL_S", "5"))
 CAT_METADATA_TTL_S = int(os.getenv("CAT_METADATA_TTL_S", str(5 * 60)))
 CAT_VEHICLE_TTL_S = int(os.getenv("CAT_VEHICLE_TTL_S", "5"))
 CAT_SERVICE_ALERT_TTL_S = int(os.getenv("CAT_SERVICE_ALERT_TTL_S", "60"))
@@ -1607,6 +1608,7 @@ MILEAGE_FILE = PRIMARY_DATA_DIR / MILEAGE_NAME
 
 transloc_arrivals_cache = TTLCache(TRANSLOC_ARRIVALS_TTL_S)
 transloc_blocks_cache = TTLCache(TRANSLOC_BLOCKS_TTL_S)
+transloc_vehicle_estimates_cache = PerKeyTTLCache(TRANSLOC_VEHICLE_ESTIMATES_TTL_S)
 cat_routes_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_stops_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_patterns_cache = TTLCache(CAT_METADATA_TTL_S)
@@ -5910,20 +5912,20 @@ def _build_vehicle_name_lookup(records: Sequence[Dict[str, Any]]) -> Dict[str, s
 async def build_transloc_snapshot(
     base_url: Optional[str] = None, include_stale: bool = False
 ) -> Dict[str, Any]:
-    stops_raw: List[Dict[str, Any]] = []
+    # Run all data fetches in parallel for performance
     if is_default_transloc_base(base_url):
-        routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
-        assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
-        stops_raw = await _load_transloc_stop_sources(base_url)
+        (routes_raw, extra_routes_raw), (assigned, raw_vehicle_records), stops_raw = await asyncio.gather(
+            _load_transloc_route_sources(base_url),
+            _load_transloc_vehicle_sources(base_url),
+            _load_transloc_stop_sources(base_url),
+        )
     else:
         async with httpx.AsyncClient() as client:
-            routes_raw, extra_routes_raw = await _load_transloc_route_sources(
-                base_url, client=client
+            (routes_raw, extra_routes_raw), (assigned, raw_vehicle_records), stops_raw = await asyncio.gather(
+                _load_transloc_route_sources(base_url, client=client),
+                _load_transloc_vehicle_sources(base_url, client=client),
+                _load_transloc_stop_sources(base_url, client=client),
             )
-            assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(
-                base_url, client=client
-            )
-            stops_raw = await _load_transloc_stop_sources(base_url, client=client)
 
     metadata = await _assemble_transloc_metadata(
         base_url=base_url,
@@ -6057,36 +6059,42 @@ async def _fetch_vehicle_stop_estimates(
     if not vehicle_ids:
         return {}
 
-    try:
-        # Convert vehicle IDs to comma-separated string
-        vehicle_id_strings = ",".join(str(vid) for vid in vehicle_ids)
+    # Use cache keyed by (base_url, quantity) to avoid repeated API calls
+    cache_key = (base_url or "default", quantity)
 
-        url = build_transloc_url(base_url, "GetVehicleRouteStopEstimates")
-        params = {
-            "APIKey": TRANSLOC_KEY,
-            "quantity": quantity,
-            "vehicleIdStrings": vehicle_id_strings
-        }
+    async def fetch():
+        try:
+            # Convert vehicle IDs to comma-separated string
+            vehicle_id_strings = ",".join(str(vid) for vid in vehicle_ids)
 
-        data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+            url = build_transloc_url(base_url, "GetVehicleRouteStopEstimates")
+            params = {
+                "APIKey": TRANSLOC_KEY,
+                "quantity": quantity,
+                "vehicleIdStrings": vehicle_id_strings
+            }
 
-        # Build a dict mapping vehicle ID to estimates
-        estimates_by_vehicle = {}
-        if data and isinstance(data, dict):
-            vehicles = data.get("Vehicles", [])
-            if isinstance(vehicles, list):
-                for vehicle in vehicles:
-                    if isinstance(vehicle, dict):
-                        vid = vehicle.get("VehicleID")
-                        estimates = vehicle.get("Estimates", [])
-                        if vid is not None and isinstance(estimates, list):
-                            estimates_by_vehicle[vid] = estimates
+            data = await _proxy_transloc_get(url, params=params, base_url=base_url)
 
-        return estimates_by_vehicle
-    except Exception as e:
-        # If the estimates fetch fails, log it but don't fail the whole request
-        print(f"[vehicle_estimates] Failed to fetch stop estimates: {e}")
-        return {}
+            # Build a dict mapping vehicle ID to estimates
+            estimates_by_vehicle = {}
+            if data and isinstance(data, dict):
+                vehicles = data.get("Vehicles", [])
+                if isinstance(vehicles, list):
+                    for vehicle in vehicles:
+                        if isinstance(vehicle, dict):
+                            vid = vehicle.get("VehicleID")
+                            estimates = vehicle.get("Estimates", [])
+                            if vid is not None and isinstance(estimates, list):
+                                estimates_by_vehicle[vid] = estimates
+
+            return estimates_by_vehicle
+        except Exception as e:
+            # If the estimates fetch fails, log it but don't fail the whole request
+            print(f"[vehicle_estimates] Failed to fetch stop estimates: {e}")
+            return {}
+
+    return await transloc_vehicle_estimates_cache.get(cache_key, fetch)
 
 
 def _assemble_transloc_vehicles(
@@ -6188,10 +6196,23 @@ async def testmap_transloc_vehicles(
     base_url: Optional[str] = Query(None), stale: bool = Query(False)
 ):
     try:
-        assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
+        # Helper to fetch capacities with error handling
+        async def fetch_capacities_safe():
+            async with httpx.AsyncClient() as client:
+                try:
+                    return await fetch_vehicle_capacities(client, base_url=base_url)
+                except Exception as e:
+                    print(f"[testmap] capacity fetch error: {e}")
+                    return {}
 
-        # Load routes to build route ID to name mapping (with InfoText in parentheses)
-        routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
+        # Run all independent fetches in parallel for performance
+        (assigned, raw_vehicle_records), (routes_raw, extra_routes_raw), capacities = await asyncio.gather(
+            _load_transloc_vehicle_sources(base_url),
+            _load_transloc_route_sources(base_url),
+            fetch_capacities_safe(),
+        )
+
+        # Build route ID to name mapping (with InfoText in parentheses)
         route_id_to_name = {}
         for route in routes_raw:
             rid = route.get("RouteID") or route.get("RouteId")
@@ -6203,14 +6224,6 @@ async def testmap_transloc_vehicles(
                     route_id_to_name[rid] = f"{route_name} ({info_text.strip()})"
                 else:
                     route_id_to_name[rid] = route_name
-
-        # Fetch capacities using the provided base_url
-        async with httpx.AsyncClient() as client:
-            try:
-                capacities = await fetch_vehicle_capacities(client, base_url=base_url)
-            except Exception as e:
-                print(f"[testmap] capacity fetch error: {e}")
-                capacities = {}
 
         # Extract vehicle IDs for fetching stop estimates
         vehicle_ids = []
