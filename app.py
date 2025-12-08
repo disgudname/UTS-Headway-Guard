@@ -4889,6 +4889,12 @@ async def _fetch_vehicle_drivers():
     Returns blocks the way WhenToWork does: individual blocks without interlining.
     Each vehicle is mapped to its current raw block assignment and corresponding driver(s).
 
+    For interlined blocks (e.g., "[05]/[03]" from TransLoc), creates separate entries
+    for each block number to match WhenToWork's separate tracking:
+    - First block uses vehicle_id as the key (e.g., vehicle_id -> "[05]")
+    - Additional blocks use composite keys (e.g., "{vehicle_id}_03" -> "[03]")
+    - Each entry includes the vehicle_id field for lookup
+
     Handles overlapping shifts: When shifts overlap (e.g., during driver swaps), the
     "drivers" array will contain multiple entries sorted by shift start time
     (outgoing driver first, incoming driver second).
@@ -4936,33 +4942,66 @@ async def _fetch_vehicle_drivers():
         # For interlined blocks: "[05]/[03]" -> ["05", "03"]
         block_numbers = _split_interlined_blocks(block_name)
 
-        # Collect drivers from ALL blocks in the interline
-        # For interlined blocks like "[05]/[03]", this ensures we match drivers
-        # from both block 05 and block 03 (important when W2W lists them separately)
-        current_drivers = []
-        for block_number in block_numbers:
-            block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
-            current_drivers.extend(block_drivers)
-
         # Get the vehicle name (may be None if not found)
         vehicle_name = vehicle_names.get(vehicle_id)
 
-        # Build drivers array with all current drivers (handles overlapping shifts)
-        drivers_list = []
-        for driver in current_drivers:
-            drivers_list.append({
-                "name": driver["name"],
-                "shift_start": driver["start_ts"],
-                "shift_start_label": driver["start_label"],
-                "shift_end": driver["end_ts"],
-                "shift_end_label": driver["end_label"],
-            })
+        # For interlined blocks, create separate entries for each block
+        # This matches how WhenToWork lists them separately
+        # For example, "[05]/[03]" creates entries for both "[05]" and "[03]"
+        if len(block_numbers) > 1:
+            # Interlined block - create separate entry for each block number
+            for idx, block_number in enumerate(block_numbers):
+                # Collect drivers for this specific block
+                block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+                
+                # Build drivers array for this block
+                drivers_list = []
+                for driver in block_drivers:
+                    drivers_list.append({
+                        "name": driver["name"],
+                        "shift_start": driver["start_ts"],
+                        "shift_start_label": driver["start_label"],
+                        "shift_end": driver["end_ts"],
+                        "shift_end_label": driver["end_label"],
+                    })
 
-        vehicle_drivers[vehicle_id] = {
-            "block": block_name,
-            "drivers": drivers_list,
-            "vehicle_name": vehicle_name,
-        }
+                # For the first block, use vehicle_id as key (for frontend compatibility)
+                # For additional blocks, use composite key to avoid overwriting
+                if idx == 0:
+                    entry_key = vehicle_id
+                else:
+                    entry_key = f"{vehicle_id}_{block_number}"
+                
+                vehicle_drivers[entry_key] = {
+                    "block": f"[{block_number}]",
+                    "drivers": drivers_list,
+                    "vehicle_name": vehicle_name,
+                    "vehicle_id": vehicle_id,  # Include vehicle_id for lookup
+                }
+        else:
+            # Single block - create one entry as before
+            block_number = block_numbers[0] if block_numbers else None
+            if block_number:
+                # Collect drivers for this block
+                block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+                
+                # Build drivers array with all current drivers (handles overlapping shifts)
+                drivers_list = []
+                for driver in block_drivers:
+                    drivers_list.append({
+                        "name": driver["name"],
+                        "shift_start": driver["start_ts"],
+                        "shift_start_label": driver["start_label"],
+                        "shift_end": driver["end_ts"],
+                        "shift_end_label": driver["end_label"],
+                    })
+
+                vehicle_drivers[vehicle_id] = {
+                    "block": block_name,
+                    "drivers": drivers_list,
+                    "vehicle_name": vehicle_name,
+                    "vehicle_id": vehicle_id,  # Include vehicle_id for consistency
+                }
 
     # Process ondemand vehicles
     # Get ondemand client and fetch vehicle data
@@ -5040,6 +5079,12 @@ async def dispatch_vehicle_drivers(request: Request):
     Blocks are returned as individual raw blocks (e.g., "[01]", "[04]") matching the way
     WhenToWork tracks them, NOT as interlined blocks (e.g., "[01]/[04]").
 
+    For interlined blocks from TransLoc (e.g., "[05]/[03]"), creates separate entries
+    for each block number:
+    - First block uses vehicle_id as the key (e.g., "123" -> "[05]")
+    - Additional blocks use composite keys (e.g., "123_03" -> "[03]")
+    - Each entry includes vehicle_id field for lookup
+
     Handles overlapping shifts: When driver shifts overlap (e.g., during handoffs),
     the "drivers" array will contain multiple entries sorted by shift start time
     (outgoing driver first, incoming driver second).
@@ -5064,12 +5109,20 @@ async def dispatch_vehicle_drivers(request: Request):
                             "shift_end_label": "10a"
                         }
                     ],
-                    "vehicle_name": "Bus 123"
+                    "vehicle_name": "Bus 123",
+                    "vehicle_id": "123"
                 },
                 "456": {
                     "block": "[05]",
                     "drivers": [],  // No drivers currently assigned
-                    "vehicle_name": "Bus 456"
+                    "vehicle_name": "Bus 456",
+                    "vehicle_id": "456"
+                },
+                "456_03": {
+                    "block": "[03]",
+                    "drivers": [],
+                    "vehicle_name": "Bus 456",
+                    "vehicle_id": "456"
                 },
                 "789": {
                     "block": "[02]",
