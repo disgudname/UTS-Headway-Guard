@@ -14169,15 +14169,48 @@ ${trainPlaneMarkup}
               ].join(''));
           }
 
-          // Driver section
+          // Driver section - handles both single and overlapping shifts
           const driverInfo = cachedVehicleDrivers[vehicleID];
-          if (driverInfo && driverInfo.driver) {
-              popupSections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Driver</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(driverInfo.driver)}</div>`,
-                  '</div>'
-              ].join(''));
+          if (driverInfo && Array.isArray(driverInfo.drivers) && driverInfo.drivers.length > 0) {
+              const drivers = driverInfo.drivers;
+
+              if (drivers.length === 1) {
+                  // Single driver - display normally
+                  const driver = drivers[0];
+                  popupSections.push([
+                      '<div class="ondemand-driver-popup__section">',
+                      '<div class="ondemand-driver-popup__label">Driver</div>',
+                      `<div class="ondemand-driver-popup__value">${escapeHtml(driver.name)}</div>`,
+                      '</div>'
+                  ].join(''));
+              } else {
+                  // Multiple drivers - overlapping shift scenario
+                  const driversHtml = drivers.map((driver, index) => {
+                      const isOutgoing = index === 0;
+                      const label = isOutgoing ? 'Outgoing' : 'Incoming';
+                      const timeLabel = isOutgoing ? driver.shift_end_label : driver.shift_start_label;
+                      const timePrefix = isOutgoing ? 'Off at' : 'On at';
+
+                      return [
+                          '<div class="bus-popup__driver-row">',
+                          `<div class="bus-popup__driver-name">${escapeHtml(driver.name)}</div>`,
+                          `<div class="bus-popup__driver-meta">`,
+                          `<span class="bus-popup__driver-label">${label}</span>`,
+                          ` • ${timePrefix} ${escapeHtml(timeLabel)}`,
+                          `</div>`,
+                          '</div>'
+                      ].join('');
+                  }).join('');
+
+                  popupSections.push([
+                      '<div class="ondemand-driver-popup__section">',
+                      '<div class="ondemand-driver-popup__label">Drivers (Shift Change)</div>',
+                      '<div class="bus-popup__drivers-list">',
+                      driversHtml,
+                      '</div>',
+                      '</div>'
+                  ].join(''));
+              }
           }
 
           // Capacity section with progress bar

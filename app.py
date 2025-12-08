@@ -4742,13 +4742,17 @@ def _split_interlined_blocks(block_name: str) -> List[str]:
     return result
 
 
-def _find_current_driver(
+def _find_current_drivers(
     block_number: str,
     assignments_by_block: Dict[str, Dict[str, List[Dict[str, Any]]]],
     now_ts: int
-) -> Optional[Dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     """
-    Find the driver currently assigned to a block based on time windows.
+    Find all drivers currently assigned to a block based on time windows.
+
+    Handles overlapping shifts (e.g., during driver swaps where shifts may overlap
+    by 15-30 minutes). Returns all active drivers sorted by shift start time
+    (outgoing driver first, incoming driver second).
 
     Args:
         block_number: Zero-padded block number like "01" or "20"
@@ -4756,12 +4760,14 @@ def _find_current_driver(
         now_ts: Current timestamp in milliseconds
 
     Returns:
-        Driver assignment dict with name, shift_end, etc., or None if no active driver
+        List of driver assignment dicts, sorted by start_ts (earliest first).
+        Returns empty list if no active drivers.
     """
     if block_number not in assignments_by_block:
-        return None
+        return []
 
     periods_dict = assignments_by_block[block_number]
+    matching_drivers = []
 
     # Check all periods (am, pm, any)
     for period, drivers in periods_dict.items():
@@ -4771,9 +4777,35 @@ def _find_current_driver(
 
             # Check if current time is within this driver's shift
             if start_ts <= now_ts < end_ts:
-                return driver
+                matching_drivers.append(driver)
 
-    return None
+    # Sort by start time (outgoing driver first)
+    matching_drivers.sort(key=lambda d: d.get("start_ts", 0))
+
+    return matching_drivers
+
+
+def _find_current_driver(
+    block_number: str,
+    assignments_by_block: Dict[str, Dict[str, List[Dict[str, Any]]]],
+    now_ts: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Find the driver currently assigned to a block based on time windows.
+
+    DEPRECATED: Use _find_current_drivers() for overlap support.
+    This function is maintained for backward compatibility with tests.
+
+    Args:
+        block_number: Zero-padded block number like "01" or "20"
+        assignments_by_block: W2W assignments structure from _build_driver_assignments
+        now_ts: Current timestamp in milliseconds
+
+    Returns:
+        Driver assignment dict with name, shift_end, etc., or None if no active driver
+    """
+    drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+    return drivers[0] if drivers else None
 
 
 def _normalize_driver_name(name: str) -> str:
@@ -4845,7 +4877,7 @@ def _find_ondemand_driver_by_name(
 
 async def _fetch_vehicle_drivers():
     """
-    Build a mapping of vehicle_id -> {block, driver, shift_start, shift_start_label, shift_end, shift_end_label, vehicle_name}.
+    Build a mapping of vehicle_id -> {block, drivers, vehicle_name}.
 
     This joins:
     1. TransLoc blocks (vehicle_id -> raw block like "[01]" or "[04]")
@@ -4854,7 +4886,11 @@ async def _fetch_vehicle_drivers():
     4. OnDemand vehicles with driver names (matched by name to W2W assignments)
 
     Returns blocks the way WhenToWork does: individual blocks without interlining.
-    Each vehicle is mapped to its current raw block assignment and the corresponding driver.
+    Each vehicle is mapped to its current raw block assignment and corresponding driver(s).
+
+    Handles overlapping shifts: When shifts overlap (e.g., during driver swaps), the
+    "drivers" array will contain multiple entries sorted by shift start time
+    (outgoing driver first, incoming driver second).
 
     For ondemand vehicles:
     - Driver names from ondemand positions are matched with W2W "OnDemand Driver" or "OnDemand EB" positions
@@ -4899,35 +4935,30 @@ async def _fetch_vehicle_drivers():
 
         # Since we're using raw blocks, there should only be one block number
         # But we'll use the splitting logic to handle the extraction safely
-        current_driver = None
+        current_drivers = []
         if block_numbers:
             block_number = block_numbers[0]
-            current_driver = _find_current_driver(block_number, assignments_by_block, now_ts)
+            current_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
 
         # Get the vehicle name (may be None if not found)
         vehicle_name = vehicle_names.get(vehicle_id)
 
-        if current_driver:
-            vehicle_drivers[vehicle_id] = {
-                "block": block_name,
-                "driver": current_driver["name"],
-                "shift_start": current_driver["start_ts"],
-                "shift_start_label": current_driver["start_label"],
-                "shift_end": current_driver["end_ts"],
-                "shift_end_label": current_driver["end_label"],
-                "vehicle_name": vehicle_name,
-            }
-        else:
-            # Vehicle has a block but no current driver assigned
-            vehicle_drivers[vehicle_id] = {
-                "block": block_name,
-                "driver": None,
-                "shift_start": None,
-                "shift_start_label": None,
-                "shift_end": None,
-                "shift_end_label": None,
-                "vehicle_name": vehicle_name,
-            }
+        # Build drivers array with all current drivers (handles overlapping shifts)
+        drivers_list = []
+        for driver in current_drivers:
+            drivers_list.append({
+                "name": driver["name"],
+                "shift_start": driver["start_ts"],
+                "shift_start_label": driver["start_label"],
+                "shift_end": driver["end_ts"],
+                "shift_end_label": driver["end_label"],
+            })
+
+        vehicle_drivers[vehicle_id] = {
+            "block": block_name,
+            "drivers": drivers_list,
+            "vehicle_name": vehicle_name,
+        }
 
     # Process ondemand vehicles
     # Get ondemand client and fetch vehicle data
@@ -4971,13 +5002,19 @@ async def _fetch_vehicle_drivers():
 
                 # Only include vehicles where the driver appears in both ondemand and W2W
                 if matched_driver:
-                    vehicle_drivers[vehicle_id_str] = {
-                        "block": matched_driver["block"],
-                        "driver": matched_driver["name"],
+                    # OnDemand drivers typically don't have overlapping shifts,
+                    # but we use the same structure for consistency
+                    drivers_list = [{
+                        "name": matched_driver["name"],
                         "shift_start": matched_driver["start_ts"],
                         "shift_start_label": matched_driver["start_label"],
                         "shift_end": matched_driver["end_ts"],
                         "shift_end_label": matched_driver["end_label"],
+                    }]
+
+                    vehicle_drivers[vehicle_id_str] = {
+                        "block": matched_driver["block"],
+                        "drivers": drivers_list,
                         "vehicle_name": vehicle_name,
                     }
 
@@ -4999,6 +5036,10 @@ async def dispatch_vehicle_drivers(request: Request):
     Blocks are returned as individual raw blocks (e.g., "[01]", "[04]") matching the way
     WhenToWork tracks them, NOT as interlined blocks (e.g., "[01]/[04]").
 
+    Handles overlapping shifts: When driver shifts overlap (e.g., during handoffs),
+    the "drivers" array will contain multiple entries sorted by shift start time
+    (outgoing driver first, incoming driver second).
+
     Also includes ondemand vehicles, but ONLY if their driver appears in both the
     ondemand positions AND W2W assignments. OnDemand vehicles use block names
     "OnDemand Driver" or "OnDemand EB" based on their W2W position assignments.
@@ -5010,29 +5051,53 @@ async def dispatch_vehicle_drivers(request: Request):
             "vehicle_drivers": {
                 "123": {
                     "block": "[01]",
-                    "driver": "John Doe",
-                    "shift_start": <timestamp_ms>,
-                    "shift_start_label": "6a",
-                    "shift_end": <timestamp_ms>,
-                    "shift_end_label": "8a",
+                    "drivers": [
+                        {
+                            "name": "John Doe",
+                            "shift_start": <timestamp_ms>,
+                            "shift_start_label": "6a",
+                            "shift_end": <timestamp_ms>,
+                            "shift_end_label": "10a"
+                        }
+                    ],
                     "vehicle_name": "Bus 123"
                 },
                 "456": {
                     "block": "[05]",
-                    "driver": null,  // No driver currently assigned
-                    "shift_start": null,
-                    "shift_start_label": null,
-                    "shift_end": null,
-                    "shift_end_label": null,
+                    "drivers": [],  // No drivers currently assigned
                     "vehicle_name": "Bus 456"
                 },
                 "789": {
+                    "block": "[02]",
+                    "drivers": [
+                        {
+                            "name": "Outgoing Driver",
+                            "shift_start": <timestamp_ms>,
+                            "shift_start_label": "6a",
+                            "shift_end": <timestamp_ms>,
+                            "shift_end_label": "10a"
+                        },
+                        {
+                            "name": "Incoming Driver",
+                            "shift_start": <timestamp_ms>,
+                            "shift_start_label": "9:45a",
+                            "shift_end": <timestamp_ms>,
+                            "shift_end_label": "6p"
+                        }
+                    ],  // Overlapping shift during driver swap
+                    "vehicle_name": "Bus 789"
+                },
+                "999": {
                     "block": "OnDemand Driver",
-                    "driver": "Jane Smith",
-                    "shift_start": <timestamp_ms>,
-                    "shift_start_label": "8a",
-                    "shift_end": <timestamp_ms>,
-                    "shift_end_label": "5p",
+                    "drivers": [
+                        {
+                            "name": "Jane Smith",
+                            "shift_start": <timestamp_ms>,
+                            "shift_start_label": "8a",
+                            "shift_end": <timestamp_ms>,
+                            "shift_end_label": "5p"
+                        }
+                    ],
                     "vehicle_name": "OnDemand 1"
                 }
             }

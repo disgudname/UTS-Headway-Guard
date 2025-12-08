@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app import (
     _split_interlined_blocks,
     _find_current_driver,
+    _find_current_drivers,
     _normalize_driver_name,
     _find_ondemand_driver_by_name,
     _extract_block_from_position_name,
@@ -170,6 +171,79 @@ class TestFindCurrentDriver(unittest.TestCase):
         # Should get PM driver or None, not AM driver
         if driver:
             self.assertNotEqual(driver["name"], "John Doe")
+
+    def test_overlapping_shifts(self):
+        """Test handling of overlapping driver shifts (driver swap scenario)."""
+        # Scenario: Two drivers overlap 9:45 AM - 10:00 AM
+        # Outgoing driver: 6:00 AM - 10:00 AM
+        # Incoming driver: 9:45 AM - 6:00 PM
+        # At 9:50 AM, both should be active
+
+        overlap_time = datetime(2025, 12, 7, 9, 50, tzinfo=self.tz)  # 9:50 AM
+        overlap_ts = int(overlap_time.timestamp() * 1000)
+
+        outgoing_start = datetime(2025, 12, 7, 6, 0, tzinfo=self.tz)
+        outgoing_end = datetime(2025, 12, 7, 10, 0, tzinfo=self.tz)
+        incoming_start = datetime(2025, 12, 7, 9, 45, tzinfo=self.tz)
+        incoming_end = datetime(2025, 12, 7, 18, 0, tzinfo=self.tz)
+
+        assignments_with_overlap = {
+            "05": {
+                "am": [
+                    {
+                        "name": "Outgoing Driver",
+                        "start_ts": int(outgoing_start.timestamp() * 1000),
+                        "end_ts": int(outgoing_end.timestamp() * 1000),
+                        "start_label": "6a",
+                        "end_label": "10a",
+                        "color_id": "0"
+                    },
+                    {
+                        "name": "Incoming Driver",
+                        "start_ts": int(incoming_start.timestamp() * 1000),
+                        "end_ts": int(incoming_end.timestamp() * 1000),
+                        "start_label": "9:45a",
+                        "end_label": "6p",
+                        "color_id": "1"
+                    }
+                ]
+            }
+        }
+
+        # Test the new plural function - should return both drivers
+        drivers = _find_current_drivers("05", assignments_with_overlap, overlap_ts)
+        self.assertEqual(len(drivers), 2)
+
+        # Verify they're sorted by start time (outgoing first, incoming second)
+        self.assertEqual(drivers[0]["name"], "Outgoing Driver")
+        self.assertEqual(drivers[1]["name"], "Incoming Driver")
+
+        # Verify shift times are preserved
+        self.assertEqual(drivers[0]["start_ts"], int(outgoing_start.timestamp() * 1000))
+        self.assertEqual(drivers[0]["end_ts"], int(outgoing_end.timestamp() * 1000))
+        self.assertEqual(drivers[1]["start_ts"], int(incoming_start.timestamp() * 1000))
+        self.assertEqual(drivers[1]["end_ts"], int(incoming_end.timestamp() * 1000))
+
+        # Test backward compatibility - _find_current_driver should return first driver
+        driver = _find_current_driver("05", assignments_with_overlap, overlap_ts)
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "Outgoing Driver")
+
+    def test_no_overlap_sequential_shifts(self):
+        """Test non-overlapping sequential shifts."""
+        # Scenario: Clean handoff at exactly 12:00 PM
+        # Morning driver: 6:00 AM - 12:00 PM
+        # Afternoon driver: 12:00 PM - 6:00 PM
+        # At 11:59 AM, only morning driver
+        # At 12:00 PM, only afternoon driver
+
+        just_before_noon = datetime(2025, 12, 7, 11, 59, tzinfo=self.tz)
+        before_ts = int(just_before_noon.timestamp() * 1000)
+
+        # At 11:59, should get morning driver
+        driver = _find_current_driver("01", self.assignments_by_block, before_ts)
+        self.assertIsNotNone(driver)
+        self.assertEqual(driver["name"], "John Doe")
 
 
 class TestRawBlockMapping(unittest.TestCase):
