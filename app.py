@@ -5806,9 +5806,34 @@ def _parse_block_time_today(time_str: str, date: datetime) -> Optional[int]:
         return None
 
 
+def _extract_block_numbers_from_group_id(block_group_id: str) -> List[str]:
+    """
+    Extract all block numbers from a BlockGroupId.
+
+    Examples:
+        "[20]/[10]" -> ["20", "10"]
+        "[21]/[16] AM" -> ["21", "16"]
+        "[16] PM" -> ["16"]
+
+    Returns:
+        List of block numbers as strings, zero-padded to 2 digits, in order of appearance
+    """
+    if not block_group_id:
+        return []
+
+    # Find all block numbers in brackets
+    matches = re.findall(r'\[(\d{1,2})\]', block_group_id)
+
+    # Zero-pad to 2 digits
+    return [str(int(num)).zfill(2) for num in matches]
+
+
 def _infer_block_number_from_route(route_info: Dict[str, Any], block_group_id: str) -> Optional[str]:
     """
     Infer the specific block number from route information within an interlined block.
+
+    DEPRECATED: This function uses hardcoded route-to-block mappings which are unreliable.
+    The new approach in _build_block_mapping_with_times uses chronological ordering instead.
 
     For interlined blocks like "[20]/[10]", different trips correspond to different
     block numbers based on the route they operate on.
@@ -5825,7 +5850,8 @@ def _infer_block_number_from_route(route_info: Dict[str, Any], block_group_id: s
     route_name_lower = route_name.lower()
 
     # Map route name patterns to block numbers
-    # Based on observed patterns: Red Line = [20], Gold/Yellow Line = [10], Blue Line = [16], etc.
+    # NOTE: These mappings are fragile and route names can appear in multiple block groups
+    # with different block numbers. Use chronological ordering for interlined blocks instead.
     if "red line" in route_name_lower:
         return "20"
     elif "gold line" in route_name_lower or "yellow line" in route_name_lower:
@@ -5910,31 +5936,25 @@ def _build_block_mapping_with_times(
         # For interlined blocks, parse each Block separately to determine specific block numbers
         # For non-interlined blocks, use the block_group_id directly
         if is_interlined:
-            # Parse trip-level data to infer specific block numbers
-            for block in blocks:
-                # Get route information from the Block
-                route_info = block.get("Route") or {}
+            # Extract block numbers from BlockGroupId in order
+            available_block_numbers = _extract_block_numbers_from_group_id(block_group_id)
 
-                # Collect vehicle IDs from trips in this block
-                vehicle_ids_for_block: Set[str] = set(group_vehicle_ids)
+            # Collect all vehicle IDs for this block group
+            vehicle_ids_for_group: Set[str] = set(group_vehicle_ids)
+            for block in blocks:
                 trips = block.get("Trips") or []
                 for trip in trips:
                     trip_vid = trip.get("VehicleID") or trip.get("VehicleId")
                     if trip_vid is not None and trip_vid != 0:
-                        vehicle_ids_for_block.add(str(trip_vid))
+                        vehicle_ids_for_group.add(str(trip_vid))
 
-                # Skip if no vehicles assigned
-                if not vehicle_ids_for_block:
-                    continue
+            # Skip if no vehicles assigned
+            if not vehicle_ids_for_group:
+                continue
 
-                # Try to infer the specific block number from route information
-                # Use trip-level route info if block-level isn't available
-                if not route_info and trips:
-                    route_info = trips[0]  # Use first trip's route info
-
-                specific_block_num = _infer_block_number_from_route(route_info, block_group_id)
-
-                # Extract time window from block-level timing
+            # Collect all blocks with their timing info and route names
+            blocks_with_timing = []
+            for block in blocks:
                 block_start_str = block.get("BlockStartTime")
                 block_end_str = block.get("BlockEndTime")
                 start_ts: Optional[int] = None
@@ -5945,24 +5965,55 @@ def _build_block_mapping_with_times(
                 if block_end_str:
                     end_ts = _parse_block_time_today(block_end_str, reference_date)
 
-                # If we successfully inferred a specific block number, format it with brackets
-                # Otherwise fall back to the full interlined block_group_id
-                if specific_block_num:
+                # Get route info for diagnostic logging
+                route_info = block.get("Route") or {}
+                route_name = route_info.get("RouteName") or route_info.get("Description") or "Unknown"
+
+                blocks_with_timing.append({
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "start_str": block_start_str,
+                    "end_str": block_end_str,
+                    "route_name": route_name
+                })
+
+            # Sort blocks by start time (chronological order)
+            # Blocks without start times go to the end
+            blocks_with_timing.sort(key=lambda b: b["start_ts"] if b["start_ts"] is not None else float('inf'))
+
+            # Assign block numbers based on chronological order
+            # First block (earliest) gets first number, second block gets second number, etc.
+            # Special case: If there's only ONE block but multiple block numbers in the ID,
+            # we can't determine which specific block it is, so use the full BlockGroupId
+            use_full_group_id = (len(blocks_with_timing) == 1 and len(available_block_numbers) > 1)
+
+            for idx, block_data in enumerate(blocks_with_timing):
+                # Only assign block numbers if we have timing info and enough block numbers
+                specific_block_num = None
+                if use_full_group_id:
+                    # Can't determine specific block when there's only one Block but multiple numbers
+                    block_to_use = block_group_id
+                elif block_data["start_ts"] is not None and idx < len(available_block_numbers):
+                    specific_block_num = available_block_numbers[idx]
                     block_to_use = f"[{specific_block_num}]"
                 else:
+                    # Fall back to full block_group_id if we can't determine specific block
                     block_to_use = block_group_id
 
+                start_ts = block_data["start_ts"]
+                end_ts = block_data["end_ts"]
+                route_name = block_data["route_name"]
+
                 # Diagnostic logging for first few interlined blocks
-                if specific_block_num and len(mapping) < 3 and vehicle_ids_for_block:
+                if specific_block_num and len(mapping) < 3 and vehicle_ids_for_group:
                     tz = ZoneInfo("America/New_York")
-                    route_name = route_info.get("RouteName") or route_info.get("Description") or "Unknown"
                     if start_ts and end_ts:
                         start_dt = datetime.fromtimestamp(start_ts / 1000, tz)
                         end_dt = datetime.fromtimestamp(end_ts / 1000, tz)
-                        print(f"[vehicle_drivers] Interlined {block_group_id} -> Block [{specific_block_num}] ({route_name}) for vehicle {list(vehicle_ids_for_block)[0]}: {start_dt} - {end_dt}")
+                        print(f"[vehicle_drivers] Interlined {block_group_id} -> Block [{specific_block_num}] ({route_name}) for vehicle {list(vehicle_ids_for_group)[0]}: {start_dt} - {end_dt} (chronological order)")
 
                 # Add this specific block to all associated vehicles
-                for vid_str in vehicle_ids_for_block:
+                for vid_str in vehicle_ids_for_group:
                     if vid_str not in mapping:
                         mapping[vid_str] = []
                     mapping[vid_str].append((block_to_use, start_ts, end_ts))
