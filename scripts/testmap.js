@@ -14512,36 +14512,34 @@ ${trainPlaneMarkup}
 
       function buildBusPopupContent(vehicleID, busName) {
           const popupSections = [];
-
-          // Vehicle section
-          if (busName) {
-              popupSections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">VEHICLE</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(busName)}</div>`,
-                  '</div>'
-              ].join(''));
-          }
-
-          // Block section (only for regular buses, not ondemand)
           const driverInfo = cachedVehicleDrivers[vehicleID];
           const isOnDemand = typeof isOnDemandVehicleId === 'function' && isOnDemandVehicleId(vehicleID);
-          if (!isOnDemand && driverInfo && driverInfo.block) {
-              popupSections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">BLOCK</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(driverInfo.block)}</div>`,
-                  '</div>'
-              ].join(''));
-          }
-
-          // Route section
           const state = busMarkerStates[vehicleID];
-          if (state && state.routeName) {
+
+          // Combined Route/Block/Vehicle card
+          const routeName = state && state.routeName ? state.routeName : null;
+          const blockName = !isOnDemand && driverInfo && driverInfo.block ? driverInfo.block : null;
+          const routeColor = state && state.fillColor ? state.fillColor : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+
+          if (routeName || blockName || busName) {
+              const cardLines = [];
+              if (routeName) {
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${escapeHtml(routeName)}</div>`);
+              }
+              if (blockName) {
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">Block ${escapeHtml(blockName)}</div>`);
+              }
+              if (busName) {
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--vehicle">${escapeHtml(busName)}</div>`);
+              }
+
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">ROUTE</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(state.routeName)}</div>`,
+                  '<div class="bus-popup__drivers-list">',
+                  `<div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color: ${routeColor};">`,
+                  cardLines.join(''),
+                  '</div>',
+                  '</div>',
                   '</div>'
               ].join(''));
           }

@@ -2074,5 +2074,27 @@
       .bus-popup__driver-row--single {
         border-left: 3px solid rgba(34, 197, 94, 0.6);
       }
+      /* Vehicle/Block/Route info card */
+      .bus-popup__info-card {
+        border-left: 3px solid;
+      }
+      .bus-popup__info-line {
+        line-height: 1.4;
+      }
+      .bus-popup__info-line--route {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1f2937;
+      }
+      .bus-popup__info-line--block {
+        font-size: 12px;
+        font-weight: 600;
+        color: #4b5563;
+      }
+      .bus-popup__info-line--vehicle {
+        font-size: 12px;
+        font-weight: 600;
+        color: #6b7280;
+      }
 
 
