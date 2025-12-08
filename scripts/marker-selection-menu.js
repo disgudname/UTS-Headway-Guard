@@ -6,8 +6,8 @@
 
     // Configuration
     const OVERLAP_THRESHOLD_PX = 40; // Pixels to consider markers overlapping
-    const MENU_ITEM_SIZE = 50; // Size of each menu circle
-    const MENU_RADIUS = 80; // Radius of the circular menu
+    const MENU_ITEM_SIZE = 120; // Size of each menu circle
+    const MENU_RADIUS = 140; // Radius of the circular menu
     const MIN_ITEMS_FOR_MENU = 2; // Minimum overlapping items to show menu
 
     let map = null;
@@ -192,7 +192,7 @@
             border: 3px solid rgba(255, 255, 255, 0.9);
             color: #ffffff;
             font-family: 'FGDC', sans-serif;
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 700;
             text-align: center;
             cursor: pointer;
@@ -202,9 +202,11 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 4px;
-            line-height: 1.1;
+            padding: 8px;
+            line-height: 1.2;
             word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
             overflow: hidden;
         `;
 
@@ -216,8 +218,13 @@
         label.style.cssText = `
             display: block;
             max-width: 100%;
+            width: 100%;
             overflow: hidden;
-            text-overflow: ellipsis;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+            line-height: 1.2;
         `;
         itemEl.appendChild(label);
 
