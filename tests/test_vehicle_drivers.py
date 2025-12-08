@@ -791,7 +791,7 @@ class TestSelectCurrentOrNextBlock(unittest.TestCase):
         self.assertEqual(result, "[21]/[16] AM")
 
     def test_next_block(self):
-        """Test selecting next upcoming block when no current block."""
+        """Test that no block is returned when between shifts (no current block)."""
         tz = ZoneInfo("America/New_York")
         now = datetime(2025, 12, 7, 12, 30, tzinfo=tz)  # 12:30 PM (between shifts)
         now_ts = int(now.timestamp() * 1000)
@@ -810,7 +810,8 @@ class TestSelectCurrentOrNextBlock(unittest.TestCase):
         ]
 
         result = _select_current_or_next_block(blocks_with_times, now_ts)
-        self.assertEqual(result, "[16] PM")
+        # Should return None since no block is currently active (prevents duplicate assignments)
+        self.assertIsNone(result)
 
     def test_no_current_or_future_blocks(self):
         """Test when all blocks are in the past."""
@@ -835,7 +836,7 @@ class TestSelectCurrentOrNextBlock(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_early_morning_before_first_block(self):
-        """Test very early morning before first block starts."""
+        """Test that no block is returned before first block starts."""
         tz = ZoneInfo("America/New_York")
         now = datetime(2025, 12, 7, 3, 0, tzinfo=tz)  # 3:00 AM (before morning block)
         now_ts = int(now.timestamp() * 1000)
@@ -849,7 +850,8 @@ class TestSelectCurrentOrNextBlock(unittest.TestCase):
         ]
 
         result = _select_current_or_next_block(blocks_with_times, now_ts)
-        self.assertEqual(result, "[21]/[16] AM")
+        # Should return None since block hasn't started yet (prevents duplicate assignments)
+        self.assertIsNone(result)
 
     def test_empty_blocks_list(self):
         """Test with empty blocks list."""

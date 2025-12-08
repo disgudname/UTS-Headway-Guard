@@ -5834,21 +5834,25 @@ def _select_current_or_next_block(
     now_ts: int
 ) -> Optional[str]:
     """
-    Select the current block if active, otherwise the next upcoming block.
-    Never returns past blocks.
+    Select the currently active block based on time windows.
+    Only returns blocks where start_ts <= now_ts < end_ts.
+    Does not return future or past blocks.
+
+    This ensures that vehicles only show blocks and drivers when they are
+    actually active, preventing duplicate block assignments when a vehicle
+    will run the same block later in the day.
 
     Args:
         blocks_with_times: List of (block_name, start_ts_ms, end_ts_ms) tuples
         now_ts: Current timestamp in milliseconds
 
     Returns:
-        Block name, or None if no current/future blocks
+        Block name if currently active, or None if no active block
     """
     if not blocks_with_times:
         return None
 
     current_blocks = []
-    future_blocks = []
 
     for block_name, start_ts, end_ts in blocks_with_times:
         # Skip blocks without time information
@@ -5858,23 +5862,14 @@ def _select_current_or_next_block(
         # Check if block is currently active
         if start_ts <= now_ts < end_ts:
             current_blocks.append((block_name, start_ts, end_ts))
-        # Check if block is in the future
-        elif start_ts > now_ts:
-            future_blocks.append((block_name, start_ts, end_ts))
 
-    # Prefer current block
+    # Return current block if found
     if current_blocks:
         # If multiple current blocks (shouldn't happen), return the one that started first
         current_blocks.sort(key=lambda x: x[1])  # Sort by start_ts
         return current_blocks[0][0]
 
-    # Otherwise, return next upcoming block
-    if future_blocks:
-        # Sort by start time and return the earliest
-        future_blocks.sort(key=lambda x: x[1])
-        return future_blocks[0][0]
-
-    # No current or future blocks
+    # No currently active block
     return None
 
 
