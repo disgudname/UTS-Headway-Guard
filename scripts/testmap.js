@@ -12178,7 +12178,11 @@ ${trainPlaneMarkup}
               const fallbackStopIdRaw = normalizeIdentifier(stop.StopID ?? stop.StopId);
               const { routeIds, catRouteKeys } = collectRouteIdsForStop(stop);
               let matchesTransloc = false;
-              if (selectedRouteIdsSet.size > 0 && routeIds.size > 0) {
+              if (selectedRouteIdsSet.size === 0) {
+                  // No routes selected, show all stops that have route IDs
+                  matchesTransloc = routeIds.size > 0;
+              } else if (routeIds.size > 0) {
+                  // Routes are selected, check if stop matches any of them
                   for (const routeId of routeIds) {
                       if (selectedRouteIdsSet.has(routeId)) {
                           matchesTransloc = true;
