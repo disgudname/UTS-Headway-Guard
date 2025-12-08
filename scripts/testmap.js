@@ -5551,6 +5551,7 @@ schedulePlaneStyleOverride();
         fetchRouteColors();
         fetchBusStops();
         fetchBlockAssignments();
+        fetchVehicleDrivers();
         fetchBusLocations().then(() => fetchRoutePaths());
         fetchStopArrivalTimes()
           .then(allEtas => {
@@ -10181,6 +10182,9 @@ ${trainPlaneMarkup}
           if (!refreshIntervalsPaused && pageIsVisible) fetchBlockAssignments();
         }, 60000));
         refreshIntervals.push(setInterval(() => {
+          if (!refreshIntervalsPaused && pageIsVisible) fetchVehicleDrivers();
+        }, 60000));
+        refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) {
             fetchStopArrivalTimes().then(allEtas => {
               cachedEtas = allEtas;
@@ -10275,6 +10279,7 @@ ${trainPlaneMarkup}
           const tasks = [
             fetchBusStops(),
             fetchBlockAssignments(),
+            fetchVehicleDrivers(),
             headingCachePromise.then(() => fetchBusLocations().then(() => fetchRoutePaths())),
             stopArrivalsPromise
           ];
