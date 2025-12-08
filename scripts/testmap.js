@@ -14012,11 +14012,19 @@ ${trainPlaneMarkup}
           }
           const currentBaseURL = baseURL;
           try {
-              const snapshot = await loadTranslocSnapshot();
+              // Fetch vehicle-drivers data to get block assignments
+              await fetchVehicleDrivers();
               if (currentBaseURL !== baseURL) return;
-              const mapping = snapshot?.blocks && typeof snapshot.blocks === 'object'
-                  ? snapshot.blocks
-                  : {};
+
+              // Transform vehicle_drivers data into busBlocks format
+              const mapping = {};
+              if (cachedVehicleDrivers && typeof cachedVehicleDrivers === 'object') {
+                  for (const [vehicleId, driverInfo] of Object.entries(cachedVehicleDrivers)) {
+                      if (driverInfo && typeof driverInfo.block === 'string') {
+                          mapping[vehicleId] = driverInfo.block;
+                      }
+                  }
+              }
               busBlocks = Object.assign({}, mapping);
           } catch (error) {
               console.error('Error fetching block assignments:', error);
