@@ -4931,15 +4931,18 @@ async def _fetch_vehicle_drivers():
 
     # Process regular buses with block assignments
     for vehicle_id, block_name in blocks_mapping.items():
-        # Extract block number from raw block name (e.g., "[01]" -> "01")
+        # Extract block numbers from raw block name
+        # For single blocks: "[01]" -> ["01"]
+        # For interlined blocks: "[05]/[03]" -> ["05", "03"]
         block_numbers = _split_interlined_blocks(block_name)
 
-        # Since we're using raw blocks, there should only be one block number
-        # But we'll use the splitting logic to handle the extraction safely
+        # Collect drivers from ALL blocks in the interline
+        # For interlined blocks like "[05]/[03]", this ensures we match drivers
+        # from both block 05 and block 03 (important when W2W lists them separately)
         current_drivers = []
-        if block_numbers:
-            block_number = block_numbers[0]
-            current_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+        for block_number in block_numbers:
+            block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+            current_drivers.extend(block_drivers)
 
         # Get the vehicle name (may be None if not found)
         vehicle_name = vehicle_names.get(vehicle_id)

@@ -246,6 +246,109 @@ class TestFindCurrentDriver(unittest.TestCase):
         self.assertEqual(driver["name"], "John Doe")
 
 
+class TestInterlinedBlockDriverMatching(unittest.TestCase):
+    """Test driver matching for interlined blocks like [05]/[03]."""
+
+    def test_interlined_block_matches_both_drivers(self):
+        """
+        Test that interlined blocks like [05]/[03] match drivers from BOTH blocks.
+
+        Scenario: TransLoc returns "[05]/[03]" (interlined)
+        W2W has separate drivers for block 05 and block 03
+        We should match drivers from BOTH blocks.
+        """
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 10, 30, tzinfo=tz)  # 10:30 AM
+        now_ts = int(now.timestamp() * 1000)
+
+        am_start = datetime(2025, 12, 7, 6, 0, tzinfo=tz)
+        am_end = datetime(2025, 12, 7, 14, 0, tzinfo=tz)
+
+        # W2W has separate assignments for blocks 05 and 03
+        assignments_by_block = {
+            "05": {
+                "am": [{
+                    "name": "Driver Five",
+                    "start_ts": int(am_start.timestamp() * 1000),
+                    "end_ts": int(am_end.timestamp() * 1000),
+                    "start_label": "6a",
+                    "end_label": "2p",
+                    "color_id": "0"
+                }]
+            },
+            "03": {
+                "am": [{
+                    "name": "Driver Three",
+                    "start_ts": int(am_start.timestamp() * 1000),
+                    "end_ts": int(am_end.timestamp() * 1000),
+                    "start_label": "6a",
+                    "end_label": "2p",
+                    "color_id": "1"
+                }]
+            }
+        }
+
+        # TransLoc returns interlined block
+        block_name = "[05]/[03]"
+        block_numbers = _split_interlined_blocks(block_name)
+        self.assertEqual(block_numbers, ["05", "03"])
+
+        # Collect drivers from ALL blocks (simulating the fixed logic)
+        current_drivers = []
+        for block_number in block_numbers:
+            block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+            current_drivers.extend(block_drivers)
+
+        # Should have drivers from BOTH blocks
+        self.assertEqual(len(current_drivers), 2)
+        driver_names = [d["name"] for d in current_drivers]
+        self.assertIn("Driver Five", driver_names)
+        self.assertIn("Driver Three", driver_names)
+
+    def test_interlined_block_with_one_empty(self):
+        """
+        Test interlined block where only one block has a driver.
+
+        Scenario: TransLoc returns "[05]/[03]"
+        W2W only has a driver for block 05 (block 03 shift hasn't started)
+        """
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 10, 30, tzinfo=tz)  # 10:30 AM
+        now_ts = int(now.timestamp() * 1000)
+
+        am_start = datetime(2025, 12, 7, 6, 0, tzinfo=tz)
+        am_end = datetime(2025, 12, 7, 14, 0, tzinfo=tz)
+
+        # Only block 05 has a driver (block 03 has no assignment or shift hasn't started)
+        assignments_by_block = {
+            "05": {
+                "am": [{
+                    "name": "Driver Five",
+                    "start_ts": int(am_start.timestamp() * 1000),
+                    "end_ts": int(am_end.timestamp() * 1000),
+                    "start_label": "6a",
+                    "end_label": "2p",
+                    "color_id": "0"
+                }]
+            }
+            # Block 03 has no entry
+        }
+
+        # TransLoc returns interlined block
+        block_name = "[05]/[03]"
+        block_numbers = _split_interlined_blocks(block_name)
+
+        # Collect drivers from ALL blocks
+        current_drivers = []
+        for block_number in block_numbers:
+            block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+            current_drivers.extend(block_drivers)
+
+        # Should only have driver from block 05
+        self.assertEqual(len(current_drivers), 1)
+        self.assertEqual(current_drivers[0]["name"], "Driver Five")
+
+
 class TestRawBlockMapping(unittest.TestCase):
     """Test the complete flow of mapping raw blocks to drivers."""
 
