@@ -74,7 +74,7 @@
     /**
      * Handle marker click - detect overlaps and show menu if needed
      * @param {L.LatLng} latlng - Click location
-     * @param {Array} items - Array of clickable items at this location
+     * @param {Array} items - Array of clickable items at this location (already filtered for overlap)
      * @returns {boolean} - True if menu was shown, false otherwise
      */
     function handleMarkerClick(latlng, items) {
@@ -82,16 +82,12 @@
             return false;
         }
 
-        // Find all markers near the click point
+        // Items are already filtered for overlap by the caller
+        // Convert latlng to container point for menu positioning
         const clickPoint = map.latLngToContainerPoint(latlng);
-        const overlapping = findOverlappingMarkers(clickPoint, items);
-
-        if (overlapping.length < MIN_ITEMS_FOR_MENU) {
-            return false;
-        }
 
         // Show selection menu
-        showSelectionMenu(latlng, clickPoint, overlapping);
+        showSelectionMenu(latlng, clickPoint, items);
         return true;
     }
 
