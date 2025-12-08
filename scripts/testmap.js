@@ -3360,7 +3360,7 @@ schedulePlaneStyleOverride();
 
       function loadTranslocSnapshot(force = false) {
         if (!utsOverlayEnabled) {
-          return Promise.resolve({ routes: [], vehicles: [], stops: [], arrivals: [], blocks: {} });
+          return Promise.resolve({ routes: [], vehicles: [], stops: [], blocks: {} });
         }
         return Promise.all([loadTranslocMetadata(force), loadTranslocVehicles(force)])
           .then(([metadata, vehiclePayload]) => {
@@ -3370,10 +3370,9 @@ schedulePlaneStyleOverride();
               ? metadata.blocks
               : {};
             const vehicles = Array.isArray(vehiclePayload?.vehicles) ? vehiclePayload.vehicles : [];
-            const arrivals = Array.isArray(vehiclePayload?.arrivals) ? vehiclePayload.arrivals : [];
             const fetchedAt = vehiclePayload?.fetched_at || metadata?.fetched_at || Math.round(Date.now() / 1000);
             clearKioskTranslocErrorState();
-            return { routes, stops, blocks, vehicles, arrivals, fetched_at: fetchedAt };
+            return { routes, stops, blocks, vehicles, fetched_at: fetchedAt };
           })
           .catch(error => {
             console.error('Failed to load TransLoc snapshot:', error);
@@ -12613,9 +12612,16 @@ ${trainPlaneMarkup}
           }
           const currentBaseURL = baseURL;
           try {
-              const snapshot = await loadTranslocSnapshot();
+              const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
+              const query = buildTranslocQuery(sanitizedBaseURL);
+              const endpoint = `/v1/transloc/stop_arrivals${query}`;
+              const response = await fetch(endpoint, { cache: 'no-store' });
               if (currentBaseURL !== baseURL) return {};
-              const arrivals = Array.isArray(snapshot?.arrivals) ? snapshot.arrivals : [];
+              if (!response || !response.ok) {
+                  throw new Error(response ? `HTTP ${response.status}` : 'No response');
+              }
+              const payload = await response.json();
+              const arrivals = Array.isArray(payload?.Arrivals) ? payload.Arrivals : Array.isArray(payload) ? payload : [];
               const allEtas = {};
               arrivals.forEach(arrival => {
                   const routeStopId = arrival?.RouteStopId ?? arrival?.RouteStopID;
