@@ -23,6 +23,7 @@ from app import (
     _parse_block_time_today,
     _build_block_mapping_with_times,
     _select_current_or_next_block,
+    _infer_block_number_from_route,
 )
 
 
@@ -984,6 +985,244 @@ class TestSelectCurrentOrNextBlock(unittest.TestCase):
         result = _select_current_or_next_block(blocks_with_times, now_ts)
         # Should fall back to first block when no time info available
         self.assertEqual(result, "[01]")
+
+
+class TestInferBlockNumberFromRoute(unittest.TestCase):
+    """Test the _infer_block_number_from_route function."""
+
+    def test_red_line_am(self):
+        """Test inferring block 20 from Red Line AM."""
+        route_info = {"RouteName": "Red Line AM", "Description": "Red Line AM"}
+        result = _infer_block_number_from_route(route_info, "[20]/[10]")
+        self.assertEqual(result, "20")
+
+    def test_red_line_pm(self):
+        """Test inferring block 20 from Red Line PM."""
+        route_info = {"RouteName": "Red Line PM"}
+        result = _infer_block_number_from_route(route_info, "[20]/[10]")
+        self.assertEqual(result, "20")
+
+    def test_gold_line(self):
+        """Test inferring block 10 from Gold Line."""
+        route_info = {"RouteName": "Gold Line"}
+        result = _infer_block_number_from_route(route_info, "[20]/[10]")
+        self.assertEqual(result, "10")
+
+    def test_yellow_line(self):
+        """Test inferring block 10 from Yellow Line."""
+        route_info = {"RouteName": "Yellow Line"}
+        result = _infer_block_number_from_route(route_info, "[20]/[10]")
+        self.assertEqual(result, "10")
+
+    def test_blue_line(self):
+        """Test inferring block 16 from Blue Line."""
+        route_info = {"RouteName": "Blue Line"}
+        result = _infer_block_number_from_route(route_info, "[16] AM")
+        self.assertEqual(result, "16")
+
+    def test_orange_line(self):
+        """Test inferring block 22 from Orange Line."""
+        route_info = {"RouteName": "Orange Line"}
+        result = _infer_block_number_from_route(route_info, "[22]/[06]")
+        self.assertEqual(result, "22")
+
+    def test_non_interlined_block_fallback(self):
+        """Test that non-interlined blocks fall back to extracting from block_group_id."""
+        route_info = {"RouteName": "Unknown Route"}
+        result = _infer_block_number_from_route(route_info, "[20] PM")
+        self.assertEqual(result, "20")
+
+    def test_interlined_unknown_route(self):
+        """Test that interlined blocks with unknown routes return None."""
+        route_info = {"RouteName": "Unknown Route"}
+        result = _infer_block_number_from_route(route_info, "[20]/[10]")
+        self.assertIsNone(result)
+
+    def test_case_insensitive(self):
+        """Test that route name matching is case-insensitive."""
+        route_info = {"RouteName": "RED LINE AM"}
+        result = _infer_block_number_from_route(route_info, "[20]/[10]")
+        self.assertEqual(result, "20")
+
+
+class TestInterlinedBlockDriverAssignment(unittest.TestCase):
+    """
+    Test the complete flow for preventing duplicate driver assignments
+    in the [20]/[10] scenario.
+    """
+
+    def test_vehicle_20_10_driver_assignment(self):
+        """
+        Test that Vehicle A ([20]/[10]) and Vehicle B ([20] PM) get correct drivers.
+
+        Scenario at 3:00 PM:
+        - Vehicle A is assigned to [20]/[10] block group
+          - 6:00-6:55 AM: Red Line AM (block 20)
+          - 8:20 AM - 8:00 PM: Gold Line (block 10)
+        - Vehicle B is assigned to [20] PM block group
+          - 2:30 PM - 8:00 PM: Red Line PM (block 20)
+        - W2W has driver on block 20 from 2:00-5:30 PM
+        - At 3:00 PM, only Vehicle B should get the block 20 driver
+        - Vehicle A should get the block 10 driver (if any)
+        """
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 15, 0, tzinfo=tz)  # 3:00 PM
+        now_ts = int(reference_date.timestamp() * 1000)
+
+        # Mock block groups data matching the structure from GetDispatchBlockGroupData
+        block_groups = [
+            {
+                "BlockGroupId": "[20]/[10]",
+                "VehicleId": 31,  # Vehicle A
+                "Blocks": [
+                    {
+                        "BlockStartTime": "06:00 AM",
+                        "BlockEndTime": "06:55 AM",
+                        "Route": {
+                            "RouteName": "Red Line AM",
+                            "Description": "Red Line AM",
+                            "Color": "#f60303"
+                        },
+                        "Trips": [{"VehicleID": 31}]
+                    },
+                    {
+                        "BlockStartTime": "08:20 AM",
+                        "BlockEndTime": "08:00 PM",
+                        "Route": {
+                            "RouteName": "Gold Line",
+                            "Description": "Gold Line",
+                            "Color": "#ffdd00"
+                        },
+                        "Trips": [{"VehicleID": 31}]
+                    }
+                ]
+            },
+            {
+                "BlockGroupId": "[20] PM",
+                "VehicleId": 38,  # Vehicle B
+                "Blocks": [
+                    {
+                        "BlockStartTime": "02:30 PM",
+                        "BlockEndTime": "08:00 PM",
+                        "Route": {
+                            "RouteName": "Red Line PM",
+                            "Description": "Red Line PM",
+                            "Color": "#f60303"
+                        },
+                        "Trips": [{"VehicleID": 38}]
+                    }
+                ]
+            }
+        ]
+
+        # Build block mapping
+        blocks_with_times = _build_block_mapping_with_times(block_groups, reference_date)
+
+        # Verify Vehicle A (31) has separate entries for blocks 20 and 10
+        self.assertIn("31", blocks_with_times)
+        vehicle_a_blocks = blocks_with_times["31"]
+
+        # Should have 2 entries: one for [20] (morning) and one for [10] (afternoon)
+        self.assertEqual(len(vehicle_a_blocks), 2)
+
+        # Extract block names
+        block_names = [block[0] for block in vehicle_a_blocks]
+        self.assertIn("[20]", block_names)
+        self.assertIn("[10]", block_names)
+
+        # At 3:00 PM, select current block for Vehicle A
+        current_block_a = _select_current_or_next_block(vehicle_a_blocks, now_ts)
+        # Should be [10] (Gold Line) since 3 PM is in 8:20 AM - 8:00 PM window
+        self.assertEqual(current_block_a, "[10]")
+
+        # Verify Vehicle B (38) has entry for block 20 PM
+        self.assertIn("38", blocks_with_times)
+        vehicle_b_blocks = blocks_with_times["38"]
+
+        # Should have 1 entry for [20] PM
+        self.assertEqual(len(vehicle_b_blocks), 1)
+        self.assertEqual(vehicle_b_blocks[0][0], "[20] PM")
+
+        # At 3:00 PM, select current block for Vehicle B
+        current_block_b = _select_current_or_next_block(vehicle_b_blocks, now_ts)
+        # Should be [20] PM (Red Line PM) since 3 PM is in 2:30 PM - 8:00 PM window
+        self.assertEqual(current_block_b, "[20] PM")
+
+        # Verify that the two vehicles have different current blocks
+        self.assertNotEqual(current_block_a, current_block_b)
+
+    def test_vehicle_20_10_morning_block_selection(self):
+        """
+        Test that Vehicle A ([20]/[10]) correctly selects block 20 in the morning.
+        """
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 6, 30, tzinfo=tz)  # 6:30 AM
+        now_ts = int(reference_date.timestamp() * 1000)
+
+        block_groups = [
+            {
+                "BlockGroupId": "[20]/[10]",
+                "VehicleId": 31,
+                "Blocks": [
+                    {
+                        "BlockStartTime": "06:00 AM",
+                        "BlockEndTime": "06:55 AM",
+                        "Route": {"RouteName": "Red Line AM"},
+                        "Trips": [{"VehicleID": 31}]
+                    },
+                    {
+                        "BlockStartTime": "08:20 AM",
+                        "BlockEndTime": "08:00 PM",
+                        "Route": {"RouteName": "Gold Line"},
+                        "Trips": [{"VehicleID": 31}]
+                    }
+                ]
+            }
+        ]
+
+        blocks_with_times = _build_block_mapping_with_times(block_groups, reference_date)
+        vehicle_blocks = blocks_with_times["31"]
+        current_block = _select_current_or_next_block(vehicle_blocks, now_ts)
+
+        # At 6:30 AM, should select [20] (Red Line AM: 6:00-6:55 AM)
+        self.assertEqual(current_block, "[20]")
+
+    def test_vehicle_20_10_between_blocks(self):
+        """
+        Test that Vehicle A ([20]/[10]) returns None between blocks (no duplicate assignment).
+        """
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 7, 30, tzinfo=tz)  # 7:30 AM (between blocks)
+        now_ts = int(reference_date.timestamp() * 1000)
+
+        block_groups = [
+            {
+                "BlockGroupId": "[20]/[10]",
+                "VehicleId": 31,
+                "Blocks": [
+                    {
+                        "BlockStartTime": "06:00 AM",
+                        "BlockEndTime": "06:55 AM",
+                        "Route": {"RouteName": "Red Line AM"},
+                        "Trips": [{"VehicleID": 31}]
+                    },
+                    {
+                        "BlockStartTime": "08:20 AM",
+                        "BlockEndTime": "08:00 PM",
+                        "Route": {"RouteName": "Gold Line"},
+                        "Trips": [{"VehicleID": 31}]
+                    }
+                ]
+            }
+        ]
+
+        blocks_with_times = _build_block_mapping_with_times(block_groups, reference_date)
+        vehicle_blocks = blocks_with_times["31"]
+        current_block = _select_current_or_next_block(vehicle_blocks, now_ts)
+
+        # At 7:30 AM (between 6:55 AM and 8:20 AM), should return None
+        # This prevents duplicate assignments during transition periods
+        self.assertIsNone(current_block)
 
 
 if __name__ == "__main__":
