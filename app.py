@@ -4886,14 +4886,13 @@ async def _fetch_vehicle_drivers():
     3. Vehicle names from TransLoc vehicle data
     4. OnDemand vehicles with driver names (matched by name to W2W assignments)
 
-    Returns blocks the way WhenToWork does: individual blocks without interlining.
-    Each vehicle is mapped to its current raw block assignment and corresponding driver(s).
+    Each vehicle is mapped to its current block assignment(s) and corresponding driver(s).
 
-    For interlined blocks (e.g., "[05]/[03]" from TransLoc), creates separate entries
-    for each block number to match WhenToWork's separate tracking:
-    - First block uses vehicle_id as the key (e.g., vehicle_id -> "[05]")
-    - Additional blocks use composite keys (e.g., "{vehicle_id}_03" -> "[03]")
-    - Each entry includes the vehicle_id field for lookup
+    For interlined blocks (e.g., "[05]/[03]" from TransLoc), all blocks are combined
+    under a single vehicle_id entry:
+    - All blocks are included in the "block" field (e.g., "[05]/[03]")
+    - All drivers from all blocks are merged into a single "drivers" array
+    - Duplicate drivers (same name and shift times) are deduplicated
 
     Handles overlapping shifts: When shifts overlap (e.g., during driver swaps), the
     "drivers" array will contain multiple entries sorted by shift start time
@@ -4945,39 +4944,39 @@ async def _fetch_vehicle_drivers():
         # Get the vehicle name (may be None if not found)
         vehicle_name = vehicle_names.get(vehicle_id)
 
-        # For interlined blocks, create separate entries for each block
-        # This matches how WhenToWork lists them separately
-        # For example, "[05]/[03]" creates entries for both "[05]" and "[03]"
+        # For interlined blocks, combine all blocks and drivers under one vehicle ID
         if len(block_numbers) > 1:
-            # Interlined block - create separate entry for each block number
-            for idx, block_number in enumerate(block_numbers):
+            # Interlined block - collect all drivers from all blocks
+            all_drivers = []
+            seen_drivers = set()  # Track unique drivers to avoid duplicates
+            
+            for block_number in block_numbers:
                 # Collect drivers for this specific block
                 block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
                 
-                # Build drivers array for this block
-                drivers_list = []
+                # Add drivers to the combined list, avoiding duplicates
                 for driver in block_drivers:
-                    drivers_list.append({
-                        "name": driver["name"],
-                        "shift_start": driver["start_ts"],
-                        "shift_start_label": driver["start_label"],
-                        "shift_end": driver["end_ts"],
-                        "shift_end_label": driver["end_label"],
-                    })
-
-                # For the first block, use vehicle_id as key (for frontend compatibility)
-                # For additional blocks, use composite key to avoid overwriting
-                if idx == 0:
-                    entry_key = vehicle_id
-                else:
-                    entry_key = f"{vehicle_id}_{block_number}"
-                
-                vehicle_drivers[entry_key] = {
-                    "block": f"[{block_number}]",
-                    "drivers": drivers_list,
-                    "vehicle_name": vehicle_name,
-                    "vehicle_id": vehicle_id,  # Include vehicle_id for lookup
-                }
+                    driver_key = (driver["name"], driver["start_ts"], driver["end_ts"])
+                    if driver_key not in seen_drivers:
+                        seen_drivers.add(driver_key)
+                        all_drivers.append({
+                            "name": driver["name"],
+                            "shift_start": driver["start_ts"],
+                            "shift_start_label": driver["start_label"],
+                            "shift_end": driver["end_ts"],
+                            "shift_end_label": driver["end_label"],
+                        })
+            
+            # Sort drivers by shift start time (for consistency with overlapping shifts)
+            all_drivers.sort(key=lambda d: d["shift_start"])
+            
+            # Create single entry with all blocks and all drivers
+            vehicle_drivers[vehicle_id] = {
+                "block": block_name,  # Keep original interlined format like "[05]/[03]"
+                "drivers": all_drivers,
+                "vehicle_name": vehicle_name,
+                "vehicle_id": vehicle_id,
+            }
         else:
             # Single block - create one entry as before
             block_number = block_numbers[0] if block_numbers else None
@@ -5077,14 +5076,12 @@ async def dispatch_vehicle_drivers(request: Request):
     Get the mapping of vehicle IDs to their current block assignments and drivers.
 
     This endpoint joins TransLoc block assignments with WhenToWork driver assignments.
-    Blocks are returned as individual raw blocks (e.g., "[01]", "[04]") matching the way
-    WhenToWork tracks them, NOT as interlined blocks (e.g., "[01]/[04]").
 
-    For interlined blocks from TransLoc (e.g., "[05]/[03]"), creates separate entries
-    for each block number:
-    - First block uses vehicle_id as the key (e.g., "123" -> "[05]")
-    - Additional blocks use composite keys (e.g., "123_03" -> "[03]")
-    - Each entry includes vehicle_id field for lookup
+    For vehicles with multiple blocks (interlined blocks from TransLoc, e.g., "[05]/[03]"),
+    all blocks are returned under a single vehicle_id entry:
+    - All blocks are included in the "block" field (e.g., "[05]/[03]")
+    - All drivers from all blocks are merged into a single "drivers" array
+    - Duplicate drivers (same name and shift times) are deduplicated
 
     Handles overlapping shifts: When driver shifts overlap (e.g., during handoffs),
     the "drivers" array will contain multiple entries sorted by shift start time
@@ -5114,14 +5111,16 @@ async def dispatch_vehicle_drivers(request: Request):
                     "vehicle_id": "123"
                 },
                 "456": {
-                    "block": "[05]",
-                    "drivers": [],  // No drivers currently assigned
-                    "vehicle_name": "Bus 456",
-                    "vehicle_id": "456"
-                },
-                "456_03": {
-                    "block": "[03]",
-                    "drivers": [],
+                    "block": "[05]/[03]",
+                    "drivers": [
+                        {
+                            "name": "Driver A",
+                            "shift_start": <timestamp_ms>,
+                            "shift_start_label": "6a",
+                            "shift_end": <timestamp_ms>,
+                            "shift_end_label": "10a"
+                        }
+                    ],
                     "vehicle_name": "Bus 456",
                     "vehicle_id": "456"
                 },
@@ -5143,7 +5142,8 @@ async def dispatch_vehicle_drivers(request: Request):
                             "shift_end_label": "6p"
                         }
                     ],  // Overlapping shift during driver swap
-                    "vehicle_name": "Bus 789"
+                    "vehicle_name": "Bus 789",
+                    "vehicle_id": "789"
                 },
                 "999": {
                     "block": "OnDemand Driver",
@@ -5156,7 +5156,8 @@ async def dispatch_vehicle_drivers(request: Request):
                             "shift_end_label": "5p"
                         }
                     ],
-                    "vehicle_name": "OnDemand 1"
+                    "vehicle_name": "OnDemand 1",
+                    "vehicle_id": "999"
                 }
             }
         }
