@@ -11685,11 +11685,15 @@ ${trainPlaneMarkup}
 
           return stopEntries.map(entry => {
               const entryTitle = entry.displayName ? `<span class="stop-entry-title">${sanitizeStopName(entry.displayName)}</span>` : '';
-              const entryIdLine = !hideStopIds && entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : '';
               const entryAddressIdText = normalizeIdentifier(entry?.addressId);
-              const entryAddressLine = entryAddressIdText ? `<span class="stop-entry-id">Stop ID: ${entryAddressIdText}</span>` : '';
+              // Show AddressID if available, otherwise show StopID
+              const entryIdLine = !hideStopIds
+                  ? (entryAddressIdText
+                      ? `<span class="stop-entry-id">Address ID: ${entryAddressIdText}</span>`
+                      : (entry.stopIdText ? `<span class="stop-entry-id">Stop ID: ${entry.stopIdText}</span>` : ''))
+                  : '';
               const tableHtml = buildEtaTableHtml(entry.routeStopIds || [], entry.catStopIds || [], entry.stopIds || []);
-              return `<div class="stop-entry">${entryTitle}${entryIdLine}${entryAddressLine}${tableHtml}</div>`;
+              return `<div class="stop-entry">${entryTitle}${entryIdLine}${tableHtml}</div>`;
           }).join('');
       }
 
@@ -11863,7 +11867,7 @@ ${trainPlaneMarkup}
               ? `<span class="stop-entry-title">${sanitizedStopName}</span><br>`
               : '';
           const addressIdLine = primaryAddressIdText ? `<span class="stop-entry-id">Address ID: ${primaryAddressIdText}</span><br>` : '';
-          const stopIdLine = !isOnDemandStop && primaryStopIdText ? `<span class="stop-entry-id">Stop ID: ${primaryStopIdText}</span><br>` : '';
+          const stopIdLine = !isOnDemandStop && primaryStopIdText && !primaryAddressIdText ? `<span class="stop-entry-id">Stop ID: ${primaryStopIdText}</span><br>` : '';
 
           popupElement.innerHTML = `
             <button class="custom-popup-close">&times;</button>
@@ -14657,31 +14661,31 @@ ${trainPlaneMarkup}
               ].join(''));
           }
 
-          // Stop ID section
+          // Address ID section (now shown for ALL stops, not just ondemand)
+          const primaryAddressIdText = !multipleStops
+              ? normalizeIdentifier(stopEntries[0]?.addressId)
+              : '';
+          if (primaryAddressIdText) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Address ID</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>',
+                  '</div>'
+              ].join(''));
+          }
+
+          // Stop ID section (optional fallback, only for non-ondemand stops without AddressID)
           const fallbackStopIdText = typeof groupInfo.fallbackStopId === 'string'
               ? groupInfo.fallbackStopId
               : normalizeIdentifier(groupInfo.fallbackStopId) || '';
           const primaryStopIdText = !multipleStops
               ? (stopEntries[0]?.stopIdText || fallbackStopIdText)
               : '';
-          if (primaryStopIdText && !isOnDemandStop) {
+          if (primaryStopIdText && !isOnDemandStop && !primaryAddressIdText) {
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
                   '<div class="ondemand-driver-popup__label">Stop ID</div>',
                   `<div class="ondemand-driver-popup__value">${escapeHtml(primaryStopIdText)}</div>`,
-                  '</div>'
-              ].join(''));
-          }
-
-          // Address ID section (for ondemand stops)
-          const primaryAddressIdText = !multipleStops
-              ? normalizeIdentifier(stopEntries[0]?.addressId)
-              : '';
-          if (primaryAddressIdText && isOnDemandStop) {
-              popupSections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Address ID</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>`,
                   '</div>'
               ].join(''));
           }
