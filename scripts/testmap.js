@@ -10786,7 +10786,7 @@ ${trainPlaneMarkup}
                               latlng: markerLatLng,
                               color: routeColor,
                               label: busName,
-                              onClick: () => {
+                              onClick: async () => {
                                   // For ondemand vehicles, directly open the popup to avoid re-checking overlaps
                                   if (isOnDemand && typeof marker.openPopup === 'function') {
                                       marker.openPopup();
@@ -10794,9 +10794,36 @@ ${trainPlaneMarkup}
                                           syncMarkerPopupPosition(marker);
                                       }
                                   } else {
-                                      // For regular buses, trigger the click event to use the existing handler
-                                      if (marker && typeof marker.fire === 'function') {
-                                          marker.fire('click');
+                                      // For regular buses, directly open the popup to avoid re-checking overlaps
+                                      try {
+                                          // Fetch popup data on-demand
+                                          await Promise.all([
+                                              fetchVehicleDrivers(),
+                                              fetchNextStops([vehicleID])
+                                          ]);
+
+                                          // Build popup content
+                                          const popupHtml = buildBusPopupContent(vehicleID, busName);
+
+                                          if (popupHtml && typeof marker.bindPopup === 'function') {
+                                              marker.unbindPopup();
+                                              const popupOptions = {
+                                                  className: 'ondemand-driver-popup',
+                                                  closeButton: false,
+                                                  autoClose: true,
+                                                  autoPan: false,
+                                                  offset: [0, -20],
+                                              };
+                                              marker.bindPopup(popupHtml, popupOptions);
+                                              if (typeof marker.openPopup === 'function') {
+                                                  marker.openPopup();
+                                                  if (typeof syncMarkerPopupPosition === 'function') {
+                                                      syncMarkerPopupPosition(marker);
+                                                  }
+                                              }
+                                          }
+                                      } catch (error) {
+                                          console.error('Error fetching bus popup data:', error);
                                       }
                                   }
                               }
