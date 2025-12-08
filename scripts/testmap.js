@@ -14111,7 +14111,7 @@ ${trainPlaneMarkup}
 
               activeRoutes = activeRoutesSet;
               updateRouteSelector(activeRoutesSet);
-              updateKioskStatusMessage({ known: true, hasActiveVehicles: activeRoutesSet.size > 0 });
+              updateKioskStatusMessage({ known: true, hasActiveVehicles: activeRoutesSet.size > 0 || (onDemandVehiclesEnabled && lastOnDemandVehicles.length > 0) });
 
               // Note: Popup data (driver, capacity, ETAs) is now fetched on-demand when user clicks a bus marker
               // This eliminates unnecessary polling and reduces API load
