@@ -5361,6 +5361,7 @@ def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
         "InfoText": raw.get("InfoText"),
         "MapLineColor": _normalize_hex_color(color),
         "EncodedPolyline": raw.get("EncodedPolyline") or raw.get("Polyline"),
+        "IsVisibleOnMap": raw.get("IsVisibleOnMap"),
     }
     stops: List[Dict[str, Any]] = []
     for stop in raw.get("Stops") or []:
