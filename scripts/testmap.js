@@ -14427,6 +14427,18 @@ ${trainPlaneMarkup}
               ].join(''));
           }
 
+          // Block section (only for regular buses, not ondemand)
+          const driverInfo = cachedVehicleDrivers[vehicleID];
+          const isOnDemand = typeof isOnDemandVehicleId === 'function' && isOnDemandVehicleId(vehicleID);
+          if (!isOnDemand && driverInfo && driverInfo.block) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">BLOCK</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(driverInfo.block)}</div>`,
+                  '</div>'
+              ].join(''));
+          }
+
           // Route section
           const state = busMarkerStates[vehicleID];
           if (state && state.routeName) {
@@ -14439,7 +14451,6 @@ ${trainPlaneMarkup}
           }
 
           // Driver section - handles both single and overlapping shifts
-          const driverInfo = cachedVehicleDrivers[vehicleID];
           if (driverInfo && Array.isArray(driverInfo.drivers) && driverInfo.drivers.length > 0) {
               const drivers = driverInfo.drivers;
 
