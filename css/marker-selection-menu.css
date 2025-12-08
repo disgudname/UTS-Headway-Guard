@@ -1,0 +1,68 @@
+/* marker-selection-menu.css */
+/* Circular selection menu for overlapping map markers */
+
+.marker-selection-menu {
+    position: absolute;
+    pointer-events: none;
+    z-index: 10000;
+}
+
+.marker-selection-menu-item {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.3);
+    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+/* Stagger animation for menu items */
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(1) {
+    transition-delay: 0.05s;
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(2) {
+    transition-delay: 0.1s;
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(3) {
+    transition-delay: 0.15s;
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(4) {
+    transition-delay: 0.2s;
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(5) {
+    transition-delay: 0.25s;
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(6) {
+    transition-delay: 0.3s;
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(7) {
+    transition-delay: 0.35s;
+}
+
+.marker-selection-menu.visible .marker-selection-menu-item:nth-child(8) {
+    transition-delay: 0.4s;
+}
+
+/* Focus styles for accessibility */
+.marker-selection-menu-item:focus {
+    outline: 3px solid rgba(229, 114, 0, 0.8);
+    outline-offset: 2px;
+}
+
+.marker-selection-menu-item:focus-visible {
+    outline: 3px solid rgba(229, 114, 0, 0.8);
+    outline-offset: 2px;
+}
+
+/* Active/pressed state */
+.marker-selection-menu-item:active {
+    transform: translate(-50%, -50%) scale(0.95) !important;
+}

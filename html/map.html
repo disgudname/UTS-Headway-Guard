@@ -8,6 +8,7 @@
     <title>Live Map - UTS Operations Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="../css/marker-selection-menu.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@mapbox/polyline@1.1.1"></script>
     <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
@@ -248,6 +249,20 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
+      }
+      .uts-vehicle-popup .leaflet-popup-content-wrapper {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.25);
+        border: 2px solid rgba(15, 23, 42, 0.1);
+      }
+      .uts-vehicle-popup .leaflet-popup-content {
+        margin: 12px 14px;
+        min-width: 160px;
+      }
+      .uts-vehicle-popup .leaflet-popup-tip {
+        background: #ffffff;
+        box-shadow: 0 3px 14px rgba(15, 23, 42, 0.15);
       }
       .route-pill {
         display: inline-block;
@@ -3656,10 +3671,27 @@
               haloMarker: null,
               haloAnimated: false
             });
-            marker.on('click', () => {
-              const config = buildIncidentPopupConfig(id);
-              if (config) {
-                createCustomPopup(config);
+            marker.on('click', (e) => {
+              const clickedLatLng = marker.getLatLng();
+              const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+              if (overlappingItems.length >= 2) {
+                // Show selection menu
+                if (typeof MarkerSelectionMenu !== 'undefined') {
+                  L.DomEvent.stopPropagation(e);
+                  MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                } else {
+                  const config = buildIncidentPopupConfig(id);
+                  if (config) {
+                    createCustomPopup(config);
+                  }
+                }
+              } else {
+                // Single marker, show popup directly
+                const config = buildIncidentPopupConfig(id);
+                if (config) {
+                  createCustomPopup(config);
+                }
               }
             });
             refreshIncidentPopup(id);
@@ -6867,7 +6899,13 @@
           if (incidentsVisible && incidentHaloLayerGroup) {
               incidentHaloLayerGroup.addTo(map);
           }
-          const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+
+          // Initialize marker selection menu for handling overlapping markers
+          if (typeof MarkerSelectionMenu !== 'undefined' && typeof MarkerSelectionMenu.init === 'function') {
+              MarkerSelectionMenu.init(map);
+          }
+
+          const cartoLight = L.tileLayer('https://{s.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
               attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           });
           cartoLight.addTo(map);
@@ -7982,6 +8020,138 @@
           });
       }
 
+      /**
+       * Find all clickable markers overlapping at a given location
+       * @param {L.LatLng} latlng - Location to check for overlaps
+       * @returns {Array} - Array of overlapping items with { latlng, color, label, onClick }
+       */
+      function findOverlappingClickableItems(latlng) {
+          if (!map || !latlng) {
+              return [];
+          }
+
+          const OVERLAP_THRESHOLD_PX = 40;
+          const clickPoint = map.latLngToContainerPoint(latlng);
+          const items = [];
+
+          // Helper function to check if a point is close enough
+          function isNearby(otherLatLng) {
+              const otherPoint = map.latLngToContainerPoint(otherLatLng);
+              const distance = Math.sqrt(
+                  Math.pow(clickPoint.x - otherPoint.x, 2) +
+                  Math.pow(clickPoint.y - otherPoint.y, 2)
+              );
+              return distance <= OVERLAP_THRESHOLD_PX;
+          }
+
+          // Check stop markers
+          if (Array.isArray(stopMarkers)) {
+              stopMarkers.forEach((marker, index) => {
+                  if (!marker || !marker.getLatLng) return;
+                  const markerLatLng = marker.getLatLng();
+                  if (isNearby(markerLatLng)) {
+                      // Find the corresponding groupInfo
+                      const groupInfo = groupedData && groupedData[index];
+                      if (groupInfo) {
+                          // Extract route IDs to determine color
+                          const routeIds = groupInfo.stopEntries?.map(e => e.routeId).filter(Boolean) || [];
+                          const firstRouteId = routeIds[0];
+                          const routeData = activeRoutes.find(r => r.route_id === firstRouteId);
+                          const color = routeData?.color ? `#${routeData.color}` : '#0f172a';
+
+                          items.push({
+                              latlng: markerLatLng,
+                              color: color,
+                              label: groupInfo.stopName || 'Stop',
+                              onClick: () => {
+                                  createCustomPopup(Object.assign({ popupType: 'stop' }, groupInfo));
+                              }
+                          });
+                      }
+                  }
+              });
+          }
+
+          // Check incident markers
+          if (incidentMarkers && incidentMarkers.size > 0) {
+              incidentMarkers.forEach((entry, id) => {
+                  if (!entry || !entry.marker || !entry.marker.getLatLng) return;
+                  const markerLatLng = entry.marker.getLatLng();
+                  if (isNearby(markerLatLng)) {
+                      const incidentData = entry.data || {};
+                      const agencyId = incidentData.AgencyID || incidentData.agency_id || '';
+                      const callType = incidentData.CallType || incidentData.call_type || 'Incident';
+
+                      items.push({
+                          latlng: markerLatLng,
+                          color: '#dc2626', // Red for incidents
+                          label: callType.substring(0, 15),
+                          onClick: () => {
+                              const config = buildIncidentPopupConfig(id);
+                              if (config) {
+                                  createCustomPopup(config);
+                              }
+                          }
+                      });
+                  }
+              });
+          }
+
+          // Check CAT vehicle markers
+          if (catVehicleMarkers && catVehicleMarkers.size > 0) {
+              catVehicleMarkers.forEach((entry, vehicleId) => {
+                  if (!entry || !entry.marker || !entry.marker.getLatLng) return;
+                  const markerLatLng = entry.marker.getLatLng();
+                  if (isNearby(markerLatLng)) {
+                      const vehicle = entry.vehicle || entry.marker.catVehicleData || {};
+                      const routeShortName = vehicle.route_short_name || vehicle.RouteShortName || 'CAT';
+                      const color = entry.color || '#1e40af'; // Blue for CAT
+
+                      items.push({
+                          latlng: markerLatLng,
+                          color: color,
+                          label: routeShortName,
+                          onClick: () => {
+                              // Simulate a click event on the CAT vehicle marker
+                              if (entry.marker && typeof entry.marker.fire === 'function') {
+                                  entry.marker.fire('click', { target: entry.marker });
+                              } else if (typeof openCatVehicleTooltip === 'function' && entry.marker) {
+                                  openCatVehicleTooltip(entry.marker);
+                              }
+                          }
+                      });
+                  }
+              });
+          }
+
+          // Check UTS vehicle markers
+          if (markers && typeof markers === 'object') {
+              Object.keys(markers).forEach(vehicleID => {
+                  const marker = markers[vehicleID];
+                  if (!marker || !marker.getLatLng) return;
+                  const markerLatLng = marker.getLatLng();
+                  if (isNearby(markerLatLng)) {
+                      const state = busMarkerStates[vehicleID];
+                      if (state) {
+                          const busName = state.busName || `Bus ${vehicleID}`;
+                          const routeColor = state.fillColor || '#0f172a';
+
+                          items.push({
+                              latlng: markerLatLng,
+                              color: routeColor,
+                              label: busName,
+                              onClick: () => {
+                                  showUTSVehicleInfo(vehicleID, state);
+                              }
+                          });
+                      }
+                  }
+              });
+          }
+
+          return items;
+      }
+
       function renderBusStops(stopsArray) {
           if (!map) {
               return;
@@ -8115,8 +8285,23 @@
                   pane: 'stopsPane'
               }).addTo(map);
 
-              stopMarker.on('click', () => {
-                  createCustomPopup(Object.assign({ popupType: 'stop' }, groupInfo));
+              stopMarker.on('click', (e) => {
+                  // Check for overlapping markers
+                  const clickedLatLng = stopMarker.getLatLng();
+                  const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+                  if (overlappingItems.length >= 2) {
+                      // Show selection menu
+                      if (typeof MarkerSelectionMenu !== 'undefined') {
+                          L.DomEvent.stopPropagation(e);
+                          MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                      } else {
+                          createCustomPopup(Object.assign({ popupType: 'stop' }, groupInfo));
+                      }
+                  } else {
+                      // Single marker, show popup directly
+                      createCustomPopup(Object.assign({ popupType: 'stop' }, groupInfo));
+                  }
               });
 
               stopMarkers.push(stopMarker);
@@ -9438,8 +9623,9 @@
                           if (!icon) {
                               continue;
                           }
-                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: false, keyboard: false });
+                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true, keyboard: true });
                           marker.routeID = routeID;
+                          marker.vehicleID = vehicleID;
                           marker.addTo(map);
                           markers[vehicleID] = marker;
                           state.marker = marker;
@@ -11062,6 +11248,27 @@
           if (!marker.catVehicleData) {
               return;
           }
+
+          // Check for overlapping markers
+          const clickedLatLng = marker.getLatLng();
+          const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+          if (overlappingItems.length >= 2) {
+              // Show selection menu
+              if (typeof MarkerSelectionMenu !== 'undefined') {
+                  if (event.originalEvent) {
+                      if (typeof event.originalEvent.stopPropagation === 'function') {
+                          event.originalEvent.stopPropagation();
+                      }
+                      if (typeof event.originalEvent.preventDefault === 'function') {
+                          event.originalEvent.preventDefault();
+                      }
+                  }
+                  MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                  return; // Exit early, don't open tooltip
+              }
+          }
+
           if (event.originalEvent) {
               if (typeof event.originalEvent.stopPropagation === 'function') {
                   event.originalEvent.stopPropagation();
@@ -12625,45 +12832,86 @@
           if (!state || !marker) {
               return;
           }
+
+          // Remove existing handlers to avoid duplicates
           if (typeof marker.off === 'function') {
-              marker.off();
+              marker.off('click');
           }
-          if (marker.options) {
-              marker.options.interactive = false;
-              marker.options.keyboard = false;
-          }
-          if (selectedVehicleId === vehicleID) {
-              selectedVehicleId = null;
-          }
-          if (state.isHovered || state.isSelected) {
-              state.isHovered = false;
-              state.isSelected = false;
-              updateBusMarkerRootClasses(state);
-              updateBusMarkerZIndex(state);
-              applyBusMarkerOutlineWidth(state);
-          }
-          const elements = state.elements || registerBusMarkerElements(vehicleID);
-          const icon = elements?.icon;
-          const root = elements?.root;
-          const svg = elements?.svg;
-          if (icon) {
-              icon.style.pointerEvents = 'none';
-          }
-          if (root) {
-              root.style.pointerEvents = 'none';
-              root.style.touchAction = 'none';
-              root.style.cursor = 'default';
-              if (root.hasAttribute('tabindex')) {
-                  root.removeAttribute('tabindex');
+
+          // Attach click handler for UTS vehicles
+          marker.on('click', (e) => {
+              const clickedLatLng = marker.getLatLng();
+              const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+              if (overlappingItems.length >= 2) {
+                  // Show selection menu for overlapping markers
+                  if (typeof MarkerSelectionMenu !== 'undefined') {
+                      L.DomEvent.stopPropagation(e);
+                      MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                  } else {
+                      // Fallback: show simple info
+                      showUTSVehicleInfo(vehicleID, state);
+                  }
+              } else {
+                  // Single marker, show info directly
+                  showUTSVehicleInfo(vehicleID, state);
               }
-              if (root.dataset && root.dataset.busMarkerFocusBound) {
-                  delete root.dataset.busMarkerFocusBound;
+          });
+
+          state.markerEventsBound = true;
+      }
+
+      function showUTSVehicleInfo(vehicleID, state) {
+          if (!state || !state.marker) return;
+
+          const busName = state.busName || `Vehicle ${vehicleID}`;
+          const routeID = state.routeID;
+          const routeColor = state.fillColor || '#0f172a';
+          const blockName = busBlocks[vehicleID] || '';
+
+          // Find route info
+          let routeName = '';
+          if (activeRoutes && typeof activeRoutes.find === 'function') {
+              const route = activeRoutes.find(r => r.route_id === routeID);
+              if (route) {
+                  routeName = route.long_name || route.short_name || '';
               }
           }
-          if (svg) {
-              svg.style.pointerEvents = 'none';
+
+          const position = state.marker.getLatLng();
+
+          // Build popup content
+          let popupContent = `<div style="font-family: 'FGDC', sans-serif;">`;
+          popupContent += `<div style="font-size: 16px; font-weight: 800; margin-bottom: 8px; color: #0f172a;">${busName}</div>`;
+
+          if (routeName) {
+              popupContent += `<div style="font-size: 13px; margin-bottom: 4px;">`;
+              popupContent += `<span style="display: inline-block; width: 12px; height: 12px; background: ${routeColor}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
+              popupContent += `<span style="vertical-align: middle;">${routeName}</span>`;
+              popupContent += `</div>`;
           }
-          state.markerEventsBound = false;
+
+          if (blockName) {
+              popupContent += `<div style="font-size: 12px; color: #64748b;">Block: ${blockName}</div>`;
+          }
+
+          if (state.accessibleLabel) {
+              const speed = state.accessibleLabel.match(/(\d+(?:\.\d+)?)\s*mph/i);
+              if (speed) {
+                  popupContent += `<div style="font-size: 12px; color: #64748b; margin-top: 4px;">Speed: ${speed[0]}</div>`;
+              }
+          }
+
+          popupContent += `</div>`;
+
+          // Create popup
+          const popup = L.popup({
+              closeButton: true,
+              className: 'uts-vehicle-popup'
+          })
+          .setLatLng(position)
+          .setContent(popupContent)
+          .openOn(map);
       }
 
       async function updateBusMarkerSizes(metricsOverride = null) {
@@ -13402,6 +13650,7 @@
     <script src="markers.js"></script>
     <script src="planeObject.js"></script>
     <script src="planes_integration.js"></script>
+    <script src="../scripts/marker-selection-menu.js"></script>
   </head>
   <body>
     <div id="map"></div>
