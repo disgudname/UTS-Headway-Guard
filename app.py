@@ -5219,7 +5219,6 @@ def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
         "InfoText": raw.get("InfoText"),
         "MapLineColor": _normalize_hex_color(color),
         "EncodedPolyline": raw.get("EncodedPolyline") or raw.get("Polyline"),
-        "IsVisibleOnMap": raw.get("IsVisibleOnMap"),
     }
     stops: List[Dict[str, Any]] = []
     for stop in raw.get("Stops") or []:
@@ -5234,19 +5233,12 @@ def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
         stops.append(
             {
                 "RouteStopID": route_stop_id,
-                "RouteStopId": route_stop_id,
                 "StopID": stop_id,
-                "StopId": stop_id,
-                "StopName": name,
                 "Name": name,
                 "Description": stop.get("Description") or name,
                 "Latitude": stop.get("Latitude") or stop.get("Lat"),
                 "Longitude": stop.get("Longitude") or stop.get("Lon") or stop.get("Lng"),
-                "AddressID": stop.get("AddressID") or stop.get("AddressId"),
-                "RouteID": rid,
                 "RouteIds": [rid] if rid is not None else [],
-                "RouteIDs": [rid] if rid is not None else [],
-                "Routes": [{"RouteID": rid}] if rid is not None else [],
             }
         )
     trimmed["Stops"] = stops
@@ -5372,27 +5364,15 @@ def _normalize_transloc_stop(stop: Dict[str, Any], *, route_membership: Mapping[
 
     normalized = {
         "RouteStopID": stop.get("RouteStopID") or stop.get("RouteStopId"),
-        "RouteStopId": stop.get("RouteStopID") or stop.get("RouteStopId"),
         "StopID": stop_id,
-        "StopId": stop_id,
-        "StopName": name,
         "Name": name,
         "Description": stop.get("Description") or name,
         "Latitude": stop.get("Latitude") or stop.get("Lat"),
         "Longitude": stop.get("Longitude") or stop.get("Lon") or stop.get("Lng"),
-        "AddressID": stop.get("AddressID") or stop.get("AddressId"),
     }
 
     if route_ids:
-        routes_list = [{"RouteID": rid} for rid in sorted(route_ids)]
-        normalized.update(
-            {
-                "RouteID": next(iter(route_ids)),
-                "RouteIds": sorted(route_ids),
-                "RouteIDs": sorted(route_ids),
-                "Routes": routes_list,
-            }
-        )
+        normalized["RouteIds"] = sorted(route_ids)
     return normalized
 
 
@@ -5400,19 +5380,12 @@ def _merge_stop_entry(target: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[
     for key, value in incoming.items():
         if value is None:
             continue
-        if key in ("RouteIds", "RouteIDs"):
+        if key == "RouteIds":
             current = target.setdefault(key, [])
             if isinstance(current, list):
                 for item in value:
                     if item not in current:
                         current.append(item)
-            continue
-        if key == "Routes":
-            current_routes = target.setdefault("Routes", [])
-            if isinstance(current_routes, list):
-                for entry in value:
-                    if entry not in current_routes:
-                        current_routes.append(entry)
             continue
         if target.get(key) is None:
             target[key] = value
