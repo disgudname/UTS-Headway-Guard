@@ -5842,21 +5842,26 @@ def _select_current_or_next_block(
     actually active, preventing duplicate block assignments when a vehicle
     will run the same block later in the day.
 
+    For blocks without time information (start_ts or end_ts is None),
+    falls back to returning the first block to maintain backwards compatibility.
+
     Args:
         blocks_with_times: List of (block_name, start_ts_ms, end_ts_ms) tuples
         now_ts: Current timestamp in milliseconds
 
     Returns:
-        Block name if currently active, or None if no active block
+        Block name if currently active, or first block without time info, or None
     """
     if not blocks_with_times:
         return None
 
     current_blocks = []
+    blocks_without_time_info = []
 
     for block_name, start_ts, end_ts in blocks_with_times:
-        # Skip blocks without time information
+        # Track blocks without time information separately
         if start_ts is None or end_ts is None:
+            blocks_without_time_info.append(block_name)
             continue
 
         # Check if block is currently active
@@ -5868,6 +5873,10 @@ def _select_current_or_next_block(
         # If multiple current blocks (shouldn't happen), return the one that started first
         current_blocks.sort(key=lambda x: x[1])  # Sort by start_ts
         return current_blocks[0][0]
+
+    # Fall back to first block without time info (maintains backwards compatibility)
+    if blocks_without_time_info:
+        return blocks_without_time_info[0]
 
     # No currently active block
     return None

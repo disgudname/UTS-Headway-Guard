@@ -860,14 +860,15 @@ class TestSelectCurrentOrNextBlock(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_blocks_without_times(self):
-        """Test blocks without time information."""
+        """Test blocks without time information fall back to first block."""
         now_ts = int(datetime.now().timestamp() * 1000)
         blocks_with_times = [
             ("[01]", None, None),
             ("[02]", None, None)
         ]
         result = _select_current_or_next_block(blocks_with_times, now_ts)
-        self.assertIsNone(result)
+        # Should fall back to first block when no time info available
+        self.assertEqual(result, "[01]")
 
 
 if __name__ == "__main__":
