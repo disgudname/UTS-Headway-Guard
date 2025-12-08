@@ -3982,20 +3982,21 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
     Returns a flat list of vehicles for dropdowns.
     include_unassigned=1 -> includes lot/unassigned units.
     include_stale=1     -> includes stale units.
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            data = await fetch_vehicles(client, include_unassigned=bool(include_unassigned))
-    except Exception as e:
-        raise HTTPException(502, f"transit feed error: {e}")
 
-    # Get cached capacities from state
+    Uses cached vehicle data from background polling loop for fast response.
+    """
+    # Use cached data from background polling loop instead of making fresh API call
     async with state.lock:
+        data = state.vehicles_raw.copy() if state.vehicles_raw else []
         capacities = state.vehicle_capacities.copy()
+
+    # Filter by unassigned if needed
+    if not include_unassigned:
+        data = [v for v in data if v.get("RouteID")]
 
     items = []
     seen = set()
-    for v in data or []:
+    for v in data:
         name = str(v.get("Name") or "-")
         if name in seen:
             continue
