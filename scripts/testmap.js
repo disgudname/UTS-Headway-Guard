@@ -2063,6 +2063,8 @@ schedulePlaneStyleOverride();
       let map;
       let markers = {};
       let busMarkerStates = {};
+      let busPopupRefreshIntervals = {};
+      const BUS_POPUP_REFRESH_INTERVAL_MS = 10000;
       const INITIAL_MAP_VIEW = Object.freeze({
           center: [38.03799212281404, -78.50981502838886],
           zoom: 15
@@ -14229,6 +14231,46 @@ ${trainPlaneMarkup}
           ].join('');
       }
 
+      async function refreshBusPopup(vehicleID) {
+          try {
+              const marker = markers[vehicleID];
+              if (!marker || typeof marker.isPopupOpen !== 'function' || !marker.isPopupOpen()) {
+                  clearBusPopupRefreshInterval(vehicleID);
+                  return;
+              }
+
+              const state = busMarkerStates[vehicleID];
+              if (!state) {
+                  return;
+              }
+
+              await fetchNextStops([vehicleID]);
+
+              const busName = state.busName || `Vehicle ${vehicleID}`;
+              const popupHtml = buildBusPopupContent(vehicleID, busName);
+
+              if (popupHtml && typeof marker.setPopupContent === 'function') {
+                  marker.setPopupContent(popupHtml);
+              }
+          } catch (error) {
+              console.error('Error refreshing bus popup:', error);
+          }
+      }
+
+      function clearBusPopupRefreshInterval(vehicleID) {
+          if (busPopupRefreshIntervals[vehicleID]) {
+              clearInterval(busPopupRefreshIntervals[vehicleID]);
+              delete busPopupRefreshIntervals[vehicleID];
+          }
+      }
+
+      function startBusPopupRefreshInterval(vehicleID) {
+          clearBusPopupRefreshInterval(vehicleID);
+          busPopupRefreshIntervals[vehicleID] = setInterval(() => {
+              refreshBusPopup(vehicleID);
+          }, BUS_POPUP_REFRESH_INTERVAL_MS);
+      }
+
       function clamp(value, min, max) {
           return Math.min(Math.max(value, min), max);
       }
@@ -17809,7 +17851,17 @@ ${trainPlaneMarkup}
                   }
               };
 
+              const handlePopupOpen = () => {
+                  startBusPopupRefreshInterval(vehicleID);
+              };
+
+              const handlePopupClose = () => {
+                  clearBusPopupRefreshInterval(vehicleID);
+              };
+
               marker.on('click', handleBusMarkerClick);
+              marker.on('popupopen', handlePopupOpen);
+              marker.on('popupclose', handlePopupClose);
               state.markerEventsBound = true;
           }
       }
@@ -18057,6 +18109,7 @@ ${trainPlaneMarkup}
           if (busMarkerStates[vehicleID]) {
               delete busMarkerStates[vehicleID];
           }
+          clearBusPopupRefreshInterval(vehicleID);
       }
 
       function isVehicleGpsStale(vehicle) {
