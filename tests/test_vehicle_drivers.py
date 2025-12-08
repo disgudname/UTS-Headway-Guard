@@ -19,6 +19,9 @@ from app import (
     _normalize_driver_name,
     _find_ondemand_driver_by_name,
     _extract_block_from_position_name,
+    _parse_dotnet_date,
+    _build_block_mapping_with_times,
+    _select_current_or_next_block,
 )
 
 
@@ -617,6 +620,240 @@ class TestFindOndemandDriverByName(unittest.TestCase):
             None, self.assignments_by_block, self.now_ts
         )
         self.assertIsNone(driver)
+
+
+class TestParseDotnetDate(unittest.TestCase):
+    """Test the _parse_dotnet_date function."""
+
+    def test_valid_date(self):
+        """Test parsing a valid .NET JSON date."""
+        result = _parse_dotnet_date("/Date(1757019600000)/")
+        self.assertEqual(result, 1757019600000)
+
+    def test_another_valid_date(self):
+        """Test parsing another valid .NET JSON date."""
+        result = _parse_dotnet_date("/Date(1757030700000)/")
+        self.assertEqual(result, 1757030700000)
+
+    def test_empty_string(self):
+        """Test empty string returns None."""
+        result = _parse_dotnet_date("")
+        self.assertIsNone(result)
+
+    def test_none_input(self):
+        """Test None input returns None."""
+        result = _parse_dotnet_date(None)
+        self.assertIsNone(result)
+
+    def test_invalid_format(self):
+        """Test invalid format returns None."""
+        result = _parse_dotnet_date("not a date")
+        self.assertIsNone(result)
+
+
+class TestBuildBlockMappingWithTimes(unittest.TestCase):
+    """Test the _build_block_mapping_with_times function."""
+
+    def test_single_vehicle_single_block(self):
+        """Test a single vehicle with a single block."""
+        block_groups = [
+            {
+                "BlockGroupId": "[01]",
+                "VehicleId": 123,
+                "Blocks": [
+                    {
+                        "Trips": [
+                            {
+                                "VehicleID": 123,
+                                "StartTimeDate": "/Date(1757019600000)/",
+                                "EndTimeDate": "/Date(1757030700000)/"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+        result = _build_block_mapping_with_times(block_groups)
+
+        self.assertIn("123", result)
+        self.assertEqual(len(result["123"]), 1)
+        block_name, start_ts, end_ts = result["123"][0]
+        self.assertEqual(block_name, "[01]")
+        self.assertEqual(start_ts, 1757019600000)
+        self.assertEqual(end_ts, 1757030700000)
+
+    def test_single_vehicle_multiple_blocks(self):
+        """Test a single vehicle with multiple blocks (morning and afternoon shifts)."""
+        block_groups = [
+            {
+                "BlockGroupId": "[21]/[16] AM",
+                "VehicleId": 30,
+                "Blocks": [
+                    {
+                        "Trips": [
+                            {
+                                "VehicleID": 30,
+                                "StartTimeDate": "/Date(1756983600000)/",  # 5:00 AM
+                                "EndTimeDate": "/Date(1757001600000)/"     # 10:00 AM
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "BlockGroupId": "[16] PM",
+                "VehicleId": 30,
+                "Blocks": [
+                    {
+                        "Trips": [
+                            {
+                                "VehicleID": 30,
+                                "StartTimeDate": "/Date(1757019600000)/",  # 3:00 PM
+                                "EndTimeDate": "/Date(1757030700000)/"     # 6:05 PM
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+        result = _build_block_mapping_with_times(block_groups)
+
+        self.assertIn("30", result)
+        self.assertEqual(len(result["30"]), 2)
+
+        # Should have both morning and afternoon blocks
+        block_names = [block[0] for block in result["30"]]
+        self.assertIn("[21]/[16] AM", block_names)
+        self.assertIn("[16] PM", block_names)
+
+    def test_interlined_block(self):
+        """Test interlined block handling."""
+        block_groups = [
+            {
+                "BlockGroupId": "[05]/[03]",
+                "VehicleId": 456,
+                "Blocks": [
+                    {
+                        "Trips": [
+                            {
+                                "VehicleID": 456,
+                                "StartTimeDate": "/Date(1757019600000)/",
+                                "EndTimeDate": "/Date(1757030700000)/"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+        result = _build_block_mapping_with_times(block_groups)
+
+        self.assertIn("456", result)
+        self.assertEqual(len(result["456"]), 1)
+        block_name, start_ts, end_ts = result["456"][0]
+        self.assertEqual(block_name, "[05]/[03]")
+
+
+class TestSelectCurrentOrNextBlock(unittest.TestCase):
+    """Test the _select_current_or_next_block function."""
+
+    def test_current_block(self):
+        """Test selecting current active block."""
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 10, 0, tzinfo=tz)  # 10:00 AM
+        now_ts = int(now.timestamp() * 1000)
+
+        # Morning block: 5:00 AM - 10:00 AM
+        morning_start = datetime(2025, 12, 7, 5, 0, tzinfo=tz)
+        morning_end = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        # Afternoon block: 3:00 PM - 6:00 PM
+        afternoon_start = datetime(2025, 12, 7, 15, 0, tzinfo=tz)
+        afternoon_end = datetime(2025, 12, 7, 18, 0, tzinfo=tz)
+
+        blocks_with_times = [
+            ("[21]/[16] AM", int(morning_start.timestamp() * 1000), int(morning_end.timestamp() * 1000)),
+            ("[16] PM", int(afternoon_start.timestamp() * 1000), int(afternoon_end.timestamp() * 1000))
+        ]
+
+        result = _select_current_or_next_block(blocks_with_times, now_ts)
+        self.assertEqual(result, "[21]/[16] AM")
+
+    def test_next_block(self):
+        """Test selecting next upcoming block when no current block."""
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 12, 30, tzinfo=tz)  # 12:30 PM (between shifts)
+        now_ts = int(now.timestamp() * 1000)
+
+        # Morning block: 5:00 AM - 10:00 AM (past)
+        morning_start = datetime(2025, 12, 7, 5, 0, tzinfo=tz)
+        morning_end = datetime(2025, 12, 7, 10, 0, tzinfo=tz)
+
+        # Afternoon block: 3:00 PM - 6:00 PM (future)
+        afternoon_start = datetime(2025, 12, 7, 15, 0, tzinfo=tz)
+        afternoon_end = datetime(2025, 12, 7, 18, 0, tzinfo=tz)
+
+        blocks_with_times = [
+            ("[21]/[16] AM", int(morning_start.timestamp() * 1000), int(morning_end.timestamp() * 1000)),
+            ("[16] PM", int(afternoon_start.timestamp() * 1000), int(afternoon_end.timestamp() * 1000))
+        ]
+
+        result = _select_current_or_next_block(blocks_with_times, now_ts)
+        self.assertEqual(result, "[16] PM")
+
+    def test_no_current_or_future_blocks(self):
+        """Test when all blocks are in the past."""
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 20, 0, tzinfo=tz)  # 8:00 PM (after all blocks)
+        now_ts = int(now.timestamp() * 1000)
+
+        # Morning block: 5:00 AM - 10:00 AM (past)
+        morning_start = datetime(2025, 12, 7, 5, 0, tzinfo=tz)
+        morning_end = datetime(2025, 12, 7, 10, 0, tzinfo=tz)
+
+        # Afternoon block: 3:00 PM - 6:00 PM (past)
+        afternoon_start = datetime(2025, 12, 7, 15, 0, tzinfo=tz)
+        afternoon_end = datetime(2025, 12, 7, 18, 0, tzinfo=tz)
+
+        blocks_with_times = [
+            ("[21]/[16] AM", int(morning_start.timestamp() * 1000), int(morning_end.timestamp() * 1000)),
+            ("[16] PM", int(afternoon_start.timestamp() * 1000), int(afternoon_end.timestamp() * 1000))
+        ]
+
+        result = _select_current_or_next_block(blocks_with_times, now_ts)
+        self.assertIsNone(result)
+
+    def test_early_morning_before_first_block(self):
+        """Test very early morning before first block starts."""
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 3, 0, tzinfo=tz)  # 3:00 AM (before morning block)
+        now_ts = int(now.timestamp() * 1000)
+
+        # Morning block: 5:00 AM - 10:00 AM
+        morning_start = datetime(2025, 12, 7, 5, 0, tzinfo=tz)
+        morning_end = datetime(2025, 12, 7, 10, 0, tzinfo=tz)
+
+        blocks_with_times = [
+            ("[21]/[16] AM", int(morning_start.timestamp() * 1000), int(morning_end.timestamp() * 1000))
+        ]
+
+        result = _select_current_or_next_block(blocks_with_times, now_ts)
+        self.assertEqual(result, "[21]/[16] AM")
+
+    def test_empty_blocks_list(self):
+        """Test with empty blocks list."""
+        now_ts = int(datetime.now().timestamp() * 1000)
+        result = _select_current_or_next_block([], now_ts)
+        self.assertIsNone(result)
+
+    def test_blocks_without_times(self):
+        """Test blocks without time information."""
+        now_ts = int(datetime.now().timestamp() * 1000)
+        blocks_with_times = [
+            ("[01]", None, None),
+            ("[02]", None, None)
+        ]
+        result = _select_current_or_next_block(blocks_with_times, now_ts)
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

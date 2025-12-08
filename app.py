@@ -4926,8 +4926,18 @@ async def _fetch_vehicle_drivers():
     now_ts = int(now.timestamp() * 1000)
 
     # Fetch both data sources
+    # Get block groups with time information
     try:
-        blocks_mapping = await _get_transloc_blocks_raw()
+        async with httpx.AsyncClient() as client:
+            block_groups = await fetch_block_groups(client, include_metadata=False)
+        blocks_with_times = _build_block_mapping_with_times(block_groups)
+
+        # Select current or next block for each vehicle
+        blocks_mapping = {}
+        for vehicle_id, block_list in blocks_with_times.items():
+            selected_block = _select_current_or_next_block(block_list, now_ts)
+            if selected_block:
+                blocks_mapping[vehicle_id] = selected_block
     except Exception as exc:
         print(f"[vehicle_drivers] blocks fetch failed: {exc}")
         blocks_mapping = {}
@@ -5748,6 +5758,137 @@ def _build_block_mapping_raw(block_groups: List[Dict[str, Any]]) -> Dict[str, st
                 continue
             mapping[str(vid)] = raw_block
     return mapping
+
+
+def _parse_dotnet_date(date_str: str) -> Optional[int]:
+    """
+    Parse .NET JSON date format like '/Date(1757019600000)/' to milliseconds timestamp.
+
+    Args:
+        date_str: .NET JSON date string
+
+    Returns:
+        Timestamp in milliseconds, or None if parsing fails
+    """
+    if not date_str:
+        return None
+    match = re.search(r'/Date\((\d+)\)/', date_str)
+    if match:
+        try:
+            return int(match.group(1))
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
+def _build_block_mapping_with_times(
+    block_groups: List[Dict[str, Any]]
+) -> Dict[str, List[Tuple[str, Optional[int], Optional[int]]]]:
+    """
+    Build a vehicle-to-block mapping with time windows.
+
+    Returns a mapping of vehicle_id -> List[(block_name, start_ts_ms, end_ts_ms)]
+    where each vehicle can have multiple blocks at different times of day.
+
+    Time windows are extracted from the first Trip in each Block.
+    """
+    mapping: Dict[str, List[Tuple[str, Optional[int], Optional[int]]]] = {}
+
+    for group in block_groups or []:
+        raw_block = str(group.get("BlockGroupId") or "").strip()
+        if not raw_block:
+            continue
+
+        # Collect all vehicle IDs for this block group
+        vehicle_ids: Set[str] = set()
+        vid = group.get("VehicleId") or group.get("VehicleID")
+        if vid is not None:
+            vehicle_ids.add(str(vid))
+
+        # Extract time window from first block's first trip
+        start_ts: Optional[int] = None
+        end_ts: Optional[int] = None
+
+        blocks = group.get("Blocks") or []
+        for block in blocks:
+            # Also collect vehicle IDs from trips
+            for trip in block.get("Trips") or []:
+                trip_vid = trip.get("VehicleID") or trip.get("VehicleId")
+                if trip_vid is not None:
+                    vehicle_ids.add(str(trip_vid))
+
+                # Extract time window from first trip with timestamps
+                if start_ts is None:
+                    start_date_str = trip.get("StartTimeDate")
+                    if start_date_str:
+                        start_ts = _parse_dotnet_date(start_date_str)
+                if end_ts is None:
+                    end_date_str = trip.get("EndTimeDate")
+                    if end_date_str:
+                        end_ts = _parse_dotnet_date(end_date_str)
+
+                # Break after finding first trip with times
+                if start_ts is not None and end_ts is not None:
+                    break
+            if start_ts is not None and end_ts is not None:
+                break
+
+        # Add this block to all associated vehicles
+        for vid_str in vehicle_ids:
+            if vid_str not in mapping:
+                mapping[vid_str] = []
+            mapping[vid_str].append((raw_block, start_ts, end_ts))
+
+    return mapping
+
+
+def _select_current_or_next_block(
+    blocks_with_times: List[Tuple[str, Optional[int], Optional[int]]],
+    now_ts: int
+) -> Optional[str]:
+    """
+    Select the current block if active, otherwise the next upcoming block.
+    Never returns past blocks.
+
+    Args:
+        blocks_with_times: List of (block_name, start_ts_ms, end_ts_ms) tuples
+        now_ts: Current timestamp in milliseconds
+
+    Returns:
+        Block name, or None if no current/future blocks
+    """
+    if not blocks_with_times:
+        return None
+
+    current_blocks = []
+    future_blocks = []
+
+    for block_name, start_ts, end_ts in blocks_with_times:
+        # Skip blocks without time information
+        if start_ts is None or end_ts is None:
+            continue
+
+        # Check if block is currently active
+        if start_ts <= now_ts < end_ts:
+            current_blocks.append((block_name, start_ts, end_ts))
+        # Check if block is in the future
+        elif start_ts > now_ts:
+            future_blocks.append((block_name, start_ts, end_ts))
+
+    # Prefer current block
+    if current_blocks:
+        # If multiple current blocks (shouldn't happen), return the one that started first
+        current_blocks.sort(key=lambda x: x[1])  # Sort by start_ts
+        return current_blocks[0][0]
+
+    # Otherwise, return next upcoming block
+    if future_blocks:
+        # Sort by start time and return the earliest
+        future_blocks.sort(key=lambda x: x[1])
+        return future_blocks[0][0]
+
+    # No current or future blocks
+    return None
 
 
 async def _fetch_transloc_blocks_for_base(base_url: Optional[str]) -> Dict[str, str]:
