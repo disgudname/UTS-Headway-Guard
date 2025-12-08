@@ -8772,6 +8772,14 @@ TM.registerVisibilityResumeHandler(() => {
         const panel = document.getElementById('controlPanel');
         if (!panel) return;
 
+        // Preserve scroll position during panel rebuild
+        const previousScrollTop = panel.scrollTop || 0;
+
+        // Preserve existing logo element to avoid unnecessary image reload
+        const existingLogoDiv = panel.querySelector('.selector-logo');
+        const existingLogoImg = existingLogoDiv ? existingLogoDiv.querySelector('img') : null;
+        const existingLogoSrc = existingLogoImg ? existingLogoImg.src : null;
+
         const selectedAgency = agencies.find(a => a.url === baseURL);
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
         let logoHtml = '';
@@ -9028,6 +9036,16 @@ ${trainPlaneMarkup}
         `;
 
         panel.innerHTML = html;
+
+        // Restore existing logo element if src hasn't changed (prevents unnecessary image reload)
+        if (existingLogoDiv && existingLogoImg && existingLogoSrc) {
+          const newLogoDiv = panel.querySelector('.selector-logo');
+          const newLogoImg = newLogoDiv ? newLogoDiv.querySelector('img') : null;
+          if (newLogoImg && newLogoImg.src === existingLogoSrc) {
+            newLogoDiv.replaceChild(existingLogoImg, newLogoImg);
+          }
+        }
+
         updateCatToggleButtonState();
         updateUtsToggleButtonState();
         initializeRadarControls();
@@ -9041,6 +9059,11 @@ ${trainPlaneMarkup}
         updateOnDemandRoutingButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
+
+        // Restore scroll position after panel rebuild
+        if (previousScrollTop > 0) {
+          panel.scrollTop = previousScrollTop;
+        }
       }
 
       // updateRouteSelector rebuilds the route selector panel.
