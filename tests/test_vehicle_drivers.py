@@ -98,7 +98,8 @@ class TestFindCurrentDriver(unittest.TestCase):
                         "end_ts": int(am_end.timestamp() * 1000),
                         "start_label": "6a",
                         "end_label": "12p",
-                        "color_id": "0"
+                        "color_id": "0",
+                        "position_name": "[01]"
                     }
                 ],
                 "pm": [
@@ -108,7 +109,8 @@ class TestFindCurrentDriver(unittest.TestCase):
                         "end_ts": int(pm_end.timestamp() * 1000),
                         "start_label": "1p",
                         "end_label": "6p",
-                        "color_id": "1"
+                        "color_id": "1",
+                        "position_name": "[01]"
                     }
                 ]
             },
@@ -120,7 +122,8 @@ class TestFindCurrentDriver(unittest.TestCase):
                         "end_ts": int(pm_end.timestamp() * 1000),
                         "start_label": "6a",
                         "end_label": "6p",
-                        "color_id": "2"
+                        "color_id": "2",
+                        "position_name": "[04]"
                     }
                 ]
             }
@@ -199,7 +202,8 @@ class TestFindCurrentDriver(unittest.TestCase):
                         "end_ts": int(outgoing_end.timestamp() * 1000),
                         "start_label": "6a",
                         "end_label": "10a",
-                        "color_id": "0"
+                        "color_id": "0",
+                        "position_name": "[05]"
                     },
                     {
                         "name": "Incoming Driver",
@@ -207,7 +211,8 @@ class TestFindCurrentDriver(unittest.TestCase):
                         "end_ts": int(incoming_end.timestamp() * 1000),
                         "start_label": "9:45a",
                         "end_label": "6p",
-                        "color_id": "1"
+                        "color_id": "1",
+                        "position_name": "[05]"
                     }
                 ]
             }
@@ -276,7 +281,8 @@ class TestInterlinedBlockDriverMatching(unittest.TestCase):
                     "end_ts": int(am_end.timestamp() * 1000),
                     "start_label": "6a",
                     "end_label": "2p",
-                    "color_id": "0"
+                    "color_id": "0",
+                    "position_name": "[05]"
                 }]
             },
             "03": {
@@ -286,7 +292,8 @@ class TestInterlinedBlockDriverMatching(unittest.TestCase):
                     "end_ts": int(am_end.timestamp() * 1000),
                     "start_label": "6a",
                     "end_label": "2p",
-                    "color_id": "1"
+                    "color_id": "1",
+                    "position_name": "[03]"
                 }]
             }
         }
@@ -331,7 +338,8 @@ class TestInterlinedBlockDriverMatching(unittest.TestCase):
                     "end_ts": int(am_end.timestamp() * 1000),
                     "start_label": "6a",
                     "end_label": "2p",
-                    "color_id": "0"
+                    "color_id": "0",
+                    "position_name": "[05]"
                 }]
             }
             # Block 03 has no entry
@@ -379,7 +387,8 @@ class TestRawBlockMapping(unittest.TestCase):
                     "end_ts": int(am_end.timestamp() * 1000),
                     "start_label": "6a",
                     "end_label": "12p",
-                    "color_id": "0"
+                    "color_id": "0",
+                    "position_name": "[01]"
                 }]
             }
         }
@@ -417,7 +426,8 @@ class TestRawBlockMapping(unittest.TestCase):
                     "end_ts": int(all_day_end.timestamp() * 1000),
                     "start_label": "6a",
                     "end_label": "6p",
-                    "color_id": "2"
+                    "color_id": "2",
+                    "position_name": "[04]"
                 }]
             }
         }
@@ -539,7 +549,8 @@ class TestFindOndemandDriverByName(unittest.TestCase):
                         "end_ts": int(shift_end.timestamp() * 1000),
                         "start_label": "8a",
                         "end_label": "4p",
-                        "color_id": "0"
+                        "color_id": "0",
+                        "position_name": "OnDemand Driver"
                     }
                 ]
             },
@@ -551,7 +562,8 @@ class TestFindOndemandDriverByName(unittest.TestCase):
                         "end_ts": int(shift_end.timestamp() * 1000),
                         "start_label": "8a",
                         "end_label": "4p",
-                        "color_id": "1"
+                        "color_id": "1",
+                        "position_name": "OnDemand EB"
                     }
                 ]
             }
