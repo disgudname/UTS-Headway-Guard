@@ -2058,7 +2058,6 @@ schedulePlaneStyleOverride();
       const ONDEMAND_MARKER_DEFAULT_COLOR = '#ec4899';
       const ONDEMAND_REFRESH_INTERVAL_MS = 5000;
       const ONDEMAND_STOP_ROUTE_PREFIX = 'ondemand-stop:';
-      const ONDEMAND_STOP_TOOLTIP_CLASS = 'ondemand-stop-tooltip';
 
       let map;
       let markers = {};
@@ -6329,9 +6328,6 @@ schedulePlaneStyleOverride();
             return;
           }
           try {
-            if (typeof entry.marker.unbindTooltip === 'function') {
-              entry.marker.unbindTooltip();
-            }
             map.removeLayer(entry.marker);
           } catch (error) {
             console.warn('Failed to remove OnDemand stop marker:', error);
@@ -6339,37 +6335,6 @@ schedulePlaneStyleOverride();
         });
         onDemandStopMarkerCache.clear();
         onDemandStopMarkers = [];
-      }
-
-      function buildOnDemandStopTooltip(groupInfo) {
-        if (!groupInfo || !Array.isArray(groupInfo.segments) || groupInfo.segments.length === 0) {
-          return '';
-        }
-        const sections = [];
-        if (groupInfo.address) {
-          sections.push(`<div class="ondemand-stop-tooltip__address">${escapeHtml(groupInfo.address)}</div>`);
-        }
-        const timestampText = formatOnDemandStopTimestamp(groupInfo.stopTimestamp);
-        if (timestampText) {
-          sections.push(`<div class="ondemand-stop-tooltip__timestamp">${escapeHtml(timestampText)}</div>`);
-        }
-        const lines = groupInfo.segments.map(segment => {
-          if (!segment) {
-            return '';
-          }
-          const color = sanitizeCssColor(segment.color) || ONDEMAND_MARKER_DEFAULT_COLOR;
-          const swatch = `<span class="ondemand-stop-tooltip__swatch" style="background-color:${color};"></span>`;
-          const vehicleLabel = segment.callName || 'OnDemand van';
-          const pickupText = segment.pickupCount === 1 ? '1 pickup' : `${segment.pickupCount} pickups`;
-          const dropoffText = segment.dropoffCount === 1 ? '1 dropoff' : `${segment.dropoffCount} dropoffs`;
-          const counts = segment.dropoffCount > 0 ? `${pickupText}, ${dropoffText}` : pickupText;
-          const serviceText = Array.isArray(segment.serviceIds) && segment.serviceIds.length > 0
-            ? ` — Service ${escapeHtml(segment.serviceIds.join(', '))}`
-            : '';
-          return `<div class="ondemand-stop-tooltip__entry">${swatch}<div><strong>${escapeHtml(vehicleLabel)}</strong><div>${escapeHtml(counts)}${serviceText}</div></div></div>`;
-        }).filter(Boolean);
-        sections.push(...lines);
-        return `<div class="ondemand-stop-tooltip__content">${sections.join('')}</div>`;
       }
 
       function renderOnDemandStops() {
@@ -6435,7 +6400,6 @@ schedulePlaneStyleOverride();
             stopName: summary.address || (stopEntries[0]?.displayName || 'OnDemand Stop')
           };
 
-          const tooltipHtml = buildOnDemandStopTooltip(groupInfo);
           let markerEntry = onDemandStopMarkerCache.get(groupKey) || null;
           const iconSignature = `${markerRouteIds.join('|')}__${summary.segments
             .map(segment => `${segment.vehicleId}:${segment.totalCapacity}`)
@@ -6443,9 +6407,6 @@ schedulePlaneStyleOverride();
           if (!markerEntry || !markerEntry.marker) {
             const marker = L.marker(groupInfo.position, { icon, pane: 'ondemandStopsPane', interactive: true, keyboard: true });
             marker.addTo(map);
-            if (typeof marker.bindTooltip === 'function') {
-              marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
-            }
             const handleClick = (e) => {
               const clickedLatLng = marker.getLatLng();
               const overlappingItems = findOverlappingClickableItems(clickedLatLng);
@@ -6482,12 +6443,6 @@ schedulePlaneStyleOverride();
             }
             if (markerEntry.iconSignature !== iconSignature && typeof markerEntry.marker.setIcon === 'function') {
               markerEntry.marker.setIcon(icon);
-            }
-            const tooltip = typeof markerEntry.marker.getTooltip === 'function' ? markerEntry.marker.getTooltip() : null;
-            if (tooltip && typeof tooltip.setContent === 'function') {
-              tooltip.setContent(tooltipHtml);
-            } else if (typeof markerEntry.marker.bindTooltip === 'function') {
-              markerEntry.marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
             }
             if (!markerEntry.clickHandler && typeof markerEntry.marker.on === 'function') {
               const handleClick = (e) => {
