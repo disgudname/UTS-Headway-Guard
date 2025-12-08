@@ -14669,7 +14669,7 @@ ${trainPlaneMarkup}
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
                   '<div class="ondemand-driver-popup__label">Address ID</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>`,
                   '</div>'
               ].join(''));
           }
