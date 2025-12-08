@@ -17308,24 +17308,26 @@ ${trainPlaneMarkup}
           if (state.elements?.root) {
               state.elements.root.style.setProperty('--bus-marker-fill', normalizedFill);
               state.elements.root.style.setProperty('--bus-marker-glyph', normalizedGlyph);
-          } else {
-              // Fallback for elements without root reference
-              if (state.elements?.routeColor) {
-                  state.elements.routeColor.setAttribute('fill', normalizedFill);
-                  state.elements.routeColor.style.fill = normalizedFill;
-              }
-              if (state.elements?.centerRing) {
-                  state.elements.centerRing.setAttribute('fill', normalizedGlyph);
-                  state.elements.centerRing.style.fill = normalizedGlyph;
-              }
-              if (state.elements?.centerSquare) {
-                  state.elements.centerSquare.setAttribute('fill', normalizedGlyph);
-                  state.elements.centerSquare.style.fill = normalizedGlyph;
-              }
-              if (state.elements?.heading) {
-                  state.elements.heading.setAttribute('fill', normalizedGlyph);
-                  state.elements.heading.style.fill = normalizedGlyph;
-              }
+          }
+
+          // IMPORTANT: Also update inline styles on SVG elements to ensure color changes
+          // take effect when vehicle switches routes. Inline styles have higher specificity
+          // than CSS custom properties, so we must update both.
+          if (state.elements?.routeColor) {
+              state.elements.routeColor.setAttribute('fill', normalizedFill);
+              state.elements.routeColor.style.fill = normalizedFill;
+          }
+          if (state.elements?.centerRing) {
+              state.elements.centerRing.setAttribute('fill', normalizedGlyph);
+              state.elements.centerRing.style.fill = normalizedGlyph;
+          }
+          if (state.elements?.centerSquare) {
+              state.elements.centerSquare.setAttribute('fill', normalizedGlyph);
+              state.elements.centerSquare.style.fill = normalizedGlyph;
+          }
+          if (state.elements?.heading) {
+              state.elements.heading.setAttribute('fill', normalizedGlyph);
+              state.elements.heading.style.fill = normalizedGlyph;
           }
       }
 
