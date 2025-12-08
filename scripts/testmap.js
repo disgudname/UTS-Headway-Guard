@@ -14638,31 +14638,15 @@ ${trainPlaneMarkup}
               ].join(''));
           }
 
-          // Address ID section (now shown for ALL stops, not just ondemand)
+          // Stop ID section (displays AddressID, labeled as "Stop ID")
           const primaryAddressIdText = !multipleStops
               ? normalizeIdentifier(stopEntries[0]?.addressId)
               : '';
           if (primaryAddressIdText) {
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Address ID</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>`,
-                  '</div>'
-              ].join(''));
-          }
-
-          // Stop ID section (optional fallback, only for non-ondemand stops without AddressID)
-          const fallbackStopIdText = typeof groupInfo.fallbackStopId === 'string'
-              ? groupInfo.fallbackStopId
-              : normalizeIdentifier(groupInfo.fallbackStopId) || '';
-          const primaryStopIdText = !multipleStops
-              ? (stopEntries[0]?.stopIdText || fallbackStopIdText)
-              : '';
-          if (primaryStopIdText && !isOnDemandStop && !primaryAddressIdText) {
-              popupSections.push([
-                  '<div class="ondemand-driver-popup__section">',
                   '<div class="ondemand-driver-popup__label">Stop ID</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryStopIdText)}</div>`,
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>`,
                   '</div>'
               ].join(''));
           }
