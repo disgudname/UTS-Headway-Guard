@@ -371,6 +371,7 @@ LAST_ROUTE_SNAPSHOT_HASH: Dict[Tuple[str, str], str] = {}
 TRANSLOC_ARRIVALS_TTL_S = int(os.getenv("TRANSLOC_ARRIVALS_TTL_S", "15"))
 TRANSLOC_BLOCKS_TTL_S = int(os.getenv("TRANSLOC_BLOCKS_TTL_S", "60"))
 TRANSLOC_VEHICLE_ESTIMATES_TTL_S = int(os.getenv("TRANSLOC_VEHICLE_ESTIMATES_TTL_S", "5"))
+TRANSLOC_CAPACITIES_TTL_S = int(os.getenv("TRANSLOC_CAPACITIES_TTL_S", "10"))
 CAT_METADATA_TTL_S = int(os.getenv("CAT_METADATA_TTL_S", str(5 * 60)))
 CAT_VEHICLE_TTL_S = int(os.getenv("CAT_VEHICLE_TTL_S", "5"))
 CAT_SERVICE_ALERT_TTL_S = int(os.getenv("CAT_SERVICE_ALERT_TTL_S", "60"))
@@ -1601,6 +1602,8 @@ class State:
         self.stops: List[Dict[str, Any]] = []
         # Vehicle capacities from GetVehicleCapacities API
         self.vehicle_capacities: Dict[int, Dict[str, Any]] = {}
+        # Pre-computed route ID to name mapping for performance
+        self.route_id_to_name: Dict[Any, str] = {}
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -1609,6 +1612,7 @@ MILEAGE_FILE = PRIMARY_DATA_DIR / MILEAGE_NAME
 transloc_arrivals_cache = TTLCache(TRANSLOC_ARRIVALS_TTL_S)
 transloc_blocks_cache = TTLCache(TRANSLOC_BLOCKS_TTL_S)
 transloc_vehicle_estimates_cache = PerKeyTTLCache(TRANSLOC_VEHICLE_ESTIMATES_TTL_S)
+transloc_capacities_cache = PerKeyTTLCache(TRANSLOC_CAPACITIES_TTL_S)
 cat_routes_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_stops_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_patterns_cache = TTLCache(CAT_METADATA_TTL_S)
@@ -3461,6 +3465,18 @@ async def startup():
                                 ).strip()
                                 disp = f"{desc} — {info}" if info else desc
                                 state.routes_all[rid] = disp
+                            # Pre-compute route_id_to_name for testmap endpoint performance
+                            route_id_to_name_map: Dict[Any, str] = {}
+                            for r in routes_raw or []:
+                                rid = r.get("RouteID") or r.get("RouteId")
+                                route_name = r.get("Description") or r.get("RouteName") or r.get("LongName") or r.get("ShortName")
+                                if rid is not None and route_name:
+                                    info_text = r.get("InfoText")
+                                    if info_text and isinstance(info_text, str) and info_text.strip():
+                                        route_id_to_name_map[rid] = f"{route_name} ({info_text.strip()})"
+                                    else:
+                                        route_id_to_name_map[rid] = route_name
+                            state.route_id_to_name = route_id_to_name_map
                             if not hasattr(state, "roster_names"):
                                 state.roster_names = set()
                             for _v in vehicles_raw or []:
@@ -6196,48 +6212,87 @@ async def testmap_transloc_vehicles(
     base_url: Optional[str] = Query(None), stale: bool = Query(False)
 ):
     try:
-        # Helper to fetch capacities with error handling
-        async def fetch_capacities_safe():
-            async with httpx.AsyncClient() as client:
-                try:
-                    return await fetch_vehicle_capacities(client, base_url=base_url)
-                except Exception as e:
-                    print(f"[testmap] capacity fetch error: {e}")
-                    return {}
+        if is_default_transloc_base(base_url):
+            # Optimized path for default TransLoc base:
+            # - Use pre-cached capacities and route names from state
+            # - Get vehicle IDs from state first to parallelize stop estimates fetch
+            async with state.lock:
+                capacities = dict(state.vehicle_capacities)
+                route_id_to_name = dict(state.route_id_to_name)
+                # Get vehicle IDs from state for parallel stop estimates fetch
+                cached_vehicle_ids = [
+                    rec.get("VehicleID") or rec.get("VehicleId")
+                    for rec in getattr(state, "vehicles_raw", [])
+                    if (rec.get("VehicleID") or rec.get("VehicleId")) is not None
+                ]
 
-        # Run all independent fetches in parallel for performance
-        (assigned, raw_vehicle_records), (routes_raw, extra_routes_raw), capacities = await asyncio.gather(
-            _load_transloc_vehicle_sources(base_url),
-            _load_transloc_route_sources(base_url),
-            fetch_capacities_safe(),
-        )
+            # Run vehicle/route sources and stop estimates in parallel
+            (assigned, raw_vehicle_records), (routes_raw, _), stop_estimates = await asyncio.gather(
+                _load_transloc_vehicle_sources(base_url),
+                _load_transloc_route_sources(base_url),
+                _fetch_vehicle_stop_estimates(
+                    vehicle_ids=cached_vehicle_ids,
+                    base_url=base_url,
+                    quantity=3
+                ),
+            )
 
-        # Build route ID to name mapping (with InfoText in parentheses)
-        route_id_to_name = {}
-        for route in routes_raw:
-            rid = route.get("RouteID") or route.get("RouteId")
-            route_name = route.get("Description") or route.get("RouteName") or route.get("LongName") or route.get("ShortName")
-            if rid is not None and route_name:
-                # Include InfoText in parentheses if it exists and is not empty
-                info_text = route.get("InfoText")
-                if info_text and isinstance(info_text, str) and info_text.strip():
-                    route_id_to_name[rid] = f"{route_name} ({info_text.strip()})"
-                else:
-                    route_id_to_name[rid] = route_name
+            # If route_id_to_name is empty (first request before background update),
+            # build it from routes_raw as fallback
+            if not route_id_to_name:
+                for route in routes_raw:
+                    rid = route.get("RouteID") or route.get("RouteId")
+                    route_name = route.get("Description") or route.get("RouteName") or route.get("LongName") or route.get("ShortName")
+                    if rid is not None and route_name:
+                        info_text = route.get("InfoText")
+                        if info_text and isinstance(info_text, str) and info_text.strip():
+                            route_id_to_name[rid] = f"{route_name} ({info_text.strip()})"
+                        else:
+                            route_id_to_name[rid] = route_name
+        else:
+            # Non-default base URL: use caching and shared client
+            cache_key = base_url or "default"
 
-        # Extract vehicle IDs for fetching stop estimates
-        vehicle_ids = []
-        for rec in raw_vehicle_records:
-            vid = rec.get("VehicleID") or rec.get("VehicleId")
-            if vid is not None:
-                vehicle_ids.append(vid)
+            async def fetch_capacities_cached():
+                async def fetch():
+                    async with httpx.AsyncClient() as client:
+                        try:
+                            return await fetch_vehicle_capacities(client, base_url=base_url)
+                        except Exception as e:
+                            print(f"[testmap] capacity fetch error: {e}")
+                            return {}
+                return await transloc_capacities_cache.get(cache_key, fetch)
 
-        # Fetch stop estimates for all vehicles
-        stop_estimates = await _fetch_vehicle_stop_estimates(
-            vehicle_ids=vehicle_ids,
-            base_url=base_url,
-            quantity=3
-        )
+            # Fetch vehicle sources, route sources, and capacities in parallel
+            (assigned, raw_vehicle_records), (routes_raw, _), capacities = await asyncio.gather(
+                _load_transloc_vehicle_sources(base_url),
+                _load_transloc_route_sources(base_url),
+                fetch_capacities_cached(),
+            )
+
+            # Build route ID to name mapping
+            route_id_to_name = {}
+            for route in routes_raw:
+                rid = route.get("RouteID") or route.get("RouteId")
+                route_name = route.get("Description") or route.get("RouteName") or route.get("LongName") or route.get("ShortName")
+                if rid is not None and route_name:
+                    info_text = route.get("InfoText")
+                    if info_text and isinstance(info_text, str) and info_text.strip():
+                        route_id_to_name[rid] = f"{route_name} ({info_text.strip()})"
+                    else:
+                        route_id_to_name[rid] = route_name
+
+            # Extract vehicle IDs and fetch stop estimates
+            vehicle_ids = [
+                rec.get("VehicleID") or rec.get("VehicleId")
+                for rec in raw_vehicle_records
+                if (rec.get("VehicleID") or rec.get("VehicleId")) is not None
+            ]
+            stop_estimates = await _fetch_vehicle_stop_estimates(
+                vehicle_ids=vehicle_ids,
+                base_url=base_url,
+                quantity=3
+            )
 
         vehicles = _assemble_transloc_vehicles(
             raw_vehicle_records=raw_vehicle_records,
