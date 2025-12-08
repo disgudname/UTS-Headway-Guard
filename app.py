@@ -4536,11 +4536,9 @@ def _parse_w2w_datetime(date_str: Any, time_str: Any, tz: ZoneInfo) -> Optional[
 def _format_driver_time(dt: datetime) -> str:
     hour = dt.hour
     minute = dt.minute
-    suffix = "a" if hour < 12 else "p"
-    display_hour = hour % 12 or 12
     if minute:
-        return f"{display_hour}:{minute:02d}{suffix}"
-    return f"{display_hour}{suffix}"
+        return f"{hour:02d}:{minute:02d}"
+    return f"{hour:02d}:00"
 
 
 def _parse_duration_hours(value: Any) -> Optional[float]:
