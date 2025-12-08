@@ -414,9 +414,19 @@
             });
           });
         }
+        const TRAIN_STALE_TIMEOUT_MS = 60000; // Remove trains that haven't been seen for 60 seconds
         Object.keys(moduleState.markerStates).forEach(trainID => {
           if (!seenTrainIds.has(trainID)) {
-            clearTrainMarker(trainID);
+            const stateEntry = moduleState.markerStates[trainID];
+            if (stateEntry && stateEntry.lastUpdateTimestamp) {
+              const age = timestamp - stateEntry.lastUpdateTimestamp;
+              if (age > TRAIN_STALE_TIMEOUT_MS) {
+                clearTrainMarker(trainID);
+              }
+            } else {
+              // If there's no timestamp, remove it immediately (old/invalid state)
+              clearTrainMarker(trainID);
+            }
           }
         });
         try {
