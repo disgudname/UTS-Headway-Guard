@@ -4565,18 +4565,27 @@ def _build_driver_assignments(
 ) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
     assignments: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
     fallback_ts = int(now.timestamp() * 1000)
+    total_shifts = 0
+    filtered_past = 0
+    filtered_no_block = 0
+    filtered_no_time = 0
+    kept_shifts = 0
+
     for shift in shifts:
+        total_shifts += 1
         if not isinstance(shift, dict):
             continue
         position_name = shift.get("POSITION_NAME")
         block_number, explicit_period = _extract_block_from_position_name(position_name)
         if not block_number:
+            filtered_no_block += 1
             continue
         first = str(shift.get("FIRST_NAME") or "").strip()
         last = str(shift.get("LAST_NAME") or "").strip()
         name = (first + " " + last).strip() or "OPEN"
         start_dt = _parse_w2w_datetime(shift.get("START_DATE"), shift.get("START_TIME"), tz)
         if start_dt is None:
+            filtered_no_time += 1
             continue
         end_dt = _parse_w2w_datetime(shift.get("END_DATE"), shift.get("END_TIME"), tz)
         if end_dt is None:
@@ -4584,6 +4593,7 @@ def _build_driver_assignments(
             if duration_hours:
                 end_dt = start_dt + timedelta(hours=duration_hours)
         if end_dt is None:
+            filtered_no_time += 1
             continue
         if end_dt <= start_dt:
             end_dt += timedelta(days=1)
@@ -4591,7 +4601,10 @@ def _build_driver_assignments(
         # current or upcoming assignments even when we query the previous
         # service day overnight.
         if end_dt <= now:
+            filtered_past += 1
             continue
+
+        kept_shifts += 1
         period = explicit_period or ("am" if start_dt.hour < 12 else "pm")
         if period == "any":
             pass
@@ -4621,6 +4634,11 @@ def _build_driver_assignments(
     for entry in assignments.values():
         for drivers in entry.values():
             drivers.sort(key=lambda item: item.get("start_ts") or fallback_ts)
+
+    # Diagnostic logging
+    print(f"[w2w] Processed {total_shifts} shifts: kept={kept_shifts}, filtered_past={filtered_past}, filtered_no_block={filtered_no_block}, filtered_no_time={filtered_no_time}")
+    print(f"[w2w] Blocks with assignments: {sorted(assignments.keys())}")
+
     return assignments
 
 
@@ -4648,6 +4666,7 @@ async def _fetch_w2w_assignments():
         "end_date": f"{service_day.month}/{service_day.day}/{service_day.year}",
         "key": W2W_KEY,
     }
+    print(f"[w2w] Querying W2W API for date: {params['start_date']}")
     url = httpx.URL(W2W_ASSIGNED_SHIFT_URL)
     async with httpx.AsyncClient() as client:
         response = await client.get(url, params=params, timeout=20)
@@ -4660,6 +4679,7 @@ async def _fetch_w2w_assignments():
         raw_shifts = payload.get("AssignedShiftList")
         if isinstance(raw_shifts, list):
             shifts = raw_shifts
+    print(f"[w2w] Received {len(list(shifts))} shifts from W2W API")
     assignments = _build_driver_assignments(shifts, now, tz)
     return {
         "fetched_at": int(now.timestamp() * 1000),
@@ -4956,6 +4976,7 @@ async def _fetch_vehicle_drivers():
     try:
         w2w_data = await w2w_assignments_cache.get(_fetch_w2w_assignments)
         assignments_by_block = w2w_data.get("assignments_by_block", {})
+        print(f"[vehicle_drivers] W2W has assignments for blocks: {sorted(assignments_by_block.keys())}")
     except Exception as exc:
         print(f"[vehicle_drivers] w2w fetch failed: {exc}")
         assignments_by_block = {}
@@ -5025,6 +5046,11 @@ async def _fetch_vehicle_drivers():
             "vehicle_name": vehicle_name,
             "vehicle_id": vehicle_id,
         }
+
+    # Diagnostic summary
+    vehicles_with_drivers = sum(1 for v in vehicle_drivers.values() if v["drivers"])
+    vehicles_without_drivers = len(vehicle_drivers) - vehicles_with_drivers
+    print(f"[vehicle_drivers] Final result: {len(vehicle_drivers)} vehicles ({vehicles_with_drivers} with drivers, {vehicles_without_drivers} without)")
 
     # Process ondemand vehicles
     # Get ondemand client and fetch vehicle data
