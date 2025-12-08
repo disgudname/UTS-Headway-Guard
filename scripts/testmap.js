@@ -10466,30 +10466,68 @@ ${trainPlaneMarkup}
                   if (!entry || !entry.marker || !entry.groupInfo) return;
                   const markerLatLng = entry.marker.getLatLng ? entry.marker.getLatLng() : null;
                   if (!markerLatLng) return;
-                  
+
                   if (isNearby(markerLatLng)) {
                       const groupInfo = entry.groupInfo;
-                      // Extract route IDs to determine color
-                      const routeIds = groupInfo.stopEntries?.map(e => e.routeId).filter(Boolean) || [];
-                      const firstRouteId = routeIds[0];
-                      let color = '#0f172a'; // Default color
-                      if (firstRouteId && typeof getRouteColor === 'function') {
-                          const routeColor = getRouteColor(firstRouteId);
-                          if (routeColor) {
-                              color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
-                          }
-                      }
+                      const stopEntries = Array.isArray(groupInfo.stopEntries) ? groupInfo.stopEntries : [];
 
-                      items.push({
-                          latlng: markerLatLng,
-                          color: color,
-                          label: groupInfo.stopName || 'Stop',
-                          onClick: () => {
-                              const latestEntry = stopMarkerCache.get(key);
-                              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-                              createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                      // If there are multiple stop entries (merged stops), create a menu item for each
+                      if (stopEntries.length > 1) {
+                          stopEntries.forEach((stopEntry, index) => {
+                              // Get color from this specific stop's route
+                              let color = '#0f172a'; // Default color
+                              const routeId = stopEntry.routeId;
+                              if (routeId && typeof getRouteColor === 'function') {
+                                  const routeColor = getRouteColor(routeId);
+                                  if (routeColor) {
+                                      color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                                  }
+                              }
+
+                              // Use the individual stop's name
+                              const stopName = sanitizeStopName(stopEntry.displayName) || `Stop ${index + 1}`;
+
+                              items.push({
+                                  latlng: markerLatLng,
+                                  color: color,
+                                  label: stopName,
+                                  onClick: () => {
+                                      // Create a popup for just this individual stop
+                                      const singleStopGroupInfo = {
+                                          position: groupInfo.position,
+                                          stopName: stopName,
+                                          fallbackStopId: stopEntry.stopIds ? stopEntry.stopIds.join(', ') : '',
+                                          stopEntries: [stopEntry],
+                                          aggregatedRouteStopIds: stopEntry.routeStopIds || [],
+                                          groupKey: createStopGroupKey(stopEntry.routeStopIds || [], stopEntry.stopIds ? stopEntry.stopIds[0] : '')
+                                      };
+                                      createCustomPopup(Object.assign({ popupType: 'stop' }, singleStopGroupInfo));
+                                  }
+                              });
+                          });
+                      } else {
+                          // Single stop, use original behavior
+                          const routeIds = groupInfo.stopEntries?.map(e => e.routeId).filter(Boolean) || [];
+                          const firstRouteId = routeIds[0];
+                          let color = '#0f172a'; // Default color
+                          if (firstRouteId && typeof getRouteColor === 'function') {
+                              const routeColor = getRouteColor(firstRouteId);
+                              if (routeColor) {
+                                  color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                              }
                           }
-                      });
+
+                          items.push({
+                              latlng: markerLatLng,
+                              color: color,
+                              label: groupInfo.stopName || 'Stop',
+                              onClick: () => {
+                                  const latestEntry = stopMarkerCache.get(key);
+                                  const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                                  createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                              }
+                          });
+                      }
                   }
               });
           }
@@ -10500,31 +10538,73 @@ ${trainPlaneMarkup}
                   if (!entry || !entry.marker || !entry.groupInfo) return;
                   const markerLatLng = entry.marker.getLatLng ? entry.marker.getLatLng() : null;
                   if (!markerLatLng) return;
-                  
+
                   if (isNearby(markerLatLng)) {
                       const groupInfo = entry.groupInfo;
-                      const routeIds = groupInfo.stopEntries?.map(e => e.routeId).filter(Boolean) || [];
-                      const firstRouteId = routeIds[0];
-                      let color = '#0f172a';
-                      if (firstRouteId && typeof getRouteColor === 'function') {
-                          const routeColor = getRouteColor(firstRouteId);
-                          if (routeColor) {
-                              color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
-                          }
-                      }
+                      const stopEntries = Array.isArray(groupInfo.stopEntries) ? groupInfo.stopEntries : [];
 
-                      items.push({
-                          latlng: markerLatLng,
-                          color: color,
-                          label: (groupInfo.stopName || 'Stop') + ' (On-Demand)',
-                          onClick: () => {
-                              const latestEntry = onDemandStopMarkerCache.get(key);
-                              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-                              const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
-                              const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
-                              createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                      // If there are multiple stop entries (merged stops), create a menu item for each
+                      if (stopEntries.length > 1) {
+                          stopEntries.forEach((stopEntry, index) => {
+                              // Get color from this specific stop's route
+                              let color = '#0f172a';
+                              const routeId = stopEntry.routeId;
+                              if (routeId && typeof getRouteColor === 'function') {
+                                  const routeColor = getRouteColor(routeId);
+                                  if (routeColor) {
+                                      color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                                  }
+                              }
+
+                              // Determine if this individual stop is an on-demand stop
+                              const isOnDemand = Array.isArray(stopEntry.onDemandStops) && stopEntry.onDemandStops.length > 0;
+                              const stopName = sanitizeStopName(stopEntry.displayName) || stopEntry.address || `Stop ${index + 1}`;
+                              const label = isOnDemand ? `${stopName} (On-Demand)` : stopName;
+
+                              items.push({
+                                  latlng: markerLatLng,
+                                  color: color,
+                                  label: label,
+                                  onClick: () => {
+                                      // Create a popup for just this individual stop
+                                      const singleStopGroupInfo = {
+                                          position: groupInfo.position,
+                                          stopName: stopName,
+                                          fallbackStopId: stopEntry.stopIds ? stopEntry.stopIds.join(', ') : '',
+                                          stopEntries: [stopEntry],
+                                          aggregatedRouteStopIds: stopEntry.routeStopIds || [],
+                                          groupKey: createStopGroupKey(stopEntry.routeStopIds || [], stopEntry.stopIds ? stopEntry.stopIds[0] : ''),
+                                          isOnDemandStop: isOnDemand
+                                      };
+                                      createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: isOnDemand }, singleStopGroupInfo));
+                                  }
+                              });
+                          });
+                      } else {
+                          // Single stop, use original behavior
+                          const routeIds = groupInfo.stopEntries?.map(e => e.routeId).filter(Boolean) || [];
+                          const firstRouteId = routeIds[0];
+                          let color = '#0f172a';
+                          if (firstRouteId && typeof getRouteColor === 'function') {
+                              const routeColor = getRouteColor(firstRouteId);
+                              if (routeColor) {
+                                  color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                              }
                           }
-                      });
+
+                          items.push({
+                              latlng: markerLatLng,
+                              color: color,
+                              label: (groupInfo.stopName || 'Stop') + ' (On-Demand)',
+                              onClick: () => {
+                                  const latestEntry = onDemandStopMarkerCache.get(key);
+                                  const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                                  const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+                                  const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+                                  createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                              }
+                          });
+                      }
                   }
               });
           }
