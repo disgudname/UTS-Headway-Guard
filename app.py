@@ -4560,6 +4560,44 @@ def _parse_duration_hours(value: Any) -> Optional[float]:
     return duration
 
 
+def _parse_driving_role(description: Optional[str]) -> Dict[str, Any]:
+    """
+    Parse driving role information from shift description.
+
+    Returns dict with:
+    - 'role': 'senior' | 'junior' | None
+    - 'partner': partner driver name if found, else None
+
+    Examples:
+    - "OFF - Relieve @ 1040 MP - Senior Driving 1500-1830 w/Owen J" -> {'role': 'senior', 'partner': 'Owen J'}
+    - "OFF - Meet OTR - Junior Driving w/Gene K" -> {'role': 'junior', 'partner': 'Gene K'}
+    """
+    result = {"role": None, "partner": None}
+
+    if not description:
+        return result
+
+    desc_lower = description.lower()
+
+    # Check for Senior Driving
+    if "senior driving" in desc_lower:
+        result["role"] = "senior"
+    # Check for Junior Driving
+    elif "junior driving" in desc_lower:
+        result["role"] = "junior"
+    else:
+        return result
+
+    # Extract partner driver name (format: "w/FirstName L" or "w/FirstName LastName")
+    # Common patterns: "w/Owen J", "w/Gene K", "w/John Smith"
+    import re
+    partner_match = re.search(r'\bw/([A-Z][a-z]+(?:\s+[A-Z][a-z]*)?)', description)
+    if partner_match:
+        result["partner"] = partner_match.group(1).strip()
+
+    return result
+
+
 def _build_driver_assignments(
     shifts: Iterable[Dict[str, Any]], now: datetime, tz: ZoneInfo
 ) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
@@ -4610,17 +4648,33 @@ def _build_driver_assignments(
         # Skip shifts with COLOR_ID 9 (driver didn't come in / not going to come in)
         if color_id == "9":
             continue
-        bucket.append(
-            {
-                "name": name,
-                "start_ts": start_ts,
-                "end_ts": end_ts,
-                "start_label": _format_driver_time(start_dt),
-                "end_label": _format_driver_time(end_dt),
-                "color_id": color_id,
-                "position_name": position_name,  # Store original W2W POSITION_NAME
-            }
-        )
+
+        # Parse driving role for COLOR_ID 7 (Junior/Senior Driving)
+        driving_role = None
+        driving_partner = None
+        description = shift.get("DESCRIPTION")
+        if color_id == "7":
+            role_info = _parse_driving_role(description)
+            driving_role = role_info.get("role")
+            driving_partner = role_info.get("partner")
+
+        assignment_entry = {
+            "name": name,
+            "start_ts": start_ts,
+            "end_ts": end_ts,
+            "start_label": _format_driver_time(start_dt),
+            "end_label": _format_driver_time(end_dt),
+            "color_id": color_id,
+            "position_name": position_name,  # Store original W2W POSITION_NAME
+        }
+
+        # Add driving role info if present
+        if driving_role:
+            assignment_entry["driving_role"] = driving_role
+        if driving_partner:
+            assignment_entry["driving_partner"] = driving_partner
+
+        bucket.append(assignment_entry)
     for entry in assignments.values():
         for drivers in entry.values():
             drivers.sort(key=lambda item: item.get("start_ts") or fallback_ts)
