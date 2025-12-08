@@ -6,8 +6,8 @@
 
     // Configuration
     const OVERLAP_THRESHOLD_PX = 40; // Pixels to consider markers overlapping
-    const MENU_ITEM_SIZE = 50; // Size of each menu circle
-    const MENU_RADIUS = 80; // Radius of the circular menu
+    const MENU_ITEM_SIZE = 120; // Size of each menu circle
+    const MENU_RADIUS = 140; // Radius of the circular menu
     const MIN_ITEMS_FOR_MENU = 2; // Minimum overlapping items to show menu
 
     let map = null;
@@ -202,8 +202,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 4px;
-            line-height: 1.1;
+            padding: 8px;
+            line-height: 1.2;
             word-wrap: break-word;
             overflow: hidden;
         `;
@@ -216,8 +216,52 @@
             max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
+            word-break: break-word;
+            hyphens: auto;
         `;
         itemEl.appendChild(label);
+
+        // Add tooltip for full text on hover
+        itemEl.setAttribute('title', item.label || '');
+        itemEl.setAttribute('aria-label', item.label || '');
+        
+        // Create a custom tooltip that appears on hover for better visibility
+        const tooltip = document.createElement('div');
+        tooltip.className = 'marker-menu-tooltip';
+        tooltip.textContent = item.label || '';
+        tooltip.style.cssText = `
+            position: absolute;
+            background: rgba(15, 23, 42, 0.95);
+            color: #ffffff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 10001;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            max-width: 300px;
+            white-space: normal;
+            word-wrap: break-word;
+        `;
+        
+        // Position tooltip above the circle
+        const tooltipOffset = MENU_ITEM_SIZE / 2 + 10;
+        tooltip.style.bottom = `${tooltipOffset}px`;
+        tooltip.style.left = '50%';
+        tooltip.style.transform = 'translateX(-50%)';
+        itemEl.appendChild(tooltip);
+        
+        // Show/hide tooltip on hover
+        itemEl.addEventListener('mouseenter', () => {
+            tooltip.style.opacity = '1';
+        });
+        
+        itemEl.addEventListener('mouseleave', () => {
+            tooltip.style.opacity = '0';
+        });
 
         // Add hover effect
         itemEl.addEventListener('mouseenter', () => {
