@@ -258,6 +258,9 @@
             }
         }
 
+        // Use larger font for buses (vehicles with routes), smaller for ondemand/stops
+        const fontSize = (item.type === 'vehicle' && hasRoutes) ? '15px' : '12px';
+
         const itemEl = document.createElement('button');
         itemEl.className = 'marker-selection-menu-item';
         itemEl.style.cssText = `
@@ -272,7 +275,7 @@
             border: 3px solid rgba(255, 255, 255, 0.9);
             color: #ffffff;
             font-family: 'FGDC', sans-serif;
-            font-size: 12px;
+            font-size: ${fontSize};
             font-weight: 700;
             text-align: center;
             cursor: pointer;
