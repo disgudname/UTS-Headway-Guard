@@ -4934,12 +4934,21 @@ async def _fetch_vehicle_drivers():
             block_groups = await fetch_block_groups(client, include_metadata=False)
         blocks_with_times = _build_block_mapping_with_times(block_groups)
 
+        # Diagnostic logging
+        print(f"[vehicle_drivers] Found {len(blocks_with_times)} vehicles with block data")
+        print(f"[vehicle_drivers] Current time: {now} ({now_ts})")
+
         # Select current or next block for each vehicle
         blocks_mapping = {}
         for vehicle_id, block_list in blocks_with_times.items():
             selected_block = _select_current_or_next_block(block_list, now_ts)
             if selected_block:
                 blocks_mapping[vehicle_id] = selected_block
+            else:
+                # Log why block was filtered out
+                print(f"[vehicle_drivers] Vehicle {vehicle_id} filtered out - blocks: {block_list}")
+
+        print(f"[vehicle_drivers] After time filtering: {len(blocks_mapping)} vehicles remain")
     except Exception as exc:
         print(f"[vehicle_drivers] blocks fetch failed: {exc}")
         blocks_mapping = {}
@@ -5795,6 +5804,8 @@ def _build_block_mapping_with_times(
         # Extract time window from first block's first trip
         start_ts: Optional[int] = None
         end_ts: Optional[int] = None
+        start_date_str: Optional[str] = None
+        end_date_str: Optional[str] = None
 
         blocks = group.get("Blocks") or []
         for block in blocks:
@@ -5819,6 +5830,16 @@ def _build_block_mapping_with_times(
                     break
             if start_ts is not None and end_ts is not None:
                 break
+
+        # Diagnostic logging for first few blocks
+        if len(mapping) < 3 and vehicle_ids:
+            tz = ZoneInfo("America/New_York")
+            if start_ts and end_ts:
+                start_dt = datetime.fromtimestamp(start_ts / 1000, tz)
+                end_dt = datetime.fromtimestamp(end_ts / 1000, tz)
+                print(f"[vehicle_drivers] Block {raw_block} for vehicle {list(vehicle_ids)[0]}: {start_dt} to {end_dt}")
+            else:
+                print(f"[vehicle_drivers] Block {raw_block} for vehicle {list(vehicle_ids)[0]}: No time info (start={start_date_str}, end={end_date_str})")
 
         # Add this block to all associated vehicles
         for vid_str in vehicle_ids:
