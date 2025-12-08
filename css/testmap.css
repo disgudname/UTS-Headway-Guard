@@ -2070,5 +2070,9 @@
       .bus-popup__driver-label--training {
         color: #FF8C00 !important;
       }
+      /* Single driver styling - use green (incoming) style */
+      .bus-popup__driver-row--single {
+        border-left: 3px solid rgba(34, 197, 94, 0.6);
+      }
 
 

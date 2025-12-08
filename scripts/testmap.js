@@ -14551,12 +14551,21 @@ ${trainPlaneMarkup}
               const drivers = driverInfo.drivers;
 
               if (drivers.length === 1) {
-                  // Single driver - display normally
+                  // Single driver - display with styled row format (same as incoming/outgoing)
                   const driver = drivers[0];
+                  const startTime = driver.shift_start_label ? `On at ${escapeHtml(driver.shift_start_label)}` : '';
+                  const endTime = driver.shift_end_label ? `Off at ${escapeHtml(driver.shift_end_label)}` : '';
+                  const shiftTimes = [startTime, endTime].filter(Boolean).join(' • ');
+
                   popupSections.push([
                       '<div class="ondemand-driver-popup__section">',
                       '<div class="ondemand-driver-popup__label">Driver</div>',
-                      `<div class="ondemand-driver-popup__value">${escapeHtml(driver.name)}</div>`,
+                      '<div class="bus-popup__drivers-list bus-popup__drivers-list--single">',
+                      '<div class="bus-popup__driver-row bus-popup__driver-row--single">',
+                      `<div class="bus-popup__driver-name">${escapeHtml(driver.name)}</div>`,
+                      shiftTimes ? `<div class="bus-popup__driver-meta">${shiftTimes}</div>` : '',
+                      '</div>',
+                      '</div>',
                       '</div>'
                   ].join(''));
               } else {
