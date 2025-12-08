@@ -4969,91 +4969,53 @@ async def _fetch_vehicle_drivers():
         # Extract block numbers from raw block name
         # For single blocks: "[01]" -> ["01"]
         # For interlined blocks: "[05]/[03]" -> ["05", "03"]
+        # Note: A bus runs only ONE block at a time. Interlined blocks mean the bus
+        # switches between blocks during the day (e.g., runs [05] AM, then [03] PM)
         block_numbers = _split_interlined_blocks(block_name)
 
         # Get the vehicle name (may be None if not found)
         vehicle_name = vehicle_names.get(vehicle_id)
 
-        # For interlined blocks, combine all blocks and drivers under one vehicle ID
-        if len(block_numbers) > 1:
-            # Interlined block - collect all drivers from all blocks
-            all_drivers = []
-            seen_drivers = set()  # Track unique drivers to avoid duplicates
-            w2w_position_names = []  # Track W2W position names for each block
+        # Collect all currently active drivers from all blocks
+        # (For interlined blocks, only ONE block should be active at any given time)
+        all_drivers = []
+        seen_drivers = set()  # Track unique drivers to avoid duplicates
+        w2w_position_name = None  # Track W2W position name from first active driver
 
-            for block_number in block_numbers:
-                # Collect drivers for this specific block
-                block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+        for block_number in block_numbers:
+            # Collect drivers currently active for this block
+            block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
 
-                # Track W2W position name if we have drivers for this block
-                if block_drivers:
-                    # Use the first driver's position_name as representative for this block
-                    position_name = block_drivers[0].get("position_name")
-                    if position_name:
-                        w2w_position_names.append(position_name)
+            # Capture W2W position name from the first active driver
+            if block_drivers and w2w_position_name is None:
+                w2w_position_name = block_drivers[0].get("position_name")
 
-                # Add drivers to the combined list, avoiding duplicates
-                for driver in block_drivers:
-                    driver_key = (driver["name"], driver["start_ts"], driver["end_ts"])
-                    if driver_key not in seen_drivers:
-                        seen_drivers.add(driver_key)
-                        all_drivers.append({
-                            "name": driver["name"],
-                            "shift_start": driver["start_ts"],
-                            "shift_start_label": driver["start_label"],
-                            "shift_end": driver["end_ts"],
-                            "shift_end_label": driver["end_label"],
-                        })
-
-            # Sort drivers by shift start time (for consistency with overlapping shifts)
-            all_drivers.sort(key=lambda d: d["shift_start"])
-
-            # Determine block name: prefer W2W position names, fallback to TransLoc
-            if w2w_position_names:
-                # Use W2W position names, combined with "/" for interlined blocks
-                final_block = "/".join(w2w_position_names)
-            else:
-                # Fall back to TransLoc block name
-                final_block = block_name
-
-            # Create single entry with all blocks and all drivers
-            vehicle_drivers[vehicle_id] = {
-                "block": final_block,
-                "drivers": all_drivers,
-                "vehicle_name": vehicle_name,
-                "vehicle_id": vehicle_id,
-            }
-        else:
-            # Single block - create one entry as before
-            block_number = block_numbers[0] if block_numbers else None
-            if block_number:
-                # Collect drivers for this block
-                block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
-
-                # Build drivers array with all current drivers (handles overlapping shifts)
-                drivers_list = []
-                w2w_position_name = None
-                for driver in block_drivers:
-                    drivers_list.append({
+            # Add drivers to the combined list, avoiding duplicates
+            for driver in block_drivers:
+                driver_key = (driver["name"], driver["start_ts"], driver["end_ts"])
+                if driver_key not in seen_drivers:
+                    seen_drivers.add(driver_key)
+                    all_drivers.append({
                         "name": driver["name"],
                         "shift_start": driver["start_ts"],
                         "shift_start_label": driver["start_label"],
                         "shift_end": driver["end_ts"],
                         "shift_end_label": driver["end_label"],
                     })
-                    # Capture W2W position name from first driver
-                    if w2w_position_name is None:
-                        w2w_position_name = driver.get("position_name")
 
-                # Determine block name: prefer W2W position name, fallback to TransLoc
-                final_block = w2w_position_name if w2w_position_name else block_name
+        # Sort drivers by shift start time (for consistency with overlapping shifts)
+        all_drivers.sort(key=lambda d: d["shift_start"])
 
-                vehicle_drivers[vehicle_id] = {
-                    "block": final_block,
-                    "drivers": drivers_list,
-                    "vehicle_name": vehicle_name,
-                    "vehicle_id": vehicle_id,  # Include vehicle_id for consistency
-                }
+        # Determine block name: prefer W2W position name from active driver, fallback to TransLoc
+        final_block = w2w_position_name if w2w_position_name else block_name
+
+        # Create entry for this vehicle
+        vehicle_drivers[vehicle_id] = {
+            "block": final_block,
+            "drivers": all_drivers,
+            "vehicle_name": vehicle_name,
+            "vehicle_id": vehicle_id,
+        }
 
     # Process ondemand vehicles
     # Get ondemand client and fetch vehicle data
