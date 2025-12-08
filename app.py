@@ -7792,6 +7792,26 @@ async def testmap_js():
     return _serve_js_asset("testmap.js")
 
 
+@app.get("/testmap-core.js", include_in_schema=False)
+async def testmap_core_js():
+    return _serve_js_asset("testmap-core.js")
+
+
+@app.get("/testmap-vehicles.js", include_in_schema=False)
+async def testmap_vehicles_js():
+    return _serve_js_asset("testmap-vehicles.js")
+
+
+@app.get("/testmap-stops.js", include_in_schema=False)
+async def testmap_stops_js():
+    return _serve_js_asset("testmap-stops.js")
+
+
+@app.get("/testmap-overlays.js", include_in_schema=False)
+async def testmap_overlays_js():
+    return _serve_js_asset("testmap-overlays.js")
+
+
 @app.get("/testmap.css", include_in_schema=False)
 async def testmap_css():
     return _serve_css_asset("testmap.css")

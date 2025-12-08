@@ -542,6 +542,19 @@
         transition: fill 0.2s ease;
         pointer-events: auto;
       }
+      /* CSS Custom Property based coloring for better performance */
+      .bus-marker__root {
+        --bus-marker-fill: #0f172a;
+        --bus-marker-glyph: #ffffff;
+      }
+      .bus-marker__svg #route_color {
+        fill: var(--bus-marker-fill);
+      }
+      .bus-marker__svg #center_ring,
+      .bus-marker__svg #stopped_square,
+      .bus-marker__svg #heading {
+        fill: var(--bus-marker-glyph);
+      }
       .bus-marker__svg #halo {
         pointer-events: none;
       }

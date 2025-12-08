@@ -1957,7 +1957,7 @@ schedulePlaneStyleOverride();
 
       const TRANSLOC_VEHICLES_ENDPOINT = '/v1/testmap/transloc/vehicles';
       const TRANSLOC_METADATA_ENDPOINT = '/v1/testmap/transloc/metadata';
-      const TRANSLOC_VEHICLES_TTL_MS = 2000;
+      const TRANSLOC_VEHICLES_TTL_MS = 4000; // Increased from 2s to 4s for better cache utilization
       const TRANSLOC_METADATA_TTL_MS = 60000;
       const PULSEPOINT_ENDPOINT = '/v1/pulsepoint/incidents';
       const INCIDENT_REFRESH_INTERVAL_MS = 45000;
@@ -3382,6 +3382,7 @@ schedulePlaneStyleOverride();
       }
 
       const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
+      // Optimized: Use arrays for ordered iteration and Sets for fast membership checks
       const SERVICE_ALERT_START_FIELDS = Object.freeze([
         'StartDateText',
         'StartDateDisplay',
@@ -3426,6 +3427,19 @@ schedulePlaneStyleOverride();
         'EffectiveEndDate',
         'EffectiveEndUtc'
       ]);
+      // Pre-computed lowercase lookup maps for O(1) field matching
+      const SERVICE_ALERT_START_FIELDS_LOWER = Object.freeze(
+        SERVICE_ALERT_START_FIELDS.reduce((acc, field, index) => {
+          acc[field.toLowerCase()] = { field, priority: index };
+          return acc;
+        }, {})
+      );
+      const SERVICE_ALERT_END_FIELDS_LOWER = Object.freeze(
+        SERVICE_ALERT_END_FIELDS.reduce((acc, field, index) => {
+          acc[field.toLowerCase()] = { field, priority: index };
+          return acc;
+        }, {})
+      );
       const SERVICE_ALERT_UNAVAILABLE_MESSAGE = 'Service alerts unavailable.';
       const SERVICE_ALERT_STATUS_NO_ALERTS = 'No Active Alerts';
       const SERVICE_ALERT_STATUS_LOADING = 'Loading…';
@@ -7390,6 +7404,9 @@ schedulePlaneStyleOverride();
       let stopMarkers = [];
       const stopMarkerCache = new Map();
       let lastStopDisplaySignature = null;
+      // Marker pooling: Reuse removed markers instead of recreating them
+      const stopMarkerPool = [];
+      const STOP_MARKER_POOL_MAX_SIZE = 100; // Limit pool size to prevent memory bloat
       let stopDataCache = [];
       let catStopDataCache = [];
       let routeStopAddressMap = {};
@@ -7412,6 +7429,12 @@ schedulePlaneStyleOverride();
       let routePathsFetchBaseURL = null;
       let scheduledStopRenderFrame = null;
       let scheduledStopRenderTimeout = null;
+      let stopRenderDebounceTimer = null;
+      const STOP_RENDER_DEBOUNCE_MS = 150; // Debounce stop rendering for map movements
+      // Progressive stop loading: Process stops in batches during idle time
+      let progressiveStopQueue = [];
+      let progressiveStopIdleCallback = null;
+      const PROGRESSIVE_STOP_BATCH_SIZE = 20; // Number of stops to process per idle frame
 
       let vehicleSmoothingTemporarilyDisabled = false;
       let vehicleSmoothingDisableClaims = 0;
@@ -8483,29 +8506,32 @@ schedulePlaneStyleOverride();
         if (!record || typeof record !== 'object') {
           return { display: '', raw: '' };
         }
-        const fields = type === 'end' ? SERVICE_ALERT_END_FIELDS : SERVICE_ALERT_START_FIELDS;
-        for (const field of fields) {
-          if (Object.prototype.hasOwnProperty.call(record, field)) {
-            const info = formatServiceAlertTimeValue(record[field]);
+        const fieldsLower = type === 'end' ? SERVICE_ALERT_END_FIELDS_LOWER : SERVICE_ALERT_START_FIELDS_LOWER;
+
+        // Optimized: Single pass through record keys with O(1) field lookup
+        let bestMatch = null;
+        let bestPriority = Infinity;
+
+        const keys = Object.keys(record);
+        for (let i = 0; i < keys.length; i++) {
+          const key = keys[i];
+          const lowerKey = key.toLowerCase();
+          const mapping = fieldsLower[lowerKey];
+          if (mapping && mapping.priority < bestPriority) {
+            const info = formatServiceAlertTimeValue(record[key]);
             if (info.display) {
-              return info;
+              // Found a match with higher priority (lower index)
+              if (mapping.priority === 0) {
+                // Can't get better than first priority, return immediately
+                return info;
+              }
+              bestMatch = info;
+              bestPriority = mapping.priority;
             }
           }
         }
-        const lowerKeyMap = Object.keys(record).reduce((acc, key) => {
-          acc[key.toLowerCase()] = key;
-          return acc;
-        }, {});
-        for (const field of fields) {
-          const originalKey = lowerKeyMap[field.toLowerCase()];
-          if (originalKey && Object.prototype.hasOwnProperty.call(record, originalKey)) {
-            const info = formatServiceAlertTimeValue(record[originalKey]);
-            if (info.display) {
-              return info;
-            }
-          }
-        }
-        return { display: '', raw: '' };
+
+        return bestMatch || { display: '', raw: '' };
       }
 
       function normalizeServiceAlertRoutes(record) {
@@ -10236,7 +10262,7 @@ ${trainPlaneMarkup}
         // Performance optimized: Skip polling when tab is hidden, slightly increased intervals
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) fetchBusLocations();
-        }, 5000)); // Increased from 4000ms to 5000ms
+        }, 7000)); // Increased from 5000ms to 7000ms for performance optimization
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) fetchBusStops();
         }, 60000));
@@ -10575,13 +10601,13 @@ ${trainPlaneMarkup}
               updatePopupPositions();
           });
           map.on('moveend', () => {
-              scheduleStopRendering();
+              debouncedScheduleStopRendering();
               updateTrainMarkersVisibility().catch(error => console.error('Error updating train markers visibility:', error));
           });
           window.addEventListener('resize', updatePopupPositions);
           window.addEventListener('scroll', updatePopupPositions, { passive: true });
           map.on('zoomend', () => {
-              scheduleStopRendering();
+              debouncedScheduleStopRendering();
               scheduleMarkerScaleUpdate();
               updatePopupPositions();
               renderCatRoutes();
@@ -12310,6 +12336,31 @@ ${trainPlaneMarkup}
           });
       }
 
+      // Marker pooling: Get a marker from the pool or return null
+      function getPooledStopMarker() {
+          if (stopMarkerPool.length > 0) {
+              return stopMarkerPool.pop();
+          }
+          return null;
+      }
+
+      // Marker pooling: Return a marker to the pool for later reuse
+      function returnStopMarkerToPool(marker) {
+          if (!marker) return;
+          // Remove all event listeners
+          if (typeof marker.off === 'function') {
+              marker.off('click');
+          }
+          // Hide the marker (remove from map but don't destroy)
+          if (map && typeof map.hasLayer === 'function' && map.hasLayer(marker)) {
+              map.removeLayer(marker);
+          }
+          // Only pool if we haven't exceeded the limit
+          if (stopMarkerPool.length < STOP_MARKER_POOL_MAX_SIZE) {
+              stopMarkerPool.push(marker);
+          }
+      }
+
       function clearStopMarkerCache() {
           stopMarkerCache.forEach(entry => {
               if (!entry || !entry.marker) {
@@ -12435,6 +12486,8 @@ ${trainPlaneMarkup}
               clearTimeout(scheduledStopRenderTimeout);
               scheduledStopRenderTimeout = null;
           }
+          // Cancel any pending progressive stop loading
+          cancelProgressiveStopLoading();
 
           const baseStops = Array.isArray(stopsArray) ? stopsArray.slice() : [];
           const includeCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
@@ -12642,10 +12695,23 @@ ${trainPlaneMarkup}
 
                   if (!markerEntry || !markerEntry.marker) {
                       const markerIcon = createStopMarkerIcon(markerRouteIds, markerCatRouteKeys);
-                      const stopMarker = L.marker(stopPosition, {
-                          icon: markerIcon,
-                          pane: 'stopsPane'
-                      }).addTo(map);
+
+                      // Performance optimization: Try to reuse a pooled marker
+                      let stopMarker = getPooledStopMarker();
+                      if (stopMarker) {
+                          // Reuse pooled marker: update position, icon, and re-add to map
+                          stopMarker.setLatLng(stopPosition);
+                          stopMarker.setIcon(markerIcon);
+                          if (!map.hasLayer(stopMarker)) {
+                              stopMarker.addTo(map);
+                          }
+                      } else {
+                          // No pooled marker available, create a new one
+                          stopMarker = L.marker(stopPosition, {
+                              icon: markerIcon,
+                              pane: 'stopsPane'
+                          }).addTo(map);
+                      }
 
                       const handleClick = (e) => {
                           const clickedLatLng = stopMarker.getLatLng();
@@ -12713,12 +12779,8 @@ ${trainPlaneMarkup}
               const entry = stopMarkerCache.get(key);
               if (entry && entry.marker) {
                   try {
-                      if (typeof entry.marker.off === 'function' && entry.clickHandler) {
-                          entry.marker.off('click', entry.clickHandler);
-                      }
-                      if (map && typeof map.removeLayer === 'function') {
-                          map.removeLayer(entry.marker);
-                      }
+                      // Performance optimization: Return marker to pool for reuse
+                      returnStopMarkerToPool(entry.marker);
                   } catch (error) {
                       console.warn('Failed to clean up obsolete stop marker:', error);
                   }
@@ -12811,6 +12873,79 @@ ${trainPlaneMarkup}
 
           const delay = lowPerformanceMode ? 75 : 16;
           scheduledStopRenderTimeout = setTimeout(run, delay);
+      }
+
+      // Debounced version of scheduleStopRendering for map movements
+      // Prevents excessive re-renders during rapid pan/zoom operations
+      function debouncedScheduleStopRendering() {
+          if (stopRenderDebounceTimer !== null) {
+              clearTimeout(stopRenderDebounceTimer);
+          }
+          stopRenderDebounceTimer = setTimeout(() => {
+              stopRenderDebounceTimer = null;
+              scheduleStopRendering();
+          }, STOP_RENDER_DEBOUNCE_MS);
+      }
+
+      // Progressive stop loading: Cancel any pending idle callback
+      function cancelProgressiveStopLoading() {
+          if (progressiveStopIdleCallback !== null) {
+              if (typeof cancelIdleCallback === 'function') {
+                  cancelIdleCallback(progressiveStopIdleCallback);
+              } else {
+                  clearTimeout(progressiveStopIdleCallback);
+              }
+              progressiveStopIdleCallback = null;
+          }
+          progressiveStopQueue = [];
+      }
+
+      // Progressive stop loading: Process a batch of queued stops during idle time
+      function processProgressiveStopBatch(deadline) {
+          const hasTimeRemaining = typeof deadline?.timeRemaining === 'function'
+              ? () => deadline.timeRemaining() > 0
+              : () => true;
+
+          let processed = 0;
+          while (progressiveStopQueue.length > 0 && processed < PROGRESSIVE_STOP_BATCH_SIZE && hasTimeRemaining()) {
+              const task = progressiveStopQueue.shift();
+              if (task && typeof task === 'function') {
+                  try {
+                      task();
+                  } catch (error) {
+                      console.warn('Progressive stop loading task failed:', error);
+                  }
+              }
+              processed++;
+          }
+
+          // If there are more stops to process, schedule another idle callback
+          if (progressiveStopQueue.length > 0) {
+              scheduleProgressiveStopBatch();
+          } else {
+              progressiveStopIdleCallback = null;
+          }
+      }
+
+      // Schedule the next batch of progressive stop processing
+      function scheduleProgressiveStopBatch() {
+          if (progressiveStopIdleCallback !== null) {
+              return; // Already scheduled
+          }
+          if (typeof requestIdleCallback === 'function') {
+              progressiveStopIdleCallback = requestIdleCallback(processProgressiveStopBatch, { timeout: 100 });
+          } else {
+              // Fallback for browsers without requestIdleCallback
+              progressiveStopIdleCallback = setTimeout(() => processProgressiveStopBatch(null), 16);
+          }
+      }
+
+      // Add a task to the progressive loading queue
+      function queueProgressiveStopTask(task) {
+          if (typeof task === 'function') {
+              progressiveStopQueue.push(task);
+              scheduleProgressiveStopBatch();
+          }
       }
 
       function createCustomPopup(config) {
@@ -17385,21 +17520,30 @@ ${trainPlaneMarkup}
           const normalizedGlyph = normalizeGlyphColor(state.glyphColor, normalizedFill);
           state.fillColor = normalizedFill;
           state.glyphColor = normalizedGlyph;
-          if (state.elements?.routeColor) {
-              state.elements.routeColor.setAttribute('fill', normalizedFill);
-              state.elements.routeColor.style.fill = normalizedFill;
-          }
-          if (state.elements?.centerRing) {
-              state.elements.centerRing.setAttribute('fill', normalizedGlyph);
-              state.elements.centerRing.style.fill = normalizedGlyph;
-          }
-          if (state.elements?.centerSquare) {
-              state.elements.centerSquare.setAttribute('fill', normalizedGlyph);
-              state.elements.centerSquare.style.fill = normalizedGlyph;
-          }
-          if (state.elements?.heading) {
-              state.elements.heading.setAttribute('fill', normalizedGlyph);
-              state.elements.heading.style.fill = normalizedGlyph;
+
+          // Performance optimization: Use CSS custom properties instead of setAttribute
+          // This reduces DOM operations from 4+ to 2 (setting CSS vars on root element)
+          if (state.elements?.root) {
+              state.elements.root.style.setProperty('--bus-marker-fill', normalizedFill);
+              state.elements.root.style.setProperty('--bus-marker-glyph', normalizedGlyph);
+          } else {
+              // Fallback for elements without root reference
+              if (state.elements?.routeColor) {
+                  state.elements.routeColor.setAttribute('fill', normalizedFill);
+                  state.elements.routeColor.style.fill = normalizedFill;
+              }
+              if (state.elements?.centerRing) {
+                  state.elements.centerRing.setAttribute('fill', normalizedGlyph);
+                  state.elements.centerRing.style.fill = normalizedGlyph;
+              }
+              if (state.elements?.centerSquare) {
+                  state.elements.centerSquare.setAttribute('fill', normalizedGlyph);
+                  state.elements.centerSquare.style.fill = normalizedGlyph;
+              }
+              if (state.elements?.heading) {
+                  state.elements.heading.setAttribute('fill', normalizedGlyph);
+                  state.elements.heading.style.fill = normalizedGlyph;
+              }
           }
       }
 
