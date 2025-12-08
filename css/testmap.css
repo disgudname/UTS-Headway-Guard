@@ -2066,5 +2066,9 @@
       .bus-popup__driver-row:last-child .bus-popup__driver-label {
         color: rgba(21, 128, 61, 0.9);
       }
+      /* Training (Junior/Senior) driver labels - orange for both */
+      .bus-popup__driver-label--training {
+        color: #FF8C00 !important;
+      }
 
 

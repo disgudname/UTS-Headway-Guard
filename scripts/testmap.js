@@ -14531,32 +14531,64 @@ ${trainPlaneMarkup}
                       '</div>'
                   ].join(''));
               } else {
-                  // Multiple drivers - overlapping shift scenario
-                  const driversHtml = drivers.map((driver, index) => {
-                      const isOutgoing = index === 0;
-                      const label = isOutgoing ? 'Outgoing' : 'Incoming';
-                      const timeLabel = isOutgoing ? driver.shift_end_label : driver.shift_start_label;
-                      const timePrefix = isOutgoing ? 'Off at' : 'On at';
+                  // Multiple drivers - check if it's Junior/Senior training or shift change
+                  const hasJuniorSeniorRoles = drivers.some(d => d.driving_role === 'junior' || d.driving_role === 'senior');
 
-                      return [
-                          '<div class="bus-popup__driver-row">',
-                          `<div class="bus-popup__driver-name">${escapeHtml(driver.name)}</div>`,
-                          `<div class="bus-popup__driver-meta">`,
-                          `<span class="bus-popup__driver-label">${label}</span>`,
-                          ` • ${timePrefix} ${escapeHtml(timeLabel)}`,
-                          `</div>`,
+                  if (hasJuniorSeniorRoles) {
+                      // Junior/Senior training scenario
+                      const driversHtml = drivers.map(driver => {
+                          const role = driver.driving_role;
+                          const isSenior = role === 'senior';
+                          const label = isSenior ? 'Senior Driver' : 'Junior Driver';
+                          const partner = driver.driving_partner ? ` w/${escapeHtml(driver.driving_partner)}` : '';
+
+                          return [
+                              '<div class="bus-popup__driver-row bus-popup__driver-row--training">',
+                              `<div class="bus-popup__driver-name">${escapeHtml(driver.name)}</div>`,
+                              `<div class="bus-popup__driver-meta">`,
+                              `<span class="bus-popup__driver-label bus-popup__driver-label--training">${label}</span>`,
+                              partner,
+                              `</div>`,
+                              '</div>'
+                          ].join('');
+                      }).join('');
+
+                      popupSections.push([
+                          '<div class="ondemand-driver-popup__section">',
+                          '<div class="ondemand-driver-popup__label">Drivers (Training)</div>',
+                          '<div class="bus-popup__drivers-list">',
+                          driversHtml,
+                          '</div>',
                           '</div>'
-                      ].join('');
-                  }).join('');
+                      ].join(''));
+                  } else {
+                      // Overlapping shift scenario
+                      const driversHtml = drivers.map((driver, index) => {
+                          const isOutgoing = index === 0;
+                          const label = isOutgoing ? 'Outgoing' : 'Incoming';
+                          const timeLabel = isOutgoing ? driver.shift_end_label : driver.shift_start_label;
+                          const timePrefix = isOutgoing ? 'Off at' : 'On at';
 
-                  popupSections.push([
-                      '<div class="ondemand-driver-popup__section">',
-                      '<div class="ondemand-driver-popup__label">Drivers (Shift Change)</div>',
-                      '<div class="bus-popup__drivers-list">',
-                      driversHtml,
-                      '</div>',
-                      '</div>'
-                  ].join(''));
+                          return [
+                              '<div class="bus-popup__driver-row">',
+                              `<div class="bus-popup__driver-name">${escapeHtml(driver.name)}</div>`,
+                              `<div class="bus-popup__driver-meta">`,
+                              `<span class="bus-popup__driver-label">${label}</span>`,
+                              ` • ${timePrefix} ${escapeHtml(timeLabel)}`,
+                              `</div>`,
+                              '</div>'
+                          ].join('');
+                      }).join('');
+
+                      popupSections.push([
+                          '<div class="ondemand-driver-popup__section">',
+                          '<div class="ondemand-driver-popup__label">Drivers (Shift Change)</div>',
+                          '<div class="bus-popup__drivers-list">',
+                          driversHtml,
+                          '</div>',
+                          '</div>'
+                      ].join(''));
+                  }
               }
           }
 
