@@ -1,215 +1,47 @@
 'use strict';
 
-const DEFAULT_MAP_FONT_STACK = `FGDC, sans-serif`;
-const IOS_MAP_FONT_STACK = `system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
-const IOS_BODY_CLASS = 'ios-font';
+/**
+ * TestMap Main Module
+ * This file uses the modular TestMap namespace from:
+ * - testmap-core.js (utilities, constants, state management)
+ * - testmap-vehicles.js (vehicle marker handling)
+ * - testmap-stops.js (stop marker handling)
+ * - testmap-overlays.js (incidents, alerts, radar, CAT, trains)
+ */
 
-function detectIOSPlatform() {
-  if (typeof navigator !== 'object' || navigator === null) {
-    return false;
-  }
+// Aliases for commonly used module exports (reduces verbosity and maintains backward compatibility)
+const TM = window.TestMap;
+const { utils: TMUtils, CONSTANTS: TMConstants, state: TMState } = TM;
 
-  const userAgent = typeof navigator.userAgent === 'string' ? navigator.userAgent : '';
-  const platform = typeof navigator.platform === 'string' ? navigator.platform : '';
-  const maxTouchPoints = typeof navigator.maxTouchPoints === 'number' ? navigator.maxTouchPoints : 0;
+// Re-export utility functions for backward compatibility with existing code
+const getCachedElementById = TMUtils.getCachedElementById;
+const createAnimationFrameThrottler = TMUtils.createAnimationFrameThrottler;
+const createDebouncer = TMUtils.createDebouncer;
+const loadScriptOnce = TMUtils.loadScriptOnce;
+const sanitizeCssColor = TMUtils.sanitizeCssColor;
+const escapeHtml = TMUtils.escapeHtml;
+const escapeAttribute = TMUtils.escapeAttribute;
+const contrastBW = TMUtils.contrastBW;
+const computeGreatCircleDistanceMeters = TMUtils.computeGreatCircleDistanceMeters;
 
-  if (/iPad|iPhone|iPod/i.test(userAgent) || /iPad|iPhone|iPod/i.test(platform)) {
-    return true;
-  }
+// Re-export vehicle utilities for backward compatibility
+const { vehicleUtils: TMVehicleUtils, stopUtils: TMStopUtils, incidentUtils: TMIncidentUtils, alertUtils: TMAlertUtils } = TM;
 
-  if (platform === 'MacIntel' && maxTouchPoints > 1) {
-    return true;
-  }
+// Re-export constants from core module
+const ACTIVE_MAP_FONT_STACK = TMConstants.ACTIVE_MAP_FONT_STACK;
+const IS_IOS_PLATFORM = TM.IS_IOS_PLATFORM;
 
-  if (typeof navigator.userAgentData === 'object' && navigator.userAgentData !== null) {
-    try {
-      const brands = Array.isArray(navigator.userAgentData.brands) ? navigator.userAgentData.brands : [];
-      const hasIOSBrand = brands.some(brand => typeof brand.brand === 'string' && /iOS/i.test(brand.brand));
-      if (hasIOSBrand) {
-        return true;
-      }
-    } catch (error) {
-      // Ignore structured UA parsing failures.
-    }
-  }
+// Visibility state - delegate to core module but maintain local references for compatibility
+let pageIsVisible = TM.pageIsVisible;
+let refreshIntervalsPaused = TM.refreshIntervalsPaused;
 
-  return false;
-}
-
-const IS_IOS_PLATFORM = detectIOSPlatform();
-const ACTIVE_MAP_FONT_STACK = IS_IOS_PLATFORM ? IOS_MAP_FONT_STACK : DEFAULT_MAP_FONT_STACK;
-
-if (typeof document !== 'undefined' && IS_IOS_PLATFORM) {
-  const applyIOSClass = () => {
-    if (document.body) {
-      document.body.classList.add(IOS_BODY_CLASS);
-      return true;
-    }
-    return false;
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      applyIOSClass();
-    }, { once: true });
-  } else {
-    if (!applyIOSClass()) {
-      document.addEventListener('DOMContentLoaded', () => {
-        applyIOSClass();
-      }, { once: true });
-    }
-  }
-}
-
-window.ADSB_PROXY_ENDPOINT = window.ADSB_PROXY_ENDPOINT || '/adsb';
-
-function applyPlaneStyleOptions() {
-  if (typeof window.setPlaneStyleOptions === 'function') {
-    window.setPlaneStyleOptions({ atcStyle: false });
-  } else {
-    window.atcStyle = false;
-  }
-}
-
-function schedulePlaneStyleOverride() {
-  if (typeof window.setPlaneStyleOptions === 'function') {
-    applyPlaneStyleOptions();
-    return;
-  }
-
-  const tryApply = () => {
-    applyPlaneStyleOptions();
-    window.removeEventListener('load', tryApply);
-  };
-
-  if (document.readyState === 'loading' || document.readyState === 'interactive') {
-    document.addEventListener('DOMContentLoaded', tryApply, { once: true });
-    window.addEventListener('load', tryApply, { once: true });
-  } else if (document.readyState === 'complete') {
-    if (typeof queueMicrotask === 'function') {
-      queueMicrotask(applyPlaneStyleOptions);
-    } else {
-      setTimeout(applyPlaneStyleOptions, 0);
-    }
-  }
-}
-
-schedulePlaneStyleOverride();
-
-      // Performance optimization: Pause expensive operations when page is hidden
-      let pageIsVisible = !document.hidden;
-      let refreshIntervalsPaused = false;
-
-      function handleVisibilityChange() {
-        pageIsVisible = !document.hidden;
-        if (pageIsVisible && refreshIntervalsPaused) {
-          // Resume operations when page becomes visible
-          refreshIntervalsPaused = false;
-          // Immediately fetch fresh data
-          if (typeof fetchBusLocations === 'function') fetchBusLocations();
-          if (typeof fetchRoutePaths === 'function') fetchRoutePaths();
-        } else if (!pageIsVisible) {
-          refreshIntervalsPaused = true;
-        }
-      }
-
-      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-        document.addEventListener('visibilitychange', handleVisibilityChange, { passive: true });
-      }
-
-      const domElementCache = new Map();
-
-      function getCachedElementById(id) {
-        if (typeof document === 'undefined' || typeof id !== 'string') {
-          return null;
-        }
-        const trimmedId = id.trim();
-        if (trimmedId === '') return null;
-        const cached = domElementCache.get(trimmedId);
-        if (cached && cached.isConnected) {
-          return cached;
-        }
-        const element = document.getElementById(trimmedId);
-        if (element) {
-          domElementCache.set(trimmedId, element);
-          return element;
-        }
-        domElementCache.delete(trimmedId);
-        return null;
-      }
-
-      function createAnimationFrameThrottler(callback) {
-        if (typeof callback !== 'function') {
-          return () => {};
-        }
-        let scheduled = false;
-        let lastArgs = null;
-        return (...args) => {
-          lastArgs = args;
-          if (scheduled) {
-            return;
-          }
-          scheduled = true;
-          const runner = () => {
-            scheduled = false;
-            callback(...lastArgs);
-          };
-          if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(runner);
-          } else {
-            setTimeout(runner, 16);
-          }
-        };
-      }
-
-      // Performance: Debounce helper for expensive render operations
-      function createDebouncer(callback, delayMs = 100) {
-        if (typeof callback !== 'function') {
-          return () => {};
-        }
-        let timerId = null;
-        let lastArgs = null;
-        return (...args) => {
-          lastArgs = args;
-          if (timerId !== null) {
-            clearTimeout(timerId);
-          }
-          timerId = setTimeout(() => {
-            timerId = null;
-            callback(...lastArgs);
-          }, delayMs);
-        };
-      }
-
-      const loadedScriptPromises = new Map();
-
-      function loadScriptOnce(url) {
-        if (typeof document === 'undefined') {
-          return Promise.reject(new Error('Document is not available'));
-        }
-        if (typeof url !== 'string' || url.trim() === '') {
-          return Promise.reject(new Error('Invalid script URL'));
-        }
-        const normalizedUrl = url.trim();
-        if (loadedScriptPromises.has(normalizedUrl)) {
-          return loadedScriptPromises.get(normalizedUrl);
-        }
-        const promise = new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = normalizedUrl;
-          script.async = true;
-          script.onload = () => resolve();
-          script.onerror = event => {
-            loadedScriptPromises.delete(normalizedUrl);
-            const error = new Error(`Failed to load script: ${normalizedUrl}`);
-            error.event = event;
-            reject(error);
-          };
-          document.head.appendChild(script);
-        });
-        loadedScriptPromises.set(normalizedUrl, promise);
-        return promise;
-      }
+// Register visibility resume handler to refresh data when page becomes visible
+TM.registerVisibilityResumeHandler(() => {
+  pageIsVisible = TM.pageIsVisible;
+  refreshIntervalsPaused = TM.refreshIntervalsPaused;
+  if (typeof fetchBusLocations === 'function') fetchBusLocations();
+  if (typeof fetchRoutePaths === 'function') fetchRoutePaths();
+});
 
 // Manually set these variables.
       // adminMode: true for admin view (with speed/block bubbles and unit numbers).
@@ -991,21 +823,7 @@ schedulePlaneStyleOverride();
         return dispatcherConfigPromise;
       }
 
-      function computeGreatCircleDistanceMeters(lat1, lon1, lat2, lon2) {
-        const toRadians = value => (Number.isFinite(value) ? value * (Math.PI / 180) : NaN);
-        const phi1 = toRadians(lat1);
-        const phi2 = toRadians(lat2);
-        const deltaPhi = toRadians(lat2 - lat1);
-        const deltaLambda = toRadians(lon2 - lon1);
-        if ([phi1, phi2, deltaPhi, deltaLambda].some(value => Number.isNaN(value))) {
-          return NaN;
-        }
-        const a = Math.sin(deltaPhi / 2) ** 2
-          + Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const earthRadiusMeters = 6371000;
-        return earthRadiusMeters * c;
-      }
+      // computeGreatCircleDistanceMeters is now aliased from TMUtils at the top of this file
 
       function isDispatcherLockActive() {
         return dispatcherFeaturesAllowed() && !!dispatcherLockState.active;
@@ -3382,52 +3200,10 @@ schedulePlaneStyleOverride();
       }
 
       const SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
-      // Optimized: Use arrays for ordered iteration and Sets for fast membership checks
-      const SERVICE_ALERT_START_FIELDS = Object.freeze([
-        'StartDateText',
-        'StartDateDisplay',
-        'StartDateLocalText',
-        'StartDateLocal',
-        'StartDate',
-        'StartDateUtc',
-        'StartDateTime',
-        'StartDateISO',
-        'StartTimestamp',
-        'StartTime',
-        'Start',
-        'BeginDateText',
-        'BeginDate',
-        'BeginDateUtc',
-        'BeginTime',
-        'EffectiveStart',
-        'EffectiveStartDate',
-        'EffectiveStartUtc'
-      ]);
-      const SERVICE_ALERT_END_FIELDS = Object.freeze([
-        'EndDateText',
-        'EndDateDisplay',
-        'EndDateLocalText',
-        'EndDateLocal',
-        'EndDate',
-        'EndDateUtc',
-        'EndDateTime',
-        'EndDateISO',
-        'EndTimestamp',
-        'EndTime',
-        'End',
-        'StopDateText',
-        'StopDate',
-        'StopDateUtc',
-        'StopTime',
-        'ExpirationDate',
-        'ExpirationDateUtc',
-        'ExpireDate',
-        'ExpireDateUtc',
-        'EffectiveEnd',
-        'EffectiveEndDate',
-        'EffectiveEndUtc'
-      ]);
-      // Pre-computed lowercase lookup maps for O(1) field matching
+      // Service alert field arrays are defined in testmap-overlays.js (TM.alertUtils)
+      const SERVICE_ALERT_START_FIELDS = TM.alertUtils.SERVICE_ALERT_START_FIELDS;
+      const SERVICE_ALERT_END_FIELDS = TM.alertUtils.SERVICE_ALERT_END_FIELDS;
+      // Pre-computed lowercase lookup maps are generated from the module arrays
       const SERVICE_ALERT_START_FIELDS_LOWER = Object.freeze(
         SERVICE_ALERT_START_FIELDS.reduce((acc, field, index) => {
           acc[field.toLowerCase()] = { field, priority: index };
@@ -8979,14 +8755,7 @@ schedulePlaneStyleOverride();
         refreshServiceAlertsUI();
       }
 
-      function escapeAttribute(value) {
-        return String(value || '')
-          .replace(/&/g, '&amp;')
-          .replace(/"/g, '&quot;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;');
-      }
-
+      // escapeAttribute is now aliased from TMUtils at the top of this file
 
       function sanitizeBaseUrl(url) {
         if (typeof url !== 'string') return '';
@@ -11584,31 +11353,7 @@ ${trainPlaneMarkup}
           return `${JSON.stringify(normalizedIds)}|${fallbackStopIdText || ''}`;
       }
 
-      function sanitizeCssColor(color) {
-          if (typeof color !== 'string') {
-              return '';
-          }
-          let trimmed = color.trim();
-          if (trimmed.length === 0) {
-              return '';
-          }
-          if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) {
-              return trimmed;
-          }
-          if (/^[0-9a-fA-F]{3,8}$/.test(trimmed)) {
-              return `#${trimmed}`;
-          }
-          if (/^rgba?\(\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed)) {
-              return trimmed.replace(/\s+/g, ' ');
-          }
-          if (/^hsla?\(\s*\d+(?:\.\d+)?(?:deg|rad|turn)?\s*,\s*\d+(?:\.\d+)?%\s*,\s*\d+(?:\.\d+)?%(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(trimmed)) {
-              return trimmed.replace(/\s+/g, ' ');
-          }
-          if (/^[a-zA-Z]+$/.test(trimmed)) {
-              return trimmed;
-          }
-          return '';
-      }
+      // sanitizeCssColor is now aliased from TMUtils at the top of this file
 
       function getColorWithAlpha(color, alpha) {
           const safeAlpha = Math.min(1, Math.max(0, Number(alpha) || 0));
@@ -18094,35 +17839,7 @@ ${trainPlaneMarkup}
           return `${speed} mph`;
       }
 
-      function escapeHtml(value) {
-          if (value === null || value === undefined) {
-              return '';
-          }
-          return `${value}`
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#39;');
-      }
-
-      function contrastBW(hex) {
-          if (typeof hex !== 'string' || hex.trim().length === 0) {
-              return '#FFFFFF';
-          }
-          let normalized = hex.trim().replace(/^#/, '');
-          if (normalized.length === 3) {
-              normalized = normalized.split('').map(ch => ch + ch).join('');
-          }
-          if (normalized.length !== 6 || /[^0-9a-fA-F]/.test(normalized)) {
-              return '#FFFFFF';
-          }
-          const r = parseInt(normalized.substring(0, 2), 16) / 255;
-          const g = parseInt(normalized.substring(2, 4), 16) / 255;
-          const b = parseInt(normalized.substring(4, 6), 16) / 255;
-          const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-          return L > 0.55 ? '#000000' : '#FFFFFF';
-      }
+      // escapeHtml and contrastBW are now aliased from TMUtils at the top of this file
 
       async function loadBusSVG() {
           if (BUS_MARKER_SVG_TEXT) {
