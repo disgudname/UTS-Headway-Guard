@@ -5364,9 +5364,8 @@ TM.registerVisibilityResumeHandler(() => {
         routePathsFetchBaseURL = null;
         fetchRouteColors();
         fetchBusStops();
-        fetchBlockAssignments();
         fetchVehicleDrivers();
-        fetchBusLocations().then(() => fetchRoutePaths());
+        fetchBlockAssignments().then(() => fetchBusLocations().then(() => fetchRoutePaths()));
         fetchStopArrivalTimes()
           .then(allEtas => {
             cachedEtas = allEtas || {};
@@ -10161,9 +10160,8 @@ ${trainPlaneMarkup}
           const headingCachePromise = loadVehicleHeadingCache();
           const tasks = [
             fetchBusStops(),
-            fetchBlockAssignments(),
             fetchVehicleDrivers(),
-            headingCachePromise.then(() => fetchBusLocations().then(() => fetchRoutePaths())),
+            headingCachePromise.then(() => fetchBlockAssignments().then(() => fetchBusLocations().then(() => fetchRoutePaths()))),
             stopArrivalsPromise
           ];
           if (shouldFetchServiceAlerts()) {
