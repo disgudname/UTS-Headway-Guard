@@ -3001,6 +3001,10 @@ TM.registerVisibilityResumeHandler(() => {
       let catRoutesFitToView = false;
       let utsOverlayEnabled = true;
 
+      // Track logo state to avoid unnecessary rebuilds
+      let lastLogoAgencyUrl = null;
+      let lastLogoCatPriorityMode = null;
+
       let incidentsVisible = false;
       let incidentsVisibilityPreference = false;
       let incidentLayerGroup = null;
@@ -8772,31 +8776,46 @@ TM.registerVisibilityResumeHandler(() => {
         const panel = document.getElementById('controlPanel');
         if (!panel) return;
 
-        const selectedAgency = agencies.find(a => a.url === baseURL);
+        // Preserve scroll position during panel rebuild
+        const previousScrollTop = panel.scrollTop || 0;
+
+        // Preserve existing logo element to avoid unnecessary image reload
+        // Logo only changes when agency or CAT mode changes
+        const existingLogoDiv = panel.querySelector('.selector-logo');
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
+        const logoNeedsRebuild = (lastLogoAgencyUrl !== sanitizedBaseURL) || (lastLogoCatPriorityMode !== catPriorityMode);
+
         let logoHtml = '';
-        if (catPriorityMode) {
-          const safeLogoSrc = '/media/CATlogo.png';
-          logoHtml = `
-            <div class="selector-logo">
-              <img src="${safeLogoSrc}" alt="CAT logo" loading="lazy">
-            </div>
-          `;
-        } else if (sanitizedBaseURL) {
-          let agencyLogoUrl = '/v1/transloc/client_logo';
-          const logoParams = new URLSearchParams({ base_url: sanitizedBaseURL });
-          const serializedParams = logoParams.toString();
-          if (serializedParams) {
-            agencyLogoUrl += `?${serializedParams}`;
+        if (logoNeedsRebuild) {
+          const selectedAgency = agencies.find(a => a.url === baseURL);
+          if (catPriorityMode) {
+            const safeLogoSrc = '/media/CATlogo.png';
+            logoHtml = `
+              <div class="selector-logo">
+                <img src="${safeLogoSrc}" alt="CAT logo" loading="lazy">
+              </div>
+            `;
+          } else if (sanitizedBaseURL) {
+            let agencyLogoUrl = '/v1/transloc/client_logo';
+            const logoParams = new URLSearchParams({ base_url: sanitizedBaseURL });
+            const serializedParams = logoParams.toString();
+            if (serializedParams) {
+              agencyLogoUrl += `?${serializedParams}`;
+            }
+            const safeLogoSrc = escapeAttribute(agencyLogoUrl);
+            const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
+            const safeLogoAltText = escapeAttribute(logoAltText);
+            logoHtml = `
+              <div class="selector-logo">
+                <img src="${safeLogoSrc}" alt="${safeLogoAltText}" loading="lazy" onerror="this.closest('.selector-logo').style.display='none';">
+              </div>
+            `;
           }
-          const safeLogoSrc = escapeAttribute(agencyLogoUrl);
-          const logoAltText = selectedAgency?.name ? `${selectedAgency.name} logo` : 'Agency logo';
-          const safeLogoAltText = escapeAttribute(logoAltText);
-          logoHtml = `
-            <div class="selector-logo">
-              <img src="${safeLogoSrc}" alt="${safeLogoAltText}" loading="lazy" onerror="this.closest('.selector-logo').style.display='none';">
-            </div>
-          `;
+          lastLogoAgencyUrl = sanitizedBaseURL;
+          lastLogoCatPriorityMode = catPriorityMode;
+        } else if (existingLogoDiv) {
+          // Logo hasn't changed, preserve existing element
+          logoHtml = existingLogoDiv.outerHTML;
         }
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
@@ -9041,6 +9060,11 @@ ${trainPlaneMarkup}
         updateOnDemandRoutingButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
+
+        // Restore scroll position after panel rebuild
+        if (previousScrollTop > 0) {
+          panel.scrollTop = previousScrollTop;
+        }
       }
 
       // updateRouteSelector rebuilds the route selector panel.
