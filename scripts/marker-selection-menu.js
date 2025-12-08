@@ -209,6 +209,8 @@
         `;
 
         // Add label
+        // Ensure button has no textContent to prevent duplicate text
+        itemEl.textContent = '';
         const label = document.createElement('span');
         label.textContent = item.label || '';
         label.style.cssText = `
