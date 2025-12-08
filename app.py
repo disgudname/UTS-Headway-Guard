@@ -5777,8 +5777,36 @@ def _parse_dotnet_date(date_str: str) -> Optional[int]:
     return None
 
 
+def _parse_block_time_today(time_str: str, date: datetime) -> Optional[int]:
+    """
+    Parse a time-of-day string like "03:00 PM" and combine with a date to create a timestamp.
+
+    Args:
+        time_str: Time string in format "HH:MM AM/PM" (e.g., "03:00 PM", "06:05 PM")
+        date: Date to combine with the time (should be timezone-aware)
+
+    Returns:
+        Timestamp in milliseconds, or None if parsing fails
+    """
+    if not time_str or not date:
+        return None
+
+    try:
+        # Parse the time string (e.g., "03:00 PM")
+        time_obj = datetime.strptime(time_str.strip(), "%I:%M %p").time()
+
+        # Combine with the date (preserving timezone)
+        combined = datetime.combine(date.date(), time_obj, tzinfo=date.tzinfo)
+
+        # Convert to milliseconds
+        return int(combined.timestamp() * 1000)
+    except (ValueError, AttributeError) as e:
+        return None
+
+
 def _build_block_mapping_with_times(
-    block_groups: List[Dict[str, Any]]
+    block_groups: List[Dict[str, Any]],
+    reference_date: Optional[datetime] = None
 ) -> Dict[str, List[Tuple[str, Optional[int], Optional[int]]]]:
     """
     Build a vehicle-to-block mapping with time windows.
@@ -5786,8 +5814,18 @@ def _build_block_mapping_with_times(
     Returns a mapping of vehicle_id -> List[(block_name, start_ts_ms, end_ts_ms)]
     where each vehicle can have multiple blocks at different times of day.
 
-    Time windows are extracted from the first Trip in each Block.
+    Time windows are extracted from BlockStartTime and BlockEndTime (e.g., "03:00 PM", "06:05 PM")
+    and combined with today's date in America/New_York timezone.
+
+    Args:
+        block_groups: List of block group data from GetDispatchBlockGroupData
+        reference_date: Date to use for time-of-day parsing (defaults to today in America/New_York)
     """
+    # Default to today in America/New_York timezone
+    if reference_date is None:
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime.now(tz)
+
     mapping: Dict[str, List[Tuple[str, Optional[int], Optional[int]]]] = {}
 
     for group in block_groups or []:
@@ -5801,11 +5839,11 @@ def _build_block_mapping_with_times(
         if vid is not None:
             vehicle_ids.add(str(vid))
 
-        # Extract time window from first block's first trip
+        # Extract time window from Block-level BlockStartTime and BlockEndTime
         start_ts: Optional[int] = None
         end_ts: Optional[int] = None
-        start_date_str: Optional[str] = None
-        end_date_str: Optional[str] = None
+        start_time_str: Optional[str] = None
+        end_time_str: Optional[str] = None
 
         blocks = group.get("Blocks") or []
         for block in blocks:
@@ -5815,19 +5853,17 @@ def _build_block_mapping_with_times(
                 if trip_vid is not None:
                     vehicle_ids.add(str(trip_vid))
 
-                # Extract time window from first trip with timestamps
-                if start_ts is None:
-                    start_date_str = trip.get("StartTimeDate")
-                    if start_date_str:
-                        start_ts = _parse_dotnet_date(start_date_str)
-                if end_ts is None:
-                    end_date_str = trip.get("EndTimeDate")
-                    if end_date_str:
-                        end_ts = _parse_dotnet_date(end_date_str)
+            # Extract time window from Block-level fields (not Trip-level)
+            if start_ts is None:
+                start_time_str = block.get("BlockStartTime")
+                if start_time_str:
+                    start_ts = _parse_block_time_today(start_time_str, reference_date)
+            if end_ts is None:
+                end_time_str = block.get("BlockEndTime")
+                if end_time_str:
+                    end_ts = _parse_block_time_today(end_time_str, reference_date)
 
-                # Break after finding first trip with times
-                if start_ts is not None and end_ts is not None:
-                    break
+            # Break after finding first block with times
             if start_ts is not None and end_ts is not None:
                 break
 
@@ -5837,9 +5873,9 @@ def _build_block_mapping_with_times(
             if start_ts and end_ts:
                 start_dt = datetime.fromtimestamp(start_ts / 1000, tz)
                 end_dt = datetime.fromtimestamp(end_ts / 1000, tz)
-                print(f"[vehicle_drivers] Block {raw_block} for vehicle {list(vehicle_ids)[0]}: {start_dt} to {end_dt}")
+                print(f"[vehicle_drivers] Block {raw_block} for vehicle {list(vehicle_ids)[0]}: {start_time_str} -> {start_dt} | {end_time_str} -> {end_dt}")
             else:
-                print(f"[vehicle_drivers] Block {raw_block} for vehicle {list(vehicle_ids)[0]}: No time info (start={start_date_str}, end={end_date_str})")
+                print(f"[vehicle_drivers] Block {raw_block} for vehicle {list(vehicle_ids)[0]}: No time info (start={start_time_str}, end={end_time_str})")
 
         # Add this block to all associated vehicles
         for vid_str in vehicle_ids:
