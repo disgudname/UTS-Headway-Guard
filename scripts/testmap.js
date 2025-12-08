@@ -14526,11 +14526,15 @@ ${trainPlaneMarkup}
               if (routeName) {
                   cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${escapeHtml(routeName)}</div>`);
               }
+              const blockVehicleParts = [];
               if (blockName) {
-                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${escapeHtml(blockName)}</div>`);
+                  blockVehicleParts.push(escapeHtml(blockName));
               }
               if (busName) {
-                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--vehicle">${escapeHtml(busName)}</div>`);
+                  blockVehicleParts.push(escapeHtml(busName));
+              }
+              if (blockVehicleParts.length > 0) {
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${blockVehicleParts.join(', ')}</div>`);
               }
 
               popupSections.push([
