@@ -10471,30 +10471,52 @@ ${trainPlaneMarkup}
                       const groupInfo = entry.groupInfo;
                       const stopEntries = Array.isArray(groupInfo.stopEntries) ? groupInfo.stopEntries : [];
 
-                      // Treat merged stops (same AddressID, multiple RouteStopIDs) as a single menu item
-                      // Get color from first available route
-                      const routeIds = stopEntries.flatMap(e => {
-                          const collected = collectRouteIdsForEntry(e);
-                          return Array.from(collected.routeIds);
-                      }).filter(Boolean);
-                      const firstRouteId = routeIds[0];
-                      let color = '#0f172a'; // Default color
-                      if (firstRouteId && typeof getRouteColor === 'function') {
-                          const routeColor = getRouteColor(firstRouteId);
-                          if (routeColor) {
-                              color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                      // Group stopEntries by AddressID to create separate menu items for different AddressIDs
+                      const entriesByAddressId = new Map();
+                      stopEntries.forEach(stopEntry => {
+                          const addressId = stopEntry.addressId || null;
+                          const addressKey = addressId ? addressId : `NO_ADDRESS_${stopEntry.displayName || 'Stop'}`;
+                          if (!entriesByAddressId.has(addressKey)) {
+                              entriesByAddressId.set(addressKey, []);
                           }
-                      }
+                          entriesByAddressId.get(addressKey).push(stopEntry);
+                      });
 
-                      items.push({
-                          latlng: markerLatLng,
-                          color: color,
-                          label: groupInfo.stopName || 'Stop',
-                          onClick: () => {
-                              const latestEntry = stopMarkerCache.get(key);
-                              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-                              createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                      // Create one menu item for each AddressID group
+                      entriesByAddressId.forEach((addressGroupEntries, addressKey) => {
+                          // Get color from first available route
+                          const routeIds = addressGroupEntries.flatMap(e => {
+                              const collected = collectRouteIdsForEntry(e);
+                              return Array.from(collected.routeIds);
+                          }).filter(Boolean);
+                          const firstRouteId = routeIds[0];
+                          let color = '#0f172a'; // Default color
+                          if (firstRouteId && typeof getRouteColor === 'function') {
+                              const routeColor = getRouteColor(firstRouteId);
+                              if (routeColor) {
+                                  color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                              }
                           }
+
+                          // Build label from this address group's stop names
+                          const stopNames = Array.from(new Set(addressGroupEntries.map(e => e.displayName).filter(Boolean)));
+                          const label = stopNames.join(' / ') || 'Stop';
+
+                          items.push({
+                              latlng: markerLatLng,
+                              color: color,
+                              label: label,
+                              onClick: () => {
+                                  const latestEntry = stopMarkerCache.get(key);
+                                  const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                                  // Create a modified groupInfo with only the stopEntries for this AddressID
+                                  const addressGroupInfo = Object.assign({}, latestInfo, {
+                                      stopEntries: addressGroupEntries,
+                                      stopName: label
+                                  });
+                                  createCustomPopup(Object.assign({ popupType: 'stop' }, addressGroupInfo));
+                              }
+                          });
                       });
                   }
               });
@@ -10511,32 +10533,54 @@ ${trainPlaneMarkup}
                       const groupInfo = entry.groupInfo;
                       const stopEntries = Array.isArray(groupInfo.stopEntries) ? groupInfo.stopEntries : [];
 
-                      // Treat merged stops (same AddressID, multiple RouteStopIDs) as a single menu item
-                      // Get color from first available route
-                      const routeIds = stopEntries.flatMap(e => {
-                          const collected = collectRouteIdsForEntry(e);
-                          return Array.from(collected.routeIds);
-                      }).filter(Boolean);
-                      const firstRouteId = routeIds[0];
-                      let color = '#0f172a';
-                      if (firstRouteId && typeof getRouteColor === 'function') {
-                          const routeColor = getRouteColor(firstRouteId);
-                          if (routeColor) {
-                              color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                      // Group stopEntries by AddressID to create separate menu items for different AddressIDs
+                      const entriesByAddressId = new Map();
+                      stopEntries.forEach(stopEntry => {
+                          const addressId = stopEntry.addressId || null;
+                          const addressKey = addressId ? addressId : `NO_ADDRESS_${stopEntry.displayName || 'Stop'}`;
+                          if (!entriesByAddressId.has(addressKey)) {
+                              entriesByAddressId.set(addressKey, []);
                           }
-                      }
+                          entriesByAddressId.get(addressKey).push(stopEntry);
+                      });
 
-                      items.push({
-                          latlng: markerLatLng,
-                          color: color,
-                          label: (groupInfo.stopName || 'Stop') + ' (On-Demand)',
-                          onClick: () => {
-                              const latestEntry = onDemandStopMarkerCache.get(key);
-                              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-                              const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
-                              const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
-                              createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                      // Create one menu item for each AddressID group
+                      entriesByAddressId.forEach((addressGroupEntries, addressKey) => {
+                          // Get color from first available route
+                          const routeIds = addressGroupEntries.flatMap(e => {
+                              const collected = collectRouteIdsForEntry(e);
+                              return Array.from(collected.routeIds);
+                          }).filter(Boolean);
+                          const firstRouteId = routeIds[0];
+                          let color = '#0f172a';
+                          if (firstRouteId && typeof getRouteColor === 'function') {
+                              const routeColor = getRouteColor(firstRouteId);
+                              if (routeColor) {
+                                  color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                              }
                           }
+
+                          // Build label from this address group's stop names
+                          const stopNames = Array.from(new Set(addressGroupEntries.map(e => e.displayName).filter(Boolean)));
+                          const label = (stopNames.join(' / ') || 'Stop') + ' (On-Demand)';
+
+                          items.push({
+                              latlng: markerLatLng,
+                              color: color,
+                              label: label,
+                              onClick: () => {
+                                  const latestEntry = onDemandStopMarkerCache.get(key);
+                                  const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                                  // Create a modified groupInfo with only the stopEntries for this AddressID
+                                  const addressGroupInfo = Object.assign({}, latestInfo, {
+                                      stopEntries: addressGroupEntries,
+                                      stopName: stopNames.join(' / ') || 'Stop',
+                                      isOnDemandStop: true
+                                  });
+                                  const popupGroupInfo = combineOnDemandStopWithBusGroup(addressGroupInfo);
+                                  createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                              }
+                          });
                       });
                   }
               });
