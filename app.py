@@ -4568,9 +4568,8 @@ def _build_driver_assignments(
     for shift in shifts:
         if not isinstance(shift, dict):
             continue
-        block_number, explicit_period = _extract_block_from_position_name(
-            shift.get("POSITION_NAME")
-        )
+        position_name = shift.get("POSITION_NAME")
+        block_number, explicit_period = _extract_block_from_position_name(position_name)
         if not block_number:
             continue
         first = str(shift.get("FIRST_NAME") or "").strip()
@@ -4616,6 +4615,7 @@ def _build_driver_assignments(
                 "start_label": _format_driver_time(start_dt),
                 "end_label": _format_driver_time(end_dt),
                 "color_id": color_id,
+                "position_name": position_name,  # Store original W2W POSITION_NAME
             }
         )
     for entry in assignments.values():
@@ -4882,13 +4882,15 @@ def _find_ondemand_driver_by_name(
                     # Match driver names
                     if normalized_w2w_name == normalized_search_name:
                         # Return driver with block information
+                        # Use W2W position_name if available, otherwise use normalized block_name
+                        position_name = driver.get("position_name") or block_name
                         return {
                             "name": driver["name"],
                             "start_ts": start_ts,
                             "end_ts": end_ts,
                             "start_label": driver.get("start_label"),
                             "end_label": driver.get("end_label"),
-                            "block": block_name,
+                            "block": position_name,
                         }
 
     return None
@@ -4977,11 +4979,19 @@ async def _fetch_vehicle_drivers():
             # Interlined block - collect all drivers from all blocks
             all_drivers = []
             seen_drivers = set()  # Track unique drivers to avoid duplicates
-            
+            w2w_position_names = []  # Track W2W position names for each block
+
             for block_number in block_numbers:
                 # Collect drivers for this specific block
                 block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
-                
+
+                # Track W2W position name if we have drivers for this block
+                if block_drivers:
+                    # Use the first driver's position_name as representative for this block
+                    position_name = block_drivers[0].get("position_name")
+                    if position_name:
+                        w2w_position_names.append(position_name)
+
                 # Add drivers to the combined list, avoiding duplicates
                 for driver in block_drivers:
                     driver_key = (driver["name"], driver["start_ts"], driver["end_ts"])
@@ -4994,13 +5004,21 @@ async def _fetch_vehicle_drivers():
                             "shift_end": driver["end_ts"],
                             "shift_end_label": driver["end_label"],
                         })
-            
+
             # Sort drivers by shift start time (for consistency with overlapping shifts)
             all_drivers.sort(key=lambda d: d["shift_start"])
-            
+
+            # Determine block name: prefer W2W position names, fallback to TransLoc
+            if w2w_position_names:
+                # Use W2W position names, combined with "/" for interlined blocks
+                final_block = "/".join(w2w_position_names)
+            else:
+                # Fall back to TransLoc block name
+                final_block = block_name
+
             # Create single entry with all blocks and all drivers
             vehicle_drivers[vehicle_id] = {
-                "block": block_name,  # Keep original interlined format like "[05]/[03]"
+                "block": final_block,
                 "drivers": all_drivers,
                 "vehicle_name": vehicle_name,
                 "vehicle_id": vehicle_id,
@@ -5011,9 +5029,10 @@ async def _fetch_vehicle_drivers():
             if block_number:
                 # Collect drivers for this block
                 block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
-                
+
                 # Build drivers array with all current drivers (handles overlapping shifts)
                 drivers_list = []
+                w2w_position_name = None
                 for driver in block_drivers:
                     drivers_list.append({
                         "name": driver["name"],
@@ -5022,9 +5041,15 @@ async def _fetch_vehicle_drivers():
                         "shift_end": driver["end_ts"],
                         "shift_end_label": driver["end_label"],
                     })
+                    # Capture W2W position name from first driver
+                    if w2w_position_name is None:
+                        w2w_position_name = driver.get("position_name")
+
+                # Determine block name: prefer W2W position name, fallback to TransLoc
+                final_block = w2w_position_name if w2w_position_name else block_name
 
                 vehicle_drivers[vehicle_id] = {
-                    "block": block_name,
+                    "block": final_block,
                     "drivers": drivers_list,
                     "vehicle_name": vehicle_name,
                     "vehicle_id": vehicle_id,  # Include vehicle_id for consistency
