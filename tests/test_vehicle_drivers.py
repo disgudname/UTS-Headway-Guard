@@ -20,6 +20,7 @@ from app import (
     _find_ondemand_driver_by_name,
     _extract_block_from_position_name,
     _parse_dotnet_date,
+    _parse_block_time_today,
     _build_block_mapping_with_times,
     _select_current_or_next_block,
 )
@@ -663,50 +664,161 @@ class TestParseDotnetDate(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestParseBlockTimeToday(unittest.TestCase):
+    """Test the _parse_block_time_today function."""
+
+    def test_parse_morning_time(self):
+        """Test parsing morning time like 06:00 AM."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today("06:00 AM", reference_date)
+        self.assertIsNotNone(result)
+
+        # Convert back to datetime to verify
+        result_dt = datetime.fromtimestamp(result / 1000, tz)
+        self.assertEqual(result_dt.date(), reference_date.date())
+        self.assertEqual(result_dt.hour, 6)
+        self.assertEqual(result_dt.minute, 0)
+
+    def test_parse_afternoon_time(self):
+        """Test parsing afternoon time like 03:00 PM."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today("03:00 PM", reference_date)
+        self.assertIsNotNone(result)
+
+        # Convert back to datetime to verify
+        result_dt = datetime.fromtimestamp(result / 1000, tz)
+        self.assertEqual(result_dt.date(), reference_date.date())
+        self.assertEqual(result_dt.hour, 15)
+        self.assertEqual(result_dt.minute, 0)
+
+    def test_parse_time_with_minutes(self):
+        """Test parsing time with non-zero minutes like 06:05 PM."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today("06:05 PM", reference_date)
+        self.assertIsNotNone(result)
+
+        # Convert back to datetime to verify
+        result_dt = datetime.fromtimestamp(result / 1000, tz)
+        self.assertEqual(result_dt.date(), reference_date.date())
+        self.assertEqual(result_dt.hour, 18)
+        self.assertEqual(result_dt.minute, 5)
+
+    def test_parse_midnight(self):
+        """Test parsing midnight (12:00 AM)."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today("12:00 AM", reference_date)
+        self.assertIsNotNone(result)
+
+        # Convert back to datetime to verify
+        result_dt = datetime.fromtimestamp(result / 1000, tz)
+        self.assertEqual(result_dt.date(), reference_date.date())
+        self.assertEqual(result_dt.hour, 0)
+        self.assertEqual(result_dt.minute, 0)
+
+    def test_parse_noon(self):
+        """Test parsing noon (12:00 PM)."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today("12:00 PM", reference_date)
+        self.assertIsNotNone(result)
+
+        # Convert back to datetime to verify
+        result_dt = datetime.fromtimestamp(result / 1000, tz)
+        self.assertEqual(result_dt.date(), reference_date.date())
+        self.assertEqual(result_dt.hour, 12)
+        self.assertEqual(result_dt.minute, 0)
+
+    def test_empty_string(self):
+        """Test empty string returns None."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today("", reference_date)
+        self.assertIsNone(result)
+
+    def test_none_input(self):
+        """Test None input returns None."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today(None, reference_date)
+        self.assertIsNone(result)
+
+    def test_invalid_format(self):
+        """Test invalid format returns None."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
+        result = _parse_block_time_today("not a time", reference_date)
+        self.assertIsNone(result)
+
+
 class TestBuildBlockMappingWithTimes(unittest.TestCase):
     """Test the _build_block_mapping_with_times function."""
 
     def test_single_vehicle_single_block(self):
         """Test a single vehicle with a single block."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)  # Noon on Dec 7
+
         block_groups = [
             {
                 "BlockGroupId": "[01]",
                 "VehicleId": 123,
                 "Blocks": [
                     {
+                        "BlockStartTime": "06:00 AM",
+                        "BlockEndTime": "02:00 PM",
                         "Trips": [
                             {
-                                "VehicleID": 123,
-                                "StartTimeDate": "/Date(1757019600000)/",
-                                "EndTimeDate": "/Date(1757030700000)/"
+                                "VehicleID": 123
                             }
                         ]
                     }
                 ]
             }
         ]
-        result = _build_block_mapping_with_times(block_groups)
+        result = _build_block_mapping_with_times(block_groups, reference_date)
 
         self.assertIn("123", result)
         self.assertEqual(len(result["123"]), 1)
         block_name, start_ts, end_ts = result["123"][0]
         self.assertEqual(block_name, "[01]")
-        self.assertEqual(start_ts, 1757019600000)
-        self.assertEqual(end_ts, 1757030700000)
+
+        # Verify the times are on Dec 7, 2025
+        start_dt = datetime.fromtimestamp(start_ts / 1000, tz)
+        end_dt = datetime.fromtimestamp(end_ts / 1000, tz)
+        self.assertEqual(start_dt.date(), reference_date.date())
+        self.assertEqual(start_dt.hour, 6)
+        self.assertEqual(start_dt.minute, 0)
+        self.assertEqual(end_dt.hour, 14)
+        self.assertEqual(end_dt.minute, 0)
 
     def test_single_vehicle_multiple_blocks(self):
         """Test a single vehicle with multiple blocks (morning and afternoon shifts)."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
         block_groups = [
             {
                 "BlockGroupId": "[21]/[16] AM",
                 "VehicleId": 30,
                 "Blocks": [
                     {
+                        "BlockStartTime": "05:00 AM",
+                        "BlockEndTime": "10:00 AM",
                         "Trips": [
                             {
-                                "VehicleID": 30,
-                                "StartTimeDate": "/Date(1756983600000)/",  # 5:00 AM
-                                "EndTimeDate": "/Date(1757001600000)/"     # 10:00 AM
+                                "VehicleID": 30
                             }
                         ]
                     }
@@ -717,18 +829,18 @@ class TestBuildBlockMappingWithTimes(unittest.TestCase):
                 "VehicleId": 30,
                 "Blocks": [
                     {
+                        "BlockStartTime": "03:00 PM",
+                        "BlockEndTime": "06:05 PM",
                         "Trips": [
                             {
-                                "VehicleID": 30,
-                                "StartTimeDate": "/Date(1757019600000)/",  # 3:00 PM
-                                "EndTimeDate": "/Date(1757030700000)/"     # 6:05 PM
+                                "VehicleID": 30
                             }
                         ]
                     }
                 ]
             }
         ]
-        result = _build_block_mapping_with_times(block_groups)
+        result = _build_block_mapping_with_times(block_groups, reference_date)
 
         self.assertIn("30", result)
         self.assertEqual(len(result["30"]), 2)
@@ -740,24 +852,27 @@ class TestBuildBlockMappingWithTimes(unittest.TestCase):
 
     def test_interlined_block(self):
         """Test interlined block handling."""
+        tz = ZoneInfo("America/New_York")
+        reference_date = datetime(2025, 12, 7, 12, 0, tzinfo=tz)
+
         block_groups = [
             {
                 "BlockGroupId": "[05]/[03]",
                 "VehicleId": 456,
                 "Blocks": [
                     {
+                        "BlockStartTime": "03:00 PM",
+                        "BlockEndTime": "06:05 PM",
                         "Trips": [
                             {
-                                "VehicleID": 456,
-                                "StartTimeDate": "/Date(1757019600000)/",
-                                "EndTimeDate": "/Date(1757030700000)/"
+                                "VehicleID": 456
                             }
                         ]
                     }
                 ]
             }
         ]
-        result = _build_block_mapping_with_times(block_groups)
+        result = _build_block_mapping_with_times(block_groups, reference_date)
 
         self.assertIn("456", result)
         self.assertEqual(len(result["456"]), 1)
@@ -860,14 +975,15 @@ class TestSelectCurrentOrNextBlock(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_blocks_without_times(self):
-        """Test blocks without time information."""
+        """Test blocks without time information fall back to first block."""
         now_ts = int(datetime.now().timestamp() * 1000)
         blocks_with_times = [
             ("[01]", None, None),
             ("[02]", None, None)
         ]
         result = _select_current_or_next_block(blocks_with_times, now_ts)
-        self.assertIsNone(result)
+        # Should fall back to first block when no time info available
+        self.assertEqual(result, "[01]")
 
 
 if __name__ == "__main__":
