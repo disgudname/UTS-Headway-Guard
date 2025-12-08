@@ -4962,10 +4962,30 @@ schedulePlaneStyleOverride();
                 ? firstOnSceneTimestamp
                 : getIncidentFirstOnSceneTimestamp(incident, id)
             });
-            marker.on('click', () => {
-              const config = buildIncidentPopupConfig(id);
-              if (config) {
-                createCustomPopup(config);
+            marker.on('click', (e) => {
+              const clickedLatLng = marker.getLatLng();
+              const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+              if (overlappingItems.length >= 2) {
+                  // Show selection menu for overlapping markers
+                  if (typeof MarkerSelectionMenu !== 'undefined') {
+                      if (e && e.originalEvent) {
+                          L.DomEvent.stopPropagation(e.originalEvent);
+                      }
+                      MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                  } else {
+                      // Fallback: show popup directly
+                      const config = buildIncidentPopupConfig(id);
+                      if (config) {
+                          createCustomPopup(config);
+                      }
+                  }
+              } else {
+                  // Single marker, show popup directly
+                  const config = buildIncidentPopupConfig(id);
+                  if (config) {
+                      createCustomPopup(config);
+                  }
               }
             });
             refreshIncidentPopup(id);
@@ -6426,12 +6446,33 @@ schedulePlaneStyleOverride();
             if (typeof marker.bindTooltip === 'function') {
               marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
             }
-            const handleClick = () => {
-              const latestEntry = onDemandStopMarkerCache.get(groupKey);
-              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-              const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
-              const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
-              createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+            const handleClick = (e) => {
+              const clickedLatLng = marker.getLatLng();
+              const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+              if (overlappingItems.length >= 2) {
+                  // Show selection menu for overlapping markers
+                  if (typeof MarkerSelectionMenu !== 'undefined') {
+                      if (e && e.originalEvent) {
+                          L.DomEvent.stopPropagation(e.originalEvent);
+                      }
+                      MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                  } else {
+                      // Fallback: show popup directly
+                      const latestEntry = onDemandStopMarkerCache.get(groupKey);
+                      const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                      const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+                      const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+                      createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                  }
+              } else {
+                  // Single marker, show popup directly
+                  const latestEntry = onDemandStopMarkerCache.get(groupKey);
+                  const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                  const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+                  const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+                  createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+              }
             };
             marker.on('click', handleClick);
             markerEntry = { marker, iconSignature, groupInfo, clickHandler: handleClick };
@@ -6449,12 +6490,33 @@ schedulePlaneStyleOverride();
               markerEntry.marker.bindTooltip(tooltipHtml, { direction: 'top', opacity: 0.95, className: ONDEMAND_STOP_TOOLTIP_CLASS });
             }
             if (!markerEntry.clickHandler && typeof markerEntry.marker.on === 'function') {
-              const handleClick = () => {
-                const latestEntry = onDemandStopMarkerCache.get(groupKey);
-                const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-                const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
-                const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
-                createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+              const handleClick = (e) => {
+                const clickedLatLng = markerEntry.marker.getLatLng();
+                const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+                if (overlappingItems.length >= 2) {
+                    // Show selection menu for overlapping markers
+                    if (typeof MarkerSelectionMenu !== 'undefined') {
+                        if (e && e.originalEvent) {
+                            L.DomEvent.stopPropagation(e.originalEvent);
+                        }
+                        MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                    } else {
+                        // Fallback: show popup directly
+                        const latestEntry = onDemandStopMarkerCache.get(groupKey);
+                        const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                        const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+                        const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+                        createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                    }
+                } else {
+                    // Single marker, show popup directly
+                    const latestEntry = onDemandStopMarkerCache.get(groupKey);
+                    const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                    const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+                    const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+                    createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                }
               };
               markerEntry.marker.on('click', handleClick);
               markerEntry.clickHandler = handleClick;
@@ -10536,6 +10598,206 @@ ${trainPlaneMarkup}
           }
           applyIncidentHaloStates();
           registerVehicleFollowInteractionHandlers();
+
+          // Initialize marker selection menu for overlapping markers
+          if (typeof MarkerSelectionMenu !== 'undefined' && typeof MarkerSelectionMenu.init === 'function') {
+              MarkerSelectionMenu.init(map);
+          }
+      }
+
+      /**
+       * Find all clickable markers overlapping at a given location
+       * @param {L.LatLng} latlng - Location to check for overlaps
+       * @returns {Array} - Array of overlapping items with { latlng, color, label, onClick }
+       */
+      function findOverlappingClickableItems(latlng) {
+          if (!map || !latlng) {
+              return [];
+          }
+
+          const OVERLAP_THRESHOLD_PX = 40;
+          const clickPoint = map.latLngToContainerPoint(latlng);
+          const items = [];
+
+          // Helper function to check if a point is close enough
+          function isNearby(otherLatLng) {
+              if (!otherLatLng) {
+                  return false;
+              }
+              // Handle both L.LatLng objects and [lat, lng] arrays
+              let latlng;
+              if (Array.isArray(otherLatLng) && otherLatLng.length >= 2) {
+                  latlng = L.latLng(otherLatLng[0], otherLatLng[1]);
+              } else if (otherLatLng.lat !== undefined && otherLatLng.lng !== undefined) {
+                  latlng = L.latLng(otherLatLng.lat, otherLatLng.lng);
+              } else {
+                  return false;
+              }
+              const otherPoint = map.latLngToContainerPoint(latlng);
+              const distance = Math.sqrt(
+                  Math.pow(clickPoint.x - otherPoint.x, 2) +
+                  Math.pow(clickPoint.y - otherPoint.y, 2)
+              );
+              return distance <= OVERLAP_THRESHOLD_PX;
+          }
+
+          // Check regular stop markers
+          if (stopMarkerCache && stopMarkerCache.size > 0) {
+              stopMarkerCache.forEach((entry, key) => {
+                  if (!entry || !entry.marker || !entry.groupInfo) return;
+                  const markerLatLng = entry.marker.getLatLng ? entry.marker.getLatLng() : null;
+                  if (!markerLatLng) return;
+                  
+                  if (isNearby(markerLatLng)) {
+                      const groupInfo = entry.groupInfo;
+                      // Extract route IDs to determine color
+                      const routeIds = groupInfo.stopEntries?.map(e => e.routeId).filter(Boolean) || [];
+                      const firstRouteId = routeIds[0];
+                      let color = '#0f172a'; // Default color
+                      if (firstRouteId && typeof getRouteColor === 'function') {
+                          const routeColor = getRouteColor(firstRouteId);
+                          if (routeColor) {
+                              color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                          }
+                      }
+
+                      items.push({
+                          latlng: markerLatLng,
+                          color: color,
+                          label: groupInfo.stopName || 'Stop',
+                          onClick: () => {
+                              const latestEntry = stopMarkerCache.get(key);
+                              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                              createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                          }
+                      });
+                  }
+              });
+          }
+
+          // Check on-demand stop markers
+          if (onDemandStopMarkerCache && onDemandStopMarkerCache.size > 0) {
+              onDemandStopMarkerCache.forEach((entry, key) => {
+                  if (!entry || !entry.marker || !entry.groupInfo) return;
+                  const markerLatLng = entry.marker.getLatLng ? entry.marker.getLatLng() : null;
+                  if (!markerLatLng) return;
+                  
+                  if (isNearby(markerLatLng)) {
+                      const groupInfo = entry.groupInfo;
+                      const routeIds = groupInfo.stopEntries?.map(e => e.routeId).filter(Boolean) || [];
+                      const firstRouteId = routeIds[0];
+                      let color = '#0f172a';
+                      if (firstRouteId && typeof getRouteColor === 'function') {
+                          const routeColor = getRouteColor(firstRouteId);
+                          if (routeColor) {
+                              color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
+                          }
+                      }
+
+                      items.push({
+                          latlng: markerLatLng,
+                          color: color,
+                          label: (groupInfo.stopName || 'Stop') + ' (On-Demand)',
+                          onClick: () => {
+                              const latestEntry = onDemandStopMarkerCache.get(key);
+                              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                              const onDemandInfo = Object.assign({}, latestInfo, { isOnDemandStop: true });
+                              const popupGroupInfo = combineOnDemandStopWithBusGroup(onDemandInfo);
+                              createCustomPopup(Object.assign({ popupType: 'stop', isOnDemandStop: true }, popupGroupInfo));
+                          }
+                      });
+                  }
+              });
+          }
+
+          // Check incident markers
+          if (incidentMarkers && incidentMarkers.size > 0) {
+              incidentMarkers.forEach((entry, id) => {
+                  if (!entry || !entry.marker) return;
+                  const markerLatLng = entry.marker.getLatLng ? entry.marker.getLatLng() : null;
+                  if (!markerLatLng) return;
+                  
+                  if (isNearby(markerLatLng)) {
+                      const incidentData = entry.data || {};
+                      const callType = incidentData.CallType || incidentData.call_type || 'Incident';
+
+                      items.push({
+                          latlng: markerLatLng,
+                          color: '#dc2626', // Red for incidents
+                          label: callType.substring(0, 15),
+                          onClick: () => {
+                              if (typeof buildIncidentPopupConfig === 'function') {
+                                  const config = buildIncidentPopupConfig(id);
+                                  if (config) {
+                                      createCustomPopup(config);
+                                  }
+                              }
+                          }
+                      });
+                  }
+              });
+          }
+
+          // Check CAT vehicle markers
+          if (catVehicleMarkers && catVehicleMarkers.size > 0) {
+              catVehicleMarkers.forEach((entry, vehicleId) => {
+                  if (!entry || !entry.marker) return;
+                  const markerLatLng = entry.marker.getLatLng ? entry.marker.getLatLng() : null;
+                  if (!markerLatLng) return;
+                  
+                  if (isNearby(markerLatLng)) {
+                      const vehicle = entry.vehicle || entry.marker.catVehicleData || {};
+                      const routeShortName = vehicle.route_short_name || vehicle.RouteShortName || 'CAT';
+                      const color = entry.color || '#1e40af'; // Blue for CAT
+
+                      items.push({
+                          latlng: markerLatLng,
+                          color: color,
+                          label: routeShortName,
+                          onClick: () => {
+                              // Trigger the CAT vehicle click handler
+                              if (entry.marker && typeof entry.marker.fire === 'function') {
+                                  entry.marker.fire('click', { target: entry.marker });
+                              } else if (typeof handleCatVehicleMarkerClick === 'function' && entry.marker) {
+                                  handleCatVehicleMarkerClick({ target: entry.marker });
+                              }
+                          }
+                      });
+                  }
+              });
+          }
+
+          // Check UTS vehicle markers
+          if (markers && typeof markers === 'object') {
+              Object.keys(markers).forEach(vehicleID => {
+                  const marker = markers[vehicleID];
+                  if (!marker || !marker.getLatLng) return;
+                  const markerLatLng = marker.getLatLng();
+                  if (!markerLatLng) return;
+                  
+                  if (isNearby(markerLatLng)) {
+                      const state = busMarkerStates && busMarkerStates[vehicleID];
+                      if (state) {
+                          const busName = state.busName || `Bus ${vehicleID}`;
+                          const routeColor = state.fillColor || '#0f172a';
+
+                          items.push({
+                              latlng: markerLatLng,
+                              color: routeColor,
+                              label: busName,
+                              onClick: () => {
+                                  // Trigger the marker's click event to use the existing handler
+                                  if (marker && typeof marker.fire === 'function') {
+                                      marker.fire('click');
+                                  }
+                              }
+                          });
+                      }
+                  }
+              });
+          }
+
+          return items;
       }
 
       async function fetchBusStops() {
@@ -12336,10 +12598,29 @@ ${trainPlaneMarkup}
                           pane: 'stopsPane'
                       }).addTo(map);
 
-                      const handleClick = () => {
-                          const latestEntry = stopMarkerCache.get(groupKey);
-                          const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
-                          createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                      const handleClick = (e) => {
+                          const clickedLatLng = stopMarker.getLatLng();
+                          const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+                          if (overlappingItems.length >= 2) {
+                              // Show selection menu for overlapping markers
+                              if (typeof MarkerSelectionMenu !== 'undefined') {
+                                  if (e && e.originalEvent) {
+                                      L.DomEvent.stopPropagation(e.originalEvent);
+                                  }
+                                  MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                              } else {
+                                  // Fallback: show popup directly
+                                  const latestEntry = stopMarkerCache.get(groupKey);
+                                  const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                                  createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                              }
+                          } else {
+                              // Single marker, show popup directly
+                              const latestEntry = stopMarkerCache.get(groupKey);
+                              const latestInfo = latestEntry && latestEntry.groupInfo ? latestEntry.groupInfo : groupInfo;
+                              createCustomPopup(Object.assign({ popupType: 'stop' }, latestInfo));
+                          }
                       };
 
                       stopMarker.on('click', handleClick);
@@ -15995,6 +16276,28 @@ ${trainPlaneMarkup}
           if (!marker.catVehicleData) {
               return;
           }
+          
+          // Check for overlapping markers
+          const clickedLatLng = marker.getLatLng();
+          const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+          if (overlappingItems.length >= 2) {
+              // Show selection menu for overlapping markers
+              if (typeof MarkerSelectionMenu !== 'undefined') {
+                  if (event.originalEvent) {
+                      if (typeof event.originalEvent.stopPropagation === 'function') {
+                          event.originalEvent.stopPropagation();
+                      }
+                      if (typeof event.originalEvent.preventDefault === 'function') {
+                          event.originalEvent.preventDefault();
+                      }
+                  }
+                  MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                  return;
+              }
+          }
+
+          // Single marker or fallback, proceed with normal click handling
           if (event.originalEvent) {
               if (typeof event.originalEvent.stopPropagation === 'function') {
                   event.originalEvent.stopPropagation();
@@ -17870,7 +18173,22 @@ ${trainPlaneMarkup}
 
           // For regular bus markers, add click handler to fetch and show popup
           if (!isOnDemandVehicle) {
-              const handleBusMarkerClick = async () => {
+              const handleBusMarkerClick = async (e) => {
+                  const clickedLatLng = marker.getLatLng();
+                  const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+
+                  if (overlappingItems.length >= 2) {
+                      // Show selection menu for overlapping markers
+                      if (typeof MarkerSelectionMenu !== 'undefined') {
+                          if (e && e.originalEvent) {
+                              L.DomEvent.stopPropagation(e.originalEvent);
+                          }
+                          MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                          return;
+                      }
+                  }
+
+                  // Single marker or fallback, show popup directly
                   try {
                       // Fetch popup data on-demand
                       await Promise.all([
