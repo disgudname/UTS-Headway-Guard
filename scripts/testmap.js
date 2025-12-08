@@ -11718,7 +11718,20 @@ ${trainPlaneMarkup}
               return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: 'base' });
           });
 
-          const etaRows = sortedEtas.map(eta => {
+          // Limit ETAs to 2 per route for bus stops
+          const limitedEtas = [];
+          const routeCounts = new Map();
+          sortedEtas.forEach(eta => {
+              const routeKey = eta.isCat ? (eta.routeKey ?? eta.routeId) : eta.RouteId;
+              const routeId = String(routeKey || '');
+              const count = routeCounts.get(routeId) || 0;
+              if (count < 2) {
+                  limitedEtas.push(eta);
+                  routeCounts.set(routeId, count + 1);
+              }
+          });
+
+          const etaRows = limitedEtas.map(eta => {
               const isCatEta = !!eta.isCat;
               let routeLabel = toNonEmptyString(eta.routeDescription) || '';
               let routeColor;
@@ -12806,6 +12819,34 @@ ${trainPlaneMarkup}
           }
           const popupType = typeof config.popupType === 'string' ? config.popupType : 'stop';
           const position = config.position;
+          
+          // For stops, use Leaflet popups (same style as vehicles)
+          if (popupType === 'stop') {
+              // Close any existing popups
+              if (map && typeof map.closePopup === 'function') {
+                  map.closePopup();
+              }
+              
+              const popupContent = buildStopPopupContent(config);
+              if (popupContent) {
+                  const popup = L.popup({
+                      className: 'ondemand-driver-popup',
+                      closeButton: false,
+                      autoClose: true,
+                      autoPan: false,
+                      offset: [0, -20],
+                  })
+                  .setLatLng(position)
+                  .setContent(popupContent);
+                  
+                  if (map && typeof map.openPopup === 'function') {
+                      map.openPopup(popup);
+                  }
+              }
+              return;
+          }
+          
+          // For incidents, keep using custom divs
           customPopups.forEach(popup => popup.remove());
           customPopups = [];
           const popupElement = document.createElement('div');
@@ -14583,6 +14624,213 @@ ${trainPlaneMarkup}
 
           if (popupSections.length === 0) {
               return null;
+          }
+
+          return [
+              '<div class="ondemand-driver-popup__content">',
+              popupSections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>'),
+              '</div>'
+          ].join('');
+      }
+
+      function buildStopPopupContent(groupInfo) {
+          if (!groupInfo) {
+              return null;
+          }
+
+          const popupSections = [];
+          const stopEntries = Array.isArray(groupInfo.stopEntries) ? groupInfo.stopEntries : [];
+          const isOnDemandStop = groupInfo.isOnDemandStop === true;
+          const sanitizedStopName = sanitizeStopName(groupInfo.stopName || '');
+          const multipleStops = stopEntries.length > 1;
+
+          // Stop name section
+          if (sanitizedStopName && (!multipleStops || !isOnDemandStop)) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">STOP</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(sanitizedStopName)}</div>`,
+                  '</div>'
+              ].join(''));
+          }
+
+          // Stop ID section
+          const fallbackStopIdText = typeof groupInfo.fallbackStopId === 'string'
+              ? groupInfo.fallbackStopId
+              : normalizeIdentifier(groupInfo.fallbackStopId) || '';
+          const primaryStopIdText = !multipleStops
+              ? (stopEntries[0]?.stopIdText || fallbackStopIdText)
+              : '';
+          if (primaryStopIdText && !isOnDemandStop) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Stop ID</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryStopIdText)}</div>`,
+                  '</div>'
+              ].join(''));
+          }
+
+          // Address ID section (for ondemand stops)
+          const primaryAddressIdText = !multipleStops
+              ? normalizeIdentifier(stopEntries[0]?.addressId)
+              : '';
+          if (primaryAddressIdText && isOnDemandStop) {
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Address ID</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>`,
+                  '</div>'
+              ].join(''));
+          }
+
+          // ETAs section - build ETAs grouped by route
+          const hasBusStopData = stopEntries.some(entry => !Array.isArray(entry?.onDemandStops) || entry.onDemandStops.length === 0);
+          if (hasBusStopData) {
+              const aggregatedRouteStopIds = Array.isArray(groupInfo.aggregatedRouteStopIds)
+                  ? groupInfo.aggregatedRouteStopIds
+                  : [];
+              const allRouteStopIds = multipleStops
+                  ? stopEntries.flatMap(entry => Array.isArray(entry?.routeStopIds) ? entry.routeStopIds : [])
+                  : (stopEntries[0]?.routeStopIds || aggregatedRouteStopIds);
+              const allCatStopIds = multipleStops
+                  ? stopEntries.flatMap(entry => Array.isArray(entry?.catStopIds) ? entry.catStopIds : [])
+                  : (stopEntries[0]?.catStopIds || []);
+              const allStopIds = multipleStops
+                  ? stopEntries.flatMap(entry => Array.isArray(entry?.stopIds) ? entry.stopIds : [])
+                  : (stopEntries[0]?.stopIds || []);
+
+              // Collect ETAs and group by route (limit 2 per route)
+              const routeEtaMap = new Map();
+                  
+                  // Collect ETAs from routeStopIds
+                  allRouteStopIds.forEach(routeStopId => {
+                      const key = typeof routeStopId === 'string' ? routeStopId.trim() : `${routeStopId}`.trim();
+                      if (!key) return;
+                      const stopEtas = cachedEtas[key];
+                      if (!Array.isArray(stopEtas)) return;
+                      stopEtas.forEach(eta => {
+                          if (!eta) return;
+                          const routeId = String(eta.RouteId || '');
+                          if (!routeEtaMap.has(routeId)) {
+                              routeEtaMap.set(routeId, []);
+                          }
+                          const etaMinutes = Number(eta.etaMinutes);
+                          routeEtaMap.get(routeId).push({
+                              routeDescription: eta.routeDescription,
+                              RouteId: eta.RouteId,
+                              etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+                              text: typeof eta.text === 'string' ? eta.text : ''
+                          });
+                      });
+                  });
+
+                  // Collect CAT ETAs
+                  const catStopIdSet = new Set();
+                  const addCatStopCandidate = value => {
+                      const normalized = catStopKey(value);
+                      if (normalized) catStopIdSet.add(normalized);
+                  };
+                  if (Array.isArray(allCatStopIds)) allCatStopIds.forEach(addCatStopCandidate);
+                  if (Array.isArray(allStopIds)) allStopIds.forEach(addCatStopCandidate);
+                  
+                  Array.from(catStopIdSet).forEach(stopId => {
+                      const cacheEntry = catStopEtaCache.get(stopId);
+                      if (!cacheEntry || !Array.isArray(cacheEntry.etas)) return;
+                      cacheEntry.etas.forEach(eta => {
+                          if (!eta) return;
+                          const routeKey = catRouteKey(eta.routeKey ?? eta.routeId);
+                          const routeId = String(routeKey || eta.routeId || '');
+                          if (!routeEtaMap.has(routeId)) {
+                              routeEtaMap.set(routeId, []);
+                          }
+                          const etaMinutes = Number(eta.etaMinutes);
+                          routeEtaMap.get(routeId).push({
+                              isCat: true,
+                              routeKey: routeKey || eta.routeId,
+                              routeDescription: eta.routeDescription,
+                              etaMinutes: Number.isFinite(etaMinutes) ? etaMinutes : null,
+                              text: typeof eta.text === 'string' ? eta.text : ''
+                          });
+                      });
+                  });
+
+                  // Build ETA sections grouped by route (limit 2 per route)
+                  routeEtaMap.forEach((etas, routeId) => {
+                      // Sort by ETA minutes
+                      etas.sort((a, b) => {
+                          const aMinutes = Number.isFinite(a.etaMinutes) ? a.etaMinutes : Number.POSITIVE_INFINITY;
+                          const bMinutes = Number.isFinite(b.etaMinutes) ? b.etaMinutes : Number.POSITIVE_INFINITY;
+                          return aMinutes - bMinutes;
+                      });
+                      
+                      // Limit to 2 ETAs per route
+                      const limitedEtas = etas.slice(0, 2);
+                      
+                      // Get route info
+                      let routeLabel = '';
+                      let routeColor = '';
+                      if (limitedEtas[0]?.isCat) {
+                          const routeKey = catRouteKey(limitedEtas[0].routeKey);
+                          const routeInfo = getCatRouteInfo(routeKey);
+                          routeLabel = limitedEtas[0].routeDescription || routeInfo?.displayName || routeInfo?.shortName || routeInfo?.longName || `Route ${routeKey}`;
+                          routeColor = sanitizeCssColor(getCatRouteColor(routeKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+                      } else {
+                          routeLabel = limitedEtas[0].routeDescription || `Route ${limitedEtas[0].RouteId}`;
+                          routeColor = sanitizeCssColor(getRouteColor(limitedEtas[0].RouteId)) || '#1f2937';
+                      }
+
+                      // Build ETAs HTML
+                      const etasHtml = limitedEtas.map(eta => {
+                          const etaText = getEtaDisplayText(eta);
+                          return [
+                              '<div class="bus-popup__stop">',
+                              `<div class="bus-popup__stop-name">${escapeHtml(etaText)}</div>`,
+                              '</div>'
+                          ].join('');
+                      }).join('');
+
+                      popupSections.push([
+                          '<div class="ondemand-driver-popup__section">',
+                          '<div class="ondemand-driver-popup__label">ROUTE</div>',
+                          `<div class="ondemand-driver-popup__value">`,
+                          `<span style="display: inline-block; width: 12px; height: 12px; background: ${routeColor}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`,
+                          `<span style="vertical-align: middle;">${escapeHtml(routeLabel)}</span>`,
+                          '</div>',
+                          '<div class="bus-popup__stops" style="margin-top: 6px;">',
+                          etasHtml,
+                          '</div>',
+                          '</div>'
+                      ].join(''));
+                  });
+              
+              // If no ETAs found, show a message
+              if (routeEtaMap.size === 0) {
+                  popupSections.push([
+                      '<div class="ondemand-driver-popup__section">',
+                      '<div class="ondemand-driver-popup__label">Arrivals</div>',
+                      '<div class="ondemand-driver-popup__value">No upcoming arrivals</div>',
+                      '</div>'
+                  ].join(''));
+              }
+          }
+
+          // OnDemand stop details
+          const onDemandHtml = buildOnDemandStopDetailsHtml(stopEntries);
+          if (onDemandHtml) {
+              // Convert ondemand HTML to vehicle popup style if needed
+              // For now, we'll add it as a section
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">OnDemand</div>',
+                  '<div class="ondemand-driver-popup__value">',
+                  onDemandHtml,
+                  '</div>',
+                  '</div>'
+              ].join(''));
+          }
+
+          if (popupSections.length === 0) {
+              return '<div class="ondemand-driver-popup__content"><div class="ondemand-driver-popup__section"><div class="ondemand-driver-popup__value">No stop information</div></div></div>';
           }
 
           return [
