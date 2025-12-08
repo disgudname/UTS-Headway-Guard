@@ -6312,7 +6312,7 @@ async def testmap_transloc_vehicles(
 
 
 @app.get("/v1/testmap/transloc/metadata")
-async def testmap_transloc_metadata(base_url: Optional[str] = Query(None)):
+async def testmap_transloc_metadata(request: Request, base_url: Optional[str] = Query(None)):
     try:
         routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
         metadata = await _assemble_transloc_metadata(
@@ -6320,6 +6320,16 @@ async def testmap_transloc_metadata(base_url: Optional[str] = Query(None)):
             routes_raw=routes_raw,
             extra_routes_raw=extra_routes_raw,
         )
+
+        # Filter routes based on authentication for unauthenticated users
+        if not _has_dispatcher_access(request):
+            # Only show routes where IsVisibleOnMap is not explicitly False
+            filtered_routes = [
+                route for route in metadata.get("routes", [])
+                if route.get("IsVisibleOnMap") is not False
+            ]
+            metadata["routes"] = filtered_routes
+
         metadata["fetched_at"] = int(time.time())
         return metadata
     except httpx.HTTPError as exc:
