@@ -5059,6 +5059,7 @@ async def _fetch_vehicle_drivers():
                         "block": matched_driver["block"],
                         "drivers": drivers_list,
                         "vehicle_name": vehicle_name,
+                        "vehicle_id": vehicle_id_str,  # Include vehicle_id for consistency
                     }
 
         except Exception as exc:
