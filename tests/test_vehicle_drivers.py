@@ -24,6 +24,7 @@ from app import (
     _build_block_mapping_with_times,
     _select_current_or_next_block,
     _infer_block_number_from_route,
+    _build_driver_assignments,
 )
 
 
@@ -1223,6 +1224,123 @@ class TestInterlinedBlockDriverAssignment(unittest.TestCase):
         # At 7:30 AM (between 6:55 AM and 8:20 AM), should return None
         # This prevents duplicate assignments during transition periods
         self.assertIsNone(current_block)
+
+
+class TestBuildDriverAssignmentsColorIdFilter(unittest.TestCase):
+    """Test that COLOR_ID 9 shifts are filtered out."""
+
+    def test_color_id_9_filtered(self):
+        """Test that shifts with COLOR_ID 9 are ignored."""
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 8, 10, 0, tzinfo=tz)  # 10:00 AM
+
+        shifts = [
+            {
+                "POSITION_NAME": "[14]",
+                "FIRST_NAME": "John",
+                "LAST_NAME": "Doe",
+                "START_DATE": "12/8/2025",
+                "START_TIME": "6am",
+                "END_DATE": "12/8/2025",
+                "END_TIME": "11:30am",
+                "COLOR_ID": "9",  # Should be filtered
+                "DESCRIPTION": "OFF - Relief @ 1115 PIN - Called out"
+            },
+            {
+                "POSITION_NAME": "[14]",
+                "FIRST_NAME": "Jane",
+                "LAST_NAME": "Smith",
+                "START_DATE": "12/8/2025",
+                "START_TIME": "12pm",
+                "END_DATE": "12/8/2025",
+                "END_TIME": "6pm",
+                "COLOR_ID": "0",  # Should be included
+                "DESCRIPTION": "Regular shift"
+            }
+        ]
+
+        result = _build_driver_assignments(shifts, now, tz)
+
+        # Should have block 14
+        self.assertIn("14", result)
+
+        # Should only have one shift (the one with COLOR_ID 0)
+        all_shifts = []
+        for period_drivers in result["14"].values():
+            all_shifts.extend(period_drivers)
+
+        self.assertEqual(len(all_shifts), 1)
+        self.assertEqual(all_shifts[0]["name"], "Jane Smith")
+        self.assertEqual(all_shifts[0]["color_id"], "0")
+
+    def test_color_id_9_string_filtered(self):
+        """Test that shifts with COLOR_ID "9" as string are ignored."""
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 8, 10, 0, tzinfo=tz)
+
+        shifts = [
+            {
+                "POSITION_NAME": "[02]",
+                "FIRST_NAME": "Alice",
+                "LAST_NAME": "Johnson",
+                "START_DATE": "12/8/2025",
+                "START_TIME": "8am",
+                "END_DATE": "12/8/2025",
+                "END_TIME": "4pm",
+                "COLOR_ID": "9",  # String "9" should also be filtered
+            }
+        ]
+
+        result = _build_driver_assignments(shifts, now, tz)
+
+        # Block 02 should either not exist or have no shifts
+        if "02" in result:
+            all_shifts = []
+            for period_drivers in result["02"].values():
+                all_shifts.extend(period_drivers)
+            self.assertEqual(len(all_shifts), 0)
+
+    def test_other_color_ids_not_filtered(self):
+        """Test that shifts with other COLOR_IDs are not filtered."""
+        tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 8, 10, 0, tzinfo=tz)
+
+        shifts = [
+            {
+                "POSITION_NAME": "[03]",
+                "FIRST_NAME": "Bob",
+                "LAST_NAME": "Wilson",
+                "START_DATE": "12/8/2025",
+                "START_TIME": "6am",
+                "END_DATE": "12/8/2025",
+                "END_TIME": "2pm",
+                "COLOR_ID": "0",
+            },
+            {
+                "POSITION_NAME": "[03]",
+                "FIRST_NAME": "Charlie",
+                "LAST_NAME": "Brown",
+                "START_DATE": "12/8/2025",
+                "START_TIME": "2pm",
+                "END_DATE": "12/8/2025",
+                "END_TIME": "10pm",
+                "COLOR_ID": "14",
+            }
+        ]
+
+        result = _build_driver_assignments(shifts, now, tz)
+
+        # Should have block 03 with both shifts
+        self.assertIn("03", result)
+
+        all_shifts = []
+        for period_drivers in result["03"].values():
+            all_shifts.extend(period_drivers)
+
+        self.assertEqual(len(all_shifts), 2)
+        driver_names = [s["name"] for s in all_shifts]
+        self.assertIn("Bob Wilson", driver_names)
+        self.assertIn("Charlie Brown", driver_names)
 
 
 if __name__ == "__main__":
