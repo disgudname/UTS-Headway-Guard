@@ -10658,10 +10658,19 @@ ${trainPlaneMarkup}
                           const routeColor = state.fillColor || '#0f172a';
                           const isOnDemand = isOnDemandVehicleId(vehicleID);
 
+                          // Build label with block info for regular buses
+                          let label = busName;
+                          if (!isOnDemand) {
+                              const driverInfo = cachedVehicleDrivers[vehicleID];
+                              if (driverInfo && driverInfo.block) {
+                                  label = `${busName} - ${driverInfo.block}`;
+                              }
+                          }
+
                           items.push({
                               latlng: markerLatLng,
                               color: routeColor,
-                              label: busName,
+                              label: label,
                               onClick: async () => {
                                   // For ondemand vehicles, directly open the popup to avoid re-checking overlaps
                                   if (isOnDemand && typeof marker.openPopup === 'function') {
