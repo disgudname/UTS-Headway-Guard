@@ -2009,5 +2009,49 @@
         min-width: 60px;
         text-align: right;
       }
+      .bus-popup__drivers-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .bus-popup__driver-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(35, 45, 75, 0.04);
+        border: 1px solid rgba(35, 45, 75, 0.08);
+      }
+      .bus-popup__driver-row:first-child {
+        border-left: 3px solid rgba(220, 38, 38, 0.6);
+      }
+      .bus-popup__driver-row:last-child {
+        border-left: 3px solid rgba(34, 197, 94, 0.6);
+      }
+      .bus-popup__driver-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1f2937;
+        line-height: 1.3;
+      }
+      .bus-popup__driver-meta {
+        font-size: 12px;
+        font-weight: 600;
+        color: #4b5563;
+        line-height: 1.3;
+      }
+      .bus-popup__driver-label {
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        font-size: 11px;
+      }
+      .bus-popup__driver-row:first-child .bus-popup__driver-label {
+        color: rgba(185, 28, 28, 0.9);
+      }
+      .bus-popup__driver-row:last-child .bus-popup__driver-label {
+        color: rgba(21, 128, 61, 0.9);
+      }
 
 
