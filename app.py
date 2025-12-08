@@ -5807,7 +5807,6 @@ async def build_transloc_snapshot(
         extra_routes_raw=extra_routes_raw,
         stops_raw=stops_raw,
     )
-    arrivals = await _get_transloc_arrivals(base_url)
 
     # Get cached capacities from state
     async with state.lock:
@@ -5823,7 +5822,6 @@ async def build_transloc_snapshot(
         "fetched_at": int(time.time()),
         **metadata,
         "vehicles": vehicles,
-        "arrivals": arrivals,
     }
 
 
@@ -6067,7 +6065,6 @@ async def testmap_transloc_vehicles(
 ):
     try:
         assigned, raw_vehicle_records = await _load_transloc_vehicle_sources(base_url)
-        arrivals = await _get_transloc_arrivals(base_url)
 
         # Load routes to build route ID to name mapping (with InfoText in parentheses)
         routes_raw, extra_routes_raw = await _load_transloc_route_sources(base_url)
@@ -6116,7 +6113,6 @@ async def testmap_transloc_vehicles(
         return {
             "fetched_at": int(time.time()),
             "vehicles": vehicles,
-            "arrivals": arrivals,
         }
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url)

@@ -2603,7 +2603,6 @@
         stops: Array.isArray(metadata?.stops) ? metadata.stops : [],
         blocks: (metadata && typeof metadata.blocks === 'object' && metadata.blocks !== null) ? metadata.blocks : {},
         vehicles: Array.isArray(vehiclePayload?.vehicles) ? vehiclePayload.vehicles : [],
-        arrivals: Array.isArray(vehiclePayload?.arrivals) ? vehiclePayload.arrivals : [],
         fetched_at: vehiclePayload?.fetched_at || metadata?.fetched_at || Math.round(Date.now() / 1000)
       };
       await applySnapshot(snapshot);
