@@ -4607,6 +4607,9 @@ def _build_driver_assignments(
         color_id = str(color_id_raw).strip() if color_id_raw is not None else None
         if color_id == "":
             color_id = None
+        # Skip shifts with COLOR_ID 9 (driver didn't come in / not going to come in)
+        if color_id == "9":
+            continue
         bucket.append(
             {
                 "name": name,
