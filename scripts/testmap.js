@@ -14527,7 +14527,7 @@ ${trainPlaneMarkup}
                   cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${escapeHtml(routeName)}</div>`);
               }
               if (blockName) {
-                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">Block ${escapeHtml(blockName)}</div>`);
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">[${escapeHtml(blockName)}]</div>`);
               }
               if (busName) {
                   cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--vehicle">${escapeHtml(busName)}</div>`);
