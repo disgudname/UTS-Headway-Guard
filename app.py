@@ -5854,18 +5854,24 @@ def _build_block_mapping_with_times(
                     vehicle_ids.add(str(trip_vid))
 
             # Extract time window from Block-level fields (not Trip-level)
-            if start_ts is None:
-                start_time_str = block.get("BlockStartTime")
-                if start_time_str:
-                    start_ts = _parse_block_time_today(start_time_str, reference_date)
-            if end_ts is None:
-                end_time_str = block.get("BlockEndTime")
-                if end_time_str:
-                    end_ts = _parse_block_time_today(end_time_str, reference_date)
+            # Process ALL blocks to find earliest start and latest end
+            # This handles cases where a vehicle has multiple consecutive blocks
+            # under the same BlockGroupId (e.g., [21] PM with 2:30-3:50 PM and 3:55-5:30 PM)
+            block_start_str = block.get("BlockStartTime")
+            if block_start_str:
+                block_start_ts = _parse_block_time_today(block_start_str, reference_date)
+                if block_start_ts is not None:
+                    if start_ts is None or block_start_ts < start_ts:
+                        start_ts = block_start_ts
+                        start_time_str = block_start_str
 
-            # Break after finding first block with times
-            if start_ts is not None and end_ts is not None:
-                break
+            block_end_str = block.get("BlockEndTime")
+            if block_end_str:
+                block_end_ts = _parse_block_time_today(block_end_str, reference_date)
+                if block_end_ts is not None:
+                    if end_ts is None or block_end_ts > end_ts:
+                        end_ts = block_end_ts
+                        end_time_str = block_end_str
 
         # Diagnostic logging for first few blocks
         if len(mapping) < 3 and vehicle_ids:
