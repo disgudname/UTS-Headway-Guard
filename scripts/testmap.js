@@ -10484,15 +10484,23 @@ ${trainPlaneMarkup}
 
                       // Create one menu item for each AddressID group
                       entriesByAddressId.forEach((addressGroupEntries, addressKey) => {
-                          // Get color from first available route
-                          const routeIds = addressGroupEntries.flatMap(e => {
+                          // Collect all route IDs and CAT route keys from all entries in this address group
+                          const allRouteIds = [];
+                          const allCatRouteKeys = [];
+                          addressGroupEntries.forEach(e => {
                               const collected = collectRouteIdsForEntry(e);
-                              return Array.from(collected.routeIds);
-                          }).filter(Boolean);
-                          const firstRouteId = routeIds[0];
-                          let color = '#0f172a'; // Default color
-                          if (firstRouteId && typeof getRouteColor === 'function') {
-                              const routeColor = getRouteColor(firstRouteId);
+                              allRouteIds.push(...Array.from(collected.routeIds));
+                              allCatRouteKeys.push(...Array.from(collected.catRouteKeys));
+                          });
+
+                          // Deduplicate route IDs and CAT route keys
+                          const uniqueRouteIds = Array.from(new Set(allRouteIds.filter(Boolean)));
+                          const uniqueCatRouteKeys = Array.from(new Set(allCatRouteKeys.filter(Boolean)));
+
+                          // Fallback color for items with no routes
+                          let color = '#0f172a';
+                          if (uniqueRouteIds.length > 0 && typeof getRouteColor === 'function') {
+                              const routeColor = getRouteColor(uniqueRouteIds[0]);
                               if (routeColor) {
                                   color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
                               }
@@ -10505,6 +10513,8 @@ ${trainPlaneMarkup}
                           items.push({
                               latlng: markerLatLng,
                               color: color,
+                              routeIds: uniqueRouteIds,
+                              catRouteKeys: uniqueCatRouteKeys,
                               label: label,
                               onClick: () => {
                                   const latestEntry = stopMarkerCache.get(key);
@@ -10546,15 +10556,23 @@ ${trainPlaneMarkup}
 
                       // Create one menu item for each AddressID group
                       entriesByAddressId.forEach((addressGroupEntries, addressKey) => {
-                          // Get color from first available route
-                          const routeIds = addressGroupEntries.flatMap(e => {
+                          // Collect all route IDs and CAT route keys from all entries in this address group
+                          const allRouteIds = [];
+                          const allCatRouteKeys = [];
+                          addressGroupEntries.forEach(e => {
                               const collected = collectRouteIdsForEntry(e);
-                              return Array.from(collected.routeIds);
-                          }).filter(Boolean);
-                          const firstRouteId = routeIds[0];
+                              allRouteIds.push(...Array.from(collected.routeIds));
+                              allCatRouteKeys.push(...Array.from(collected.catRouteKeys));
+                          });
+
+                          // Deduplicate route IDs and CAT route keys
+                          const uniqueRouteIds = Array.from(new Set(allRouteIds.filter(Boolean)));
+                          const uniqueCatRouteKeys = Array.from(new Set(allCatRouteKeys.filter(Boolean)));
+
+                          // Fallback color for items with no routes
                           let color = '#0f172a';
-                          if (firstRouteId && typeof getRouteColor === 'function') {
-                              const routeColor = getRouteColor(firstRouteId);
+                          if (uniqueRouteIds.length > 0 && typeof getRouteColor === 'function') {
+                              const routeColor = getRouteColor(uniqueRouteIds[0]);
                               if (routeColor) {
                                   color = routeColor.startsWith('#') ? routeColor : `#${routeColor}`;
                               }
@@ -10567,6 +10585,8 @@ ${trainPlaneMarkup}
                           items.push({
                               latlng: markerLatLng,
                               color: color,
+                              routeIds: uniqueRouteIds,
+                              catRouteKeys: uniqueCatRouteKeys,
                               label: label,
                               onClick: () => {
                                   const latestEntry = onDemandStopMarkerCache.get(key);

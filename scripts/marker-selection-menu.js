@@ -44,7 +44,9 @@
      * @param {L.Marker} marker - Leaflet marker
      * @param {Object} metadata - Marker metadata
      * @param {string} metadata.type - 'stop', 'incident', or 'vehicle'
-     * @param {string} metadata.color - Marker color (CSS color)
+     * @param {string} metadata.color - Marker color (CSS color, fallback if no routes)
+     * @param {Array} metadata.routeIds - Array of route IDs (for pie chart)
+     * @param {Array} metadata.catRouteKeys - Array of CAT route keys (for pie chart)
      * @param {string} metadata.label - Text label for menu
      * @param {Function} metadata.onClick - Function to call when selected
      */
@@ -56,6 +58,8 @@
             marker: marker,
             type: metadata.type || 'unknown',
             color: metadata.color || '#0f172a',
+            routeIds: metadata.routeIds || [],
+            catRouteKeys: metadata.catRouteKeys || [],
             label: metadata.label || 'Unknown',
             onClick: metadata.onClick || (() => {})
         });
@@ -171,6 +175,68 @@
     }
 
     /**
+     * Collect colors from route IDs and CAT route keys
+     * @param {Array} routeIds - Array of route IDs
+     * @param {Array} catRouteKeys - Array of CAT route keys
+     * @returns {Array} - Array of CSS colors
+     */
+    function collectRouteColors(routeIds, catRouteKeys) {
+        const colors = [];
+
+        // Collect colors from regular routes
+        if (Array.isArray(routeIds)) {
+            routeIds.forEach(routeId => {
+                if (typeof window.getRouteColor === 'function') {
+                    const color = window.getRouteColor(routeId);
+                    if (color) {
+                        const normalized = color.startsWith('#') ? color : `#${color}`;
+                        colors.push(normalized);
+                    }
+                }
+            });
+        }
+
+        // Collect colors from CAT routes
+        if (Array.isArray(catRouteKeys)) {
+            catRouteKeys.forEach(routeKey => {
+                if (typeof window.getCatRouteColor === 'function') {
+                    const color = window.getCatRouteColor(routeKey);
+                    if (color) {
+                        const normalized = color.startsWith('#') ? color : `#${color}`;
+                        colors.push(normalized);
+                    }
+                }
+            });
+        }
+
+        return colors;
+    }
+
+    /**
+     * Build a conic gradient from multiple colors for pie chart effect
+     * @param {Array} colors - Array of CSS colors
+     * @returns {string} - CSS conic-gradient string
+     */
+    function buildPieChartGradient(colors) {
+        if (!colors || colors.length === 0) {
+            return '#0f172a';
+        }
+
+        if (colors.length === 1) {
+            return colors[0];
+        }
+
+        const segmentSize = 360 / colors.length;
+        const segments = colors.map((color, index) => {
+            const start = segmentSize * index;
+            const end = segmentSize * (index + 1);
+            return `${color} ${start}deg ${end}deg`;
+        });
+
+        return `conic-gradient(${segments.join(', ')})`;
+    }
+
+    /**
      * Create a single menu item
      * @param {Object} item - Item data
      * @param {number} x - X offset from center
@@ -178,6 +244,20 @@
      * @returns {HTMLElement} - Menu item element
      */
     function createMenuItem(item, x, y) {
+        // Determine background: use pie chart if multiple routes, otherwise use single color
+        let background = item.color || '#0f172a';
+
+        // Check if we have route information for pie chart
+        const hasRoutes = (Array.isArray(item.routeIds) && item.routeIds.length > 0) ||
+                          (Array.isArray(item.catRouteKeys) && item.catRouteKeys.length > 0);
+
+        if (hasRoutes) {
+            const colors = collectRouteColors(item.routeIds || [], item.catRouteKeys || []);
+            if (colors.length > 0) {
+                background = buildPieChartGradient(colors);
+            }
+        }
+
         const itemEl = document.createElement('button');
         itemEl.className = 'marker-selection-menu-item';
         itemEl.style.cssText = `
@@ -188,7 +268,7 @@
             width: ${MENU_ITEM_SIZE}px;
             height: ${MENU_ITEM_SIZE}px;
             border-radius: 50%;
-            background: ${item.color || '#0f172a'};
+            background: ${background};
             border: 3px solid rgba(255, 255, 255, 0.9);
             color: #ffffff;
             font-family: 'FGDC', sans-serif;
