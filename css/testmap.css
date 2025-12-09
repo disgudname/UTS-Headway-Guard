@@ -1982,8 +1982,19 @@
       .bus-popup__capacity-fill {
         height: 100%;
         background: linear-gradient(90deg, #10b981, #059669);
-        transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.8s ease-in-out;
         border-radius: 7px;
+        animation: capacityFillGrow 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        transform-origin: left center;
+      }
+      @keyframes capacityFillGrow {
+        from {
+          transform: scaleX(0);
+          opacity: 0.5;
+        }
+        to {
+          transform: scaleX(1);
+          opacity: 1;
+        }
       }
       .bus-popup__capacity-text {
         font-size: 12px;
