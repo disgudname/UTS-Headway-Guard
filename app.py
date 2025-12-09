@@ -4796,8 +4796,8 @@ async def dispatch_blocks(request: Request):
 # [05], [06], [07], [08] = Orange
 # [09], [10], [11], [12] = Gold
 # [13], [14] = Silver
-# [15], [16], [17], [18] = Blue
-# [20]-[26] = Red/Blue (Blue only 0700-0800)
+# [15], [16], [17], [18] = Blue (dedicated)
+# [20]-[26] = Red/Blue (Blue only 0700-0800, Red rest of day)
 ROUTE_TO_BLOCKS: Dict[str, Set[str]] = {
     "green": {"01", "02"},
     "night pilot": {"03", "04"},
@@ -4807,6 +4807,12 @@ ROUTE_TO_BLOCKS: Dict[str, Set[str]] = {
     "silver": {"13", "14"},
     "blue": {"15", "16", "17", "18", "20", "21", "22", "23", "24", "25", "26"},
     "red": {"20", "21", "22", "23", "24", "25", "26"},
+}
+
+# Preferred (dedicated) blocks for each route - these take priority over shared blocks
+# For Blue, prefer [15]-[18] over [20]-[26] which are shared with Red
+ROUTE_PREFERRED_BLOCKS: Dict[str, Set[str]] = {
+    "blue": {"15", "16", "17", "18"},
 }
 
 
@@ -4824,6 +4830,29 @@ def _get_blocks_for_route(route_name: Optional[str]) -> Optional[Set[str]]:
         return None
     route_lower = route_name.lower()
     for key, blocks in ROUTE_TO_BLOCKS.items():
+        if key in route_lower:
+            return blocks
+    return None
+
+
+def _get_preferred_blocks_for_route(route_name: Optional[str]) -> Optional[Set[str]]:
+    """
+    Get the set of PREFERRED block numbers for a route name.
+
+    For routes with both dedicated and shared blocks (like Blue which has
+    [15]-[18] dedicated and [20]-[26] shared with Red), this returns only
+    the dedicated blocks. Used to prioritize dedicated blocks when matching.
+
+    Args:
+        route_name: Route name like "Blue Line", etc.
+
+    Returns:
+        Set of preferred block numbers, or None if no preference.
+    """
+    if not route_name:
+        return None
+    route_lower = route_name.lower()
+    for key, blocks in ROUTE_PREFERRED_BLOCKS.items():
         if key in route_lower:
             return blocks
     return None
@@ -5119,6 +5148,7 @@ async def _fetch_vehicle_drivers():
         # drivers assigned to that specific block.
         current_route = vehicle_routes.get(vehicle_id)
         valid_blocks_for_route = _get_blocks_for_route(current_route)
+        preferred_blocks_for_route = _get_preferred_blocks_for_route(current_route)
 
         # Collect drivers by block, but we'll filter to only use route-matching blocks
         drivers_by_block = {}  # block_number -> list of active drivers with metadata
@@ -5131,25 +5161,35 @@ async def _fetch_vehicle_drivers():
 
         # Determine which specific block to use for this vehicle
         # Priority:
-        # 1. Block that matches current route (vehicle in service)
-        # 2. Cached block assignment (vehicle out of service, driver shift still active)
-        # 3. Fallback to most recent driver shift
+        # 1. Preferred block that matches current route (e.g., [15]-[18] for Blue)
+        # 2. Any block that matches current route (e.g., [20]-[26] for Blue/Red)
+        # 3. Cached block assignment (vehicle out of service, driver shift still active)
+        # 4. Fallback to most recent driver shift
         selected_block_number = None
         w2w_position_name = None
         used_cache = False
 
         if drivers_by_block:
-            # First: try to find a block that matches the current route
-            if valid_blocks_for_route:
+            # First: try to find a PREFERRED block that matches the current route
+            # This prioritizes dedicated blocks (e.g., [17] for Blue) over shared ones ([23])
+            if preferred_blocks_for_route:
                 for blk_num in drivers_by_block:
-                    if blk_num in valid_blocks_for_route:
+                    if blk_num in preferred_blocks_for_route:
                         selected_block_number = blk_num
-                        # Use the most recent driver for position name
                         best_driver = max(drivers_by_block[blk_num], key=lambda d: d.get("start_ts", 0))
                         w2w_position_name = best_driver.get("position_name")
                         break
 
-            # Second: if no route match (out of service), check the cache
+            # Second: try any block that matches the current route
+            if selected_block_number is None and valid_blocks_for_route:
+                for blk_num in drivers_by_block:
+                    if blk_num in valid_blocks_for_route:
+                        selected_block_number = blk_num
+                        best_driver = max(drivers_by_block[blk_num], key=lambda d: d.get("start_ts", 0))
+                        w2w_position_name = best_driver.get("position_name")
+                        break
+
+            # Third: if no route match (out of service), check the cache
             # Use cached block if the driver's shift hasn't ended yet
             if selected_block_number is None:
                 cached = state.vehicle_block_cache.get(vehicle_id)
@@ -6187,11 +6227,21 @@ def _build_block_mapping_with_times(
                     pass
                 elif block_data["start_ts"] is not None:
                     # Try to match block number based on route name
+                    # Priority: preferred blocks first (e.g., [15]-[18] for Blue), then any valid block
                     route_name = block_data.get("route_name", "")
+                    preferred_blocks = _get_preferred_blocks_for_route(route_name)
                     valid_blocks_for_route = _get_blocks_for_route(route_name)
 
-                    if valid_blocks_for_route:
-                        # Find which available block number matches this route
+                    # First try preferred blocks (dedicated blocks for the route)
+                    if preferred_blocks:
+                        for blk_num in available_block_numbers:
+                            if blk_num in preferred_blocks:
+                                specific_block_num = blk_num
+                                block_to_use = f"[{specific_block_num}]"
+                                break
+
+                    # Then try any valid block for the route
+                    if specific_block_num is None and valid_blocks_for_route:
                         for blk_num in available_block_numbers:
                             if blk_num in valid_blocks_for_route:
                                 specific_block_num = blk_num
