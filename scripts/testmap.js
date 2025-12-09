@@ -14643,12 +14643,22 @@ ${trainPlaneMarkup}
               const current = state.current_occupation;
               const percentage = capacity > 0 ? (current / capacity) * 100 : 0;
 
+              // Color based on percentage: green (<62%), orange (62-99%), red (>=100%)
+              let fillColor;
+              if (percentage >= 100) {
+                  fillColor = 'linear-gradient(90deg, #ef4444, #dc2626)';
+              } else if (percentage >= 62) {
+                  fillColor = 'linear-gradient(90deg, #f97316, #ea580c)';
+              } else {
+                  fillColor = 'linear-gradient(90deg, #10b981, #059669)';
+              }
+
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
                   '<div class="ondemand-driver-popup__label">Occupancy (Approximate)</div>',
                   '<div class="bus-popup__capacity">',
                   '<div class="bus-popup__capacity-bar">',
-                  `<div class="bus-popup__capacity-fill" style="width: ${percentage}%"></div>`,
+                  `<div class="bus-popup__capacity-fill" style="width: ${Math.min(percentage, 100)}%; background: ${fillColor};"></div>`,
                   '</div>',
                   `<div class="bus-popup__capacity-text">${current}/${capacity}</div>`,
                   '</div>',
