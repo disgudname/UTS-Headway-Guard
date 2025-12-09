@@ -5107,16 +5107,14 @@ async def _fetch_vehicle_drivers():
         # Get the vehicle name (may be None if not found)
         vehicle_name = vehicle_names.get(vehicle_id)
 
-        # Collect all currently active drivers from all blocks
-        # (For interlined blocks, only ONE block should be active at any given time)
-        all_drivers = []
-        seen_drivers = set()  # Track unique drivers to avoid duplicates
+        # Determine which block to display based on the vehicle's CURRENT route
+        # For interlined blocks (e.g., "[22]/[06]"), we need to pick the block that
+        # matches the route the vehicle is currently operating on, and ONLY show
+        # drivers assigned to that specific block.
+        current_route = vehicle_routes.get(vehicle_id)
+        valid_blocks_for_route = _get_blocks_for_route(current_route)
 
-        # For interlined blocks (e.g., "[22]/[06]"), we need to find which specific
-        # block is currently active. TransLoc may not provide timing data to determine
-        # this, so we look at W2W to find the driver whose shift started most recently.
-        # This handles AM/PM block transitions correctly - in PM, we prefer the PM
-        # driver whose shift started later.
+        # Collect drivers by block, but we'll filter to only use route-matching blocks
         drivers_by_block = {}  # block_number -> list of active drivers with metadata
 
         for block_number in block_numbers:
@@ -5125,8 +5123,38 @@ async def _fetch_vehicle_drivers():
             if block_drivers:
                 drivers_by_block[block_number] = block_drivers
 
-            # Add drivers to the combined list, avoiding duplicates
-            for driver in block_drivers:
+        # Determine which specific block to use for this vehicle
+        # Priority: block that matches current route, then fallback to most recent shift
+        selected_block_number = None
+        w2w_position_name = None
+
+        if drivers_by_block:
+            # First: try to find a block that matches the current route
+            if valid_blocks_for_route:
+                for blk_num in drivers_by_block:
+                    if blk_num in valid_blocks_for_route:
+                        selected_block_number = blk_num
+                        # Use the most recent driver for position name
+                        best_driver = max(drivers_by_block[blk_num], key=lambda d: d.get("start_ts", 0))
+                        w2w_position_name = best_driver.get("position_name")
+                        break
+
+            # Fallback: if no route match, use the block with the most recent driver shift
+            if selected_block_number is None:
+                best_start_ts = -1
+                for blk_num, blk_drivers in drivers_by_block.items():
+                    for drv in blk_drivers:
+                        start_ts = drv.get("start_ts", 0)
+                        if start_ts > best_start_ts:
+                            best_start_ts = start_ts
+                            selected_block_number = blk_num
+                            w2w_position_name = drv.get("position_name")
+
+        # Collect drivers ONLY from the selected block (not all interlined blocks)
+        all_drivers = []
+        seen_drivers = set()
+        if selected_block_number and selected_block_number in drivers_by_block:
+            for driver in drivers_by_block[selected_block_number]:
                 driver_key = (driver["name"], driver["start_ts"], driver["end_ts"])
                 if driver_key not in seen_drivers:
                     seen_drivers.add(driver_key)
@@ -5140,40 +5168,6 @@ async def _fetch_vehicle_drivers():
 
         # Sort drivers by shift start time (for consistency with overlapping shifts)
         all_drivers.sort(key=lambda d: d["shift_start"])
-
-        # Determine which block to display based on the vehicle's CURRENT route
-        # For interlined blocks (e.g., "[22]/[06]"), we need to pick the block that
-        # matches the route the vehicle is currently operating on.
-        #
-        # Strategy:
-        # 1. Get the vehicle's current route name (e.g., "Orange Line")
-        # 2. Get the set of valid blocks for that route (e.g., {"05", "06", "07", "08"})
-        # 3. Find the W2W driver whose block matches the current route
-        # 4. Fall back to most recent shift start if no route match found
-        current_route = vehicle_routes.get(vehicle_id)
-        valid_blocks_for_route = _get_blocks_for_route(current_route)
-
-        w2w_position_name = None
-        if drivers_by_block:
-            # First: try to find a driver whose block matches the current route
-            if valid_blocks_for_route:
-                for blk_num, blk_drivers in drivers_by_block.items():
-                    if blk_num in valid_blocks_for_route:
-                        # Found a block that matches the current route
-                        # Use the most recent driver for this block
-                        best_driver = max(blk_drivers, key=lambda d: d.get("start_ts", 0))
-                        w2w_position_name = best_driver.get("position_name")
-                        break
-
-            # Fallback: if no route match, use the driver whose shift started most recently
-            if w2w_position_name is None:
-                best_start_ts = -1
-                for blk_num, blk_drivers in drivers_by_block.items():
-                    for drv in blk_drivers:
-                        start_ts = drv.get("start_ts", 0)
-                        if start_ts > best_start_ts:
-                            best_start_ts = start_ts
-                            w2w_position_name = drv.get("position_name")
 
         # Use W2W position name if found, otherwise fall back to TransLoc block_name
         final_block = w2w_position_name if w2w_position_name else block_name
