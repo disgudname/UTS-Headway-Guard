@@ -16547,69 +16547,122 @@ ${trainPlaneMarkup}
           return buildLegacyCatVehicleIcon(label, routeColor);
       }
 
-      function buildCatVehicleTooltip(vehicle, routeKeyOverride, options = {}) {
-          const parts = [];
-          const headerPieces = [];
+      function buildCatVehiclePopupContent(vehicle, routeKeyOverride, options = {}) {
+          if (!vehicle) {
+              return null;
+          }
+          const popupSections = [];
           const effectiveRouteKey = routeKeyOverride || vehicle.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
           const routeInfo = getCatRouteInfo(effectiveRouteKey);
-          const routeLabel = vehicle.routeAbbrev || routeInfo?.shortName || routeInfo?.displayName || vehicle.routeName;
-          if (routeLabel) {
-              headerPieces.push(routeLabel);
+          const routeColor = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+
+          // Check if vehicle is out of service
+          const isOutOfService = effectiveRouteKey === CAT_OUT_OF_SERVICE_ROUTE_KEY;
+
+          // Route name from various sources
+          const routeName = isOutOfService
+              ? 'Out of Service'
+              : (vehicle.routeAbbrev || routeInfo?.shortName || routeInfo?.displayName || vehicle.routeName || null);
+
+          // Vehicle identifier (equipment ID or display name)
+          const vehicleName = vehicle.equipmentId || vehicle.displayName || vehicle.id || null;
+
+          // Combined Route/Vehicle info card (similar to UTS popup)
+          if (routeName || vehicleName) {
+              const cardLines = [];
+              if (routeName) {
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${escapeHtml(routeName)}</div>`);
+              }
+              if (vehicleName) {
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${escapeHtml(vehicleName)}</div>`);
+              }
+
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="bus-popup__drivers-list">',
+                  `<div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color: ${routeColor};">`,
+                  cardLines.join(''),
+                  '</div>',
+                  '</div>',
+                  '</div>'
+              ].join(''));
           }
-          if (vehicle.displayName && vehicle.displayName !== routeLabel) {
-              headerPieces.push(vehicle.displayName);
-          }
-          if (headerPieces.length) {
-              parts.push(`<strong>${escapeHtml(headerPieces.join(' • '))}</strong>`);
-          }
+
+          // Status message (e.g., "Loading arrival times...")
           const statusMessage = toNonEmptyString(options?.statusMessage);
           if (statusMessage) {
-              parts.push(`<span>${escapeHtml(statusMessage)}</span>`);
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  `<div class="bus-popup__status-message">${escapeHtml(statusMessage)}</div>`,
+                  '</div>'
+              ].join(''));
           }
-          const etaLines = [];
+
+          // Next stops section (ETAs)
           const rawEtas = Array.isArray(options?.etas)
               ? options.etas
               : (Array.isArray(vehicle.etas) ? vehicle.etas : []);
           const etas = rawEtas.slice(0, CAT_MAX_TOOLTIP_ETAS);
-          etas.forEach(eta => {
-              const stopLabel = eta.stopName || (eta.stopId ? `Stop ${eta.stopId}` : 'Stop');
-              const text = eta.text || (Number.isFinite(eta.minutes) ? `${Math.max(0, Math.round(eta.minutes))} min` : 'Scheduled');
-              etaLines.push(`<span>${escapeHtml(stopLabel)}: ${escapeHtml(text)}</span>`);
-          });
-          if (etaLines.length) {
-              parts.push(`<div class="cat-vehicle-tooltip__etas">${etaLines.join('')}</div>`);
+
+          if (etas.length > 0 && !statusMessage) {
+              const stopsHtml = etas.map(eta => {
+                  const stopLabel = eta.stopName || (eta.stopId ? `Stop ${eta.stopId}` : 'Stop');
+                  const minutesText = eta.text || (Number.isFinite(eta.minutes)
+                      ? (eta.minutes <= 0 ? 'Arriving' : `${Math.max(0, Math.round(eta.minutes))} min`)
+                      : 'Scheduled');
+
+                  return [
+                      '<div class="bus-popup__stop">',
+                      `<div class="bus-popup__stop-name">${escapeHtml(stopLabel)}</div>`,
+                      `<div class="bus-popup__stop-eta">${escapeHtml(minutesText)}</div>`,
+                      '</div>'
+                  ].join('');
+              }).join('');
+
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Next Stops</div>',
+                  '<div class="bus-popup__stops">',
+                  stopsHtml,
+                  '</div>',
+                  '</div>'
+              ].join(''));
           } else if (!statusMessage) {
-              parts.push(`<span>${escapeHtml('No upcoming ETAs')}</span>`);
+              // Show "No upcoming ETAs" message
+              popupSections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Next Stops</div>',
+                  '<div class="bus-popup__no-data">No upcoming arrivals</div>',
+                  '</div>'
+              ].join(''));
           }
-          return parts.join('');
+
+          if (popupSections.length === 0) {
+              return null;
+          }
+
+          return [
+              '<div class="ondemand-driver-popup__content">',
+              popupSections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>'),
+              '</div>'
+          ].join('');
       }
 
       function closeCatVehicleTooltip(preserveIntent = false) {
           if (!catActiveVehicleTooltip) {
               return;
           }
-          const { marker, tooltip } = catActiveVehicleTooltip;
+          const { marker } = catActiveVehicleTooltip;
           if (!preserveIntent && marker) {
               marker._catTooltipShouldRemainOpen = false;
           }
-          if (tooltip && map && typeof map.removeLayer === 'function') {
-              map.removeLayer(tooltip);
+          if (marker && typeof marker.closePopup === 'function') {
+              marker.closePopup();
+          }
+          if (marker && typeof marker.unbindPopup === 'function') {
+              marker.unbindPopup();
           }
           catActiveVehicleTooltip = null;
-      }
-
-      function ensureCatVehicleTooltipForMarker(marker) {
-          if (!marker) {
-              return null;
-          }
-          if (!marker._catVehicleTooltipInstance) {
-              marker._catVehicleTooltipInstance = L.tooltip({
-                  direction: 'top',
-                  offset: [0, -26],
-                  className: 'cat-vehicle-tooltip'
-              });
-          }
-          return marker._catVehicleTooltipInstance;
       }
 
       function openCatVehicleTooltip(marker, options = {}) {
@@ -16620,16 +16673,38 @@ ${trainPlaneMarkup}
           if (!vehicle) {
               return;
           }
-          const tooltip = ensureCatVehicleTooltipForMarker(marker);
-          if (!tooltip) {
+
+          const popupHtml = buildCatVehiclePopupContent(vehicle, marker.catEffectiveRouteKey, options);
+          if (!popupHtml) {
               return;
           }
-          tooltip.setContent(buildCatVehicleTooltip(vehicle, marker.catEffectiveRouteKey, options));
-          tooltip.setLatLng(marker.getLatLng());
+
           const preserveIntent = catActiveVehicleTooltip?.marker === marker;
           closeCatVehicleTooltip(preserveIntent);
-          tooltip.addTo(map);
-          catActiveVehicleTooltip = { marker, tooltip };
+
+          if (typeof marker.unbindPopup === 'function') {
+              marker.unbindPopup();
+          }
+
+          const popupOptions = {
+              className: 'ondemand-driver-popup',
+              closeButton: false,
+              autoClose: true,
+              autoPan: false,
+              offset: [0, -20],
+          };
+
+          if (typeof marker.bindPopup === 'function') {
+              marker.bindPopup(popupHtml, popupOptions);
+              if (typeof marker.openPopup === 'function') {
+                  marker.openPopup();
+                  if (typeof syncMarkerPopupPosition === 'function') {
+                      syncMarkerPopupPosition(marker);
+                  }
+              }
+          }
+
+          catActiveVehicleTooltip = { marker };
       }
 
       async function fetchCatVehicleEtasForVehicle(vehicle) {
@@ -16854,9 +16929,6 @@ ${trainPlaneMarkup}
                   if (!layerGroup.hasLayer(marker)) {
                       layerGroup.addLayer(marker);
                   }
-              }
-              if (typeof marker.unbindTooltip === 'function') {
-                  marker.unbindTooltip();
               }
               const existingMarkerEtas = Array.isArray(marker.catVehicleData?.etas)
                   ? marker.catVehicleData.etas.slice()
