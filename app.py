@@ -7188,21 +7188,28 @@ def _trim_cat_stop_etas(payload: Any) -> List[Dict[str, Any]]:
             for eta in en_route_entries:
                 if not isinstance(eta, dict):
                     continue
-                eta_stop_id = (
-                    eta.get("stopId")
-                    or eta.get("StopID")
-                    or eta.get("StopId")
-                    or stop_id
-                )
+                # Extract stop ID - use stopID first (lowercase ID is the API format)
+                eta_stop_id = eta.get("stopID")
+                if eta_stop_id is None:
+                    eta_stop_id = eta.get("stopId")
+                if eta_stop_id is None:
+                    eta_stop_id = eta.get("StopID")
+                if eta_stop_id is None:
+                    eta_stop_id = eta.get("StopId")
+                if eta_stop_id is None:
+                    eta_stop_id = stop_id
                 route_id = eta.get("routeID") or eta.get("RouteID") or eta.get("routeId")
                 route_key = eta.get("route") or eta.get("Route") or route_id
-                minutes = eta.get("minutes") or eta.get("Minutes")
-                seconds = eta.get("seconds") or eta.get("Seconds")
-                text = eta.get("text") or eta.get("Text")
-                if not text:
-                    status = eta.get("status") or eta.get("Status")
-                    if status and minutes is not None:
-                        text = f"{status}"
+                # Use explicit None checks to handle 0 values correctly
+                minutes = eta.get("minutes")
+                if minutes is None:
+                    minutes = eta.get("Minutes")
+                seconds = eta.get("seconds")
+                if seconds is None:
+                    seconds = eta.get("Seconds")
+                # Use "time" field as the display text (e.g., "01:57PM")
+                time_str = eta.get("time") or eta.get("Time")
+                text = eta.get("text") or eta.get("Text") or time_str
                 normalized_en_route.append(
                     {
                         "StopID": eta_stop_id,
