@@ -1604,6 +1604,12 @@ class State:
         self.vehicle_capacities: Dict[int, Dict[str, Any]] = {}
         # Pre-computed route ID to name mapping for performance
         self.route_id_to_name: Dict[Any, str] = {}
+        # Cache of last known block assignment per vehicle
+        # Used to persist block/driver info when vehicle goes out of service
+        # until driver shift ends. Format:
+        # {vehicle_id: {"block_number": "06", "position_name": "[06]",
+        #               "drivers": [...], "shift_end_ts": 1234567890}}
+        self.vehicle_block_cache: Dict[str, Dict[str, Any]] = {}
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -5124,9 +5130,13 @@ async def _fetch_vehicle_drivers():
                 drivers_by_block[block_number] = block_drivers
 
         # Determine which specific block to use for this vehicle
-        # Priority: block that matches current route, then fallback to most recent shift
+        # Priority:
+        # 1. Block that matches current route (vehicle in service)
+        # 2. Cached block assignment (vehicle out of service, driver shift still active)
+        # 3. Fallback to most recent driver shift
         selected_block_number = None
         w2w_position_name = None
+        used_cache = False
 
         if drivers_by_block:
             # First: try to find a block that matches the current route
@@ -5139,7 +5149,21 @@ async def _fetch_vehicle_drivers():
                         w2w_position_name = best_driver.get("position_name")
                         break
 
-            # Fallback: if no route match, use the block with the most recent driver shift
+            # Second: if no route match (out of service), check the cache
+            # Use cached block if the driver's shift hasn't ended yet
+            if selected_block_number is None:
+                cached = state.vehicle_block_cache.get(vehicle_id)
+                if cached:
+                    cached_block = cached.get("block_number")
+                    cached_shift_end = cached.get("shift_end_ts", 0)
+                    # Use cache if shift hasn't ended and block has active drivers
+                    if cached_shift_end > now_ts and cached_block in drivers_by_block:
+                        selected_block_number = cached_block
+                        best_driver = max(drivers_by_block[cached_block], key=lambda d: d.get("start_ts", 0))
+                        w2w_position_name = best_driver.get("position_name")
+                        used_cache = True
+
+            # Third fallback: use the block with the most recent driver shift
             if selected_block_number is None:
                 best_start_ts = -1
                 for blk_num, blk_drivers in drivers_by_block.items():
@@ -5153,6 +5177,7 @@ async def _fetch_vehicle_drivers():
         # Collect drivers ONLY from the selected block (not all interlined blocks)
         all_drivers = []
         seen_drivers = set()
+        max_shift_end_ts = 0
         if selected_block_number and selected_block_number in drivers_by_block:
             for driver in drivers_by_block[selected_block_number]:
                 driver_key = (driver["name"], driver["start_ts"], driver["end_ts"])
@@ -5165,12 +5190,24 @@ async def _fetch_vehicle_drivers():
                         "shift_end": driver["end_ts"],
                         "shift_end_label": driver["end_label"],
                     })
+                    # Track latest shift end for cache expiry
+                    if driver["end_ts"] > max_shift_end_ts:
+                        max_shift_end_ts = driver["end_ts"]
 
         # Sort drivers by shift start time (for consistency with overlapping shifts)
         all_drivers.sort(key=lambda d: d["shift_start"])
 
         # Use W2W position name if found, otherwise fall back to TransLoc block_name
         final_block = w2w_position_name if w2w_position_name else block_name
+
+        # Update cache: store current block assignment for this vehicle
+        # This persists the assignment when vehicle goes out of service
+        if selected_block_number and max_shift_end_ts > now_ts and not used_cache:
+            state.vehicle_block_cache[vehicle_id] = {
+                "block_number": selected_block_number,
+                "position_name": w2w_position_name,
+                "shift_end_ts": max_shift_end_ts,
+            }
 
         # Create entry for this vehicle
         vehicle_drivers[vehicle_id] = {
@@ -6133,24 +6170,38 @@ def _build_block_mapping_with_times(
             # Blocks without start times go to the end
             blocks_with_timing.sort(key=lambda b: b["start_ts"] if b["start_ts"] is not None else float('inf'))
 
-            # Assign block numbers based on chronological order
-            # First block (earliest) gets first number, second block gets second number, etc.
-            # Special case: If there's only ONE block but multiple block numbers in the ID,
-            # we can't determine which specific block it is, so use the full BlockGroupId
+            # Assign block numbers based on ROUTE, not chronological order.
+            # For example, [05]/[03] has:
+            #   - Orange Line/Orange Loop blocks → should get [05]
+            #   - Night Pilot blocks → should get [03]
+            # Using chronological order fails when there are more Block entries than
+            # block numbers (e.g., 3 blocks but only 2 numbers in BlockGroupId).
             use_full_group_id = (len(blocks_with_timing) == 1 and len(available_block_numbers) > 1)
 
             for idx, block_data in enumerate(blocks_with_timing):
-                # Only assign block numbers if we have timing info and enough block numbers
                 specific_block_num = None
+                block_to_use = block_group_id  # Default fallback
+
                 if use_full_group_id:
                     # Can't determine specific block when there's only one Block but multiple numbers
-                    block_to_use = block_group_id
-                elif block_data["start_ts"] is not None and idx < len(available_block_numbers):
-                    specific_block_num = available_block_numbers[idx]
-                    block_to_use = f"[{specific_block_num}]"
-                else:
-                    # Fall back to full block_group_id if we can't determine specific block
-                    block_to_use = block_group_id
+                    pass
+                elif block_data["start_ts"] is not None:
+                    # Try to match block number based on route name
+                    route_name = block_data.get("route_name", "")
+                    valid_blocks_for_route = _get_blocks_for_route(route_name)
+
+                    if valid_blocks_for_route:
+                        # Find which available block number matches this route
+                        for blk_num in available_block_numbers:
+                            if blk_num in valid_blocks_for_route:
+                                specific_block_num = blk_num
+                                block_to_use = f"[{specific_block_num}]"
+                                break
+
+                    # Fallback to chronological if route matching fails
+                    if specific_block_num is None and idx < len(available_block_numbers):
+                        specific_block_num = available_block_numbers[idx]
+                        block_to_use = f"[{specific_block_num}]"
 
                 start_ts = block_data["start_ts"]
                 end_ts = block_data["end_ts"]
