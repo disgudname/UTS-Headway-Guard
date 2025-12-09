@@ -9690,6 +9690,58 @@ ${trainPlaneMarkup}
         return mergedRoutes;
       }
 
+      /**
+       * Consolidate legend routes that have the same name but different descriptions.
+       * This handles cases like "Gold Line Pre-6PM" and "Gold Line Post-6PM/Weekends"
+       * being active simultaneously during route switchover - they should appear as
+       * a single "Gold Line" entry without the InfoText distinction.
+       *
+       * @param {Array} routes - Array of route legend entries
+       * @returns {Array} - Deduplicated routes with descriptions removed for duplicates
+       */
+      function consolidateLegendRoutesByName(routes) {
+        if (!Array.isArray(routes) || routes.length === 0) {
+          return routes;
+        }
+
+        // Group routes by their base name (case-insensitive)
+        const routesByName = new Map();
+        for (const route of routes) {
+          const name = (route?.name || '').trim().toLowerCase();
+          if (!name) continue;
+          if (!routesByName.has(name)) {
+            routesByName.set(name, []);
+          }
+          routesByName.get(name).push(route);
+        }
+
+        const consolidatedRoutes = [];
+        const processedNames = new Set();
+
+        for (const route of routes) {
+          const name = (route?.name || '').trim().toLowerCase();
+          if (!name || processedNames.has(name)) continue;
+          processedNames.add(name);
+
+          const sameNameRoutes = routesByName.get(name) || [];
+          if (sameNameRoutes.length <= 1) {
+            // Only one route with this name - keep as-is
+            consolidatedRoutes.push(route);
+          } else {
+            // Multiple routes with same name but different descriptions
+            // Merge into a single entry without the description
+            const firstRoute = sameNameRoutes[0];
+            consolidatedRoutes.push({
+              ...firstRoute,
+              name: firstRoute.name, // Keep original casing from first route
+              description: '' // Remove description since it varies
+            });
+          }
+        }
+
+        return consolidatedRoutes;
+      }
+
       function buildCatLegendEntry(routeKey) {
         if (!catOverlayEnabled) {
           return null;
@@ -10012,6 +10064,10 @@ ${trainPlaneMarkup}
           }
           return;
         }
+
+        // Consolidate routes with same name but different descriptions (e.g.,
+        // "Gold Line Pre-6PM" and "Gold Line Post-6PM/Weekends" both active during switchover)
+        routesToRender = consolidateLegendRoutesByName(routesToRender);
 
         const nextSignature = computeLegendSignature(routesToRender);
         lastRenderedLegendRoutes = routesToRender;
