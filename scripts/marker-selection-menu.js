@@ -9,9 +9,12 @@
     const MENU_ITEM_SIZE = 120; // Size of each menu circle
     const MENU_RADIUS = 140; // Radius of the circular menu
     const MIN_ITEMS_FOR_MENU = 2; // Minimum overlapping items to show menu
+    const TOO_MANY_ITEMS_THRESHOLD = 8; // Show "zoom in" message when this many or more items
+    const DEFAULT_MAX_ZOOM = 19; // Default max zoom level for Leaflet maps
 
     let map = null;
     let currentMenu = null;
+    let currentZoomMessage = null; // Track the "zoom in" message element
     let markerRegistry = new Map(); // Maps marker layer IDs to metadata
 
     /**
@@ -76,6 +79,17 @@
     }
 
     /**
+     * Check if the map is at its maximum zoom level
+     * @returns {boolean} - True if at max zoom
+     */
+    function isAtMaxZoom() {
+        if (!map) return false;
+        const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : 0;
+        const maxZoom = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : DEFAULT_MAX_ZOOM;
+        return currentZoom >= maxZoom;
+    }
+
+    /**
      * Handle marker click - detect overlaps and show menu if needed
      * @param {L.LatLng} latlng - Click location
      * @param {Array} items - Array of clickable items at this location (already filtered for overlap)
@@ -89,6 +103,13 @@
         // Items are already filtered for overlap by the caller
         // Convert latlng to container point for menu positioning
         const clickPoint = map.latLngToContainerPoint(latlng);
+
+        // Check if there are too many items and user should zoom in
+        // Exception: if already at max zoom, show the menu anyway
+        if (items.length >= TOO_MANY_ITEMS_THRESHOLD && !isAtMaxZoom()) {
+            showZoomInMessage(latlng, clickPoint);
+            return true;
+        }
 
         // Show selection menu
         showSelectionMenu(latlng, clickPoint, items);
@@ -338,14 +359,107 @@
      * Close the current selection menu
      */
     function closeMenu() {
-        if (!currentMenu) return;
-
-        if (currentMenu._cleanup) {
-            currentMenu._cleanup();
+        if (currentMenu) {
+            if (currentMenu._cleanup) {
+                currentMenu._cleanup();
+            }
+            currentMenu.remove();
+            currentMenu = null;
         }
 
-        currentMenu.remove();
-        currentMenu = null;
+        // Also close any zoom message
+        closeZoomMessage();
+    }
+
+    /**
+     * Close the current zoom-in message
+     */
+    function closeZoomMessage() {
+        if (!currentZoomMessage) return;
+
+        if (currentZoomMessage._cleanup) {
+            currentZoomMessage._cleanup();
+        }
+
+        currentZoomMessage.remove();
+        currentZoomMessage = null;
+    }
+
+    /**
+     * Show a "zoom in to interact" message
+     * @param {L.LatLng} latlng - Map coordinates
+     * @param {L.Point} point - Container coordinates
+     */
+    function showZoomInMessage(latlng, point) {
+        closeMenu(); // Close any existing menu or message
+
+        const messageContainer = document.createElement('div');
+        messageContainer.className = 'marker-zoom-message';
+        messageContainer.style.cssText = `
+            position: absolute;
+            left: ${point.x}px;
+            top: ${point.y}px;
+            transform: translate(-50%, -50%);
+            z-index: 10000;
+            pointer-events: none;
+            background: rgba(15, 23, 42, 0.9);
+            color: #ffffff;
+            font-family: 'FGDC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3);
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        `;
+
+        messageContainer.textContent = 'Zoom in to interact with markers';
+
+        // Add to map container
+        const mapContainer = map.getContainer();
+        mapContainer.appendChild(messageContainer);
+        currentZoomMessage = messageContainer;
+
+        // Animate in
+        requestAnimationFrame(() => {
+            messageContainer.style.opacity = '1';
+        });
+
+        // Update position on map move
+        const updatePosition = () => {
+            if (!currentZoomMessage) return;
+            const newPoint = map.latLngToContainerPoint(latlng);
+            messageContainer.style.left = `${newPoint.x}px`;
+            messageContainer.style.top = `${newPoint.y}px`;
+        };
+
+        // Close on zoom (user is zooming in as requested)
+        const handleZoom = () => {
+            closeZoomMessage();
+        };
+
+        map.on('move', updatePosition);
+        map.on('zoom', handleZoom);
+
+        // Store cleanup function
+        messageContainer._cleanup = () => {
+            map.off('move', updatePosition);
+            map.off('zoom', handleZoom);
+        };
+
+        // Auto-dismiss after 3 seconds
+        const dismissTimeout = setTimeout(() => {
+            closeZoomMessage();
+        }, 3000);
+
+        // Clear timeout on manual close
+        const originalCleanup = messageContainer._cleanup;
+        messageContainer._cleanup = () => {
+            clearTimeout(dismissTimeout);
+            originalCleanup();
+        };
     }
 
     /**
