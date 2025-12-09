@@ -14586,7 +14586,9 @@ ${trainPlaneMarkup}
           const state = busMarkerStates[vehicleID];
 
           // Combined Route/Block/Vehicle card
-          const routeName = state && state.routeName ? state.routeName : null;
+          // Check if bus is out of service (routeID === 0 or no routeID)
+          const isOutOfService = state && (state.routeID === 0 || state.routeID === '0' || !state.routeID);
+          const routeName = isOutOfService ? 'Out of Service' : (state && state.routeName ? state.routeName : null);
           const blockName = !isOnDemand && driverInfo && driverInfo.block ? driverInfo.block : null;
           const routeColor = state && state.fillColor ? state.fillColor : BUS_MARKER_DEFAULT_ROUTE_COLOR;
 
