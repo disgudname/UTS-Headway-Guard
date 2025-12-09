@@ -10726,10 +10726,17 @@ ${trainPlaneMarkup}
                                               fetchNextStops([vehicleID])
                                           ]).then(() => {
                                               if (typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
-                                                  // Use targeted update for capacity bar to preserve animations
                                                   const state = busMarkerStates[vehicleID];
-                                                  if (state) {
-                                                      updatePopupCapacityBar(marker, vehicleID, state);
+                                                  // Try targeted updates first
+                                                  const capacityUpdated = state ? updatePopupCapacityBar(marker, vehicleID, state) : false;
+                                                  const stopsUpdated = updatePopupNextStops(marker, vehicleID);
+
+                                                  // If stops couldn't be updated (container doesn't exist), rebuild popup
+                                                  if (!stopsUpdated && Array.isArray(cachedNextStops[vehicleID]) && cachedNextStops[vehicleID].length > 0) {
+                                                      const refreshedHtml = buildBusPopupContent(vehicleID, busName);
+                                                      if (refreshedHtml && typeof marker.setPopupContent === 'function') {
+                                                          marker.setPopupContent(refreshedHtml);
+                                                      }
                                                   }
                                               }
                                           }).catch(error => {
@@ -14550,6 +14557,28 @@ ${trainPlaneMarkup}
           return false;
       }
 
+      function updatePopupNextStops(marker, vehicleID) {
+          const popup = marker.getPopup();
+          const popupEl = popup && popup.getElement();
+          if (!popupEl) return false;
+
+          const nextStops = cachedNextStops[vehicleID];
+          const stopsContainer = popupEl.querySelector('.bus-popup__stops');
+
+          if (stopsContainer && Array.isArray(nextStops) && nextStops.length > 0) {
+              const stopsHtml = nextStops.map(stop => {
+                  const description = stop.Description || 'Unknown Stop';
+                  const seconds = stop.Seconds || 0;
+                  const minutes = Math.max(0, Math.round(seconds / 60));
+                  const minutesText = minutes === 0 ? 'Arriving' : `${minutes} min`;
+                  return `<div class="bus-popup__stop"><div class="bus-popup__stop-name">${escapeHtml(description)}</div><div class="bus-popup__stop-eta">${escapeHtml(minutesText)}</div></div>`;
+              }).join('');
+              stopsContainer.innerHTML = stopsHtml;
+              return true;
+          }
+          return false;
+      }
+
       function buildBusPopupContent(vehicleID, busName) {
           const popupSections = [];
           const driverInfo = cachedVehicleDrivers[vehicleID];
@@ -14937,27 +14966,11 @@ ${trainPlaneMarkup}
               await fetchNextStops([vehicleID]);
 
               // Try to do targeted updates to preserve animations
-              const popup = marker.getPopup();
-              const popupEl = popup && popup.getElement();
-              if (popupEl) {
-                  // Update capacity bar with transitions (not full rebuild)
-                  updatePopupCapacityBar(marker, vehicleID, state);
+              updatePopupCapacityBar(marker, vehicleID, state);
+              const stopsUpdated = updatePopupNextStops(marker, vehicleID);
 
-                  // Update next stops section (rebuild this part)
-                  const nextStops = cachedNextStops[vehicleID];
-                  const stopsContainer = popupEl.querySelector('.bus-popup__stops');
-                  if (stopsContainer && Array.isArray(nextStops) && nextStops.length > 0) {
-                      const stopsHtml = nextStops.map(stop => {
-                          const description = stop.Description || 'Unknown Stop';
-                          const seconds = stop.Seconds || 0;
-                          const minutes = Math.max(0, Math.round(seconds / 60));
-                          const minutesText = minutes === 0 ? 'Arriving' : `${minutes} min`;
-                          return `<div class="bus-popup__stop"><div class="bus-popup__stop-name">${escapeHtml(description)}</div><div class="bus-popup__stop-eta">${escapeHtml(minutesText)}</div></div>`;
-                      }).join('');
-                      stopsContainer.innerHTML = stopsHtml;
-                  }
-              } else {
-                  // Fallback to full rebuild if we can't find the popup element
+              // If stops couldn't be updated (container doesn't exist), rebuild popup
+              if (!stopsUpdated && Array.isArray(cachedNextStops[vehicleID]) && cachedNextStops[vehicleID].length > 0) {
                   const busName = state.busName || `Vehicle ${vehicleID}`;
                   const popupHtml = buildBusPopupContent(vehicleID, busName);
 
@@ -18617,8 +18630,17 @@ ${trainPlaneMarkup}
                           fetchNextStops([vehicleID])
                       ]).then(() => {
                           if (typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
-                              // Use targeted update for capacity bar to preserve animations
+                              // Try targeted updates first
                               updatePopupCapacityBar(marker, vehicleID, state);
+                              const stopsUpdated = updatePopupNextStops(marker, vehicleID);
+
+                              // If stops couldn't be updated (container doesn't exist), rebuild popup
+                              if (!stopsUpdated && Array.isArray(cachedNextStops[vehicleID]) && cachedNextStops[vehicleID].length > 0) {
+                                  const refreshedHtml = buildBusPopupContent(vehicleID, busName);
+                                  if (refreshedHtml && typeof marker.setPopupContent === 'function') {
+                                      marker.setPopupContent(refreshedHtml);
+                                  }
+                              }
                           }
                       }).catch(error => {
                           console.error('Error fetching bus popup data:', error);
