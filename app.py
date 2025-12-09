@@ -7063,38 +7063,45 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
             or entry.get("route")
         )
 
-        # Extract next stop ETA data from the raw API response
-        # The CAT API returns nextStopETA in seconds (-1 means no ETA)
-        # Use explicit None checks to handle 0 values correctly
-        next_stop_eta_seconds = entry.get("nextStopETA")
-        if next_stop_eta_seconds is None:
-            next_stop_eta_seconds = entry.get("NextStopETA")
+        # Extract next stop info from the raw API response
         next_stop_id = entry.get("nextStopID")
         if next_stop_id is None:
             next_stop_id = entry.get("NextStopID")
-        next_pattern_stop_id = entry.get("nextPatternStopID")
-        if next_pattern_stop_id is None:
-            next_pattern_stop_id = entry.get("NextPatternStopID")
 
-        # Build ETAs array if we have valid next stop ETA data
-        # -1 means no ETA available, 0 or positive values are valid (0 = arriving now)
+        # Extract ETAs from minutesToNextStops array (primary source)
+        # Each entry has: stopID, minutes, time (actual ETA like "01:41PM")
         etas = entry.get("ETAs") or entry.get("etas") or entry.get("MinutesToStops")
-        if etas is None and next_stop_eta_seconds is not None and next_stop_eta_seconds >= 0 and next_stop_id:
-            # Convert seconds to minutes for consistency
-            eta_minutes = next_stop_eta_seconds / 60.0 if isinstance(next_stop_eta_seconds, (int, float)) else None
-            if eta_minutes is not None:
-                etas = [
-                    {
-                        "StopID": next_stop_id,
-                        "stopID": next_stop_id,
-                        "Minutes": round(eta_minutes, 1),
-                        "minutes": round(eta_minutes, 1),
-                        "Seconds": next_stop_eta_seconds,
-                        "seconds": next_stop_eta_seconds,
-                        "PatternStopID": next_pattern_stop_id,
-                        "patternStopID": next_pattern_stop_id,
-                    }
-                ]
+        minutes_to_next_stops = entry.get("minutesToNextStops") or entry.get("MinutesToNextStops")
+
+        if etas is None and isinstance(minutes_to_next_stops, list) and len(minutes_to_next_stops) > 0:
+            etas = []
+            for stop_eta in minutes_to_next_stops:
+                if not isinstance(stop_eta, dict):
+                    continue
+                stop_id = stop_eta.get("stopID") or stop_eta.get("StopID")
+                minutes = stop_eta.get("minutes")
+                if minutes is None:
+                    minutes = stop_eta.get("Minutes")
+                time_str = stop_eta.get("time") or stop_eta.get("Time")
+                pattern_stop_id = stop_eta.get("patternStopID") or stop_eta.get("PatternStopID")
+                direction = stop_eta.get("direction") or stop_eta.get("Direction")
+                direction_abbr = stop_eta.get("directionAbbr") or stop_eta.get("DirectionAbbr")
+
+                if stop_id is not None:
+                    etas.append({
+                        "StopID": stop_id,
+                        "stopID": stop_id,
+                        "Minutes": minutes,
+                        "minutes": minutes,
+                        "Time": time_str,
+                        "time": time_str,
+                        "PatternStopID": pattern_stop_id,
+                        "patternStopID": pattern_stop_id,
+                        "Direction": direction,
+                        "direction": direction,
+                        "DirectionAbbr": direction_abbr,
+                        "directionAbbr": direction_abbr,
+                    })
 
         result.append(
             {
@@ -7135,8 +7142,6 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
                 "ETAs": etas,
                 "NextStopID": next_stop_id,
                 "nextStopID": next_stop_id,
-                "NextStopETA": next_stop_eta_seconds,
-                "nextStopETA": next_stop_eta_seconds,
                 "ReceiveTime": receive_time_raw,
                 "receiveTime": receive_time_raw,
             }
