@@ -14266,12 +14266,11 @@ ${trainPlaneMarkup}
                       state.driverPopupContent = popupContent;
                       state.driverPopupAriaLabel = `${busName} - Click for details`;
 
-                      // Update popup content if it's currently open
+                      // Update popup content if it's currently open (use targeted update for capacity bar)
                       const marker = markers[vehicleID];
                       if (marker && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
-                          if (typeof marker.setPopupContent === 'function') {
-                              marker.setPopupContent(popupContent);
-                          }
+                          // Use targeted update to preserve animations
+                          updatePopupCapacityBar(marker, vehicleID, state);
                       }
                   } else {
                       delete state.driverPopupContent;
@@ -14951,9 +14950,9 @@ ${trainPlaneMarkup}
                       const stopsHtml = nextStops.map(stop => {
                           const description = stop.Description || 'Unknown Stop';
                           const seconds = stop.Seconds || 0;
-                          const minutes = Math.round(seconds / 60);
-                          const timeStr = minutes <= 0 ? 'Now' : `${minutes} min`;
-                          return `<div class="bus-popup__stop"><span class="bus-popup__stop-name">${escapeHtml(description)}</span><span class="bus-popup__stop-time">${timeStr}</span></div>`;
+                          const minutes = Math.max(0, Math.round(seconds / 60));
+                          const minutesText = minutes === 0 ? 'Arriving' : `${minutes} min`;
+                          return `<div class="bus-popup__stop"><div class="bus-popup__stop-name">${escapeHtml(description)}</div><div class="bus-popup__stop-eta">${escapeHtml(minutesText)}</div></div>`;
                       }).join('');
                       stopsContainer.innerHTML = stopsHtml;
                   }
