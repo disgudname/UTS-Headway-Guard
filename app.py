@@ -7062,6 +7062,40 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
             or entry.get("routeId")
             or entry.get("route")
         )
+
+        # Extract next stop ETA data from the raw API response
+        # The CAT API returns nextStopETA in seconds (-1 means no ETA)
+        # Use explicit None checks to handle 0 values correctly
+        next_stop_eta_seconds = entry.get("nextStopETA")
+        if next_stop_eta_seconds is None:
+            next_stop_eta_seconds = entry.get("NextStopETA")
+        next_stop_id = entry.get("nextStopID")
+        if next_stop_id is None:
+            next_stop_id = entry.get("NextStopID")
+        next_pattern_stop_id = entry.get("nextPatternStopID")
+        if next_pattern_stop_id is None:
+            next_pattern_stop_id = entry.get("NextPatternStopID")
+
+        # Build ETAs array if we have valid next stop ETA data
+        # -1 means no ETA available, 0 or positive values are valid (0 = arriving now)
+        etas = entry.get("ETAs") or entry.get("etas") or entry.get("MinutesToStops")
+        if etas is None and next_stop_eta_seconds is not None and next_stop_eta_seconds >= 0 and next_stop_id:
+            # Convert seconds to minutes for consistency
+            eta_minutes = next_stop_eta_seconds / 60.0 if isinstance(next_stop_eta_seconds, (int, float)) else None
+            if eta_minutes is not None:
+                etas = [
+                    {
+                        "StopID": next_stop_id,
+                        "stopID": next_stop_id,
+                        "Minutes": round(eta_minutes, 1),
+                        "minutes": round(eta_minutes, 1),
+                        "Seconds": next_stop_eta_seconds,
+                        "seconds": next_stop_eta_seconds,
+                        "PatternStopID": next_pattern_stop_id,
+                        "patternStopID": next_pattern_stop_id,
+                    }
+                ]
+
         result.append(
             {
                 "VehicleID": entry.get("VehicleID")
@@ -7098,7 +7132,11 @@ def _trim_cat_vehicles(payload: Any) -> List[Dict[str, Any]]:
                 or entry.get("Description")
                 or entry.get("routeName")
                 or entry.get("name"),
-                "ETAs": entry.get("ETAs") or entry.get("etas") or entry.get("MinutesToStops"),
+                "ETAs": etas,
+                "NextStopID": next_stop_id,
+                "nextStopID": next_stop_id,
+                "NextStopETA": next_stop_eta_seconds,
+                "nextStopETA": next_stop_eta_seconds,
                 "ReceiveTime": receive_time_raw,
                 "receiveTime": receive_time_raw,
             }
