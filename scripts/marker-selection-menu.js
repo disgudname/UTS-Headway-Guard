@@ -12,9 +12,16 @@
     const TOO_MANY_ITEMS_THRESHOLD = 8; // Show "zoom in" message when this many or more items
     const DEFAULT_MAX_ZOOM = 19; // Default max zoom level for Leaflet maps
 
+    // Animation configuration
+    const OPEN_ANIMATION_DURATION_MS = 250; // Duration of opening animation
+    const CLOSE_ANIMATION_DURATION_MS = 200; // Duration of closing animation
+    const CLOSE_BOUNCE_SCALE = 1.15; // Scale factor for bounce before shrink
+    const CLOSE_BOUNCE_DURATION_MS = 80; // Duration of the bounce phase
+
     let map = null;
     let currentMenu = null;
     let currentZoomMessage = null; // Track the "zoom in" message element
+    let isClosing = false; // Track if menu is currently closing (to prevent re-closing)
     let markerRegistry = new Map(); // Maps marker layer IDs to metadata
 
     /**
@@ -144,7 +151,7 @@
      * @param {Array} items - Items to show in menu
      */
     function showSelectionMenu(latlng, point, items) {
-        closeMenu(); // Close any existing menu
+        closeMenuImmediate(); // Close any existing menu immediately (no animation)
 
         const menuContainer = document.createElement('div');
         menuContainer.className = 'marker-selection-menu';
@@ -157,24 +164,37 @@
             pointer-events: none;
         `;
 
-        // Create menu items in a circle
+        // Store menu item elements for animation
+        const menuItems = [];
+
+        // Create menu items in a circle - start at center (0, 0) with scale 0
         items.forEach((item, index) => {
             const angle = (index / items.length) * 2 * Math.PI;
-            const x = Math.cos(angle) * MENU_RADIUS;
-            const y = Math.sin(angle) * MENU_RADIUS;
+            const targetX = Math.cos(angle) * MENU_RADIUS;
+            const targetY = Math.sin(angle) * MENU_RADIUS;
 
-            const menuItem = createMenuItem(item, x, y);
+            const menuItem = createMenuItem(item, 0, 0, targetX, targetY);
             menuContainer.appendChild(menuItem);
+            menuItems.push({ element: menuItem, targetX, targetY });
         });
 
         // Add to map container
         const mapContainer = map.getContainer();
         mapContainer.appendChild(menuContainer);
         currentMenu = menuContainer;
+        currentMenu._menuItems = menuItems;
 
-        // Animate in
+        // Animate items from center to their positions
         requestAnimationFrame(() => {
             menuContainer.classList.add('visible');
+            menuItems.forEach(({ element, targetX, targetY }) => {
+                element.style.transition = `left ${OPEN_ANIMATION_DURATION_MS}ms cubic-bezier(0.34, 1.56, 0.64, 1), top ${OPEN_ANIMATION_DURATION_MS}ms cubic-bezier(0.34, 1.56, 0.64, 1), width ${OPEN_ANIMATION_DURATION_MS}ms cubic-bezier(0.34, 1.56, 0.64, 1), height ${OPEN_ANIMATION_DURATION_MS}ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity ${OPEN_ANIMATION_DURATION_MS}ms ease-out`;
+                element.style.left = `${targetX}px`;
+                element.style.top = `${targetY}px`;
+                element.style.width = `${MENU_ITEM_SIZE}px`;
+                element.style.height = `${MENU_ITEM_SIZE}px`;
+                element.style.opacity = '1';
+            });
         });
 
         // Update position on map move
@@ -260,11 +280,13 @@
     /**
      * Create a single menu item
      * @param {Object} item - Item data
-     * @param {number} x - X offset from center
-     * @param {number} y - Y offset from center
+     * @param {number} startX - Initial X offset from center (for animation)
+     * @param {number} startY - Initial Y offset from center (for animation)
+     * @param {number} targetX - Target X offset from center
+     * @param {number} targetY - Target Y offset from center
      * @returns {HTMLElement} - Menu item element
      */
-    function createMenuItem(item, x, y) {
+    function createMenuItem(item, startX, startY, targetX, targetY) {
         // Determine background: use pie chart if multiple routes, otherwise use single color
         let background = item.color || '#0f172a';
 
@@ -284,13 +306,14 @@
 
         const itemEl = document.createElement('button');
         itemEl.className = 'marker-selection-menu-item';
+        // Start at center with zero size for animation
         itemEl.style.cssText = `
             position: absolute;
-            left: ${x}px;
-            top: ${y}px;
+            left: ${startX}px;
+            top: ${startY}px;
             transform: translate(-50%, -50%);
-            width: ${MENU_ITEM_SIZE}px;
-            height: ${MENU_ITEM_SIZE}px;
+            width: 0px;
+            height: 0px;
             border-radius: 50%;
             background: ${background};
             border: 3px solid rgba(255, 255, 255, 0.9);
@@ -302,17 +325,21 @@
             cursor: pointer;
             pointer-events: auto;
             box-shadow: 0 4px 12px rgba(15, 23, 42, 0.3);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 8px;
+            padding: 0px;
             line-height: 1.2;
             word-wrap: break-word;
             word-break: break-word;
             overflow-wrap: break-word;
             overflow: hidden;
+            opacity: 0;
         `;
+
+        // Store target position for hover effect calculations
+        itemEl._targetX = targetX;
+        itemEl._targetY = targetY;
 
         // Add label
         // Ensure button has no textContent to prevent duplicate text
@@ -332,13 +359,18 @@
         `;
         itemEl.appendChild(label);
 
-        // Add hover effect
+        // Add hover effect (only when not animating)
         itemEl.addEventListener('mouseenter', () => {
+            if (isClosing) return;
+            // Temporarily disable position/size transition for hover, keep transform smooth
+            itemEl.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
             itemEl.style.transform = 'translate(-50%, -50%) scale(1.1)';
             itemEl.style.boxShadow = '0 6px 16px rgba(15, 23, 42, 0.4)';
         });
 
         itemEl.addEventListener('mouseleave', () => {
+            if (isClosing) return;
+            itemEl.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';
             itemEl.style.transform = 'translate(-50%, -50%)';
             itemEl.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.3)';
         });
@@ -356,9 +388,61 @@
     }
 
     /**
-     * Close the current selection menu
+     * Close the current selection menu with animation
      */
     function closeMenu() {
+        if (!currentMenu || isClosing) return;
+
+        isClosing = true;
+
+        // Get menu items for animation
+        const menuItems = currentMenu._menuItems || [];
+
+        if (menuItems.length === 0) {
+            // No items to animate, close immediately
+            closeMenuImmediate();
+            return;
+        }
+
+        // Clean up map event listeners immediately
+        if (currentMenu._cleanup) {
+            currentMenu._cleanup();
+        }
+
+        // Phase 1: Bounce out (scale up slightly)
+        menuItems.forEach(({ element }) => {
+            element.style.transition = `transform ${CLOSE_BOUNCE_DURATION_MS}ms ease-out`;
+            element.style.transform = `translate(-50%, -50%) scale(${CLOSE_BOUNCE_SCALE})`;
+        });
+
+        // Phase 2: Shrink to nothing
+        setTimeout(() => {
+            menuItems.forEach(({ element }) => {
+                element.style.transition = `width ${CLOSE_ANIMATION_DURATION_MS}ms ease-in, height ${CLOSE_ANIMATION_DURATION_MS}ms ease-in, opacity ${CLOSE_ANIMATION_DURATION_MS}ms ease-in, transform ${CLOSE_ANIMATION_DURATION_MS}ms ease-in`;
+                element.style.width = '0px';
+                element.style.height = '0px';
+                element.style.opacity = '0';
+                element.style.transform = 'translate(-50%, -50%) scale(0)';
+            });
+
+            // Remove after animation completes
+            setTimeout(() => {
+                if (currentMenu) {
+                    currentMenu.remove();
+                    currentMenu = null;
+                }
+                isClosing = false;
+            }, CLOSE_ANIMATION_DURATION_MS);
+        }, CLOSE_BOUNCE_DURATION_MS);
+
+        // Also close any zoom message
+        closeZoomMessage();
+    }
+
+    /**
+     * Close the current selection menu immediately (no animation)
+     */
+    function closeMenuImmediate() {
         if (currentMenu) {
             if (currentMenu._cleanup) {
                 currentMenu._cleanup();
@@ -366,6 +450,7 @@
             currentMenu.remove();
             currentMenu = null;
         }
+        isClosing = false;
 
         // Also close any zoom message
         closeZoomMessage();
