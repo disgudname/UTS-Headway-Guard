@@ -10700,35 +10700,40 @@ ${trainPlaneMarkup}
                                       }
                                   } else {
                                       // For regular buses, directly open the popup to avoid re-checking overlaps
-                                      try {
-                                          // Fetch popup data on-demand
-                                          await Promise.all([
-                                              fetchVehicleDrivers(),
-                                              fetchNextStops([vehicleID])
-                                          ]);
+                                      // Show popup immediately with cached data, then refresh in background
+                                      const popupHtml = buildBusPopupContent(vehicleID, busName);
 
-                                          // Build popup content
-                                          const popupHtml = buildBusPopupContent(vehicleID, busName);
-
-                                          if (popupHtml && typeof marker.bindPopup === 'function') {
-                                              marker.unbindPopup();
-                                              const popupOptions = {
-                                                  className: 'ondemand-driver-popup',
-                                                  closeButton: false,
-                                                  autoClose: true,
-                                                  autoPan: false,
-                                                  offset: [0, -20],
-                                              };
-                                              marker.bindPopup(popupHtml, popupOptions);
-                                              if (typeof marker.openPopup === 'function') {
-                                                  marker.openPopup();
-                                                  if (typeof syncMarkerPopupPosition === 'function') {
-                                                      syncMarkerPopupPosition(marker);
-                                                  }
+                                      if (popupHtml && typeof marker.bindPopup === 'function') {
+                                          marker.unbindPopup();
+                                          const popupOptions = {
+                                              className: 'ondemand-driver-popup',
+                                              closeButton: false,
+                                              autoClose: true,
+                                              autoPan: false,
+                                              offset: [0, -20],
+                                          };
+                                          marker.bindPopup(popupHtml, popupOptions);
+                                          if (typeof marker.openPopup === 'function') {
+                                              marker.openPopup();
+                                              if (typeof syncMarkerPopupPosition === 'function') {
+                                                  syncMarkerPopupPosition(marker);
                                               }
                                           }
-                                      } catch (error) {
-                                          console.error('Error fetching bus popup data:', error);
+
+                                          // Refresh data in background and update popup if still open
+                                          Promise.all([
+                                              fetchVehicleDrivers(),
+                                              fetchNextStops([vehicleID])
+                                          ]).then(() => {
+                                              if (typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
+                                                  const refreshedHtml = buildBusPopupContent(vehicleID, busName);
+                                                  if (refreshedHtml && typeof marker.setPopupContent === 'function') {
+                                                      marker.setPopupContent(refreshedHtml);
+                                                  }
+                                              }
+                                          }).catch(error => {
+                                              console.error('Error fetching bus popup data:', error);
+                                          });
                                       }
                                   }
                               }
@@ -18535,27 +18540,32 @@ ${trainPlaneMarkup}
                   }
 
                   // Single marker or fallback, show popup directly
-                  try {
-                      // Fetch popup data on-demand
-                      await Promise.all([
+                  // Show popup immediately with cached data, then refresh in background
+                  const busName = state.busName || `Vehicle ${vehicleID}`;
+                  const popupHtml = buildBusPopupContent(vehicleID, busName);
+
+                  if (popupHtml && typeof marker.bindPopup === 'function') {
+                      marker.unbindPopup();
+                      marker.bindPopup(popupHtml, popupOptions);
+                      if (typeof marker.openPopup === 'function') {
+                          marker.openPopup();
+                          syncMarkerPopupPosition(marker);
+                      }
+
+                      // Refresh data in background and update popup if still open
+                      Promise.all([
                           fetchVehicleDrivers(),
                           fetchNextStops([vehicleID])
-                      ]);
-
-                      // Build popup content
-                      const busName = state.busName || `Vehicle ${vehicleID}`;
-                      const popupHtml = buildBusPopupContent(vehicleID, busName);
-
-                      if (popupHtml && typeof marker.bindPopup === 'function') {
-                          marker.unbindPopup();
-                          marker.bindPopup(popupHtml, popupOptions);
-                          if (typeof marker.openPopup === 'function') {
-                              marker.openPopup();
-                              syncMarkerPopupPosition(marker);
+                      ]).then(() => {
+                          if (typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
+                              const refreshedHtml = buildBusPopupContent(vehicleID, busName);
+                              if (refreshedHtml && typeof marker.setPopupContent === 'function') {
+                                  marker.setPopupContent(refreshedHtml);
+                              }
                           }
-                      }
-                  } catch (error) {
-                      console.error('Error fetching bus popup data:', error);
+                      }).catch(error => {
+                          console.error('Error fetching bus popup data:', error);
+                      });
                   }
               };
 
