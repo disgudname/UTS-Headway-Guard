@@ -5062,15 +5062,19 @@ async def _fetch_vehicle_drivers():
         # (For interlined blocks, only ONE block should be active at any given time)
         all_drivers = []
         seen_drivers = set()  # Track unique drivers to avoid duplicates
-        w2w_position_name = None  # Track W2W position name from first active driver
+
+        # For interlined blocks (e.g., "[22]/[06]"), we need to find which specific
+        # block is currently active. TransLoc may not provide timing data to determine
+        # this, so we look at W2W to find the driver whose shift started most recently.
+        # This handles AM/PM block transitions correctly - in PM, we prefer the PM
+        # driver whose shift started later.
+        drivers_by_block = {}  # block_number -> list of active drivers with metadata
 
         for block_number in block_numbers:
             # Collect drivers currently active for this block
             block_drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
-
-            # Capture W2W position name from the first active driver
-            if block_drivers and w2w_position_name is None:
-                w2w_position_name = block_drivers[0].get("position_name")
+            if block_drivers:
+                drivers_by_block[block_number] = block_drivers
 
             # Add drivers to the combined list, avoiding duplicates
             for driver in block_drivers:
@@ -5088,7 +5092,24 @@ async def _fetch_vehicle_drivers():
         # Sort drivers by shift start time (for consistency with overlapping shifts)
         all_drivers.sort(key=lambda d: d["shift_start"])
 
-        # Determine block name: prefer W2W position name from active driver, fallback to TransLoc
+        # Determine which block to display based on W2W driver shifts
+        # If multiple blocks have active drivers (e.g., during AM/PM overlap),
+        # prefer the one whose driver's shift started most recently (i.e., the
+        # current/PM shift rather than the ending/AM shift)
+        w2w_position_name = None
+        if drivers_by_block:
+            # Find the block with the driver whose shift started most recently
+            best_block = None
+            best_start_ts = -1
+            for blk_num, blk_drivers in drivers_by_block.items():
+                for drv in blk_drivers:
+                    start_ts = drv.get("start_ts", 0)
+                    if start_ts > best_start_ts:
+                        best_start_ts = start_ts
+                        best_block = blk_num
+                        w2w_position_name = drv.get("position_name")
+
+        # Use W2W position name if found, otherwise fall back to TransLoc block_name
         final_block = w2w_position_name if w2w_position_name else block_name
 
         # Create entry for this vehicle
