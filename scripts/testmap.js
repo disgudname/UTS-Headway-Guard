@@ -10636,27 +10636,58 @@ ${trainPlaneMarkup}
 
           // Check CAT vehicle markers
           if (catVehicleMarkers && catVehicleMarkers.size > 0) {
-              catVehicleMarkers.forEach((entry, vehicleId) => {
-                  if (!entry || !entry.marker) return;
-                  const markerLatLng = entry.marker.getLatLng ? entry.marker.getLatLng() : null;
+              catVehicleMarkers.forEach((marker, markerKey) => {
+                  if (!marker || typeof marker.getLatLng !== 'function') return;
+                  const markerLatLng = marker.getLatLng();
                   if (!markerLatLng) return;
-                  
+
                   if (isNearby(markerLatLng)) {
-                      const vehicle = entry.vehicle || entry.marker.catVehicleData || {};
-                      const routeShortName = vehicle.route_short_name || vehicle.RouteShortName || 'CAT';
-                      const color = entry.color || '#1e40af'; // Blue for CAT
+                      const vehicle = marker.catVehicleData || {};
+                      const effectiveRouteKey = marker.catEffectiveRouteKey || getEffectiveCatRouteKey(vehicle);
+                      const routeInfo = getCatRouteInfo(effectiveRouteKey);
+                      const routeShortName = vehicle.routeAbbrev || routeInfo?.shortName || routeInfo?.displayName || vehicle.routeName || 'CAT';
+                      const vehicleName = vehicle.equipmentId || vehicle.displayName || vehicle.id || '';
+                      const color = sanitizeCssColor(getCatRouteColor(effectiveRouteKey)) || CAT_VEHICLE_MARKER_DEFAULT_COLOR;
+
+                      // Build label with route and vehicle identifier
+                      let label = routeShortName;
+                      if (vehicleName && vehicleName !== routeShortName) {
+                          label = `${routeShortName} - ${vehicleName}`;
+                      }
 
                       items.push({
                           latlng: markerLatLng,
                           color: color,
-                          label: routeShortName,
+                          label: label,
+                          type: 'vehicle',
+                          catRouteKeys: [effectiveRouteKey],
                           onClick: () => {
-                              // Trigger the CAT vehicle click handler
-                              if (entry.marker && typeof entry.marker.fire === 'function') {
-                                  entry.marker.fire('click', { target: entry.marker });
-                              } else if (typeof handleCatVehicleMarkerClick === 'function' && entry.marker) {
-                                  handleCatVehicleMarkerClick({ target: entry.marker });
-                              }
+                              // Directly open the popup for CAT vehicle (skip overlap check since we came from selection menu)
+                              openCatVehicleTooltip(marker, { statusMessage: 'Loading arrival times…' });
+                              marker._catTooltipShouldRemainOpen = true;
+                              marker._catTooltipLoading = true;
+                              marker._catTooltipRequestId = (marker._catTooltipRequestId || 0) + 1;
+                              const requestId = marker._catTooltipRequestId;
+                              fetchCatVehicleEtasForVehicle(marker.catVehicleData).then(etas => {
+                                  if (marker._catTooltipRequestId !== requestId || marker._catTooltipShouldRemainOpen === false) {
+                                      return;
+                                  }
+                                  if (Array.isArray(etas)) {
+                                      marker.catVehicleData = Object.assign({}, marker.catVehicleData, { etas });
+                                  }
+                                  if (marker._catTooltipShouldRemainOpen !== false) {
+                                      openCatVehicleTooltip(marker);
+                                  }
+                              }).catch(error => {
+                                  console.error('Failed to load CAT vehicle ETAs:', error);
+                                  if (marker._catTooltipRequestId === requestId && marker._catTooltipShouldRemainOpen !== false) {
+                                      openCatVehicleTooltip(marker, { statusMessage: 'Unable to load ETAs' });
+                                  }
+                              }).finally(() => {
+                                  if (marker._catTooltipRequestId === requestId) {
+                                      marker._catTooltipLoading = false;
+                                  }
+                              });
                           }
                       });
                   }
