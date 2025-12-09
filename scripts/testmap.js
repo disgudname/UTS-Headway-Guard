@@ -10726,9 +10726,10 @@ ${trainPlaneMarkup}
                                               fetchNextStops([vehicleID])
                                           ]).then(() => {
                                               if (typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
-                                                  const refreshedHtml = buildBusPopupContent(vehicleID, busName);
-                                                  if (refreshedHtml && typeof marker.setPopupContent === 'function') {
-                                                      marker.setPopupContent(refreshedHtml);
+                                                  // Use targeted update for capacity bar to preserve animations
+                                                  const state = busMarkerStates[vehicleID];
+                                                  if (state) {
+                                                      updatePopupCapacityBar(marker, vehicleID, state);
                                                   }
                                               }
                                           }).catch(error => {
@@ -14515,6 +14516,41 @@ ${trainPlaneMarkup}
           }
       }
 
+      function getCapacityFillColor(percentage) {
+          // Color based on percentage: green (<62%), orange (62-99%), red (>=100%)
+          if (percentage >= 100) {
+              return 'linear-gradient(90deg, #ef4444, #dc2626)';
+          } else if (percentage >= 62) {
+              return 'linear-gradient(90deg, #f97316, #ea580c)';
+          } else {
+              return 'linear-gradient(90deg, #10b981, #059669)';
+          }
+      }
+
+      function updatePopupCapacityBar(marker, vehicleID, state) {
+          const popup = marker.getPopup();
+          const popupEl = popup && popup.getElement();
+          if (!popupEl) return false;
+
+          const capacityFill = popupEl.querySelector(`.bus-popup__capacity-fill[data-vehicle-id="${vehicleID}"]`);
+          const capacityText = popupEl.querySelector(`.bus-popup__capacity-text[data-vehicle-id="${vehicleID}"]`);
+
+          if (capacityFill && capacityText && state && state.capacity !== undefined && state.current_occupation !== undefined) {
+              const capacity = state.capacity;
+              const current = state.current_occupation;
+              const percentage = capacity > 0 ? (current / capacity) * 100 : 0;
+              const fillColor = getCapacityFillColor(percentage);
+
+              // Remove initial animation class if present, update styles with transition
+              capacityFill.classList.remove('bus-popup__capacity-fill--initial');
+              capacityFill.style.width = `${Math.min(percentage, 100)}%`;
+              capacityFill.style.background = fillColor;
+              capacityText.textContent = `${current}/${capacity}`;
+              return true;
+          }
+          return false;
+      }
+
       function buildBusPopupContent(vehicleID, busName) {
           const popupSections = [];
           const driverInfo = cachedVehicleDrivers[vehicleID];
@@ -14642,25 +14678,16 @@ ${trainPlaneMarkup}
               const capacity = state.capacity;
               const current = state.current_occupation;
               const percentage = capacity > 0 ? (current / capacity) * 100 : 0;
-
-              // Color based on percentage: green (<62%), orange (62-99%), red (>=100%)
-              let fillColor;
-              if (percentage >= 100) {
-                  fillColor = 'linear-gradient(90deg, #ef4444, #dc2626)';
-              } else if (percentage >= 62) {
-                  fillColor = 'linear-gradient(90deg, #f97316, #ea580c)';
-              } else {
-                  fillColor = 'linear-gradient(90deg, #10b981, #059669)';
-              }
+              const fillColor = getCapacityFillColor(percentage);
 
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
                   '<div class="ondemand-driver-popup__label">Occupancy (Approximate)</div>',
                   '<div class="bus-popup__capacity">',
                   '<div class="bus-popup__capacity-bar">',
-                  `<div class="bus-popup__capacity-fill" style="width: ${Math.min(percentage, 100)}%; background: ${fillColor};"></div>`,
+                  `<div class="bus-popup__capacity-fill bus-popup__capacity-fill--initial" data-vehicle-id="${vehicleID}" style="width: ${Math.min(percentage, 100)}%; background: ${fillColor};"></div>`,
                   '</div>',
-                  `<div class="bus-popup__capacity-text">${current}/${capacity}</div>`,
+                  `<div class="bus-popup__capacity-text" data-vehicle-id="${vehicleID}">${current}/${capacity}</div>`,
                   '</div>',
                   '</div>'
               ].join(''));
@@ -14910,11 +14937,34 @@ ${trainPlaneMarkup}
 
               await fetchNextStops([vehicleID]);
 
-              const busName = state.busName || `Vehicle ${vehicleID}`;
-              const popupHtml = buildBusPopupContent(vehicleID, busName);
+              // Try to do targeted updates to preserve animations
+              const popup = marker.getPopup();
+              const popupEl = popup && popup.getElement();
+              if (popupEl) {
+                  // Update capacity bar with transitions (not full rebuild)
+                  updatePopupCapacityBar(marker, vehicleID, state);
 
-              if (popupHtml && typeof marker.setPopupContent === 'function') {
-                  marker.setPopupContent(popupHtml);
+                  // Update next stops section (rebuild this part)
+                  const nextStops = cachedNextStops[vehicleID];
+                  const stopsContainer = popupEl.querySelector('.bus-popup__stops');
+                  if (stopsContainer && Array.isArray(nextStops) && nextStops.length > 0) {
+                      const stopsHtml = nextStops.map(stop => {
+                          const description = stop.Description || 'Unknown Stop';
+                          const seconds = stop.Seconds || 0;
+                          const minutes = Math.round(seconds / 60);
+                          const timeStr = minutes <= 0 ? 'Now' : `${minutes} min`;
+                          return `<div class="bus-popup__stop"><span class="bus-popup__stop-name">${escapeHtml(description)}</span><span class="bus-popup__stop-time">${timeStr}</span></div>`;
+                      }).join('');
+                      stopsContainer.innerHTML = stopsHtml;
+                  }
+              } else {
+                  // Fallback to full rebuild if we can't find the popup element
+                  const busName = state.busName || `Vehicle ${vehicleID}`;
+                  const popupHtml = buildBusPopupContent(vehicleID, busName);
+
+                  if (popupHtml && typeof marker.setPopupContent === 'function') {
+                      marker.setPopupContent(popupHtml);
+                  }
               }
           } catch (error) {
               console.error('Error refreshing bus popup:', error);
@@ -18568,10 +18618,8 @@ ${trainPlaneMarkup}
                           fetchNextStops([vehicleID])
                       ]).then(() => {
                           if (typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
-                              const refreshedHtml = buildBusPopupContent(vehicleID, busName);
-                              if (refreshedHtml && typeof marker.setPopupContent === 'function') {
-                                  marker.setPopupContent(refreshedHtml);
-                              }
+                              // Use targeted update for capacity bar to preserve animations
+                              updatePopupCapacityBar(marker, vehicleID, state);
                           }
                       }).catch(error => {
                           console.error('Error fetching bus popup data:', error);

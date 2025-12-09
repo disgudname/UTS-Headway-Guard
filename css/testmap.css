@@ -1983,7 +1983,10 @@
         height: 100%;
         background: linear-gradient(90deg, #10b981, #059669);
         border-radius: 7px;
-        animation: capacityFillGrow 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.5s ease-in-out;
+      }
+      .bus-popup__capacity-fill--initial {
+        animation: capacityFillGrow 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
         transform-origin: left center;
       }
       @keyframes capacityFillGrow {
