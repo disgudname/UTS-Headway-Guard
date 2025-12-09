@@ -4992,21 +4992,9 @@ async def _fetch_vehicle_drivers():
         # Diagnostic logging
         print(f"[vehicle_drivers] Found {len(blocks_with_times)} vehicles with block data")
         print(f"[vehicle_drivers] Current time: {now} ({now_ts})")
-
-        # Select current or next block for each vehicle
-        blocks_mapping = {}
-        for vehicle_id, block_list in blocks_with_times.items():
-            selected_block = _select_current_or_next_block(block_list, now_ts)
-            if selected_block:
-                blocks_mapping[vehicle_id] = selected_block
-            else:
-                # Log why block was filtered out
-                print(f"[vehicle_drivers] Vehicle {vehicle_id} filtered out - blocks: {block_list}")
-
-        print(f"[vehicle_drivers] After time filtering: {len(blocks_mapping)} vehicles remain")
     except Exception as exc:
         print(f"[vehicle_drivers] blocks fetch failed: {exc}")
-        blocks_mapping = {}
+        blocks_with_times = {}
 
     try:
         w2w_data = await w2w_assignments_cache.get(_fetch_w2w_assignments)
@@ -5014,6 +5002,34 @@ async def _fetch_vehicle_drivers():
     except Exception as exc:
         print(f"[vehicle_drivers] w2w fetch failed: {exc}")
         assignments_by_block = {}
+
+    # Select current block for each vehicle, considering both TransLoc block times
+    # and W2W driver shift times. A vehicle is included if:
+    # 1. TransLoc block time is currently active, OR
+    # 2. A W2W driver shift is currently active for that block
+    # This allows showing driver/block info before and after revenue service.
+    blocks_mapping = {}
+    for vehicle_id, block_list in blocks_with_times.items():
+        # First try: select block based on TransLoc block times
+        selected_block = _select_current_or_next_block(block_list, now_ts)
+        if selected_block:
+            blocks_mapping[vehicle_id] = selected_block
+        else:
+            # Second try: check if any W2W driver shift is active for any of the blocks
+            # This handles pre-service and post-service periods
+            for block_name, start_ts, end_ts in block_list:
+                block_numbers = _split_interlined_blocks(block_name)
+                for block_number in block_numbers:
+                    drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
+                    if drivers:
+                        # Found active driver shift - use this block
+                        blocks_mapping[vehicle_id] = block_name
+                        print(f"[vehicle_drivers] Vehicle {vehicle_id} included via W2W shift (block {block_name})")
+                        break
+                if vehicle_id in blocks_mapping:
+                    break
+
+    print(f"[vehicle_drivers] After filtering: {len(blocks_mapping)} vehicles remain")
 
     # Build vehicle_id -> vehicle_name mapping from raw vehicle data
     vehicle_names = {}
