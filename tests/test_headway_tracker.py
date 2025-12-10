@@ -754,6 +754,65 @@ def test_bubble_arrival_logged_on_stop_in_final_bubble():
     assert storage.events[0].timestamp == base + timedelta(seconds=90)
 
 
+def test_bubble_arrival_requires_route_serving_stop():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(
+        storage=storage, arrival_distance_threshold_m=100.0, departure_distance_threshold_m=100.0
+    )
+
+    tracker.update_stops(
+        [
+            {
+                "StopID": "STOP",
+                "Latitude": 0.0,
+                "Longitude": 0.0,
+                "RouteID": "R2",
+                "ApproachSets": [
+                    {
+                        "name": "main",
+                        "bubbles": [
+                            {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
+                            {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    tracker.process_snapshots(
+        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0010, route_id="R1", timestamp=base)]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=-0.0005,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
+            )
+        ]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=-0.0001,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=60),
+            )
+        ]
+    )
+
+    assert storage.events == []
+
+
 def test_bubble_arrival_logged_on_entry_when_no_stop():
     storage = MemoryHeadwayStorage()
     tracker = HeadwayTracker(

@@ -527,6 +527,8 @@ class HeadwayTracker:
                 continue
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
                 continue
+            if stop.route_ids and (route_id_norm is None or route_id_norm not in stop.route_ids):
+                continue
 
             stop_progress = vehicle_progress.get(stop.stop_id, {})
 
