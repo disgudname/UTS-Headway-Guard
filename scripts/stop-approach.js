@@ -72,6 +72,81 @@
   let bubbleLayers = []; // Leaflet layers for bubbles
   let bubbleMarkers = []; // Leaflet markers for bubble centers
 
+  // Route display state
+  const showRoutesCheckbox = document.getElementById('showRoutesCheckbox');
+  let routeLayers = []; // Leaflet polyline layers for routes
+  let routesLoaded = false;
+
+  // Simple polyline decoder (Google encoded polyline format)
+  function decodePolyline(encoded) {
+    const points = [];
+    let index = 0, lat = 0, lng = 0;
+    while (index < encoded.length) {
+      let b, shift = 0, result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+      points.push([lat / 1e5, lng / 1e5]);
+    }
+    return points;
+  }
+
+  async function loadRoutes() {
+    if (routesLoaded) return;
+    try {
+      const resp = await fetch('/v1/transloc/routes_with_shapes');
+      if (!resp.ok) throw new Error('Failed to fetch routes');
+      const routes = await resp.json();
+      routesLoaded = true;
+      for (const route of routes) {
+        if (!route.EncodedPolyline) continue;
+        const coords = decodePolyline(route.EncodedPolyline);
+        if (coords.length < 2) continue;
+        const color = route.Color ? `#${route.Color}` : '#888';
+        const polyline = L.polyline(coords, {
+          color: color,
+          weight: 4,
+          opacity: 0.7,
+        });
+        routeLayers.push(polyline);
+      }
+    } catch (err) {
+      console.error('Failed to load routes:', err);
+    }
+  }
+
+  function showRoutes() {
+    if (!map) return;
+    routeLayers.forEach(layer => layer.addTo(map));
+  }
+
+  function hideRoutes() {
+    if (!map) return;
+    routeLayers.forEach(layer => map.removeLayer(layer));
+  }
+
+  if (showRoutesCheckbox) {
+    showRoutesCheckbox.addEventListener('change', async () => {
+      if (showRoutesCheckbox.checked) {
+        await loadRoutes();
+        showRoutes();
+      } else {
+        hideRoutes();
+      }
+    });
+  }
+
   function normalizeBearing(value) {
     const num = Number(value);
     if (Number.isNaN(num)) return DEFAULT_BEARING;
