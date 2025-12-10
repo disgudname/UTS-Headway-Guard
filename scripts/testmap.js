@@ -728,6 +728,15 @@ TM.registerVisibilityResumeHandler(() => {
       const DISPATCHER_MIN_FOCUS_ZOOM = 18;
 
       const dispatcherMode = window.usp.getBoolean('dispatcher', false);
+      // Bubble visualization mode - shows approach bubble activations on the map
+      let bubbleVisualizationEnabled = window.usp.getBoolean('bubbles', false);
+      const bubbleVisualizationState = {
+        layerGroup: null,
+        activeBubbles: new Map(), // vehicleId -> {circles: [], markers: [], stopId, setName}
+        toastContainer: null,
+        confettiCanvas: null,
+        pollInterval: null,
+      };
       let dispatcherConfig = null;
       let dispatcherConfigPromise = null;
       const dispatcherLockState = {
@@ -19330,6 +19339,426 @@ ${trainPlaneMarkup}
         requestAnimationFrame(animate);
       }
 
+      // ======================= BUBBLE VISUALIZATION =======================
+      // Shows approach bubble activations on the map when ?bubbles=true
+      // Displays circles for each bubble, sparkles/confetti on arrivals
+
+      const BUBBLE_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#22c55e'];
+
+      function initBubbleVisualization() {
+        if (!bubbleVisualizationEnabled || !map) return;
+
+        bubbleVisualizationState.layerGroup = L.layerGroup().addTo(map);
+
+        // Create toast container
+        const toastContainer = document.createElement('div');
+        toastContainer.id = 'bubble-toast-container';
+        toastContainer.style.cssText = `
+          position: fixed;
+          top: 80px;
+          right: 20px;
+          z-index: 10000;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          pointer-events: none;
+        `;
+        document.body.appendChild(toastContainer);
+        bubbleVisualizationState.toastContainer = toastContainer;
+
+        // Create confetti canvas
+        const canvas = document.createElement('canvas');
+        canvas.id = 'bubble-confetti-canvas';
+        canvas.style.cssText = `
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          z-index: 9999;
+          pointer-events: none;
+        `;
+        document.body.appendChild(canvas);
+        bubbleVisualizationState.confettiCanvas = canvas;
+
+        // Start polling for bubble states
+        bubbleVisualizationState.pollInterval = setInterval(fetchBubbleStates, 1000);
+        fetchBubbleStates();
+
+        console.log('[bubbles] Bubble visualization enabled');
+      }
+
+      async function fetchBubbleStates() {
+        if (!bubbleVisualizationEnabled) return;
+
+        try {
+          const response = await fetch('/api/headway/bubbles');
+          if (!response.ok) return;
+          const data = await response.json();
+
+          updateBubbleVisuals(data.active_states || []);
+          processRecentActivations(data.recent_activations || []);
+        } catch (err) {
+          console.error('[bubbles] Failed to fetch bubble states:', err);
+        }
+      }
+
+      const processedActivations = new Set();
+
+      function processRecentActivations(activations) {
+        for (const activation of activations) {
+          const key = `${activation.timestamp}-${activation.vehicle_id}-${activation.stop_id}-${activation.event_type}`;
+          if (processedActivations.has(key)) continue;
+          processedActivations.add(key);
+
+          // Limit set size
+          if (processedActivations.size > 500) {
+            const arr = Array.from(processedActivations);
+            processedActivations.clear();
+            arr.slice(-250).forEach(k => processedActivations.add(k));
+          }
+
+          if (activation.event_type === 'arrival_stopped' || activation.event_type === 'arrival_passthrough') {
+            showArrivalCelebration(activation);
+          }
+        }
+      }
+
+      function updateBubbleVisuals(activeStates) {
+        if (!bubbleVisualizationState.layerGroup) return;
+
+        const currentVehicles = new Set();
+
+        for (const state of activeStates) {
+          const vid = state.vehicle_id;
+          currentVehicles.add(vid);
+
+          let existing = bubbleVisualizationState.activeBubbles.get(vid);
+
+          // Clear and recreate if stop changed
+          if (existing && existing.stopId !== state.stop_id) {
+            clearVehicleBubbles(vid);
+            existing = null;
+          }
+
+          if (!existing) {
+            // Create new bubble visuals
+            const circles = [];
+            const markers = [];
+            const bubbles = state.bubbles || [];
+
+            for (let i = 0; i < bubbles.length; i++) {
+              const bubble = bubbles[i];
+              const color = BUBBLE_COLORS[i % BUBBLE_COLORS.length];
+              const isActive = bubble.order <= state.highest_bubble_reached;
+              const isFinal = bubble.order === state.max_bubble_order;
+
+              const circle = L.circle([bubble.lat, bubble.lon], {
+                radius: bubble.radius_m,
+                color: isActive ? color : '#6b7280',
+                weight: isActive ? 3 : 1,
+                fillColor: isActive ? color : '#6b7280',
+                fillOpacity: isActive ? 0.25 : 0.05,
+                dashArray: isActive ? null : '5, 5',
+                className: isFinal && state.in_final_bubble ? 'bubble-final-active' : '',
+              });
+              circle.addTo(bubbleVisualizationState.layerGroup);
+              circles.push(circle);
+
+              // Add order label
+              const icon = L.divIcon({
+                className: 'bubble-order-marker',
+                html: `<div style="
+                  background: ${isActive ? color : '#6b7280'};
+                  color: white;
+                  border-radius: 50%;
+                  width: 22px;
+                  height: 22px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 12px;
+                  font-weight: bold;
+                  border: 2px solid white;
+                  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                ">${bubble.order}</div>`,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11],
+              });
+              const marker = L.marker([bubble.lat, bubble.lon], { icon, interactive: false });
+              marker.addTo(bubbleVisualizationState.layerGroup);
+              markers.push(marker);
+            }
+
+            bubbleVisualizationState.activeBubbles.set(vid, {
+              circles,
+              markers,
+              stopId: state.stop_id,
+              setName: state.set_name,
+              highestReached: state.highest_bubble_reached,
+            });
+          } else {
+            // Update existing bubble visuals
+            const bubbles = state.bubbles || [];
+            for (let i = 0; i < bubbles.length && i < existing.circles.length; i++) {
+              const bubble = bubbles[i];
+              const circle = existing.circles[i];
+              const marker = existing.markers[i];
+              const color = BUBBLE_COLORS[i % BUBBLE_COLORS.length];
+              const isActive = bubble.order <= state.highest_bubble_reached;
+              const isFinal = bubble.order === state.max_bubble_order;
+
+              circle.setStyle({
+                color: isActive ? color : '#6b7280',
+                weight: isActive ? 3 : 1,
+                fillColor: isActive ? color : '#6b7280',
+                fillOpacity: isActive ? 0.25 : 0.05,
+                dashArray: isActive ? null : '5, 5',
+              });
+
+              // Update marker color
+              const iconHtml = `<div style="
+                background: ${isActive ? color : '#6b7280'};
+                color: white;
+                border-radius: 50%;
+                width: 22px;
+                height: 22px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                font-weight: bold;
+                border: 2px solid white;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                ${isFinal && state.in_final_bubble ? 'animation: bubble-pulse 0.5s infinite;' : ''}
+              ">${bubble.order}</div>`;
+              marker.setIcon(L.divIcon({
+                className: 'bubble-order-marker',
+                html: iconHtml,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11],
+              }));
+            }
+            existing.highestReached = state.highest_bubble_reached;
+          }
+        }
+
+        // Remove bubbles for vehicles no longer active
+        for (const [vid, data] of bubbleVisualizationState.activeBubbles) {
+          if (!currentVehicles.has(vid)) {
+            clearVehicleBubbles(vid);
+          }
+        }
+      }
+
+      function clearVehicleBubbles(vid) {
+        const data = bubbleVisualizationState.activeBubbles.get(vid);
+        if (!data) return;
+
+        for (const circle of data.circles) {
+          bubbleVisualizationState.layerGroup.removeLayer(circle);
+        }
+        for (const marker of data.markers) {
+          bubbleVisualizationState.layerGroup.removeLayer(marker);
+        }
+        bubbleVisualizationState.activeBubbles.delete(vid);
+      }
+
+      function showArrivalCelebration(activation) {
+        const isPassthrough = activation.event_type === 'arrival_passthrough';
+
+        // Show toast
+        showBubbleToast(
+          isPassthrough
+            ? `🚌 Pass-through: ${activation.vehicle_name || activation.vehicle_id}`
+            : `🎉 Arrival: ${activation.vehicle_name || activation.vehicle_id}`,
+          activation.set_name || 'Stop arrival',
+          isPassthrough ? '#f97316' : '#22c55e'
+        );
+
+        // Show confetti for actual stops (not pass-throughs)
+        if (!isPassthrough) {
+          showConfetti(activation.lat, activation.lon);
+        }
+
+        // Add sparkle effect to the final bubble
+        addSparkleEffect(activation.lat, activation.lon);
+      }
+
+      function showBubbleToast(title, subtitle, color) {
+        if (!bubbleVisualizationState.toastContainer) return;
+
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+          background: ${color};
+          color: white;
+          padding: 12px 16px;
+          border-radius: 8px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          animation: bubble-toast-in 0.3s ease-out;
+          pointer-events: auto;
+        `;
+        toast.innerHTML = `
+          <div style="font-weight: 600; font-size: 14px;">${title}</div>
+          <div style="font-size: 12px; opacity: 0.9;">${subtitle}</div>
+        `;
+
+        bubbleVisualizationState.toastContainer.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.animation = 'bubble-toast-out 0.3s ease-in forwards';
+          setTimeout(() => toast.remove(), 300);
+        }, 3000);
+      }
+
+      function showConfetti(lat, lon) {
+        const canvas = bubbleVisualizationState.confettiCanvas;
+        if (!canvas || !map) return;
+
+        // Get screen position of the arrival location
+        const point = map.latLngToContainerPoint([lat, lon]);
+        const rect = map.getContainer().getBoundingClientRect();
+        const x = rect.left + point.x;
+        const y = rect.top + point.y;
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const ctx = canvas.getContext('2d');
+
+        const particles = [];
+        const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#ff69b4'];
+
+        for (let i = 0; i < 50; i++) {
+          particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 15,
+            vy: (Math.random() - 0.5) * 15 - 5,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: Math.random() * 8 + 4,
+            rotation: Math.random() * 360,
+            rotationSpeed: (Math.random() - 0.5) * 10,
+            life: 1,
+          });
+        }
+
+        function animate() {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          let alive = false;
+
+          for (const p of particles) {
+            if (p.life <= 0) continue;
+            alive = true;
+
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.3; // gravity
+            p.rotation += p.rotationSpeed;
+            p.life -= 0.02;
+
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate((p.rotation * Math.PI) / 180);
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+            ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+            ctx.restore();
+          }
+
+          if (alive) {
+            requestAnimationFrame(animate);
+          } else {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+          }
+        }
+
+        animate();
+      }
+
+      function addSparkleEffect(lat, lon) {
+        if (!bubbleVisualizationState.layerGroup || !map) return;
+
+        const sparkleIcon = L.divIcon({
+          className: 'bubble-sparkle',
+          html: `<div style="
+            font-size: 32px;
+            animation: bubble-sparkle 1s ease-out forwards;
+          ">✨</div>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        });
+
+        const sparkle = L.marker([lat, lon], { icon: sparkleIcon, interactive: false });
+        sparkle.addTo(bubbleVisualizationState.layerGroup);
+
+        setTimeout(() => {
+          bubbleVisualizationState.layerGroup.removeLayer(sparkle);
+        }, 1000);
+      }
+
+      // Add CSS animations for bubble effects
+      function addBubbleStyles() {
+        if (document.getElementById('bubble-visualization-styles')) return;
+
+        const style = document.createElement('style');
+        style.id = 'bubble-visualization-styles';
+        style.textContent = `
+          @keyframes bubble-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+          }
+          @keyframes bubble-toast-in {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+          }
+          @keyframes bubble-toast-out {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+          }
+          @keyframes bubble-sparkle {
+            0% { transform: scale(0) rotate(0deg); opacity: 1; }
+            50% { transform: scale(1.5) rotate(180deg); opacity: 1; }
+            100% { transform: scale(0) rotate(360deg); opacity: 0; }
+          }
+          .bubble-final-active {
+            animation: bubble-ring-pulse 1s infinite;
+          }
+          @keyframes bubble-ring-pulse {
+            0%, 100% { stroke-width: 3; }
+            50% { stroke-width: 6; }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Toggle bubble visualization
+      function toggleBubbleVisualization(enabled) {
+        bubbleVisualizationEnabled = enabled;
+
+        if (enabled) {
+          addBubbleStyles();
+          initBubbleVisualization();
+        } else {
+          // Clean up
+          if (bubbleVisualizationState.pollInterval) {
+            clearInterval(bubbleVisualizationState.pollInterval);
+            bubbleVisualizationState.pollInterval = null;
+          }
+          if (bubbleVisualizationState.layerGroup) {
+            bubbleVisualizationState.layerGroup.clearLayers();
+            map.removeLayer(bubbleVisualizationState.layerGroup);
+            bubbleVisualizationState.layerGroup = null;
+          }
+          bubbleVisualizationState.activeBubbles.clear();
+        }
+      }
+
+      // Expose toggle function globally for debugging
+      window.toggleBubbleVisualization = toggleBubbleVisualization;
+
+      // ===================== END BUBBLE VISUALIZATION =====================
+
       document.addEventListener("DOMContentLoaded", async () => {
         initializeAdminAuthUI();
         const authorizedViaUrl = await attemptAdminAuthorizationFromUrl();
@@ -19348,6 +19777,11 @@ ${trainPlaneMarkup}
             initMap();
             showCookieBanner();
             enforceIncidentVisibilityForCurrentAgency();
+            // Initialize bubble visualization if enabled
+            if (bubbleVisualizationEnabled) {
+              addBubbleStyles();
+              initBubbleVisualization();
+            }
             return loadAgencyData()
               .then(() => {
                 startRefreshIntervals();

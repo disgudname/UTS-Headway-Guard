@@ -3156,6 +3156,18 @@ async def api_headway(
     return {"events": [ev.to_dict() for ev in events], "vehicle_names": vehicle_names}
 
 
+@app.get("/api/headway/bubbles")
+async def api_headway_bubbles():
+    """Get current bubble activation states for all vehicles."""
+    tracker = getattr(app.state, "headway_tracker", None)
+    if not tracker:
+        return {"active_states": [], "recent_activations": []}
+    return {
+        "active_states": tracker.get_active_bubble_states(),
+        "recent_activations": list(tracker.recent_bubble_activations),
+    }
+
+
 @app.get("/api/headway/export")
 async def api_headway_export(
     start: str = Query(..., description="Start timestamp (ISO-8601 UTC)"),
