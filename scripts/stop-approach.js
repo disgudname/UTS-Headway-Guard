@@ -476,13 +476,18 @@
     if (!isPlacingBubble || activeSetIndex < 0) return;
 
     const set = approachSets[activeSetIndex];
+    // Shift all existing bubbles down (increment their order)
+    set.bubbles.forEach((b) => {
+      b.order += 1;
+    });
+    // New bubble becomes #1
     const newBubble = {
       lat: e.latlng.lat,
       lng: e.latlng.lng,
       radius_m: DEFAULT_BUBBLE_RADIUS_M,
-      order: set.bubbles.length + 1,
+      order: 1,
     };
-    set.bubbles.push(newBubble);
+    set.bubbles.unshift(newBubble);
     hasUnsavedChanges = true;
 
     // Exit placement mode
