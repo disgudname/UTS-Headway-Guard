@@ -22,6 +22,7 @@ MOVEMENT_CONFIRMATION_MIN_DURATION_S = 20.0
 QUICK_DEPARTURE_MIN_DURATION_S = 5.0
 STOP_ASSOCIATION_HYSTERESIS_M = 15.0  # Extra distance needed to disassociate from a stop
 SPEED_HISTORY_SIZE = 3  # Number of speed samples to track for noise filtering
+BUBBLE_PROGRESS_STALE_SECONDS = 120.0  # Drop bubble state if we have not heard from the vehicle
 
 
 @dataclass
@@ -494,6 +495,17 @@ class HeadwayTracker:
         """
         timestamp = snap.timestamp
         vehicle_progress = self.vehicle_bubble_progress.get(vid, {})
+
+        # Drop stale bubble tracking when a vehicle has not reported in a while
+        stale_stop_ids: List[str] = []
+        for stop_id, progress in vehicle_progress.items():
+            last_seen = progress.last_seen or progress.entered_at
+            if last_seen and (timestamp - last_seen).total_seconds() > BUBBLE_PROGRESS_STALE_SECONDS:
+                stale_stop_ids.append(stop_id)
+
+        for stop_id in stale_stop_ids:
+            vehicle_progress.pop(stop_id, None)
+
         arrivals_to_log: List[Tuple[str, Optional[str], datetime, float]] = []
 
         # Check all stops with approach sets
@@ -647,6 +659,7 @@ class HeadwayTracker:
                     "in_final_bubble": progress.in_final_bubble,
                     "stopped_in_final": progress.stopped_in_final,
                     "arrival_logged": progress.arrival_logged,
+                    "last_seen": self._isoformat(progress.last_seen),
                     "entered_at": self._isoformat(progress.entered_at),
                     "bubbles": [
                         {"lat": b.lat, "lon": b.lon, "radius_m": b.radius_m, "order": b.order}

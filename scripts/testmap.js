@@ -19344,6 +19344,8 @@ ${trainPlaneMarkup}
       // Displays circles for each bubble, sparkles/confetti on arrivals
 
       const BUBBLE_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#22c55e'];
+      const BUBBLE_STATE_MAX_AGE_MS = 120_000;
+      const BUBBLE_ACTIVATION_MAX_AGE_MS = 120_000;
 
       function initBubbleVisualization() {
         if (!bubbleVisualizationEnabled || !map) return;
@@ -19407,6 +19409,11 @@ ${trainPlaneMarkup}
 
       function processRecentActivations(activations) {
         for (const activation of activations) {
+          const parsedTs = activation.timestamp ? Date.parse(activation.timestamp) : null;
+          if (Number.isFinite(parsedTs) && Date.now() - parsedTs > BUBBLE_ACTIVATION_MAX_AGE_MS) {
+            continue;
+          }
+
           const key = `${activation.timestamp}-${activation.vehicle_id}-${activation.stop_id}-${activation.event_type}`;
           if (processedActivations.has(key)) continue;
           processedActivations.add(key);
@@ -19430,6 +19437,11 @@ ${trainPlaneMarkup}
         const currentVehicles = new Set();
 
         for (const state of activeStates) {
+          const lastSeen = state.last_seen ? Date.parse(state.last_seen) : null;
+          if (Number.isFinite(lastSeen) && Date.now() - lastSeen > BUBBLE_STATE_MAX_AGE_MS) {
+            continue;
+          }
+
           const vid = state.vehicle_id;
           currentVehicles.add(vid);
 
