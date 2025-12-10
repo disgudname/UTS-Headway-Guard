@@ -32,12 +32,6 @@
   }
 
   const stopSelect = document.getElementById('stopSelect');
-  const radiusInput = document.getElementById('radiusInput');
-  const toleranceInput = document.getElementById('toleranceInput');
-  const bearingInput = document.getElementById('bearingInput');
-  const radiusValue = document.getElementById('radiusValue');
-  const toleranceValue = document.getElementById('toleranceValue');
-  const radius100Button = document.getElementById('radius100Button');
   const stopMeta = document.getElementById('stopMeta');
   const saveButton = document.getElementById('saveButton');
   const saveStatus = document.getElementById('saveStatus');
@@ -61,9 +55,11 @@
   const stopMarkers = new Map();
   let selectedStopId = null;
   let hasUnsavedChanges = false;
-  let circleLayer = null;
-  let coneLayer = null;
-  let handleMarker = null;
+  let approachGeometry = {
+    radius: DEFAULT_RADIUS_M,
+    tolerance: DEFAULT_TOLERANCE,
+    bearing: DEFAULT_BEARING,
+  };
 
   // Bubble state
   let approachSets = []; // Array of {name: string, bubbles: [{lat, lng, radius_m, order}]}
@@ -151,135 +147,6 @@
     const num = Number(value);
     if (Number.isNaN(num)) return DEFAULT_BEARING;
     return ((num % 360) + 360) % 360;
-  }
-
-  function toRad(deg) {
-    return (deg * Math.PI) / 180;
-  }
-
-  function toDeg(rad) {
-    return (rad * 180) / Math.PI;
-  }
-
-  function destinationPoint(center, bearingDeg, distanceMeters) {
-    const R = 6371000;
-    const bearingRad = toRad(bearingDeg);
-    const lat1 = toRad(center.lat);
-    const lon1 = toRad(center.lng);
-    const ratio = distanceMeters / R;
-
-    const lat2 = Math.asin(
-      Math.sin(lat1) * Math.cos(ratio) + Math.cos(lat1) * Math.sin(ratio) * Math.cos(bearingRad)
-    );
-    const lon2 =
-      lon1 +
-      Math.atan2(
-        Math.sin(bearingRad) * Math.sin(ratio) * Math.cos(lat1),
-        Math.cos(ratio) - Math.sin(lat1) * Math.sin(lat2)
-      );
-
-    return L.latLng(toDeg(lat2), toDeg(lon2));
-  }
-
-  function bearingBetween(a, b) {
-    const lat1 = toRad(a.lat);
-    const lat2 = toRad(b.lat);
-    const dLon = toRad(b.lng - a.lng);
-    const y = Math.sin(dLon) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-    return normalizeBearing(toDeg(Math.atan2(y, x)));
-  }
-
-  function buildConePoints(center, bearingDeg, toleranceDeg, radiusMeters) {
-    const arcPoints = buildConeArcPoints(center, bearingDeg, toleranceDeg, radiusMeters);
-    const apex = destinationPoint(center, normalizeBearing(bearingDeg + 180), radiusMeters);
-    return [apex, ...arcPoints, apex];
-  }
-
-  function buildConeArcPoints(center, bearingDeg, toleranceDeg, radiusMeters) {
-    const arcPoints = [];
-    const startBearing = bearingDeg - toleranceDeg;
-    const endBearing = bearingDeg + toleranceDeg;
-    const span = Math.max(0, endBearing - startBearing);
-    const step = Math.max(2, Math.min(10, toleranceDeg / 2 || 5));
-    const segments = Math.max(1, Math.ceil(span / step));
-    const actualStep = segments > 0 ? span / segments : 0;
-
-    for (let i = 0; i <= segments; i += 1) {
-      const currentBearing = startBearing + actualStep * i;
-      arcPoints.push(destinationPoint(center, currentBearing, radiusMeters));
-    }
-
-    return arcPoints;
-  }
-
-  function updateDisplayValues(radius, tolerance, bearing) {
-    radiusValue.textContent = `${radius.toFixed(0)} m`;
-    toleranceValue.textContent = `${tolerance.toFixed(0)}°`;
-    bearingInput.value = bearing.toFixed(0);
-  }
-
-  function syncGraphicsFromInputs() {
-    const radius = Number(radiusInput.value) || DEFAULT_RADIUS_M;
-    const tolerance = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
-    const bearing = normalizeBearing(bearingInput.value);
-    updateDisplayValues(radius, tolerance, bearing);
-    const group = stopGroupsByKey.get(selectedStopId);
-    const stop = group ? pickStopWithConfig(group.stops) : null;
-    if (stop) {
-      updateConeGraphics(stop, bearing, tolerance, radius);
-    }
-  }
-
-  function updateConeGraphics(stop, bearingDeg, toleranceDeg, radiusMeters) {
-    if (!map || !hasLeaflet) return;
-    const center = L.latLng(stop.Latitude || stop.Lat || stop.lat, stop.Longitude || stop.Lon || stop.lng);
-    const conePoints = buildConePoints(center, bearingDeg, toleranceDeg, radiusMeters);
-
-    if (!circleLayer) {
-      circleLayer = L.circle(center, {
-        radius: radiusMeters,
-        color: '#10b981',
-        weight: 2,
-        fillOpacity: 0.08,
-      }).addTo(map);
-    } else {
-      circleLayer.setLatLng(center);
-      circleLayer.setRadius(radiusMeters);
-    }
-
-    if (!coneLayer) {
-      coneLayer = L.polygon(conePoints, {
-        color: '#22d3ee',
-        weight: 2,
-        fillColor: '#22d3ee',
-        fillOpacity: 0.18,
-      }).addTo(map);
-    } else {
-      coneLayer.setLatLngs(conePoints);
-    }
-
-    const handlePoint = destinationPoint(center, bearingDeg, radiusMeters);
-    if (!handleMarker) {
-      handleMarker = L.marker(handlePoint, {
-        draggable: true,
-        title: 'Drag to rotate cone',
-      }).addTo(map);
-    } else {
-      handleMarker.setLatLng(handlePoint);
-    }
-
-    handleMarker.off('drag');
-    handleMarker.on('drag', (e) => {
-      const newBearing = bearingBetween(center, e.latlng);
-      const toleranceVal = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
-      const radiusVal = Number(radiusInput.value) || DEFAULT_RADIUS_M;
-      bearingInput.value = newBearing.toFixed(0);
-      hasUnsavedChanges = true;
-      updateConeGraphics(stop, newBearing, toleranceVal, radiusVal);
-    });
-
-    map.flyTo(center, Math.max(map.getZoom(), 16));
   }
 
   function getStopName(stop) {
@@ -622,16 +489,17 @@
     const radius = Number(stop.ApproachRadiusM) || DEFAULT_RADIUS_M;
     const tolerance = Number(stop.ApproachToleranceDeg) || DEFAULT_TOLERANCE;
     const bearing = normalizeBearing(stop.ApproachBearingDeg ?? DEFAULT_BEARING);
-    radiusInput.value = radius;
-    toleranceInput.value = tolerance;
-    bearingInput.value = bearing.toFixed(0);
+    approachGeometry = { radius, tolerance, bearing };
     const linkedCount = group && group.ids ? group.ids.length : 1;
     const linkedText = linkedCount > 1 ? ` • Linked stops: ${linkedCount}` : '';
     stopMeta.textContent = `${stop.Name || stop.StopName || 'Stop'} • Routes: ${
       formatRoutes(stop) || 'unknown'
     }${linkedText}`;
-    updateDisplayValues(radius, tolerance, bearing);
-    updateConeGraphics(stop, bearing, tolerance, radius);
+
+    const coords = getStopCoords(stop);
+    if (map && coords) {
+      map.flyTo([coords.lat, coords.lng], Math.max(map.getZoom(), 16));
+    }
 
     // Load approach sets for this stop
     approachSets = [];
@@ -775,9 +643,9 @@
       return false;
     }
 
-    const radiusVal = Number(radiusInput.value) || DEFAULT_RADIUS_M;
-    const toleranceVal = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
-    const bearingVal = normalizeBearing(bearingInput.value);
+    const radiusVal = approachGeometry.radius ?? DEFAULT_RADIUS_M;
+    const toleranceVal = approachGeometry.tolerance ?? DEFAULT_TOLERANCE;
+    const bearingVal = normalizeBearing(approachGeometry.bearing);
 
     // Prepare approach sets for saving
     const approachSetsPayload = approachSets.map((set) => ({
@@ -934,26 +802,6 @@
   stopSelect.addEventListener('change', (e) => {
     handleStopChange(e.target.value);
   });
-  radiusInput.addEventListener('input', () => {
-    hasUnsavedChanges = true;
-    syncGraphicsFromInputs();
-  });
-  toleranceInput.addEventListener('input', () => {
-    hasUnsavedChanges = true;
-    syncGraphicsFromInputs();
-  });
-  bearingInput.addEventListener('input', () => {
-    hasUnsavedChanges = true;
-    syncGraphicsFromInputs();
-  });
-
-  if (radius100Button) {
-    radius100Button.addEventListener('click', () => {
-      radiusInput.value = 100;
-      hasUnsavedChanges = true;
-      syncGraphicsFromInputs();
-    });
-  }
 
   saveButton.addEventListener('click', saveStop);
   refreshButton.addEventListener('click', () => {
