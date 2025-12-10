@@ -41,10 +41,8 @@ from headway_tracker import (
     HeadwayTracker,
     VehicleSnapshot,
     load_headway_config,
-    load_stop_approach_config,
     load_approach_sets_config,
     DEFAULT_STOP_APPROACH_CONFIG_PATH,
-    STOP_APPROACH_DEFAULT_RADIUS_M,
     HEADWAY_DISTANCE_THRESHOLD_M,
 )
 
@@ -3032,17 +3030,16 @@ async def headway_diagnostics(
         if ev.vehicle_id and not ev.vehicle_name
     ]
 
-    stop_approach_config = getattr(app.state, "stop_approach_config", {}) or {}
-
     stops_payload = [
         {
             "stop_id": stop.stop_id,
             "lat": stop.lat,
             "lon": stop.lon,
             "route_ids": sorted(stop.route_ids),
-            "approach_bearing_deg": stop.approach_bearing_deg,
-            "approach_tolerance_deg": stop.approach_tolerance_deg,
-            "approach_radius_m": stop.approach_radius_m,
+            "approach_sets": [
+                {"name": s.name, "bubbles": [{"lat": b.lat, "lon": b.lon, "radius_m": b.radius_m, "order": b.order} for b in s.bubbles]}
+                for s in (stop.approach_sets or [])
+            ],
         }
         for stop in tracker.stops
     ]
@@ -3102,20 +3099,12 @@ async def headway_diagnostics(
         "last_vehicle_arrivals": _dict_from_vehicle_stop_time_map(tracker.last_vehicle_arrival),
         "last_vehicle_departures": _dict_from_vehicle_stop_time_map(tracker.last_vehicle_departure),
         "recent_stop_association_failures": list(tracker.recent_stop_association_failures),
-        "recent_arrival_suppressions": list(tracker.recent_arrival_suppressions),
         "recent_snapshot_diagnostics": list(tracker.recent_snapshot_diagnostics),
+        "recent_bubble_activations": list(tracker.recent_bubble_activations),
+        "active_bubble_states": tracker.get_active_bubble_states(),
         "vehicle_name_lookup": vehicle_name_lookup,
         "attached_vehicle_names": attached_vehicle_names,
         "unmatched_vehicle_events": unmatched_vehicle_events,
-        "stop_approach_overrides": [
-            {
-                "stop_id": stop_id,
-                "approach_bearing_deg": cfg[0],
-                "approach_tolerance_deg": cfg[1],
-                "approach_radius_m": cfg[2] if len(cfg) > 2 else None,
-            }
-            for stop_id, cfg in stop_approach_config.items()
-        ],
         "recent_events": [ev.to_dict() for ev in recent_events],
     }
 
@@ -3364,7 +3353,6 @@ async def startup():
 
     try:
         headway_route_ids, headway_stop_ids = load_headway_config()
-        stop_approach_config = load_stop_approach_config(data_dirs=DATA_DIRS)
         approach_sets_config = load_approach_sets_config(data_dirs=DATA_DIRS)
         headway_storage = HeadwayStorage(HEADWAY_DIR)
         headway_tracker = HeadwayTracker(
@@ -3373,17 +3361,14 @@ async def startup():
             departure_distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
             tracked_route_ids=headway_route_ids,
             tracked_stop_ids=headway_stop_ids,
-            stop_approach=stop_approach_config,
         )
         app.state.headway_storage = headway_storage
         app.state.headway_tracker = headway_tracker
-        app.state.stop_approach_config = stop_approach_config
         app.state.approach_sets_config = approach_sets_config
     except Exception as exc:
         print(f"[headway] initialization failed: {exc}")
         app.state.headway_storage = None
         app.state.headway_tracker = None
-        app.state.stop_approach_config = {}
         app.state.approach_sets_config = {}
 
     async def updater():
@@ -3454,7 +3439,6 @@ async def startup():
                             stops = _build_transloc_stops(
                                 trimmed_routes,
                                 stops_raw,
-                                approach_config=getattr(app.state, "stop_approach_config", None),
                                 approach_sets_config=getattr(app.state, "approach_sets_config", None),
                             )
                             state.stops = stops
@@ -5796,7 +5780,6 @@ def _build_transloc_stops(
     routes: List[Dict[str, Any]],
     extra_stops: Optional[Iterable[Dict[str, Any]]] = None,
     *,
-    approach_config: Optional[Mapping[str, Tuple[float, float, float]]] = None,
     approach_sets_config: Optional[Mapping[str, List[Dict[str, Any]]]] = None,
 ) -> List[Dict[str, Any]]:
     route_membership = _route_membership_from_routes(routes)
@@ -5813,13 +5796,6 @@ def _build_transloc_stops(
         stop_id = normalized.get("StopID") or normalized.get("StopId")
         if stop_id is None:
             return
-        if approach_config:
-            approach = approach_config.get(str(stop_id))
-            if approach:
-                normalized["ApproachBearingDeg"] = approach[0]
-                normalized["ApproachToleranceDeg"] = approach[1]
-                if len(approach) > 2:
-                    normalized["ApproachRadiusM"] = approach[2]
         # Apply approach sets (bubbles)
         if approach_sets_config:
             sets = approach_sets_config.get(str(stop_id))
@@ -5844,65 +5820,30 @@ def _build_transloc_stops(
 
 def _apply_stop_approach_to_stops(
     stops: Iterable[Dict[str, Any]],
-    approach_config: Optional[Mapping[str, Any]],
     approach_sets_config: Optional[Mapping[str, List[Dict[str, Any]]]] = None,
 ) -> None:
-    if not approach_config and not approach_sets_config:
+    """Apply approach bubble sets to stop data."""
+    if not approach_sets_config:
         return
     for stop in stops:
         stop_id = stop.get("StopID") or stop.get("StopId")
         if stop_id is None:
             continue
-        # Apply legacy cone approach config
-        approach = approach_config.get(str(stop_id)) if approach_config else None
-        if approach:
-            stop["ApproachBearingDeg"] = approach[0]
-            stop["ApproachToleranceDeg"] = approach[1]
-            if len(approach) > 2:
-                stop["ApproachRadiusM"] = approach[2]
-        # Apply approach sets (bubbles)
-        if approach_sets_config:
-            sets = approach_sets_config.get(str(stop_id))
-            if sets:
-                stop["ApproachSets"] = sets
+        sets = approach_sets_config.get(str(stop_id))
+        if sets:
+            stop["ApproachSets"] = sets
 
 
 def _serialize_stop_approach_config(
-    config: Mapping[str, Tuple[float, float, float]],
     approach_sets_config: Optional[Mapping[str, List[Dict[str, Any]]]] = None,
 ) -> Dict[str, Dict[str, Any]]:
+    """Serialize approach sets config to JSON format for saving."""
     serialized: Dict[str, Dict[str, Any]] = {}
-    for stop_id, values in config.items():
-        try:
-            bearing = float(values[0])
-            tolerance = float(values[1])
-        except (TypeError, ValueError, IndexError):
-            continue
-        radius = STOP_APPROACH_DEFAULT_RADIUS_M
-        if len(values) > 2:
-            try:
-                radius = float(values[2])
-            except (TypeError, ValueError):
-                radius = STOP_APPROACH_DEFAULT_RADIUS_M
-        entry: Dict[str, Any] = {
-            "bearing_deg": bearing,
-            "tolerance_deg": max(0.0, tolerance),
-            "radius_m": max(0.0, radius),
-        }
-        # Include approach sets if present
-        if approach_sets_config and str(stop_id) in approach_sets_config:
-            entry["approach_sets"] = approach_sets_config[str(stop_id)]
-        serialized[str(stop_id)] = entry
-    # Also include stops that only have approach_sets (no cone config)
     if approach_sets_config:
         for stop_id, sets in approach_sets_config.items():
-            if str(stop_id) not in serialized:
-                serialized[str(stop_id)] = {
-                    "bearing_deg": 0.0,
-                    "tolerance_deg": 70.0,
-                    "radius_m": STOP_APPROACH_DEFAULT_RADIUS_M,
-                    "approach_sets": sets,
-                }
+            serialized[str(stop_id)] = {
+                "approach_sets": sets,
+            }
     return serialized
 
 
@@ -6731,7 +6672,6 @@ async def _assemble_transloc_metadata(
         raw_routes = _merge_transloc_route_metadata(raw_routes, extra_routes_raw)
     stops = _build_transloc_stops(
         raw_routes, stops_raw,
-        approach_config=getattr(app.state, "stop_approach_config", None),
         approach_sets_config=getattr(app.state, "approach_sets_config", None),
     )
     blocks = await _get_transloc_blocks(base_url)
@@ -8763,14 +8703,12 @@ async def get_stop_approach(request: Request, base_url: Optional[str] = Query(No
         stops = _build_transloc_stops(
             routes_raw,
             stops_raw,
-            approach_config=getattr(app.state, "stop_approach_config", None),
             approach_sets_config=getattr(app.state, "approach_sets_config", None),
         )
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url)
         raise HTTPException(status_code=502, detail=detail) from exc
     config_snapshot = _serialize_stop_approach_config(
-        getattr(app.state, "stop_approach_config", {}),
         getattr(app.state, "approach_sets_config", {}),
     )
     return {
@@ -8787,22 +8725,6 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
     stop_id = payload.get("stop_id") or payload.get("StopId") or payload.get("StopID")
     if stop_id is None:
         raise HTTPException(status_code=400, detail="stop_id is required")
-
-    def _payload_value(*keys: str) -> Any:
-        for key in keys:
-            if key in payload:
-                return payload.get(key)
-        return None
-
-    bearing = _coerce_float(_payload_value("bearing_deg", "bearing"))
-    tolerance = _coerce_float(_payload_value("tolerance_deg", "tolerance"))
-    radius = _coerce_float(_payload_value("radius_m", "radius"))
-
-    if bearing is None or tolerance is None:
-        raise HTTPException(status_code=400, detail="bearing_deg and tolerance_deg are required")
-    bearing_norm = float(((bearing % 360.0) + 360.0) % 360.0)
-    tolerance_norm = max(0.0, float(tolerance))
-    radius_norm = max(0.0, float(radius) if radius is not None else STOP_APPROACH_DEFAULT_RADIUS_M)
 
     # Handle approach_sets (ordered bubbles)
     approach_sets_raw = payload.get("approach_sets")
@@ -8839,9 +8761,6 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
                     })
             approach_sets_validated.append(validated_set)
 
-    updated_config = dict(getattr(app.state, "stop_approach_config", {}) or {})
-    updated_config[str(stop_id)] = (bearing_norm, tolerance_norm, radius_norm)
-
     # Update approach sets config
     updated_sets_config = dict(getattr(app.state, "approach_sets_config", {}) or {})
     if approach_sets_validated is not None:
@@ -8850,7 +8769,7 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
         elif str(stop_id) in updated_sets_config:
             del updated_sets_config[str(stop_id)]
 
-    serialized = _serialize_stop_approach_config(updated_config, updated_sets_config)
+    serialized = _serialize_stop_approach_config(updated_sets_config)
     try:
         encoded = json.dumps(serialized)
     except Exception as exc:
@@ -8864,23 +8783,17 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
         raise HTTPException(status_code=500, detail="Failed to save config") from exc
 
     async with state.lock:
-        app.state.stop_approach_config = updated_config
         app.state.approach_sets_config = updated_sets_config
         cached_stops = getattr(state, "stops", [])
-        _apply_stop_approach_to_stops(cached_stops, updated_config, updated_sets_config)
+        _apply_stop_approach_to_stops(cached_stops, updated_sets_config)
         tracker = getattr(app.state, "headway_tracker", None)
-        if tracker:
-            tracker.stop_approach = updated_config
-            if cached_stops:
-                tracker.update_stops(cached_stops)
+        if tracker and cached_stops:
+            tracker.update_stops(cached_stops)
 
     return {
         "ok": True,
         "stop_id": str(stop_id),
         "saved_at": int(time.time()),
-        "bearing_deg": bearing_norm,
-        "tolerance_deg": tolerance_norm,
-        "radius_m": radius_norm,
         "approach_sets": approach_sets_validated or [],
     }
 
