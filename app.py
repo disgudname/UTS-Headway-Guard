@@ -117,7 +117,7 @@ ORS_DIRECTIONS_URL = os.getenv(
 ).strip()
 ORS_HTTP_TIMEOUT_S = float(os.getenv("ORS_HTTP_TIMEOUT_S", "10"))
 
-VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "10"))
+VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "3"))
 ROUTE_REFRESH_S = int(os.getenv("ROUTE_REFRESH_S", "60"))
 BLOCK_REFRESH_S = int(os.getenv("BLOCK_REFRESH_S", "30"))
 STALE_FIX_S     = int(os.getenv("STALE_FIX_S", "90"))
