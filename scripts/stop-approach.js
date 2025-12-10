@@ -342,9 +342,9 @@
           <input type="number" value="${bubble.radius_m}" min="5" max="200" step="5" title="Radius in meters" />
           <span>m</span>
           <div class="radius-presets">
-            <button type="button" class="preset-15" title="15 mph zone">10</button>
-            <button type="button" class="preset-25" title="25 mph zone">20</button>
-            <button type="button" class="preset-35" title="35 mph zone">25</button>
+            <button type="button" class="preset-15" title="15 mph zone">25</button>
+            <button type="button" class="preset-25" title="25 mph zone">40</button>
+            <button type="button" class="preset-35" title="35 mph zone">50</button>
           </div>
         </div>
         <div class="bubble-actions">
@@ -361,17 +361,17 @@
         renderBubbleLayers();
       });
 
-      // Radius preset buttons (based on 3s refresh rate)
-      // 15 mph = 20m/3s → 10m radius, 25 mph = 34m/3s → 20m, 35 mph = 47m/3s → 25m
+      // Radius preset buttons (based on 5s refresh rate + 10m buffer)
+      // 15 mph = 33m/5s → ~17m + 10m = 27m → 25m, 25 mph = 56m/5s → ~28m + 10m = 38m → 40m, 35 mph = 78m/5s → ~39m + 10m = 49m → 50m
       const setRadius = (r) => {
         bubble.radius_m = r;
         radiusInputEl.value = r;
         hasUnsavedChanges = true;
         renderBubbleLayers();
       };
-      item.querySelector('.preset-15').addEventListener('click', () => setRadius(10));
-      item.querySelector('.preset-25').addEventListener('click', () => setRadius(20));
-      item.querySelector('.preset-35').addEventListener('click', () => setRadius(25));
+      item.querySelector('.preset-15').addEventListener('click', () => setRadius(25));
+      item.querySelector('.preset-25').addEventListener('click', () => setRadius(40));
+      item.querySelector('.preset-35').addEventListener('click', () => setRadius(50));
 
       // Delete button
       const deleteBtn = item.querySelector('.delete');
