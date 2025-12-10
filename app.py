@@ -2466,7 +2466,10 @@ def build_ondemand_vehicle_stop_plans(
                     ride_record["riders"] = ride_riders
 
                 rides_by_type.setdefault(stop_type, []).append(ride_record)
-            for stop_type, riders in grouped.items():
+            # Sort so dropoffs are ordered before pickups at the same location
+            sorted_stop_types = sorted(grouped.keys(), key=lambda t: (0 if t == "dropoff" else 1))
+            for stop_type in sorted_stop_types:
+                riders = grouped[stop_type]
                 if not riders:
                     continue
                 entry = {
