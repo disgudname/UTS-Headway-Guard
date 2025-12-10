@@ -263,6 +263,13 @@ class HeadwayTracker:
                 )
                 if not duplicate:
                     headway_aa, headway_da = self._record_arrival_headways(bubble_route_id, bubble_stop_id, bubble_arrival_time)
+                    prev_state = VehiclePresence(
+                        current_stop_id=bubble_stop_id,
+                        arrival_time=bubble_arrival_time,
+                        route_id=bubble_route_id or route_id_norm,
+                        departure_started_at=None,
+                        speed_history=prev_state.speed_history,
+                    )
                     events.append(
                         HeadwayEvent(
                             timestamp=bubble_arrival_time,
