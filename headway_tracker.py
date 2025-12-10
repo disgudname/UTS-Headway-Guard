@@ -83,6 +83,7 @@ class BubbleProgressState:
     route_id: Optional[str]
     entered_at: datetime
     last_seen: datetime
+    next_expected_order: int = 1  # Next bubble order required for valid progression
     in_final_bubble: bool = False  # Currently in the stop bubble
     entered_final_at: Optional[datetime] = None  # When entered final bubble
     stopped_in_final: bool = False  # Has the bus stopped in the final bubble
@@ -116,8 +117,8 @@ class HeadwayTracker:
         self.recent_snapshot_diagnostics: deque = deque(maxlen=50)
         self.last_snapshots: Dict[str, VehicleSnapshot] = {}
         self.pending_departure_movements: Dict[str, Dict[str, object]] = {}
-        # Bubble-based approach tracking: {vehicle_id: {stop_id: BubbleProgressState}}
-        self.vehicle_bubble_progress: Dict[str, Dict[str, BubbleProgressState]] = {}
+        # Bubble-based approach tracking: {vehicle_id: {stop_id: {set_idx: BubbleProgressState}}}
+        self.vehicle_bubble_progress: Dict[str, Dict[str, Dict[int, BubbleProgressState]]] = {}
         # Recent bubble activations for visualization (exposed via API)
         self.recent_bubble_activations: deque = deque(maxlen=100)
         print(
@@ -250,7 +251,7 @@ class HeadwayTracker:
                     speed_mps = self._calculate_filtered_speed(prev_state.speed_history, raw_speed_mps)
 
             # Track bubble-based arrivals
-            bubble_arrival = self._track_bubble_progress(vid, snap, route_id_norm, speed_mps)
+            bubble_arrival = self._track_bubble_progress(vid, snap, route_id_norm, speed_mps, raw_speed_mps)
             if bubble_arrival:
                 bubble_stop_id, bubble_route_id, bubble_arrival_time, bubble_dwell = bubble_arrival
                 # Log the bubble-based arrival
@@ -475,6 +476,9 @@ class HeadwayTracker:
                 }
             )
 
+            # Save snapshot for future speed calculations
+            self.last_snapshots[vid] = snap
+
         if events:
             try:
                 self.storage.write_events(events)
@@ -488,6 +492,7 @@ class HeadwayTracker:
         snap: VehicleSnapshot,
         route_id_norm: Optional[str],
         speed_mps: Optional[float],
+        raw_speed_mps: Optional[float],
     ) -> Optional[Tuple[str, Optional[str], datetime, float]]:
         """
         Track vehicle progress through approach bubble sets.
@@ -498,9 +503,17 @@ class HeadwayTracker:
 
         # Drop stale bubble tracking when a vehicle has not reported in a while
         stale_stop_ids: List[str] = []
-        for stop_id, progress in vehicle_progress.items():
-            last_seen = progress.last_seen or progress.entered_at
-            if last_seen and (timestamp - last_seen).total_seconds() > BUBBLE_PROGRESS_STALE_SECONDS:
+        for stop_id, set_progress in vehicle_progress.items():
+            stale_set_indices: List[int] = []
+            for set_idx, progress in set_progress.items():
+                last_seen = progress.last_seen or progress.entered_at
+                if last_seen and (timestamp - last_seen).total_seconds() > BUBBLE_PROGRESS_STALE_SECONDS:
+                    stale_set_indices.append(set_idx)
+
+            for set_idx in stale_set_indices:
+                set_progress.pop(set_idx, None)
+
+            if not set_progress:
                 stale_stop_ids.append(stop_id)
 
         for stop_id in stale_stop_ids:
@@ -515,7 +528,7 @@ class HeadwayTracker:
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
                 continue
 
-            stop_progress = vehicle_progress.get(stop.stop_id)
+            stop_progress = vehicle_progress.get(stop.stop_id, {})
 
             # Check which bubbles the vehicle is currently in for each approach set
             for set_idx, approach_set in enumerate(stop.approach_sets):
@@ -530,83 +543,119 @@ class HeadwayTracker:
                     if dist <= bubble.radius_m:
                         current_bubbles_in.append(bubble.order)
 
-                # Sort to get highest bubble order we're in
-                current_bubbles_in.sort()
-                highest_current = max(current_bubbles_in) if current_bubbles_in else 0
-
-                # Check if this vehicle is tracking a different set for this stop
-                if stop_progress and stop_progress.set_index != set_idx:
-                    # Already tracking a different approach set - skip unless we've left it
-                    if stop_progress.last_seen and (timestamp - stop_progress.last_seen).total_seconds() < 30:
-                        continue
-
                 if current_bubbles_in:
-                    # Vehicle is in at least one bubble
-                    if stop_progress is None or stop_progress.set_index != set_idx:
-                        # Start tracking this approach set
-                        stop_progress = BubbleProgressState(
+                    progress = stop_progress.get(set_idx)
+
+                    if progress is None:
+                        # Require traversal to start in the outermost bubble (order 1)
+                        if 1 not in current_bubbles_in:
+                            continue
+
+                        progress = BubbleProgressState(
                             stop_id=stop.stop_id,
                             set_index=set_idx,
                             set_name=approach_set.name,
-                            highest_bubble_reached=highest_current,
+                            highest_bubble_reached=1,
                             max_bubble_order=max_order,
                             route_id=route_id_norm,
                             entered_at=timestamp,
                             last_seen=timestamp,
+                            next_expected_order=2,
                         )
-                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, highest_current, "entered")
+                        stop_progress[set_idx] = progress
+                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 1, "entered")
                     else:
                         # Update progress
-                        stop_progress.last_seen = timestamp
+                        progress.last_seen = timestamp
 
-                        # Check if we've progressed to a higher bubble (closer to stop)
-                        if highest_current > stop_progress.highest_bubble_reached:
-                            # Must have passed through all previous bubbles in order
-                            valid_progression = True
-                            for order in range(stop_progress.highest_bubble_reached + 1, highest_current + 1):
-                                # Check if we're in this bubble or have been
-                                if order not in current_bubbles_in and order != highest_current:
-                                    valid_progression = False
-                                    break
+                    # Track progression through bubbles strictly in order
+                    while progress.next_expected_order in current_bubbles_in and progress.next_expected_order <= max_order:
+                        progress.highest_bubble_reached = progress.next_expected_order
+                        progress.next_expected_order += 1
+                        self._log_bubble_activation(
+                            vid,
+                            snap,
+                            stop,
+                            set_idx,
+                            approach_set.name,
+                            progress.highest_bubble_reached,
+                            "progressed",
+                        )
 
-                            if valid_progression:
-                                stop_progress.highest_bubble_reached = highest_current
-                                self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, highest_current, "progressed")
+                    currently_in_final = (
+                        max_order in current_bubbles_in and progress.highest_bubble_reached == max_order
+                    )
 
-                        # Check if we're in the final bubble (the stop bubble)
-                        if highest_current == max_order and stop_progress.highest_bubble_reached == max_order:
-                            if not stop_progress.in_final_bubble:
-                                stop_progress.in_final_bubble = True
-                                stop_progress.entered_final_at = timestamp
-                                self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, highest_current, "entered_final")
+                    if currently_in_final and not progress.in_final_bubble:
+                        progress.in_final_bubble = True
+                        progress.entered_final_at = progress.entered_final_at or timestamp
+                        self._log_bubble_activation(
+                            vid, snap, stop, set_idx, approach_set.name, progress.max_bubble_order, "entered_final"
+                        )
 
-                            # Check if bus has stopped
-                            if speed_mps is not None and speed_mps <= STOP_SPEED_THRESHOLD_MPS:
-                                if not stop_progress.stopped_in_final:
-                                    stop_progress.stopped_in_final = True
-                                    stop_progress.stopped_at = timestamp
-                                    # Log arrival when bus stops
-                                    if not stop_progress.arrival_logged:
-                                        stop_progress.arrival_logged = True
-                                        dwell = 0.0  # Will be calculated on departure
-                                        arrivals_to_log.append((stop.stop_id, route_id_norm, timestamp, dwell))
-                                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, highest_current, "arrival_stopped")
+                    if currently_in_final:
+                        # Check if bus has stopped
+                        observed_speed = raw_speed_mps if raw_speed_mps is not None else speed_mps
+                        if observed_speed is not None and observed_speed <= STOP_SPEED_THRESHOLD_MPS:
+                            if not progress.stopped_in_final:
+                                progress.stopped_in_final = True
+                                progress.stopped_at = timestamp
+                                # Log arrival when bus stops
+                                if not progress.arrival_logged:
+                                    progress.arrival_logged = True
+                                    dwell = 0.0  # Will be calculated on departure
+                                    arrivals_to_log.append((stop.stop_id, route_id_norm, timestamp, dwell))
+                                    self._log_bubble_activation(
+                                        vid,
+                                        snap,
+                                        stop,
+                                        set_idx,
+                                        approach_set.name,
+                                        progress.max_bubble_order,
+                                        "arrival_stopped",
+                                    )
+                    else:
+                        # Left the final bubble without stopping
+                        if progress.in_final_bubble and not progress.arrival_logged:
+                            progress.arrival_logged = True
+                            arrival_time = progress.entered_final_at or timestamp
+                            arrivals_to_log.append((stop.stop_id, route_id_norm, arrival_time, 0.0))
+                            self._log_bubble_activation(
+                                vid,
+                                snap,
+                                stop,
+                                set_idx,
+                                approach_set.name,
+                                progress.max_bubble_order,
+                                "arrival_passthrough",
+                            )
 
-                    vehicle_progress[stop.stop_id] = stop_progress
+                        progress.in_final_bubble = False
+
+                    if stop_progress:
+                        vehicle_progress[stop.stop_id] = stop_progress
 
                 else:
+                    progress = stop_progress.get(set_idx)
                     # Vehicle is not in any bubble for this set
-                    if stop_progress and stop_progress.set_index == set_idx:
+                    if progress:
                         # Was tracking this set - check if we completed it or abandoned it
-                        if stop_progress.in_final_bubble and not stop_progress.arrival_logged:
+                        if progress.in_final_bubble and not progress.arrival_logged:
                             # Was in final bubble but left without stopping - log pass-through arrival with 0s dwell
-                            stop_progress.arrival_logged = True
-                            arrival_time = stop_progress.entered_final_at or timestamp
+                            progress.arrival_logged = True
+                            arrival_time = progress.entered_final_at or timestamp
                             arrivals_to_log.append((stop.stop_id, route_id_norm, arrival_time, 0.0))
-                            self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, stop_progress.max_bubble_order, "arrival_passthrough")
+                            self._log_bubble_activation(
+                                vid, snap, stop, set_idx, approach_set.name, progress.max_bubble_order, "arrival_passthrough"
+                            )
 
-                        # Clear progress for this stop
+                        # Clear progress for this set
                         self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "exited")
+                        stop_progress.pop(set_idx, None)
+
+                    if stop_progress:
+                        vehicle_progress[stop.stop_id] = stop_progress
+                    elif stop.stop_id in vehicle_progress:
                         vehicle_progress.pop(stop.stop_id, None)
 
         if vehicle_progress:
@@ -647,25 +696,26 @@ class HeadwayTracker:
         """Get current bubble progress states for all vehicles (for API)."""
         states = []
         for vid, stop_progress in self.vehicle_bubble_progress.items():
-            for stop_id, progress in stop_progress.items():
+            for stop_id, set_progress in stop_progress.items():
                 stop = self.stop_lookup.get(stop_id)
-                states.append({
-                    "vehicle_id": vid,
-                    "stop_id": stop_id,
-                    "set_index": progress.set_index,
-                    "set_name": progress.set_name,
-                    "highest_bubble_reached": progress.highest_bubble_reached,
-                    "max_bubble_order": progress.max_bubble_order,
-                    "in_final_bubble": progress.in_final_bubble,
-                    "stopped_in_final": progress.stopped_in_final,
-                    "arrival_logged": progress.arrival_logged,
-                    "last_seen": self._isoformat(progress.last_seen),
-                    "entered_at": self._isoformat(progress.entered_at),
-                    "bubbles": [
-                        {"lat": b.lat, "lon": b.lon, "radius_m": b.radius_m, "order": b.order}
-                        for b in (stop.approach_sets[progress.set_index].bubbles if stop and stop.approach_sets else [])
-                    ],
-                })
+                for progress in set_progress.values():
+                    states.append({
+                        "vehicle_id": vid,
+                        "stop_id": stop_id,
+                        "set_index": progress.set_index,
+                        "set_name": progress.set_name,
+                        "highest_bubble_reached": progress.highest_bubble_reached,
+                        "max_bubble_order": progress.max_bubble_order,
+                        "in_final_bubble": progress.in_final_bubble,
+                        "stopped_in_final": progress.stopped_in_final,
+                        "arrival_logged": progress.arrival_logged,
+                        "last_seen": self._isoformat(progress.last_seen),
+                        "entered_at": self._isoformat(progress.entered_at),
+                        "bubbles": [
+                            {"lat": b.lat, "lon": b.lon, "radius_m": b.radius_m, "order": b.order}
+                            for b in (stop.approach_sets[progress.set_index].bubbles if stop and stop.approach_sets else [])
+                        ],
+                    })
         return states
 
     def _record_arrival_headways(
