@@ -485,6 +485,8 @@
     if (!isPlacingBubble || activeSetIndex < 0) return;
 
     const set = approachSets[activeSetIndex];
+    // Use the radius of the previous #1 bubble (which will become #2), or default
+    const previousRadius = set.bubbles.length > 0 ? set.bubbles[0].radius_m : DEFAULT_BUBBLE_RADIUS_M;
     // Shift all existing bubbles down (increment their order)
     set.bubbles.forEach((b) => {
       b.order += 1;
@@ -493,7 +495,7 @@
     const newBubble = {
       lat: e.latlng.lat,
       lng: e.latlng.lng,
-      radius_m: DEFAULT_BUBBLE_RADIUS_M,
+      radius_m: previousRadius,
       order: 1,
     };
     set.bubbles.unshift(newBubble);
