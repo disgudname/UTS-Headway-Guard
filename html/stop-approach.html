@@ -27,7 +27,7 @@
     <header class="page-header">
       <div>
         <h1>Stop Approach Editor</h1>
-        <p class="subtitle">Adjust approach cones and stop radii for headway detection.</p>
+        <p class="subtitle">Configure approach bubbles for headway detection.</p>
       </div>
       <div class="header-actions">
         <button id="refreshButton" type="button">Reload stops</button>
@@ -75,32 +75,6 @@
                 <button type="button" id="addBubbleBtn">+ Click map to add bubble</button>
               </div>
             </div>
-          </div>
-        </div>
-
-        <hr class="section-divider" />
-
-        <!-- Legacy Cone Section -->
-        <div class="control-group legacy-cone-section">
-          <div class="control-group inline">
-            <div>
-              <label for="radiusInput">Radius (m)</label>
-              <input id="radiusInput" type="range" min="10" max="200" step="5" />
-              <div class="value" id="radiusValue">--</div>
-              <div class="preset-actions">
-                <button id="radius100Button" class="preset-button" type="button">Set to 100 m</button>
-              </div>
-            </div>
-            <div>
-              <label for="toleranceInput">Tolerance (°)</label>
-              <input id="toleranceInput" type="range" min="0" max="180" step="1" />
-              <div class="value" id="toleranceValue">--</div>
-            </div>
-          </div>
-          <div>
-            <label for="bearingInput">Bearing (°)</label>
-            <input id="bearingInput" type="number" min="0" max="359" step="1" />
-            <p class="hint">Drag the map handle or edit the number to rotate the cone.</p>
           </div>
         </div>
 

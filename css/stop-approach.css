@@ -443,33 +443,6 @@ body {
   margin: 0 0 12px 0;
 }
 
-/* Section Divider */
-.section-divider {
-  border: none;
-  border-top: 1px solid var(--panel-border);
-  margin: 16px 0;
-}
-
-/* Legacy Cone Section */
-.legacy-cone-section {
-  opacity: 0.7;
-  position: relative;
-}
-
-.legacy-cone-section::before {
-  content: 'Legacy';
-  position: absolute;
-  top: -8px;
-  right: 12px;
-  background: #fbbf24;
-  color: #1f2937;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
 /* Bubble visualization on map */
 .bubble-marker-label {
   background: #3b82f6;
