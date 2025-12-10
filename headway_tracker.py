@@ -13,9 +13,7 @@ from headway_storage import HeadwayEvent, HeadwayStorage
 
 
 HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
-STOP_APPROACH_DEFAULT_RADIUS_M = float(100.0)
 DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
-DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 STOP_SPEED_THRESHOLD_MPS = 0.5
 MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 2.0
@@ -23,8 +21,6 @@ MOVEMENT_CONFIRMATION_MIN_DURATION_S = 20.0
 QUICK_DEPARTURE_MIN_DURATION_S = 5.0
 STOP_ASSOCIATION_HYSTERESIS_M = 15.0  # Extra distance needed to disassociate from a stop
 SPEED_HISTORY_SIZE = 3  # Number of speed samples to track for noise filtering
-SUSTAINED_STOP_MIN_DURATION_S = 3.0  # Minimum duration to confirm a stop
-BEARING_CHECK_MIN_DISTANCE_M = 5.0  # Skip bearing checks when closer than this
 
 
 @dataclass
@@ -52,19 +48,6 @@ class VehiclePresence:
 
 
 @dataclass
-class ApproachState:
-    stop_id: str
-    route_id: Optional[str]
-    entered_at: datetime
-    closest_time: datetime
-    closest_distance: float
-    best_stop_time: Optional[datetime] = None
-    best_stop_distance: Optional[float] = None
-    last_seen: Optional[datetime] = None
-    best_stop_start: Optional[datetime] = None  # When the sustained stop started
-
-
-@dataclass
 class ApproachBubble:
     lat: float
     lon: float
@@ -84,9 +67,6 @@ class StopPoint:
     lat: float
     lon: float
     route_ids: Set[str]
-    approach_bearing_deg: Optional[float] = None
-    approach_tolerance_deg: Optional[float] = None
-    approach_radius_m: Optional[float] = None
     approach_sets: Optional[List[ApproachSet]] = None
 
 
@@ -117,15 +97,12 @@ class HeadwayTracker:
         departure_distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
         tracked_route_ids: Optional[Set[str]] = None,
         tracked_stop_ids: Optional[Set[str]] = None,
-        stop_approach: Optional[Dict[str, Tuple[float, float, float]]] = None,
-        stop_approach_config_path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH,
     ):
         self.storage = storage
         self.arrival_distance_threshold_m = min(arrival_distance_threshold_m, departure_distance_threshold_m)
         self.departure_distance_threshold_m = max(arrival_distance_threshold_m, departure_distance_threshold_m)
         self.tracked_route_ids = tracked_route_ids or set()
         self.tracked_stop_ids = tracked_stop_ids or set()
-        self.stop_approach = stop_approach or load_stop_approach_config(stop_approach_config_path)
         self.vehicle_states: Dict[str, VehiclePresence] = {}
         self.last_arrival: Dict[Tuple[str, str], datetime] = {}
         self.last_departure: Dict[Tuple[str, str], datetime] = {}
@@ -134,9 +111,7 @@ class HeadwayTracker:
         self.stops: List[StopPoint] = []
         self.stop_lookup: Dict[str, StopPoint] = {}
         self.recent_stop_association_failures: deque = deque(maxlen=25)
-        self.recent_arrival_suppressions: deque = deque(maxlen=25)
         self.recent_snapshot_diagnostics: deque = deque(maxlen=50)
-        self.vehicle_approaches: Dict[str, ApproachState] = {}
         self.last_snapshots: Dict[str, VehicleSnapshot] = {}
         self.pending_departure_movements: Dict[str, Dict[str, object]] = {}
         # Bubble-based approach tracking: {vehicle_id: {stop_id: BubbleProgressState}}
@@ -170,18 +145,6 @@ class HeadwayTracker:
             except (TypeError, ValueError):
                 continue
             route_ids = self._extract_route_ids(stop)
-            approach_bearing = _parse_float(stop.get("ApproachBearingDeg"))
-            approach_tolerance = _parse_float(stop.get("ApproachToleranceDeg"))
-            approach_radius = _parse_float(stop.get("ApproachRadiusM"))
-            config_approach = self.stop_approach.get(str(stop_id))
-            if approach_bearing is None and config_approach:
-                approach_bearing = config_approach[0]
-            if approach_tolerance is None and config_approach:
-                approach_tolerance = config_approach[1]
-            if approach_radius is None and config_approach and len(config_approach) > 2:
-                approach_radius = config_approach[2]
-            if (approach_bearing is not None and approach_tolerance is not None) and approach_radius is None:
-                approach_radius = STOP_APPROACH_DEFAULT_RADIUS_M
             # Parse approach sets (bubble configurations)
             approach_sets: Optional[List[ApproachSet]] = None
             raw_sets = stop.get("ApproachSets")
@@ -214,9 +177,6 @@ class HeadwayTracker:
                     lat=lat_f,
                     lon=lon_f,
                     route_ids=route_ids,
-                    approach_bearing_deg=approach_bearing,
-                    approach_tolerance_deg=approach_tolerance,
-                    approach_radius_m=approach_radius,
                     approach_sets=approach_sets,
                 )
             )
@@ -287,38 +247,34 @@ class HeadwayTracker:
                     # Apply GPS noise filtering using median of recent speeds
                     speed_mps = self._calculate_filtered_speed(prev_state.speed_history, raw_speed_mps)
 
-            pending_arrival = self._track_approach_progress(vid, snap, current_stop, route_id_norm)
-
-            # Track bubble-based arrivals (new system)
+            # Track bubble-based arrivals
             bubble_arrival = self._track_bubble_progress(vid, snap, route_id_norm, speed_mps)
             if bubble_arrival:
                 bubble_stop_id, bubble_route_id, bubble_arrival_time, bubble_dwell = bubble_arrival
-                # Check for duplicate - don't log if we already have a pending arrival for same stop
-                if not pending_arrival or pending_arrival[0] != bubble_stop_id:
-                    # Log the bubble-based arrival
-                    arrival_key = (vid, bubble_stop_id, bubble_route_id)
-                    prev_vehicle_arrival = self.last_vehicle_arrival.get(arrival_key)
-                    prev_vehicle_departure = self.last_vehicle_departure.get(arrival_key)
-                    duplicate = prev_vehicle_arrival is not None and (
-                        prev_vehicle_departure is None or prev_vehicle_departure <= prev_vehicle_arrival
-                    )
-                    if not duplicate:
-                        headway_aa, headway_da = self._record_arrival_headways(bubble_route_id, bubble_stop_id, bubble_arrival_time)
-                        events.append(
-                            HeadwayEvent(
-                                timestamp=bubble_arrival_time,
-                                route_id=bubble_route_id,
-                                stop_id=bubble_stop_id,
-                                vehicle_id=vid,
-                                vehicle_name=snap.vehicle_name,
-                                event_type="arrival",
-                                headway_arrival_arrival=headway_aa,
-                                headway_departure_arrival=headway_da,
-                                dwell_seconds=bubble_dwell if bubble_dwell > 0 else None,
-                            )
+                # Log the bubble-based arrival
+                arrival_key = (vid, bubble_stop_id, bubble_route_id)
+                prev_vehicle_arrival = self.last_vehicle_arrival.get(arrival_key)
+                prev_vehicle_departure = self.last_vehicle_departure.get(arrival_key)
+                duplicate = prev_vehicle_arrival is not None and (
+                    prev_vehicle_departure is None or prev_vehicle_departure <= prev_vehicle_arrival
+                )
+                if not duplicate:
+                    headway_aa, headway_da = self._record_arrival_headways(bubble_route_id, bubble_stop_id, bubble_arrival_time)
+                    events.append(
+                        HeadwayEvent(
+                            timestamp=bubble_arrival_time,
+                            route_id=bubble_route_id,
+                            stop_id=bubble_stop_id,
+                            vehicle_id=vid,
+                            vehicle_name=snap.vehicle_name,
+                            event_type="arrival",
+                            headway_arrival_arrival=headway_aa,
+                            headway_departure_arrival=headway_da,
+                            dwell_seconds=bubble_dwell if bubble_dwell > 0 else None,
                         )
-                        self.last_vehicle_arrival[arrival_key] = bubble_arrival_time
-                        print(f"[headway] bubble arrival: vehicle={vid} stop={bubble_stop_id} dwell={bubble_dwell}s")
+                    )
+                    self.last_vehicle_arrival[arrival_key] = bubble_arrival_time
+                    print(f"[headway] bubble arrival: vehicle={vid} stop={bubble_stop_id} dwell={bubble_dwell}s")
 
             # Departure detection with hysteresis
             # Use larger threshold for disassociation to prevent flapping at boundary
@@ -487,147 +443,17 @@ class HeadwayTracker:
                         )
                         departure_recorded = True
 
-            # Arrival detection
-            arrival_stop_id = None
-            arrival_route_id = route_id_norm
-            arrival_time = None
-            arrival_suppression_reason = None
-            arrival_key = None
-            arrival_recorded = False
-            arrival_target = current_stop
-            arrival_override_time = None
-            if pending_arrival:
-                arrival_target = (pending_arrival[0], pending_arrival[1])
-                arrival_override_time = pending_arrival[2]
-            if arrival_target is not None:
-                arrival_stop_id, arrival_route_id = arrival_target
-                if arrival_route_id is None:
-                    arrival_route_id = route_id_norm
-                if arrival_route_id is None:
-                    arrival_route_id = arrival_target[1]
-                duplicate_arrival = False
-                arrival_key = (vid, arrival_stop_id, arrival_route_id)
-                prev_vehicle_arrival = self.last_vehicle_arrival.get(arrival_key)
-                prev_vehicle_departure = self.last_vehicle_departure.get(arrival_key)
-                if prev_vehicle_arrival is not None and (
-                    prev_vehicle_departure is None or prev_vehicle_departure <= prev_vehicle_arrival
-                ):
-                    duplicate_arrival = True
-
-                if prev_stop == arrival_stop_id and prev_state.route_id != arrival_route_id and not duplicate_arrival:
-                    headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
-                        arrival_route_id, arrival_stop_id, arrival_override_time or timestamp
-                    )
-                    events.append(
-                        HeadwayEvent(
-                        timestamp=arrival_override_time or timestamp,
-                        route_id=arrival_route_id,
-                        stop_id=arrival_stop_id,
-                        vehicle_id=vid,
-                        vehicle_name=snap.vehicle_name,
-                        event_type="arrival",
-                        headway_arrival_arrival=headway_arrival_arrival,
-                        headway_departure_arrival=headway_departure_arrival,
-                        dwell_seconds=None,
-                    )
-                    )
-                    self.last_vehicle_arrival[arrival_key] = timestamp
-                    arrival_time = prev_state.arrival_time or arrival_override_time or timestamp
-                    arrival_recorded = True
-                elif prev_stop == arrival_stop_id:
-                    arrival_time = prev_state.arrival_time or prev_vehicle_arrival or arrival_override_time or timestamp
-                elif not duplicate_arrival and (prev_stop is None or has_left_prev_stop):
-                    headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
-                        arrival_route_id, arrival_stop_id, arrival_override_time or timestamp
-                    )
-                    events.append(
-                        HeadwayEvent(
-                        timestamp=arrival_override_time or timestamp,
-                        route_id=arrival_route_id,
-                        stop_id=arrival_stop_id,
-                        vehicle_id=vid,
-                        vehicle_name=snap.vehicle_name,
-                        event_type="arrival",
-                        headway_arrival_arrival=headway_arrival_arrival,
-                        headway_departure_arrival=headway_departure_arrival,
-                        dwell_seconds=None,
-                    )
-                    )
-                    self.last_vehicle_arrival[arrival_key] = arrival_override_time or timestamp
-                    arrival_time = arrival_override_time or timestamp
-                    arrival_recorded = True
-                elif duplicate_arrival:
-                    arrival_time = prev_vehicle_arrival or prev_state.arrival_time or arrival_override_time or timestamp
-                    arrival_suppression_reason = "duplicate_arrival_same_vehicle"
-                elif not duplicate_arrival and prev_stop is not None and arrival_stop_id != prev_stop:
-                    # Handle transfer points - allow arrival at different stop if it's clearly closer
-                    new_stop_distance = self._distance_to_stop(arrival_stop_id, snap.lat, snap.lon)
-                    prev_stop_distance = distance_from_prev_stop
-
-                    # Allow arrival if new stop is significantly closer (at least 20m closer)
-                    if (new_stop_distance is not None and prev_stop_distance is not None and
-                        new_stop_distance < prev_stop_distance - 20.0):
-                        headway_arrival_arrival, headway_departure_arrival = self._record_arrival_headways(
-                            arrival_route_id, arrival_stop_id, arrival_override_time or timestamp
-                        )
-                        events.append(
-                            HeadwayEvent(
-                            timestamp=arrival_override_time or timestamp,
-                            route_id=arrival_route_id,
-                            stop_id=arrival_stop_id,
-                            vehicle_id=vid,
-                            vehicle_name=snap.vehicle_name,
-                            event_type="arrival",
-                            headway_arrival_arrival=headway_arrival_arrival,
-                            headway_departure_arrival=headway_departure_arrival,
-                            dwell_seconds=None,
-                        )
-                        )
-                        self.last_vehicle_arrival[arrival_key] = arrival_override_time or timestamp
-                        arrival_time = arrival_override_time or timestamp
-                        arrival_recorded = True
-                    else:
-                        arrival_stop_id = prev_stop
-                        arrival_route_id = prev_state.route_id or arrival_route_id
-                        arrival_time = prev_state.arrival_time
-                        arrival_suppression_reason = "has_not_left_previous_stop"
-                else:
-                    arrival_stop_id = prev_stop
-                    arrival_route_id = prev_state.route_id or arrival_route_id
-                    arrival_time = prev_state.arrival_time
-                    arrival_suppression_reason = "has_not_left_previous_stop"
-            elif prev_stop and not has_left_prev_stop:
-                arrival_stop_id = prev_stop
-                arrival_route_id = prev_state.route_id or route_id_norm
-                arrival_time = prev_state.arrival_time
-                arrival_suppression_reason = "still_at_previous_stop"
-
-            if arrival_stop_id and arrival_suppression_reason:
-                arrival_key = arrival_key or (vid, arrival_stop_id, arrival_route_id)
-                self._log_arrival_suppression(
-                    snap,
-                    arrival_stop_id,
-                    arrival_route_id,
-                    arrival_suppression_reason,
-                    distance_from_prev_stop,
-                    has_left_prev_stop,
-                    previous_stop_id=prev_stop,
-                    previous_arrival_time=prev_state.arrival_time,
-                    previous_departure_started_at=movement_start_time,
-                    last_vehicle_arrival=self.last_vehicle_arrival.get(arrival_key) if arrival_key else None,
-                    last_vehicle_departure=self.last_vehicle_departure.get(arrival_key) if arrival_key else None,
-                )
-
+            # Vehicle state tracking (for departure detection, speed history)
+            # Arrivals are now handled exclusively by bubble-based tracking above
             self.vehicle_states[vid] = VehiclePresence(
-                current_stop_id=arrival_stop_id,
-                arrival_time=arrival_time if arrival_stop_id else None,
-                route_id=arrival_route_id if arrival_stop_id else None,
-                departure_started_at=movement_start_time if arrival_stop_id else None,
-                speed_history=prev_state.speed_history,  # Preserve speed history for filtering
+                current_stop_id=prev_state.current_stop_id,
+                arrival_time=prev_state.arrival_time,
+                route_id=prev_state.route_id,
+                departure_started_at=movement_start_time if prev_state.current_stop_id else None,
+                speed_history=prev_state.speed_history,
             )
 
-            target_stop_id = arrival_stop_id or (current_stop[0] if current_stop else None)
-            stop_meta = self.stop_lookup.get(target_stop_id)
+            target_stop_id = prev_state.current_stop_id or (current_stop[0] if current_stop else None)
             self.recent_snapshot_diagnostics.append(
                 {
                     "timestamp": self._isoformat(timestamp),
@@ -638,19 +464,12 @@ class HeadwayTracker:
                     "previous_stop_id": prev_stop,
                     "distance_from_previous_stop": distance_from_prev_stop,
                     "has_left_previous_stop": has_left_prev_stop,
-                    "arrival_stop_id": target_stop_id,
-                    "arrival_route_id": arrival_route_id,
-                    "arrival_stop_distance": self._distance_to_stop(target_stop_id, snap.lat, snap.lon),
-                    "arrival_recorded": arrival_recorded,
-                    "arrival_suppressed_reason": arrival_suppression_reason,
-                    "duplicate_arrival": arrival_key in self.last_vehicle_arrival if arrival_key else False,
+                    "target_stop_id": target_stop_id,
+                    "target_stop_distance": self._distance_to_stop(target_stop_id, snap.lat, snap.lon),
                     "departure_recorded": departure_recorded,
                     "departure_started_at": self._isoformat(movement_start_time),
                     "departure_trigger": departure_trigger,
                     "speed_mps": speed_mps,
-                    "approach_bearing_deg": getattr(stop_meta, "approach_bearing_deg", None),
-                    "approach_tolerance_deg": getattr(stop_meta, "approach_tolerance_deg", None),
-                    "approach_radius_m": getattr(stop_meta, "approach_radius_m", None),
                 }
             )
 
@@ -660,99 +479,6 @@ class HeadwayTracker:
                 print(f"[headway] recorded {len(events)} events")
             except Exception as exc:
                 print(f"[headway] failed to write events: {exc}")
-
-    def _track_approach_progress(
-        self,
-        vid: str,
-        snap: VehicleSnapshot,
-        current_stop: Optional[Tuple[str, Optional[str]]],
-        route_id_norm: Optional[str],
-    ) -> Optional[Tuple[str, Optional[str], datetime]]:
-        approach = self.vehicle_approaches.get(vid)
-        target_stop_id = current_stop[0] if current_stop else (approach.stop_id if approach else None)
-        if target_stop_id is None:
-            self.last_snapshots[vid] = snap
-            return None
-
-        stop = self.stop_lookup.get(target_stop_id)
-        stop_distance = self._distance_to_stop(target_stop_id, snap.lat, snap.lon)
-        approach_radius = stop.approach_radius_m if stop and stop.approach_radius_m else self.arrival_distance_threshold_m
-
-        inside_cone = False
-        if stop and stop.approach_bearing_deg is not None and stop.approach_tolerance_deg is not None:
-            inside_cone, _ = self._is_within_approach_cone(
-                snap.lat,
-                snap.lon,
-                stop.lat,
-                stop.lon,
-                stop.approach_bearing_deg,
-                stop.approach_tolerance_deg,
-                approach_radius,
-            )
-        elif stop_distance is not None:
-            inside_cone = stop_distance <= approach_radius
-
-        speed_mps = None
-        prev_snap = self.last_snapshots.get(vid)
-        if prev_snap:
-            delta_seconds = (snap.timestamp - prev_snap.timestamp).total_seconds()
-            if delta_seconds > 0:
-                movement_distance = self._haversine(prev_snap.lat, prev_snap.lon, snap.lat, snap.lon)
-                speed_mps = movement_distance / delta_seconds
-
-        if inside_cone:
-            if approach is None or approach.stop_id != target_stop_id:
-                approach = ApproachState(
-                    stop_id=target_stop_id,
-                    route_id=current_stop[1] if current_stop else route_id_norm,
-                    entered_at=snap.timestamp,
-                    closest_time=snap.timestamp,
-                    closest_distance=stop_distance if stop_distance is not None else float("inf"),
-                    last_seen=snap.timestamp,
-                )
-            else:
-                approach.last_seen = snap.timestamp
-                if current_stop and approach.route_id is None:
-                    approach.route_id = current_stop[1] or route_id_norm
-
-            if stop_distance is not None and stop_distance < approach.closest_distance:
-                approach.closest_distance = stop_distance
-                approach.closest_time = snap.timestamp
-
-            # Track sustained stops - require vehicle to remain stopped for minimum duration
-            if speed_mps is not None and speed_mps <= STOP_SPEED_THRESHOLD_MPS:
-                dist_for_stop = stop_distance if stop_distance is not None else approach.closest_distance
-
-                # Start tracking a new potential stop
-                if approach.best_stop_start is None:
-                    approach.best_stop_start = snap.timestamp
-                    approach.best_stop_time = snap.timestamp
-                    approach.best_stop_distance = dist_for_stop
-                else:
-                    # Check if stop has been sustained long enough
-                    stop_duration = (snap.timestamp - approach.best_stop_start).total_seconds()
-                    if stop_duration >= SUSTAINED_STOP_MIN_DURATION_S:
-                        # Confirmed sustained stop - update if this position is closer
-                        if dist_for_stop < approach.best_stop_distance:
-                            approach.best_stop_time = snap.timestamp
-                            approach.best_stop_distance = dist_for_stop
-            else:
-                # Vehicle is moving - reset sustained stop tracking
-                approach.best_stop_start = None
-
-            self.vehicle_approaches[vid] = approach
-            self.last_snapshots[vid] = snap
-            return None
-
-        self.last_snapshots[vid] = snap
-        if approach is None:
-            return None
-
-        arrival_time = approach.best_stop_time or approach.closest_time
-        arrival_route_id = approach.route_id or (current_stop[1] if current_stop else route_id_norm)
-        arrival_stop_id = approach.stop_id
-        self.vehicle_approaches.pop(vid, None)
-        return (arrival_stop_id, arrival_route_id, arrival_time)
 
     def _track_bubble_progress(
         self,
@@ -993,212 +719,6 @@ class HeadwayTracker:
         detail.update(diagnosis)
         self.recent_stop_association_failures.append(detail)
 
-    def _log_arrival_suppression(
-        self,
-        snap: VehicleSnapshot,
-        stop_id: str,
-        route_id: Optional[str],
-        reason: str,
-        distance_from_prev_stop: Optional[float],
-        has_left_prev_stop: bool,
-        *,
-        previous_stop_id: Optional[str] = None,
-        previous_arrival_time: Optional[datetime] = None,
-        previous_departure_started_at: Optional[datetime] = None,
-        last_vehicle_arrival: Optional[datetime] = None,
-        last_vehicle_departure: Optional[datetime] = None,
-    ) -> None:
-        stop_distance = None
-        stop_heading = None
-        approach_bearing = None
-        tolerance = None
-        radius = None
-        stop = self.stop_lookup.get(stop_id)
-        if stop:
-            stop_distance = self._haversine(snap.lat, snap.lon, stop.lat, stop.lon)
-            if stop.approach_bearing_deg is not None:
-                approach_bearing = stop.approach_bearing_deg
-                tolerance = stop.approach_tolerance_deg
-                radius = stop.approach_radius_m
-                stop_heading = self._bearing_degrees(stop.lat, stop.lon, snap.lat, snap.lon)
-
-        self.recent_arrival_suppressions.append(
-            {
-                "timestamp": self._isoformat(snap.timestamp),
-                "vehicle_id": self._normalize_id(snap.vehicle_id),
-                "vehicle_name": snap.vehicle_name,
-                "route_id": route_id,
-                "stop_id": stop_id,
-                "reason": reason,
-                "distance_from_prev_stop": distance_from_prev_stop,
-                "has_left_prev_stop": has_left_prev_stop,
-                "distance_from_stop": stop_distance,
-                "stop_bearing": stop_heading,
-                "approach_bearing_deg": approach_bearing,
-                "approach_tolerance_deg": tolerance,
-                "approach_radius_m": radius,
-                "heading_deg": snap.heading_deg,
-                "previous_stop_id": previous_stop_id,
-                "previous_arrival_time": self._isoformat(previous_arrival_time),
-                "previous_departure_started_at": self._isoformat(previous_departure_started_at),
-                "last_vehicle_arrival": self._isoformat(last_vehicle_arrival),
-                "last_vehicle_departure": self._isoformat(last_vehicle_departure),
-            }
-        )
-
-    def _project_to_meters(
-        self, lat: float, lon: float, origin_lat: float, origin_lon: float
-    ) -> Tuple[float, float]:
-        r_earth = 6371000.0
-        lat_rad = math.radians(lat)
-        origin_lat_rad = math.radians(origin_lat)
-        dlat = lat_rad - origin_lat_rad
-        dlon = math.radians(lon - origin_lon)
-        x = dlon * math.cos(origin_lat_rad) * r_earth
-        y = dlat * r_earth
-        return x, y
-
-    def _point_in_triangle(
-        self,
-        px: float,
-        py: float,
-        ax: float,
-        ay: float,
-        bx: float,
-        by: float,
-        cx: float,
-        cy: float,
-    ) -> bool:
-        denom = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy)
-        if denom == 0:
-            return False
-        w1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / denom
-        w2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / denom
-        w3 = 1.0 - w1 - w2
-        epsilon = -1e-6
-        return w1 >= epsilon and w2 >= epsilon and w3 >= epsilon
-
-    def _approach_cone_points(
-        self,
-        lat: float,
-        lon: float,
-        bearing_deg: float,
-        tolerance_deg: float,
-        radius_m: float,
-    ) -> List[Tuple[float, float]]:
-        start_bearing = bearing_deg - tolerance_deg
-        end_bearing = bearing_deg + tolerance_deg
-        span = max(0.0, end_bearing - start_bearing)
-        step = max(2.0, min(10.0, (tolerance_deg / 2.0) if tolerance_deg else 5.0))
-        segments = max(1, math.ceil(span / step))
-        actual_step = span / segments if segments > 0 else 0.0
-
-        arc_points = [
-            self._destination_point(lat, lon, start_bearing + actual_step * i, radius_m)
-            for i in range(segments + 1)
-        ]
-
-        apex = self._destination_point(lat, lon, (bearing_deg + 180.0) % 360.0, radius_m)
-        return [apex, *arc_points, apex]
-
-    @staticmethod
-    def _point_in_polygon(px: float, py: float, vertices: Sequence[Tuple[float, float]]) -> bool:
-        inside = False
-        count = len(vertices)
-        if count < 3:
-            return False
-
-        for i in range(count):
-            x1, y1 = vertices[i]
-            x2, y2 = vertices[(i + 1) % count]
-            intersects = ((y1 > py) != (y2 > py)) and (
-                px < (x2 - x1) * (py - y1) / ((y2 - y1) or 1e-12) + x1
-            )
-            if intersects:
-                inside = not inside
-        return inside
-
-    def _is_within_approach_cone(
-        self,
-        lat: float,
-        lon: float,
-        stop_lat: float,
-        stop_lon: float,
-        bearing_deg: float,
-        tolerance_deg: float,
-        radius_m: float,
-    ) -> Tuple[bool, dict]:
-        # Calculate distance first
-        dist = self._haversine(lat, lon, stop_lat, stop_lon)
-
-        position_bearing = self._bearing_degrees(stop_lat, stop_lon, lat, lon)
-        if not math.isfinite(position_bearing):
-            return False, {}
-
-        # For very close distances (< 5m), still check angular difference but use more lenient tolerance
-        # This handles bearing instability while preventing wrong-stop matches (critical for cross-street stops)
-        if dist < BEARING_CHECK_MIN_DISTANCE_M:
-            # Use 2x tolerance when very close to handle bearing calculation instability
-            # But still enforce directionality to prevent cross-street mismatches
-            lenient_tolerance = min(tolerance_deg * 2.0, 90.0)  # Cap at 90° to maintain directionality
-            angular_diff = abs((position_bearing - bearing_deg + 540.0) % 360.0 - 180.0)
-            entry_center = self._destination_point(stop_lat, stop_lon, bearing_deg, radius_m)
-            apex = self._destination_point(stop_lat, stop_lon, (bearing_deg + 180.0) % 360.0, radius_m)
-
-            # Check both distance and lenient bearing
-            if dist <= radius_m and angular_diff <= lenient_tolerance:
-                return True, {
-                    "cone_entry_lat": entry_center[0],
-                    "cone_entry_lon": entry_center[1],
-                    "cone_entry_left_lat": entry_center[0],
-                    "cone_entry_left_lon": entry_center[1],
-                    "cone_entry_right_lat": entry_center[0],
-                    "cone_entry_right_lon": entry_center[1],
-                    "cone_apex_lat": apex[0],
-                    "cone_apex_lon": apex[1],
-                }
-            else:
-                return False, {}
-
-        angular_diff = abs((position_bearing - bearing_deg + 540.0) % 360.0 - 180.0)
-        if angular_diff > tolerance_deg:
-            return False, {}
-
-        entry_center = self._destination_point(stop_lat, stop_lon, bearing_deg, radius_m)
-        apex = self._destination_point(stop_lat, stop_lon, (bearing_deg + 180.0) % 360.0, radius_m)
-
-        if tolerance_deg <= 0.0:
-            dist = self._haversine(lat, lon, stop_lat, stop_lon)
-            inside = dist <= radius_m
-            return inside, {
-                "cone_entry_lat": entry_center[0],
-                "cone_entry_lon": entry_center[1],
-                "cone_entry_left_lat": entry_center[0],
-                "cone_entry_left_lon": entry_center[1],
-                "cone_entry_right_lat": entry_center[0],
-                "cone_entry_right_lon": entry_center[1],
-                "cone_apex_lat": apex[0],
-                "cone_apex_lon": apex[1],
-            }
-
-        polygon = self._approach_cone_points(stop_lat, stop_lon, bearing_deg, tolerance_deg, radius_m)
-        px, py = self._project_to_meters(lat, lon, stop_lat, stop_lon)
-        projected = [self._project_to_meters(pt[0], pt[1], stop_lat, stop_lon) for pt in polygon]
-        inside = self._point_in_polygon(px, py, projected)
-        entry_left = polygon[1] if len(polygon) > 1 else entry_center
-        entry_right = polygon[-2] if len(polygon) > 2 else entry_center
-        apex = polygon[0] if polygon else entry_center
-        return inside, {
-            "cone_entry_lat": entry_center[0],
-            "cone_entry_lon": entry_center[1],
-            "cone_entry_left_lat": entry_left[0],
-            "cone_entry_left_lon": entry_left[1],
-            "cone_entry_right_lat": entry_right[0],
-            "cone_entry_right_lon": entry_right[1],
-            "cone_apex_lat": apex[0],
-            "cone_apex_lon": apex[1],
-        }
-
     def _diagnose_stop_association(
         self,
         lat: float,
@@ -1206,111 +726,44 @@ class HeadwayTracker:
         route_id: Optional[str],
         heading_deg: Optional[float],
     ) -> dict:
+        """Simple distance-based stop association diagnosis."""
         if not self.stops:
             return {"reason": "no_stops"}
 
-        nearest_any: Optional[Tuple[StopPoint, float, float, dict]] = None
-        nearest_route_mismatch: Optional[Tuple[StopPoint, float, float, dict]] = None
-        nearest_cone_block: Optional[Tuple[StopPoint, float, float, dict]] = None
+        nearest_any: Optional[Tuple[StopPoint, float]] = None
+        nearest_route_mismatch: Optional[Tuple[StopPoint, float]] = None
 
         for stop in self.stops:
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
                 continue
-            approach_config = self.stop_approach.get(stop.stop_id)
-            approach_bearing = stop.approach_bearing_deg
-            approach_tolerance = stop.approach_tolerance_deg
-            approach_radius = stop.approach_radius_m
-
-            if approach_config:
-                if approach_bearing is None:
-                    approach_bearing = approach_config[0]
-                if approach_tolerance is None:
-                    approach_tolerance = approach_config[1]
-                if approach_radius is None and len(approach_config) > 2:
-                    approach_radius = approach_config[2]
-
-            requires_cone = approach_bearing is not None and approach_tolerance is not None
-            cone_radius = approach_radius if requires_cone else None
-            effective_threshold = cone_radius if cone_radius is not None else self.arrival_distance_threshold_m
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
 
-            position_bearing = None
-            target_heading = None
-            heading_ok: Optional[bool] = None
-            heading_missing = heading_deg is None or not math.isfinite(heading_deg)
-            cone_position_ok = None
-            if requires_cone:
-                target_heading = (approach_bearing + 180.0) % 360.0
-                cone_position_ok, cone_meta = self._is_within_approach_cone(
-                    lat, lon, stop.lat, stop.lon, approach_bearing, approach_tolerance, effective_threshold
-                )
-                position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
-                if not heading_missing:
-                    heading_ok = _is_within_bearing(heading_deg, target_heading, approach_tolerance)
-
-            stop_meta = {
-                "approach_bearing_deg": approach_bearing,
-                "approach_tolerance_deg": approach_tolerance,
-                "approach_radius_m": approach_radius,
-                "position_bearing_deg": position_bearing,
-                "target_heading_deg": target_heading,
-                "heading_within_cone": heading_ok,
-                "heading_missing": heading_missing if requires_cone else None,
-                "position_within_cone": cone_position_ok,
-            }
-            if requires_cone:
-                stop_meta.update(cone_meta)
-
-            if requires_cone and heading_ok is None:
-                heading_ok = False
-                stop_meta["heading_within_cone"] = heading_ok
-
             if nearest_any is None or dist < nearest_any[1]:
-                nearest_any = (stop, dist, effective_threshold, stop_meta)
+                nearest_any = (stop, dist)
 
             if route_id and stop.route_ids and route_id not in stop.route_ids:
-                if dist <= effective_threshold and (
+                if dist <= self.arrival_distance_threshold_m and (
                     nearest_route_mismatch is None or dist < nearest_route_mismatch[1]
                 ):
-                    nearest_route_mismatch = (stop, dist, effective_threshold, stop_meta)
-                continue
-
-            if dist <= effective_threshold:
-                if requires_cone:
-                    if heading_ok is False or not cone_position_ok:
-                        if nearest_cone_block is None or dist < nearest_cone_block[1]:
-                            nearest_cone_block = (stop, dist, effective_threshold, stop_meta)
-                        continue
+                    nearest_route_mismatch = (stop, dist)
 
         if nearest_route_mismatch is not None:
-            stop, dist, threshold, meta = nearest_route_mismatch
+            stop, dist = nearest_route_mismatch
             return {
                 "reason": "route_mismatch",
                 "nearest_stop_id": stop.stop_id,
                 "nearest_stop_route_ids": sorted(stop.route_ids),
                 "distance_m": dist,
-                "threshold_m": threshold,
-                **meta,
-            }
-        if nearest_cone_block is not None:
-            stop, dist, threshold, meta = nearest_cone_block
-            return {
-                "reason": "outside_cone",
-                "nearest_stop_id": stop.stop_id,
-                "nearest_stop_route_ids": sorted(stop.route_ids),
-                "distance_m": dist,
-                "threshold_m": threshold,
-                **meta,
+                "threshold_m": self.arrival_distance_threshold_m,
             }
         if nearest_any is not None:
-            stop, dist, threshold, meta = nearest_any
+            stop, dist = nearest_any
             return {
                 "reason": "beyond_distance",
                 "nearest_stop_id": stop.stop_id,
                 "nearest_stop_route_ids": sorted(stop.route_ids),
                 "distance_m": dist,
-                "threshold_m": threshold,
-                **meta,
+                "threshold_m": self.arrival_distance_threshold_m,
             }
         return {"reason": "unknown"}
 
@@ -1323,6 +776,7 @@ class HeadwayTracker:
         threshold: float,
         heading_deg: Optional[float] = None,
     ) -> Optional[Tuple[str, Optional[str]]]:
+        """Find nearest stop within threshold distance. Used for departure tracking only."""
         best: Optional[Tuple[str, Optional[str], float]] = None
         for stop in self.stops:
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
@@ -1331,40 +785,8 @@ class HeadwayTracker:
                 continue
             if route_id and stop.route_ids and route_id not in stop.route_ids:
                 continue
-            approach_config = self.stop_approach.get(stop.stop_id)
-            approach_bearing = stop.approach_bearing_deg
-            approach_tolerance = stop.approach_tolerance_deg
-            approach_radius = stop.approach_radius_m
-
-            if approach_config:
-                if approach_bearing is None:
-                    approach_bearing = approach_config[0]
-                if approach_tolerance is None:
-                    approach_tolerance = approach_config[1]
-                if approach_radius is None and len(approach_config) > 2:
-                    approach_radius = approach_config[2]
-
-            requires_cone = approach_bearing is not None and approach_tolerance is not None
-            cone_radius = approach_radius if requires_cone else None
-            effective_threshold = cone_radius if cone_radius is not None else threshold
             dist = self._haversine(lat, lon, stop.lat, stop.lon)
-            if dist <= effective_threshold:
-                if requires_cone:
-                    target_heading = (approach_bearing + 180.0) % 360.0
-                    position_ok, _cone_meta = self._is_within_approach_cone(
-                        lat, lon, stop.lat, stop.lon, approach_bearing, approach_tolerance, effective_threshold
-                    )
-                    position_bearing = self._bearing_degrees(stop.lat, stop.lon, lat, lon)
-                    heading_ok = False
-                    if heading_deg is not None and math.isfinite(heading_deg):
-                        # Use more lenient tolerance for heading when very close (< 5m) to handle instability
-                        # But still enforce directionality to prevent cross-street mismatches
-                        heading_tolerance = approach_tolerance
-                        if dist < BEARING_CHECK_MIN_DISTANCE_M:
-                            heading_tolerance = min(approach_tolerance * 2.0, 90.0)
-                        heading_ok = _is_within_bearing(heading_deg, target_heading, heading_tolerance)
-                    if not heading_ok or not position_ok:
-                        continue
+            if dist <= threshold:
                 if best is None or dist < best[2]:
                     associated_route = route_id
                     if not associated_route and stop.route_ids:
@@ -1532,38 +954,6 @@ def _read_data_file(
     return None, None
 
 
-def load_stop_approach_config(
-    path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH,
-    *,
-    data_dirs: Optional[Sequence[Path]] = None,
-) -> Dict[str, Tuple[float, float, float]]:
-    config: Dict[str, Tuple[float, float, float]] = {}
-    resolved_path, raw_text = _read_data_file(path, data_dirs=data_dirs)
-    if not raw_text:
-        return config
-    try:
-        raw = json.loads(raw_text)
-        if isinstance(raw, dict):
-            for stop_id, entry in raw.items():
-                if not isinstance(entry, dict):
-                    continue
-                bearing = _parse_float(entry.get("bearing_deg") or entry.get("bearing"))
-                tolerance = _parse_float(entry.get("tolerance_deg") or entry.get("tolerance"))
-                radius = _parse_float(entry.get("radius_m") or entry.get("radius"))
-                if radius is None:
-                    radius = STOP_APPROACH_DEFAULT_RADIUS_M
-                if bearing is None or tolerance is None:
-                    continue
-                config[str(stop_id)] = (
-                    bearing,
-                    max(0.0, tolerance),
-                    max(0.0, radius),
-                )
-    except Exception as exc:
-        print(f"[headway] failed to load stop approach config {resolved_path or path}: {exc}")
-    return config
-
-
 def load_approach_sets_config(
     path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH,
     *,
@@ -1595,8 +985,3 @@ def _parse_float(value: Optional[object]) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _is_within_bearing(actual: float, target: float, tolerance: float) -> bool:
-    normalized = abs((actual - target + 180.0) % 360.0 - 180.0)
-    return normalized <= tolerance
