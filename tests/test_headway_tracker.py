@@ -885,6 +885,93 @@ def test_bubble_arrival_logged_on_entry_when_no_stop():
     assert storage.events[0].timestamp == base + timedelta(seconds=60)
 
 
+def test_departure_uses_final_bubble_exit_time():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(
+        storage=storage, arrival_distance_threshold_m=100.0, departure_distance_threshold_m=100.0
+    )
+
+    tracker.update_stops(
+        [
+            {
+                "StopID": "STOP",
+                "Latitude": 0.0,
+                "Longitude": 0.0,
+                "RouteID": "R1",
+                "ApproachSets": [
+                    {
+                        "name": "main",
+                        "bubbles": [
+                            {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
+                            {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    tracker.process_snapshots(
+        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0007, route_id="R1", timestamp=base)]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=30),
+            )
+        ]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=60),
+            )
+        ]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0001,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=70),
+            )
+        ]
+    )
+
+    departure_time = base + timedelta(seconds=90)
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.00035,
+                route_id="R1",
+                timestamp=departure_time,
+            )
+        ]
+    )
+
+    assert [e.event_type for e in storage.events] == ["arrival", "departure"]
+    assert storage.events[-1].timestamp == departure_time
+    assert storage.events[-1].dwell_seconds == 30
+
+
 def test_tracker_can_follow_multiple_approach_sets():
     storage = MemoryHeadwayStorage()
     tracker = HeadwayTracker(
