@@ -42,6 +42,7 @@ from headway_tracker import (
     VehicleSnapshot,
     load_headway_config,
     load_stop_approach_config,
+    load_approach_sets_config,
     DEFAULT_STOP_APPROACH_CONFIG_PATH,
     STOP_APPROACH_DEFAULT_RADIUS_M,
     HEADWAY_DISTANCE_THRESHOLD_M,
@@ -3352,6 +3353,7 @@ async def startup():
     try:
         headway_route_ids, headway_stop_ids = load_headway_config()
         stop_approach_config = load_stop_approach_config(data_dirs=DATA_DIRS)
+        approach_sets_config = load_approach_sets_config(data_dirs=DATA_DIRS)
         headway_storage = HeadwayStorage(HEADWAY_DIR)
         headway_tracker = HeadwayTracker(
             storage=headway_storage,
@@ -3364,11 +3366,13 @@ async def startup():
         app.state.headway_storage = headway_storage
         app.state.headway_tracker = headway_tracker
         app.state.stop_approach_config = stop_approach_config
+        app.state.approach_sets_config = approach_sets_config
     except Exception as exc:
         print(f"[headway] initialization failed: {exc}")
         app.state.headway_storage = None
         app.state.headway_tracker = None
         app.state.stop_approach_config = {}
+        app.state.approach_sets_config = {}
 
     async def updater():
         await asyncio.sleep(0.1)
@@ -3439,6 +3443,7 @@ async def startup():
                                 trimmed_routes,
                                 stops_raw,
                                 approach_config=getattr(app.state, "stop_approach_config", None),
+                                approach_sets_config=getattr(app.state, "approach_sets_config", None),
                             )
                             state.stops = stops
                             tracker_ref = getattr(app.state, "headway_tracker", None)
@@ -5780,6 +5785,7 @@ def _build_transloc_stops(
     extra_stops: Optional[Iterable[Dict[str, Any]]] = None,
     *,
     approach_config: Optional[Mapping[str, Tuple[float, float, float]]] = None,
+    approach_sets_config: Optional[Mapping[str, List[Dict[str, Any]]]] = None,
 ) -> List[Dict[str, Any]]:
     route_membership = _route_membership_from_routes(routes)
     merged: Dict[str, Dict[str, Any]] = {}
@@ -5802,6 +5808,11 @@ def _build_transloc_stops(
                 normalized["ApproachToleranceDeg"] = approach[1]
                 if len(approach) > 2:
                     normalized["ApproachRadiusM"] = approach[2]
+        # Apply approach sets (bubbles)
+        if approach_sets_config:
+            sets = approach_sets_config.get(str(stop_id))
+            if sets:
+                normalized["ApproachSets"] = sets
         existing = merged.get(str(stop_id))
         if existing:
             merged[str(stop_id)] = _merge_stop_entry(existing, normalized)
@@ -5821,27 +5832,34 @@ def _build_transloc_stops(
 
 def _apply_stop_approach_to_stops(
     stops: Iterable[Dict[str, Any]],
-    approach_config: Optional[Mapping[str, Tuple[float, float, float]]],
+    approach_config: Optional[Mapping[str, Any]],
+    approach_sets_config: Optional[Mapping[str, List[Dict[str, Any]]]] = None,
 ) -> None:
-    if not approach_config:
+    if not approach_config and not approach_sets_config:
         return
     for stop in stops:
         stop_id = stop.get("StopID") or stop.get("StopId")
         if stop_id is None:
             continue
-        approach = approach_config.get(str(stop_id))
-        if not approach:
-            continue
-        stop["ApproachBearingDeg"] = approach[0]
-        stop["ApproachToleranceDeg"] = approach[1]
-        if len(approach) > 2:
-            stop["ApproachRadiusM"] = approach[2]
+        # Apply legacy cone approach config
+        approach = approach_config.get(str(stop_id)) if approach_config else None
+        if approach:
+            stop["ApproachBearingDeg"] = approach[0]
+            stop["ApproachToleranceDeg"] = approach[1]
+            if len(approach) > 2:
+                stop["ApproachRadiusM"] = approach[2]
+        # Apply approach sets (bubbles)
+        if approach_sets_config:
+            sets = approach_sets_config.get(str(stop_id))
+            if sets:
+                stop["ApproachSets"] = sets
 
 
 def _serialize_stop_approach_config(
-    config: Mapping[str, Tuple[float, float, float]]
-) -> Dict[str, Dict[str, float]]:
-    serialized: Dict[str, Dict[str, float]] = {}
+    config: Mapping[str, Tuple[float, float, float]],
+    approach_sets_config: Optional[Mapping[str, List[Dict[str, Any]]]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    serialized: Dict[str, Dict[str, Any]] = {}
     for stop_id, values in config.items():
         try:
             bearing = float(values[0])
@@ -5854,11 +5872,25 @@ def _serialize_stop_approach_config(
                 radius = float(values[2])
             except (TypeError, ValueError):
                 radius = STOP_APPROACH_DEFAULT_RADIUS_M
-        serialized[str(stop_id)] = {
+        entry: Dict[str, Any] = {
             "bearing_deg": bearing,
             "tolerance_deg": max(0.0, tolerance),
             "radius_m": max(0.0, radius),
         }
+        # Include approach sets if present
+        if approach_sets_config and str(stop_id) in approach_sets_config:
+            entry["approach_sets"] = approach_sets_config[str(stop_id)]
+        serialized[str(stop_id)] = entry
+    # Also include stops that only have approach_sets (no cone config)
+    if approach_sets_config:
+        for stop_id, sets in approach_sets_config.items():
+            if str(stop_id) not in serialized:
+                serialized[str(stop_id)] = {
+                    "bearing_deg": 0.0,
+                    "tolerance_deg": 70.0,
+                    "radius_m": STOP_APPROACH_DEFAULT_RADIUS_M,
+                    "approach_sets": sets,
+                }
     return serialized
 
 
@@ -6686,7 +6718,9 @@ async def _assemble_transloc_metadata(
     if extra_routes_raw:
         raw_routes = _merge_transloc_route_metadata(raw_routes, extra_routes_raw)
     stops = _build_transloc_stops(
-        raw_routes, stops_raw, approach_config=getattr(app.state, "stop_approach_config", None)
+        raw_routes, stops_raw,
+        approach_config=getattr(app.state, "stop_approach_config", None),
+        approach_sets_config=getattr(app.state, "approach_sets_config", None),
     )
     blocks = await _get_transloc_blocks(base_url)
     return {"routes": raw_routes, "stops": stops, "blocks": blocks}
@@ -8718,11 +8752,15 @@ async def get_stop_approach(request: Request, base_url: Optional[str] = Query(No
             routes_raw,
             stops_raw,
             approach_config=getattr(app.state, "stop_approach_config", None),
+            approach_sets_config=getattr(app.state, "approach_sets_config", None),
         )
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url)
         raise HTTPException(status_code=502, detail=detail) from exc
-    config_snapshot = _serialize_stop_approach_config(getattr(app.state, "stop_approach_config", {}))
+    config_snapshot = _serialize_stop_approach_config(
+        getattr(app.state, "stop_approach_config", {}),
+        getattr(app.state, "approach_sets_config", {}),
+    )
     return {
         "stops": stops,
         "config": config_snapshot,
@@ -8754,10 +8792,53 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
     tolerance_norm = max(0.0, float(tolerance))
     radius_norm = max(0.0, float(radius) if radius is not None else STOP_APPROACH_DEFAULT_RADIUS_M)
 
+    # Handle approach_sets (ordered bubbles)
+    approach_sets_raw = payload.get("approach_sets")
+    approach_sets_validated: Optional[List[Dict[str, Any]]] = None
+    if approach_sets_raw is not None and isinstance(approach_sets_raw, list):
+        approach_sets_validated = []
+        for idx, aset in enumerate(approach_sets_raw):
+            if not isinstance(aset, dict):
+                continue
+            validated_set: Dict[str, Any] = {
+                "name": str(aset.get("name", f"Approach {idx + 1}")),
+                "bubbles": [],
+            }
+            bubbles = aset.get("bubbles")
+            if bubbles and isinstance(bubbles, list):
+                for bidx, bubble in enumerate(bubbles):
+                    if not isinstance(bubble, dict):
+                        continue
+                    lat = _coerce_float(bubble.get("lat"))
+                    lng = _coerce_float(bubble.get("lng"))
+                    if lat is None or lng is None:
+                        continue
+                    bubble_radius = _coerce_float(bubble.get("radius_m"))
+                    if bubble_radius is None:
+                        bubble_radius = 25.0
+                    order = bubble.get("order")
+                    if order is None:
+                        order = bidx + 1
+                    validated_set["bubbles"].append({
+                        "lat": lat,
+                        "lng": lng,
+                        "radius_m": max(5.0, min(200.0, bubble_radius)),
+                        "order": int(order),
+                    })
+            approach_sets_validated.append(validated_set)
+
     updated_config = dict(getattr(app.state, "stop_approach_config", {}) or {})
     updated_config[str(stop_id)] = (bearing_norm, tolerance_norm, radius_norm)
 
-    serialized = _serialize_stop_approach_config(updated_config)
+    # Update approach sets config
+    updated_sets_config = dict(getattr(app.state, "approach_sets_config", {}) or {})
+    if approach_sets_validated is not None:
+        if approach_sets_validated:
+            updated_sets_config[str(stop_id)] = approach_sets_validated
+        elif str(stop_id) in updated_sets_config:
+            del updated_sets_config[str(stop_id)]
+
+    serialized = _serialize_stop_approach_config(updated_config, updated_sets_config)
     try:
         encoded = json.dumps(serialized)
     except Exception as exc:
@@ -8772,8 +8853,9 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
 
     async with state.lock:
         app.state.stop_approach_config = updated_config
+        app.state.approach_sets_config = updated_sets_config
         cached_stops = getattr(state, "stops", [])
-        _apply_stop_approach_to_stops(cached_stops, updated_config)
+        _apply_stop_approach_to_stops(cached_stops, updated_config, updated_sets_config)
         tracker = getattr(app.state, "headway_tracker", None)
         if tracker:
             tracker.stop_approach = updated_config
@@ -8787,6 +8869,7 @@ async def set_stop_approach(request: Request, payload: Dict[str, Any]):
         "bearing_deg": bearing_norm,
         "tolerance_deg": tolerance_norm,
         "radius_m": radius_norm,
+        "approach_sets": approach_sets_validated or [],
     }
 
 

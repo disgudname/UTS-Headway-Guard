@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from collections import deque
 import json
 import math
@@ -1292,6 +1292,30 @@ def load_stop_approach_config(
                 )
     except Exception as exc:
         print(f"[headway] failed to load stop approach config {resolved_path or path}: {exc}")
+    return config
+
+
+def load_approach_sets_config(
+    path: Path = DEFAULT_STOP_APPROACH_CONFIG_PATH,
+    *,
+    data_dirs: Optional[Sequence[Path]] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Load approach bubble sets from the stop approach config file."""
+    config: Dict[str, List[Dict[str, Any]]] = {}
+    resolved_path, raw_text = _read_data_file(path, data_dirs=data_dirs)
+    if not raw_text:
+        return config
+    try:
+        raw = json.loads(raw_text)
+        if isinstance(raw, dict):
+            for stop_id, entry in raw.items():
+                if not isinstance(entry, dict):
+                    continue
+                approach_sets = entry.get("approach_sets")
+                if approach_sets and isinstance(approach_sets, list):
+                    config[str(stop_id)] = approach_sets
+    except Exception as exc:
+        print(f"[headway] failed to load approach sets config {resolved_path or path}: {exc}")
     return config
 
 

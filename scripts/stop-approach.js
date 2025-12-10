@@ -3,6 +3,7 @@
   const DEFAULT_RADIUS_M = 100;
   const DEFAULT_TOLERANCE = 70;
   const DEFAULT_BEARING = 0;
+  const DEFAULT_BUBBLE_RADIUS_M = 25;
 
   const hasLeaflet = typeof L !== 'undefined';
   const map = hasLeaflet
@@ -34,6 +35,17 @@
   const refreshButton = document.getElementById('refreshButton');
   const resetAllButton = document.getElementById('resetAllButton');
 
+  // Bubble UI elements
+  const approachSetTabs = document.getElementById('approachSetTabs');
+  const addApproachSetBtn = document.getElementById('addApproachSetBtn');
+  const noBubblesMessage = document.getElementById('noBubblesMessage');
+  const activeSetControls = document.getElementById('activeSetControls');
+  const approachSetNameInput = document.getElementById('approachSetNameInput');
+  const deleteApproachSetBtn = document.getElementById('deleteApproachSetBtn');
+  const bubbleList = document.getElementById('bubbleList');
+  const addBubbleBtn = document.getElementById('addBubbleBtn');
+  const bubbleCountBadge = document.getElementById('bubbleCount');
+
   let stops = [];
   let dedupedStops = [];
   const stopGroupsByKey = new Map();
@@ -43,6 +55,13 @@
   let circleLayer = null;
   let coneLayer = null;
   let handleMarker = null;
+
+  // Bubble state
+  let approachSets = []; // Array of {name: string, bubbles: [{lat, lng, radius_m, order}]}
+  let activeSetIndex = -1;
+  let isPlacingBubble = false;
+  let bubbleLayers = []; // Leaflet layers for bubbles
+  let bubbleMarkers = []; // Leaflet markers for bubble centers
 
   function normalizeBearing(value) {
     const num = Number(value);
@@ -202,6 +221,295 @@
     return ids.toString();
   }
 
+  // ==================== BUBBLE MANAGEMENT ====================
+
+  function clearBubbleLayers() {
+    bubbleLayers.forEach((layer) => {
+      if (map) map.removeLayer(layer);
+    });
+    bubbleLayers = [];
+    bubbleMarkers.forEach((marker) => {
+      if (map) map.removeLayer(marker);
+    });
+    bubbleMarkers = [];
+  }
+
+  function renderBubbleLayers() {
+    clearBubbleLayers();
+    if (!map || !hasLeaflet || activeSetIndex < 0 || !approachSets[activeSetIndex]) return;
+
+    const set = approachSets[activeSetIndex];
+    const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#eab308'];
+
+    set.bubbles.forEach((bubble, idx) => {
+      const color = colors[idx % colors.length];
+      const circle = L.circle([bubble.lat, bubble.lng], {
+        radius: bubble.radius_m,
+        color: color,
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.15,
+        dashArray: '5, 5',
+      }).addTo(map);
+      bubbleLayers.push(circle);
+
+      // Add numbered marker at center
+      const icon = L.divIcon({
+        className: 'bubble-marker-label',
+        html: `<div style="background:${color};color:white;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);">${bubble.order}</div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      });
+      const marker = L.marker([bubble.lat, bubble.lng], {
+        icon: icon,
+        draggable: true,
+        title: `Bubble ${bubble.order} - Drag to move`,
+      }).addTo(map);
+
+      marker.on('drag', (e) => {
+        const latlng = e.target.getLatLng();
+        bubble.lat = latlng.lat;
+        bubble.lng = latlng.lng;
+        circle.setLatLng(latlng);
+        hasUnsavedChanges = true;
+        renderBubbleList();
+      });
+
+      bubbleMarkers.push(marker);
+    });
+  }
+
+  function updateBubbleCount() {
+    let total = 0;
+    approachSets.forEach((set) => {
+      total += set.bubbles.length;
+    });
+    bubbleCountBadge.textContent = total.toString();
+  }
+
+  function renderApproachSetTabs() {
+    // Clear existing tabs except the add button
+    const existingTabs = approachSetTabs.querySelectorAll('.approach-set-tab:not(.add-new)');
+    existingTabs.forEach((tab) => tab.remove());
+
+    // Add tabs for each set
+    approachSets.forEach((set, idx) => {
+      const tab = document.createElement('button');
+      tab.className = 'approach-set-tab' + (idx === activeSetIndex ? ' active' : '');
+      tab.type = 'button';
+      tab.textContent = set.name || `Set ${idx + 1}`;
+      tab.addEventListener('click', () => {
+        activeSetIndex = idx;
+        renderApproachSetTabs();
+        renderActiveSetUI();
+        renderBubbleLayers();
+      });
+      approachSetTabs.insertBefore(tab, addApproachSetBtn);
+    });
+
+    updateBubbleCount();
+  }
+
+  function renderBubbleList() {
+    bubbleList.innerHTML = '';
+    if (activeSetIndex < 0 || !approachSets[activeSetIndex]) return;
+
+    const set = approachSets[activeSetIndex];
+    set.bubbles.sort((a, b) => a.order - b.order);
+
+    set.bubbles.forEach((bubble, idx) => {
+      const item = document.createElement('div');
+      item.className = 'bubble-item';
+      item.draggable = true;
+      item.dataset.index = idx.toString();
+
+      item.innerHTML = `
+        <span class="drag-handle" title="Drag to reorder">&#x2630;</span>
+        <span class="order-badge">${bubble.order}</span>
+        <div class="bubble-info">
+          <div class="coords">${bubble.lat.toFixed(6)}, ${bubble.lng.toFixed(6)}</div>
+        </div>
+        <div class="bubble-radius">
+          <input type="number" value="${bubble.radius_m}" min="5" max="200" step="5" title="Radius in meters" />
+          <span>m</span>
+        </div>
+        <div class="bubble-actions">
+          <button type="button" class="delete" title="Remove bubble">&#x2715;</button>
+        </div>
+      `;
+
+      // Radius change
+      const radiusInputEl = item.querySelector('input[type="number"]');
+      radiusInputEl.addEventListener('change', (e) => {
+        bubble.radius_m = Math.max(5, Math.min(200, Number(e.target.value) || DEFAULT_BUBBLE_RADIUS_M));
+        e.target.value = bubble.radius_m;
+        hasUnsavedChanges = true;
+        renderBubbleLayers();
+      });
+
+      // Delete button
+      const deleteBtn = item.querySelector('.delete');
+      deleteBtn.addEventListener('click', () => {
+        set.bubbles.splice(idx, 1);
+        // Renumber remaining bubbles
+        set.bubbles.forEach((b, i) => {
+          b.order = i + 1;
+        });
+        hasUnsavedChanges = true;
+        renderBubbleList();
+        renderBubbleLayers();
+        updateBubbleCount();
+      });
+
+      // Drag and drop for reordering
+      item.addEventListener('dragstart', (e) => {
+        item.classList.add('dragging');
+        e.dataTransfer.setData('text/plain', idx.toString());
+      });
+
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+      });
+
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+      });
+
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        const toIdx = idx;
+        if (fromIdx !== toIdx) {
+          const [moved] = set.bubbles.splice(fromIdx, 1);
+          set.bubbles.splice(toIdx, 0, moved);
+          // Renumber
+          set.bubbles.forEach((b, i) => {
+            b.order = i + 1;
+          });
+          hasUnsavedChanges = true;
+          renderBubbleList();
+          renderBubbleLayers();
+        }
+      });
+
+      bubbleList.appendChild(item);
+    });
+  }
+
+  function renderActiveSetUI() {
+    if (activeSetIndex < 0 || !approachSets[activeSetIndex]) {
+      noBubblesMessage.style.display = 'block';
+      activeSetControls.style.display = 'none';
+      return;
+    }
+
+    noBubblesMessage.style.display = 'none';
+    activeSetControls.style.display = 'block';
+
+    const set = approachSets[activeSetIndex];
+    approachSetNameInput.value = set.name || '';
+
+    renderBubbleList();
+  }
+
+  function addNewApproachSet() {
+    const newSet = {
+      name: `Approach ${approachSets.length + 1}`,
+      bubbles: [],
+    };
+    approachSets.push(newSet);
+    activeSetIndex = approachSets.length - 1;
+    hasUnsavedChanges = true;
+    renderApproachSetTabs();
+    renderActiveSetUI();
+    renderBubbleLayers();
+    approachSetNameInput.focus();
+    approachSetNameInput.select();
+  }
+
+  function deleteCurrentApproachSet() {
+    if (activeSetIndex < 0 || !approachSets[activeSetIndex]) return;
+
+    const setName = approachSets[activeSetIndex].name || `Set ${activeSetIndex + 1}`;
+    if (!confirm(`Delete approach set "${setName}"? This cannot be undone.`)) return;
+
+    approachSets.splice(activeSetIndex, 1);
+    activeSetIndex = approachSets.length > 0 ? Math.max(0, activeSetIndex - 1) : -1;
+    hasUnsavedChanges = true;
+    renderApproachSetTabs();
+    renderActiveSetUI();
+    renderBubbleLayers();
+  }
+
+  function startBubblePlacement() {
+    if (activeSetIndex < 0) {
+      setStatus('Create an approach set first', true);
+      return;
+    }
+    isPlacingBubble = !isPlacingBubble;
+    addBubbleBtn.classList.toggle('placing', isPlacingBubble);
+    addBubbleBtn.textContent = isPlacingBubble ? 'Click on map...' : '+ Click map to add bubble';
+
+    if (map) {
+      map.getContainer().style.cursor = isPlacingBubble ? 'crosshair' : '';
+    }
+  }
+
+  function handleMapClick(e) {
+    if (!isPlacingBubble || activeSetIndex < 0) return;
+
+    const set = approachSets[activeSetIndex];
+    const newBubble = {
+      lat: e.latlng.lat,
+      lng: e.latlng.lng,
+      radius_m: DEFAULT_BUBBLE_RADIUS_M,
+      order: set.bubbles.length + 1,
+    };
+    set.bubbles.push(newBubble);
+    hasUnsavedChanges = true;
+
+    // Exit placement mode
+    isPlacingBubble = false;
+    addBubbleBtn.classList.remove('placing');
+    addBubbleBtn.textContent = '+ Click map to add bubble';
+    if (map) {
+      map.getContainer().style.cursor = '';
+    }
+
+    renderBubbleList();
+    renderBubbleLayers();
+    updateBubbleCount();
+  }
+
+  // Wire up bubble UI event handlers
+  if (addApproachSetBtn) {
+    addApproachSetBtn.addEventListener('click', addNewApproachSet);
+  }
+
+  if (deleteApproachSetBtn) {
+    deleteApproachSetBtn.addEventListener('click', deleteCurrentApproachSet);
+  }
+
+  if (approachSetNameInput) {
+    approachSetNameInput.addEventListener('input', (e) => {
+      if (activeSetIndex >= 0 && approachSets[activeSetIndex]) {
+        approachSets[activeSetIndex].name = e.target.value;
+        hasUnsavedChanges = true;
+        renderApproachSetTabs();
+      }
+    });
+  }
+
+  if (addBubbleBtn) {
+    addBubbleBtn.addEventListener('click', startBubblePlacement);
+  }
+
+  if (map) {
+    map.on('click', handleMapClick);
+  }
+
+  // ==================== END BUBBLE MANAGEMENT ====================
+
   function applyStopToControls(stop, group) {
     const radius = Number(stop.ApproachRadiusM) || DEFAULT_RADIUS_M;
     const tolerance = Number(stop.ApproachToleranceDeg) || DEFAULT_TOLERANCE;
@@ -216,6 +524,25 @@
     }${linkedText}`;
     updateDisplayValues(radius, tolerance, bearing);
     updateConeGraphics(stop, bearing, tolerance, radius);
+
+    // Load approach sets for this stop
+    approachSets = [];
+    if (stop.ApproachSets && Array.isArray(stop.ApproachSets)) {
+      approachSets = stop.ApproachSets.map((set) => ({
+        name: set.name || '',
+        bubbles: (set.bubbles || []).map((b, idx) => ({
+          lat: b.lat,
+          lng: b.lng,
+          radius_m: b.radius_m || DEFAULT_BUBBLE_RADIUS_M,
+          order: b.order || idx + 1,
+        })),
+      }));
+    }
+    activeSetIndex = approachSets.length > 0 ? 0 : -1;
+    renderApproachSetTabs();
+    renderActiveSetUI();
+    renderBubbleLayers();
+
     hasUnsavedChanges = false;
     setStatus('Ready');
   }
@@ -344,11 +671,23 @@
     const toleranceVal = Number(toleranceInput.value) || DEFAULT_TOLERANCE;
     const bearingVal = normalizeBearing(bearingInput.value);
 
+    // Prepare approach sets for saving
+    const approachSetsPayload = approachSets.map((set) => ({
+      name: set.name,
+      bubbles: set.bubbles.map((b) => ({
+        lat: b.lat,
+        lng: b.lng,
+        radius_m: b.radius_m,
+        order: b.order,
+      })),
+    }));
+
     const payloads = group.ids.map((id) => ({
       stop_id: id,
       radius_m: radiusVal,
       tolerance_deg: toleranceVal,
       bearing_deg: bearingVal,
+      approach_sets: approachSetsPayload,
     }));
     setStatus('Saving…');
     saveButton.disabled = true;
@@ -372,6 +711,7 @@
               s.ApproachBearingDeg = result.bearing_deg;
               s.ApproachToleranceDeg = result.tolerance_deg;
               s.ApproachRadiusM = result.radius_m;
+              s.ApproachSets = result.approach_sets || [];
             });
         })
       );
@@ -415,6 +755,7 @@
       radius_m: DEFAULT_RADIUS_M,
       tolerance_deg: DEFAULT_TOLERANCE,
       bearing_deg: DEFAULT_BEARING,
+      approach_sets: [],
     };
 
     setStatus('Resetting all stops…');
@@ -442,6 +783,7 @@
               stop.ApproachRadiusM = payloadTemplate.radius_m;
               stop.ApproachToleranceDeg = payloadTemplate.tolerance_deg;
               stop.ApproachBearingDeg = payloadTemplate.bearing_deg;
+              stop.ApproachSets = [];
             });
         })
       );
@@ -509,6 +851,7 @@
   refreshButton.addEventListener('click', () => {
     stopMarkers.forEach((marker) => marker.remove());
     stopMarkers.clear();
+    clearBubbleLayers();
     fetchStops();
   });
 

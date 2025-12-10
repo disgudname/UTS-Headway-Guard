@@ -44,26 +44,60 @@
           <select id="stopSelect"></select>
           <div class="hint" id="stopMeta"></div>
         </div>
-        <div class="control-group inline">
-          <div>
-            <label for="radiusInput">Radius (m)</label>
-            <input id="radiusInput" type="range" min="10" max="200" step="5" />
-            <div class="value" id="radiusValue">--</div>
-            <div class="preset-actions">
-              <button id="radius100Button" class="preset-button" type="button">Set to 100 m</button>
+
+        <!-- Approach Bubbles Section -->
+        <div class="approach-sets-panel">
+          <h3>
+            Approach Bubbles
+            <span class="badge" id="bubbleCount">0</span>
+          </h3>
+          <div class="approach-set-tabs" id="approachSetTabs">
+            <button class="approach-set-tab add-new" id="addApproachSetBtn" type="button">+ Add Set</button>
+          </div>
+          <div id="approachSetContent">
+            <div class="bubble-empty-state" id="noBubblesMessage">
+              <p>No approach sets configured for this stop.</p>
+              <p class="hint">Click "+ Add Set" to create an approach configuration.</p>
+            </div>
+            <div id="activeSetControls" style="display: none;">
+              <div class="approach-set-name-input">
+                <input type="text" id="approachSetNameInput" placeholder="Set name (e.g., Northbound)" />
+                <button type="button" class="delete-set" id="deleteApproachSetBtn" title="Delete this approach set">Delete</button>
+              </div>
+              <div class="bubble-list" id="bubbleList"></div>
+              <div class="add-bubble-controls">
+                <button type="button" id="addBubbleBtn">+ Click map to add bubble</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr class="section-divider" />
+
+        <!-- Legacy Cone Section -->
+        <div class="control-group legacy-cone-section">
+          <div class="control-group inline">
+            <div>
+              <label for="radiusInput">Radius (m)</label>
+              <input id="radiusInput" type="range" min="10" max="200" step="5" />
+              <div class="value" id="radiusValue">--</div>
+              <div class="preset-actions">
+                <button id="radius100Button" class="preset-button" type="button">Set to 100 m</button>
+              </div>
+            </div>
+            <div>
+              <label for="toleranceInput">Tolerance (°)</label>
+              <input id="toleranceInput" type="range" min="0" max="180" step="1" />
+              <div class="value" id="toleranceValue">--</div>
             </div>
           </div>
           <div>
-            <label for="toleranceInput">Tolerance (°)</label>
-            <input id="toleranceInput" type="range" min="0" max="180" step="1" />
-            <div class="value" id="toleranceValue">--</div>
+            <label for="bearingInput">Bearing (°)</label>
+            <input id="bearingInput" type="number" min="0" max="359" step="1" />
+            <p class="hint">Drag the map handle or edit the number to rotate the cone.</p>
           </div>
         </div>
-        <div class="control-group">
-          <label for="bearingInput">Bearing (°)</label>
-          <input id="bearingInput" type="number" min="0" max="359" step="1" />
-          <p class="hint">Drag the map handle or edit the number to rotate the cone.</p>
-        </div>
+
         <div class="control-actions">
           <button id="saveButton" type="button">Save stop settings</button>
           <div class="status" id="saveStatus" aria-live="polite"></div>

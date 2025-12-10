@@ -154,6 +154,293 @@ body {
   color: var(--text-muted);
 }
 
+/* Approach Sets Panel */
+.approach-sets-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+.approach-sets-panel h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.approach-sets-panel h3 .badge {
+  background: var(--accent);
+  color: #052e16;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.approach-set-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.approach-set-tab {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.approach-set-tab:hover {
+  border-color: var(--accent);
+  color: #e5e7eb;
+}
+
+.approach-set-tab.active {
+  background: var(--accent);
+  color: #052e16;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.approach-set-tab.add-new {
+  background: transparent;
+  border-style: dashed;
+  color: var(--accent);
+}
+
+/* Bubble List */
+.bubble-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.bubble-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.bubble-item.dragging {
+  opacity: 0.5;
+  border-color: var(--accent);
+}
+
+.bubble-item .order-badge {
+  background: #3b82f6;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.bubble-item .bubble-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.bubble-item .bubble-info .coords {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bubble-item .bubble-radius {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bubble-item .bubble-radius input {
+  width: 60px;
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--panel-border);
+  background: #0b1220;
+  color: #e5e7eb;
+}
+
+.bubble-item .bubble-radius span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.bubble-item .bubble-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.bubble-item .bubble-actions button {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.bubble-item .bubble-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bubble-item .bubble-actions button.delete:hover {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.bubble-item .drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  padding: 4px;
+}
+
+.bubble-item .drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Add Bubble Controls */
+.add-bubble-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.add-bubble-controls button {
+  background: transparent;
+  border: 1px dashed var(--panel-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  flex: 1;
+}
+
+.add-bubble-controls button:hover {
+  border-color: var(--accent);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.add-bubble-controls button.placing {
+  background: var(--accent);
+  color: #052e16;
+  border-style: solid;
+}
+
+/* Approach Set Name Input */
+.approach-set-name-input {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.approach-set-name-input input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: #0b1220;
+  color: #e5e7eb;
+  font-size: 13px;
+}
+
+.approach-set-name-input button {
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.approach-set-name-input button.delete-set:hover {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+/* Empty State */
+.bubble-empty-state {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.bubble-empty-state p {
+  margin: 0 0 12px 0;
+}
+
+/* Section Divider */
+.section-divider {
+  border: none;
+  border-top: 1px solid var(--panel-border);
+  margin: 16px 0;
+}
+
+/* Legacy Cone Section */
+.legacy-cone-section {
+  opacity: 0.7;
+  position: relative;
+}
+
+.legacy-cone-section::before {
+  content: 'Legacy';
+  position: absolute;
+  top: -8px;
+  right: 12px;
+  background: #fbbf24;
+  color: #1f2937;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* Bubble visualization on map */
+.bubble-marker-label {
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
 @media (max-width: 960px) {
   .layout {
     grid-template-columns: 1fr;
@@ -163,5 +450,9 @@ body {
   .controls {
     border-left: none;
     border-top: 1px solid var(--panel-border);
+  }
+
+  .bubble-list {
+    max-height: 150px;
   }
 }
