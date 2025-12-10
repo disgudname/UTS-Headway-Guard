@@ -12,11 +12,20 @@
       })
     : null;
   if (map) {
-    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
     });
-    tiles.addTo(map);
+    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '&copy; Esri',
+      maxZoom: 19,
+    });
+    streetLayer.addTo(map);
+    L.control.layers(
+      { 'Street': streetLayer, 'Satellite': satelliteLayer },
+      null,
+      { position: 'topright' }
+    ).addTo(map);
     map.setView([38.0336, -78.508], 14);
   } else {
     console.error('Leaflet failed to load; map features disabled');
