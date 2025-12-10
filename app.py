@@ -3151,9 +3151,23 @@ async def api_headway_bubbles():
     tracker = getattr(app.state, "headway_tracker", None)
     if not tracker:
         return {"active_states": [], "recent_activations": []}
+
+    now = datetime.now(timezone.utc)
+    activation_cutoff = now - timedelta(seconds=120)
+    recent_activations = []
+    for activation in tracker.recent_bubble_activations:
+        ts = activation.get("timestamp")
+        try:
+            ts_dt = parse_iso8601_utc(ts) if ts else None
+        except Exception:
+            ts_dt = None
+        if ts_dt and ts_dt < activation_cutoff:
+            continue
+        recent_activations.append(activation)
+
     return {
         "active_states": tracker.get_active_bubble_states(),
-        "recent_activations": list(tracker.recent_bubble_activations),
+        "recent_activations": recent_activations,
     }
 
 
