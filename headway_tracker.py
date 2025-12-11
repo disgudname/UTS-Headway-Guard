@@ -63,6 +63,7 @@ class StopPoint:
     lon: float
     route_ids: Set[str]
     approach_sets: Optional[List[ApproachSet]] = None
+    address_id: Optional[str] = None  # Physical location ID - same address_id = same physical stop
 
 
 @dataclass
@@ -164,9 +165,12 @@ class HeadwayTracker:
 
     def update_stops(self, stops: Iterable[dict]) -> None:
         """Update the list of stops from TransLoc data."""
-        updated: List[StopPoint] = []
+        # First pass: collect all stop data and group by AddressID (physical location)
+        # AddressID is the key unifier - same AddressID = same physical stop
+        address_groups: Dict[str, Dict[str, Any]] = {}  # address_id -> merged stop data
+
         for stop in stops:
-            stop_id = stop.get("StopID") or stop.get("StopId")
+            stop_id = stop.get("StopID") or stop.get("StopId") or stop.get("RouteStopID")
             if stop_id is None:
                 continue
             lat = stop.get("Latitude")
@@ -185,35 +189,60 @@ class HeadwayTracker:
             except (TypeError, ValueError):
                 continue
 
+            # Get AddressID - the physical location identifier
+            address_id = stop.get("AddressID") or stop.get("AddressId")
+            if address_id is not None:
+                address_id = str(address_id)
+            else:
+                # Fall back to using lat/lon as a pseudo address_id
+                address_id = f"loc_{round(lat_f, 6)}_{round(lon_f, 6)}"
+
             route_ids = self._extract_route_ids(stop)
             approach_sets = self._parse_approach_sets(stop.get("ApproachSets"))
 
+            if address_id not in address_groups:
+                address_groups[address_id] = {
+                    "stop_id": str(stop_id),  # Use the first stop_id we see
+                    "lat": lat_f,
+                    "lon": lon_f,
+                    "route_ids": set(),
+                    "approach_sets": [],
+                    "address_id": address_id,
+                }
+
+            # Merge route IDs from all stops at this physical location
+            address_groups[address_id]["route_ids"].update(route_ids)
+
+            # Merge approach sets (avoid duplicates)
+            if approach_sets:
+                existing_sets = address_groups[address_id]["approach_sets"]
+                for new_set in approach_sets:
+                    # Check if this approach set is already added (by name)
+                    if not any(s.name == new_set.name for s in existing_sets):
+                        existing_sets.append(new_set)
+
+        # Create StopPoint objects from merged address groups
+        updated: List[StopPoint] = []
+        for addr_id, data in address_groups.items():
             updated.append(
                 StopPoint(
-                    stop_id=str(stop_id),
-                    lat=lat_f,
-                    lon=lon_f,
-                    route_ids=route_ids,
-                    approach_sets=approach_sets,
+                    stop_id=data["stop_id"],
+                    lat=data["lat"],
+                    lon=data["lon"],
+                    route_ids=data["route_ids"],
+                    approach_sets=data["approach_sets"] if data["approach_sets"] else None,
+                    address_id=data["address_id"],
                 )
             )
 
-        # Merge route IDs for stops at the same location
-        location_routes: Dict[Tuple[float, float], Set[str]] = {}
-        for stop in updated:
-            key = (round(stop.lat, 6), round(stop.lon, 6))
-            if key not in location_routes:
-                location_routes[key] = set()
-            location_routes[key].update(stop.route_ids)
-
-        for stop in updated:
-            key = (round(stop.lat, 6), round(stop.lon, 6))
-            stop.route_ids = set(stop.route_ids) | location_routes.get(key, set())
-
         self.stops = updated
         self.stop_lookup = {stop.stop_id: stop for stop in updated}
+        # Also create lookup by address_id for quick access
+        self.address_lookup: Dict[str, StopPoint] = {stop.address_id: stop for stop in updated if stop.address_id}
         if not updated:
             print("[headway] stop update received no stops; tracker inputs unavailable")
+        else:
+            print(f"[headway] loaded {len(updated)} physical stops from {len(list(stops))} stop entries")
 
     def _parse_approach_sets(self, raw_sets: Any) -> Optional[List[ApproachSet]]:
         """Parse approach sets from stop data."""
@@ -253,6 +282,10 @@ class HeadwayTracker:
 
         events: List[HeadwayEvent] = []
 
+        # Deduplicate snapshots by vehicle_id - same vehicle can appear multiple times
+        # if it's assigned to multiple routes. We only want to process each vehicle once.
+        seen_vehicle_ids: Set[str] = set()
+
         for snap in snapshots:
             if snap.lat is None or snap.lon is None:
                 continue
@@ -260,6 +293,11 @@ class HeadwayTracker:
             vid = self._normalize_id(snap.vehicle_id)
             if vid is None:
                 continue
+
+            # Skip if we've already processed this vehicle in this batch
+            if vid in seen_vehicle_ids:
+                continue
+            seen_vehicle_ids.add(vid)
 
             route_id = self._normalize_id(snap.route_id)
             if self.tracked_route_ids and (route_id is None or route_id not in self.tracked_route_ids):
@@ -347,20 +385,14 @@ class HeadwayTracker:
         stops_with_arrival_this_cycle: Set[str] = set()
         stops_with_departure_this_cycle: Set[str] = set()
 
-        # Track which stop_ids we've already processed to avoid duplicates
-        # (same stop_id can appear multiple times in self.stops for different routes)
-        processed_stop_ids: Set[str] = set()
-
         for stop in self.stops:
-            # Skip if we've already processed this stop_id
-            if stop.stop_id in processed_stop_ids:
-                continue
-            processed_stop_ids.add(stop.stop_id)
-
             if not stop.approach_sets:
                 continue
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
                 continue
+
+            # IMPORTANT: Only process stops that this bus's route actually serves
+            # This prevents logging arrivals when a bus passes a stop it doesn't serve
             if route_id and stop.route_ids and route_id not in stop.route_ids:
                 continue
 

@@ -4,7 +4,8 @@
       "Bash(python:*)",
       "Bash(node --check:*)",
       "Bash(fly logs:*)",
-      "Bash(flyctl logs:*)"
+      "Bash(flyctl logs:*)",
+      "Bash(dir:*)"
     ]
   }
 }
