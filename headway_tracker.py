@@ -502,7 +502,8 @@ class HeadwayTracker:
                                         progress.arrival_time = timestamp
                                         stops_with_arrival_this_cycle.add(stop.stop_id)
                                         event = self._create_arrival_event(
-                                            vid, snap, stop.stop_id, route_id, timestamp
+                                            vid, snap, stop.stop_id, route_id, timestamp,
+                                            arrival_type="stopped"
                                         )
                                         events.append(event)
                                         self._log_bubble_activation(
@@ -519,7 +520,8 @@ class HeadwayTracker:
                                     progress.arrival_time = timestamp
                                     stops_with_arrival_this_cycle.add(stop.stop_id)
                                     event = self._create_arrival_event(
-                                        vid, snap, stop.stop_id, route_id, timestamp
+                                        vid, snap, stop.stop_id, route_id, timestamp,
+                                        arrival_type="passthrough"
                                     )
                                     events.append(event)
                                     self._log_bubble_activation(
@@ -567,7 +569,8 @@ class HeadwayTracker:
                                 progress.arrival_time = timestamp
                                 stops_with_arrival_this_cycle.add(stop.stop_id)
                                 event = self._create_arrival_event(
-                                    vid, snap, stop.stop_id, route_id, timestamp
+                                    vid, snap, stop.stop_id, route_id, timestamp,
+                                    arrival_type="passthrough"
                                 )
                                 events.append(event)
                                 self._log_bubble_activation(
@@ -656,8 +659,13 @@ class HeadwayTracker:
         stop_id: str,
         route_id: Optional[str],
         timestamp: datetime,
+        arrival_type: str = "stopped",
     ) -> HeadwayEvent:
-        """Create an arrival event and update headway tracking."""
+        """Create an arrival event and update headway tracking.
+
+        Args:
+            arrival_type: "stopped" if bus stopped in final bubble, "passthrough" if it passed through
+        """
         # Check for duplicate
         arrival_key = (vid, stop_id, route_id)
         prev_arrival = self.last_vehicle_arrival.get(arrival_key)
@@ -678,7 +686,7 @@ class HeadwayTracker:
         address_id = stop_point.address_id if stop_point else None
         stop_name = stop_point.stop_name if stop_point else None
 
-        print(f"[headway] arrival: vehicle={vid} stop={stop_id} route={route_id} block={block}")
+        print(f"[headway] arrival: vehicle={vid} stop={stop_id} route={route_id} block={block} type={arrival_type}")
 
         return HeadwayEvent(
             timestamp=timestamp,
@@ -694,6 +702,7 @@ class HeadwayTracker:
             address_id=address_id,
             stop_name=stop_name,
             block=block,
+            arrival_type=arrival_type,
         )
 
     def _create_departure_event(
@@ -975,6 +984,12 @@ class HeadwayTracker:
                             {"lat": b.lat, "lon": b.lon, "radius_m": b.radius_m, "order": b.order}
                             for b in stop.approach_sets[progress.set_index].bubbles
                         ]
+                    # Determine arrival_type for this state
+                    # If arrival has been logged, show whether it was stopped or passthrough
+                    # If still in progress, show current status
+                    arrival_type = None
+                    if progress.arrival_logged:
+                        arrival_type = "stopped" if progress.stopped_in_final else "passthrough"
                     states.append({
                         "vehicle_id": vid,
                         "stop_id": stop_id,
@@ -985,6 +1000,7 @@ class HeadwayTracker:
                         "in_final_bubble": progress.in_final_bubble,
                         "stopped_in_final": progress.stopped_in_final,
                         "arrival_logged": progress.arrival_logged,
+                        "arrival_type": arrival_type,
                         "last_seen": self._isoformat(progress.last_seen),
                         "entered_at": self._isoformat(progress.entered_at),
                         "bubbles": bubbles,

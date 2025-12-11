@@ -48,6 +48,9 @@ class HeadwayEvent:
     address_id: Optional[str] = None
     stop_name: Optional[str] = None
     block: Optional[str] = None
+    # Arrival type: "stopped" if bus stopped in final bubble, "passthrough" if it passed through
+    # Only populated for arrival events
+    arrival_type: Optional[str] = None
 
     def to_row(self) -> List[str]:
         return [
@@ -60,6 +63,7 @@ class HeadwayEvent:
             self.vehicle_name or "",
             self.block or "",
             self.event_type,
+            self.arrival_type or "",
             ""
             if self.headway_arrival_arrival is None
             else f"{self.headway_arrival_arrival:.3f}",
@@ -81,6 +85,7 @@ class HeadwayEvent:
             "vehicle_name": self.vehicle_name,
             "block": self.block,
             "event_type": self.event_type,
+            "arrival_type": self.arrival_type,
             "headway_arrival_arrival": self.headway_arrival_arrival,
             "headway_departure_arrival": self.headway_departure_arrival,
             # Backwards compatibility for consumers expecting the legacy key.
@@ -161,16 +166,18 @@ class HeadwayStorage:
                         continue
 
                     # Detect format by column count
-                    # New format (12 cols): timestamp, route_id, route_name, address_id, stop_name,
-                    #                       vehicle_id, vehicle_name, block, event_type, headway_aa, headway_da, dwell
+                    # New format (13 cols): timestamp, route_id, route_name, address_id, stop_name,
+                    #                       vehicle_id, vehicle_name, block, event_type, arrival_type,
+                    #                       headway_aa, headway_da, dwell
                     # Old format (9 cols): timestamp, route_id, stop_id, vehicle_id, vehicle_name,
                     #                      event_type, headway_aa, headway_da, dwell
                     # Oldest format (8 cols): timestamp, route_id, stop_id, vehicle_id,
                     #                         event_type, headway_aa, headway_da, dwell
-                    is_new_format = len(row) >= 12 or (len(row) >= 9 and row[8] in ("arrival", "departure"))
+                    is_new_format = len(row) >= 13 or (len(row) >= 9 and row[8] in ("arrival", "departure"))
 
+                    arrival_type = None
                     if is_new_format:
-                        # New format with route_name, address_id, stop_name, block
+                        # New format with route_name, address_id, stop_name, block, arrival_type
                         route_id = row[1] or None
                         route_name = row[2] or None
                         address_id = row[3] or None
@@ -179,6 +186,9 @@ class HeadwayStorage:
                         vehicle_name = row[6] or None
                         block = row[7] or None
                         event_type = row[8] if len(row) > 8 else ""
+                        arrival_type = row[9] if len(row) > 9 else None
+                        if arrival_type == "":
+                            arrival_type = None
                         # For filtering, we use address_id as the stop identifier
                         # but fall back to stop_id behavior if address_id is missing
                         stop_id = address_id  # Use address_id as the canonical stop identifier
@@ -211,9 +221,9 @@ class HeadwayStorage:
                     dwell_seconds = None
 
                     if is_new_format:
-                        headway_arrival_idx = 9
-                        headway_departure_idx = 10
-                        dwell_idx = 11
+                        headway_arrival_idx = 10
+                        headway_departure_idx = 11
+                        dwell_idx = 12
                     else:
                         if len(row) >= 9:
                             headway_arrival_idx = 6
@@ -269,6 +279,7 @@ class HeadwayStorage:
                             address_id=address_id,
                             stop_name=stop_name,
                             block=block,
+                            arrival_type=arrival_type,
                         )
                     )
         events.sort(key=lambda e: e.timestamp)

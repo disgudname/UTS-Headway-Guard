@@ -736,9 +736,11 @@ TM.registerVisibilityResumeHandler(() => {
         toastContainer: null,
         confettiCanvas: null,
         celebrationAudio: null,
-        celebrationSoundPlaying: false,
-        preloadedCelebrationAudios: [],
-        celebrationSounds: ['/media/arrivalsounds/KidsCheering.mp3'],
+        // Separate sound arrays for passthrough vs stopped arrivals
+        passthroughSounds: [],
+        stoppedSounds: [],
+        preloadedPassthroughAudios: [],
+        preloadedStoppedAudios: [],
         pollInterval: null,
       };
       let dispatcherConfig = null;
@@ -19394,9 +19396,8 @@ ${trainPlaneMarkup}
           bubbleVisualizationState.celebrationAudio = celebrationAudio;
         }
 
-        preloadCelebrationAudios(bubbleVisualizationState.celebrationSounds);
-
-        loadCelebrationSounds();
+        // Load arrival sounds from passthrough and stopped subfolders
+        loadArrivalSounds();
 
         // Start polling for bubble states
         bubbleVisualizationState.pollInterval = setInterval(fetchBubbleStates, 1000);
@@ -19603,78 +19604,78 @@ ${trainPlaneMarkup}
           isPassthrough ? '#f97316' : '#22c55e'
         );
 
-        // Show confetti for both actual stops and pass-throughs
-        playCelebrationSound();
+        // Play sound based on arrival type (passthrough vs stopped)
+        playArrivalSound(isPassthrough ? 'passthrough' : 'stopped');
         showConfetti(activation.lat, activation.lon);
 
         // Add sparkle effect to the final bubble
         addSparkleEffect(activation.lat, activation.lon);
       }
 
-      function playCelebrationSound() {
-        // Block immediately if a sound is already playing - no queuing, just skip
-        if (bubbleVisualizationState.celebrationSoundPlaying) return;
+      function playArrivalSound(arrivalType) {
+        // arrivalType: 'passthrough' or 'stopped'
+        // Allow unlimited concurrent audio playback - no blocking
 
-        // Set flag immediately to block any other calls while we set up
-        bubbleVisualizationState.celebrationSoundPlaying = true;
+        const preloadedSounds = arrivalType === 'passthrough'
+          ? bubbleVisualizationState.preloadedPassthroughAudios
+          : bubbleVisualizationState.preloadedStoppedAudios;
 
-        const { celebrationAudio, preloadedCelebrationAudios, celebrationSounds } = bubbleVisualizationState;
+        const fallbackSounds = arrivalType === 'passthrough'
+          ? bubbleVisualizationState.passthroughSounds
+          : bubbleVisualizationState.stoppedSounds;
 
-        const availableSounds = Array.isArray(preloadedCelebrationAudios) && preloadedCelebrationAudios.length > 0
-          ? preloadedCelebrationAudios
+        // Select a random sound from the preloaded list
+        const availableSounds = Array.isArray(preloadedSounds) && preloadedSounds.length > 0
+          ? preloadedSounds
           : null;
 
         const selected = availableSounds
           ? availableSounds[Math.floor(Math.random() * availableSounds.length)]
           : null;
 
-        const fallbackSound = Array.isArray(celebrationSounds) && celebrationSounds.length > 0
-          ? celebrationSounds[0]
+        const fallbackSound = Array.isArray(fallbackSounds) && fallbackSounds.length > 0
+          ? fallbackSounds[Math.floor(Math.random() * fallbackSounds.length)]
           : null;
 
-        const targetAudio = selected && selected.audio ? selected.audio : celebrationAudio;
         const targetSrc = selected && selected.url ? selected.url : fallbackSound;
 
-        // If no audio available, reset flag and bail
-        if (!targetAudio || !targetSrc) {
-          bubbleVisualizationState.celebrationSoundPlaying = false;
+        // If no sound available, bail
+        if (!targetSrc) {
+          console.warn(`[bubbles] No ${arrivalType} sounds available`);
           return;
         }
 
         try {
-          if (targetAudio.src !== targetSrc) {
-            targetAudio.src = targetSrc;
-          }
-          targetAudio.currentTime = 0;
-
-          const resetPlaybackState = () => {
-            bubbleVisualizationState.celebrationSoundPlaying = false;
-            targetAudio.removeEventListener('ended', resetPlaybackState);
-            targetAudio.removeEventListener('error', resetPlaybackState);
-          };
-
-          targetAudio.addEventListener('ended', resetPlaybackState, { once: true });
-          targetAudio.addEventListener('error', resetPlaybackState, { once: true });
-
-          const playPromise = targetAudio.play();
-          if (playPromise && typeof playPromise.catch === 'function') {
-            playPromise.catch(err => {
-              resetPlaybackState();
-              console.warn('[bubbles] Failed to play celebration audio:', err);
-            });
-          }
+          // Create a new Audio object for each playback to allow concurrent sounds
+          const audio = new Audio(targetSrc);
+          audio.play().catch(err => {
+            console.warn(`[bubbles] Failed to play ${arrivalType} audio:`, err);
+          });
         } catch (err) {
-          bubbleVisualizationState.celebrationSoundPlaying = false;
-          console.warn('[bubbles] Failed to play celebration audio:', err);
+          console.warn(`[bubbles] Failed to play ${arrivalType} audio:`, err);
         }
       }
 
-      async function loadCelebrationSounds() {
+      async function loadArrivalSounds() {
         const basePath = '/media/arrivalsounds/';
-        const fallback = `${basePath}KidsCheering.mp3`;
 
+        // Load sounds from both passthrough and stopped subfolders
+        const passthroughSounds = await loadSoundsFromFolder(`${basePath}passthrough/`);
+        const stoppedSounds = await loadSoundsFromFolder(`${basePath}stopped/`);
+
+        bubbleVisualizationState.passthroughSounds = passthroughSounds;
+        bubbleVisualizationState.stoppedSounds = stoppedSounds;
+
+        // Preload both sets
+        bubbleVisualizationState.preloadedPassthroughAudios = preloadAudios(passthroughSounds);
+        bubbleVisualizationState.preloadedStoppedAudios = preloadAudios(stoppedSounds);
+
+        console.log(`[bubbles] Loaded ${passthroughSounds.length} passthrough sounds, ${stoppedSounds.length} stopped sounds`);
+      }
+
+      async function loadSoundsFromFolder(folderPath) {
         try {
-          const response = await fetch(basePath, {
+          const response = await fetch(folderPath, {
             headers: { 'Accept': 'application/json' }
           });
 
@@ -19708,25 +19709,20 @@ ${trainPlaneMarkup}
               if (seen.has(lower)) continue;
 
               seen.add(lower);
-              soundUrls.push(`${basePath}${encodeURIComponent(trimmed)}`);
+              soundUrls.push(`${folderPath}${encodeURIComponent(trimmed)}`);
             }
 
-            if (soundUrls.length > 0) {
-              bubbleVisualizationState.celebrationSounds = soundUrls;
-              preloadCelebrationAudios(soundUrls);
-              return;
-            }
+            return soundUrls;
           }
         } catch (err) {
-          console.warn('[bubbles] Unable to load celebration sounds:', err);
+          console.warn(`[bubbles] Unable to load sounds from ${folderPath}:`, err);
         }
 
-        bubbleVisualizationState.celebrationSounds = [fallback];
-        preloadCelebrationAudios([fallback]);
+        return [];
       }
 
-      function preloadCelebrationAudios(soundUrls) {
-        if (!Array.isArray(soundUrls) || soundUrls.length === 0) return;
+      function preloadAudios(soundUrls) {
+        if (!Array.isArray(soundUrls) || soundUrls.length === 0) return [];
 
         const preloaded = [];
         for (const url of soundUrls) {
@@ -19737,11 +19733,11 @@ ${trainPlaneMarkup}
             audio.load();
             preloaded.push({ url, audio });
           } catch (err) {
-            console.warn('[bubbles] Failed to preload celebration audio:', err);
+            console.warn('[bubbles] Failed to preload audio:', err);
           }
         }
 
-        bubbleVisualizationState.preloadedCelebrationAudios = preloaded;
+        return preloaded;
       }
 
       function showBubbleToast(title, subtitle, color) {

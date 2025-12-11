@@ -8473,12 +8473,17 @@ async def media_asset(asset_name: str):
     return FileResponse(path, media_type=media_type)
 
 
-def _arrival_sound_files() -> list[str]:
-    if not ARRIVAL_SOUNDS_DIR.exists():
+def _arrival_sound_files(subdir: Optional[str] = None) -> list[str]:
+    """List MP3 files in the arrivalsounds directory or a subdirectory."""
+    target_dir = ARRIVAL_SOUNDS_DIR
+    if subdir:
+        target_dir = ARRIVAL_SOUNDS_DIR / subdir
+
+    if not target_dir.exists():
         return []
 
     files: list[str] = []
-    for entry in sorted(ARRIVAL_SOUNDS_DIR.iterdir()):
+    for entry in sorted(target_dir.iterdir()):
         if not entry.is_file():
             continue
 
@@ -8515,6 +8520,64 @@ async def arrival_sound_file(filename: str):
         raise HTTPException(status_code=404, detail="Media asset not found")
 
     path = ARRIVAL_SOUNDS_DIR / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    return FileResponse(path, media_type="audio/mpeg")
+
+
+@app.get("/media/arrivalsounds/passthrough/", include_in_schema=False)
+async def arrival_sounds_passthrough_listing(request: Request):
+    """List MP3 files in the passthrough subfolder."""
+    files = _arrival_sound_files("passthrough")
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"files": files})
+
+    links = "\n".join(
+        f'<a href="{quote(name)}">{name}</a><br>'
+        for name in files
+    ) or "<p>No sounds available</p>"
+    return HTMLResponse(content=f"<html><body>{links}</body></html>")
+
+
+@app.get("/media/arrivalsounds/passthrough/{filename}", include_in_schema=False)
+async def arrival_sound_passthrough_file(filename: str):
+    """Serve an MP3 file from the passthrough subfolder."""
+    safe_name = Path(filename).name
+    lower = safe_name.lower()
+    if lower == "afile" or not lower.endswith(".mp3"):
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    path = ARRIVAL_SOUNDS_DIR / "passthrough" / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    return FileResponse(path, media_type="audio/mpeg")
+
+
+@app.get("/media/arrivalsounds/stopped/", include_in_schema=False)
+async def arrival_sounds_stopped_listing(request: Request):
+    """List MP3 files in the stopped subfolder."""
+    files = _arrival_sound_files("stopped")
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"files": files})
+
+    links = "\n".join(
+        f'<a href="{quote(name)}">{name}</a><br>'
+        for name in files
+    ) or "<p>No sounds available</p>"
+    return HTMLResponse(content=f"<html><body>{links}</body></html>")
+
+
+@app.get("/media/arrivalsounds/stopped/{filename}", include_in_schema=False)
+async def arrival_sound_stopped_file(filename: str):
+    """Serve an MP3 file from the stopped subfolder."""
+    safe_name = Path(filename).name
+    lower = safe_name.lower()
+    if lower == "afile" or not lower.endswith(".mp3"):
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    path = ARRIVAL_SOUNDS_DIR / "stopped" / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="Media asset not found")
 
