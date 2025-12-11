@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -12,45 +12,33 @@ import os
 from headway_storage import HeadwayEvent, HeadwayStorage
 
 
-HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
+# Configuration constants
 DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
+
+# Speed threshold for considering a bus "stopped" (meters per second)
 STOP_SPEED_THRESHOLD_MPS = 0.5
-MOVEMENT_CONFIRMATION_DISPLACEMENT_M = 2.0
-MOVEMENT_CONFIRMATION_MIN_DURATION_S = 20.0
-QUICK_DEPARTURE_MIN_DURATION_S = 5.0
-STOP_ASSOCIATION_HYSTERESIS_M = 15.0  # Extra distance needed to disassociate from a stop
-SPEED_HISTORY_SIZE = 3  # Number of speed samples to track for noise filtering
-BUBBLE_PROGRESS_STALE_SECONDS = 120.0  # Drop bubble state if we have not heard from the vehicle
+
+# How long before we drop stale bubble tracking state
+BUBBLE_PROGRESS_STALE_SECONDS = 120.0
 
 
 @dataclass
 class VehicleSnapshot:
+    """A single position report for a vehicle."""
     vehicle_id: Optional[str]
     vehicle_name: Optional[str]
     lat: float
     lon: float
     route_id: Optional[str]
-    timestamp: datetime
+    timestamp: datetime  # This should be the fetch start time, NOT TransLoc's timestamp
     heading_deg: Optional[float] = None
 
 
 @dataclass
-class VehiclePresence:
-    current_stop_id: Optional[str] = None
-    arrival_time: Optional[datetime] = None
-    route_id: Optional[str] = None
-    departure_started_at: Optional[datetime] = None
-    speed_history: List[float] = None  # Recent speed samples for noise filtering
-
-    def __post_init__(self):
-        if self.speed_history is None:
-            self.speed_history = []
-
-
-@dataclass
 class ApproachBubble:
+    """A single bubble in an approach set."""
     lat: float
     lon: float
     radius_m: float
@@ -59,12 +47,14 @@ class ApproachBubble:
 
 @dataclass
 class ApproachSet:
+    """An ordered set of approach bubbles for a stop."""
     name: str
     bubbles: List[ApproachBubble]
 
 
 @dataclass
 class StopPoint:
+    """A transit stop with optional approach bubble sets."""
     stop_id: str
     lat: float
     lon: float
@@ -74,60 +64,103 @@ class StopPoint:
 
 @dataclass
 class BubbleProgressState:
-    """Tracks a vehicle's progress through an approach bubble set."""
+    """
+    Tracks a vehicle's progress through an approach bubble set.
+
+    State machine:
+    1. Vehicle enters bubble #1 -> tracking begins
+    2. Vehicle progresses through bubbles in order (1 -> 2 -> ... -> N)
+    3. Vehicle enters final bubble (N):
+       - If bus stops -> log arrival immediately
+       - If bus exits without stopping -> log arrival at exit time
+    4. Vehicle exits final bubble -> log departure
+    """
     stop_id: str
-    set_index: int  # Which approach set is being tracked
+    set_index: int
     set_name: str
-    highest_bubble_reached: int  # Highest bubble order number reached (1 = first/outermost)
-    max_bubble_order: int  # The highest bubble order in this set (the stop bubble)
+    max_bubble_order: int  # The highest bubble order in this set (the final/stop bubble)
     route_id: Optional[str]
-    entered_at: datetime
-    last_seen: datetime
-    next_expected_order: int = 1  # Next bubble order required for valid progression
-    in_final_bubble: bool = False  # Currently in the stop bubble
-    entered_final_at: Optional[datetime] = None  # When entered final bubble
-    left_final_at: Optional[datetime] = None  # When exited the final bubble
-    stopped_in_final: bool = False  # Has the bus stopped in the final bubble
-    stopped_at: Optional[datetime] = None  # When the bus stopped
-    arrival_logged: bool = False  # Whether arrival has been logged for this approach
+    entered_at: datetime  # When first bubble was entered
+    last_seen: datetime  # Last time we saw this vehicle in any bubble of this set
+
+    # Progress tracking
+    highest_bubble_reached: int = 1  # Highest bubble order number reached
+    next_expected_order: int = 2  # Next bubble order required for valid progression
+
+    # Final bubble state
+    in_final_bubble: bool = False
+    entered_final_at: Optional[datetime] = None
+
+    # Arrival tracking
+    stopped_in_final: bool = False  # Has the bus stopped in the final bubble?
+    arrival_logged: bool = False
+    arrival_time: Optional[datetime] = None  # When arrival was logged
+
+    # Departure tracking
+    departure_logged: bool = False
 
 
 class HeadwayTracker:
+    """
+    Tracks vehicle arrivals and departures at stops using approach bubbles.
+
+    Arrival detection:
+    - Method 1: Bus traverses bubbles in order, stops in final bubble -> arrival logged when stopped
+    - Method 2: Bus traverses bubbles in order, passes through final bubble -> arrival logged when exiting
+
+    Departure detection:
+    - Logged when bus exits the final bubble (after arrival has been logged)
+
+    All timestamps use the fetch start time from TransLoc, not TransLoc's internal timestamps.
+    """
+
     def __init__(
         self,
         storage: HeadwayStorage,
         *,
-        arrival_distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
-        departure_distance_threshold_m: float = HEADWAY_DISTANCE_THRESHOLD_M,
+        arrival_distance_threshold_m: float = 60.0,
+        departure_distance_threshold_m: float = 60.0,
         tracked_route_ids: Optional[Set[str]] = None,
         tracked_stop_ids: Optional[Set[str]] = None,
     ):
         self.storage = storage
-        self.arrival_distance_threshold_m = min(arrival_distance_threshold_m, departure_distance_threshold_m)
-        self.departure_distance_threshold_m = max(arrival_distance_threshold_m, departure_distance_threshold_m)
+        self.arrival_distance_threshold_m = arrival_distance_threshold_m
+        self.departure_distance_threshold_m = departure_distance_threshold_m
         self.tracked_route_ids = tracked_route_ids or set()
         self.tracked_stop_ids = tracked_stop_ids or set()
-        self.vehicle_states: Dict[str, VehiclePresence] = {}
-        self.last_arrival: Dict[Tuple[str, str], datetime] = {}
-        self.last_departure: Dict[Tuple[str, str], datetime] = {}
-        self.last_vehicle_arrival: Dict[Tuple[str, str, Optional[str]], datetime] = {}
-        self.last_vehicle_departure: Dict[Tuple[str, str, Optional[str]], datetime] = {}
+
+        # Stop data
         self.stops: List[StopPoint] = []
         self.stop_lookup: Dict[str, StopPoint] = {}
+
+        # Bubble progress tracking: {vehicle_id: {stop_id: {set_idx: BubbleProgressState}}}
+        self.vehicle_bubble_progress: Dict[str, Dict[str, Dict[int, BubbleProgressState]]] = {}
+
+        # Last snapshots for speed calculation
+        self.last_snapshots: Dict[str, VehicleSnapshot] = {}
+
+        # Headway calculation: track last arrival/departure times
+        self.last_arrival: Dict[Tuple[Optional[str], str], datetime] = {}  # (route_id, stop_id) -> time
+        self.last_departure: Dict[Tuple[Optional[str], str], datetime] = {}
+        self.last_vehicle_arrival: Dict[Tuple[str, str, Optional[str]], datetime] = {}  # (vid, stop_id, route_id) -> time
+        self.last_vehicle_departure: Dict[Tuple[str, str, Optional[str]], datetime] = {}
+
+        # Diagnostics
         self.recent_stop_association_failures: deque = deque(maxlen=25)
         self.recent_snapshot_diagnostics: deque = deque(maxlen=50)
-        self.last_snapshots: Dict[str, VehicleSnapshot] = {}
-        self.final_bubble_exits: Dict[Tuple[str, str], datetime] = {}
-        # Bubble-based approach tracking: {vehicle_id: {stop_id: {set_idx: BubbleProgressState}}}
-        self.vehicle_bubble_progress: Dict[str, Dict[str, Dict[int, BubbleProgressState]]] = {}
-        # Recent bubble activations for visualization (exposed via API)
         self.recent_bubble_activations: deque = deque(maxlen=100)
+
+        # Legacy compatibility - these aren't used in new logic but kept for API compatibility
+        self.vehicle_states: Dict[str, Any] = {}
+        self.final_bubble_exits: Dict[Tuple[str, str], datetime] = {}
+
         print(
             f"[headway] tracker initialized routes={sorted(self.tracked_route_ids) if self.tracked_route_ids else 'all'} "
             f"stops={sorted(self.tracked_stop_ids) if self.tracked_stop_ids else 'all'}"
         )
 
     def update_stops(self, stops: Iterable[dict]) -> None:
+        """Update the list of stops from TransLoc data."""
         updated: List[StopPoint] = []
         for stop in stops:
             stop_id = stop.get("StopID") or stop.get("StopId")
@@ -148,33 +181,10 @@ class HeadwayTracker:
                 lon_f = float(lon)
             except (TypeError, ValueError):
                 continue
+
             route_ids = self._extract_route_ids(stop)
-            # Parse approach sets (bubble configurations)
-            approach_sets: Optional[List[ApproachSet]] = None
-            raw_sets = stop.get("ApproachSets")
-            if raw_sets and isinstance(raw_sets, list):
-                approach_sets = []
-                for raw_set in raw_sets:
-                    if not isinstance(raw_set, dict):
-                        continue
-                    set_name = raw_set.get("name", "")
-                    raw_bubbles = raw_set.get("bubbles", [])
-                    if not raw_bubbles:
-                        continue
-                    bubbles: List[ApproachBubble] = []
-                    for raw_bubble in raw_bubbles:
-                        if not isinstance(raw_bubble, dict):
-                            continue
-                        b_lat = _parse_float(raw_bubble.get("lat"))
-                        b_lng = _parse_float(raw_bubble.get("lng"))
-                        b_radius = _parse_float(raw_bubble.get("radius_m")) or 25.0
-                        b_order = raw_bubble.get("order", len(bubbles) + 1)
-                        if b_lat is not None and b_lng is not None:
-                            bubbles.append(ApproachBubble(lat=b_lat, lon=b_lng, radius_m=b_radius, order=int(b_order)))
-                    if bubbles:
-                        # Sort by order
-                        bubbles.sort(key=lambda b: b.order)
-                        approach_sets.append(ApproachSet(name=set_name, bubbles=bubbles))
+            approach_sets = self._parse_approach_sets(stop.get("ApproachSets"))
+
             updated.append(
                 StopPoint(
                     stop_id=str(stop_id),
@@ -185,10 +195,7 @@ class HeadwayTracker:
                 )
             )
 
-        # Merge route IDs across stops that share the same physical location. Some
-        # providers, like TransLoc, emit unique stop IDs per route even when the
-        # latitude/longitude are identical. Without merging, vehicles can be inside
-        # the arrival radius but still hit a route_mismatch diagnostic.
+        # Merge route IDs for stops at the same location
         location_routes: Dict[Tuple[float, float], Set[str]] = {}
         for stop in updated:
             key = (round(stop.lat, 6), round(stop.lon, 6))
@@ -198,174 +205,85 @@ class HeadwayTracker:
 
         for stop in updated:
             key = (round(stop.lat, 6), round(stop.lon, 6))
-            merged_routes = set(stop.route_ids)
-            merged_routes.update(location_routes.get(key, set()))
-            stop.route_ids = merged_routes
+            stop.route_ids = set(stop.route_ids) | location_routes.get(key, set())
 
         self.stops = updated
         self.stop_lookup = {stop.stop_id: stop for stop in updated}
         if not updated:
             print("[headway] stop update received no stops; tracker inputs unavailable")
 
+    def _parse_approach_sets(self, raw_sets: Any) -> Optional[List[ApproachSet]]:
+        """Parse approach sets from stop data."""
+        if not raw_sets or not isinstance(raw_sets, list):
+            return None
+
+        approach_sets: List[ApproachSet] = []
+        for raw_set in raw_sets:
+            if not isinstance(raw_set, dict):
+                continue
+            set_name = raw_set.get("name", "")
+            raw_bubbles = raw_set.get("bubbles", [])
+            if not raw_bubbles:
+                continue
+
+            bubbles: List[ApproachBubble] = []
+            for raw_bubble in raw_bubbles:
+                if not isinstance(raw_bubble, dict):
+                    continue
+                b_lat = _parse_float(raw_bubble.get("lat"))
+                b_lng = _parse_float(raw_bubble.get("lng"))
+                b_radius = _parse_float(raw_bubble.get("radius_m")) or 25.0
+                b_order = raw_bubble.get("order", len(bubbles) + 1)
+                if b_lat is not None and b_lng is not None:
+                    bubbles.append(ApproachBubble(lat=b_lat, lon=b_lng, radius_m=b_radius, order=int(b_order)))
+
+            if bubbles:
+                bubbles.sort(key=lambda b: b.order)
+                approach_sets.append(ApproachSet(name=set_name, bubbles=bubbles))
+
+        return approach_sets if approach_sets else None
+
     def process_snapshots(self, snapshots: Sequence[VehicleSnapshot]) -> None:
+        """Process a batch of vehicle snapshots and detect arrivals/departures."""
         if not self.stops:
             return
+
         events: List[HeadwayEvent] = []
+
         for snap in snapshots:
             if snap.lat is None or snap.lon is None:
                 continue
-            route_id_norm = self._normalize_id(snap.route_id)
-            if self.tracked_route_ids and (route_id_norm is None or route_id_norm not in self.tracked_route_ids):
-                continue
-            current_stop = self._nearest_stop(
-                snap.lat,
-                snap.lon,
-                route_id_norm,
-                threshold=self.arrival_distance_threshold_m,
-                heading_deg=snap.heading_deg,
-            )
+
             vid = self._normalize_id(snap.vehicle_id)
             if vid is None:
                 continue
-            if current_stop is None:
-                self._log_stop_association_failure(snap, route_id_norm)
-            prev_state = self.vehicle_states.get(vid, VehiclePresence())
-            prev_stop = prev_state.current_stop_id
-            distance_from_prev_stop = self._distance_to_stop(prev_stop, snap.lat, snap.lon)
-            timestamp = snap.timestamp if snap.timestamp.tzinfo else snap.timestamp.replace(tzinfo=timezone.utc)
-            timestamp = timestamp.astimezone(timezone.utc)
+
+            route_id = self._normalize_id(snap.route_id)
+            if self.tracked_route_ids and (route_id is None or route_id not in self.tracked_route_ids):
+                continue
+
+            # Normalize timestamp to UTC
+            timestamp = snap.timestamp
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            else:
+                timestamp = timestamp.astimezone(timezone.utc)
             snap.timestamp = timestamp
-            prev_snap = self.last_snapshots.get(vid)
 
-            delta_seconds = None
-            speed_mps = None
-            raw_speed_mps = None
-            if prev_snap:
-                delta_seconds = (timestamp - prev_snap.timestamp).total_seconds()
-                if delta_seconds > 0:
-                    movement_distance = self._haversine(prev_snap.lat, prev_snap.lon, snap.lat, snap.lon)
-                    raw_speed_mps = movement_distance / delta_seconds
-                    # Apply GPS noise filtering using median of recent speeds
-                    speed_mps = self._calculate_filtered_speed(prev_state.speed_history, raw_speed_mps)
+            # Calculate speed from previous snapshot
+            speed_mps = self._calculate_speed(vid, snap)
 
-            # Track bubble-based arrivals
-            bubble_arrival = self._track_bubble_progress(vid, snap, route_id_norm, speed_mps, raw_speed_mps)
-            if bubble_arrival:
-                bubble_stop_id, bubble_route_id, bubble_arrival_time, bubble_dwell = bubble_arrival
-                # Log the bubble-based arrival
-                arrival_key = (vid, bubble_stop_id, bubble_route_id)
-                prev_vehicle_arrival = self.last_vehicle_arrival.get(arrival_key)
-                prev_vehicle_departure = self.last_vehicle_departure.get(arrival_key)
-                duplicate = prev_vehicle_arrival is not None and (
-                    prev_vehicle_departure is None or prev_vehicle_departure <= prev_vehicle_arrival
-                )
-                if not duplicate:
-                    headway_aa, headway_da = self._record_arrival_headways(bubble_route_id, bubble_stop_id, bubble_arrival_time)
-                    prev_state = VehiclePresence(
-                        current_stop_id=bubble_stop_id,
-                        arrival_time=bubble_arrival_time,
-                        route_id=bubble_route_id or route_id_norm,
-                        departure_started_at=None,
-                        speed_history=prev_state.speed_history,
-                    )
-                    events.append(
-                        HeadwayEvent(
-                            timestamp=bubble_arrival_time,
-                            route_id=bubble_route_id,
-                            stop_id=bubble_stop_id,
-                            vehicle_id=vid,
-                            vehicle_name=snap.vehicle_name,
-                            event_type="arrival",
-                            headway_arrival_arrival=headway_aa,
-                            headway_departure_arrival=headway_da,
-                            dwell_seconds=bubble_dwell if bubble_dwell > 0 else None,
-                        )
-                    )
-                    self.last_vehicle_arrival[arrival_key] = bubble_arrival_time
-                    print(f"[headway] bubble arrival: vehicle={vid} stop={bubble_stop_id} dwell={bubble_dwell}s")
-                    prev_stop = prev_state.current_stop_id
+            # Process bubble-based arrival/departure detection
+            new_events = self._process_bubble_tracking(vid, snap, route_id, speed_mps)
+            events.extend(new_events)
 
-            bubble_departure_time = None
-            if prev_stop is not None and prev_state.arrival_time is not None:
-                bubble_departure_time = self.final_bubble_exits.get((vid, prev_stop))
+            # Log diagnostics
+            self._log_diagnostics(vid, snap, route_id, speed_mps)
 
-            if prev_stop and bubble_departure_time and bubble_departure_time >= prev_state.arrival_time:
-                dwell_seconds = None
-                departure_timestamp = bubble_departure_time
-                if prev_state.arrival_time:
-                    dwell_seconds = (departure_timestamp - prev_state.arrival_time).total_seconds()
-                    dwell_seconds = max(dwell_seconds, 0.0)
-                if prev_stop:
-                    route_for_departure = prev_state.route_id or route_id_norm
-                    existing_departure = self.last_vehicle_departure.get((vid, prev_stop, route_for_departure))
-
-                    # Prevent duplicate departures - similar to arrival duplicate prevention
-                    duplicate_departure = False
-                    if existing_departure is not None:
-                        # Check if we already recorded a departure after the most recent arrival
-                        if prev_state.arrival_time is None or existing_departure > prev_state.arrival_time:
-                            duplicate_departure = True
-
-                    if not duplicate_departure:
-                        keys = []
-                        if route_for_departure:
-                            keys.append((route_for_departure, prev_stop))
-                        keys.append((None, prev_stop))
-                        for key in keys:
-                            self.last_departure[key] = departure_timestamp
-                        self.last_vehicle_departure[(vid, prev_stop, route_for_departure)] = departure_timestamp
-                        for arrival_key in list(self.last_vehicle_arrival.keys()):
-                            if arrival_key[0] == vid and arrival_key[1] == prev_stop:
-                                self.last_vehicle_departure[arrival_key] = departure_timestamp
-                        events.append(
-                            HeadwayEvent(
-                                timestamp=departure_timestamp,
-                                route_id=prev_state.route_id,
-                                stop_id=prev_stop,
-                                vehicle_id=vid,
-                                vehicle_name=snap.vehicle_name,
-                                event_type="departure",
-                                headway_arrival_arrival=None,
-                                headway_departure_arrival=None,
-                                dwell_seconds=dwell_seconds,
-                            )
-                        )
-                        self.final_bubble_exits.pop((vid, prev_stop), None)
-                        prev_state = VehiclePresence(speed_history=prev_state.speed_history)
-
-            # Vehicle state tracking (for departure detection, speed history)
-            # Arrivals are now handled exclusively by bubble-based tracking above
-            self.vehicle_states[vid] = VehiclePresence(
-                current_stop_id=prev_state.current_stop_id,
-                arrival_time=prev_state.arrival_time,
-                route_id=prev_state.route_id,
-                departure_started_at=None,
-                speed_history=prev_state.speed_history,
-            )
-
-            target_stop_id = prev_state.current_stop_id or (current_stop[0] if current_stop else None)
-            self.recent_snapshot_diagnostics.append(
-                {
-                    "timestamp": self._isoformat(timestamp),
-                    "vehicle_id": vid,
-                    "vehicle_name": snap.vehicle_name,
-                    "route_id": route_id_norm,
-                    "heading_deg": snap.heading_deg,
-                    "previous_stop_id": prev_stop,
-                    "distance_from_previous_stop": distance_from_prev_stop,
-                    "has_left_previous_stop": bool(self.final_bubble_exits.get((vid, prev_stop))) if prev_stop else None,
-                    "target_stop_id": target_stop_id,
-                    "target_stop_distance": self._distance_to_stop(target_stop_id, snap.lat, snap.lon),
-                    "departure_recorded": bool(bubble_departure_time),
-                    "departure_started_at": None,
-                    "departure_trigger": "bubble_exit" if bubble_departure_time else None,
-                    "speed_mps": speed_mps,
-                }
-            )
-
-            # Save snapshot for future speed calculations
+            # Save snapshot for next speed calculation
             self.last_snapshots[vid] = snap
 
+        # Write events to storage
         if events:
             try:
                 self.storage.write_events(events)
@@ -373,28 +291,237 @@ class HeadwayTracker:
             except Exception as exc:
                 print(f"[headway] failed to write events: {exc}")
 
-    def _track_bubble_progress(
+    def _calculate_speed(self, vid: str, snap: VehicleSnapshot) -> Optional[float]:
+        """Calculate speed in m/s based on distance from previous snapshot."""
+        prev_snap = self.last_snapshots.get(vid)
+        if not prev_snap:
+            return None
+
+        delta_seconds = (snap.timestamp - prev_snap.timestamp).total_seconds()
+        if delta_seconds <= 0:
+            return None
+
+        distance = self._haversine(prev_snap.lat, prev_snap.lon, snap.lat, snap.lon)
+        return distance / delta_seconds
+
+    def _process_bubble_tracking(
         self,
         vid: str,
         snap: VehicleSnapshot,
-        route_id_norm: Optional[str],
+        route_id: Optional[str],
         speed_mps: Optional[float],
-        raw_speed_mps: Optional[float],
-    ) -> Optional[Tuple[str, Optional[str], datetime, float]]:
+    ) -> List[HeadwayEvent]:
         """
-        Track vehicle progress through approach bubble sets.
-        Returns (stop_id, route_id, arrival_time, dwell_seconds) if an arrival should be logged.
+        Process bubble tracking for a vehicle and return any arrival/departure events.
+
+        Logic:
+        1. For each stop with approach sets, check which bubbles the vehicle is in
+        2. Track progression through bubbles (must go through in order starting from #1)
+        3. When in final bubble:
+           - If stopped (speed <= threshold): log arrival immediately
+           - If not stopped: wait until exit to log arrival
+        4. When exiting final bubble: log departure (if arrival was logged)
         """
+        events: List[HeadwayEvent] = []
         timestamp = snap.timestamp
+
+        # Get or create vehicle's bubble progress tracking
         vehicle_progress = self.vehicle_bubble_progress.get(vid, {})
 
-        # Drop stale bubble tracking when a vehicle has not reported in a while
+        # Clean up stale tracking states
+        self._cleanup_stale_progress(vehicle_progress, timestamp)
+
+        # Track which stops we're currently tracking
+        active_stop_ids: Set[str] = set()
+
+        for stop in self.stops:
+            if not stop.approach_sets:
+                continue
+            if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
+                continue
+            if route_id and stop.route_ids and route_id not in stop.route_ids:
+                continue
+
+            stop_progress = vehicle_progress.get(stop.stop_id, {})
+
+            for set_idx, approach_set in enumerate(stop.approach_sets):
+                if not approach_set.bubbles:
+                    continue
+
+                max_order = max(b.order for b in approach_set.bubbles)
+
+                # Find which bubbles the vehicle is currently in
+                current_bubbles = self._get_bubbles_vehicle_is_in(snap, approach_set)
+
+                progress = stop_progress.get(set_idx)
+
+                if current_bubbles:
+                    active_stop_ids.add(stop.stop_id)
+
+                    if progress is None:
+                        # Start new tracking only if vehicle is in bubble #1
+                        if 1 in current_bubbles:
+                            progress = BubbleProgressState(
+                                stop_id=stop.stop_id,
+                                set_index=set_idx,
+                                set_name=approach_set.name,
+                                max_bubble_order=max_order,
+                                route_id=route_id,
+                                entered_at=timestamp,
+                                last_seen=timestamp,
+                                highest_bubble_reached=1,
+                                next_expected_order=2,
+                            )
+                            stop_progress[set_idx] = progress
+                            self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 1, "entered")
+                    else:
+                        # Update existing tracking
+                        progress.last_seen = timestamp
+
+                        # Progress through bubbles in order
+                        while (progress.next_expected_order in current_bubbles and
+                               progress.next_expected_order <= max_order):
+                            progress.highest_bubble_reached = progress.next_expected_order
+                            self._log_bubble_activation(
+                                vid, snap, stop, set_idx, approach_set.name,
+                                progress.highest_bubble_reached, "progressed"
+                            )
+                            progress.next_expected_order += 1
+
+                        # Check if we're in the final bubble
+                        in_final = (max_order in current_bubbles and
+                                   progress.highest_bubble_reached == max_order)
+
+                        if in_final:
+                            if not progress.in_final_bubble:
+                                # Just entered final bubble
+                                progress.in_final_bubble = True
+                                progress.entered_final_at = timestamp
+                                self._log_bubble_activation(
+                                    vid, snap, stop, set_idx, approach_set.name,
+                                    max_order, "entered_final"
+                                )
+
+                            # Check if bus has stopped
+                            if speed_mps is not None and speed_mps <= STOP_SPEED_THRESHOLD_MPS:
+                                if not progress.stopped_in_final:
+                                    progress.stopped_in_final = True
+
+                                    # Log arrival when bus stops (Method 1)
+                                    if not progress.arrival_logged:
+                                        progress.arrival_logged = True
+                                        progress.arrival_time = timestamp
+                                        event = self._create_arrival_event(
+                                            vid, snap, stop.stop_id, route_id, timestamp
+                                        )
+                                        events.append(event)
+                                        self._log_bubble_activation(
+                                            vid, snap, stop, set_idx, approach_set.name,
+                                            max_order, "arrival_stopped"
+                                        )
+                        else:
+                            # Not in final bubble anymore (was in final, now not)
+                            if progress.in_final_bubble:
+                                # Exiting final bubble
+                                if not progress.arrival_logged:
+                                    # Log arrival at exit time (Method 2 - pass-through)
+                                    progress.arrival_logged = True
+                                    progress.arrival_time = timestamp
+                                    event = self._create_arrival_event(
+                                        vid, snap, stop.stop_id, route_id, timestamp
+                                    )
+                                    events.append(event)
+                                    self._log_bubble_activation(
+                                        vid, snap, stop, set_idx, approach_set.name,
+                                        max_order, "arrival_passthrough"
+                                    )
+
+                                # Log departure
+                                if progress.arrival_logged and not progress.departure_logged:
+                                    progress.departure_logged = True
+                                    dwell = self._calculate_dwell(progress.arrival_time, timestamp)
+                                    event = self._create_departure_event(
+                                        vid, snap, stop.stop_id, progress.route_id, timestamp, dwell
+                                    )
+                                    events.append(event)
+                                    self._log_bubble_activation(
+                                        vid, snap, stop, set_idx, approach_set.name,
+                                        max_order, "departure"
+                                    )
+
+                                progress.in_final_bubble = False
+
+                else:
+                    # Vehicle is not in any bubble for this set
+                    if progress:
+                        # Was tracking this set - vehicle has left
+                        if progress.in_final_bubble:
+                            # Was in final bubble, now completely out
+                            if not progress.arrival_logged:
+                                # Log pass-through arrival (Method 2)
+                                progress.arrival_logged = True
+                                progress.arrival_time = timestamp
+                                event = self._create_arrival_event(
+                                    vid, snap, stop.stop_id, route_id, timestamp
+                                )
+                                events.append(event)
+                                self._log_bubble_activation(
+                                    vid, snap, stop, set_idx, approach_set.name,
+                                    progress.max_bubble_order, "arrival_passthrough"
+                                )
+
+                            # Log departure
+                            if progress.arrival_logged and not progress.departure_logged:
+                                progress.departure_logged = True
+                                dwell = self._calculate_dwell(progress.arrival_time, timestamp)
+                                event = self._create_departure_event(
+                                    vid, snap, stop.stop_id, progress.route_id, timestamp, dwell
+                                )
+                                events.append(event)
+                                self._log_bubble_activation(
+                                    vid, snap, stop, set_idx, approach_set.name,
+                                    progress.max_bubble_order, "departure"
+                                )
+
+                        # Clear progress for this set
+                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "exited")
+                        stop_progress.pop(set_idx, None)
+
+                # Update stop progress
+                if stop_progress:
+                    vehicle_progress[stop.stop_id] = stop_progress
+                elif stop.stop_id in vehicle_progress:
+                    vehicle_progress.pop(stop.stop_id, None)
+
+        # Update vehicle progress
+        if vehicle_progress:
+            self.vehicle_bubble_progress[vid] = vehicle_progress
+        elif vid in self.vehicle_bubble_progress:
+            del self.vehicle_bubble_progress[vid]
+
+        return events
+
+    def _get_bubbles_vehicle_is_in(self, snap: VehicleSnapshot, approach_set: ApproachSet) -> Set[int]:
+        """Return the set of bubble order numbers the vehicle is currently inside."""
+        bubbles_in: Set[int] = set()
+        for bubble in approach_set.bubbles:
+            dist = self._haversine(snap.lat, snap.lon, bubble.lat, bubble.lon)
+            if dist <= bubble.radius_m:
+                bubbles_in.add(bubble.order)
+        return bubbles_in
+
+    def _cleanup_stale_progress(
+        self,
+        vehicle_progress: Dict[str, Dict[int, BubbleProgressState]],
+        current_time: datetime
+    ) -> None:
+        """Remove stale bubble tracking states."""
         stale_stop_ids: List[str] = []
         for stop_id, set_progress in vehicle_progress.items():
             stale_set_indices: List[int] = []
             for set_idx, progress in set_progress.items():
-                last_seen = progress.last_seen or progress.entered_at
-                if last_seen and (timestamp - last_seen).total_seconds() > BUBBLE_PROGRESS_STALE_SECONDS:
+                age = (current_time - progress.last_seen).total_seconds()
+                if age > BUBBLE_PROGRESS_STALE_SECONDS:
                     stale_set_indices.append(set_idx)
 
             for set_idx in stale_set_indices:
@@ -406,168 +533,160 @@ class HeadwayTracker:
         for stop_id in stale_stop_ids:
             vehicle_progress.pop(stop_id, None)
 
-        arrivals_to_log: List[Tuple[str, Optional[str], datetime, float]] = []
+    def _create_arrival_event(
+        self,
+        vid: str,
+        snap: VehicleSnapshot,
+        stop_id: str,
+        route_id: Optional[str],
+        timestamp: datetime,
+    ) -> HeadwayEvent:
+        """Create an arrival event and update headway tracking."""
+        # Check for duplicate
+        arrival_key = (vid, stop_id, route_id)
+        prev_arrival = self.last_vehicle_arrival.get(arrival_key)
+        prev_departure = self.last_vehicle_departure.get(arrival_key)
 
-        # Check all stops with approach sets
-        for stop in self.stops:
-            if not stop.approach_sets:
-                continue
-            if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
-                continue
-            if stop.route_ids and (route_id_norm is None or route_id_norm not in stop.route_ids):
-                continue
+        # Calculate headways
+        headway_aa, headway_da = self._calculate_headways(route_id, stop_id, timestamp)
 
-            stop_progress = vehicle_progress.get(stop.stop_id, {})
+        # Update tracking
+        self._update_arrival_tracking(vid, stop_id, route_id, timestamp)
 
-            # Check which bubbles the vehicle is currently in for each approach set
-            for set_idx, approach_set in enumerate(stop.approach_sets):
-                if not approach_set.bubbles:
-                    continue
+        print(f"[headway] arrival: vehicle={vid} stop={stop_id} route={route_id}")
 
-                max_order = max(b.order for b in approach_set.bubbles)
-                current_bubbles_in: List[int] = []
+        return HeadwayEvent(
+            timestamp=timestamp,
+            route_id=route_id,
+            stop_id=stop_id,
+            vehicle_id=vid,
+            vehicle_name=snap.vehicle_name,
+            event_type="arrival",
+            headway_arrival_arrival=headway_aa,
+            headway_departure_arrival=headway_da,
+            dwell_seconds=None,
+        )
 
-                for bubble in approach_set.bubbles:
-                    dist = self._haversine(snap.lat, snap.lon, bubble.lat, bubble.lon)
-                    if dist <= bubble.radius_m:
-                        current_bubbles_in.append(bubble.order)
+    def _create_departure_event(
+        self,
+        vid: str,
+        snap: VehicleSnapshot,
+        stop_id: str,
+        route_id: Optional[str],
+        timestamp: datetime,
+        dwell_seconds: Optional[float],
+    ) -> HeadwayEvent:
+        """Create a departure event and update tracking."""
+        # Update tracking
+        self._update_departure_tracking(vid, stop_id, route_id, timestamp)
 
-                if current_bubbles_in:
-                    progress = stop_progress.get(set_idx)
+        print(f"[headway] departure: vehicle={vid} stop={stop_id} dwell={dwell_seconds:.1f}s" if dwell_seconds else f"[headway] departure: vehicle={vid} stop={stop_id}")
 
-                    if progress is None:
-                        # Require traversal to start in the outermost bubble (order 1)
-                        if 1 not in current_bubbles_in:
-                            continue
+        return HeadwayEvent(
+            timestamp=timestamp,
+            route_id=route_id,
+            stop_id=stop_id,
+            vehicle_id=vid,
+            vehicle_name=snap.vehicle_name,
+            event_type="departure",
+            headway_arrival_arrival=None,
+            headway_departure_arrival=None,
+            dwell_seconds=dwell_seconds,
+        )
 
-                        progress = BubbleProgressState(
-                            stop_id=stop.stop_id,
-                            set_index=set_idx,
-                            set_name=approach_set.name,
-                            highest_bubble_reached=1,
-                            max_bubble_order=max_order,
-                            route_id=route_id_norm,
-                            entered_at=timestamp,
-                            last_seen=timestamp,
-                            next_expected_order=2,
-                        )
-                        stop_progress[set_idx] = progress
-                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 1, "entered")
-                    else:
-                        # Update progress
-                        progress.last_seen = timestamp
+    def _calculate_dwell(self, arrival_time: Optional[datetime], departure_time: datetime) -> Optional[float]:
+        """Calculate dwell time in seconds."""
+        if arrival_time is None:
+            return None
+        dwell = (departure_time - arrival_time).total_seconds()
+        return max(dwell, 0.0)
 
-                    # Track progression through bubbles strictly in order
-                    while progress.next_expected_order in current_bubbles_in and progress.next_expected_order <= max_order:
-                        progress.highest_bubble_reached = progress.next_expected_order
-                        progress.next_expected_order += 1
-                        self._log_bubble_activation(
-                            vid,
-                            snap,
-                            stop,
-                            set_idx,
-                            approach_set.name,
-                            progress.highest_bubble_reached,
-                            "progressed",
-                        )
+    def _calculate_headways(
+        self,
+        route_id: Optional[str],
+        stop_id: str,
+        timestamp: datetime
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate arrival-to-arrival and departure-to-arrival headways."""
+        keys: List[Tuple[Optional[str], str]] = []
+        if route_id is not None:
+            keys.append((route_id, stop_id))
+        keys.append((None, stop_id))
 
-                    currently_in_final = (
-                        max_order in current_bubbles_in and progress.highest_bubble_reached == max_order
-                    )
+        prev_arrival = None
+        prev_departure = None
+        for key in keys:
+            if prev_arrival is None:
+                prev_arrival = self.last_arrival.get(key)
+            if prev_departure is None:
+                prev_departure = self.last_departure.get(key)
 
-                    if currently_in_final and not progress.in_final_bubble:
-                        progress.in_final_bubble = True
-                        progress.entered_final_at = progress.entered_final_at or timestamp
-                        self._log_bubble_activation(
-                            vid, snap, stop, set_idx, approach_set.name, progress.max_bubble_order, "entered_final"
-                        )
+        # Backfill from storage if needed
+        if prev_arrival is None or prev_departure is None:
+            day_start = datetime.combine(timestamp.date(), datetime.min.time(), tzinfo=timezone.utc)
+            history = self.storage.query_events(
+                start=day_start,
+                end=timestamp,
+                route_ids={route_id} if route_id else None,
+                stop_ids={stop_id},
+            )
+            for event in reversed(history):
+                if prev_arrival is None and event.event_type == "arrival":
+                    prev_arrival = event.timestamp
+                if prev_departure is None and event.event_type == "departure":
+                    prev_departure = event.timestamp
+                if prev_arrival is not None and prev_departure is not None:
+                    break
 
-                    if currently_in_final:
-                        # Check if bus has stopped
-                        observed_speed = raw_speed_mps if raw_speed_mps is not None else speed_mps
-                        if observed_speed is not None and observed_speed <= STOP_SPEED_THRESHOLD_MPS:
-                            if not progress.stopped_in_final:
-                                progress.stopped_in_final = True
-                                progress.stopped_at = timestamp
-                                # Log arrival when bus stops
-                                if not progress.arrival_logged:
-                                    progress.arrival_logged = True
-                                    dwell = 0.0  # Will be calculated on departure
-                                    arrivals_to_log.append((stop.stop_id, route_id_norm, timestamp, dwell))
-                                    self._log_bubble_activation(
-                                        vid,
-                                        snap,
-                                        stop,
-                                        set_idx,
-                                        approach_set.name,
-                                        progress.max_bubble_order,
-                                        "arrival_stopped",
-                                    )
-                    else:
-                        # Left the final bubble without stopping
-                        if progress.in_final_bubble and not progress.arrival_logged:
-                            progress.arrival_logged = True
-                            arrival_time = progress.entered_final_at or timestamp
-                            progress.left_final_at = progress.left_final_at or timestamp
-                            self.final_bubble_exits[(vid, stop.stop_id)] = progress.left_final_at
-                            arrivals_to_log.append((stop.stop_id, route_id_norm, arrival_time, 0.0))
-                            self._log_bubble_activation(
-                                vid,
-                                snap,
-                                stop,
-                                set_idx,
-                                approach_set.name,
-                                progress.max_bubble_order,
-                                "arrival_passthrough",
-                            )
+        headway_aa = None
+        headway_da = None
+        if prev_arrival is not None:
+            headway_aa = max((timestamp - prev_arrival).total_seconds(), 0.0)
+        if prev_departure is not None:
+            headway_da = max((timestamp - prev_departure).total_seconds(), 0.0)
 
-                        if progress.in_final_bubble and progress.arrival_logged:
-                            progress.left_final_at = progress.left_final_at or timestamp
-                            self.final_bubble_exits[(vid, stop.stop_id)] = progress.left_final_at
+        return headway_aa, headway_da
 
-                        progress.in_final_bubble = False
+    def _update_arrival_tracking(
+        self,
+        vid: str,
+        stop_id: str,
+        route_id: Optional[str],
+        timestamp: datetime
+    ) -> None:
+        """Update arrival tracking dictionaries."""
+        keys: List[Tuple[Optional[str], str]] = []
+        if route_id is not None:
+            keys.append((route_id, stop_id))
+        keys.append((None, stop_id))
 
-                    if stop_progress:
-                        vehicle_progress[stop.stop_id] = stop_progress
+        for key in keys:
+            self.last_arrival[key] = timestamp
 
-                else:
-                    progress = stop_progress.get(set_idx)
-                    # Vehicle is not in any bubble for this set
-                    if progress:
-                        # Was tracking this set - check if we completed it or abandoned it
-                        if progress.in_final_bubble and not progress.arrival_logged:
-                            # Was in final bubble but left without stopping - log pass-through arrival with 0s dwell
-                            progress.arrival_logged = True
-                            arrival_time = progress.entered_final_at or timestamp
-                            progress.left_final_at = progress.left_final_at or timestamp
-                            self.final_bubble_exits[(vid, stop.stop_id)] = progress.left_final_at
-                            arrivals_to_log.append((stop.stop_id, route_id_norm, arrival_time, 0.0))
-                            self._log_bubble_activation(
-                                vid, snap, stop, set_idx, approach_set.name, progress.max_bubble_order, "arrival_passthrough"
-                            )
+        self.last_vehicle_arrival[(vid, stop_id, route_id)] = timestamp
 
-                        if progress.in_final_bubble and progress.arrival_logged:
-                            progress.left_final_at = progress.left_final_at or timestamp
-                            self.final_bubble_exits[(vid, stop.stop_id)] = progress.left_final_at
+    def _update_departure_tracking(
+        self,
+        vid: str,
+        stop_id: str,
+        route_id: Optional[str],
+        timestamp: datetime
+    ) -> None:
+        """Update departure tracking dictionaries."""
+        keys: List[Tuple[Optional[str], str]] = []
+        if route_id is not None:
+            keys.append((route_id, stop_id))
+        keys.append((None, stop_id))
 
-                        # Clear progress for this set
-                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "exited")
-                        stop_progress.pop(set_idx, None)
+        for key in keys:
+            self.last_departure[key] = timestamp
 
-                    if stop_progress:
-                        vehicle_progress[stop.stop_id] = stop_progress
-                    elif stop.stop_id in vehicle_progress:
-                        vehicle_progress.pop(stop.stop_id, None)
+        self.last_vehicle_departure[(vid, stop_id, route_id)] = timestamp
 
-        if vehicle_progress:
-            self.vehicle_bubble_progress[vid] = vehicle_progress
-        elif vid in self.vehicle_bubble_progress:
-            del self.vehicle_bubble_progress[vid]
-
-        # Return the first arrival to log (typically should only be one)
-        if arrivals_to_log:
-            return arrivals_to_log[0]
-        return None
+        # Also update for any route_id variant
+        for arrival_key in list(self.last_vehicle_arrival.keys()):
+            if arrival_key[0] == vid and arrival_key[1] == stop_id:
+                self.last_vehicle_departure[arrival_key] = timestamp
 
     def _log_bubble_activation(
         self,
@@ -593,90 +712,60 @@ class HeadwayTracker:
             "lon": snap.lon,
         })
 
-    def get_active_bubble_states(self) -> List[Dict[str, Any]]:
-        """Get current bubble progress states for all vehicles (for API)."""
-        states = []
-        for vid, stop_progress in self.vehicle_bubble_progress.items():
-            for stop_id, set_progress in stop_progress.items():
-                stop = self.stop_lookup.get(stop_id)
-                for progress in set_progress.values():
-                    states.append({
-                        "vehicle_id": vid,
-                        "stop_id": stop_id,
-                        "set_index": progress.set_index,
-                        "set_name": progress.set_name,
-                        "highest_bubble_reached": progress.highest_bubble_reached,
-                        "max_bubble_order": progress.max_bubble_order,
-                        "in_final_bubble": progress.in_final_bubble,
-                        "stopped_in_final": progress.stopped_in_final,
-                        "arrival_logged": progress.arrival_logged,
-                        "last_seen": self._isoformat(progress.last_seen),
-                        "entered_at": self._isoformat(progress.entered_at),
-                        "bubbles": [
-                            {"lat": b.lat, "lon": b.lon, "radius_m": b.radius_m, "order": b.order}
-                            for b in (stop.approach_sets[progress.set_index].bubbles if stop and stop.approach_sets else [])
-                        ],
-                    })
-        return states
-
-    def _record_arrival_headways(
-        self, route_id: Optional[str], stop_id: Optional[str], timestamp: datetime
-    ) -> Tuple[Optional[float], Optional[float]]:
-        if stop_id is None:
-            return None, None
-        keys: List[Tuple[Optional[str], str]] = []
-        if route_id is not None:
-            keys.append((route_id, stop_id))
-        keys.append((None, stop_id))
-
-        prev_arrival = None
-        prev_departure = None
-        for key in keys:
-            if prev_arrival is None:
-                prev_arrival = self.last_arrival.get(key)
-            if prev_departure is None:
-                prev_departure = self.last_departure.get(key)
-
-        # If the tracker was restarted, the in-memory caches will be empty even
-        # though earlier events exist on disk. To avoid emitting `null` headways
-        # in that case, backfill the most recent arrival/departure from storage
-        # when no cached values are present. Keep the lookup narrow (same day)
-        # to avoid expensive scans.
-        if prev_arrival is None or prev_departure is None:
-            day_start = datetime.combine(timestamp.date(), datetime.min.time(), tzinfo=timezone.utc)
-            history = self.storage.query_events(
-                start=day_start,
-                end=timestamp,
-                route_ids={route_id} if route_id else None,
-                stop_ids={stop_id},
-            )
-            for event in reversed(history):
-                if prev_arrival is None and event.event_type == "arrival":
-                    prev_arrival = event.timestamp
-                if prev_departure is None and event.event_type == "departure":
-                    prev_departure = event.timestamp
-                if prev_arrival is not None and prev_departure is not None:
-                    break
-
-        for key in keys:
-            self.last_arrival[key] = timestamp
-        arrival_arrival = None
-        departure_arrival = None
-        if prev_arrival is not None:
-            arrival_arrival = max((timestamp - prev_arrival).total_seconds(), 0.0)
-        if prev_departure is not None:
-            departure_arrival = max((timestamp - prev_departure).total_seconds(), 0.0)
-        return arrival_arrival, departure_arrival
-
-    def _log_stop_association_failure(
-        self, snap: VehicleSnapshot, route_id_norm: Optional[str]
+    def _log_diagnostics(
+        self,
+        vid: str,
+        snap: VehicleSnapshot,
+        route_id: Optional[str],
+        speed_mps: Optional[float],
     ) -> None:
-        diagnosis = self._diagnose_stop_association(snap.lat, snap.lon, route_id_norm, snap.heading_deg)
+        """Log diagnostic information for debugging."""
+        # Find nearest stop for diagnostics
+        nearest_stop = self._find_nearest_stop(snap.lat, snap.lon, route_id)
+
+        self.recent_snapshot_diagnostics.append({
+            "timestamp": self._isoformat(snap.timestamp),
+            "vehicle_id": vid,
+            "vehicle_name": snap.vehicle_name,
+            "route_id": route_id,
+            "heading_deg": snap.heading_deg,
+            "speed_mps": speed_mps,
+            "nearest_stop_id": nearest_stop[0] if nearest_stop else None,
+            "nearest_stop_distance": nearest_stop[1] if nearest_stop else None,
+            "lat": snap.lat,
+            "lon": snap.lon,
+        })
+
+        # Log stop association failures if no stop is nearby
+        if nearest_stop is None or nearest_stop[1] > self.arrival_distance_threshold_m:
+            self._log_stop_association_failure(snap, route_id)
+
+    def _find_nearest_stop(
+        self,
+        lat: float,
+        lon: float,
+        route_id: Optional[str]
+    ) -> Optional[Tuple[str, float]]:
+        """Find the nearest stop and its distance."""
+        nearest: Optional[Tuple[str, float]] = None
+        for stop in self.stops:
+            if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
+                continue
+            if route_id and stop.route_ids and route_id not in stop.route_ids:
+                continue
+            dist = self._haversine(lat, lon, stop.lat, stop.lon)
+            if nearest is None or dist < nearest[1]:
+                nearest = (stop.stop_id, dist)
+        return nearest
+
+    def _log_stop_association_failure(self, snap: VehicleSnapshot, route_id: Optional[str]) -> None:
+        """Log when a vehicle can't be associated with any stop."""
+        diagnosis = self._diagnose_stop_association(snap.lat, snap.lon, route_id)
         detail = {
             "timestamp": self._isoformat(snap.timestamp),
             "vehicle_id": self._normalize_id(snap.vehicle_id),
             "vehicle_name": snap.vehicle_name,
-            "route_id": route_id_norm,
+            "route_id": route_id,
             "lat": snap.lat,
             "lon": snap.lon,
             "heading_deg": snap.heading_deg,
@@ -689,9 +778,8 @@ class HeadwayTracker:
         lat: float,
         lon: float,
         route_id: Optional[str],
-        heading_deg: Optional[float],
     ) -> dict:
-        """Simple distance-based stop association diagnosis."""
+        """Diagnose why a vehicle couldn't be associated with a stop."""
         if not self.stops:
             return {"reason": "no_stops"}
 
@@ -732,36 +820,37 @@ class HeadwayTracker:
             }
         return {"reason": "unknown"}
 
-    def _nearest_stop(
-        self,
-        lat: float,
-        lon: float,
-        route_id: Optional[str],
-        *,
-        threshold: float,
-        heading_deg: Optional[float] = None,
-    ) -> Optional[Tuple[str, Optional[str]]]:
-        """Find nearest stop within threshold distance. Used for departure tracking only."""
-        best: Optional[Tuple[str, Optional[str], float]] = None
-        for stop in self.stops:
-            if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
-                continue
-            if route_id and self.tracked_route_ids and route_id not in stop.route_ids and stop.route_ids:
-                continue
-            if route_id and stop.route_ids and route_id not in stop.route_ids:
-                continue
-            dist = self._haversine(lat, lon, stop.lat, stop.lon)
-            if dist <= threshold:
-                if best is None or dist < best[2]:
-                    associated_route = route_id
-                    if not associated_route and stop.route_ids:
-                        associated_route = next(iter(stop.route_ids))
-                    best = (stop.stop_id, associated_route, dist)
-        if best is None:
-            return None
-        return best[0], best[1]
+    def get_active_bubble_states(self) -> List[Dict[str, Any]]:
+        """Get current bubble progress states for all vehicles (for API)."""
+        states = []
+        for vid, stop_progress in self.vehicle_bubble_progress.items():
+            for stop_id, set_progress in stop_progress.items():
+                stop = self.stop_lookup.get(stop_id)
+                for progress in set_progress.values():
+                    bubbles = []
+                    if stop and stop.approach_sets and progress.set_index < len(stop.approach_sets):
+                        bubbles = [
+                            {"lat": b.lat, "lon": b.lon, "radius_m": b.radius_m, "order": b.order}
+                            for b in stop.approach_sets[progress.set_index].bubbles
+                        ]
+                    states.append({
+                        "vehicle_id": vid,
+                        "stop_id": stop_id,
+                        "set_index": progress.set_index,
+                        "set_name": progress.set_name,
+                        "highest_bubble_reached": progress.highest_bubble_reached,
+                        "max_bubble_order": progress.max_bubble_order,
+                        "in_final_bubble": progress.in_final_bubble,
+                        "stopped_in_final": progress.stopped_in_final,
+                        "arrival_logged": progress.arrival_logged,
+                        "last_seen": self._isoformat(progress.last_seen),
+                        "entered_at": self._isoformat(progress.entered_at),
+                        "bubbles": bubbles,
+                    })
+        return states
 
     def _extract_route_ids(self, stop: dict) -> Set[str]:
+        """Extract route IDs from a stop dictionary."""
         route_ids: Set[str] = set()
         for key in ("RouteIds", "RouteIDs"):
             vals = stop.get(key)
@@ -783,6 +872,7 @@ class HeadwayTracker:
         return route_ids
 
     def _normalize_id(self, value: Optional[object]) -> Optional[str]:
+        """Normalize an ID value to a string."""
         if value is None:
             return None
         try:
@@ -797,81 +887,26 @@ class HeadwayTracker:
                 return None
 
     def _isoformat(self, dt: Optional[datetime]) -> Optional[str]:
+        """Format a datetime as ISO8601 UTC string."""
         if dt is None:
             return None
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    def _destination_point(self, lat_deg: float, lon_deg: float, bearing_deg: float, distance_m: float) -> Tuple[float, float]:
-        radius_earth = 6371000.0
-        bearing_rad = math.radians(bearing_deg)
-        lat1 = math.radians(lat_deg)
-        lon1 = math.radians(lon_deg)
-        ratio = distance_m / radius_earth
-
-        lat2 = math.asin(
-            math.sin(lat1) * math.cos(ratio)
-            + math.cos(lat1) * math.sin(ratio) * math.cos(bearing_rad)
-        )
-        lon2 = lon1 + math.atan2(
-            math.sin(bearing_rad) * math.sin(ratio) * math.cos(lat1),
-            math.cos(ratio) - math.sin(lat1) * math.sin(lat2),
-        )
-
-        return math.degrees(lat2), math.degrees(lon2)
-
     def _haversine(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Calculate the great-circle distance between two points in meters."""
         r_earth = 6371000.0
         dlat = math.radians(lat2 - lat1)
         dlon = math.radians(lon2 - lon1)
         a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
         return 2 * r_earth * math.asin(math.sqrt(a))
 
-    def _bearing_degrees(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        lat1_rad = math.radians(lat1)
-        lat2_rad = math.radians(lat2)
-        dlon = math.radians(lon2 - lon1)
-        x = math.sin(dlon) * math.cos(lat2_rad)
-        y = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon)
-        bearing = math.degrees(math.atan2(x, y))
-        return (bearing + 360.0) % 360.0
 
-    def _distance_to_stop(self, stop_id: Optional[str], lat: float, lon: float) -> Optional[float]:
-        if stop_id is None:
-            return None
-        stop = self.stop_lookup.get(stop_id)
-        if stop is None:
-            return None
-        return self._haversine(lat, lon, stop.lat, stop.lon)
-
-    def _calculate_filtered_speed(
-        self, speed_history: List[float], current_speed: Optional[float]
-    ) -> Optional[float]:
-        """Calculate GPS noise-filtered speed using median of recent samples."""
-        if current_speed is None:
-            return None
-
-        # Add current speed to history
-        speed_history.append(current_speed)
-
-        # Keep only recent samples
-        while len(speed_history) > SPEED_HISTORY_SIZE:
-            speed_history.pop(0)
-
-        # Use median to filter out GPS noise spikes
-        if len(speed_history) >= 2:
-            sorted_speeds = sorted(speed_history)
-            mid = len(sorted_speeds) // 2
-            if len(sorted_speeds) % 2 == 0:
-                return (sorted_speeds[mid - 1] + sorted_speeds[mid]) / 2.0
-            else:
-                return sorted_speeds[mid]
-        else:
-            return current_speed
-
+# Configuration loading functions
 
 def load_headway_config(path: Path = DEFAULT_HEADWAY_CONFIG_PATH) -> Tuple[Set[str], Set[str]]:
+    """Load headway tracking configuration from JSON file."""
     route_ids: Set[str] = set()
     stop_ids: Set[str] = set()
     if path.exists():
@@ -899,6 +934,7 @@ def _read_data_file(
     *,
     data_dirs: Optional[Sequence[Path]] = None,
 ) -> Tuple[Optional[Path], Optional[str]]:
+    """Read a data file from one of the configured data directories."""
     if data_dirs is None:
         data_dirs = DEFAULT_DATA_DIRS
     path_obj = Path(path)
@@ -944,6 +980,7 @@ def load_approach_sets_config(
 
 
 def _parse_float(value: Optional[object]) -> Optional[float]:
+    """Parse a value as a float, returning None on failure."""
     if value is None:
         return None
     try:

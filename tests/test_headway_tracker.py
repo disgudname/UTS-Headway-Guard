@@ -99,10 +99,12 @@ def test_arrival_logged_when_bus_passes_through_bubbles_without_stopping():
         ]
     )
 
+    # For pass-through arrivals (Method 2), arrival and departure are logged
+    # at the same time (when bus exits final bubble), so dwell is 0
     assert [e.event_type for e in storage.events] == ["arrival", "departure"]
-    assert storage.events[0].timestamp == base + timedelta(seconds=20)
-    assert storage.events[1].timestamp == base + timedelta(seconds=30)
-    assert storage.events[1].dwell_seconds == 10
+    assert storage.events[0].timestamp == base + timedelta(seconds=30)  # arrival at exit
+    assert storage.events[1].timestamp == base + timedelta(seconds=30)  # departure at exit
+    assert storage.events[1].dwell_seconds == 0
 
 
 def test_arrival_logged_when_bus_stops_in_final_bubble():
