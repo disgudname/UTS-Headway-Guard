@@ -57,6 +57,7 @@ class HeadwayEvent:
             _isoformat(self.timestamp),
             self.route_id or "",
             self.route_name or "",
+            self.stop_id or "",
             self.address_id or "",
             self.stop_name or "",
             self.vehicle_id or "",
@@ -166,6 +167,9 @@ class HeadwayStorage:
                         continue
 
                     # Detect format by column count
+                    # Newest format (14 cols): timestamp, route_id, route_name, stop_id, address_id, stop_name,
+                    #                          vehicle_id, vehicle_name, block, event_type, arrival_type,
+                    #                          headway_aa, headway_da, dwell
                     # New format (13 cols): timestamp, route_id, route_name, address_id, stop_name,
                     #                       vehicle_id, vehicle_name, block, event_type, arrival_type,
                     #                       headway_aa, headway_da, dwell
@@ -173,10 +177,25 @@ class HeadwayStorage:
                     #                      event_type, headway_aa, headway_da, dwell
                     # Oldest format (8 cols): timestamp, route_id, stop_id, vehicle_id,
                     #                         event_type, headway_aa, headway_da, dwell
-                    is_new_format = len(row) >= 13 or (len(row) >= 9 and row[8] in ("arrival", "departure"))
+                    is_newest_format = len(row) >= 14
+                    is_new_format = not is_newest_format and (len(row) >= 13 or (len(row) >= 9 and row[8] in ("arrival", "departure")))
 
                     arrival_type = None
-                    if is_new_format:
+                    if is_newest_format:
+                        # Newest format with stop_id, address_id
+                        route_id = row[1] or None
+                        route_name = row[2] or None
+                        stop_id = row[3] or None
+                        address_id = row[4] or None
+                        stop_name = row[5] or None
+                        vehicle_id = row[6] or None
+                        vehicle_name = row[7] or None
+                        block = row[8] or None
+                        event_type = row[9] if len(row) > 9 else ""
+                        arrival_type = row[10] if len(row) > 10 else None
+                        if arrival_type == "":
+                            arrival_type = None
+                    elif is_new_format:
                         # New format with route_name, address_id, stop_name, block, arrival_type
                         route_id = row[1] or None
                         route_name = row[2] or None
@@ -189,9 +208,8 @@ class HeadwayStorage:
                         arrival_type = row[9] if len(row) > 9 else None
                         if arrival_type == "":
                             arrival_type = None
-                        # For filtering, we use address_id as the stop identifier
-                        # but fall back to stop_id behavior if address_id is missing
-                        stop_id = address_id  # Use address_id as the canonical stop identifier
+                        # For this format, address_id serves as stop identifier
+                        stop_id = address_id
                     else:
                         # Old format - backwards compatible parsing
                         route_id = row[1] or None
@@ -220,7 +238,11 @@ class HeadwayStorage:
                     headway_departure_arrival = None
                     dwell_seconds = None
 
-                    if is_new_format:
+                    if is_newest_format:
+                        headway_arrival_idx = 11
+                        headway_departure_idx = 12
+                        dwell_idx = 13
+                    elif is_new_format:
                         headway_arrival_idx = 10
                         headway_departure_idx = 11
                         dwell_idx = 12
@@ -261,7 +283,7 @@ class HeadwayStorage:
                         except ValueError:
                             dwell_seconds = None
                     # Old format: vehicle_name might be after dwell
-                    if not is_new_format and len(row) > dwell_idx + 1 and row[dwell_idx + 1]:
+                    if not is_new_format and not is_newest_format and len(row) > dwell_idx + 1 and row[dwell_idx + 1]:
                         vehicle_name = row[dwell_idx + 1] or vehicle_name
 
                     events.append(

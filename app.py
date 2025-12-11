@@ -3378,7 +3378,14 @@ async def startup():
             route_id_to_name = getattr(state, "route_id_to_name", None)
             if not route_id_to_name:
                 return None
-            return route_id_to_name.get(route_id) or route_id_to_name.get(str(route_id))
+            # Try string key first, then int key (TransLoc uses int RouteID)
+            result = route_id_to_name.get(route_id) or route_id_to_name.get(str(route_id))
+            if result:
+                return result
+            try:
+                return route_id_to_name.get(int(route_id))
+            except (ValueError, TypeError):
+                return None
 
         def vehicle_block_lookup(vehicle_id: Optional[str]) -> Optional[str]:
             if vehicle_id is None:
