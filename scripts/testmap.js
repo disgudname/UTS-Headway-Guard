@@ -19588,10 +19588,8 @@ ${trainPlaneMarkup}
           isPassthrough ? '#f97316' : '#22c55e'
         );
 
-        // Show confetti for actual stops (not pass-throughs)
-        if (!isPassthrough) {
-          showConfetti(activation.lat, activation.lon);
-        }
+        // Show confetti for both actual stops and pass-throughs
+        showConfetti(activation.lat, activation.lon);
 
         // Add sparkle effect to the final bubble
         addSparkleEffect(activation.lat, activation.lon);
