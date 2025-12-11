@@ -735,6 +735,7 @@ TM.registerVisibilityResumeHandler(() => {
         activeBubbles: new Map(), // vehicleId -> {circles: [], markers: [], stopId, setName}
         toastContainer: null,
         confettiCanvas: null,
+        celebrationAudio: null,
         pollInterval: null,
       };
       let dispatcherConfig = null;
@@ -19383,6 +19384,13 @@ ${trainPlaneMarkup}
         document.body.appendChild(canvas);
         bubbleVisualizationState.confettiCanvas = canvas;
 
+        // Preload celebration sound effect
+        if (!bubbleVisualizationState.celebrationAudio) {
+          const cheeringAudio = new Audio('/media/KidsCheering.mp3');
+          cheeringAudio.preload = 'auto';
+          bubbleVisualizationState.celebrationAudio = cheeringAudio;
+        }
+
         // Start polling for bubble states
         bubbleVisualizationState.pollInterval = setInterval(fetchBubbleStates, 1000);
         fetchBubbleStates();
@@ -19589,10 +19597,23 @@ ${trainPlaneMarkup}
         );
 
         // Show confetti for both actual stops and pass-throughs
+        playCelebrationSound();
         showConfetti(activation.lat, activation.lon);
 
         // Add sparkle effect to the final bubble
         addSparkleEffect(activation.lat, activation.lon);
+      }
+
+      function playCelebrationSound() {
+        const audio = bubbleVisualizationState.celebrationAudio;
+        if (!audio) return;
+
+        try {
+          audio.currentTime = 0;
+          audio.play();
+        } catch (err) {
+          console.warn('[bubbles] Failed to play celebration audio:', err);
+        }
       }
 
       function showBubbleToast(title, subtitle, color) {
