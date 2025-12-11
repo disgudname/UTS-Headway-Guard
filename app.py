@@ -8430,6 +8430,7 @@ _MEDIA_ASSETS: dict[str, str] = {
     "apple-touch-icon-120.png": "image/png",
     "apple-touch-icon-152.png": "image/png",
     "apple-touch-icon-180.png": "image/png",
+    "KidsCheering.mp3": "audio/mpeg",
 }
 
 
