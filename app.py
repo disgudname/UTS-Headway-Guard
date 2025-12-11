@@ -1105,6 +1105,7 @@ CSS_DIR = BASE_DIR / "css"
 SCRIPT_DIR = BASE_DIR / "scripts"
 FONT_DIR = BASE_DIR / "fonts"
 MEDIA_DIR = BASE_DIR / "media"
+ARRIVAL_SOUNDS_DIR = MEDIA_DIR / "arrivalsounds"
 
 
 def _load_html(name: str) -> str:
@@ -8443,6 +8444,54 @@ async def media_asset(asset_name: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Media asset not found")
     return FileResponse(path, media_type=media_type)
+
+
+def _arrival_sound_files() -> list[str]:
+    if not ARRIVAL_SOUNDS_DIR.exists():
+        return []
+
+    files: list[str] = []
+    for entry in sorted(ARRIVAL_SOUNDS_DIR.iterdir()):
+        if not entry.is_file():
+            continue
+
+        name = entry.name
+        lower = name.lower()
+        if lower == "afile":
+            continue
+        if not lower.endswith(".mp3"):
+            continue
+
+        files.append(name)
+
+    return files
+
+
+@app.get("/media/arrivalsounds/", include_in_schema=False)
+async def arrival_sounds_listing(request: Request):
+    files = _arrival_sound_files()
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"files": files})
+
+    links = "\n".join(
+        f'<a href="{quote(name)}">{name}</a><br>'
+        for name in files
+    ) or "<p>No sounds available</p>"
+    return HTMLResponse(content=f"<html><body>{links}</body></html>")
+
+
+@app.get("/media/arrivalsounds/{filename}", include_in_schema=False)
+async def arrival_sound_file(filename: str):
+    safe_name = Path(filename).name
+    lower = safe_name.lower()
+    if lower == "afile" or not lower.endswith(".mp3"):
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    path = ARRIVAL_SOUNDS_DIR / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    return FileResponse(path, media_type="audio/mpeg")
 
 
 @app.get("/map_defaults.js", include_in_schema=False)

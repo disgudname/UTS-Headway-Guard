@@ -736,6 +736,8 @@ TM.registerVisibilityResumeHandler(() => {
         toastContainer: null,
         confettiCanvas: null,
         celebrationAudio: null,
+        preloadedCelebrationAudios: [],
+        celebrationSounds: ['/media/arrivalsounds/KidsCheering.mp3'],
         pollInterval: null,
       };
       let dispatcherConfig = null;
@@ -19384,12 +19386,16 @@ ${trainPlaneMarkup}
         document.body.appendChild(canvas);
         bubbleVisualizationState.confettiCanvas = canvas;
 
-        // Preload celebration sound effect
+        // Preload celebration sound effect(s)
         if (!bubbleVisualizationState.celebrationAudio) {
-          const cheeringAudio = new Audio('/media/KidsCheering.mp3');
-          cheeringAudio.preload = 'auto';
-          bubbleVisualizationState.celebrationAudio = cheeringAudio;
+          const celebrationAudio = new Audio();
+          celebrationAudio.preload = 'auto';
+          bubbleVisualizationState.celebrationAudio = celebrationAudio;
         }
+
+        preloadCelebrationAudios(bubbleVisualizationState.celebrationSounds);
+
+        loadCelebrationSounds();
 
         // Start polling for bubble states
         bubbleVisualizationState.pollInterval = setInterval(fetchBubbleStates, 1000);
@@ -19605,15 +19611,107 @@ ${trainPlaneMarkup}
       }
 
       function playCelebrationSound() {
-        const audio = bubbleVisualizationState.celebrationAudio;
-        if (!audio) return;
+        const { celebrationAudio, preloadedCelebrationAudios, celebrationSounds } = bubbleVisualizationState;
+        const availableSounds = Array.isArray(preloadedCelebrationAudios) && preloadedCelebrationAudios.length > 0
+          ? preloadedCelebrationAudios
+          : null;
+
+        const selected = availableSounds
+          ? availableSounds[Math.floor(Math.random() * availableSounds.length)]
+          : null;
+
+        const fallbackSound = Array.isArray(celebrationSounds) && celebrationSounds.length > 0
+          ? celebrationSounds[0]
+          : null;
+
+        const targetAudio = selected && selected.audio ? selected.audio : celebrationAudio;
+        const targetSrc = selected && selected.url ? selected.url : fallbackSound;
+        if (!targetAudio || !targetSrc) return;
 
         try {
-          audio.currentTime = 0;
-          audio.play();
+          if (targetAudio.src !== targetSrc) {
+            targetAudio.src = targetSrc;
+          }
+          targetAudio.currentTime = 0;
+          targetAudio.play();
         } catch (err) {
           console.warn('[bubbles] Failed to play celebration audio:', err);
         }
+      }
+
+      async function loadCelebrationSounds() {
+        const basePath = '/media/arrivalsounds/';
+        const fallback = `${basePath}KidsCheering.mp3`;
+
+        try {
+          const response = await fetch(basePath, {
+            headers: { 'Accept': 'application/json' }
+          });
+
+          if (response.ok) {
+            let files = [];
+            const contentType = response.headers.get('content-type') || '';
+
+            if (contentType.includes('application/json')) {
+              const payload = await response.json();
+              if (payload && Array.isArray(payload.files)) {
+                files = payload.files;
+              }
+            } else {
+              // Fallback: parse simple HTML directory listing if JSON isn't returned
+              const content = await response.text();
+              const matches = Array.from(content.matchAll(/href="([^\"]+)"/gi));
+              files = matches
+                .map(match => match[1]?.split('/').pop())
+                .filter(Boolean);
+            }
+
+            const soundUrls = [];
+            const seen = new Set();
+            for (const file of files) {
+              const trimmed = `${file}`.trim();
+              if (!trimmed) continue;
+
+              const lower = trimmed.toLowerCase();
+              if (!lower.endsWith('.mp3')) continue;
+              if (lower === 'afile' || lower === 'afile.mp3') continue;
+              if (seen.has(lower)) continue;
+
+              seen.add(lower);
+              soundUrls.push(`${basePath}${encodeURIComponent(trimmed)}`);
+            }
+
+            if (soundUrls.length > 0) {
+              bubbleVisualizationState.celebrationSounds = soundUrls;
+              preloadCelebrationAudios(soundUrls);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('[bubbles] Unable to load celebration sounds:', err);
+        }
+
+        bubbleVisualizationState.celebrationSounds = [fallback];
+        preloadCelebrationAudios([fallback]);
+      }
+
+      function preloadCelebrationAudios(soundUrls) {
+        if (!Array.isArray(soundUrls) || soundUrls.length === 0) return;
+
+        const preloaded = [];
+        for (const url of soundUrls) {
+          try {
+            const audio = new Audio();
+            audio.preload = 'auto';
+            audio.src = url;
+            audio.load();
+            preloaded.push({ url, audio });
+          } catch (err) {
+            console.warn('[bubbles] Failed to preload celebration audio:', err);
+          }
+        }
+
+        bubbleVisualizationState.preloadedCelebrationAudios = preloaded;
       }
 
       function showBubbleToast(title, subtitle, color) {
