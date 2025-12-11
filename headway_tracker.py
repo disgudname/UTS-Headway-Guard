@@ -232,7 +232,6 @@ class HeadwayTracker:
             if current_stop is None:
                 self._log_stop_association_failure(snap, route_id_norm)
             prev_state = self.vehicle_states.get(vid, VehiclePresence())
-            current_state = prev_state
             prev_stop = prev_state.current_stop_id
             distance_from_prev_stop = self._distance_to_stop(prev_stop, snap.lat, snap.lon)
             timestamp = snap.timestamp if snap.timestamp.tzinfo else snap.timestamp.replace(tzinfo=timezone.utc)
@@ -270,7 +269,7 @@ class HeadwayTracker:
                 if not duplicate:
                     headway_aa, headway_da = self._record_arrival_headways(bubble_route_id, bubble_stop_id, bubble_arrival_time)
                     self.final_bubble_exits.pop((vid, bubble_stop_id), None)
-                    current_state = VehiclePresence(
+                    prev_state = VehiclePresence(
                         current_stop_id=bubble_stop_id,
                         arrival_time=bubble_arrival_time,
                         route_id=bubble_route_id or route_id_norm,
@@ -480,14 +479,14 @@ class HeadwayTracker:
             # Vehicle state tracking (for departure detection, speed history)
             # Arrivals are now handled exclusively by bubble-based tracking above
             self.vehicle_states[vid] = VehiclePresence(
-                current_stop_id=current_state.current_stop_id,
-                arrival_time=current_state.arrival_time,
-                route_id=current_state.route_id,
-                departure_started_at=movement_start_time if current_state.current_stop_id else None,
-                speed_history=current_state.speed_history,
+                current_stop_id=prev_state.current_stop_id,
+                arrival_time=prev_state.arrival_time,
+                route_id=prev_state.route_id,
+                departure_started_at=movement_start_time if prev_state.current_stop_id else None,
+                speed_history=prev_state.speed_history,
             )
 
-            target_stop_id = current_state.current_stop_id or (current_stop[0] if current_stop else None)
+            target_stop_id = prev_state.current_stop_id or (current_stop[0] if current_stop else None)
             self.recent_snapshot_diagnostics.append(
                 {
                     "timestamp": self._isoformat(timestamp),
