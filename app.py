@@ -5791,6 +5791,7 @@ def _normalize_transloc_stop(stop: Dict[str, Any], *, route_membership: Mapping[
         "Description": stop.get("Description") or name,
         "Latitude": stop.get("Latitude") or stop.get("Lat"),
         "Longitude": stop.get("Longitude") or stop.get("Lon") or stop.get("Lng"),
+        "AddressID": stop.get("AddressID") or stop.get("AddressId"),
     }
 
     if route_ids:

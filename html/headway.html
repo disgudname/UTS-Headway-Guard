@@ -292,6 +292,9 @@
         stop.Stop?.StopId,
         stop.RouteStopID,
         stop.RouteStopId,
+        stop.AddressID,
+        stop.AddressId,
+        stop.address_id,
         stop.id,
       ].filter(id => id !== undefined && id !== null);
     }
@@ -618,8 +621,8 @@
         const headwaySeconds = getHeadwayValue(ev, headwayTypeSelect);
         const headway = formatMinutesSeconds(headwaySeconds);
         const dwell = formatMinutesSeconds(ev.dwell_seconds);
-        const route = getRouteName(ev.route_id || ev.route) || ev.route_name || ev.route || '';
-        const stop = getStopName(ev.stop_id || ev.stop) || ev.stop_name || ev.stop || '';
+        const route = ev.route_name || getRouteName(ev.route_id || ev.route) || ev.route || '';
+        const stop = ev.stop_name || getStopName(ev.address_id || ev.stop_id || ev.stop) || ev.stop || '';
         const vehicle = formatVehicleLabel(ev);
         const exceedsThreshold =
           highlightThresholdSeconds != null && headwaySeconds != null && Number(headwaySeconds) > highlightThresholdSeconds;
