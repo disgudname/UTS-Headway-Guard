@@ -26,6 +26,10 @@ STOP_SPEED_THRESHOLD_MPS = 0.5
 # How long before we drop stale bubble tracking state
 BUBBLE_PROGRESS_STALE_SECONDS = 120.0
 
+# Distance from final bubble at which we abandon tracking (meters)
+# Allows buses to temporarily exit bubbles (GPS drift) and re-enter
+APPROACH_ABANDONMENT_DISTANCE_M = 400.0
+
 
 @dataclass
 class VehicleSnapshot:
@@ -74,10 +78,12 @@ class BubbleProgressState:
     State machine:
     1. Vehicle enters bubble #1 -> tracking begins
     2. Vehicle progresses through bubbles in order (1 -> 2 -> ... -> N)
-    3. Vehicle enters final bubble (N):
+    3. Vehicle can temporarily exit bubbles (GPS drift) and re-enter
+    4. Tracking is only abandoned if vehicle goes 400m+ from final bubble
+    5. Vehicle enters final bubble (N):
        - If bus stops -> log arrival immediately
        - If bus exits without stopping -> log arrival at exit time
-    4. Vehicle exits final bubble -> log departure
+    6. Vehicle exits final bubble -> log departure
     """
     stop_id: str
     set_index: int
@@ -90,6 +96,10 @@ class BubbleProgressState:
     # Progress tracking
     highest_bubble_reached: int = 1  # Highest bubble order number reached
     next_expected_order: int = 2  # Next bubble order required for valid progression
+
+    # Final bubble location (for abandonment distance check)
+    final_bubble_lat: Optional[float] = None
+    final_bubble_lon: Optional[float] = None
 
     # Final bubble state
     in_final_bubble: bool = False
@@ -409,6 +419,9 @@ class HeadwayTracker:
 
                 progress = stop_progress.get(set_idx)
 
+                # Find the final bubble for this approach set (for abandonment distance check)
+                final_bubble = next((b for b in approach_set.bubbles if b.order == max_order), None)
+
                 if current_bubbles:
                     active_stop_ids.add(stop.stop_id)
 
@@ -425,6 +438,8 @@ class HeadwayTracker:
                                 last_seen=timestamp,
                                 highest_bubble_reached=1,
                                 next_expected_order=2,
+                                final_bubble_lat=final_bubble.lat if final_bubble else None,
+                                final_bubble_lon=final_bubble.lon if final_bubble else None,
                             )
                             stop_progress[set_idx] = progress
                             self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 1, "entered")
@@ -512,9 +527,21 @@ class HeadwayTracker:
                 else:
                     # Vehicle is not in any bubble for this set
                     if progress:
-                        # Was tracking this set - vehicle has left
+                        # Check distance to final bubble - only abandon if > 400m away
+                        distance_to_final = None
+                        if progress.final_bubble_lat is not None and progress.final_bubble_lon is not None:
+                            distance_to_final = self._haversine(
+                                snap.lat, snap.lon,
+                                progress.final_bubble_lat, progress.final_bubble_lon
+                            )
+
+                        should_abandon = (
+                            distance_to_final is not None and
+                            distance_to_final > APPROACH_ABANDONMENT_DISTANCE_M
+                        )
+
                         if progress.in_final_bubble:
-                            # Was in final bubble, now completely out
+                            # Was in final bubble, now out - log arrival/departure
                             if not progress.arrival_logged and stop.stop_id not in stops_with_arrival_this_cycle:
                                 # Log pass-through arrival (Method 2)
                                 progress.arrival_logged = True
@@ -543,9 +570,19 @@ class HeadwayTracker:
                                     progress.max_bubble_order, "departure"
                                 )
 
-                        # Clear progress for this set
-                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "exited")
-                        stop_progress.pop(set_idx, None)
+                            # Clear the in_final_bubble flag but keep tracking
+                            progress.in_final_bubble = False
+
+                            # Only fully abandon if we've completed arrival/departure or are too far away
+                            if (progress.arrival_logged and progress.departure_logged) or should_abandon:
+                                self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "exited")
+                                stop_progress.pop(set_idx, None)
+
+                        elif should_abandon:
+                            # Not in final bubble and too far away - abandon tracking
+                            self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "abandoned")
+                            stop_progress.pop(set_idx, None)
+                        # else: Vehicle temporarily outside bubbles but within 400m - keep tracking
 
                 # Update stop progress
                 if stop_progress:
