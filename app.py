@@ -3224,6 +3224,7 @@ async def api_headway_export(
             "route_id",
             "stop_id",
             "vehicle_id",
+            "block",
             "vehicle_name",
             "event_type",
             "headway_arrival_arrival_seconds",
@@ -3638,6 +3639,14 @@ async def startup():
                                 if snapshot_name is None and veh.name and veh.name != "-":
                                     snapshot_name = str(veh.name)
 
+                                cache_entry = (
+                                    state.vehicle_block_cache.get(veh_id_text, {})
+                                    if isinstance(state.vehicle_block_cache, dict)
+                                    else {}
+                                )
+                                cached_block = cache_entry.get("position_name") or cache_entry.get("block_number")
+                                block_label = block_lookup.get(veh_id_text) or cached_block
+
                                 headway_snapshots.append(
                                     VehicleSnapshot(
                                         vehicle_id=veh_id_text,
@@ -3647,6 +3656,7 @@ async def startup():
                                         route_id=str(rid) if rid is not None else None,
                                         timestamp=fetch_completed_at,
                                         heading_deg=veh.heading,
+                                        block=block_label,
                                     )
                                 )
                         current_vehicle_ids: set[int] = set()
@@ -3733,6 +3743,17 @@ async def startup():
                         plain_language_blocks = _extract_plain_language_blocks(
                             block_groups, vehicle_roster=vehicle_roster
                         )
+
+                        block_lookup: Dict[str, str] = {}
+                        for blk in plain_language_blocks:
+                            vid_val = blk.get("vehicle_id")
+                            block_id_val = blk.get("block_id") or blk.get("block")
+                            if vid_val is None or block_id_val is None:
+                                continue
+                            block_text = str(block_id_val).strip()
+                            if not block_text:
+                                continue
+                            block_lookup[str(vid_val)] = block_text
 
                         for block in plain_language_blocks:
                             vid = _normalize_vehicle_id_str(
