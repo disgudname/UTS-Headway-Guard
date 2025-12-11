@@ -117,7 +117,6 @@ class HeadwayTracker:
         self.recent_stop_association_failures: deque = deque(maxlen=25)
         self.recent_snapshot_diagnostics: deque = deque(maxlen=50)
         self.last_snapshots: Dict[str, VehicleSnapshot] = {}
-        self.pending_departure_movements: Dict[str, Dict[str, object]] = {}
         self.final_bubble_exits: Dict[Tuple[str, str], datetime] = {}
         # Bubble-based approach tracking: {vehicle_id: {stop_id: {set_idx: BubbleProgressState}}}
         self.vehicle_bubble_progress: Dict[str, Dict[str, Dict[int, BubbleProgressState]]] = {}
@@ -236,9 +235,6 @@ class HeadwayTracker:
             timestamp = snap.timestamp if snap.timestamp.tzinfo else snap.timestamp.replace(tzinfo=timezone.utc)
             timestamp = timestamp.astimezone(timezone.utc)
             snap.timestamp = timestamp
-            departure_recorded = False
-            departure_trigger = None
-
             prev_snap = self.last_snapshots.get(vid)
 
             delta_seconds = None
@@ -265,7 +261,6 @@ class HeadwayTracker:
                 )
                 if not duplicate:
                     headway_aa, headway_da = self._record_arrival_headways(bubble_route_id, bubble_stop_id, bubble_arrival_time)
-                    self.final_bubble_exits.pop((vid, bubble_stop_id), None)
                     prev_state = VehiclePresence(
                         current_stop_id=bubble_stop_id,
                         arrival_time=bubble_arrival_time,
@@ -288,144 +283,15 @@ class HeadwayTracker:
                     )
                     self.last_vehicle_arrival[arrival_key] = bubble_arrival_time
                     print(f"[headway] bubble arrival: vehicle={vid} stop={bubble_stop_id} dwell={bubble_dwell}s")
-
-            # Departure detection with hysteresis
-            # Use larger threshold for disassociation to prevent flapping at boundary
-            has_left_prev_stop = True
-            if prev_stop is not None and distance_from_prev_stop is not None:
-                departure_threshold = self.departure_distance_threshold_m + STOP_ASSOCIATION_HYSTERESIS_M
-                has_left_prev_stop = distance_from_prev_stop >= departure_threshold
+                    prev_stop = prev_state.current_stop_id
 
             bubble_departure_time = None
-            bubble_departed = False
             if prev_stop is not None and prev_state.arrival_time is not None:
                 bubble_departure_time = self.final_bubble_exits.get((vid, prev_stop))
-                if bubble_departure_time and bubble_departure_time >= prev_state.arrival_time:
-                    bubble_departed = True
-                    has_left_prev_stop = True
-                    departure_trigger = "bubble_exit"
 
-            movement_start_time = prev_state.departure_started_at
-            movement_confirmed = False
-            pending_movement = self.pending_departure_movements.get(vid)
-            if prev_stop is not None and distance_from_prev_stop is not None:
-                if speed_mps is not None and speed_mps > STOP_SPEED_THRESHOLD_MPS:
-                    if distance_from_prev_stop < self.departure_distance_threshold_m and movement_start_time is None:
-                        movement_start_time = timestamp
-                    if movement_start_time is not None:
-                        if pending_movement is None or pending_movement.get("start_time") != movement_start_time:
-                            pending_movement = {
-                                "start_time": movement_start_time,
-                                "start_lat": snap.lat,
-                                "start_lon": snap.lon,
-                                "start_distance": distance_from_prev_stop,
-                                "movement_count": 1,
-                            }
-                            self.pending_departure_movements[vid] = pending_movement
-                        else:
-                            pending_movement["movement_count"] = pending_movement.get("movement_count", 1) + 1
-                elif distance_from_prev_stop < self.arrival_distance_threshold_m:
-                    movement_start_time = None
-                    self.pending_departure_movements.pop(vid, None)
-                elif distance_from_prev_stop >= self.arrival_distance_threshold_m and movement_start_time is None:
-                    movement_start_time = timestamp
-                    self.pending_departure_movements.pop(vid, None)
-            elif prev_stop is None:
-                self.pending_departure_movements.pop(vid, None)
-
-            pending_movement = self.pending_departure_movements.get(vid)
-            if pending_movement:
-                movement_duration = None
-                start_time = pending_movement.get("start_time")
-                if start_time:
-                    movement_duration = (timestamp - start_time).total_seconds()
-                movement_displacement = self._haversine(
-                    pending_movement.get("start_lat", snap.lat),
-                    pending_movement.get("start_lon", snap.lon),
-                    snap.lat,
-                    snap.lon,
-                )
-                movement_count = pending_movement.get("movement_count", 1)
-                start_distance = pending_movement.get("start_distance")
-                near_stop = (
-                    distance_from_prev_stop is not None
-                    and distance_from_prev_stop < self.departure_distance_threshold_m
-                )
-                moving_away = (
-                    distance_from_prev_stop is None
-                    or start_distance is None
-                    or distance_from_prev_stop >= start_distance
-                )
-                fast_departure = (
-                    moving_away
-                    and speed_mps is not None
-                    and speed_mps > STOP_SPEED_THRESHOLD_MPS
-                    and distance_from_prev_stop is not None
-                    and distance_from_prev_stop < self.departure_distance_threshold_m
-                )
-                quick_departure = (
-                    moving_away
-                    and movement_duration is not None
-                    and movement_duration >= QUICK_DEPARTURE_MIN_DURATION_S
-                    and distance_from_prev_stop is not None
-                    and distance_from_prev_stop >= self.arrival_distance_threshold_m
-                )
-                # Strengthen movement confirmation - require combination of conditions
-                # to prevent GPS noise from triggering false departures
-                has_displacement = movement_displacement >= MOVEMENT_CONFIRMATION_DISPLACEMENT_M
-                has_duration = (
-                    movement_duration is not None
-                    and movement_duration >= MOVEMENT_CONFIRMATION_MIN_DURATION_S
-                )
-                has_multiple_observations = movement_count >= 2
-
-                # Require either (displacement AND multiple observations) OR sustained duration OR quick departure
-                sustained_movement = (
-                    (has_displacement and has_multiple_observations)
-                    or has_duration
-                    or quick_departure
-                    or not near_stop
-                )
-
-                if sustained_movement and moving_away and (fast_departure or has_displacement or quick_departure):
-                    movement_confirmed = True
-                    movement_start_time = pending_movement.get("start_time") or movement_start_time
-                    if not bubble_departed:
-                        departure_trigger = "speed" if fast_departure else departure_trigger
-                    self.pending_departure_movements.pop(vid, None)
-
-            if movement_confirmed:
-                has_left_prev_stop = True
-                departure_trigger = departure_trigger or "movement"
-
-            if prev_stop and (
-                bubble_departed
-                or movement_confirmed
-                or (has_left_prev_stop and (current_stop is None or current_stop[0] != prev_stop))
-            ):
+            if prev_stop and bubble_departure_time and bubble_departure_time >= prev_state.arrival_time:
                 dwell_seconds = None
-                departure_timestamp = bubble_departure_time or movement_start_time or timestamp
-                if (
-                    movement_confirmed
-                    and prev_snap
-                    and delta_seconds
-                    and delta_seconds > 0
-                    and speed_mps
-                    and speed_mps > 0
-                    and prev_stop is not None
-                    and distance_from_prev_stop is not None
-                    and not bubble_departed
-                ):
-                    prev_snap_distance = self._distance_to_stop(prev_stop, prev_snap.lat, prev_snap.lon)
-                    if prev_snap_distance is not None and prev_snap_distance <= self.arrival_distance_threshold_m:
-                        threshold_distance = max(prev_snap_distance, min(5.0, self.departure_distance_threshold_m))
-                        distance_delta = distance_from_prev_stop - prev_snap_distance
-                        if distance_delta > 0 and distance_from_prev_stop >= threshold_distance:
-                            fraction = (threshold_distance - prev_snap_distance) / distance_delta
-                            fraction = min(max(fraction, 0.0), 1.0)
-                            interpolated_time = prev_snap.timestamp + timedelta(seconds=fraction * delta_seconds)
-                            # Ensure interpolated timestamp is within bounds
-                            departure_timestamp = max(prev_snap.timestamp, min(timestamp, interpolated_time))
+                departure_timestamp = bubble_departure_time
                 if prev_state.arrival_time:
                     dwell_seconds = (departure_timestamp - prev_state.arrival_time).total_seconds()
                     dwell_seconds = max(dwell_seconds, 0.0)
@@ -451,9 +317,6 @@ class HeadwayTracker:
                         for arrival_key in list(self.last_vehicle_arrival.keys()):
                             if arrival_key[0] == vid and arrival_key[1] == prev_stop:
                                 self.last_vehicle_departure[arrival_key] = departure_timestamp
-                        if departure_trigger is None:
-                            departure_trigger = "bubble_exit" if bubble_departed else "distance"
-                        self.pending_departure_movements.pop(vid, None)
                         events.append(
                             HeadwayEvent(
                                 timestamp=departure_timestamp,
@@ -467,9 +330,8 @@ class HeadwayTracker:
                                 dwell_seconds=dwell_seconds,
                             )
                         )
-                        departure_recorded = True
-                        if bubble_departed:
-                            self.final_bubble_exits.pop((vid, prev_stop), None)
+                        self.final_bubble_exits.pop((vid, prev_stop), None)
+                        prev_state = VehiclePresence(speed_history=prev_state.speed_history)
 
             # Vehicle state tracking (for departure detection, speed history)
             # Arrivals are now handled exclusively by bubble-based tracking above
@@ -477,7 +339,7 @@ class HeadwayTracker:
                 current_stop_id=prev_state.current_stop_id,
                 arrival_time=prev_state.arrival_time,
                 route_id=prev_state.route_id,
-                departure_started_at=movement_start_time if prev_state.current_stop_id else None,
+                departure_started_at=None,
                 speed_history=prev_state.speed_history,
             )
 
@@ -491,12 +353,12 @@ class HeadwayTracker:
                     "heading_deg": snap.heading_deg,
                     "previous_stop_id": prev_stop,
                     "distance_from_previous_stop": distance_from_prev_stop,
-                    "has_left_previous_stop": has_left_prev_stop,
+                    "has_left_previous_stop": bool(self.final_bubble_exits.get((vid, prev_stop))) if prev_stop else None,
                     "target_stop_id": target_stop_id,
                     "target_stop_distance": self._distance_to_stop(target_stop_id, snap.lat, snap.lon),
-                    "departure_recorded": departure_recorded,
-                    "departure_started_at": self._isoformat(movement_start_time),
-                    "departure_trigger": departure_trigger,
+                    "departure_recorded": bool(bubble_departure_time),
+                    "departure_started_at": None,
+                    "departure_trigger": "bubble_exit" if bubble_departure_time else None,
                     "speed_mps": speed_mps,
                 }
             )
@@ -646,6 +508,8 @@ class HeadwayTracker:
                         if progress.in_final_bubble and not progress.arrival_logged:
                             progress.arrival_logged = True
                             arrival_time = progress.entered_final_at or timestamp
+                            progress.left_final_at = progress.left_final_at or timestamp
+                            self.final_bubble_exits[(vid, stop.stop_id)] = progress.left_final_at
                             arrivals_to_log.append((stop.stop_id, route_id_norm, arrival_time, 0.0))
                             self._log_bubble_activation(
                                 vid,
@@ -675,6 +539,8 @@ class HeadwayTracker:
                             # Was in final bubble but left without stopping - log pass-through arrival with 0s dwell
                             progress.arrival_logged = True
                             arrival_time = progress.entered_final_at or timestamp
+                            progress.left_final_at = progress.left_final_at or timestamp
+                            self.final_bubble_exits[(vid, stop.stop_id)] = progress.left_final_at
                             arrivals_to_log.append((stop.stop_id, route_id_norm, arrival_time, 0.0))
                             self._log_bubble_activation(
                                 vid, snap, stop, set_idx, approach_set.name, progress.max_bubble_order, "arrival_passthrough"
