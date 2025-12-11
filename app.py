@@ -3143,7 +3143,74 @@ async def api_headway(
         stop_ids=stops if stops else None,
     )
     vehicle_names = _attach_vehicle_names(events)
-    return {"events": [ev.to_dict() for ev in events], "vehicle_names": vehicle_names}
+
+    # Enrich events with route_name, block, stop_name from current state if missing
+    route_id_to_name = getattr(state, "route_id_to_name", None) or {}
+    blocks_cache = getattr(state, "blocks_cache", None)
+    plain_language_blocks = blocks_cache.get("plain_language_blocks", []) if blocks_cache else []
+
+    # Get stop lookup from headway tracker
+    headway_tracker = getattr(app.state, "headway_tracker", None)
+    stop_lookup = headway_tracker.stop_lookup if headway_tracker else {}
+    address_lookup = getattr(headway_tracker, "address_lookup", {}) if headway_tracker else {}
+
+    # Build vehicle_id -> block lookup
+    vehicle_to_block: Dict[str, str] = {}
+    for block_entry in plain_language_blocks:
+        vid = block_entry.get("vehicle_id")
+        if vid is not None:
+            block_id = block_entry.get("block_id") or block_entry.get("block")
+            if block_id:
+                vehicle_to_block[str(vid)] = block_id
+
+    enriched_events = []
+    for ev in events:
+        ev_dict = ev.to_dict()
+
+        # Enrich route_name if missing
+        if not ev_dict.get("route_name") and ev_dict.get("route_id"):
+            rid = ev_dict["route_id"]
+            route_name = (
+                route_id_to_name.get(rid) or
+                route_id_to_name.get(str(rid))
+            )
+            if not route_name:
+                try:
+                    route_name = route_id_to_name.get(int(rid))
+                except (ValueError, TypeError):
+                    pass
+            if route_name:
+                ev_dict["route_name"] = route_name
+
+        # Enrich block if missing
+        if not ev_dict.get("block") and ev_dict.get("vehicle_id"):
+            vid = ev_dict["vehicle_id"]
+            block = vehicle_to_block.get(str(vid))
+            if block:
+                ev_dict["block"] = block
+
+        # Enrich stop_name and address_id if missing or address_id is lat/lon fallback
+        stop_id = ev_dict.get("stop_id")
+        address_id = ev_dict.get("address_id")
+        stop_point = None
+
+        # Try to find the stop point
+        if stop_id and stop_id in stop_lookup:
+            stop_point = stop_lookup[stop_id]
+        elif address_id and address_id in address_lookup:
+            stop_point = address_lookup[address_id]
+
+        if stop_point:
+            # Enrich stop_name if missing
+            if not ev_dict.get("stop_name") and stop_point.stop_name:
+                ev_dict["stop_name"] = stop_point.stop_name
+            # Fix address_id if it's a lat/lon fallback (starts with "loc_")
+            if address_id and address_id.startswith("loc_") and stop_point.address_id and not stop_point.address_id.startswith("loc_"):
+                ev_dict["address_id"] = stop_point.address_id
+
+        enriched_events.append(ev_dict)
+
+    return {"events": enriched_events, "vehicle_names": vehicle_names}
 
 
 @app.get("/api/headway/bubbles")
@@ -3377,14 +3444,19 @@ async def startup():
                 return None
             route_id_to_name = getattr(state, "route_id_to_name", None)
             if not route_id_to_name:
+                print(f"[headway] route_name_lookup: no route_id_to_name map available")
                 return None
             # Try string key first, then int key (TransLoc uses int RouteID)
             result = route_id_to_name.get(route_id) or route_id_to_name.get(str(route_id))
             if result:
                 return result
             try:
-                return route_id_to_name.get(int(route_id))
+                result = route_id_to_name.get(int(route_id))
+                if not result:
+                    print(f"[headway] route_name_lookup: route_id={route_id} not found in map with {len(route_id_to_name)} entries")
+                return result
             except (ValueError, TypeError):
+                print(f"[headway] route_name_lookup: route_id={route_id} not found, int conversion failed")
                 return None
 
         def vehicle_block_lookup(vehicle_id: Optional[str]) -> Optional[str]:
@@ -3393,6 +3465,7 @@ async def startup():
             # Get block from the cached blocks data
             blocks_cache = getattr(state, "blocks_cache", None)
             if not blocks_cache:
+                print(f"[headway] vehicle_block_lookup: no blocks_cache available")
                 return None
             plain_language_blocks = blocks_cache.get("plain_language_blocks", [])
             for block_entry in plain_language_blocks:
@@ -3400,6 +3473,7 @@ async def startup():
                 if vid is not None and str(vid) == str(vehicle_id):
                     # Return the block name (e.g., "[06]" or position_name)
                     return block_entry.get("block_id") or block_entry.get("block")
+            print(f"[headway] vehicle_block_lookup: vehicle_id={vehicle_id} not found in {len(plain_language_blocks)} blocks")
             return None
 
         headway_tracker = HeadwayTracker(
