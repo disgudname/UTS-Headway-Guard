@@ -19639,14 +19639,15 @@ ${trainPlaneMarkup}
         const particles = [];
         const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#ff69b4'];
 
-        for (let i = 0; i < 50; i++) {
+        const PARTICLE_COUNT = 80;
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
           particles.push({
             x: x,
             y: y,
             vx: (Math.random() - 0.5) * 15,
             vy: (Math.random() - 0.5) * 15 - 5,
             color: colors[Math.floor(Math.random() * colors.length)],
-            size: Math.random() * 8 + 4,
+            size: Math.random() * 12 + 8,
             rotation: Math.random() * 360,
             rotationSpeed: (Math.random() - 0.5) * 10,
             life: 1,
