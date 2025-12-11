@@ -57,6 +57,10 @@ Writes complete as soon as the append-only log is flushed on that volume; no cro
 
 All read paths honour soft purges. Hard purges remove matching ticket events from the log and rebuild the snapshot so deleted data will not reappear after restarts.
 
+### Stop approach bubbles
+
+- See `docs/stop-approach-guide.md` for a step-by-step walkthrough of placing and ordering approach bubbles in the Stop Approach Editor (`/stop-approach`).
+
 ### Acceptance checks
 
 Run the scripted end-to-end verification (exercises ticket creation, updates, purges, and CSV export):
