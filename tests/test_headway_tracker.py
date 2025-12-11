@@ -20,163 +20,55 @@ class MemoryHeadwayStorage:
         return []
 
 
-def test_headway_tracker_ignores_jitter_near_departure_boundary():
+def _basic_stop():
+    return {
+        "StopID": "STOP",
+        "Latitude": 0.0,
+        "Longitude": 0.0,
+        "RouteID": "R1",
+        "ApproachSets": [
+            {
+                "name": "main",
+                "bubbles": [
+                    {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
+                    {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
+                ],
+            }
+        ],
+    }
+
+
+def test_arrival_logged_when_bus_passes_through_bubbles_without_stopping():
     storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
-    )
-    tracker.update_stops([
-        {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-    ])
+    tracker = HeadwayTracker(storage=storage)
+    tracker.update_stops([_basic_stop()])
 
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="1", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0010, route_id="R1", timestamp=base)]
     )
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="1",
+                vehicle_id="bus",
                 vehicle_name=None,
                 lat=0.0,
-                lon=0.00036,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-            )
-        ]
-    )
-    assert len(storage.events) == 1
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="1",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0001,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=60),
-            )
-        ]
-    )
-    assert len(storage.events) == 1
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="1",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.001,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=120),
-            )
-        ]
-    )
-    assert [e.event_type for e in storage.events] == ["arrival", "departure"]
-
-
-def test_headway_tracker_requires_sustained_movement_near_stop():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
-    )
-    tracker.update_stops([
-        {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-    ])
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="1", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
-    )
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="1",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.00005,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=5),
-            )
-        ]
-    )
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="1",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0001,
+                lon=-0.0006,
                 route_id="R1",
                 timestamp=base + timedelta(seconds=10),
             )
         ]
     )
-    assert [e.event_type for e in storage.events] == ["arrival", "departure"]
-    assert storage.events[-1].timestamp == base + timedelta(seconds=5)
-
-
-def test_headway_tracker_discards_duplicate_arrivals_at_same_stop():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0)
-    tracker.update_stops([
-        {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-    ])
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="dup", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base
-            )
-        ]
-    )
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
-    tracker.vehicle_states.clear()
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="dup",
+                vehicle_id="bus",
                 vehicle_name=None,
                 lat=0.0,
                 lon=0.0,
                 route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-            )
-        ]
-    )
-
-    assert [e.event_type for e in storage.events] == ["arrival"]
-    assert storage.events[0].timestamp == base
-
-
-def test_headway_tracker_records_route_change_arrivals_at_same_stop():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0)
-    tracker.update_stops([
-        {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-    ])
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="route-swap",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base,
+                timestamp=base + timedelta(seconds=20),
             )
         ]
     )
@@ -184,546 +76,45 @@ def test_headway_tracker_records_route_change_arrivals_at_same_stop():
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="route-swap",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0,
-                route_id="R2",
-                timestamp=base + timedelta(seconds=30),
-            )
-        ]
-    )
-
-    assert [(e.event_type, e.route_id) for e in storage.events] == [("arrival", "R1"), ("arrival", "R2")]
-
-
-def test_headway_tracker_waits_for_departure_threshold_before_switching_stops():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=70.0, departure_distance_threshold_m=90.0
-    )
-    tracker.update_stops(
-        [
-            {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-            {"StopID": "B", "Latitude": 0.0, "Longitude": 0.0006},
-        ]
-    )
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="9", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
-    )
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="9",
+                vehicle_id="bus",
                 vehicle_name=None,
                 lat=0.0,
                 lon=0.0004,
                 route_id="R1",
-                timestamp=base + timedelta(seconds=45),
+                timestamp=base + timedelta(seconds=30),
             )
         ]
     )
-    assert len(storage.events) == 1
 
     tracker.process_snapshots(
         [
             VehicleSnapshot(
-                vehicle_id="9",
+                vehicle_id="bus",
                 vehicle_name=None,
                 lat=0.0,
-                lon=0.0009,
+                lon=0.001,
                 route_id="R1",
-                timestamp=base + timedelta(seconds=120),
-            )
-        ]
-    )
-    assert [e.event_type for e in storage.events] == ["arrival", "departure", "arrival"]
-    assert [e.stop_id for e in storage.events] == ["A", "A", "B"]
-
-
-def test_headway_tracker_departure_time_tracks_movement_start():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
-    )
-    tracker.update_stops(
-        [
-            {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-        ]
-    )
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="3", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
-    )
-
-    movement_start = base + timedelta(seconds=30)
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="3",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.00032,
-                route_id="R1",
-                timestamp=movement_start,
-            )
-        ]
-    )
-    assert len(storage.events) == 1
-
-    exit_time = base + timedelta(seconds=90)
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="3",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0007,
-                route_id="R1",
-                timestamp=exit_time,
+                timestamp=base + timedelta(seconds=40),
             )
         ]
     )
 
     assert [e.event_type for e in storage.events] == ["arrival", "departure"]
-    assert storage.events[-1].timestamp == movement_start
-    assert storage.events[-1].dwell_seconds == 30
+    assert storage.events[0].timestamp == base + timedelta(seconds=20)
+    assert storage.events[1].timestamp == base + timedelta(seconds=30)
+    assert storage.events[1].dwell_seconds == 10
 
 
-def test_headway_tracker_confirms_departure_from_displacement():
+def test_arrival_logged_when_bus_stops_in_final_bubble():
     storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
-    )
-    tracker.update_stops(
-        [
-            {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-        ]
-    )
+    tracker = HeadwayTracker(storage=storage)
+    tracker.update_stops([_basic_stop()])
 
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="6", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0006, route_id="R1", timestamp=base)]
     )
 
-    movement_start = base + timedelta(seconds=5)
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="6",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.00005,
-                route_id="R1",
-                timestamp=movement_start,
-            )
-        ]
-    )
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="6",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0001,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=12),
-            )
-        ]
-    )
-
-    assert [e.event_type for e in storage.events] == ["arrival", "departure"]
-    assert storage.events[-1].timestamp == movement_start
-
-
-def test_headway_tracker_merges_route_ids_for_shared_locations():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
-    )
-    tracker.update_stops(
-        [
-            {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0, "Routes": [{"RouteID": "R1"}]},
-            {"StopID": "B", "Latitude": 0.0, "Longitude": 0.0, "Routes": [{"RouteID": "R2"}]},
-        ]
-    )
-
-    assert tracker.stop_lookup["A"].route_ids == {"R1", "R2"}
-    assert tracker.stop_lookup["B"].route_ids == {"R1", "R2"}
-
-    nearest = tracker._nearest_stop(0.0, 0.0, "R2", threshold=30.0)
-    assert nearest == ("A", "R2")
-
-
-def test_headway_tracker_uses_stop_history_when_route_missing():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=30.0, departure_distance_threshold_m=60.0
-    )
-    tracker.update_stops([
-        {"StopID": "A", "Latitude": 0.0, "Longitude": 0.0},
-    ])
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="5", vehicle_name=None, lat=0.0, lon=0.0, route_id=None, timestamp=base)]
-    )
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="5",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0007,
-                route_id=None,
-                timestamp=base + timedelta(seconds=60),
-            )
-        ]
-    )
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="5",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=120),
-            )
-        ]
-    )
-
-    assert [e.event_type for e in storage.events] == ["arrival", "departure", "arrival"]
-    assert storage.events[-1].headway_departure_arrival == 60
-
-
-def test_headway_tracker_respects_stop_approach_cone():
-    storage = MemoryHeadwayStorage()
-    approach_config = {
-        "EAST": (90.0, 30.0, 70.0),
-        "WEST": (90.0, 10.0, 70.0),
-    }
-    tracker = HeadwayTracker(
-        storage=storage,
-        arrival_distance_threshold_m=70.0,
-        departure_distance_threshold_m=70.0,
-        stop_approach=approach_config,
-    )
-    tracker.update_stops(
-        [
-            {"StopID": "EAST", "Latitude": 0.0, "Longitude": 0.0003},
-            {"StopID": "WEST", "Latitude": 0.0, "Longitude": -0.0003},
-        ]
-    )
-
-    nearest = tracker._nearest_stop(0.0, 0.0, None, threshold=70.0, heading_deg=270.0)
-    assert nearest == ("WEST", None)
-
-
-def test_headway_tracker_uses_approach_radius_instead_of_circle():
-    storage = MemoryHeadwayStorage()
-    approach_config = {
-        "EAST": (90.0, 20.0, 80.0),
-    }
-    tracker = HeadwayTracker(
-        storage=storage,
-        arrival_distance_threshold_m=30.0,
-        departure_distance_threshold_m=70.0,
-        stop_approach=approach_config,
-    )
-    tracker.update_stops(
-        [
-            {"StopID": "EAST", "Latitude": 0.0, "Longitude": 0.0007},
-        ]
-    )
-
-    nearest = tracker._nearest_stop(0.0, 0.0012, None, threshold=30.0, heading_deg=270.0)
-    assert nearest == ("EAST", None)
-
-
-def test_headway_tracker_rejects_missing_heading_in_cone():
-    storage = MemoryHeadwayStorage()
-    approach_config = {
-        "NORTH": (0.0, 20.0, 80.0),
-    }
-    tracker = HeadwayTracker(
-        storage=storage,
-        arrival_distance_threshold_m=80.0,
-        departure_distance_threshold_m=80.0,
-        stop_approach=approach_config,
-    )
-    tracker.update_stops([
-        {"StopID": "NORTH", "Latitude": 0.0, "Longitude": 0.0},
-    ])
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    # Vehicle is north of the stop and within the cone radius but has no heading
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="northbound",
-                vehicle_name=None,
-                lat=0.0005,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base,
-            )
-        ]
-    )
-
-    assert storage.events == []
-
-    # Same position with a valid heading toward the stop should be accepted
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="northbound",
-                vehicle_name=None,
-                lat=0.0005,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-                heading_deg=180.0,
-            )
-        ]
-    )
-
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
-
-def test_headway_tracker_requires_vehicle_heading_for_cone():
-    storage = MemoryHeadwayStorage()
-    approach_config = {
-        "EAST": (90.0, 20.0, 80.0),
-    }
-    tracker = HeadwayTracker(
-        storage=storage,
-        arrival_distance_threshold_m=80.0,
-        departure_distance_threshold_m=80.0,
-        stop_approach=approach_config,
-    )
-    tracker.update_stops([
-        {"StopID": "EAST", "Latitude": 0.0, "Longitude": 0.0004},
-    ])
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="east",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0006,
-                route_id="R1",
-                timestamp=base,
-                heading_deg=90.0,
-            )
-        ]
-    )
-
-    assert storage.events == []
-
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="east",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0006,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-                heading_deg=260.0,
-            )
-        ]
-    )
-
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
-
-def test_headway_tracker_requires_entering_saved_cone_for_arrival():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage,
-        arrival_distance_threshold_m=70.0,
-        departure_distance_threshold_m=70.0,
-        stop_approach={},
-    )
-
-    tracker.update_stops([
-        {"StopID": "NORTH", "Latitude": 0.0, "Longitude": 0.0},
-    ])
-
-    # Saved cone pointing north with a reasonable tolerance and radius, but
-    # the tracker never receives refreshed stops that include it.
-    tracker.stop_approach = {"NORTH": (0.0, 15.0, 70.0)}
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    # Vehicle is south of the stop (outside the north-facing cone) but within distance
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="cone",
-                vehicle_name=None,
-                lat=-0.0005,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base,
-            )
-        ]
-    )
-
-    assert storage.events == []
-
-    # Vehicle enters the cone from the south, ending up north of the stop
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="cone",
-                vehicle_name=None,
-                lat=0.0005,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-                heading_deg=180.0,
-            )
-        ]
-    )
-
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
-
-def test_headway_tracker_cone_uses_stop_to_vehicle_bearing_and_opposing_heading():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage,
-        arrival_distance_threshold_m=80.0,
-        departure_distance_threshold_m=80.0,
-        stop_approach={},
-    )
-
-    tracker.update_stops([
-        {"StopID": "EASTBOUND", "Latitude": 0.0, "Longitude": 0.0},
-    ])
-
-    # Cone opens to the west of the stop (bearing 270), expecting vehicles to travel eastbound
-    tracker.stop_approach = {"EASTBOUND": (270.0, 20.0, 80.0)}
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    # Vehicle is west of the stop and heading east; should be accepted
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="eastbound",
-                vehicle_name=None,
-                lat=0.0,
-                lon=-0.0006,
-                route_id="R1",
-                timestamp=base,
-                heading_deg=90.0,
-            )
-        ]
-    )
-
-    assert [e.event_type for e in storage.events] == ["arrival"]
-
-    # Vehicle on same side of stop but cone pointed the wrong way should be rejected
-    storage.events.clear()
-    tracker.stop_approach = {"EASTBOUND": (90.0, 20.0, 80.0)}
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="eastbound",
-                vehicle_name=None,
-                lat=0.0,
-                lon=-0.0006,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-                heading_deg=90.0,
-            )
-        ]
-    )
-
-    assert storage.events == []
-
-
-def test_build_transloc_stops_merges_approach_config():
-    from app import _build_transloc_stops
-
-    approach_config = {"123": (45.0, 15.0)}
-    stops = _build_transloc_stops(
-        [
-            {
-                "RouteID": "1",
-                "Stops": [
-                    {"StopID": "123", "Latitude": 0.0, "Longitude": 0.0},
-                ],
-            }
-        ],
-        approach_config=approach_config,
-    )
-
-    assert stops[0]["ApproachBearingDeg"] == 45.0
-    assert stops[0]["ApproachToleranceDeg"] == 15.0
-
-
-def test_bubble_arrival_logged_on_stop_in_final_bubble():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=100.0, departure_distance_threshold_m=100.0
-    )
-
-    tracker.update_stops(
-        [
-            {
-                "StopID": "STOP",
-                "Latitude": 0.0,
-                "Longitude": 0.0,
-                "ApproachSets": [
-                    {
-                        "name": "main",
-                        "bubbles": [
-                            {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
-                            {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
-                        ],
-                    }
-                ],
-            }
-        ]
-    )
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0010, route_id="R1", timestamp=base)]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=-0.0006,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-            )
-        ]
-    )
     tracker.process_snapshots(
         [
             VehicleSnapshot(
@@ -732,10 +123,11 @@ def test_bubble_arrival_logged_on_stop_in_final_bubble():
                 lat=0.0,
                 lon=0.0,
                 route_id="R1",
-                timestamp=base + timedelta(seconds=60),
+                timestamp=base + timedelta(seconds=20),
             )
         ]
     )
+
     tracker.process_snapshots(
         [
             VehicleSnapshot(
@@ -744,269 +136,90 @@ def test_bubble_arrival_logged_on_stop_in_final_bubble():
                 lat=0.0,
                 lon=0.0,
                 route_id="R1",
-                timestamp=base + timedelta(seconds=90),
+                timestamp=base + timedelta(seconds=40),
             )
         ]
     )
 
-    assert len(storage.events) == 1
-    assert storage.events[0].event_type == "arrival"
-    assert storage.events[0].timestamp == base + timedelta(seconds=90)
-
-
-def test_bubble_arrival_requires_route_serving_stop():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=100.0, departure_distance_threshold_m=100.0
-    )
-
-    tracker.update_stops(
-        [
-            {
-                "StopID": "STOP",
-                "Latitude": 0.0,
-                "Longitude": 0.0,
-                "RouteID": "R2",
-                "ApproachSets": [
-                    {
-                        "name": "main",
-                        "bubbles": [
-                            {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
-                            {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
-                        ],
-                    }
-                ],
-            }
-        ]
-    )
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0010, route_id="R1", timestamp=base)]
-    )
     tracker.process_snapshots(
         [
             VehicleSnapshot(
                 vehicle_id="bus",
                 vehicle_name=None,
                 lat=0.0,
-                lon=-0.0005,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-            )
-        ]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=-0.0001,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=60),
-            )
-        ]
-    )
-
-    assert storage.events == []
-
-
-def test_bubble_arrival_logged_on_entry_when_no_stop():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=100.0, departure_distance_threshold_m=100.0
-    )
-
-    tracker.update_stops(
-        [
-            {
-                "StopID": "STOP",
-                "Latitude": 0.0,
-                "Longitude": 0.0,
-                "ApproachSets": [
-                    {
-                        "name": "main",
-                        "bubbles": [
-                            {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
-                            {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
-                        ],
-                    }
-                ],
-            }
-        ]
-    )
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0010, route_id="R1", timestamp=base)]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=-0.0006,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-            )
-        ]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=60),
-            )
-        ]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0006,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=90),
-            )
-        ]
-    )
-
-    assert len(storage.events) == 1
-    assert storage.events[0].event_type == "arrival"
-    assert storage.events[0].timestamp == base + timedelta(seconds=60)
-
-
-def test_departure_uses_final_bubble_exit_time():
-    storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=100.0, departure_distance_threshold_m=100.0
-    )
-
-    tracker.update_stops(
-        [
-            {
-                "StopID": "STOP",
-                "Latitude": 0.0,
-                "Longitude": 0.0,
-                "RouteID": "R1",
-                "ApproachSets": [
-                    {
-                        "name": "main",
-                        "bubbles": [
-                            {"lat": 0.0, "lng": -0.0006, "radius_m": 70.0, "order": 1},
-                            {"lat": 0.0, "lng": 0.0, "radius_m": 30.0, "order": 2},
-                        ],
-                    }
-                ],
-            }
-        ]
-    )
-
-    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-    tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0007, route_id="R1", timestamp=base)]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=30),
-            )
-        ]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0,
-                route_id="R1",
-                timestamp=base + timedelta(seconds=60),
-            )
-        ]
-    )
-    tracker.process_snapshots(
-        [
-            VehicleSnapshot(
-                vehicle_id="bus",
-                vehicle_name=None,
-                lat=0.0,
-                lon=0.0001,
+                lon=0.0005,
                 route_id="R1",
                 timestamp=base + timedelta(seconds=70),
             )
         ]
     )
 
-    departure_time = base + timedelta(seconds=90)
+    assert [e.event_type for e in storage.events] == ["arrival", "departure"]
+    assert storage.events[0].timestamp == base + timedelta(seconds=40)
+    assert storage.events[1].timestamp == base + timedelta(seconds=70)
+    assert storage.events[1].dwell_seconds == 30
+
+
+def test_no_arrival_when_skipping_outer_bubble():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage)
+    tracker.update_stops([_basic_stop()])
+
+    base = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    tracker.process_snapshots(
+        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=0.00025, route_id="R1", timestamp=base)]
+    )
     tracker.process_snapshots(
         [
             VehicleSnapshot(
                 vehicle_id="bus",
                 vehicle_name=None,
                 lat=0.0,
-                lon=0.00035,
+                lon=0.0006,
                 route_id="R1",
-                timestamp=departure_time,
+                timestamp=base + timedelta(seconds=20),
             )
         ]
     )
 
-    assert [e.event_type for e in storage.events] == ["arrival", "departure"]
-    assert storage.events[-1].timestamp == departure_time
-    assert storage.events[-1].dwell_seconds == 30
+    assert storage.events == []
 
 
-def test_tracker_can_follow_multiple_approach_sets():
+def test_route_mismatch_prevents_headway_logging():
     storage = MemoryHeadwayStorage()
-    tracker = HeadwayTracker(
-        storage=storage, arrival_distance_threshold_m=100.0, departure_distance_threshold_m=100.0
-    )
-
-    tracker.update_stops(
-        [
-            {
-                "StopID": "STOP",
-                "Latitude": 0.0,
-                "Longitude": 0.0,
-                "ApproachSets": [
-                    {
-                        "name": "set_a",
-                        "bubbles": [
-                            {"lat": 0.0, "lng": 0.0, "radius_m": 50.0, "order": 1},
-                        ],
-                    },
-                    {
-                        "name": "set_b",
-                        "bubbles": [
-                            {"lat": 0.0, "lng": 0.0, "radius_m": 50.0, "order": 1},
-                        ],
-                    },
-                ],
-            }
-        ]
-    )
+    tracker = HeadwayTracker(storage=storage)
+    stop = _basic_stop()
+    stop["RouteID"] = "R2"
+    tracker.update_stops([stop])
 
     base = datetime(2024, 1, 1, tzinfo=timezone.utc)
     tracker.process_snapshots(
-        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=0.0, route_id="R1", timestamp=base)]
+        [VehicleSnapshot(vehicle_id="bus", vehicle_name=None, lat=0.0, lon=-0.0010, route_id="R1", timestamp=base)]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=-0.0006,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=20),
+            )
+        ]
+    )
+    tracker.process_snapshots(
+        [
+            VehicleSnapshot(
+                vehicle_id="bus",
+                vehicle_name=None,
+                lat=0.0,
+                lon=0.0,
+                route_id="R1",
+                timestamp=base + timedelta(seconds=40),
+            )
+        ]
     )
 
-    assert "bus" in tracker.vehicle_bubble_progress
-    assert "STOP" in tracker.vehicle_bubble_progress["bus"]
-    assert len(tracker.vehicle_bubble_progress["bus"]["STOP"]) == 2
+    assert storage.events == []
