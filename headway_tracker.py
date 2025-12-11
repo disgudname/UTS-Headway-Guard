@@ -23,6 +23,7 @@ QUICK_DEPARTURE_MIN_DURATION_S = 5.0
 STOP_ASSOCIATION_HYSTERESIS_M = 15.0  # Extra distance needed to disassociate from a stop
 SPEED_HISTORY_SIZE = 3  # Number of speed samples to track for noise filtering
 BUBBLE_PROGRESS_STALE_SECONDS = 120.0  # Drop bubble state if we have not heard from the vehicle
+BUBBLE_ABANDON_DISTANCE_M = 400.0  # Distance from all bubbles before abandoning the approach
 
 
 @dataclass
@@ -564,9 +565,11 @@ class HeadwayTracker:
 
                 max_order = max(b.order for b in approach_set.bubbles)
                 current_bubbles_in: List[int] = []
+                min_distance_to_bubble = math.inf
 
                 for bubble in approach_set.bubbles:
                     dist = self._haversine(snap.lat, snap.lon, bubble.lat, bubble.lon)
+                    min_distance_to_bubble = min(min_distance_to_bubble, dist)
                     if dist <= bubble.radius_m:
                         current_bubbles_in.append(bubble.order)
 
@@ -684,9 +687,13 @@ class HeadwayTracker:
                             progress.left_final_at = progress.left_final_at or timestamp
                             self.final_bubble_exits[(vid, stop.stop_id)] = progress.left_final_at
 
-                        # Clear progress for this set
-                        self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "exited")
-                        stop_progress.pop(set_idx, None)
+                        # Only abandon if we've moved sufficiently far from the entire approach set
+                        if min_distance_to_bubble >= BUBBLE_ABANDON_DISTANCE_M:
+                            self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 0, "exited")
+                            stop_progress.pop(set_idx, None)
+                        else:
+                            progress.in_final_bubble = False
+                            progress.last_seen = timestamp
 
                     if stop_progress:
                         vehicle_progress[stop.stop_id] = stop_progress
