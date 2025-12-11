@@ -855,6 +855,7 @@ class HeadwayTracker:
             "vehicle_id": vid,
             "vehicle_name": snap.vehicle_name,
             "stop_id": stop.stop_id,
+            "stop_name": stop.stop_name,
             "set_index": set_index,
             "set_name": set_name,
             "bubble_order": bubble_order,

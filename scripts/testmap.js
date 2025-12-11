@@ -19594,13 +19594,18 @@ ${trainPlaneMarkup}
 
       function showArrivalCelebration(activation) {
         const isPassthrough = activation.event_type === 'arrival_passthrough';
+        const stopName = activation.stop_name || activation.stop_id || 'Stop';
+        const subtitleParts = [];
+        if (stopName) subtitleParts.push(stopName);
+        if (activation.set_name) subtitleParts.push(activation.set_name);
+        const subtitle = subtitleParts.join(' • ') || 'Stop arrival';
 
         // Show toast
         showBubbleToast(
           isPassthrough
             ? `🚌 Pass-through: ${activation.vehicle_name || activation.vehicle_id}`
             : `🎉 Arrival: ${activation.vehicle_name || activation.vehicle_id}`,
-          activation.set_name || 'Stop arrival',
+          subtitle,
           isPassthrough ? '#f97316' : '#22c55e'
         );
 
