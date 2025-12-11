@@ -736,6 +736,7 @@ TM.registerVisibilityResumeHandler(() => {
         toastContainer: null,
         confettiCanvas: null,
         celebrationAudio: null,
+        celebrationSoundPlaying: false,
         preloadedCelebrationAudios: [],
         celebrationSounds: ['/media/arrivalsounds/KidsCheering.mp3'],
         pollInterval: null,
@@ -19612,6 +19613,10 @@ ${trainPlaneMarkup}
 
       function playCelebrationSound() {
         const { celebrationAudio, preloadedCelebrationAudios, celebrationSounds } = bubbleVisualizationState;
+
+        // If a celebration sound is already playing, skip to prevent overlapping audio
+        if (bubbleVisualizationState.celebrationSoundPlaying) return;
+
         const availableSounds = Array.isArray(preloadedCelebrationAudios) && preloadedCelebrationAudios.length > 0
           ? preloadedCelebrationAudios
           : null;
@@ -19633,8 +19638,26 @@ ${trainPlaneMarkup}
             targetAudio.src = targetSrc;
           }
           targetAudio.currentTime = 0;
-          targetAudio.play();
+
+          const resetPlaybackState = () => {
+            bubbleVisualizationState.celebrationSoundPlaying = false;
+            targetAudio.removeEventListener('ended', resetPlaybackState);
+            targetAudio.removeEventListener('error', resetPlaybackState);
+          };
+
+          bubbleVisualizationState.celebrationSoundPlaying = true;
+          targetAudio.addEventListener('ended', resetPlaybackState, { once: true });
+          targetAudio.addEventListener('error', resetPlaybackState, { once: true });
+
+          const playPromise = targetAudio.play();
+          if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(err => {
+              resetPlaybackState();
+              console.warn('[bubbles] Failed to play celebration audio:', err);
+            });
+          }
         } catch (err) {
+          bubbleVisualizationState.celebrationSoundPlaying = false;
           console.warn('[bubbles] Failed to play celebration audio:', err);
         }
       }
