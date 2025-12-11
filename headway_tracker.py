@@ -34,6 +34,7 @@ class VehicleSnapshot:
     route_id: Optional[str]
     timestamp: datetime
     heading_deg: Optional[float] = None
+    block: Optional[str] = None
 
 
 @dataclass
@@ -252,6 +253,8 @@ class HeadwayTracker:
                     # Apply GPS noise filtering using median of recent speeds
                     speed_mps = self._calculate_filtered_speed(prev_state.speed_history, raw_speed_mps)
 
+            block_label = (snap.block or "unknown").strip() if snap.block else "unknown"
+
             # Track bubble-based arrivals
             bubble_arrival = self._track_bubble_progress(vid, snap, route_id_norm, speed_mps, raw_speed_mps)
             if bubble_arrival:
@@ -279,6 +282,7 @@ class HeadwayTracker:
                             route_id=bubble_route_id,
                             stop_id=bubble_stop_id,
                             vehicle_id=vid,
+                            block=block_label,
                             vehicle_name=snap.vehicle_name,
                             event_type="arrival",
                             headway_arrival_arrival=headway_aa,
@@ -460,6 +464,7 @@ class HeadwayTracker:
                                 route_id=prev_state.route_id,
                                 stop_id=prev_stop,
                                 vehicle_id=vid,
+                                block=block_label,
                                 vehicle_name=snap.vehicle_name,
                                 event_type="departure",
                                 headway_arrival_arrival=None,
@@ -487,6 +492,7 @@ class HeadwayTracker:
                     "timestamp": self._isoformat(timestamp),
                     "vehicle_id": vid,
                     "vehicle_name": snap.vehicle_name,
+                    "block": block_label,
                     "route_id": route_id_norm,
                     "heading_deg": snap.heading_deg,
                     "previous_stop_id": prev_stop,

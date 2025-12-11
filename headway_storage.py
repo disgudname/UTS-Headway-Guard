@@ -38,11 +38,12 @@ class HeadwayEvent:
     route_id: Optional[str]
     stop_id: Optional[str]
     vehicle_id: Optional[str]
-    vehicle_name: Optional[str]
-    event_type: str
-    headway_arrival_arrival: Optional[float]
-    headway_departure_arrival: Optional[float]
-    dwell_seconds: Optional[float]
+    block: Optional[str] = None
+    vehicle_name: Optional[str] = None
+    event_type: str = ""
+    headway_arrival_arrival: Optional[float] = None
+    headway_departure_arrival: Optional[float] = None
+    dwell_seconds: Optional[float] = None
 
     def to_row(self) -> List[str]:
         return [
@@ -50,6 +51,7 @@ class HeadwayEvent:
             self.route_id or "",
             self.stop_id or "",
             self.vehicle_id or "",
+            self.block or "",
             self.vehicle_name or "",
             self.event_type,
             ""
@@ -67,6 +69,7 @@ class HeadwayEvent:
             "route_id": self.route_id,
             "stop_id": self.stop_id,
             "vehicle_id": self.vehicle_id,
+            "block": self.block,
             "vehicle_name": self.vehicle_name,
             "event_type": self.event_type,
             "headway_arrival_arrival": self.headway_arrival_arrival,
@@ -154,13 +157,21 @@ class HeadwayStorage:
                     if stop_filter and (stop_id is None or stop_id not in stop_filter):
                         continue
                     vehicle_id = row[3] or None
+                    block = None
                     vehicle_name = None
                     event_type_idx = 4
                     headway_arrival_idx = 5
                     headway_departure_idx = 6
                     dwell_idx = 7
 
-                    if len(row) >= 9:
+                    if len(row) >= 10:
+                        block = row[4] or None
+                        vehicle_name = row[5] or None
+                        event_type_idx = 6
+                        headway_arrival_idx = 7
+                        headway_departure_idx = 8
+                        dwell_idx = 9
+                    elif len(row) >= 9:
                         vehicle_name = row[4] or None
                         event_type_idx = 5
                         headway_arrival_idx = 6
@@ -198,14 +209,15 @@ class HeadwayStorage:
                             dwell_seconds = float(row[dwell_idx])
                         except ValueError:
                             dwell_seconds = None
-                    if len(row) > dwell_idx + 1 and row[dwell_idx + 1]:
-                        vehicle_name = row[dwell_idx + 1] or vehicle_name
+                    if len(row) > dwell_idx + 1 and row[dwell_idx + 1] and vehicle_name is None:
+                        vehicle_name = row[dwell_idx + 1]
                     events.append(
                         HeadwayEvent(
                             timestamp=ts,
                             route_id=route_id,
                             stop_id=stop_id,
                             vehicle_id=vehicle_id,
+                            block=block,
                             vehicle_name=vehicle_name,
                             event_type=event_type,
                             headway_arrival_arrival=headway_arrival_arrival,
