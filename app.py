@@ -3370,12 +3370,39 @@ async def startup():
         headway_route_ids, headway_stop_ids = load_headway_config()
         approach_sets_config = load_approach_sets_config(data_dirs=DATA_DIRS)
         headway_storage = HeadwayStorage(HEADWAY_DIR)
+
+        # Create lookup callbacks that read from state at event time
+        def route_name_lookup(route_id: Optional[str]) -> Optional[str]:
+            if route_id is None:
+                return None
+            route_id_to_name = getattr(state, "route_id_to_name", None)
+            if not route_id_to_name:
+                return None
+            return route_id_to_name.get(route_id) or route_id_to_name.get(str(route_id))
+
+        def vehicle_block_lookup(vehicle_id: Optional[str]) -> Optional[str]:
+            if vehicle_id is None:
+                return None
+            # Get block from the cached blocks data
+            blocks_cache = getattr(state, "blocks_cache", None)
+            if not blocks_cache:
+                return None
+            plain_language_blocks = blocks_cache.get("plain_language_blocks", [])
+            for block_entry in plain_language_blocks:
+                vid = block_entry.get("vehicle_id")
+                if vid is not None and str(vid) == str(vehicle_id):
+                    # Return the block name (e.g., "[06]" or position_name)
+                    return block_entry.get("block_id") or block_entry.get("block")
+            return None
+
         headway_tracker = HeadwayTracker(
             storage=headway_storage,
             arrival_distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
             departure_distance_threshold_m=HEADWAY_DISTANCE_THRESHOLD_M,
             tracked_route_ids=headway_route_ids,
             tracked_stop_ids=headway_stop_ids,
+            route_name_lookup=route_name_lookup,
+            vehicle_block_lookup=vehicle_block_lookup,
         )
         app.state.headway_storage = headway_storage
         app.state.headway_tracker = headway_tracker

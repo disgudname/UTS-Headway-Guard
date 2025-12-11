@@ -43,14 +43,22 @@ class HeadwayEvent:
     headway_arrival_arrival: Optional[float]
     headway_departure_arrival: Optional[float]
     dwell_seconds: Optional[float]
+    # New fields - saved at time of event
+    route_name: Optional[str] = None
+    address_id: Optional[str] = None
+    stop_name: Optional[str] = None
+    block: Optional[str] = None
 
     def to_row(self) -> List[str]:
         return [
             _isoformat(self.timestamp),
             self.route_id or "",
-            self.stop_id or "",
+            self.route_name or "",
+            self.address_id or "",
+            self.stop_name or "",
             self.vehicle_id or "",
             self.vehicle_name or "",
+            self.block or "",
             self.event_type,
             ""
             if self.headway_arrival_arrival is None
@@ -65,9 +73,13 @@ class HeadwayEvent:
         return {
             "timestamp": _isoformat(self.timestamp),
             "route_id": self.route_id,
+            "route_name": self.route_name,
+            "address_id": self.address_id,
+            "stop_name": self.stop_name,
             "stop_id": self.stop_id,
             "vehicle_id": self.vehicle_id,
             "vehicle_name": self.vehicle_name,
+            "block": self.block,
             "event_type": self.event_type,
             "headway_arrival_arrival": self.headway_arrival_arrival,
             "headway_departure_arrival": self.headway_departure_arrival,
@@ -147,30 +159,70 @@ class HeadwayStorage:
                         continue
                     if ts < start_utc or ts > end_utc:
                         continue
-                    route_id = row[1] or None
-                    stop_id = row[2] or None
+
+                    # Detect format by column count
+                    # New format (12 cols): timestamp, route_id, route_name, address_id, stop_name,
+                    #                       vehicle_id, vehicle_name, block, event_type, headway_aa, headway_da, dwell
+                    # Old format (9 cols): timestamp, route_id, stop_id, vehicle_id, vehicle_name,
+                    #                      event_type, headway_aa, headway_da, dwell
+                    # Oldest format (8 cols): timestamp, route_id, stop_id, vehicle_id,
+                    #                         event_type, headway_aa, headway_da, dwell
+                    is_new_format = len(row) >= 12 or (len(row) >= 9 and row[8] in ("arrival", "departure"))
+
+                    if is_new_format:
+                        # New format with route_name, address_id, stop_name, block
+                        route_id = row[1] or None
+                        route_name = row[2] or None
+                        address_id = row[3] or None
+                        stop_name = row[4] or None
+                        vehicle_id = row[5] or None
+                        vehicle_name = row[6] or None
+                        block = row[7] or None
+                        event_type = row[8] if len(row) > 8 else ""
+                        # For filtering, we use address_id as the stop identifier
+                        # but fall back to stop_id behavior if address_id is missing
+                        stop_id = address_id  # Use address_id as the canonical stop identifier
+                    else:
+                        # Old format - backwards compatible parsing
+                        route_id = row[1] or None
+                        route_name = None
+                        address_id = None
+                        stop_name = None
+                        stop_id = row[2] or None
+                        vehicle_id = row[3] or None
+                        vehicle_name = None
+                        block = None
+                        event_type_idx = 4
+                        if len(row) >= 9:
+                            vehicle_name = row[4] or None
+                            event_type_idx = 5
+                        event_type = row[event_type_idx] if len(row) > event_type_idx else ""
+
                     if route_filter and (route_id is None or route_id not in route_filter):
                         continue
                     if stop_filter and (stop_id is None or stop_id not in stop_filter):
-                        continue
-                    vehicle_id = row[3] or None
-                    vehicle_name = None
-                    event_type_idx = 4
-                    headway_arrival_idx = 5
-                    headway_departure_idx = 6
-                    dwell_idx = 7
+                        # Also check address_id for backwards compatibility
+                        if address_id is None or address_id not in stop_filter:
+                            continue
 
-                    if len(row) >= 9:
-                        vehicle_name = row[4] or None
-                        event_type_idx = 5
-                        headway_arrival_idx = 6
-                        headway_departure_idx = 7
-                        dwell_idx = 8
-
-                    event_type = row[event_type_idx] if len(row) > event_type_idx else ""
+                    # Parse numeric fields
                     headway_arrival_arrival = None
                     headway_departure_arrival = None
                     dwell_seconds = None
+
+                    if is_new_format:
+                        headway_arrival_idx = 9
+                        headway_departure_idx = 10
+                        dwell_idx = 11
+                    else:
+                        if len(row) >= 9:
+                            headway_arrival_idx = 6
+                            headway_departure_idx = 7
+                            dwell_idx = 8
+                        else:
+                            headway_arrival_idx = 5
+                            headway_departure_idx = 6
+                            dwell_idx = 7
 
                     if len(row) > headway_arrival_idx and row[headway_arrival_idx]:
                         try:
@@ -198,8 +250,10 @@ class HeadwayStorage:
                             dwell_seconds = float(row[dwell_idx])
                         except ValueError:
                             dwell_seconds = None
-                    if len(row) > dwell_idx + 1 and row[dwell_idx + 1]:
+                    # Old format: vehicle_name might be after dwell
+                    if not is_new_format and len(row) > dwell_idx + 1 and row[dwell_idx + 1]:
                         vehicle_name = row[dwell_idx + 1] or vehicle_name
+
                     events.append(
                         HeadwayEvent(
                             timestamp=ts,
@@ -211,6 +265,10 @@ class HeadwayStorage:
                             headway_arrival_arrival=headway_arrival_arrival,
                             headway_departure_arrival=headway_departure_arrival,
                             dwell_seconds=dwell_seconds,
+                            route_name=route_name,
+                            address_id=address_id,
+                            stop_name=stop_name,
+                            block=block,
                         )
                     )
         events.sort(key=lambda e: e.timestamp)

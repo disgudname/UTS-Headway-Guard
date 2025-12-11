@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from collections import deque
 import json
 import math
@@ -68,6 +68,7 @@ class StopPoint:
     route_ids: Set[str]
     approach_sets: Optional[List[ApproachSet]] = None
     address_id: Optional[str] = None  # Physical location ID - same address_id = same physical stop
+    stop_name: Optional[str] = None  # Human-readable stop name
 
 
 @dataclass
@@ -136,12 +137,20 @@ class HeadwayTracker:
         departure_distance_threshold_m: float = 60.0,
         tracked_route_ids: Optional[Set[str]] = None,
         tracked_stop_ids: Optional[Set[str]] = None,
+        route_name_lookup: Optional[Callable[[Optional[str]], Optional[str]]] = None,
+        vehicle_block_lookup: Optional[Callable[[Optional[str]], Optional[str]]] = None,
     ):
         self.storage = storage
         self.arrival_distance_threshold_m = arrival_distance_threshold_m
         self.departure_distance_threshold_m = departure_distance_threshold_m
         self.tracked_route_ids = tracked_route_ids or set()
         self.tracked_stop_ids = tracked_stop_ids or set()
+
+        # Lookup callbacks for enriching events with display names
+        # route_name_lookup: (route_id) -> route_name (e.g., "Orange Line")
+        # vehicle_block_lookup: (vehicle_id) -> block (e.g., "[06]")
+        self.route_name_lookup = route_name_lookup
+        self.vehicle_block_lookup = vehicle_block_lookup
 
         # Stop data
         self.stops: List[StopPoint] = []
@@ -210,6 +219,11 @@ class HeadwayTracker:
             route_ids = self._extract_route_ids(stop)
             approach_sets = self._parse_approach_sets(stop.get("ApproachSets"))
 
+            # Get stop name
+            stop_name = stop.get("Name") or stop.get("StopName") or stop.get("Description")
+            if stop_name:
+                stop_name = str(stop_name).strip()
+
             if address_id not in address_groups:
                 address_groups[address_id] = {
                     "stop_id": str(stop_id),  # Use the first stop_id we see
@@ -218,7 +232,11 @@ class HeadwayTracker:
                     "route_ids": set(),
                     "approach_sets": [],
                     "address_id": address_id,
+                    "stop_name": stop_name,  # Use the first non-empty name we see
                 }
+            elif stop_name and not address_groups[address_id].get("stop_name"):
+                # Use the first non-empty stop name we encounter
+                address_groups[address_id]["stop_name"] = stop_name
 
             # Merge route IDs from all stops at this physical location
             address_groups[address_id]["route_ids"].update(route_ids)
@@ -242,6 +260,7 @@ class HeadwayTracker:
                     route_ids=data["route_ids"],
                     approach_sets=data["approach_sets"] if data["approach_sets"] else None,
                     address_id=data["address_id"],
+                    stop_name=data.get("stop_name"),
                 )
             )
 
@@ -650,7 +669,16 @@ class HeadwayTracker:
         # Update tracking
         self._update_arrival_tracking(vid, stop_id, route_id, timestamp)
 
-        print(f"[headway] arrival: vehicle={vid} stop={stop_id} route={route_id}")
+        # Look up enrichment data
+        route_name = self.route_name_lookup(route_id) if self.route_name_lookup else None
+        block = self.vehicle_block_lookup(vid) if self.vehicle_block_lookup else None
+
+        # Get stop info from lookup
+        stop_point = self.stop_lookup.get(stop_id)
+        address_id = stop_point.address_id if stop_point else None
+        stop_name = stop_point.stop_name if stop_point else None
+
+        print(f"[headway] arrival: vehicle={vid} stop={stop_id} route={route_id} block={block}")
 
         return HeadwayEvent(
             timestamp=timestamp,
@@ -662,6 +690,10 @@ class HeadwayTracker:
             headway_arrival_arrival=headway_aa,
             headway_departure_arrival=headway_da,
             dwell_seconds=None,
+            route_name=route_name,
+            address_id=address_id,
+            stop_name=stop_name,
+            block=block,
         )
 
     def _create_departure_event(
@@ -677,7 +709,16 @@ class HeadwayTracker:
         # Update tracking
         self._update_departure_tracking(vid, stop_id, route_id, timestamp)
 
-        print(f"[headway] departure: vehicle={vid} stop={stop_id} dwell={dwell_seconds:.1f}s" if dwell_seconds else f"[headway] departure: vehicle={vid} stop={stop_id}")
+        # Look up enrichment data
+        route_name = self.route_name_lookup(route_id) if self.route_name_lookup else None
+        block = self.vehicle_block_lookup(vid) if self.vehicle_block_lookup else None
+
+        # Get stop info from lookup
+        stop_point = self.stop_lookup.get(stop_id)
+        address_id = stop_point.address_id if stop_point else None
+        stop_name = stop_point.stop_name if stop_point else None
+
+        print(f"[headway] departure: vehicle={vid} stop={stop_id} dwell={dwell_seconds:.1f}s block={block}" if dwell_seconds else f"[headway] departure: vehicle={vid} stop={stop_id} block={block}")
 
         return HeadwayEvent(
             timestamp=timestamp,
@@ -689,6 +730,10 @@ class HeadwayTracker:
             headway_arrival_arrival=None,
             headway_departure_arrival=None,
             dwell_seconds=dwell_seconds,
+            route_name=route_name,
+            address_id=address_id,
+            stop_name=stop_name,
+            block=block,
         )
 
     def _calculate_dwell(self, arrival_time: Optional[datetime], departure_time: datetime) -> Optional[float]:
