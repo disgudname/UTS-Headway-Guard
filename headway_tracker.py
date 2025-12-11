@@ -17,6 +17,9 @@ DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 
+# Distance threshold for headway tracking (meters)
+HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
+
 # Speed threshold for considering a bus "stopped" (meters per second)
 STOP_SPEED_THRESHOLD_MPS = 0.5
 

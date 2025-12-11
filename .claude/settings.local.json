@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(node --check:*)"
+      "Bash(node --check:*)",
+      "Bash(fly logs:*)",
+      "Bash(flyctl logs:*)"
     ]
   }
 }
