@@ -732,7 +732,7 @@ TM.registerVisibilityResumeHandler(() => {
       let bubbleVisualizationEnabled = window.usp.getBoolean('bubbles', false);
       const bubbleVisualizationState = {
         layerGroup: null,
-        activeBubbles: new Map(), // vehicleId -> {circles: [], markers: [], stopId, setName}
+        activeBubbles: new Map(), // "vehicleId_stopId_setIndex" -> {circles: [], markers: [], stopId, setName, vehicleId}
         toastContainer: null,
         confettiCanvas: null,
         celebrationAudio: null,
@@ -19449,7 +19449,8 @@ ${trainPlaneMarkup}
       function updateBubbleVisuals(activeStates) {
         if (!bubbleVisualizationState.layerGroup) return;
 
-        const currentVehicles = new Set();
+        // Track all active bubble keys (vehicleId_stopId_setIndex)
+        const currentBubbleKeys = new Set();
 
         for (const state of activeStates) {
           const lastSeen = state.last_seen ? Date.parse(state.last_seen) : null;
@@ -19458,15 +19459,13 @@ ${trainPlaneMarkup}
           }
 
           const vid = state.vehicle_id;
-          currentVehicles.add(vid);
+          const stopId = state.stop_id;
+          const setIndex = state.set_index ?? 0;
+          // Use composite key to allow multiple bubble sets per vehicle
+          const bubbleKey = `${vid}_${stopId}_${setIndex}`;
+          currentBubbleKeys.add(bubbleKey);
 
-          let existing = bubbleVisualizationState.activeBubbles.get(vid);
-
-          // Clear and recreate if stop changed
-          if (existing && existing.stopId !== state.stop_id) {
-            clearVehicleBubbles(vid);
-            existing = null;
-          }
+          let existing = bubbleVisualizationState.activeBubbles.get(bubbleKey);
 
           if (!existing) {
             // Create new bubble visuals
@@ -19517,11 +19516,12 @@ ${trainPlaneMarkup}
               markers.push(marker);
             }
 
-            bubbleVisualizationState.activeBubbles.set(vid, {
+            bubbleVisualizationState.activeBubbles.set(bubbleKey, {
               circles,
               markers,
               stopId: state.stop_id,
               setName: state.set_name,
+              vehicleId: vid,
               highestReached: state.highest_bubble_reached,
             });
           } else {
@@ -19570,16 +19570,16 @@ ${trainPlaneMarkup}
           }
         }
 
-        // Remove bubbles for vehicles no longer active
-        for (const [vid, data] of bubbleVisualizationState.activeBubbles) {
-          if (!currentVehicles.has(vid)) {
-            clearVehicleBubbles(vid);
+        // Remove bubbles that are no longer active
+        for (const [bubbleKey, data] of bubbleVisualizationState.activeBubbles) {
+          if (!currentBubbleKeys.has(bubbleKey)) {
+            clearVehicleBubbles(bubbleKey);
           }
         }
       }
 
-      function clearVehicleBubbles(vid) {
-        const data = bubbleVisualizationState.activeBubbles.get(vid);
+      function clearVehicleBubbles(bubbleKey) {
+        const data = bubbleVisualizationState.activeBubbles.get(bubbleKey);
         if (!data) return;
 
         for (const circle of data.circles) {
@@ -19588,7 +19588,7 @@ ${trainPlaneMarkup}
         for (const marker of data.markers) {
           bubbleVisualizationState.layerGroup.removeLayer(marker);
         }
-        bubbleVisualizationState.activeBubbles.delete(vid);
+        bubbleVisualizationState.activeBubbles.delete(bubbleKey);
       }
 
       function showArrivalCelebration(activation) {
@@ -19612,10 +19612,13 @@ ${trainPlaneMarkup}
       }
 
       function playCelebrationSound() {
-        const { celebrationAudio, preloadedCelebrationAudios, celebrationSounds } = bubbleVisualizationState;
-
-        // If a celebration sound is already playing, skip to prevent overlapping audio
+        // Block immediately if a sound is already playing - no queuing, just skip
         if (bubbleVisualizationState.celebrationSoundPlaying) return;
+
+        // Set flag immediately to block any other calls while we set up
+        bubbleVisualizationState.celebrationSoundPlaying = true;
+
+        const { celebrationAudio, preloadedCelebrationAudios, celebrationSounds } = bubbleVisualizationState;
 
         const availableSounds = Array.isArray(preloadedCelebrationAudios) && preloadedCelebrationAudios.length > 0
           ? preloadedCelebrationAudios
@@ -19631,7 +19634,12 @@ ${trainPlaneMarkup}
 
         const targetAudio = selected && selected.audio ? selected.audio : celebrationAudio;
         const targetSrc = selected && selected.url ? selected.url : fallbackSound;
-        if (!targetAudio || !targetSrc) return;
+
+        // If no audio available, reset flag and bail
+        if (!targetAudio || !targetSrc) {
+          bubbleVisualizationState.celebrationSoundPlaying = false;
+          return;
+        }
 
         try {
           if (targetAudio.src !== targetSrc) {
@@ -19645,7 +19653,6 @@ ${trainPlaneMarkup}
             targetAudio.removeEventListener('error', resetPlaybackState);
           };
 
-          bubbleVisualizationState.celebrationSoundPlaying = true;
           targetAudio.addEventListener('ended', resetPlaybackState, { once: true });
           targetAudio.addEventListener('error', resetPlaybackState, { once: true });
 
