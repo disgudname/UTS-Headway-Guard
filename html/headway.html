@@ -404,12 +404,6 @@
       return `Vehicle ${id}`;
     }
 
-    function formatBlockLabel(ev) {
-      const block = ev?.block;
-      if (block && String(block).trim()) return String(block).trim();
-      return 'unknown';
-    }
-
     function formatMinutesSeconds(seconds) {
       if (seconds == null || Number.isNaN(Number(seconds))) return '';
       const total = Number(seconds);
@@ -627,7 +621,6 @@
         const route = getRouteName(ev.route_id || ev.route) || ev.route_name || ev.route || '';
         const stop = getStopName(ev.stop_id || ev.stop) || ev.stop_name || ev.stop || '';
         const vehicle = formatVehicleLabel(ev);
-        const block = formatBlockLabel(ev);
         const exceedsThreshold =
           highlightThresholdSeconds != null && headwaySeconds != null && Number(headwaySeconds) > highlightThresholdSeconds;
         const rowClass = exceedsThreshold ? ' class="highlight-row"' : '';
@@ -636,7 +629,6 @@
           <td>${route}</td>
           <td>${stop}</td>
           <td>${vehicle}</td>
-          <td>${block}</td>
           <td>${ev.event_type}</td>
           <td>${headway}</td>
           <td>${dwell}</td>
@@ -650,7 +642,6 @@
               <th>Route</th>
               <th>Stop</th>
               <th>Vehicle</th>
-              <th>Block</th>
               <th>Event</th>
               <th>Headway</th>
               <th>Dwell</th>
@@ -723,7 +714,6 @@
           <td>${new Date(etaInfo.arrivalTimeMs).toLocaleTimeString()}</td>
           <td>ETA</td>
           <td></td>
-          <td></td>
           <td>${formatMinutesSeconds(etaInfo.estimatedHeadwaySeconds)}</td>
           <td></td>
         </tr>`
@@ -735,12 +725,10 @@
         const headway = formatMinutesSeconds(headwaySeconds);
         const dwell = formatMinutesSeconds(ev.dwell_seconds);
         const vehicle = formatVehicleLabel(ev);
-        const block = formatBlockLabel(ev);
         return `<tr>
           <td>${tsLocal}</td>
           <td>${ev.event_type}</td>
           <td>${vehicle}</td>
-          <td>${block}</td>
           <td>${headway}</td>
           <td>${dwell}</td>
         </tr>`;
@@ -753,7 +741,6 @@
               <th>Time</th>
               <th>Event</th>
               <th>Vehicle</th>
-              <th>Block</th>
               <th>Headway</th>
               <th>Dwell</th>
             </tr>
@@ -932,7 +919,6 @@
           'route_id',
           'stop_id',
           'vehicle',
-          'block',
           'event_type',
           'headway_arrival_arrival_seconds',
           'headway_departure_arrival_seconds',
@@ -952,7 +938,6 @@
             ev.route_id || ev.route || '',
             ev.stop_id || ev.stop || '',
             formatVehicleLabel(ev),
-            formatBlockLabel(ev),
             ev.event_type,
             formatSecondsCell(ev.headway_arrival_arrival),
             formatSecondsCell(ev.headway_departure_arrival),
