@@ -324,6 +324,11 @@ class HeadwayTracker:
            - If stopped (speed <= threshold): log arrival immediately
            - If not stopped: wait until exit to log arrival
         4. When exiting final bubble: log departure (if arrival was logged)
+
+        Deduplication:
+        - Only ONE arrival per vehicle per stop until departure
+        - Only ONE departure per vehicle per stop after arrival
+        - Multiple approach sets at the same stop share arrival/departure state
         """
         events: List[HeadwayEvent] = []
         timestamp = snap.timestamp
@@ -337,7 +342,21 @@ class HeadwayTracker:
         # Track which stops we're currently tracking
         active_stop_ids: Set[str] = set()
 
+        # Track which stops have already logged arrival/departure THIS processing cycle
+        # to prevent multiple approach sets from logging duplicates
+        stops_with_arrival_this_cycle: Set[str] = set()
+        stops_with_departure_this_cycle: Set[str] = set()
+
+        # Track which stop_ids we've already processed to avoid duplicates
+        # (same stop_id can appear multiple times in self.stops for different routes)
+        processed_stop_ids: Set[str] = set()
+
         for stop in self.stops:
+            # Skip if we've already processed this stop_id
+            if stop.stop_id in processed_stop_ids:
+                continue
+            processed_stop_ids.add(stop.stop_id)
+
             if not stop.approach_sets:
                 continue
             if self.tracked_stop_ids and stop.stop_id not in self.tracked_stop_ids:
@@ -411,9 +430,11 @@ class HeadwayTracker:
                                     progress.stopped_in_final = True
 
                                     # Log arrival when bus stops (Method 1)
-                                    if not progress.arrival_logged:
+                                    # Only log if we haven't already logged arrival for this stop this cycle
+                                    if not progress.arrival_logged and stop.stop_id not in stops_with_arrival_this_cycle:
                                         progress.arrival_logged = True
                                         progress.arrival_time = timestamp
+                                        stops_with_arrival_this_cycle.add(stop.stop_id)
                                         event = self._create_arrival_event(
                                             vid, snap, stop.stop_id, route_id, timestamp
                                         )
@@ -426,10 +447,11 @@ class HeadwayTracker:
                             # Not in final bubble anymore (was in final, now not)
                             if progress.in_final_bubble:
                                 # Exiting final bubble
-                                if not progress.arrival_logged:
+                                if not progress.arrival_logged and stop.stop_id not in stops_with_arrival_this_cycle:
                                     # Log arrival at exit time (Method 2 - pass-through)
                                     progress.arrival_logged = True
                                     progress.arrival_time = timestamp
+                                    stops_with_arrival_this_cycle.add(stop.stop_id)
                                     event = self._create_arrival_event(
                                         vid, snap, stop.stop_id, route_id, timestamp
                                     )
@@ -439,9 +461,10 @@ class HeadwayTracker:
                                         max_order, "arrival_passthrough"
                                     )
 
-                                # Log departure
-                                if progress.arrival_logged and not progress.departure_logged:
+                                # Log departure - only if not already logged for this stop this cycle
+                                if progress.arrival_logged and not progress.departure_logged and stop.stop_id not in stops_with_departure_this_cycle:
                                     progress.departure_logged = True
+                                    stops_with_departure_this_cycle.add(stop.stop_id)
                                     dwell = self._calculate_dwell(progress.arrival_time, timestamp)
                                     event = self._create_departure_event(
                                         vid, snap, stop.stop_id, progress.route_id, timestamp, dwell
@@ -460,10 +483,11 @@ class HeadwayTracker:
                         # Was tracking this set - vehicle has left
                         if progress.in_final_bubble:
                             # Was in final bubble, now completely out
-                            if not progress.arrival_logged:
+                            if not progress.arrival_logged and stop.stop_id not in stops_with_arrival_this_cycle:
                                 # Log pass-through arrival (Method 2)
                                 progress.arrival_logged = True
                                 progress.arrival_time = timestamp
+                                stops_with_arrival_this_cycle.add(stop.stop_id)
                                 event = self._create_arrival_event(
                                     vid, snap, stop.stop_id, route_id, timestamp
                                 )
@@ -473,9 +497,10 @@ class HeadwayTracker:
                                     progress.max_bubble_order, "arrival_passthrough"
                                 )
 
-                            # Log departure
-                            if progress.arrival_logged and not progress.departure_logged:
+                            # Log departure - only if not already logged for this stop this cycle
+                            if progress.arrival_logged and not progress.departure_logged and stop.stop_id not in stops_with_departure_this_cycle:
                                 progress.departure_logged = True
+                                stops_with_departure_this_cycle.add(stop.stop_id)
                                 dwell = self._calculate_dwell(progress.arrival_time, timestamp)
                                 event = self._create_departure_event(
                                     vid, snap, stop.stop_id, progress.route_id, timestamp, dwell
