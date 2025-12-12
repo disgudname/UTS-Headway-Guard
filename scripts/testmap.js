@@ -6917,13 +6917,6 @@ TM.registerVisibilityResumeHandler(() => {
                 : null;
               const driverPrimaryName = (driverFromCache?.name || driverName || '').trim();
               const driverPosition = (driverInfo?.block || '').trim();
-              const startTime = driverFromCache?.shift_start_label
-                ? `On at ${escapeHtml(driverFromCache.shift_start_label)}`
-                : '';
-              const endTime = driverFromCache?.shift_end_label
-                ? `Off at ${escapeHtml(driverFromCache.shift_end_label)}`
-                : '';
-              const driverShiftTimes = [startTime, endTime].filter(Boolean).join(' • ');
               const lastActiveRaw =
                 typeof vehicle.last_active_at === 'string'
                   ? vehicle.last_active_at
@@ -6959,26 +6952,11 @@ TM.registerVisibilityResumeHandler(() => {
               if (vehicleCardHtml) {
                 popupSections.push(vehicleCardHtml);
               }
-              if (driverPrimaryName) {
-                const driverMetaParts = [];
-                if (driverPosition) {
-                  driverMetaParts.push(escapeHtml(driverPosition));
-                }
-                if (driverShiftTimes) {
-                  driverMetaParts.push(driverShiftTimes);
-                }
-
-                popupSections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Driver</div>',
-                  '<div class="bus-popup__drivers-list bus-popup__drivers-list--single">',
-                  '<div class="bus-popup__driver-row bus-popup__driver-row--single">',
-                  `<div class="bus-popup__driver-name">${escapeHtml(driverPrimaryName)}</div>`,
-                  driverMetaParts.length ? `<div class="bus-popup__driver-meta">${driverMetaParts.join(' • ')}</div>` : '',
-                  '</div>',
-                  '</div>',
-                  '</div>'
-                ].join(''));
+              const driverCardHtml = driverPrimaryName
+                ? buildInfoCardSection(driverPrimaryName, driverPosition || 'OnDemand Driver', accentColor)
+                : '';
+              if (driverCardHtml) {
+                popupSections.push(driverCardHtml);
               }
               if (isPaused) {
                 const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
@@ -7018,11 +6996,7 @@ TM.registerVisibilityResumeHandler(() => {
                 }
                 if (driverPrimaryName) {
                   const driverRole = driverPosition || 'OnDemand Driver';
-                  const driverAriaParts = [`${driverPrimaryName} (${driverRole})`];
-                  if (driverShiftTimes) {
-                    driverAriaParts.push(driverShiftTimes.replace(/<[^>]+>/g, ''));
-                  }
-                  ariaParts.push(driverAriaParts.join('; '));
+                  ariaParts.push(`${driverPrimaryName} (${driverRole})`);
                 }
                 if (onboardRiders.length) {
                   ariaParts.push(`Passengers on board: ${onboardRiders.join(', ')}`);
