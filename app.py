@@ -939,6 +939,17 @@ def _extract_plain_language_blocks(
 
     return plain_blocks
 
+
+def _block_entry_vehicle_id(entry: Dict[str, Any]) -> Optional[str]:
+    """Normalize the vehicle identifier for a block entry."""
+
+    return _normalize_vehicle_id_str(
+        entry.get("vehicle_id")
+        or entry.get("vehicleId")
+        or entry.get("VehicleId")
+        or entry.get("VehicleID")
+    )
+
 async def fetch_overpass_speed_profile(route: Route, client: httpx.AsyncClient) -> Tuple[List[float], List[str]]:
     """Build per-segment speed caps (m/s) and road names using OSM maxspeed data."""
     pts = route.poly
@@ -3157,11 +3168,11 @@ async def api_headway(
     # Build vehicle_id -> block lookup
     vehicle_to_block: Dict[str, str] = {}
     for block_entry in plain_language_blocks:
-        vid = block_entry.get("vehicle_id")
+        vid = _block_entry_vehicle_id(block_entry)
         if vid is not None:
             block_id = block_entry.get("block_id") or block_entry.get("block")
             if block_id:
-                vehicle_to_block[str(vid)] = block_id
+                vehicle_to_block[vid] = block_id
 
     enriched_events = []
     for ev in events:
@@ -3469,8 +3480,8 @@ async def startup():
                 return None
             plain_language_blocks = blocks_cache.get("plain_language_blocks", [])
             for block_entry in plain_language_blocks:
-                vid = block_entry.get("vehicle_id")
-                if vid is not None and str(vid) == str(vehicle_id):
+                vid = _block_entry_vehicle_id(block_entry)
+                if vid is not None and vid == _normalize_vehicle_id_str(vehicle_id):
                     # Return the block name (e.g., "[06]" or position_name)
                     return block_entry.get("block_id") or block_entry.get("block")
             print(f"[headway] vehicle_block_lookup: vehicle_id={vehicle_id} not found in {len(plain_language_blocks)} blocks")
