@@ -5769,6 +5769,7 @@ def _trim_transloc_route(raw: Dict[str, Any]) -> Dict[str, Any]:
                 "Description": stop.get("Description") or name,
                 "Latitude": stop.get("Latitude") or stop.get("Lat"),
                 "Longitude": stop.get("Longitude") or stop.get("Lon") or stop.get("Lng"),
+                "AddressID": stop.get("AddressID") or stop.get("AddressId"),
                 "RouteIds": [rid] if rid is not None else [],
             }
         )

@@ -213,9 +213,9 @@ class HeadwayTracker:
             address_id = stop.get("AddressID") or stop.get("AddressId")
             if address_id is not None:
                 address_id = str(address_id)
-            else:
-                # Fall back to using lat/lon as a pseudo address_id
-                address_id = f"loc_{round(lat_f, 6)}_{round(lon_f, 6)}"
+
+            # Use AddressID when available; otherwise keep it as None without fallbacks.
+            address_key = address_id if address_id is not None else str(stop_id)
 
             route_ids = self._extract_route_ids(stop)
             approach_sets = self._parse_approach_sets(stop.get("ApproachSets"))
@@ -225,8 +225,8 @@ class HeadwayTracker:
             if stop_name:
                 stop_name = str(stop_name).strip()
 
-            if address_id not in address_groups:
-                address_groups[address_id] = {
+            if address_key not in address_groups:
+                address_groups[address_key] = {
                     "stop_id": str(stop_id),  # Use the first stop_id we see
                     "lat": lat_f,
                     "lon": lon_f,
@@ -235,16 +235,16 @@ class HeadwayTracker:
                     "address_id": address_id,
                     "stop_name": stop_name,  # Use the first non-empty name we see
                 }
-            elif stop_name and not address_groups[address_id].get("stop_name"):
+            elif stop_name and not address_groups[address_key].get("stop_name"):
                 # Use the first non-empty stop name we encounter
-                address_groups[address_id]["stop_name"] = stop_name
+                address_groups[address_key]["stop_name"] = stop_name
 
             # Merge route IDs from all stops at this physical location
-            address_groups[address_id]["route_ids"].update(route_ids)
+            address_groups[address_key]["route_ids"].update(route_ids)
 
             # Merge approach sets (avoid duplicates)
             if approach_sets:
-                existing_sets = address_groups[address_id]["approach_sets"]
+                existing_sets = address_groups[address_key]["approach_sets"]
                 for new_set in approach_sets:
                     # Check if this approach set is already added (by name)
                     if not any(s.name == new_set.name for s in existing_sets):
