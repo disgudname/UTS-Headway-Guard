@@ -41,6 +41,7 @@ class VehicleSnapshot:
     route_id: Optional[str]
     timestamp: datetime  # This should be the fetch start time, NOT TransLoc's timestamp
     heading_deg: Optional[float] = None
+    block: Optional[str] = None
 
 
 @dataclass
@@ -679,7 +680,9 @@ class HeadwayTracker:
 
         # Look up enrichment data
         route_name = self.route_name_lookup(route_id) if self.route_name_lookup else None
-        block = self.vehicle_block_lookup(vid) if self.vehicle_block_lookup else None
+        block = snap.block
+        if block is None and self.vehicle_block_lookup:
+            block = self.vehicle_block_lookup(vid)
 
         # Get stop info from lookup
         stop_point = self.stop_lookup.get(stop_id)
@@ -720,7 +723,9 @@ class HeadwayTracker:
 
         # Look up enrichment data
         route_name = self.route_name_lookup(route_id) if self.route_name_lookup else None
-        block = self.vehicle_block_lookup(vid) if self.vehicle_block_lookup else None
+        block = snap.block
+        if block is None and self.vehicle_block_lookup:
+            block = self.vehicle_block_lookup(vid)
 
         # Get stop info from lookup
         stop_point = self.stop_lookup.get(stop_id)
