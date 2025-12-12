@@ -3478,10 +3478,16 @@ async def startup():
             if not blocks_cache:
                 print(f"[headway] vehicle_block_lookup: no blocks_cache available")
                 return None
+            vehicle_to_block = blocks_cache.get("vehicle_to_block", {})
+            norm_vid = _normalize_vehicle_id_str(vehicle_id)
+            if norm_vid and vehicle_to_block:
+                block_id = vehicle_to_block.get(norm_vid)
+                if block_id:
+                    return block_id
             plain_language_blocks = blocks_cache.get("plain_language_blocks", [])
             for block_entry in plain_language_blocks:
                 vid = _block_entry_vehicle_id(block_entry)
-                if vid is not None and vid == _normalize_vehicle_id_str(vehicle_id):
+                if vid is not None and vid == norm_vid:
                     # Return the block name (e.g., "[06]" or position_name)
                     return block_entry.get("block_id") or block_entry.get("block")
             print(f"[headway] vehicle_block_lookup: vehicle_id={vehicle_id} not found in {len(plain_language_blocks)} blocks")
@@ -3757,6 +3763,8 @@ async def startup():
                                 if snapshot_name is None and veh.name and veh.name != "-":
                                     snapshot_name = str(veh.name)
 
+                                snapshot_block = vehicle_to_block.get(veh_id_text) if veh_id_text else None
+
                                 headway_snapshots.append(
                                     VehicleSnapshot(
                                         vehicle_id=veh_id_text,
@@ -3766,6 +3774,7 @@ async def startup():
                                         route_id=str(rid) if rid is not None else None,
                                         timestamp=fetch_completed_at,
                                         heading_deg=veh.heading,
+                                        block=snapshot_block,
                                     )
                                 )
                         current_vehicle_ids: set[int] = set()
@@ -3853,6 +3862,13 @@ async def startup():
                             block_groups, vehicle_roster=vehicle_roster
                         )
 
+                        vehicle_to_block: Dict[str, str] = {}
+                        for block in plain_language_blocks:
+                            vid = _block_entry_vehicle_id(block)
+                            block_id = block.get("block_id") or block.get("block")
+                            if vid and block_id:
+                                vehicle_to_block[vid] = block_id
+
                         for block in plain_language_blocks:
                             vid = _normalize_vehicle_id_str(
                                 block.get("vehicle_id")
@@ -3870,6 +3886,7 @@ async def startup():
                             "color_by_route": color_by_route,
                             "route_by_bus": route_by_bus,
                             "plain_language_blocks": plain_language_blocks,
+                            "vehicle_to_block": vehicle_to_block,
                         }
                         state.blocks_cache_ts = time.time()
                         today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
