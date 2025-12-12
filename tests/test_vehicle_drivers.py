@@ -26,6 +26,7 @@ from app import (
     _infer_block_number_from_route,
     _build_driver_assignments,
     _parse_driving_role,
+    _build_ondemand_vehicle_entries,
 )
 
 
@@ -637,6 +638,63 @@ class TestFindOndemandDriverByName(unittest.TestCase):
         )
         self.assertIsNone(driver)
 
+
+class TestBuildOndemandVehicleEntries(unittest.TestCase):
+    """Test building ondemand vehicle entries directly from W2W data."""
+
+    def setUp(self):
+        self.tz = ZoneInfo("America/New_York")
+        now = datetime(2025, 12, 7, 10, 0, tzinfo=self.tz)
+        self.now_ts = int(now.timestamp() * 1000)
+
+        shift_start = datetime(2025, 12, 7, 8, 0, tzinfo=self.tz)
+        shift_end = datetime(2025, 12, 7, 18, 0, tzinfo=self.tz)
+
+        self.assignments_by_block = {
+            "OnDemand Driver": {
+                "any": [
+                    {
+                        "name": "Alex Driver",
+                        "start_ts": int(shift_start.timestamp() * 1000),
+                        "end_ts": int(shift_end.timestamp() * 1000),
+                        "start_label": "8a",
+                        "end_label": "6p",
+                    }
+                ]
+            },
+            "OnDemand EB": {
+                "any": [
+                    {
+                        "name": "Evan EB",
+                        "start_ts": int(shift_start.timestamp() * 1000),
+                        "end_ts": int(shift_end.timestamp() * 1000),
+                        "start_label": "8a",
+                        "end_label": "6p",
+                    }
+                ]
+            },
+        }
+
+    def test_build_entries(self):
+        entries = _build_ondemand_vehicle_entries(self.assignments_by_block, self.now_ts)
+
+        self.assertIn("OnDemand Driver", entries)
+        driver_entry = entries["OnDemand Driver"]
+        self.assertEqual(driver_entry["block"], "OnDemand Driver")
+        self.assertEqual(driver_entry["vehicle_id"], "OnDemand Driver")
+        self.assertEqual(driver_entry["vehicle_name"], None)
+        self.assertEqual(len(driver_entry["drivers"]), 1)
+        self.assertEqual(driver_entry["drivers"][0]["name"], "Alex Driver")
+
+        self.assertIn("OnDemand EB", entries)
+        eb_entry = entries["OnDemand EB"]
+        self.assertEqual(eb_entry["block"], "OnDemand EB")
+        self.assertEqual(eb_entry["drivers"][0]["name"], "Evan EB")
+
+    def test_no_active_drivers(self):
+        late_ts = int(datetime(2025, 12, 7, 23, 0, tzinfo=self.tz).timestamp() * 1000)
+        entries = _build_ondemand_vehicle_entries(self.assignments_by_block, late_ts)
+        self.assertEqual(entries, {})
 
 class TestParseDotnetDate(unittest.TestCase):
     """Test the _parse_dotnet_date function."""
