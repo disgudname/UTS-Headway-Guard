@@ -10956,6 +10956,9 @@ ${trainPlaneMarkup}
           if (!utsOverlayEnabled) {
               stopDataCache = [];
               renderBusStops(stopDataCache);
+              if (populateBubbleStopsFromCaches()) {
+                  updateControlPanel();
+              }
               return [];
           }
           const currentBaseURL = baseURL;
@@ -10966,6 +10969,9 @@ ${trainPlaneMarkup}
               if (stopsArray.length > 0) {
                   stopDataCache = stopsArray;
                   renderBusStops(stopDataCache);
+                  if (populateBubbleStopsFromCaches()) {
+                      updateControlPanel();
+                  }
               }
           } catch (error) {
               console.error('Error fetching bus stops:', error);
@@ -16418,6 +16424,9 @@ ${trainPlaneMarkup}
                   if (catOverlayEnabled) {
                       renderBusStops(stopDataCache);
                   }
+                  if (populateBubbleStopsFromCaches()) {
+                      updateControlPanel();
+                  }
               }
               return cachedStops;
           }
@@ -16439,6 +16448,9 @@ ${trainPlaneMarkup}
               catStopsLastFetchTime = now;
               if (catOverlayEnabled) {
                   renderBusStops(stopDataCache);
+              }
+              if (populateBubbleStopsFromCaches()) {
+                  updateControlPanel();
               }
               return stops;
           } catch (error) {
@@ -19459,20 +19471,7 @@ ${trainPlaneMarkup}
         let hasNewStops = false;
 
         const registerStop = (rawId, rawName) => {
-          const stopId = normalizeBubbleStopId(rawId);
-          if (!stopId) return;
-
-          const name = typeof rawName === 'string' && rawName.trim() !== ''
-            ? rawName.trim()
-            : stopId;
-          const existing = bubbleVisualizationState.stopsById.get(stopId);
-          if (!existing || existing.name !== name) {
-            bubbleVisualizationState.stopsById.set(stopId, { id: stopId, name });
-            hasNewStops = true;
-          }
-
-          if (!bubbleVisualizationState.stopSelections.has(stopId)) {
-            bubbleVisualizationState.stopSelections.set(stopId, true);
+          if (registerBubbleStopCandidate(rawId, rawName)) {
             hasNewStops = true;
           }
         };
@@ -19485,6 +19484,10 @@ ${trainPlaneMarkup}
           registerStop(activation.stop_id, activation.stop_name || activation.stopId || activation.stopID);
         });
 
+        return finalizeBubbleStopListChange(hasNewStops);
+      }
+
+      function finalizeBubbleStopListChange(hasNewStops = false) {
         const signature = Array.from(bubbleVisualizationState.stopsById.entries())
           .map(([id, data]) => `${id}:${data?.name || ''}`)
           .sort()
@@ -19492,10 +19495,60 @@ ${trainPlaneMarkup}
 
         if (signature !== lastBubbleStopSignature) {
           lastBubbleStopSignature = signature;
-          hasNewStops = true;
+          return true;
         }
 
         return hasNewStops;
+      }
+
+      function registerBubbleStopCandidate(rawId, rawName) {
+        const stopId = normalizeBubbleStopId(rawId);
+        if (!stopId) return false;
+
+        const name = typeof rawName === 'string' && rawName.trim() !== ''
+          ? rawName.trim()
+          : stopId;
+        const existing = bubbleVisualizationState.stopsById.get(stopId);
+        let updated = false;
+
+        if (!existing || existing.name !== name) {
+          bubbleVisualizationState.stopsById.set(stopId, { id: stopId, name });
+          updated = true;
+        }
+
+        if (!bubbleVisualizationState.stopSelections.has(stopId)) {
+          bubbleVisualizationState.stopSelections.set(stopId, true);
+          updated = true;
+        }
+
+        return updated;
+      }
+
+      function populateBubbleStopsFromCaches() {
+        if (!bubbleVisualizationEnabled) return false;
+
+        let hasNewStops = false;
+
+        const stops = Array.isArray(stopDataCache) ? stopDataCache : [];
+        stops.forEach(stop => {
+          const stopId = stop?.StopID ?? stop?.stopID ?? stop?.stopId ?? stop?.StopId ?? stop?.stop_id ?? stop?.stop ?? stop?.id;
+          const stopName = stop?.Name ?? stop?.name ?? stop?.Description ?? stop?.description ?? stop?.StopName ?? stop?.stop_name ?? stop?.stopName ?? stop?.StopDescription ?? stop?.stop_description;
+          if (registerBubbleStopCandidate(stopId, stopName)) {
+            hasNewStops = true;
+          }
+        });
+
+        if (Array.isArray(catStopDataCache) && catStopDataCache.length > 0) {
+          catStopDataCache.forEach(stop => {
+            const stopId = stop?.id ?? stop?.rawId;
+            const stopName = stop?.name ?? stopId;
+            if (registerBubbleStopCandidate(stopId, stopName)) {
+              hasNewStops = true;
+            }
+          });
+        }
+
+        return finalizeBubbleStopListChange(hasNewStops);
       }
 
       function isBubbleStopAllowed(stopId) {
@@ -19588,9 +19641,15 @@ ${trainPlaneMarkup}
         // Load arrival sounds from passthrough and stopped subfolders
         loadArrivalSounds();
 
+        const cacheStopListChanged = populateBubbleStopsFromCaches();
+
         // Start polling for bubble states
         bubbleVisualizationState.pollInterval = setInterval(fetchBubbleStates, 1000);
         fetchBubbleStates();
+
+        if (cacheStopListChanged) {
+          updateControlPanel();
+        }
 
         console.log('[bubbles] Bubble visualization enabled');
       }
