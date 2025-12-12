@@ -69,6 +69,7 @@ class StopPoint:
     route_ids: Set[str]
     approach_sets: Optional[List[ApproachSet]] = None
     address_id: Optional[str] = None  # Physical location ID - same address_id = same physical stop
+    address_ids: Set[str] = field(default_factory=set)  # All AddressIDs merged into this stop
     stop_name: Optional[str] = None  # Human-readable stop name
 
 
@@ -186,10 +187,14 @@ class HeadwayTracker:
     def update_stops(self, stops: Iterable[dict]) -> None:
         """Update the list of stops from TransLoc data."""
         # First pass: collect all stop data and group by AddressID (physical location)
-        # AddressID is the key unifier - same AddressID = same physical stop
-        address_groups: Dict[str, Dict[str, Any]] = {}  # address_id -> merged stop data
+        # AddressID remains primary; additionally merge entries that share the same lat/lon
+        # to catch duplicated AddressIDs in the backend.
+        stops_list = list(stops)
+        address_index: Dict[str, Dict[str, Any]] = {}  # address_id -> merged stop data
+        latlon_index: Dict[Tuple[float, float], Dict[str, Any]] = {}  # rounded lat/lon -> merged stop data
+        address_groups: List[Dict[str, Any]] = []
 
-        for stop in stops:
+        for stop in stops_list:
             stop_id = stop.get("StopID") or stop.get("StopId") or stop.get("RouteStopID")
             if stop_id is None:
                 continue
@@ -209,13 +214,15 @@ class HeadwayTracker:
             except (TypeError, ValueError):
                 continue
 
+            latlon_key = (round(lat_f, 6), round(lon_f, 6))
+
             # Get AddressID - the physical location identifier
             address_id = stop.get("AddressID") or stop.get("AddressId")
             if address_id is not None:
                 address_id = str(address_id)
-
-            # Use AddressID when available; otherwise keep it as None without fallbacks.
-            address_key = address_id if address_id is not None else str(stop_id)
+            else:
+                # No AddressID provided - use lat/lon placeholder so location still groups
+                address_id = f"loc_{latlon_key[0]}_{latlon_key[1]}"
 
             route_ids = self._extract_route_ids(stop)
             approach_sets = self._parse_approach_sets(stop.get("ApproachSets"))
@@ -225,26 +232,40 @@ class HeadwayTracker:
             if stop_name:
                 stop_name = str(stop_name).strip()
 
-            if address_key not in address_groups:
-                address_groups[address_key] = {
+            group = address_index.get(address_id)
+            if group is None:
+                group = latlon_index.get(latlon_key)
+
+            if group is None:
+                group = {
                     "stop_id": str(stop_id),  # Use the first stop_id we see
                     "lat": lat_f,
                     "lon": lon_f,
                     "route_ids": set(),
                     "approach_sets": [],
-                    "address_id": address_id,
+                    "address_ids": set(),
                     "stop_name": stop_name,  # Use the first non-empty name we see
                 }
-            elif stop_name and not address_groups[address_key].get("stop_name"):
+                address_groups.append(group)
+                latlon_index[latlon_key] = group
+            elif latlon_index.get(latlon_key) is None:
+                # Make sure future address_id mismatches at same location can be merged
+                latlon_index[latlon_key] = group
+
+            if address_id not in group["address_ids"]:
+                group["address_ids"].add(address_id)
+                address_index[address_id] = group
+
+            if stop_name and not group.get("stop_name"):
                 # Use the first non-empty stop name we encounter
-                address_groups[address_key]["stop_name"] = stop_name
+                group["stop_name"] = stop_name
 
             # Merge route IDs from all stops at this physical location
-            address_groups[address_key]["route_ids"].update(route_ids)
+            group["route_ids"].update(route_ids)
 
             # Merge approach sets (avoid duplicates)
             if approach_sets:
-                existing_sets = address_groups[address_key]["approach_sets"]
+                existing_sets = group["approach_sets"]
                 for new_set in approach_sets:
                     # Check if this approach set is already added (by name)
                     if not any(s.name == new_set.name for s in existing_sets):
@@ -252,7 +273,9 @@ class HeadwayTracker:
 
         # Create StopPoint objects from merged address groups
         updated: List[StopPoint] = []
-        for addr_id, data in address_groups.items():
+        for data in address_groups:
+            address_ids = sorted(data["address_ids"]) if data.get("address_ids") else []
+            address_id_str = ",".join(address_ids) if address_ids else None
             updated.append(
                 StopPoint(
                     stop_id=data["stop_id"],
@@ -260,7 +283,8 @@ class HeadwayTracker:
                     lon=data["lon"],
                     route_ids=data["route_ids"],
                     approach_sets=data["approach_sets"] if data["approach_sets"] else None,
-                    address_id=data["address_id"],
+                    address_id=address_id_str,
+                    address_ids=set(address_ids),
                     stop_name=data.get("stop_name"),
                 )
             )
@@ -268,11 +292,14 @@ class HeadwayTracker:
         self.stops = updated
         self.stop_lookup = {stop.stop_id: stop for stop in updated}
         # Also create lookup by address_id for quick access
-        self.address_lookup: Dict[str, StopPoint] = {stop.address_id: stop for stop in updated if stop.address_id}
+        self.address_lookup: Dict[str, StopPoint] = {}
+        for stop in updated:
+            for addr in stop.address_ids:
+                self.address_lookup[addr] = stop
         if not updated:
             print("[headway] stop update received no stops; tracker inputs unavailable")
         else:
-            print(f"[headway] loaded {len(updated)} physical stops from {len(list(stops))} stop entries")
+            print(f"[headway] loaded {len(updated)} physical stops from {len(stops_list)} stop entries")
 
     def _parse_approach_sets(self, raw_sets: Any) -> Optional[List[ApproachSet]]:
         """Parse approach sets from stop data."""

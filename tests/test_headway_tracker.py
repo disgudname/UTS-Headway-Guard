@@ -7,6 +7,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from headway_tracker import HeadwayTracker, VehicleSnapshot
+from app import _build_transloc_stops
 
 
 class MemoryHeadwayStorage:
@@ -225,3 +226,59 @@ def test_route_mismatch_prevents_headway_logging():
     )
 
     assert storage.events == []
+
+
+def test_lat_lon_merge_returns_all_address_ids():
+    storage = MemoryHeadwayStorage()
+    tracker = HeadwayTracker(storage=storage)
+
+    stop_a = {
+        "StopID": "A",
+        "Latitude": 1.0,
+        "Longitude": 2.0,
+        "AddressID": 100,
+        "RouteID": "R1",
+    }
+    stop_b = {
+        "StopID": "B",
+        "Latitude": 1.0,
+        "Longitude": 2.0,
+        "AddressID": 200,
+        "RouteID": "R2",
+    }
+
+    tracker.update_stops([stop_a, stop_b])
+
+    assert len(tracker.stops) == 1
+    merged = tracker.stops[0]
+    assert merged.address_ids == {"100", "200"}
+    assert merged.address_id == "100,200"
+    assert merged.route_ids == {"R1", "R2"}
+    assert tracker.address_lookup["100"] is merged
+    assert tracker.address_lookup["200"] is merged
+
+
+def test_address_id_survives_build_and_tracker():
+    routes = [
+        {
+            "RouteID": 1,
+            "Stops": [
+                {
+                    "StopID": 10,
+                    "StopName": "Test Stop",
+                    "Latitude": 1.0,
+                    "Longitude": 2.0,
+                    "AddressID": 555,
+                }
+            ],
+        }
+    ]
+
+    stops = _build_transloc_stops(routes)
+    tracker = HeadwayTracker(storage=MemoryHeadwayStorage())
+    tracker.update_stops(stops)
+
+    assert len(tracker.stops) == 1
+    stop = tracker.stops[0]
+    assert stop.address_id == "555"
+    assert stop.address_ids == {"555"}
