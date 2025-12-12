@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
 
 const config = require('./config');
 const { Storage } = require('./storage');
@@ -104,6 +105,8 @@ setInterval(fetchTickets, 15000);
 async function bootstrap() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+
+  app.use('/media', express.static(path.join(__dirname, '..', 'media')));
 
   const storage = new Storage(config);
   await storage.init();
