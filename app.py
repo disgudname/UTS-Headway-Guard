@@ -3754,6 +3754,15 @@ async def startup():
                             new_map[rid][vid] = veh
                             state.last_dir_sign[vid] = dir_sign
                         state.vehicles_by_route = new_map
+
+                        # Use the most recent block assignments we have on hand while building snapshots
+                        vehicle_to_block: Dict[str, str] = {}
+                        blocks_cache = getattr(state, "blocks_cache", None)
+                        if isinstance(blocks_cache, dict):
+                            cached_map = blocks_cache.get("vehicle_to_block")
+                            if isinstance(cached_map, dict):
+                                vehicle_to_block = dict(cached_map)
+
                         for rid, vehs in new_map.items():
                             for veh in vehs.values():
                                 if veh.lat is None or veh.lon is None:
@@ -3862,7 +3871,7 @@ async def startup():
                             block_groups, vehicle_roster=vehicle_roster
                         )
 
-                        vehicle_to_block: Dict[str, str] = {}
+                        vehicle_to_block = {}
                         for block in plain_language_blocks:
                             vid = _block_entry_vehicle_id(block)
                             block_id = block.get("block_id") or block.get("block")
