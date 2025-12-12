@@ -8538,6 +8538,11 @@ async def fgdc_font():
     return FileResponse(FONT_DIR / "FGDC.ttf", media_type="font/ttf")
 
 
+@app.get("/fonts/FGDC.ttf", include_in_schema=False)
+async def fgdc_font_nested():
+    return FileResponse(FONT_DIR / "FGDC.ttf", media_type="font/ttf")
+
+
 @app.get("/ANTONIO.ttf", include_in_schema=False)
 async def antonio_font():
     return FileResponse(FONT_DIR / "ANTONIO.ttf", media_type="font/ttf")
