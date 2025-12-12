@@ -9035,52 +9035,18 @@ ${trainPlaneMarkup}
         `;
         let bubbleStopFilterHtml = '';
         if (bubbleVisualizationEnabled) {
-          const stops = Array.from(bubbleVisualizationState.stopsById.values());
-          if (stops.length > 0) {
-            stops.sort((a, b) => {
-              const nameA = (a.name || '').toUpperCase();
-              const nameB = (b.name || '').toUpperCase();
-              if (nameA < nameB) return -1;
-              if (nameA > nameB) return 1;
-              return a.id < b.id ? -1 : 1;
-            });
-            const stopOptionsHtml = stops.map(stop => {
-              const checked = isBubbleStopAllowed(stop.id);
-              const safeId = escapeAttribute(stop.id);
-              const safeName = escapeHtml(stop.name || stop.id);
-              return `
-                <label class="bubble-stop-option" style="display:flex; align-items:center; gap:8px;">
-                  <input type="checkbox" data-stop-id="${safeId}" ${checked ? 'checked' : ''} onchange="toggleBubbleStopFilter(this)">
-                  <span class="bubble-stop-name">${safeName}</span>
-                </label>
-              `;
-            }).join('');
-            bubbleStopFilterHtml = `
-              <div class="selector-group bubble-stop-group">
-                <div class="selector-section-heading">
-                  <h3>Bubble Stops</h3>
-                  <div class="selector-actions">
-                    <button type="button" class="pill-button" onclick="selectAllBubbleStops()">Select All</button>
-                    <button type="button" class="pill-button" onclick="deselectAllBubbleStops()">Deselect All</button>
-                  </div>
-                </div>
-                <div class="bubble-stop-list" style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
-                  ${stopOptionsHtml}
+          bubbleStopFilterHtml = `
+            <div class="selector-group bubble-stop-group">
+              <div class="selector-section-heading">
+                <h3>Bubble Stops</h3>
+                <div class="selector-actions">
+                  <button type="button" class="pill-button" onclick="selectAllBubbleStops()">Select All</button>
+                  <button type="button" class="pill-button" onclick="deselectAllBubbleStops()">Deselect All</button>
                 </div>
               </div>
-            `;
-          } else {
-            bubbleStopFilterHtml = `
-              <div class="selector-group bubble-stop-group">
-                <div class="selector-section-heading">
-                  <h3>Bubble Stops</h3>
-                </div>
-                <div class="bubble-stop-list" style="display:flex; flex-direction:column; gap:6px; margin-top:6px; font-size:13px; color: var(--panel-muted-text, #4b5563);">
-                  Stops will appear once bubble data is received.
-                </div>
-              </div>
-            `;
-          }
+              <div class="bubble-stop-list" style="display:flex; flex-direction:column; gap:6px; margin-top:6px;"></div>
+            </div>
+          `;
         }
         if (catPriorityMode) {
           html += `
@@ -9157,6 +9123,9 @@ ${trainPlaneMarkup}
         `;
 
         panel.innerHTML = html;
+        if (bubbleVisualizationEnabled) {
+          refreshBubbleStopListSection();
+        }
         updateCatToggleButtonState();
         updateUtsToggleButtonState();
         initializeRadarControls();
@@ -19595,6 +19564,52 @@ ${trainPlaneMarkup}
         setAllBubbleStopSelections(false);
       }
 
+      function refreshBubbleStopListSection() {
+        if (!bubbleVisualizationEnabled) return;
+
+        const panel = document.getElementById('controlPanel');
+        if (!panel) return;
+
+        const listContainer = panel.querySelector('.bubble-stop-list');
+        if (!listContainer) return;
+
+        const previousScrollTop = listContainer.scrollTop || 0;
+
+        const stops = Array.from(bubbleVisualizationState.stopsById.values());
+        if (stops.length === 0) {
+          listContainer.innerHTML = `
+            <div class="bubble-stop-empty" style="font-size:13px; color: var(--panel-muted-text, #4b5563);">
+              Stops will appear once bubble data is received.
+            </div>
+          `;
+          listContainer.scrollTop = previousScrollTop;
+          return;
+        }
+
+        stops.sort((a, b) => {
+          const nameA = (a.name || '').toUpperCase();
+          const nameB = (b.name || '').toUpperCase();
+          if (nameA < nameB) return -1;
+          if (nameA > nameB) return 1;
+          return a.id < b.id ? -1 : 1;
+        });
+
+        const stopOptionsHtml = stops.map(stop => {
+          const checked = isBubbleStopAllowed(stop.id);
+          const safeId = escapeAttribute(stop.id);
+          const safeName = escapeHtml(stop.name || stop.id);
+          return `
+            <label class="bubble-stop-option" style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" data-stop-id="${safeId}" ${checked ? 'checked' : ''} onchange="toggleBubbleStopFilter(this)">
+              <span class="bubble-stop-name">${safeName}</span>
+            </label>
+          `;
+        }).join('');
+
+        listContainer.innerHTML = stopOptionsHtml;
+        listContainer.scrollTop = previousScrollTop;
+      }
+
       function initBubbleVisualization() {
         if (!bubbleVisualizationEnabled || !map) return;
 
@@ -19648,7 +19663,7 @@ ${trainPlaneMarkup}
         fetchBubbleStates();
 
         if (cacheStopListChanged) {
-          updateControlPanel();
+          refreshBubbleStopListSection();
         }
 
         console.log('[bubbles] Bubble visualization enabled');
@@ -19670,7 +19685,7 @@ ${trainPlaneMarkup}
           processRecentActivations(recentActivations);
 
           if (stopListChanged) {
-            updateControlPanel();
+            refreshBubbleStopListSection();
           }
         } catch (err) {
           console.error('[bubbles] Failed to fetch bubble states:', err);
