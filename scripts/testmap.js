@@ -742,7 +742,10 @@ TM.registerVisibilityResumeHandler(() => {
         preloadedPassthroughAudios: [],
         preloadedStoppedAudios: [],
         pollInterval: null,
+        stopsById: new Map(),
+        stopSelections: new Map(),
       };
+      let lastBubbleStopSignature = '';
       let dispatcherConfig = null;
       let dispatcherConfigPromise = null;
       const dispatcherLockState = {
@@ -9030,6 +9033,55 @@ ${trainPlaneMarkup}
               Center Map
             </button>
         `;
+        let bubbleStopFilterHtml = '';
+        if (bubbleVisualizationEnabled) {
+          const stops = Array.from(bubbleVisualizationState.stopsById.values());
+          if (stops.length > 0) {
+            stops.sort((a, b) => {
+              const nameA = (a.name || '').toUpperCase();
+              const nameB = (b.name || '').toUpperCase();
+              if (nameA < nameB) return -1;
+              if (nameA > nameB) return 1;
+              return a.id < b.id ? -1 : 1;
+            });
+            const stopOptionsHtml = stops.map(stop => {
+              const checked = isBubbleStopAllowed(stop.id);
+              const safeId = escapeAttribute(stop.id);
+              const safeName = escapeHtml(stop.name || stop.id);
+              return `
+                <label class="bubble-stop-option" style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" data-stop-id="${safeId}" ${checked ? 'checked' : ''} onchange="toggleBubbleStopFilter(this)">
+                  <span class="bubble-stop-name">${safeName}</span>
+                </label>
+              `;
+            }).join('');
+            bubbleStopFilterHtml = `
+              <div class="selector-group bubble-stop-group">
+                <div class="selector-section-heading">
+                  <h3>Bubble Stops</h3>
+                  <div class="selector-actions">
+                    <button type="button" class="pill-button" onclick="selectAllBubbleStops()">Select All</button>
+                    <button type="button" class="pill-button" onclick="deselectAllBubbleStops()">Deselect All</button>
+                  </div>
+                </div>
+                <div class="bubble-stop-list" style="display:flex; flex-direction:column; gap:6px; margin-top:6px;">
+                  ${stopOptionsHtml}
+                </div>
+              </div>
+            `;
+          } else {
+            bubbleStopFilterHtml = `
+              <div class="selector-group bubble-stop-group">
+                <div class="selector-section-heading">
+                  <h3>Bubble Stops</h3>
+                </div>
+                <div class="bubble-stop-list" style="display:flex; flex-direction:column; gap:6px; margin-top:6px; font-size:13px; color: var(--panel-muted-text, #4b5563);">
+                  Stops will appear once bubble data is received.
+                </div>
+              </div>
+            `;
+          }
+        }
         if (catPriorityMode) {
           html += `
             <div class="selector-group">
@@ -9055,6 +9107,7 @@ ${trainPlaneMarkup}
             </div>
           `;
         }
+        html += bubbleStopFilterHtml;
         html += serviceAlertsSectionHtml;
         html += incidentAlertsHtml;
 
@@ -19396,6 +19449,99 @@ ${trainPlaneMarkup}
       const BUBBLE_STATE_MAX_AGE_MS = 120_000;
       const BUBBLE_ACTIVATION_MAX_AGE_MS = 120_000;
 
+      function normalizeBubbleStopId(stopId) {
+        if (stopId === null || stopId === undefined) return '';
+        const normalized = String(stopId).trim();
+        return normalized;
+      }
+
+      function updateBubbleStopMetadata(activeStates = [], activations = []) {
+        let hasNewStops = false;
+
+        const registerStop = (rawId, rawName) => {
+          const stopId = normalizeBubbleStopId(rawId);
+          if (!stopId) return;
+
+          const name = typeof rawName === 'string' && rawName.trim() !== ''
+            ? rawName.trim()
+            : stopId;
+          const existing = bubbleVisualizationState.stopsById.get(stopId);
+          if (!existing || existing.name !== name) {
+            bubbleVisualizationState.stopsById.set(stopId, { id: stopId, name });
+            hasNewStops = true;
+          }
+
+          if (!bubbleVisualizationState.stopSelections.has(stopId)) {
+            bubbleVisualizationState.stopSelections.set(stopId, true);
+            hasNewStops = true;
+          }
+        };
+
+        activeStates.forEach(state => {
+          registerStop(state.stop_id, state.stop_name || state.stopId || state.stopID);
+        });
+
+        activations.forEach(activation => {
+          registerStop(activation.stop_id, activation.stop_name || activation.stopId || activation.stopID);
+        });
+
+        const signature = Array.from(bubbleVisualizationState.stopsById.entries())
+          .map(([id, data]) => `${id}:${data?.name || ''}`)
+          .sort()
+          .join('|');
+
+        if (signature !== lastBubbleStopSignature) {
+          lastBubbleStopSignature = signature;
+          hasNewStops = true;
+        }
+
+        return hasNewStops;
+      }
+
+      function isBubbleStopAllowed(stopId) {
+        const normalized = normalizeBubbleStopId(stopId);
+        if (!normalized) return true;
+        if (!bubbleVisualizationState.stopSelections.has(normalized)) {
+          bubbleVisualizationState.stopSelections.set(normalized, true);
+        }
+        return bubbleVisualizationState.stopSelections.get(normalized) !== false;
+      }
+
+      function applyBubbleStopFiltersToActiveLayers() {
+        for (const [bubbleKey, data] of bubbleVisualizationState.activeBubbles) {
+          if (!isBubbleStopAllowed(data?.stopId)) {
+            clearVehicleBubbles(bubbleKey);
+          }
+        }
+      }
+
+      function toggleBubbleStopFilter(checkbox) {
+        if (!checkbox) return;
+        const stopId = checkbox.getAttribute('data-stop-id');
+        const normalized = normalizeBubbleStopId(stopId);
+        if (!normalized) return;
+        bubbleVisualizationState.stopSelections.set(normalized, checkbox.checked);
+        applyBubbleStopFiltersToActiveLayers();
+      }
+
+      function setAllBubbleStopSelections(selected) {
+        bubbleVisualizationState.stopsById.forEach((_, stopId) => {
+          bubbleVisualizationState.stopSelections.set(stopId, selected);
+        });
+        document.querySelectorAll('.bubble-stop-list input[type="checkbox"]').forEach(box => {
+          box.checked = selected;
+        });
+        applyBubbleStopFiltersToActiveLayers();
+      }
+
+      function selectAllBubbleStops() {
+        setAllBubbleStopSelections(true);
+      }
+
+      function deselectAllBubbleStops() {
+        setAllBubbleStopSelections(false);
+      }
+
       function initBubbleVisualization() {
         if (!bubbleVisualizationEnabled || !map) return;
 
@@ -19457,8 +19603,16 @@ ${trainPlaneMarkup}
           if (!response.ok) return;
           const data = await response.json();
 
-          updateBubbleVisuals(data.active_states || []);
-          processRecentActivations(data.recent_activations || []);
+          const activeStates = data.active_states || [];
+          const recentActivations = data.recent_activations || [];
+          const stopListChanged = updateBubbleStopMetadata(activeStates, recentActivations);
+
+          updateBubbleVisuals(activeStates);
+          processRecentActivations(recentActivations);
+
+          if (stopListChanged) {
+            updateControlPanel();
+          }
         } catch (err) {
           console.error('[bubbles] Failed to fetch bubble states:', err);
         }
@@ -19470,6 +19624,10 @@ ${trainPlaneMarkup}
         for (const activation of activations) {
           const parsedTs = activation.timestamp ? Date.parse(activation.timestamp) : null;
           if (Number.isFinite(parsedTs) && Date.now() - parsedTs > BUBBLE_ACTIVATION_MAX_AGE_MS) {
+            continue;
+          }
+
+          if (!isBubbleStopAllowed(activation.stop_id)) {
             continue;
           }
 
@@ -19504,6 +19662,9 @@ ${trainPlaneMarkup}
 
           const vid = state.vehicle_id;
           const stopId = state.stop_id;
+          if (!isBubbleStopAllowed(stopId)) {
+            continue;
+          }
           const setIndex = state.set_index ?? 0;
           // Use composite key to allow multiple bubble sets per vehicle
           const bubbleKey = `${vid}_${stopId}_${setIndex}`;
@@ -19955,6 +20116,10 @@ ${trainPlaneMarkup}
             bubbleVisualizationState.layerGroup = null;
           }
           bubbleVisualizationState.activeBubbles.clear();
+          bubbleVisualizationState.stopsById.clear();
+          bubbleVisualizationState.stopSelections.clear();
+          lastBubbleStopSignature = '';
+          updateControlPanel();
         }
       }
 
