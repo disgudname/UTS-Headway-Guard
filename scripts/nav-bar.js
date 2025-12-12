@@ -65,6 +65,12 @@
       requiresAuth: true,
     },
     {
+      href: '/headway',
+      label: 'Headway',
+      icon: '/media/headway.svg',
+      requiresAuth: true,
+    },
+    {
       href: '/replay',
       label: 'Replay',
       icon: '/media/replay.svg',
