@@ -882,13 +882,6 @@
       }
     }
 
-    function formatThresholdLabel(minutes) {
-      if (minutes == null) return 'exceeds_threshold';
-      const numeric = Number(minutes);
-      const label = Number.isFinite(numeric) ? numeric.toString() : String(minutes);
-      return `exceeds_threshold_${label}_min`;
-    }
-
     function escapeCsv(value) {
       if (value == null) return '';
       const text = String(value);
@@ -913,24 +906,22 @@
         const events = Array.isArray(data.events) ? data.events : [];
         updateVehicleNameLookup(events, data.vehicle_names);
         const thresholdSeconds = getHighlightThresholdSeconds();
-        const thresholdMinutes = thresholdSeconds != null ? thresholdSeconds / 60 : null;
         const headwayField = resolveHeadwayField(headwayTypeSelect);
-        const thresholdLabel = formatThresholdLabel(thresholdMinutes);
 
         const header = [
           'timestamp',
           'route_id',
-          'route_name',
+          'route',
           'address_id',
-          'stop_name',
-          'vehicle',
+          'stop',
+          'bus',
           'block',
-          'event_type',
+          'event',
           'arrival_type',
-          'headway_arrival_arrival_seconds',
-          'headway_departure_arrival_seconds',
-          'dwell_seconds',
-          thresholdLabel,
+          'headway_arrival_arrival',
+          'headway_departure_arrival',
+          'dwell',
+          'threshold',
         ];
 
         const rows = events.map(ev => {
