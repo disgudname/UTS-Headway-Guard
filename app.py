@@ -8570,6 +8570,7 @@ _MEDIA_ASSETS: dict[str, str] = {
     "servicecrew.svg": "image/svg+xml",
     "map.svg": "image/svg+xml",
     "ridership.svg": "image/svg+xml",
+    "headway.svg": "image/svg+xml",
     "replay.svg": "image/svg+xml",
     "downed.svg": "image/svg+xml",
     "testmap.svg": "image/svg+xml",
