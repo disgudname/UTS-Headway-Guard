@@ -19470,7 +19470,7 @@ ${trainPlaneMarkup}
         return hasNewStops;
       }
 
-      function registerBubbleStopCandidate(rawId, rawName) {
+      function registerBubbleStopCandidate(rawId, rawName, rawMetadata = {}) {
         const stopId = normalizeBubbleStopId(rawId);
         if (!stopId) return false;
 
@@ -19478,10 +19478,19 @@ ${trainPlaneMarkup}
           ? rawName.trim()
           : stopId;
         const existing = bubbleVisualizationState.stopsById.get(stopId);
+        const addressId = normalizeIdentifier(rawMetadata.addressId || rawMetadata.AddressID || rawMetadata.AddressId);
+        const lat = typeof rawMetadata.lat === 'number' ? rawMetadata.lat : parseFloat(rawMetadata.lat);
+        const lon = typeof rawMetadata.lon === 'number' ? rawMetadata.lon : parseFloat(rawMetadata.lon);
         let updated = false;
 
-        if (!existing || existing.name !== name) {
-          bubbleVisualizationState.stopsById.set(stopId, { id: stopId, name });
+        if (!existing || existing.name !== name || existing.addressId !== addressId || existing.lat !== lat || existing.lon !== lon) {
+          bubbleVisualizationState.stopsById.set(stopId, {
+            id: stopId,
+            name,
+            addressId: addressId || existing?.addressId,
+            lat: Number.isFinite(lat) ? lat : existing?.lat,
+            lon: Number.isFinite(lon) ? lon : existing?.lon,
+          });
           updated = true;
         }
 
@@ -19502,7 +19511,12 @@ ${trainPlaneMarkup}
         stops.forEach(stop => {
           const stopId = stop?.StopID ?? stop?.stopID ?? stop?.stopId ?? stop?.StopId ?? stop?.stop_id ?? stop?.stop ?? stop?.id;
           const stopName = stop?.Name ?? stop?.name ?? stop?.Description ?? stop?.description ?? stop?.StopName ?? stop?.stop_name ?? stop?.stopName ?? stop?.StopDescription ?? stop?.stop_description;
-          if (registerBubbleStopCandidate(stopId, stopName)) {
+          const stopMetadata = {
+            addressId: stop?.AddressID ?? stop?.AddressId,
+            lat: stop?.Latitude ?? stop?.latitude ?? stop?.lat ?? stop?.Lat,
+            lon: stop?.Longitude ?? stop?.longitude ?? stop?.lon ?? stop?.Lng ?? stop?.lng,
+          };
+          if (registerBubbleStopCandidate(stopId, stopName, stopMetadata)) {
             hasNewStops = true;
           }
         });
@@ -19511,7 +19525,12 @@ ${trainPlaneMarkup}
           catStopDataCache.forEach(stop => {
             const stopId = stop?.id ?? stop?.rawId;
             const stopName = stop?.name ?? stopId;
-            if (registerBubbleStopCandidate(stopId, stopName)) {
+            const stopMetadata = {
+              addressId: stop?.addressId,
+              lat: stop?.lat,
+              lon: stop?.lon ?? stop?.lng,
+            };
+            if (registerBubbleStopCandidate(stopId, stopName, stopMetadata)) {
               hasNewStops = true;
             }
           });
@@ -19539,10 +19558,14 @@ ${trainPlaneMarkup}
 
       function toggleBubbleStopFilter(checkbox) {
         if (!checkbox) return;
-        const stopId = checkbox.getAttribute('data-stop-id');
-        const normalized = normalizeBubbleStopId(stopId);
-        if (!normalized) return;
-        bubbleVisualizationState.stopSelections.set(normalized, checkbox.checked);
+        const stopIdsAttr = checkbox.getAttribute('data-stop-ids') || checkbox.getAttribute('data-stop-id');
+        const stopIds = (stopIdsAttr || '').split(',').map(id => id.trim()).filter(Boolean);
+        if (stopIds.length === 0) return;
+        stopIds.forEach(id => {
+          const normalized = normalizeBubbleStopId(id);
+          if (!normalized) return;
+          bubbleVisualizationState.stopSelections.set(normalized, checkbox.checked);
+        });
         applyBubbleStopFiltersToActiveLayers();
       }
 
@@ -19586,7 +19609,58 @@ ${trainPlaneMarkup}
           return;
         }
 
-        stops.sort((a, b) => {
+        const dedupedStops = new Map();
+
+        const buildDedupKey = (stop) => {
+          const normalizedAddress = normalizeIdentifier(stop?.addressId);
+          if (normalizedAddress) {
+            return `address:${normalizedAddress}`;
+          }
+
+          const lat = Number.isFinite(stop?.lat) ? stop.lat : parseFloat(stop?.lat);
+          const lon = Number.isFinite(stop?.lon) ? stop.lon : parseFloat(stop?.lon);
+          if (Number.isFinite(lat) && Number.isFinite(lon)) {
+            return `coord:${lat.toFixed(6)},${lon.toFixed(6)}`;
+          }
+
+          return `id:${stop?.id ?? Math.random()}`;
+        };
+
+        stops.forEach(stop => {
+          const key = buildDedupKey(stop);
+          if (!dedupedStops.has(key)) {
+            dedupedStops.set(key, {
+              id: stop.id,
+              name: stop.name,
+              addressId: stop.addressId,
+              lat: stop.lat,
+              lon: stop.lon,
+              ids: new Set([stop.id]),
+              names: new Set([stop.name].filter(Boolean)),
+            });
+            return;
+          }
+
+          const existing = dedupedStops.get(key);
+          existing.ids.add(stop.id);
+          if (stop.name) existing.names.add(stop.name);
+          if (!existing.addressId && stop.addressId) existing.addressId = stop.addressId;
+          if (!Number.isFinite(existing.lat) && Number.isFinite(stop.lat)) existing.lat = stop.lat;
+          if (!Number.isFinite(existing.lon) && Number.isFinite(stop.lon)) existing.lon = stop.lon;
+        });
+
+        const dedupedList = Array.from(dedupedStops.values()).map(entry => {
+          return {
+            id: entry.id,
+            name: Array.from(entry.names).join(' / ') || entry.id,
+            addressId: entry.addressId,
+            lat: entry.lat,
+            lon: entry.lon,
+            ids: Array.from(entry.ids),
+          };
+        });
+
+        dedupedList.sort((a, b) => {
           const nameA = (a.name || '').toUpperCase();
           const nameB = (b.name || '').toUpperCase();
           if (nameA < nameB) return -1;
@@ -19594,13 +19668,13 @@ ${trainPlaneMarkup}
           return a.id < b.id ? -1 : 1;
         });
 
-        const stopOptionsHtml = stops.map(stop => {
-          const checked = isBubbleStopAllowed(stop.id);
-          const safeId = escapeAttribute(stop.id);
+        const stopOptionsHtml = dedupedList.map(stop => {
+          const checked = stop.ids.every(id => isBubbleStopAllowed(id));
+          const safeId = escapeAttribute(stop.ids.join(','));
           const safeName = escapeHtml(stop.name || stop.id);
           return `
             <label class="bubble-stop-option" style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" data-stop-id="${safeId}" ${checked ? 'checked' : ''} onchange="toggleBubbleStopFilter(this)">
+              <input type="checkbox" data-stop-ids="${safeId}" ${checked ? 'checked' : ''} onchange="toggleBubbleStopFilter(this)">
               <span class="bubble-stop-name">${safeName}</span>
             </label>
           `;
