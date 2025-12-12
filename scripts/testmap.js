@@ -5506,6 +5506,48 @@ TM.registerVisibilityResumeHandler(() => {
         return onDemandVehicleColorMap.get(normalized) || ONDEMAND_MARKER_DEFAULT_COLOR;
       }
 
+      function splitOnDemandVehicleName(callName) {
+        if (typeof callName !== 'string') {
+          return { primary: '', secondary: '' };
+        }
+        const trimmed = callName.trim();
+        if (!trimmed) {
+          return { primary: '', secondary: '' };
+        }
+        const colonIndex = trimmed.indexOf(':');
+        if (colonIndex >= 0) {
+          const primary = trimmed.slice(0, colonIndex).trim();
+          const secondary = trimmed.slice(colonIndex + 1).trim();
+          return { primary, secondary };
+        }
+        return { primary: trimmed, secondary: '' };
+      }
+
+      function buildInfoCardSection(primaryText, secondaryText, accentColor) {
+        const primary = typeof primaryText === 'string' ? primaryText.trim() : '';
+        const secondary = typeof secondaryText === 'string' ? secondaryText.trim() : '';
+        if (!primary && !secondary) {
+          return '';
+        }
+        const color = sanitizeCssColor(accentColor) || ONDEMAND_MARKER_DEFAULT_COLOR;
+        const cardLines = [];
+        if (primary) {
+          cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${escapeHtml(primary)}</div>`);
+        }
+        if (secondary) {
+          cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${escapeHtml(secondary)}</div>`);
+        }
+        return [
+          '<div class="ondemand-driver-popup__section">',
+          '<div class="bus-popup__drivers-list">',
+          `<div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color: ${color};">`,
+          cardLines.join(''),
+          '</div>',
+          '</div>',
+          '</div>'
+        ].join('');
+      }
+
       function isOnDemandVehicleId(vehicleID) {
         if (vehicleID === undefined || vehicleID === null) {
           return false;
@@ -6859,6 +6901,7 @@ TM.registerVisibilityResumeHandler(() => {
               state.busName = displayName;
               state.routeID = null;
               const vehicleCallName = typeof vehicle.callName === 'string' ? vehicle.callName.trim() : '';
+              const vehicleNameParts = splitOnDemandVehicleName(vehicleCallName);
               const driverNameSource =
                 typeof vehicle.driverName === 'string'
                   ? vehicle.driverName
@@ -6868,6 +6911,12 @@ TM.registerVisibilityResumeHandler(() => {
                       ? vehicle.driver_name
                       : '';
               const driverName = driverNameSource ? driverNameSource.trim() : '';
+              const driverInfo = cachedVehicleDrivers[normalizedId];
+              const driverFromCache = Array.isArray(driverInfo?.drivers) && driverInfo.drivers.length > 0
+                ? driverInfo.drivers[0]
+                : null;
+              const driverPrimaryName = (driverFromCache?.name || driverName || '').trim();
+              const driverPosition = (driverInfo?.block || '').trim();
               const lastActiveRaw =
                 typeof vehicle.last_active_at === 'string'
                   ? vehicle.last_active_at
@@ -6898,25 +6947,16 @@ TM.registerVisibilityResumeHandler(() => {
                 });
               const stopListHtml = renderOnDemandStopList(stopPlan);
               const popupSections = [];
-              if (vehicleCallName) {
-                popupSections.push(
-                  [
-                    '<div class="ondemand-driver-popup__section">',
-                    '<div class="ondemand-driver-popup__label">VEHICLE</div>',
-                    `<div class="ondemand-driver-popup__value">${escapeHtml(vehicleCallName)}</div>`,
-                    '</div>'
-                  ].join('')
-                );
+              const accentColor = sanitizeCssColor(vehicle.markerColor) || getOnDemandVehicleColor(normalizedId);
+              const vehicleCardHtml = buildInfoCardSection(vehicleNameParts.primary, vehicleNameParts.secondary, accentColor);
+              if (vehicleCardHtml) {
+                popupSections.push(vehicleCardHtml);
               }
-              if (driverName) {
-                popupSections.push(
-                  [
-                    '<div class="ondemand-driver-popup__section">',
-                    '<div class="ondemand-driver-popup__label">Driver</div>',
-                    `<div class="ondemand-driver-popup__value">${escapeHtml(driverName)}</div>`,
-                    '</div>'
-                  ].join('')
-                );
+              const driverCardHtml = driverPrimaryName
+                ? buildInfoCardSection(driverPrimaryName, driverPosition || 'OnDemand Driver', accentColor)
+                : '';
+              if (driverCardHtml) {
+                popupSections.push(driverCardHtml);
               }
               if (isPaused) {
                 const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
@@ -6949,11 +6989,14 @@ TM.registerVisibilityResumeHandler(() => {
                   const minutesLabel = pausedMinutes === 1 ? 'minute' : 'minutes';
                   ariaParts.push(`Paused for ${pausedMinutes} ${minutesLabel}`);
                 }
-                if (vehicleCallName) {
-                  ariaParts.push(`Vehicle ${vehicleCallName}`);
+                if (vehicleNameParts.primary) {
+                  ariaParts.push(vehicleNameParts.secondary
+                    ? `Vehicle ${vehicleNameParts.primary}: ${vehicleNameParts.secondary}`
+                    : `Vehicle ${vehicleNameParts.primary}`);
                 }
-                if (driverName) {
-                  ariaParts.push(`Driver ${driverName}`);
+                if (driverPrimaryName) {
+                  const driverRole = driverPosition || 'OnDemand Driver';
+                  ariaParts.push(`${driverPrimaryName} (${driverRole})`);
                 }
                 if (onboardRiders.length) {
                   ariaParts.push(`Passengers on board: ${onboardRiders.join(', ')}`);
@@ -6988,7 +7031,7 @@ TM.registerVisibilityResumeHandler(() => {
                 delete state.driverPopupContent;
                 delete state.driverPopupAriaLabel;
               }
-              const fillColor = sanitizeCssColor(vehicle.markerColor) || getOnDemandVehicleColor(normalizedId);
+              const fillColor = accentColor;
               state.fillColor = fillColor;
               const glyphColor = computeBusMarkerGlyphColor(fillColor);
               state.glyphColor = glyphColor;
