@@ -5186,6 +5186,37 @@ def _find_ondemand_driver_by_name(
     return None
 
 
+def _build_ondemand_vehicle_entries(
+    assignments_by_block: Dict[str, Dict[str, List[Dict[str, Any]]]], now_ts: int
+) -> Dict[str, Dict[str, Any]]:
+    """Build vehicle entries directly from OnDemand W2W positions."""
+
+    vehicle_entries: Dict[str, Dict[str, Any]] = {}
+    for block_name in ["OnDemand Driver", "OnDemand EB"]:
+        current_drivers = _find_current_drivers(block_name, assignments_by_block, now_ts)
+        if not current_drivers:
+            continue
+
+        vehicle_entries[block_name] = {
+            "block": block_name,
+            "drivers": [
+                {
+                    "name": driver.get("name"),
+                    "shift_start": driver.get("start_ts"),
+                    "shift_start_label": driver.get("start_label"),
+                    "shift_end": driver.get("end_ts"),
+                    "shift_end_label": driver.get("end_label"),
+                }
+                for driver in current_drivers
+            ],
+            # Use block name as identifier when no vehicle ID is provided
+            "vehicle_id": block_name,
+            "vehicle_name": None,
+        }
+
+    return vehicle_entries
+
+
 async def _fetch_vehicle_drivers():
     """
     Build a mapping of vehicle_id -> {block, drivers, vehicle_name}.
@@ -5238,6 +5269,11 @@ async def _fetch_vehicle_drivers():
         print(f"[vehicle_drivers] w2w fetch failed: {exc}")
         assignments_by_block = {}
 
+    vehicle_drivers: Dict[str, Any] = {}
+
+    # Add OnDemand W2W positions directly so they appear even without ondemand vehicle data
+    vehicle_drivers.update(_build_ondemand_vehicle_entries(assignments_by_block, now_ts))
+
     # Select current block for each vehicle, considering both TransLoc block times
     # and W2W driver shift times. A vehicle is included if:
     # 1. TransLoc block time is currently active, OR
@@ -5285,8 +5321,7 @@ async def _fetch_vehicle_drivers():
                     if route_name:
                         vehicle_routes[vid_str] = route_name
 
-    # Build the vehicle -> driver mapping
-    vehicle_drivers = {}
+    # Build the vehicle -> driver mapping (continue adding to existing entries)
 
     # Process regular buses with block assignments
     for vehicle_id, block_name in blocks_mapping.items():
