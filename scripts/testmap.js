@@ -14750,7 +14750,7 @@ ${trainPlaneMarkup}
                   blockVehicleParts.push(escapeHtml(busName));
               }
               if (blockVehicleParts.length > 0) {
-                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${blockVehicleParts.join(', ')}</div>`);
+                  cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${blockVehicleParts.join(' • ')}</div>`);
               }
 
               popupSections.push([
