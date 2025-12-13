@@ -60,22 +60,23 @@
           <div class="approach-set-tabs" id="approachSetTabs">
             <button class="approach-set-tab add-new" id="addApproachSetBtn" type="button">+ Add Set</button>
           </div>
-          <div id="approachSetContent">
-            <div class="bubble-empty-state" id="noBubblesMessage">
-              <p>No approach sets configured for this stop.</p>
-              <p class="hint">Click "+ Add Set" to create an approach configuration.</p>
-            </div>
-            <div id="activeSetControls" style="display: none;">
-              <div class="approach-set-name-input">
-                <input type="text" id="approachSetNameInput" placeholder="Set name (e.g., Northbound)" />
-                <button type="button" class="delete-set" id="deleteApproachSetBtn" title="Delete this approach set">Delete</button>
+            <div id="approachSetContent">
+              <div class="bubble-empty-state" id="noBubblesMessage">
+                <p>No approach sets configured for this stop.</p>
+                <p class="hint">Click "+ Add Set" to create an approach configuration.</p>
               </div>
-              <div class="bubble-list" id="bubbleList"></div>
-              <div class="add-bubble-controls">
-                <button type="button" id="addBubbleBtn">+ Click map to add bubble</button>
+              <div id="activeSetControls" style="display: none;">
+                <div class="approach-set-name-input">
+                  <input type="text" id="approachSetNameInput" placeholder="Set name (e.g., Northbound)" />
+                  <button type="button" class="delete-set" id="deleteApproachSetBtn" title="Delete this approach set">Delete</button>
+                </div>
+                <div class="bubble-list" id="bubbleList"></div>
+                <p class="hint" id="abandonmentHint" style="display: none;"></p>
+                <div class="add-bubble-controls">
+                  <button type="button" id="addBubbleBtn">+ Click map to add bubble</button>
+                </div>
               </div>
             </div>
-          </div>
         </div>
 
         <div class="control-actions">
