@@ -10850,7 +10850,7 @@ ${trainPlaneMarkup}
                           if (!isOnDemand) {
                               const driverInfo = cachedVehicleDrivers[vehicleID];
                               if (driverInfo && driverInfo.block) {
-                                  label = `${busName} - ${driverInfo.block}`;
+                                  label = `${busName} • ${driverInfo.block}`;
                               }
                           }
 
