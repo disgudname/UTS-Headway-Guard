@@ -19996,8 +19996,16 @@ ${trainPlaneMarkup}
         }
 
         try {
-          // Create a new Audio object for each playback to allow concurrent sounds
-          const audio = new Audio(targetSrc);
+          const baseAudio = selected && selected.audio ? selected.audio : null;
+
+          // Clone the preloaded audio so playback uses the cached data but doesn't block
+          // concurrent plays. If preloading failed, fall back to a fresh Audio element.
+          const audio = baseAudio
+            ? baseAudio.cloneNode(true)
+            : new Audio(targetSrc);
+
+          // Ensure we start from the beginning
+          audio.currentTime = 0;
           audio.play().catch(err => {
             console.warn(`[bubbles] Failed to play ${arrivalType} audio:`, err);
           });
