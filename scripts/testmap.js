@@ -19605,6 +19605,11 @@ ${trainPlaneMarkup}
             return `address:${normalizedAddress}`;
           }
 
+          const normalizedName = (stop?.name || '').trim().toLowerCase();
+          if (normalizedName) {
+            return `name:${normalizedName}`;
+          }
+
           const lat = Number.isFinite(stop?.lat) ? stop.lat : parseFloat(stop?.lat);
           const lon = Number.isFinite(stop?.lon) ? stop.lon : parseFloat(stop?.lon);
           if (Number.isFinite(lat) && Number.isFinite(lon)) {
