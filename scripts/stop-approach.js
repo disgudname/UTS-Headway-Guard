@@ -4,6 +4,8 @@
   const DEFAULT_TOLERANCE = 70;
   const DEFAULT_BEARING = 0;
   const DEFAULT_BUBBLE_RADIUS_M = 25;
+  // Keep in sync with APPROACH_ABANDONMENT_DISTANCE_M in headway_tracker.py
+  const APPROACH_ABANDONMENT_DISTANCE_M = 400;
 
   const hasLeaflet = typeof L !== 'undefined';
   const map = hasLeaflet
@@ -48,6 +50,7 @@
   const bubbleList = document.getElementById('bubbleList');
   const addBubbleBtn = document.getElementById('addBubbleBtn');
   const bubbleCountBadge = document.getElementById('bubbleCount');
+  const abandonmentHint = document.getElementById('abandonmentHint');
 
   let stops = [];
   let dedupedStops = [];
@@ -192,6 +195,13 @@
     const set = approachSets[activeSetIndex];
     const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#eab308'];
 
+    let finalBubble = null;
+    set.bubbles.forEach((bubble) => {
+      if (!finalBubble || bubble.order > finalBubble.order) {
+        finalBubble = bubble;
+      }
+    });
+
     set.bubbles.forEach((bubble, idx) => {
       const color = colors[idx % colors.length];
       const circle = L.circle([bubble.lat, bubble.lng], {
@@ -228,6 +238,24 @@
 
       bubbleMarkers.push(marker);
     });
+
+    if (finalBubble) {
+      const abandonCircle = L.circle([finalBubble.lat, finalBubble.lng], {
+        radius: APPROACH_ABANDONMENT_DISTANCE_M,
+        color: '#f87171',
+        weight: 1.5,
+        dashArray: '10,8',
+        fill: false,
+        opacity: 0.8,
+      }).addTo(map);
+
+      abandonCircle.bindTooltip(
+        `Arrivals are abandoned once a vehicle is ${APPROACH_ABANDONMENT_DISTANCE_M}m away from the final bubble.`,
+        { sticky: true }
+      );
+
+      bubbleLayers.push(abandonCircle);
+    }
   }
 
   function updateBubbleCount() {
@@ -368,6 +396,7 @@
     if (activeSetIndex < 0 || !approachSets[activeSetIndex]) {
       noBubblesMessage.style.display = 'block';
       activeSetControls.style.display = 'none';
+      if (abandonmentHint) abandonmentHint.style.display = 'none';
       return;
     }
 
@@ -378,6 +407,17 @@
     approachSetNameInput.value = set.name || '';
 
     renderBubbleList();
+
+    if (abandonmentHint) {
+      if (!set.bubbles.length) {
+        abandonmentHint.style.display = 'none';
+        return;
+      }
+      abandonmentHint.textContent =
+        'Red dashed circle shows where arrival tracking is abandoned once the bus is farther than '
+        + `${APPROACH_ABANDONMENT_DISTANCE_M}m from the final bubble.`;
+      abandonmentHint.style.display = 'block';
+    }
   }
 
   function addNewApproachSet() {
