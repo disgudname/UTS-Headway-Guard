@@ -5526,9 +5526,10 @@ TM.registerVisibilityResumeHandler(() => {
         return { primary: trimmed, secondary: '' };
       }
 
-      function buildInfoCardSection(primaryText, secondaryText, accentColor) {
+      function buildInfoCardSection(primaryText, secondaryText, accentColor, metaText) {
         const primary = typeof primaryText === 'string' ? primaryText.trim() : '';
         const secondary = typeof secondaryText === 'string' ? secondaryText.trim() : '';
+        const meta = typeof metaText === 'string' ? metaText.trim() : '';
         if (!primary && !secondary) {
           return '';
         }
@@ -5540,6 +5541,9 @@ TM.registerVisibilityResumeHandler(() => {
         if (secondary) {
           cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${escapeHtml(secondary)}</div>`);
         }
+        if (meta) {
+          cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--meta">${escapeHtml(meta)}</div>`);
+        }
         return [
           '<div class="ondemand-driver-popup__section">',
           '<div class="bus-popup__drivers-list">',
@@ -5549,6 +5553,43 @@ TM.registerVisibilityResumeHandler(() => {
           '</div>',
           '</div>'
         ].join('');
+      }
+
+      function formatDriverShiftTimes(driver) {
+        if (!driver || typeof driver !== 'object') {
+          return '';
+        }
+        const startLabel = typeof driver.shift_start_label === 'string' ? driver.shift_start_label.trim() : '';
+        const endLabel = typeof driver.shift_end_label === 'string' ? driver.shift_end_label.trim() : '';
+        const startTime = startLabel ? `On at ${startLabel}` : '';
+        const endTime = endLabel ? `Off at ${endLabel}` : '';
+        return [startTime, endTime].filter(Boolean).join(' • ');
+      }
+
+      function findOnDemandDriverInfo(vehicleId, driverName) {
+        const normalizedVehicleId = typeof vehicleId === 'string' ? vehicleId.trim() : `${vehicleId || ''}`.trim();
+        const normalizedDriverName = typeof driverName === 'string' ? driverName.trim().toLowerCase() : '';
+
+        const driverInfoByVehicle = cachedVehicleDrivers?.[normalizedVehicleId];
+        if (driverInfoByVehicle && Array.isArray(driverInfoByVehicle.drivers) && driverInfoByVehicle.drivers.length > 0) {
+          return { info: driverInfoByVehicle, driver: driverInfoByVehicle.drivers[0] };
+        }
+
+        if (!normalizedDriverName || !cachedVehicleDrivers || typeof cachedVehicleDrivers !== 'object') {
+          return { info: driverInfoByVehicle || null, driver: null };
+        }
+
+        for (const info of Object.values(cachedVehicleDrivers)) {
+          if (!info || !Array.isArray(info.drivers)) continue;
+          const match = info.drivers.find(d =>
+            d && typeof d.name === 'string' && d.name.trim().toLowerCase() === normalizedDriverName
+          );
+          if (match) {
+            return { info, driver: match };
+          }
+        }
+
+        return { info: driverInfoByVehicle || null, driver: null };
       }
 
       function isOnDemandVehicleId(vehicleID) {
@@ -6914,12 +6955,10 @@ TM.registerVisibilityResumeHandler(() => {
                       ? vehicle.driver_name
                       : '';
               const driverName = driverNameSource ? driverNameSource.trim() : '';
-              const driverInfo = cachedVehicleDrivers[normalizedId];
-              const driverFromCache = Array.isArray(driverInfo?.drivers) && driverInfo.drivers.length > 0
-                ? driverInfo.drivers[0]
-                : null;
-              const driverPrimaryName = (driverFromCache?.name || driverName || '').trim();
+              const { info: driverInfo, driver: matchedDriver } = findOnDemandDriverInfo(normalizedId, driverName);
+              const driverPrimaryName = (matchedDriver?.name || driverName || '').trim();
               const driverPosition = (driverInfo?.block || '').trim();
+              const driverShiftTimes = formatDriverShiftTimes(matchedDriver);
               const lastActiveRaw =
                 typeof vehicle.last_active_at === 'string'
                   ? vehicle.last_active_at
@@ -6956,7 +6995,12 @@ TM.registerVisibilityResumeHandler(() => {
                 popupSections.push(vehicleCardHtml);
               }
               const driverCardHtml = driverPrimaryName
-                ? buildInfoCardSection(driverPrimaryName, driverPosition || 'OnDemand Driver', accentColor)
+                ? buildInfoCardSection(
+                    driverPrimaryName,
+                    driverPosition || 'OnDemand Driver',
+                    accentColor,
+                    driverShiftTimes
+                  )
                 : '';
               if (driverCardHtml) {
                 popupSections.push(driverCardHtml);

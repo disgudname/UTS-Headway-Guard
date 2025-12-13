@@ -2105,6 +2105,11 @@
         font-weight: 600;
         color: #4b5563;
       }
+      .bus-popup__info-line--meta {
+        font-size: 12px;
+        font-weight: 500;
+        color: #6b7280;
+      }
       .bus-popup__info-line--vehicle {
         font-size: 12px;
         font-weight: 600;
