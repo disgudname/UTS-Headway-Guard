@@ -19437,23 +19437,26 @@ ${trainPlaneMarkup}
       }
 
       function updateBubbleStopMetadata(activeStates = [], activations = []) {
-        let hasNewStops = false;
+        let hasChanges = false;
 
-        const registerStop = (rawId, rawName) => {
-          if (registerBubbleStopCandidate(rawId, rawName)) {
-            hasNewStops = true;
+        const updateStopIfKnown = (rawId, rawName) => {
+          const normalizedId = normalizeBubbleStopId(rawId);
+          if (!normalizedId || !bubbleVisualizationState.stopsById.has(normalizedId)) return;
+
+          if (registerBubbleStopCandidate(normalizedId, rawName)) {
+            hasChanges = true;
           }
         };
 
         activeStates.forEach(state => {
-          registerStop(state.stop_id, state.stop_name || state.stopId || state.stopID);
+          updateStopIfKnown(state.stop_id, state.stop_name || state.stopId || state.stopID);
         });
 
         activations.forEach(activation => {
-          registerStop(activation.stop_id, activation.stop_name || activation.stopId || activation.stopID);
+          updateStopIfKnown(activation.stop_id, activation.stop_name || activation.stopId || activation.stopID);
         });
 
-        return finalizeBubbleStopListChange(hasNewStops);
+        return finalizeBubbleStopListChange(hasChanges);
       }
 
       function finalizeBubbleStopListChange(hasNewStops = false) {
@@ -19520,21 +19523,6 @@ ${trainPlaneMarkup}
             hasNewStops = true;
           }
         });
-
-        if (Array.isArray(catStopDataCache) && catStopDataCache.length > 0) {
-          catStopDataCache.forEach(stop => {
-            const stopId = stop?.id ?? stop?.rawId;
-            const stopName = stop?.name ?? stopId;
-            const stopMetadata = {
-              addressId: stop?.addressId,
-              lat: stop?.lat,
-              lon: stop?.lon ?? stop?.lng,
-            };
-            if (registerBubbleStopCandidate(stopId, stopName, stopMetadata)) {
-              hasNewStops = true;
-            }
-          });
-        }
 
         return finalizeBubbleStopListChange(hasNewStops);
       }
