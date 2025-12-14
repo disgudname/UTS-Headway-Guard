@@ -223,6 +223,17 @@
       box-shadow: 0 6px 18px rgba(17, 24, 39, 0.1);
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
+    .control-field input.input-missing {
+      border-color: rgba(229, 114, 0, 0.9);
+      background: rgba(229, 114, 0, 0.08);
+      box-shadow: 0 0 0 3px rgba(229, 114, 0, 0.2);
+      animation: pulse-highlight 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse-highlight {
+      0% { box-shadow: 0 0 0 2px rgba(229, 114, 0, 0.12); }
+      50% { box-shadow: 0 0 0 6px rgba(229, 114, 0, 0.18); }
+      100% { box-shadow: 0 0 0 2px rgba(229, 114, 0, 0.12); }
+    }
     .control-field input:focus {
       outline: none;
       border-color: rgba(229, 114, 0, 0.8);
@@ -3287,11 +3298,9 @@
 
     initializeMap();
 
-    const defaultDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
     let endDatePickerInstance = null;
     const startDatePickerInstance = flatpickr("#startDatePicker", {
       dateFormat: "Y-m-d",
-      defaultDate: defaultDateStr,
       onChange(selectedDates) {
         if (!selectedDates || !selectedDates.length) return;
         const selectedDate = selectedDates[0];
@@ -3302,11 +3311,11 @@
             endDatePickerInstance.setDate(selectedDate, true);
           }
         }
+        emphasizeEmptyTimeframeFields();
       }
     });
     endDatePickerInstance = flatpickr("#endDatePicker", {
       dateFormat: "Y-m-d",
-      defaultDate: defaultDateStr,
       onChange(selectedDates) {
         if (!selectedDates || !selectedDates.length) return;
         const selectedDate = selectedDates[0];
@@ -3317,31 +3326,30 @@
             startDatePickerInstance.setDate(selectedDate, true);
           }
         }
+        emphasizeEmptyTimeframeFields();
       }
     });
-    if (startDatePickerInstance && endDatePickerInstance) {
-      const [initialStart] = startDatePickerInstance.selectedDates;
-      const [initialEnd] = endDatePickerInstance.selectedDates;
-      if (initialStart) {
-        endDatePickerInstance.set('minDate', initialStart);
-      }
-      if (initialEnd) {
-        startDatePickerInstance.set('maxDate', initialEnd);
-      }
-    }
     flatpickr("#startTime", {
       enableTime: true,
       noCalendar: true,
       dateFormat: "H:i",
       time_24hr: true,
-      defaultDate: "00:00"
+      onChange: emphasizeEmptyTimeframeFields
     });
     flatpickr("#endTime", {
       enableTime: true,
       noCalendar: true,
       dateFormat: "H:i",
       time_24hr: true,
-      defaultDate: "23:59"
+      onChange: emphasizeEmptyTimeframeFields
+    });
+
+    ['startDatePicker', 'endDatePicker', 'startTime', 'endTime'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.addEventListener('input', emphasizeEmptyTimeframeFields);
+        el.addEventListener('blur', emphasizeEmptyTimeframeFields);
+      }
     });
 
     scheduleMarkerScaleUpdate();
@@ -5261,15 +5269,39 @@
       updateSpeedButtons();
     }
 
-    async function applyRange(initial = false) {
+    function emphasizeEmptyTimeframeFields() {
+      const fields = [
+        document.getElementById('startDatePicker'),
+        document.getElementById('endDatePicker'),
+        document.getElementById('startTime'),
+        document.getElementById('endTime')
+      ];
+      let hasMissing = false;
+      fields.forEach(field => {
+        const isEmpty = !(field && field.value && field.value.trim());
+        if (field) {
+          field.classList.toggle('input-missing', isEmpty);
+        }
+        if (isEmpty) {
+          hasMissing = true;
+        }
+      });
+      return hasMissing;
+    }
+
+    async function applyRange() {
+      if (emphasizeEmptyTimeframeFields()) {
+        return false;
+      }
+
       beginRangeLoad();
       try {
         const startDateInput = document.getElementById('startDatePicker');
         const endDateInput = document.getElementById('endDatePicker');
-        const startDateStr = (startDateInput && startDateInput.value) ? startDateInput.value : defaultDateStr;
-        let endDateStr = (endDateInput && endDateInput.value) ? endDateInput.value : startDateStr;
-        const startStr = document.getElementById('startTime').value || '00:00';
-        const endStr = document.getElementById('endTime').value || '23:59';
+        const startDateStr = startDateInput ? startDateInput.value : '';
+        let endDateStr = endDateInput ? endDateInput.value : '';
+        const startStr = document.getElementById('startTime').value;
+        const endStr = document.getElementById('endTime').value;
         startTime = new Date(`${startDateStr}T${startStr}:00`);
         userEndTime = new Date(`${endDateStr}T${endStr}:00`);
 
@@ -5287,8 +5319,8 @@
 
         // If the selected end date is today, don't try to load data beyond the current time
         const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-        let lastHour = new Date(userEndTime);
-        lastHour.setMinutes(0, 0, 0);
+        const endHourBase = new Date(userEndTime);
+        endHourBase.setMinutes(0, 0, 0);
         if (endDateStr === todayStr) {
           const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
           if (userEndTime > now) {
@@ -5301,8 +5333,8 @@
               endTimeInput._flatpickr.setDate(now, true);
             }
           }
-          lastHour = new Date(userEndTime);
-          lastHour.setMinutes(0, 0, 0);
+          endHourBase.setTime(userEndTime.getTime());
+          endHourBase.setMinutes(0, 0, 0);
         }
 
         if (startTime > userEndTime) {
@@ -5339,22 +5371,10 @@
 
         let startHour = new Date(startTime);
         startHour.setMinutes(0, 0, 0);
-        let endHour = initial ? lastHour : new Date(userEndTime);
-        endHour.setMinutes(0, 0, 0);
+        let endHour = new Date(endHourBase);
 
         for (let ms = startHour.getTime(); ms <= endHour.getTime(); ms += 3600 * 1000) {
           await loadHour(ms);
-        }
-
-        if (initial && playbackTimes.length) {
-          const lastMs = playbackTimes[playbackTimes.length - 1];
-          timeline.max = lastMs;
-          const endInput = document.getElementById('endTime');
-          if (endInput && endInput._flatpickr) {
-            endInput._flatpickr.setDate(new Date(lastMs), true);
-          }
-          endTime = new Date(lastMs);
-          userEndTime = new Date(lastMs);
         }
 
         if (playbackTimes.length) {
@@ -5362,6 +5382,7 @@
           const idx = findFrameIndex(ms);
           await showFrame(idx, ms);
         }
+        return true;
       } finally {
         completeRangeLoad();
       }
@@ -5395,31 +5416,15 @@
 
     const disclaimerOverlay = document.getElementById('disclaimerOverlay');
     const disclaimerBtn = document.getElementById('disclaimerBtn');
-
-    let replayInitialized = false;
-    async function initializeReplay() {
-      if (replayInitialized) return;
-      replayInitialized = true;
-      try {
-        pause();
-        await applyRange(true);
-        if (missingRouteDays.size > 0 || Object.keys(allRoutes).length === 0) {
-          await fetchRoutes();
-        }
-        startAutoRefresh();
-      } catch (err) {
-        replayInitialized = false;
-        console.error('Failed to initialize replay', err);
-      }
-    }
+    let autoRefreshStarted = false;
 
     if (disclaimerOverlay && disclaimerBtn) {
-      disclaimerBtn.onclick = async () => {
+      disclaimerBtn.onclick = () => {
         disclaimerOverlay.style.display = 'none';
-        await initializeReplay();
+        emphasizeEmptyTimeframeFields();
       };
     } else {
-      initializeReplay();
+      emphasizeEmptyTimeframeFields();
     }
 
     playBtn.onclick = () => { playbackSpeed = 1; play(); };
@@ -5442,18 +5447,16 @@
     });
     document.getElementById('loadRangeBtn').onclick = async () => {
       pause();
-      await applyRange(false);
+      const applied = await applyRange();
+      if (!applied) return;
       if (missingRouteDays.size > 0 || Object.keys(allRoutes).length === 0) {
         await fetchRoutes();
       }
-    };
-
-    if (disclaimerOverlay) {
-      const overlayDisplay = window.getComputedStyle(disclaimerOverlay).display;
-      if (overlayDisplay === 'none') {
-        initializeReplay();
+      if (!autoRefreshStarted) {
+        startAutoRefresh();
+        autoRefreshStarted = true;
       }
-    }
+    };
   </script>
 <script src="nav-bar.js"></script>
 </body>
