@@ -903,76 +903,26 @@
       }
     }
 
-    function escapeCsv(value) {
-      if (value == null) return '';
-      const text = String(value);
-      if (text.includes('"') || text.includes(',') || text.includes('\n')) {
-        return `"${text.replace(/"/g, '""')}"`;
-      }
-      return text;
-    }
-
-    function formatSecondsCell(value) {
-      if (value == null || Number.isNaN(Number(value))) return '';
-      return Number(value).toFixed(3);
-    }
-
     async function exportCsv() {
       try {
         setStatus('Preparing CSV export…');
-        const url = buildQuery('/api/headway');
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Headway fetch failed (${res.status})`);
-        const data = await res.json();
-        const events = Array.isArray(data.events) ? data.events : [];
-        updateVehicleNameLookup(events, data.vehicle_names);
-        const thresholdSeconds = getHighlightThresholdSeconds();
-        const headwayField = resolveHeadwayField(headwayTypeSelect);
+        const timezoneName = (() => {
+          try {
+            const { timeZone } = Intl.DateTimeFormat().resolvedOptions();
+            return timeZone || undefined;
+          } catch (err) {
+            console.warn('Could not detect browser timezone', err);
+            return undefined;
+          }
+        })();
 
-        const header = [
-          'timestamp',
-          'route_id',
-          'route',
-          'address_id',
-          'stop',
-          'bus',
-          'block',
-          'event',
-          'arrival_type',
-          'headway_arrival_arrival',
-          'headway_departure_arrival',
-          'dwell',
-          'threshold',
-        ];
-
-        const rows = events.map(ev => {
-          const exceeds = (() => {
-            if (thresholdSeconds == null) return '';
-            const val = ev[headwayField];
-            if (val == null || Number.isNaN(Number(val))) return 'no';
-            return Number(val) > thresholdSeconds ? 'yes' : 'no';
-          })();
-          return [
-            ev.timestamp,
-            ev.route_id || ev.route || '',
-            ev.route_name || '',
-            ev.address_id || '',
-            ev.stop_name || '',
-            formatVehicleLabel(ev),
-            ev.block || '',
-            ev.event_type,
-            ev.arrival_type || '',
-            formatSecondsCell(ev.headway_arrival_arrival),
-            formatSecondsCell(ev.headway_departure_arrival),
-            formatSecondsCell(ev.dwell_seconds),
-            exceeds,
-          ];
+        const url = buildQuery('/api/headway/export', {
+          headway_type: headwayTypeSelect.value,
+          timezone_name: timezoneName,
         });
-
-        const csvText = [header, ...rows]
-          .map(cols => cols.map(escapeCsv).join(','))
-          .join('\n');
-        const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Headway export failed (${res.status})`);
+        const blob = await res.blob();
         const dlUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = dlUrl;
