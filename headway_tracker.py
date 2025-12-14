@@ -17,6 +17,9 @@ DEFAULT_HEADWAY_CONFIG_PATH = Path("config/headway_config.json")
 DEFAULT_STOP_APPROACH_CONFIG_PATH = Path("config/stop_approach.json")
 DEFAULT_DATA_DIRS = [Path(p) for p in os.getenv("DATA_DIRS", "/data").split(":")]
 
+# Maximum gap between headway events before we consider history stale (minutes)
+DEFAULT_HEADWAY_GAP_MINUTES = 210.0
+
 # Distance threshold for headway tracking (meters)
 HEADWAY_DISTANCE_THRESHOLD_M = float(60.0)
 
@@ -141,12 +144,14 @@ class HeadwayTracker:
         tracked_stop_ids: Optional[Set[str]] = None,
         route_name_lookup: Optional[Callable[[Optional[str]], Optional[str]]] = None,
         vehicle_block_lookup: Optional[Callable[[Optional[str]], Optional[str]]] = None,
+        headway_gap_minutes_by_route: Optional[Dict[str, float]] = None,
     ):
         self.storage = storage
         self.arrival_distance_threshold_m = arrival_distance_threshold_m
         self.departure_distance_threshold_m = departure_distance_threshold_m
         self.tracked_route_ids = tracked_route_ids or set()
         self.tracked_stop_ids = tracked_stop_ids or set()
+        self.headway_gap_minutes_by_route = headway_gap_minutes_by_route or {}
 
         # Lookup callbacks for enriching events with display names
         # route_name_lookup: (route_id) -> route_name (e.g., "Orange Line")
@@ -823,8 +828,19 @@ class HeadwayTracker:
 
         headway_aa = None
         headway_da = None
+
+        gap_threshold_minutes = self._get_headway_gap_threshold(route_id)
+        if prev_arrival is not None:
+            arrival_gap_min = (timestamp - prev_arrival).total_seconds() / 60.0
+            if arrival_gap_min > gap_threshold_minutes:
+                prev_arrival = None
         if prev_arrival is not None:
             headway_aa = max((timestamp - prev_arrival).total_seconds(), 0.0)
+
+        if prev_departure is not None:
+            departure_gap_min = (timestamp - prev_departure).total_seconds() / 60.0
+            if departure_gap_min > gap_threshold_minutes:
+                prev_departure = None
         if prev_departure is not None:
             headway_da = max((timestamp - prev_departure).total_seconds(), 0.0)
 
@@ -1084,6 +1100,12 @@ class HeadwayTracker:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _get_headway_gap_threshold(self, route_id: Optional[str]) -> float:
+        """Return the allowable gap (in minutes) for headway calculations."""
+        if route_id and route_id in self.headway_gap_minutes_by_route:
+            return self.headway_gap_minutes_by_route[route_id]
+        return DEFAULT_HEADWAY_GAP_MINUTES
 
     def _haversine(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate the great-circle distance between two points in meters."""
