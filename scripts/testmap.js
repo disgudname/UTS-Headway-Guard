@@ -730,6 +730,8 @@ TM.registerVisibilityResumeHandler(() => {
       const dispatcherMode = window.usp.getBoolean('dispatcher', false);
       // Bubble visualization mode - shows approach bubble activations on the map
       let bubbleVisualizationEnabled = window.usp.getBoolean('bubbles', false);
+      const onDemandBubbleCelebrationsEnabled = bubbleVisualizationEnabled
+        && window.usp.getBoolean('ondemandbubbles', false);
       const bubbleVisualizationState = {
         layerGroup: null,
         activeBubbles: new Map(), // "vehicleId_stopId_setIndex" -> {circles: [], markers: [], stopId, setName, vehicleId}
@@ -744,6 +746,9 @@ TM.registerVisibilityResumeHandler(() => {
         pollInterval: null,
         stopsById: new Map(),
         stopSelections: new Map(),
+      };
+      const onDemandBubbleCelebrationState = {
+        triggeredKeys: new Set(),
       };
       let lastBubbleStopSignature = '';
       let dispatcherConfig = null;
@@ -2709,6 +2714,7 @@ TM.registerVisibilityResumeHandler(() => {
       const onDemandRouteLayers = new Map();
       let onDemandVisibleRideIdsByVehicle = new Map();
       let onDemandStopDataCache = [];
+      let normalizedOnDemandStops = [];
       const onDemandStopMarkerCache = new Map();
       let onDemandStopMarkers = [];
       let lastOnDemandVehicles = [];
@@ -5967,6 +5973,100 @@ TM.registerVisibilityResumeHandler(() => {
         setOnDemandRoutingEnabled(!onDemandRoutingEnabled);
       }
 
+      const ONDEMAND_CELEBRATION_DISTANCE_THRESHOLD_METERS = 35;
+
+      function buildOnDemandCelebrationKey(vehicleId, stopDetails, lat, lon) {
+        const stopTimestamp = stopDetails?.stopTimestamp || '';
+        const stopType = stopDetails?.stopType || '';
+        const latText = Number.isFinite(lat) ? Number(lat).toFixed(5) : '';
+        const lonText = Number.isFinite(lon) ? Number(lon).toFixed(5) : '';
+        const trimmedVehicleId = typeof vehicleId === 'string' ? vehicleId.trim() : `${vehicleId || ''}`.trim();
+        if (!trimmedVehicleId) {
+          return '';
+        }
+        return [trimmedVehicleId, stopType, stopTimestamp, latText, lonText].join('|');
+      }
+
+      function pruneOnDemandCelebrationCache() {
+        if (!onDemandBubbleCelebrationsEnabled) {
+          onDemandBubbleCelebrationState.triggeredKeys.clear();
+          return;
+        }
+        if (!Array.isArray(normalizedOnDemandStops) || normalizedOnDemandStops.length === 0) {
+          onDemandBubbleCelebrationState.triggeredKeys.clear();
+          return;
+        }
+
+        const validKeys = new Set();
+        normalizedOnDemandStops.forEach(stop => {
+          if (!stop || typeof stop !== 'object') {
+            return;
+          }
+          const details = stop.onDemandStopDetails || {};
+          const vehicleId = details.vehicleId || '';
+          const key = buildOnDemandCelebrationKey(vehicleId, details, stop.Latitude, stop.Longitude);
+          if (key) {
+            validKeys.add(key);
+          }
+        });
+
+        onDemandBubbleCelebrationState.triggeredKeys.forEach(key => {
+          if (!validKeys.has(key)) {
+            onDemandBubbleCelebrationState.triggeredKeys.delete(key);
+          }
+        });
+      }
+
+      function maybeCelebrateOnDemandArrival(vehicleId, vehicleLatLng) {
+        if (!onDemandBubbleCelebrationsEnabled || !bubbleVisualizationEnabled) {
+          return;
+        }
+        if (!vehicleId || !vehicleLatLng) {
+          return;
+        }
+        const stops = Array.isArray(normalizedOnDemandStops) ? normalizedOnDemandStops : [];
+        if (stops.length === 0) {
+          return;
+        }
+
+        const matchingStops = stops.filter(stop => {
+          const details = stop?.onDemandStopDetails || {};
+          if (!details || details.vehicleId !== vehicleId) {
+            return false;
+          }
+          const stopType = typeof details.stopType === 'string' ? details.stopType.toLowerCase() : '';
+          return stopType === 'pickup' || stopType === 'dropoff';
+        });
+
+        for (const stop of matchingStops) {
+          const stopLatLng = L.latLng(stop.Latitude, stop.Longitude);
+          if (!stopLatLng || Number.isNaN(stopLatLng.lat) || Number.isNaN(stopLatLng.lng)) {
+            continue;
+          }
+
+          let distanceMeters = null;
+          try {
+            if (map && typeof map.distance === 'function') {
+              distanceMeters = map.distance(vehicleLatLng, stopLatLng);
+            } else if (typeof vehicleLatLng.distanceTo === 'function') {
+              distanceMeters = vehicleLatLng.distanceTo(stopLatLng);
+            }
+          } catch (error) {
+            distanceMeters = null;
+          }
+
+          if (!Number.isFinite(distanceMeters) || distanceMeters > ONDEMAND_CELEBRATION_DISTANCE_THRESHOLD_METERS) {
+            continue;
+          }
+
+          const key = buildOnDemandCelebrationKey(vehicleId, stop.onDemandStopDetails, stopLatLng.lat, stopLatLng.lng);
+          if (key && !onDemandBubbleCelebrationState.triggeredKeys.has(key)) {
+            onDemandBubbleCelebrationState.triggeredKeys.add(key);
+            playArrivalSound('stopped');
+          }
+        }
+      }
+
       function normalizeOnDemandStopsForClustering(stops) {
         if (!Array.isArray(stops)) {
           return [];
@@ -6216,6 +6316,7 @@ TM.registerVisibilityResumeHandler(() => {
         if (!map || typeof map.removeLayer !== 'function') {
           onDemandStopMarkerCache.clear();
           onDemandStopMarkers = [];
+          normalizedOnDemandStops = [];
           return;
         }
         onDemandStopMarkerCache.forEach(entry => {
@@ -6233,6 +6334,7 @@ TM.registerVisibilityResumeHandler(() => {
         });
         onDemandStopMarkerCache.clear();
         onDemandStopMarkers = [];
+        normalizedOnDemandStops = [];
       }
 
       function buildOnDemandStopTooltip(groupInfo) {
@@ -6274,7 +6376,9 @@ TM.registerVisibilityResumeHandler(() => {
         if (!map) {
           return;
         }
-        const stops = normalizeOnDemandStopsForClustering(onDemandStopDataCache);
+        const stops = Array.isArray(normalizedOnDemandStops)
+          ? normalizedOnDemandStops
+          : normalizeOnDemandStopsForClustering(onDemandStopDataCache);
         if (stops.length === 0) {
           clearOnDemandStops();
           return;
@@ -6901,6 +7005,8 @@ TM.registerVisibilityResumeHandler(() => {
             onDemandVisibleRideIdsByVehicle = computeVisibleOnDemandRideIds(vehicles);
             updateOnDemandVehicleColorMap(vehicles);
             onDemandStopDataCache = ondemandStops.slice();
+            normalizedOnDemandStops = normalizeOnDemandStopsForClustering(onDemandStopDataCache);
+            pruneOnDemandCelebrationCache();
             if (onDemandStopsEnabled) {
               renderOnDemandStops();
             }
@@ -6937,6 +7043,7 @@ TM.registerVisibilityResumeHandler(() => {
               const state = ensureBusMarkerState(markerKey);
               state.isOnDemand = true;
               const newPosition = [lat, lon];
+              const vehicleLatLng = L.latLng(newPosition);
               const speedRaw = Number(vehicle.speed);
               const speedMph = Number.isFinite(speedRaw) ? Math.max(0, speedRaw) : 0;
               const fallbackHeading = getVehicleHeadingFallback(markerKey, vehicle.heading);
@@ -7090,6 +7197,8 @@ TM.registerVisibilityResumeHandler(() => {
               const accessibleName = `${displayName} OnDemand`;
               state.accessibleLabel = buildBusMarkerAccessibleLabel(accessibleName, headingDeg, speedMph);
               rememberCachedVehicleHeading(markerKey, headingDeg, state.lastUpdateTimestamp);
+
+              maybeCelebrateOnDemandArrival(normalizedId, vehicleLatLng);
 
               if (markers[markerKey]) {
                 animateMarkerTo(markers[markerKey], newPosition);
