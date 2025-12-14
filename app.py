@@ -3263,6 +3263,10 @@ async def api_headway_export(
         "arrival_arrival",
         description="Headway type to evaluate threshold (arrival_arrival or departure_arrival)",
     ),
+    timezone_name: Optional[str] = Query(
+        None,
+        description="IANA timezone name to localize timestamps (defaults to America/New_York)",
+    ),
 ):
     start_dt = _parse_headway_timestamp(start)
     end_dt = _parse_headway_timestamp(end)
@@ -3277,47 +3281,127 @@ async def api_headway_export(
     )
 
     headway_field = (
-        "headway_departure_arrival" if headway_type == "departure_arrival" else "headway_arrival_arrival"
+        "headway_departure_arrival"
+        if headway_type == "departure_arrival"
+        else "headway_arrival_arrival"
     )
-    threshold_seconds: Optional[float] = None
-    if threshold_minutes is not None:
-        try:
-            threshold_val = float(threshold_minutes)
-            if threshold_val > 0:
-                threshold_seconds = threshold_val * 60
-        except (TypeError, ValueError):
-            threshold_seconds = None
 
-    threshold_label = (
-        f"exceeds_threshold_{threshold_minutes:g}_min"
-        if threshold_seconds is not None and threshold_minutes is not None
-        else "exceeds_threshold"
-    )
+    tz = UVA_TZ
+    if timezone_name:
+        try:
+            tz = ZoneInfo(timezone_name)
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid timezone_name")
+
+    def _format_date(dt: datetime) -> str:
+        return dt.astimezone(tz).strftime("%d-%m-%Y")
+
+    def _format_time(dt: datetime) -> str:
+        return dt.astimezone(tz).strftime("%I:%M:%S %p").lstrip("0")
+
+    def _format_hms(seconds: Optional[float]) -> str:
+        if seconds is None:
+            return ""
+        total_seconds = int(round(seconds))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    events_sorted = sorted(events, key=lambda ev: ev.timestamp)
+    pending: Dict[Tuple[str, str, str, str], List[HeadwayEvent]] = {}
+    paired: List[Tuple[Optional[HeadwayEvent], Optional[HeadwayEvent]]] = []
+
+    def _event_key(ev: HeadwayEvent) -> Tuple[str, str, str, str]:
+        stop_identifier = ev.stop_id or ev.address_id or ""
+        return (
+            ev.route_id or "",
+            stop_identifier,
+            ev.vehicle_id or "",
+            ev.block or "",
+        )
+
+    for ev in events_sorted:
+        key = _event_key(ev)
+        if ev.event_type == "arrival":
+            pending.setdefault(key, []).append(ev)
+        elif ev.event_type == "departure":
+            queue = pending.get(key)
+            if queue:
+                arrival_ev = queue.pop(0)
+                paired.append((arrival_ev, ev))
+            else:
+                paired.append((None, ev))
+
+    for key, arrivals in pending.items():
+        for arrival_ev in arrivals:
+            paired.append((arrival_ev, None))
+
+    paired.sort(key=lambda pair: (pair[0].timestamp if pair[0] else pair[1].timestamp))
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(
         [
-            "timestamp",
-            "route_id",
-            "stop_id",
-            "vehicle_id",
-            "vehicle_name",
-            "event_type",
-            "headway_arrival_arrival_seconds",
-            "headway_departure_arrival_seconds",
-            "dwell_seconds",
-            threshold_label,
+            "Route",
+            "Arrival Date",
+            "Stop",
+            "Vehicle",
+            "Arrival Time",
+            "Departure Time",
+            "Dwell",
+            "Headway",
         ]
     )
-    for ev in events:
-        row = ev.to_row()
-        exceeds = ""
-        if threshold_seconds is not None:
-            value = getattr(ev, headway_field, None)
-            exceeds = "yes" if value is not None and value > threshold_seconds else "no"
-        row.append(exceeds)
-        writer.writerow(row)
+
+    for arrival_ev, departure_ev in paired:
+        arrival_ts = arrival_ev.timestamp if arrival_ev else None
+        departure_ts = departure_ev.timestamp if departure_ev else None
+
+        dwell_seconds = departure_ev.dwell_seconds if departure_ev else None
+        headway_value = None
+        for candidate in (arrival_ev, departure_ev):
+            if candidate:
+                candidate_value = getattr(candidate, headway_field, None)
+                if candidate_value is not None:
+                    headway_value = candidate_value
+                    break
+
+        route_label = (
+            (arrival_ev.route_name if arrival_ev else None)
+            or (arrival_ev.route_id if arrival_ev else None)
+            or (departure_ev.route_name if departure_ev else None)
+            or (departure_ev.route_id if departure_ev else None)
+            or ""
+        )
+        stop_label = (
+            (arrival_ev.stop_name if arrival_ev else None)
+            or (arrival_ev.stop_id if arrival_ev else None)
+            or (arrival_ev.address_id if arrival_ev else None)
+            or (departure_ev.stop_name if departure_ev else None)
+            or (departure_ev.stop_id if departure_ev else None)
+            or (departure_ev.address_id if departure_ev else None)
+            or ""
+        )
+        vehicle_label = (
+            (arrival_ev.vehicle_name if arrival_ev else None)
+            or (arrival_ev.vehicle_id if arrival_ev else None)
+            or (departure_ev.vehicle_name if departure_ev else None)
+            or (departure_ev.vehicle_id if departure_ev else None)
+            or ""
+        )
+
+        writer.writerow(
+            [
+                route_label,
+                _format_date(arrival_ts) if arrival_ts else "",
+                stop_label,
+                vehicle_label,
+                _format_time(arrival_ts) if arrival_ts else "",
+                _format_time(departure_ts) if departure_ts else "",
+                _format_hms(dwell_seconds),
+                _format_hms(headway_value),
+            ]
+        )
     payload = buf.getvalue()
     headers = {
         "Content-Disposition": "attachment; filename=\"headway_export.csv\"",
