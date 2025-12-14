@@ -3294,7 +3294,7 @@ async def api_headway_export(
             raise HTTPException(status_code=400, detail="invalid timezone_name")
 
     def _format_date(dt: datetime) -> str:
-        return dt.astimezone(tz).strftime("%d-%m-%Y")
+        return dt.astimezone(tz).strftime("%m-%d-%Y")
 
     def _format_time(dt: datetime) -> str:
         return dt.astimezone(tz).strftime("%I:%M:%S %p").lstrip("0")
