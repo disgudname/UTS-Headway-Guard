@@ -1251,6 +1251,79 @@ class TTLCache:
         return data
 
 
+class StaleWhileRevalidateCache:
+    def __init__(self, ttl: float):
+        self.ttl = ttl
+        self.value: Any = None
+        self.ts: float = 0.0
+        self.refresh_task: Optional[asyncio.Task] = None
+        self.lock = asyncio.Lock()
+
+    async def get(self, fetcher):
+        async with self.lock:
+            if self.value is None:
+                if self.refresh_task is None or self.refresh_task.done():
+                    self.refresh_task = asyncio.create_task(fetcher())
+                seed_task = self.refresh_task
+                seed = True
+            else:
+                seed = False
+                seed_task = None
+                value = self.value
+                ts = self.ts
+                refresh_task = self.refresh_task
+
+        if seed:
+            data = await seed_task
+            async with self.lock:
+                self.value = data
+                self.ts = time.time()
+            return data, "seed"
+
+        now = time.time()
+        is_fresh = now - ts < self.ttl
+        if (not is_fresh) and (refresh_task is None or refresh_task.done()):
+            async with self.lock:
+                if self.refresh_task is None or self.refresh_task.done():
+                    self.refresh_task = asyncio.create_task(self._refresh(fetcher))
+
+        return value, "fresh" if is_fresh else "stale"
+
+    async def _refresh(self, fetcher):
+        start = time.perf_counter()
+        try:
+            data = await fetcher()
+        except Exception as exc:
+            duration = time.perf_counter() - start
+            print(
+                f"[transloc_vehicle_estimates_cache] refresh failed after {duration:.2f}s: {exc}"
+            )
+            return
+
+        duration = time.perf_counter() - start
+        async with self.lock:
+            self.value = data
+            self.ts = time.time()
+        print(
+            f"[transloc_vehicle_estimates_cache] refresh completed in {duration:.2f}s"
+        )
+
+
+class PerKeyStaleWhileRevalidateCache:
+    def __init__(self, ttl: float):
+        self.ttl = ttl
+        self._caches: Dict[Any, StaleWhileRevalidateCache] = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, key: Any, fetcher):
+        async with self._lock:
+            cache = self._caches.get(key)
+            if cache is None:
+                cache = StaleWhileRevalidateCache(self.ttl)
+                self._caches[key] = cache
+        return await cache.get(fetcher)
+
+
 class PerKeyTTLCache:
     def __init__(self, ttl: float):
         self.ttl = ttl
@@ -1642,7 +1715,9 @@ MILEAGE_FILE = PRIMARY_DATA_DIR / MILEAGE_NAME
 
 transloc_arrivals_cache = TTLCache(TRANSLOC_ARRIVALS_TTL_S)
 transloc_blocks_cache = TTLCache(TRANSLOC_BLOCKS_TTL_S)
-transloc_vehicle_estimates_cache = PerKeyTTLCache(TRANSLOC_VEHICLE_ESTIMATES_TTL_S)
+transloc_vehicle_estimates_cache = PerKeyStaleWhileRevalidateCache(
+    TRANSLOC_VEHICLE_ESTIMATES_TTL_S
+)
 transloc_capacities_cache = PerKeyTTLCache(TRANSLOC_CAPACITIES_TTL_S)
 cat_routes_cache = TTLCache(CAT_METADATA_TTL_S)
 cat_stops_cache = TTLCache(CAT_METADATA_TTL_S)
@@ -7025,8 +7100,9 @@ async def _fetch_vehicle_stop_estimates(
     if not vehicle_ids:
         return {}
 
-    # Use cache keyed by (base_url, quantity) to avoid repeated API calls
-    cache_key = (base_url or "default", quantity)
+    # Use cache keyed by (base_url, normalized vehicle set, quantity) to avoid repeated API calls
+    normalized_vehicle_ids = tuple(sorted({str(vid) for vid in vehicle_ids}))
+    cache_key = (base_url or "default", normalized_vehicle_ids, quantity)
 
     async def fetch():
         try:
@@ -7062,7 +7138,17 @@ async def _fetch_vehicle_stop_estimates(
             print(f"[vehicle_estimates] Failed to fetch stop estimates: {e}")
             return {}
 
-    return await transloc_vehicle_estimates_cache.get(cache_key, fetch)
+    estimates, cache_state = await transloc_vehicle_estimates_cache.get(cache_key, fetch)
+    state_label = {
+        "seed": "blocking seed fetch",
+        "fresh": "served fresh",
+        "stale": "served stale",
+    }.get(cache_state, cache_state)
+    print(
+        f"[testmap_vehicles] stop estimate cache {state_label} "
+        f"(base={cache_key[0]}, vehicles={len(normalized_vehicle_ids)}, qty={quantity})"
+    )
+    return estimates
 
 
 async def _fetch_vehicle_stop_estimates_guarded(
