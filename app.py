@@ -25,7 +25,7 @@ Environment
 """
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set, Mapping
+from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set, Mapping, Awaitable
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
 from datetime import date, datetime, timedelta, time as dtime, timezone
@@ -79,6 +79,8 @@ TRANSLOC_KEY  = os.getenv("TRANSLOC_KEY", "8882812681")
 OVERPASS_EP   = os.getenv("OVERPASS_EP", "https://overpass-api.de/api/interpreter")
 CAT_API_BASE  = os.getenv("CAT_API_BASE", "https://catpublic.etaspot.net/service.php")
 CAT_API_TOKEN = os.getenv("CAT_API_TOKEN", "TESTING")
+TRANSLOC_HTTP_TIMEOUT = httpx.Timeout(20.0, connect=5.0, read=20.0, write=20.0, pool=20.0)
+TRANSLOC_HTTP_LIMITS = httpx.Limits(max_keepalive_connections=10, max_connections=50)
 PULSEPOINT_ENDPOINT = os.getenv(
     "PULSEPOINT_ENDPOINT",
     "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300",
@@ -736,7 +738,7 @@ def is_default_transloc_base(base_url: Optional[str]) -> bool:
 
 async def fetch_routes_with_shapes(client: httpx.AsyncClient, base_url: Optional[str] = None):
     url = build_transloc_url(base_url, f"GetRoutesForMapWithScheduleWithEncodedLine?APIKey={TRANSLOC_KEY}")
-    r = await client.get(url, timeout=20)
+    r = await client.get(url, timeout=TRANSLOC_HTTP_TIMEOUT)
     record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
@@ -745,7 +747,7 @@ async def fetch_routes_with_shapes(client: httpx.AsyncClient, base_url: Optional
 
 async def fetch_routes_catalog(client: httpx.AsyncClient, base_url: Optional[str] = None):
     url = build_transloc_url(base_url, f"GetRoutes?APIKey={TRANSLOC_KEY}")
-    r = await client.get(url, timeout=20)
+    r = await client.get(url, timeout=TRANSLOC_HTTP_TIMEOUT)
     record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
@@ -758,7 +760,7 @@ async def fetch_routes_catalog(client: httpx.AsyncClient, base_url: Optional[str
 
 async def fetch_stops(client: httpx.AsyncClient, base_url: Optional[str] = None) -> List[Dict[str, Any]]:
     url = build_transloc_url(base_url, f"GetStops?APIKey={TRANSLOC_KEY}")
-    r = await client.get(url, timeout=20)
+    r = await client.get(url, timeout=TRANSLOC_HTTP_TIMEOUT)
     record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
@@ -779,7 +781,7 @@ async def fetch_vehicles(
         base_url,
         f"GetMapVehiclePoints?APIKey={TRANSLOC_KEY}&returnVehiclesNotAssignedToRoute={flag}",
     )
-    r = await client.get(url, timeout=20)
+    r = await client.get(url, timeout=TRANSLOC_HTTP_TIMEOUT)
     record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
@@ -794,7 +796,7 @@ async def fetch_vehicle_capacities(
     Returns a dict mapping vehicle_id -> {capacity, current_occupation, percentage}
     """
     url = build_transloc_url(base_url, f"GetVehicleCapacities?APIKey={TRANSLOC_KEY}")
-    r = await client.get(url, timeout=20)
+    r = await client.get(url, timeout=TRANSLOC_HTTP_TIMEOUT)
     record_api_call("GET", url, r.status_code)
     r.raise_for_status()
     data = r.json()
@@ -824,7 +826,7 @@ async def fetch_block_groups(
     r1_url = build_transloc_url(
         base_url, f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
     )
-    r1 = await client.get(r1_url, timeout=20)
+    r1 = await client.get(r1_url, timeout=TRANSLOC_HTTP_TIMEOUT)
     record_api_call("GET", r1_url, r1.status_code)
     r1.raise_for_status()
     sched = r1.json()
@@ -836,7 +838,7 @@ async def fetch_block_groups(
         r2_url = build_transloc_url(
             base_url, f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
         )
-        r2 = await client.get(r2_url, timeout=20)
+        r2 = await client.get(r2_url, timeout=TRANSLOC_HTTP_TIMEOUT)
         record_api_call("GET", r2_url, r2.status_code)
         r2.raise_for_status()
         payload = r2.json()
@@ -1104,11 +1106,23 @@ async def init_ondemand_client() -> None:
         app.state.ondemand_client = None
 
 
+@app.on_event("startup")
+async def init_transloc_client() -> None:
+    app.state.transloc_client = httpx.AsyncClient(
+        timeout=TRANSLOC_HTTP_TIMEOUT,
+        limits=TRANSLOC_HTTP_LIMITS,
+    )
+    app.state.transloc_timing_history: Dict[str, deque[float]] = {}
+
+
 @app.on_event("shutdown")
 async def shutdown_ondemand_client() -> None:
     client = getattr(app.state, "ondemand_client", None)
     if client is not None:
         await client.aclose()
+    transloc_client = getattr(app.state, "transloc_client", None)
+    if transloc_client is not None:
+        await transloc_client.aclose()
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_DIR = BASE_DIR / "html"
@@ -3597,60 +3611,60 @@ async def startup():
 
     async def updater():
         await asyncio.sleep(0.1)
-        async with httpx.AsyncClient() as client:
-            while True:
-                start = time.time()
-                headway_snapshots: List[VehicleSnapshot] = []
+        client = _get_transloc_client(None)
+        while True:
+            start = time.time()
+            headway_snapshots: List[VehicleSnapshot] = []
+            try:
+                routes_catalog: List[Dict[str, Any]] = []
+                routes_raw = await fetch_routes_with_shapes(client)
+                stops_raw: List[Dict[str, Any]] = []
                 try:
-                    routes_catalog: List[Dict[str, Any]] = []
-                    routes_raw = await fetch_routes_with_shapes(client)
-                    stops_raw: List[Dict[str, Any]] = []
-                    try:
-                        stops_raw = await fetch_stops(client)
-                    except Exception as e:
-                        print(f"[updater] stops fetch error: {e}")
-                    try:
-                        routes_catalog = await fetch_routes_catalog(client)
-                    except Exception as e:
-                        routes_catalog = []
-                        print(f"[updater] routes catalog fetch error: {e}")
-                    vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
-                    vehicle_name_lookup = _build_vehicle_name_lookup(vehicles_raw)
-                    # Fetch vehicle capacities
-                    try:
-                        vehicle_capacities = await fetch_vehicle_capacities(client)
-                    except Exception as e:
-                        vehicle_capacities = {}
-                        print(f"[updater] capacity fetch error: {e}")
-                    try:
-                        block_groups, block_meta = await fetch_block_groups(
-                            client, include_metadata=True
-                        )
-                    except Exception as e:
-                        block_groups = []
-                        block_meta = {}
-                        print(f"[updater] block fetch error: {e}")
-                    fetch_completed_at = datetime.now(timezone.utc)
+                    stops_raw = await fetch_stops(client)
+                except Exception as e:
+                    print(f"[updater] stops fetch error: {e}")
+                try:
+                    routes_catalog = await fetch_routes_catalog(client)
+                except Exception as e:
+                    routes_catalog = []
+                    print(f"[updater] routes catalog fetch error: {e}")
+                vehicles_raw = await fetch_vehicles(client, include_unassigned=True)
+                vehicle_name_lookup = _build_vehicle_name_lookup(vehicles_raw)
+                # Fetch vehicle capacities
+                try:
+                    vehicle_capacities = await fetch_vehicle_capacities(client)
+                except Exception as e:
+                    vehicle_capacities = {}
+                    print(f"[updater] capacity fetch error: {e}")
+                try:
+                    block_groups, block_meta = await fetch_block_groups(
+                        client, include_metadata=True
+                    )
+                except Exception as e:
+                    block_groups = []
+                    block_meta = {}
+                    print(f"[updater] block fetch error: {e}")
+                fetch_completed_at = datetime.now(timezone.utc)
 
-                    # Enrich vehicle name lookup with roster information from block metadata
-                    if isinstance(block_meta, dict):
-                        roster_entries: List[Dict[str, Any]] = []
-                        vehicles_meta = block_meta.get("Vehicles")
-                        if isinstance(vehicles_meta, list):
-                            roster_entries.extend(vehicles_meta)
-                        sched_trip = block_meta.get("ScheduleTripVehicles")
-                        if isinstance(sched_trip, list):
-                            roster_entries.extend(sched_trip)
-                        for rec in roster_entries:
-                            vid = _normalize_vehicle_id_str(
-                                rec.get("VehicleID")
-                                or rec.get("VehicleId")
-                                or rec.get("vehicle_id")
-                                or rec.get("vehicleId")
-                            )
-                            name = _pick_vehicle_name_record(rec)
-                            if vid and name and vid not in vehicle_name_lookup:
-                                vehicle_name_lookup[vid] = name
+                # Enrich vehicle name lookup with roster information from block metadata
+                if isinstance(block_meta, dict):
+                    roster_entries: List[Dict[str, Any]] = []
+                    vehicles_meta = block_meta.get("Vehicles")
+                    if isinstance(vehicles_meta, list):
+                        roster_entries.extend(vehicles_meta)
+                    sched_trip = block_meta.get("ScheduleTripVehicles")
+                    if isinstance(sched_trip, list):
+                        roster_entries.extend(sched_trip)
+                    for rec in roster_entries:
+                        vid = _normalize_vehicle_id_str(
+                            rec.get("VehicleID")
+                            or rec.get("VehicleId")
+                            or rec.get("vehicle_id")
+                            or rec.get("vehicleId")
+                        )
+                        name = _pick_vehicle_name_record(rec)
+                        if vid and name and vid not in vehicle_name_lookup:
+                            vehicle_name_lookup[vid] = name
                     async with state.lock:
                         state.routes_raw = routes_raw
                         state.routes_catalog_raw = routes_catalog
@@ -3996,192 +4010,192 @@ async def startup():
                     tracker = getattr(app.state, "headway_tracker", None)
                     if tracker and headway_snapshots:
                         tracker.process_snapshots(headway_snapshots)
-                except Exception as e:
-                    # record last error for UI surfacing
-                    try:
-                        async with state.lock:
-                            state.last_error = str(e)
-                            state.last_error_ts = time.time()
-                    except Exception as inner:
-                        print(f"[updater] failed recording last_error: {inner}")
-                    print("[updater] error:", e)
-                # sleep until next
-                dt = max(0.5, VEH_REFRESH_S - (time.time()-start))
-                await asyncio.sleep(dt)
+            except Exception as e:
+                # record last error for UI surfacing
+                try:
+                    async with state.lock:
+                        state.last_error = str(e)
+                        state.last_error_ts = time.time()
+                except Exception as inner:
+                    print(f"[updater] failed recording last_error: {inner}")
+                print("[updater] error:", e)
+            # sleep until next
+            dt = max(0.5, VEH_REFRESH_S - (time.time()-start))
+            await asyncio.sleep(dt)
     async def vehicle_logger():
         await asyncio.sleep(0.1)
-        async with httpx.AsyncClient(timeout=20) as client:
-            while True:
-                ts = int(time.time()*1000)
-                try:
-                    r = await client.get(VEH_LOG_URL)
-                    r.raise_for_status()
-                    data = r.json()
-                    vehicles = data if isinstance(data, list) else data.get("d", [])
+        client = _get_transloc_client(None)
+        while True:
+            ts = int(time.time()*1000)
+            try:
+                r = await client.get(VEH_LOG_URL)
+                r.raise_for_status()
+                data = r.json()
+                vehicles = data if isinstance(data, list) else data.get("d", [])
 
-                    # Capture a full snapshot of vehicles but avoid
-                    # writing a new log entry unless at least one moves.
-                    valid: list[dict] = []
-                    moved = False
-                    for v in vehicles:
-                        serialized = _serialize_vehicle_for_log(v)
-                        if not serialized:
-                            continue
-                        vid = serialized["VehicleID"]
-                        pos = (serialized["Latitude"], serialized["Longitude"])
-                        last = LAST_LOG_POS.get(vid)
-                        if not moved and (last is None or haversine(pos, last) >= VEH_LOG_MIN_MOVE_M):
-                            moved = True
-                        LAST_LOG_POS[vid] = pos
-                        valid.append(serialized)
-                    vehicles = valid
-                    vehicle_ids = {v.get("VehicleID") for v in vehicles}
-
-                    blocks: Dict[int, str] = {}
-                    if vehicle_ids:
-                        try:
-                            ds = datetime.now().strftime("%m/%d/%Y")
-                            sched_url = (
-                                "https://uva.transloc.com/Services/JSONPRelay.svc/"
-                                f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
-                            )
-                            sr = await client.get(sched_url)
-                            sr.raise_for_status()
-                            sched = sr.json() or []
-                            ids = ",".join(str(s["ScheduleVehicleCalendarID"]) for s in sched)
-                            if ids:
-                                block_url = (
-                                    "https://uva.transloc.com/Services/JSONPRelay.svc/"
-                                    f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
-                                )
-                                br = await client.get(block_url)
-                                br.raise_for_status()
-                                data2 = br.json() or {}
-                                groups = data2.get("BlockGroups", [])
-                                alias = {
-                                    "[01]": "[01]/[04]",
-                                    "[03]": "[05]/[03]",
-                                    "[04]": "[01]/[04]",
-                                    "[05]": "[05]/[03]",
-                                    "[06]": "[22]/[06]",
-                                    "[10]": "[20]/[10]",
-                                    "[15]": "[26]/[15]",
-                                    "[16] AM": "[21]/[16] AM",
-                                    "[17]": "[23]/[17]",
-                                    "[18] AM": "[24]/[18] AM",
-                                    "[20] AM": "[20]/[10]",
-                                    "[21] AM": "[21]/[16] AM",
-                                    "[22] AM": "[22]/[06]",
-                                    "[23]": "[23]/[17]",
-                                    "[24] AM": "[24]/[18] AM",
-                                    "[26] AM": "[26]/[15]",
-                                }
-                                mapping: Dict[int, str] = {}
-                                for g in groups:
-                                    block = (g.get("BlockGroupId") or "").strip()
-                                    vehicle_id = (
-                                        g.get("Blocks", [{}])[0]
-                                        .get("Trips", [{}])[0]
-                                        .get("VehicleID")
-                                        or g.get("VehicleId")
-                                    )
-                                    if block and "[" in block and vehicle_id is not None:
-                                        mapping[vehicle_id] = alias.get(block, block)
-                                blocks = mapping
-                        except Exception as e:
-                            print(f"[vehicle_logger] block error: {e}")
-
-                    blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
-                    day_key = datetime.fromtimestamp(ts / 1000).strftime("%Y%m%d")
-                    minimal_routes: Optional[List[Dict[str, Any]]] = None
-                    routes_serialized: Optional[str] = None
-                    routes_hash: Optional[str] = None
-                    try:
-                        routes_raw: List[Dict[str, Any]] = []
-                        routes_catalog_raw: List[Dict[str, Any]] = []
-                        async with state.lock:
-                            routes_raw = list(getattr(state, "routes_raw", []))
-                            routes_catalog_raw = list(getattr(state, "routes_catalog_raw", []))
-                        trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
-                        if routes_catalog_raw:
-                            trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog_raw)
-                        minimal: List[Dict[str, Any]] = []
-                        for route in trimmed_routes:
-                            if not isinstance(route, dict):
-                                continue
-                            rid = route.get("RouteID")
-                            if rid is None:
-                                continue
-                            entry_min: Dict[str, Any] = {"RouteID": rid}
-                            for key in ("Description", "RouteName", "InfoText", "MapLineColor", "EncodedPolyline"):
-                                val = route.get(key)
-                                if val not in (None, ""):
-                                    entry_min[key] = val
-                            minimal.append(entry_min)
-                        minimal.sort(key=lambda item: str(item.get("RouteID")))
-                        minimal_routes = minimal
-                        routes_serialized = json.dumps(
-                            minimal_routes,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        )
-                        routes_hash = hashlib.sha256(routes_serialized.encode("utf-8")).hexdigest()
-                    except Exception as route_err:
-                        minimal_routes = None
-                        routes_serialized = None
-                        routes_hash = None
-                        print(f"[vehicle_logger] route snapshot error: {route_err}")
-
-                    ondemand_payload: Dict[str, Any] = {}
-                    try:
-                        ondemand_client = getattr(app.state, "ondemand_client", None)
-                        if ondemand_client is not None:
-                            ondemand_payload = await _collect_ondemand_data(
-                                ondemand_client,
-                                now=datetime.fromtimestamp(ts / 1000, timezone.utc),
-                            )
-                    except Exception as exc:
-                        ondemand_payload = {}
-                        print(f"[vehicle_logger] ondemand fetch failed: {exc}")
-
-                    should_log_entry = moved and bool(vehicles)
-                    if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
-                        should_log_entry = True
-                    if not should_log_entry:
-                        await asyncio.sleep(VEH_LOG_INTERVAL_S)
+                # Capture a full snapshot of vehicles but avoid
+                # writing a new log entry unless at least one moves.
+                valid: list[dict] = []
+                moved = False
+                for v in vehicles:
+                    serialized = _serialize_vehicle_for_log(v)
+                    if not serialized:
                         continue
+                    vid = serialized["VehicleID"]
+                    pos = (serialized["Latitude"], serialized["Longitude"])
+                    last = LAST_LOG_POS.get(vid)
+                    if not moved and (last is None or haversine(pos, last) >= VEH_LOG_MIN_MOVE_M):
+                        moved = True
+                    LAST_LOG_POS[vid] = pos
+                    valid.append(serialized)
+                vehicles = valid
+                vehicle_ids = {v.get("VehicleID") for v in vehicles}
 
-                    entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
-                    if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
-                        entry["ondemand"] = ondemand_payload
-                    fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
-                    for log_dir in VEH_LOG_DIRS:
-                        path = log_dir / fname
-                        path.parent.mkdir(parents=True, exist_ok=True)
-                        if routes_serialized is not None and routes_hash is not None:
-                            routes_path = log_dir / f"{day_key}_routes.json"
-                            route_hash_key = (os.fspath(log_dir), day_key)
-                            try:
-                                if (
-                                    LAST_ROUTE_SNAPSHOT_HASH.get(route_hash_key) != routes_hash
-                                    or not routes_path.exists()
-                                ):
-                                    routes_path.parent.mkdir(parents=True, exist_ok=True)
-                                    with routes_path.open("w") as rf:
-                                        rf.write(routes_serialized)
-                                        rf.flush()
-                                        os.fsync(rf.fileno())
-                                    LAST_ROUTE_SNAPSHOT_HASH[route_hash_key] = routes_hash
-                            except Exception as route_write_err:
-                                print(f"[vehicle_logger] failed to persist routes: {route_write_err}")
-                        with path.open("a") as f:
-                            f.write(json.dumps(entry) + "\n")
-                            f.flush()
-                            os.fsync(f.fileno())
-                    prune_old_entries()
-                except Exception as e:
-                    print(f"[vehicle_logger] error: {e}")
-                await asyncio.sleep(VEH_LOG_INTERVAL_S)
+                blocks: Dict[int, str] = {}
+                if vehicle_ids:
+                    try:
+                        ds = datetime.now().strftime("%m/%d/%Y")
+                        sched_url = (
+                            "https://uva.transloc.com/Services/JSONPRelay.svc/"
+                            f"GetScheduleVehicleCalendarByDateAndRoute?dateString={quote(ds)}"
+                        )
+                        sr = await client.get(sched_url)
+                        sr.raise_for_status()
+                        sched = sr.json() or []
+                        ids = ",".join(str(s["ScheduleVehicleCalendarID"]) for s in sched)
+                        if ids:
+                            block_url = (
+                                "https://uva.transloc.com/Services/JSONPRelay.svc/"
+                                f"GetDispatchBlockGroupData?scheduleVehicleCalendarIdsString={ids}"
+                            )
+                            br = await client.get(block_url)
+                            br.raise_for_status()
+                            data2 = br.json() or {}
+                            groups = data2.get("BlockGroups", [])
+                            alias = {
+                                "[01]": "[01]/[04]",
+                                "[03]": "[05]/[03]",
+                                "[04]": "[01]/[04]",
+                                "[05]": "[05]/[03]",
+                                "[06]": "[22]/[06]",
+                                "[10]": "[20]/[10]",
+                                "[15]": "[26]/[15]",
+                                "[16] AM": "[21]/[16] AM",
+                                "[17]": "[23]/[17]",
+                                "[18] AM": "[24]/[18] AM",
+                                "[20] AM": "[20]/[10]",
+                                "[21] AM": "[21]/[16] AM",
+                                "[22] AM": "[22]/[06]",
+                                "[23]": "[23]/[17]",
+                                "[24] AM": "[24]/[18] AM",
+                                "[26] AM": "[26]/[15]",
+                            }
+                            mapping: Dict[int, str] = {}
+                            for g in groups:
+                                block = (g.get("BlockGroupId") or "").strip()
+                                vehicle_id = (
+                                    g.get("Blocks", [{}])[0]
+                                    .get("Trips", [{}])[0]
+                                    .get("VehicleID")
+                                    or g.get("VehicleId")
+                                )
+                                if block and "[" in block and vehicle_id is not None:
+                                    mapping[vehicle_id] = alias.get(block, block)
+                            blocks = mapping
+                    except Exception as e:
+                        print(f"[vehicle_logger] block error: {e}")
+
+                blocks = {vid: name for vid, name in blocks.items() if vid in vehicle_ids}
+                day_key = datetime.fromtimestamp(ts / 1000).strftime("%Y%m%d")
+                minimal_routes: Optional[List[Dict[str, Any]]] = None
+                routes_serialized: Optional[str] = None
+                routes_hash: Optional[str] = None
+                try:
+                    routes_raw: List[Dict[str, Any]] = []
+                    routes_catalog_raw: List[Dict[str, Any]] = []
+                    async with state.lock:
+                        routes_raw = list(getattr(state, "routes_raw", []))
+                        routes_catalog_raw = list(getattr(state, "routes_catalog_raw", []))
+                    trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
+                    if routes_catalog_raw:
+                        trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog_raw)
+                    minimal: List[Dict[str, Any]] = []
+                    for route in trimmed_routes:
+                        if not isinstance(route, dict):
+                            continue
+                        rid = route.get("RouteID")
+                        if rid is None:
+                            continue
+                        entry_min: Dict[str, Any] = {"RouteID": rid}
+                        for key in ("Description", "RouteName", "InfoText", "MapLineColor", "EncodedPolyline"):
+                            val = route.get(key)
+                            if val not in (None, ""):
+                                entry_min[key] = val
+                        minimal.append(entry_min)
+                    minimal.sort(key=lambda item: str(item.get("RouteID")))
+                    minimal_routes = minimal
+                    routes_serialized = json.dumps(
+                        minimal_routes,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    routes_hash = hashlib.sha256(routes_serialized.encode("utf-8")).hexdigest()
+                except Exception as route_err:
+                    minimal_routes = None
+                    routes_serialized = None
+                    routes_hash = None
+                    print(f"[vehicle_logger] route snapshot error: {route_err}")
+
+                ondemand_payload: Dict[str, Any] = {}
+                try:
+                    ondemand_client = getattr(app.state, "ondemand_client", None)
+                    if ondemand_client is not None:
+                        ondemand_payload = await _collect_ondemand_data(
+                            ondemand_client,
+                            now=datetime.fromtimestamp(ts / 1000, timezone.utc),
+                        )
+                except Exception as exc:
+                    ondemand_payload = {}
+                    print(f"[vehicle_logger] ondemand fetch failed: {exc}")
+
+                should_log_entry = moved and bool(vehicles)
+                if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
+                    should_log_entry = True
+                if not should_log_entry:
+                    await asyncio.sleep(VEH_LOG_INTERVAL_S)
+                    continue
+
+                entry = {"ts": ts, "vehicles": vehicles, "blocks": blocks}
+                if ondemand_payload.get("vehicles") or ondemand_payload.get("ondemandStops"):
+                    entry["ondemand"] = ondemand_payload
+                fname = datetime.fromtimestamp(ts/1000).strftime("%Y%m%d_%H.jsonl")
+                for log_dir in VEH_LOG_DIRS:
+                    path = log_dir / fname
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if routes_serialized is not None and routes_hash is not None:
+                        routes_path = log_dir / f"{day_key}_routes.json"
+                        route_hash_key = (os.fspath(log_dir), day_key)
+                        try:
+                            if (
+                                LAST_ROUTE_SNAPSHOT_HASH.get(route_hash_key) != routes_hash
+                                or not routes_path.exists()
+                            ):
+                                routes_path.parent.mkdir(parents=True, exist_ok=True)
+                                with routes_path.open("w") as rf:
+                                    rf.write(routes_serialized)
+                                    rf.flush()
+                                    os.fsync(rf.fileno())
+                                LAST_ROUTE_SNAPSHOT_HASH[route_hash_key] = routes_hash
+                        except Exception as route_write_err:
+                            print(f"[vehicle_logger] failed to persist routes: {route_write_err}")
+                    with path.open("a") as f:
+                        f.write(json.dumps(entry) + "\n")
+                        f.flush()
+                        os.fsync(f.fileno())
+                prune_old_entries()
+            except Exception as e:
+                print(f"[vehicle_logger] error: {e}")
+            await asyncio.sleep(VEH_LOG_INTERVAL_S)
 
     asyncio.create_task(updater())
     asyncio.create_task(vehicle_logger())
@@ -6147,13 +6161,15 @@ def _trim_arrivals_payload(data: Any) -> List[Dict[str, Any]]:
     return trimmed
 
 
-async def _fetch_transloc_arrivals_for_base(base_url: Optional[str]) -> List[Dict[str, Any]]:
-    async with httpx.AsyncClient() as client:
-        url = build_transloc_url(base_url, f"GetStopArrivalTimes?APIKey={TRANSLOC_KEY}")
-        resp = await client.get(url, timeout=20)
-        record_api_call("GET", url, resp.status_code)
-        resp.raise_for_status()
-        data = resp.json()
+async def _fetch_transloc_arrivals_for_base(
+    base_url: Optional[str], *, client: Optional[httpx.AsyncClient] = None
+) -> List[Dict[str, Any]]:
+    resolved_client = _get_transloc_client(client)
+    url = build_transloc_url(base_url, f"GetStopArrivalTimes?APIKey={TRANSLOC_KEY}")
+    resp = await resolved_client.get(url)
+    record_api_call("GET", url, resp.status_code)
+    resp.raise_for_status()
+    data = resp.json()
     return _trim_arrivals_payload(data)
 
 
@@ -6165,18 +6181,12 @@ async def _get_transloc_stops(
             cached = getattr(state, "stops_raw", None)
             if cached:
                 return list(cached)
-    created_client = False
-    if client is None:
-        client = httpx.AsyncClient()
-        created_client = True
+    resolved_client = _get_transloc_client(client)
     try:
-        return await fetch_stops(client, base_url=base_url)
+        return await fetch_stops(resolved_client, base_url=base_url)
     except Exception as exc:
         print(f"[_get_transloc_stops] fetch error: {exc}")
         return []
-    finally:
-        if created_client:
-            await client.aclose()
 
 
 async def _get_transloc_arrivals(base_url: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -6648,15 +6658,15 @@ def _select_current_or_next_block(
 
 
 async def _fetch_transloc_blocks_for_base(base_url: Optional[str]) -> Dict[str, str]:
-    async with httpx.AsyncClient() as client:
-        block_groups = await fetch_block_groups(client, base_url=base_url)
+    client = _get_transloc_client(None)
+    block_groups = await fetch_block_groups(client, base_url=base_url)
     return _build_block_mapping(block_groups)
 
 
 async def _fetch_transloc_blocks_raw_for_base(base_url: Optional[str]) -> Dict[str, str]:
     """Fetch TransLoc blocks without interlining, matching WhenToWork's block structure."""
-    async with httpx.AsyncClient() as client:
-        block_groups = await fetch_block_groups(client, base_url=base_url)
+    client = _get_transloc_client(None)
+    block_groups = await fetch_block_groups(client, base_url=base_url)
     return _build_block_mapping_raw(block_groups)
 
 
@@ -6708,13 +6718,72 @@ def _transloc_error_detail(exc: httpx.HTTPError, base_url: Optional[str]) -> str
     return f"{prefix}: {exc}"
 
 
-async def _proxy_transloc_get(url: str, *, params: Optional[Dict[str, Any]] = None, base_url: Optional[str] = None):
+def _get_transloc_client(client: Optional[httpx.AsyncClient] = None) -> httpx.AsyncClient:
+    if client is not None:
+        return client
+    stored = getattr(app.state, "transloc_client", None)
+    if stored is None:
+        raise RuntimeError("TransLoc client not initialized")
+    return stored
+
+
+def _percentile(values: Sequence[float], pct: float) -> Optional[float]:
+    if not values:
+        return None
+    ordered = sorted(values)
+    idx = (len(ordered) - 1) * pct
+    lower = math.floor(idx)
+    upper = math.ceil(idx)
+    if lower == upper:
+        return ordered[int(idx)]
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (idx - lower)
+
+
+def _compute_percentiles(values: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
+    return _percentile(values, 0.5), _percentile(values, 0.95)
+
+
+def _format_percentile(value: Optional[float]) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value * 1000:.1f} ms"
+
+
+def _record_transloc_timing(metric: str, duration_s: float) -> None:
+    history: Dict[str, deque[float]] = getattr(app.state, "transloc_timing_history", {})
+    if not history:
+        history = app.state.transloc_timing_history = {}
+    series = history.setdefault(metric, deque(maxlen=200))
+    before_p50, before_p95 = _compute_percentiles(series)
+    series.append(duration_s)
+    after_p50, after_p95 = _compute_percentiles(series)
+    before_text = f"{_format_percentile(before_p50)}/{_format_percentile(before_p95)}"
+    after_text = f"{_format_percentile(after_p50)}/{_format_percentile(after_p95)}"
+    print(
+        f"[timing] {metric}: {duration_s * 1000:.1f} ms (p50/p95 {before_text} -> {after_text})"
+    )
+
+
+async def _measure_transloc_call(name: str, coro: Awaitable[Any]) -> Any:
+    start = time.perf_counter()
+    result = await coro
+    _record_transloc_timing(name, time.perf_counter() - start)
+    return result
+
+
+async def _proxy_transloc_get(
+    url: str,
+    *,
+    params: Optional[Dict[str, Any]] = None,
+    base_url: Optional[str] = None,
+    client: Optional[httpx.AsyncClient] = None,
+):
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(url, params=params, timeout=20)
-            record_api_call("GET", str(r.url), r.status_code)
-            r.raise_for_status()
-            return r.json()
+        resolved_client = _get_transloc_client(client)
+        r = await resolved_client.get(url, params=params)
+        record_api_call("GET", str(r.url), r.status_code)
+        r.raise_for_status()
+        return r.json()
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url or url)
         raise HTTPException(status_code=502, detail=detail) from exc
@@ -6834,12 +6903,12 @@ async def build_transloc_snapshot(
             _load_transloc_stop_sources(base_url),
         )
     else:
-        async with httpx.AsyncClient() as client:
-            (routes_raw, extra_routes_raw), (assigned, raw_vehicle_records), stops_raw = await asyncio.gather(
-                _load_transloc_route_sources(base_url, client=client),
-                _load_transloc_vehicle_sources(base_url, client=client),
-                _load_transloc_stop_sources(base_url, client=client),
-            )
+        client = _get_transloc_client(None)
+        (routes_raw, extra_routes_raw), (assigned, raw_vehicle_records), stops_raw = await asyncio.gather(
+            _load_transloc_route_sources(base_url, client=client),
+            _load_transloc_vehicle_sources(base_url, client=client),
+            _load_transloc_stop_sources(base_url, client=client),
+        )
 
     metadata = await _assemble_transloc_metadata(
         base_url=base_url,
@@ -6873,21 +6942,14 @@ async def _load_transloc_route_sources(
             routes_raw = list(getattr(state, "routes_raw", []))
             extra_routes_raw = list(getattr(state, "routes_catalog_raw", []))
             return routes_raw, extra_routes_raw
-    created_client = False
-    if client is None:
-        client = httpx.AsyncClient()
-        created_client = True
+    resolved_client = _get_transloc_client(client)
+    routes_raw = await fetch_routes_with_shapes(resolved_client, base_url=base_url)
     try:
-        routes_raw = await fetch_routes_with_shapes(client, base_url=base_url)
-        try:
-            extra_routes_raw = await fetch_routes_catalog(client, base_url=base_url)
-        except Exception as e:
-            extra_routes_raw = []
-            print(f"[snapshot] routes catalog fetch error: {e}")
-        return routes_raw, extra_routes_raw
-    finally:
-        if created_client:
-            await client.aclose()
+        extra_routes_raw = await fetch_routes_catalog(resolved_client, base_url=base_url)
+    except Exception as e:
+        extra_routes_raw = []
+        print(f"[snapshot] routes catalog fetch error: {e}")
+    return routes_raw, extra_routes_raw
 
 
 async def _load_transloc_vehicle_sources(
@@ -6903,18 +6965,11 @@ async def _load_transloc_vehicle_sources(
                     assigned[veh.id] = (rid, veh)
             raw_vehicle_records = list(getattr(state, "vehicles_raw", []))
             return assigned, raw_vehicle_records
-    created_client = False
-    if client is None:
-        client = httpx.AsyncClient()
-        created_client = True
-    try:
-        vehicles_raw = await fetch_vehicles(
-            client, include_unassigned=True, base_url=base_url
-        )
-        return {}, list(vehicles_raw)
-    finally:
-        if created_client:
-            await client.aclose()
+    resolved_client = _get_transloc_client(client)
+    vehicles_raw = await fetch_vehicles(
+        resolved_client, include_unassigned=True, base_url=base_url
+    )
+    return {}, list(vehicles_raw)
 
 
 async def _load_transloc_stop_sources(
@@ -6923,18 +6978,12 @@ async def _load_transloc_stop_sources(
     if is_default_transloc_base(base_url):
         async with state.lock:
             return list(getattr(state, "stops_raw", []))
-    created_client = False
-    if client is None:
-        client = httpx.AsyncClient()
-        created_client = True
+    resolved_client = _get_transloc_client(client)
     try:
-        return await fetch_stops(client, base_url=base_url)
+        return await fetch_stops(resolved_client, base_url=base_url)
     except Exception as exc:
         print(f"[snapshot] stop fetch error: {exc}")
         return []
-    finally:
-        if created_client:
-            await client.aclose()
 
 
 async def _assemble_transloc_metadata(
@@ -6958,7 +7007,9 @@ async def _assemble_transloc_metadata(
 async def _fetch_vehicle_stop_estimates(
     vehicle_ids: List[Any],
     base_url: Optional[str] = None,
-    quantity: int = 3
+    quantity: int = 3,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[Any, List[Dict[str, Any]]]:
     """
     Fetch stop estimates for multiple vehicles from TransLoc API.
@@ -6989,7 +7040,9 @@ async def _fetch_vehicle_stop_estimates(
                 "vehicleIdStrings": vehicle_id_strings
             }
 
-            data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+            data = await _proxy_transloc_get(
+                url, params=params, base_url=base_url, client=client
+            )
 
             # Build a dict mapping vehicle ID to estimates
             estimates_by_vehicle = {}
@@ -7018,11 +7071,15 @@ async def _fetch_vehicle_stop_estimates_guarded(
     base_url: Optional[str] = None,
     quantity: int = 3,
     timeout_seconds: float = 3.0,
+    client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[Any, List[Dict[str, Any]]]:
     try:
         return await asyncio.wait_for(
             _fetch_vehicle_stop_estimates(
-                vehicle_ids=vehicle_ids, base_url=base_url, quantity=quantity
+                vehicle_ids=vehicle_ids,
+                base_url=base_url,
+                quantity=quantity,
+                client=client,
             ),
             timeout=timeout_seconds,
         )
@@ -7129,11 +7186,14 @@ async def testmap_transloc_snapshot(
 async def testmap_transloc_vehicles(
     base_url: Optional[str] = Query(None), stale: bool = Query(False)
 ):
+    handler_start = time.perf_counter()
+    client = _get_transloc_client(None)
     try:
         if is_default_transloc_base(base_url):
             # Optimized path for default TransLoc base:
             # - Use pre-cached capacities and route names from state
             # - Get vehicle IDs from state first to parallelize stop estimates fetch
+            cap_start = time.perf_counter()
             async with state.lock:
                 capacities = dict(state.vehicle_capacities)
                 route_id_to_name = dict(state.route_id_to_name)
@@ -7143,16 +7203,35 @@ async def testmap_transloc_vehicles(
                     for rec in getattr(state, "vehicles_raw", [])
                     if (rec.get("VehicleID") or rec.get("VehicleId")) is not None
                 ]
+            _record_transloc_timing("capacities", time.perf_counter() - cap_start)
 
             # Run vehicle/route sources and stop estimates in parallel
+            vehicle_task = asyncio.create_task(
+                _measure_transloc_call(
+                    "vehicles", _load_transloc_vehicle_sources(base_url, client=client)
+                )
+            )
+            route_task = asyncio.create_task(
+                _measure_transloc_call(
+                    "routes", _load_transloc_route_sources(base_url, client=client)
+                )
+            )
+            stop_estimate_task = asyncio.create_task(
+                _measure_transloc_call(
+                    "stop_estimates",
+                    _fetch_vehicle_stop_estimates_guarded(
+                        vehicle_ids=cached_vehicle_ids,
+                        base_url=base_url,
+                        quantity=3,
+                        client=client,
+                    ),
+                )
+            )
+
             (assigned, raw_vehicle_records), (routes_raw, _), stop_estimates = await asyncio.gather(
-                _load_transloc_vehicle_sources(base_url),
-                _load_transloc_route_sources(base_url),
-                _fetch_vehicle_stop_estimates_guarded(
-                    vehicle_ids=cached_vehicle_ids,
-                    base_url=base_url,
-                    quantity=3,
-                ),
+                vehicle_task,
+                route_task,
+                stop_estimate_task,
             )
 
             # If route_id_to_name is empty (first request before background update),
@@ -7173,19 +7252,30 @@ async def testmap_transloc_vehicles(
 
             async def fetch_capacities_cached():
                 async def fetch():
-                    async with httpx.AsyncClient() as client:
-                        try:
-                            return await fetch_vehicle_capacities(client, base_url=base_url)
-                        except Exception as e:
-                            print(f"[testmap] capacity fetch error: {e}")
-                            return {}
+                    try:
+                        return await fetch_vehicle_capacities(client, base_url=base_url)
+                    except Exception as e:
+                        print(f"[testmap] capacity fetch error: {e}")
+                        return {}
                 return await transloc_capacities_cache.get(cache_key, fetch)
 
             # Fetch vehicle sources, route sources, and capacities in parallel
-            (assigned, raw_vehicle_records), (routes_raw, _), capacities = await asyncio.gather(
-                _load_transloc_vehicle_sources(base_url),
-                _load_transloc_route_sources(base_url),
-                fetch_capacities_cached(),
+            vehicle_task = asyncio.create_task(
+                _measure_transloc_call(
+                    "vehicles", _load_transloc_vehicle_sources(base_url, client=client)
+                )
+            )
+            route_task = asyncio.create_task(
+                _measure_transloc_call(
+                    "routes", _load_transloc_route_sources(base_url, client=client)
+                )
+            )
+            capacities = await _measure_transloc_call(
+                "capacities", fetch_capacities_cached()
+            )
+            (assigned, raw_vehicle_records), (routes_raw, _) = await asyncio.gather(
+                vehicle_task,
+                route_task,
             )
 
             # Build route ID to name mapping
@@ -7206,10 +7296,14 @@ async def testmap_transloc_vehicles(
                 for rec in raw_vehicle_records
                 if (rec.get("VehicleID") or rec.get("VehicleId")) is not None
             ]
-            stop_estimates = await _fetch_vehicle_stop_estimates_guarded(
-                vehicle_ids=vehicle_ids,
-                base_url=base_url,
-                quantity=3,
+            stop_estimates = await _measure_transloc_call(
+                "stop_estimates",
+                _fetch_vehicle_stop_estimates_guarded(
+                    vehicle_ids=vehicle_ids,
+                    base_url=base_url,
+                    quantity=3,
+                    client=client,
+                ),
             )
 
         vehicles = _assemble_transloc_vehicles(
@@ -7227,6 +7321,8 @@ async def testmap_transloc_vehicles(
     except httpx.HTTPError as exc:
         detail = _transloc_error_detail(exc, base_url)
         raise HTTPException(status_code=502, detail=detail) from exc
+    finally:
+        _record_transloc_timing("handler_total", time.perf_counter() - handler_start)
 
 
 @app.get("/v1/testmap/transloc/metadata")
