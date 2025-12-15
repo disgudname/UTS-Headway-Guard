@@ -1262,8 +1262,9 @@ class StaleWhileRevalidateCache:
     async def get(self, fetcher):
         async with self.lock:
             if self.value is None:
-                if self.refresh_task is None or self.refresh_task.done():
+                if self.refresh_task is None:
                     self.refresh_task = asyncio.create_task(fetcher())
+                # Reuse the existing refresh_task (completed or running) to seed a cold cache.
                 seed_task = self.refresh_task
                 seed = True
             else:
@@ -1289,12 +1290,14 @@ class StaleWhileRevalidateCache:
                 data = {}
 
             async with self.lock:
-                self.value = data
-                self.ts = time.time()
+                if self.value is None:
+                    self.value = data
+                    self.ts = time.time()
+                value = self.value
                 if self.refresh_task is seed_task:
                     self.refresh_task = None
 
-            return data, "seed"
+            return value, "seed"
 
         now = time.time()
         is_fresh = now - ts < self.ttl
