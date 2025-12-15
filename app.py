@@ -7012,6 +7012,25 @@ async def _fetch_vehicle_stop_estimates(
     return await transloc_vehicle_estimates_cache.get(cache_key, fetch)
 
 
+async def _fetch_vehicle_stop_estimates_guarded(
+    *,
+    vehicle_ids: List[Any],
+    base_url: Optional[str] = None,
+    quantity: int = 3,
+    timeout_seconds: float = 3.0,
+) -> Dict[Any, List[Dict[str, Any]]]:
+    try:
+        return await asyncio.wait_for(
+            _fetch_vehicle_stop_estimates(
+                vehicle_ids=vehicle_ids, base_url=base_url, quantity=quantity
+            ),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        print("[vehicle_estimates] Stop estimates request timed out")
+        return {}
+
+
 def _assemble_transloc_vehicles(
     *,
     raw_vehicle_records: List[Dict[str, Any]],
@@ -7129,10 +7148,10 @@ async def testmap_transloc_vehicles(
             (assigned, raw_vehicle_records), (routes_raw, _), stop_estimates = await asyncio.gather(
                 _load_transloc_vehicle_sources(base_url),
                 _load_transloc_route_sources(base_url),
-                _fetch_vehicle_stop_estimates(
+                _fetch_vehicle_stop_estimates_guarded(
                     vehicle_ids=cached_vehicle_ids,
                     base_url=base_url,
-                    quantity=3
+                    quantity=3,
                 ),
             )
 
@@ -7187,10 +7206,10 @@ async def testmap_transloc_vehicles(
                 for rec in raw_vehicle_records
                 if (rec.get("VehicleID") or rec.get("VehicleId")) is not None
             ]
-            stop_estimates = await _fetch_vehicle_stop_estimates(
+            stop_estimates = await _fetch_vehicle_stop_estimates_guarded(
                 vehicle_ids=vehicle_ids,
                 base_url=base_url,
-                quantity=3
+                quantity=3,
             )
 
         vehicles = _assemble_transloc_vehicles(
