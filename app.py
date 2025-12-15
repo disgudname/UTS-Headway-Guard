@@ -1274,10 +1274,26 @@ class StaleWhileRevalidateCache:
                 refresh_task = self.refresh_task
 
         if seed:
-            data = await seed_task
+            try:
+                data = await seed_task
+            except Exception as exc:
+                async with self.lock:
+                    if self.refresh_task is seed_task:
+                        self.refresh_task = None
+                print(
+                    f"[transloc_vehicle_estimates_cache] seed failed: {exc}"
+                )
+                return {}, "seed_failed"
+
+            if data is None:
+                data = {}
+
             async with self.lock:
                 self.value = data
                 self.ts = time.time()
+                if self.refresh_task is seed_task:
+                    self.refresh_task = None
+
             return data, "seed"
 
         now = time.time()
@@ -1287,6 +1303,7 @@ class StaleWhileRevalidateCache:
                 if self.refresh_task is None or self.refresh_task.done():
                     self.refresh_task = asyncio.create_task(self._refresh(fetcher))
 
+        assert value is not None
         return value, "fresh" if is_fresh else "stale"
 
     async def _refresh(self, fetcher):
