@@ -1264,8 +1264,8 @@ class StaleWhileRevalidateCache:
             if self.value is None:
                 if self.refresh_task is None:
                     self.refresh_task = asyncio.create_task(fetcher())
+                # Reuse the existing refresh_task (completed or running) to seed a cold cache.
                 seed_task = self.refresh_task
-                # Reuse a completed seed task to avoid redundant fetches.
                 seed = True
             else:
                 seed = False
