@@ -1264,12 +1264,8 @@ class StaleWhileRevalidateCache:
             if self.value is None:
                 if self.refresh_task is None:
                     self.refresh_task = asyncio.create_task(fetcher())
-                    seed_task = self.refresh_task
-                elif self.refresh_task.done():
-                    # Reuse a completed seed task to avoid redundant fetches.
-                    seed_task = self.refresh_task
-                else:
-                    seed_task = self.refresh_task
+                seed_task = self.refresh_task
+                # Reuse a completed seed task to avoid redundant fetches.
                 seed = True
             else:
                 seed = False
