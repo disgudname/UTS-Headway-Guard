@@ -1238,17 +1238,31 @@ class TTLCache:
         self.value: Any = None
         self.ts: float = 0.0
         self.lock = asyncio.Lock()
+        self._inflight: Optional[asyncio.Task] = None
 
     async def get(self, fetcher):
         async with self.lock:
             now = time.time()
             if self.value is not None and now - self.ts < self.ttl:
                 return self.value
-        data = await fetcher()
+            if self._inflight is None:
+                self._inflight = asyncio.create_task(fetcher())
+            task = self._inflight
+
+        try:
+            data = await task
+        except Exception:
+            async with self.lock:
+                if self._inflight is task:
+                    self._inflight = None
+            raise
+
         async with self.lock:
-            self.value = data
-            self.ts = time.time()
-        return data
+            if self._inflight is task:
+                self.value = data
+                self.ts = time.time()
+                self._inflight = None
+            return self.value
 
 
 class PerKeyTTLCache:
@@ -7025,8 +7039,9 @@ async def _fetch_vehicle_stop_estimates(
     if not vehicle_ids:
         return {}
 
-    # Use cache keyed by (base_url, quantity) to avoid repeated API calls
-    cache_key = (base_url or "default", quantity)
+    # Use cache keyed by (base_url, vehicle set, quantity) to avoid repeated API calls
+    normalized_vehicle_ids = tuple(sorted(str(vid) for vid in set(vehicle_ids)))
+    cache_key = (base_url or "default", normalized_vehicle_ids, quantity)
 
     async def fetch():
         try:
