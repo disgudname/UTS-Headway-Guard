@@ -5,7 +5,8 @@
       "Bash(node --check:*)",
       "Bash(fly logs:*)",
       "Bash(flyctl logs:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(git show:*)"
     ]
   }
 }

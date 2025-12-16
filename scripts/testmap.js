@@ -1848,6 +1848,7 @@ TM.registerVisibilityResumeHandler(() => {
         : 0;
       const INCIDENTS_ALLOWED_AGENCY_NAMES = ['University of Virginia', 'University of Virginia Health'];
       const CAT_ALLOWED_AGENCY_NAMES = INCIDENTS_ALLOWED_AGENCY_NAMES;
+      const UVA_ONLY_FEATURES_AGENCY_NAMES = INCIDENTS_ALLOWED_AGENCY_NAMES;
       const TRAINS_ENDPOINT = '/v1/testmap/trains';
       const TRAIN_POLL_INTERVAL_MS = 30000;
       const TRAIN_TARGET_STATION_CODE = '';
@@ -3566,6 +3567,15 @@ TM.registerVisibilityResumeHandler(() => {
           return false;
         }
         return doesSelectedAgencyMatchNames(CAT_ALLOWED_AGENCY_NAMES);
+      }
+
+      function isUvaAgencySelected() {
+        // Returns true if agencies list is empty (default/single-agency mode)
+        // or if the selected agency is UVA or UVA Health
+        if (!Array.isArray(agencies) || agencies.length === 0) {
+          return true;
+        }
+        return doesSelectedAgencyMatchNames(UVA_ONLY_FEATURES_AGENCY_NAMES);
       }
 
       if (!incidentsAreAvailable()) {
@@ -9187,7 +9197,8 @@ ${trainPlaneMarkup}
             </button>
         `;
         let bubbleStopFilterHtml = '';
-        if (bubbleVisualizationEnabled) {
+        // Only show bubble stops section for UVA agencies
+        if (bubbleVisualizationEnabled && isUvaAgencySelected()) {
           bubbleStopFilterHtml = `
             <div class="selector-group bubble-stop-group">
               <div class="selector-section-heading">
@@ -9251,6 +9262,10 @@ ${trainPlaneMarkup}
                 Stale Vehicles<span class="toggle-indicator">${includeStaleVehicles ? 'On' : 'Off'}</span>
               </button>
             </div>
+          `;
+          // Only show OnDemand buttons for UVA agencies
+          if (isUvaAgencySelected()) {
+            html += `
             <div class="selector-group">
               <button type="button" id="onDemandToggleButton" class="pill-button ondemand-toggle-button${onDemandVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${onDemandVehiclesEnabled ? 'true' : 'false'}" onclick="toggleOnDemandVehicles()">
                 OnDemand<span class="toggle-indicator">${onDemandVehiclesEnabled ? 'On' : 'Off'}</span>
@@ -9262,7 +9277,8 @@ ${trainPlaneMarkup}
                 OnDemand Routing<span class="toggle-indicator">${onDemandRoutingEnabled ? 'On' : 'Off'}</span>
               </button>
             </div>
-          `;
+            `;
+          }
         }
 
         html += incidentToggleHtml;
@@ -9276,7 +9292,7 @@ ${trainPlaneMarkup}
         `;
 
         panel.innerHTML = html;
-        if (bubbleVisualizationEnabled) {
+        if (bubbleVisualizationEnabled && isUvaAgencySelected()) {
           refreshBubbleStopListSection();
         }
         updateCatToggleButtonState();
@@ -10480,6 +10496,15 @@ ${trainPlaneMarkup}
         }
         resetIncidentAlertState();
         resetServiceAlertsState();
+        // Disable UVA-specific features for non-UVA agencies
+        if (!isUvaAgencySelected()) {
+          setOnDemandVehiclesEnabled(false);
+          setOnDemandStopsEnabled(false);
+          setOnDemandRoutingEnabled(false);
+          // Clear block/driver data to avoid VehicleID collisions
+          busBlocks = {};
+          cachedVehicleDrivers = {};
+        }
         updateControlPanel();
         enforceIncidentVisibilityForCurrentAgency();
         Object.values(markers).forEach(m => map.removeLayer(m));
@@ -14433,7 +14458,8 @@ ${trainPlaneMarkup}
       }
 
       async function fetchBlockAssignments() {
-          if (!utsOverlayEnabled) {
+          // Only fetch block assignments for UVA agencies to avoid VehicleID collisions
+          if (!utsOverlayEnabled || !isUvaAgencySelected()) {
               busBlocks = {};
               return;
           }
@@ -14801,6 +14827,11 @@ ${trainPlaneMarkup}
       }
 
       async function fetchVehicleDrivers() {
+          // Only fetch vehicle-drivers for UVA agencies to avoid VehicleID collisions
+          if (!isUvaAgencySelected()) {
+              cachedVehicleDrivers = {};
+              return cachedVehicleDrivers;
+          }
           try {
               // Use dispatch endpoint when authenticated to get driver names and block assignments
               const endpoint = navAuthorized ? '/v1/dispatch/vehicle-drivers' : '/v1/vehicle_drivers';
@@ -19659,7 +19690,7 @@ ${trainPlaneMarkup}
       }
 
       function populateBubbleStopsFromCaches() {
-        if (!bubbleVisualizationEnabled) return false;
+        if (!bubbleVisualizationEnabled || !isUvaAgencySelected()) return false;
 
         let hasNewStops = false;
 
@@ -19729,7 +19760,7 @@ ${trainPlaneMarkup}
       }
 
       function refreshBubbleStopListSection() {
-        if (!bubbleVisualizationEnabled) return;
+        if (!bubbleVisualizationEnabled || !isUvaAgencySelected()) return;
 
         const panel = document.getElementById('controlPanel');
         if (!panel) return;
@@ -19831,7 +19862,7 @@ ${trainPlaneMarkup}
       }
 
       function initBubbleVisualization() {
-        if (!bubbleVisualizationEnabled || !map) return;
+        if (!bubbleVisualizationEnabled || !map || !isUvaAgencySelected()) return;
 
         bubbleVisualizationState.layerGroup = L.layerGroup().addTo(map);
 
@@ -19890,7 +19921,7 @@ ${trainPlaneMarkup}
       }
 
       async function fetchBubbleStates() {
-        if (!bubbleVisualizationEnabled) return;
+        if (!bubbleVisualizationEnabled || !isUvaAgencySelected()) return;
 
         try {
           const response = await fetch('/api/headway/bubbles');

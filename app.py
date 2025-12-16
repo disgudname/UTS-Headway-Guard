@@ -55,10 +55,12 @@ from fastapi.responses import (
     RedirectResponse,
 )
 from pathlib import Path
-from urllib.parse import quote, urlparse, urlunparse, parse_qsl, urlencode
+from urllib.parse import quote, unquote, urlparse, urlunparse, parse_qsl, urlencode
 
 from tickets_store import TicketStore
 from ondemand_client import OnDemandClient
+from vehicle_drivers import VehicleDriversProvider
+from vehicle_drivers.uva import UVAVehicleDriversProvider, UVAProviderConfig
 from uva_athletics import (
     NY_TZ as UVA_TZ,
     ensure_uva_athletics_cache,
@@ -700,6 +702,12 @@ def sanitize_transloc_base(url: Optional[str]) -> Optional[str]:
     cleaned = url.strip()
     if not cleaned:
         return None
+    # Decode URL-encoded values (handles double-encoding like %253A -> %3A -> :)
+    # Keep decoding while the string contains encoded characters
+    prev = None
+    while prev != cleaned and '%' in cleaned:
+        prev = cleaned
+        cleaned = unquote(cleaned)
     return cleaned.rstrip("/")
 
 
