@@ -373,6 +373,7 @@ TRANSLOC_ARRIVALS_TTL_S = int(os.getenv("TRANSLOC_ARRIVALS_TTL_S", "15"))
 TRANSLOC_BLOCKS_TTL_S = int(os.getenv("TRANSLOC_BLOCKS_TTL_S", "60"))
 TRANSLOC_VEHICLE_ESTIMATES_TTL_S = int(os.getenv("TRANSLOC_VEHICLE_ESTIMATES_TTL_S", "5"))
 TRANSLOC_CAPACITIES_TTL_S = int(os.getenv("TRANSLOC_CAPACITIES_TTL_S", "10"))
+VEHICLE_DRIVERS_TTL_S = int(os.getenv("VEHICLE_DRIVERS_TTL_S", "30"))  # Cache driver mapping for 30s
 CAT_METADATA_TTL_S = int(os.getenv("CAT_METADATA_TTL_S", str(5 * 60)))
 CAT_VEHICLE_TTL_S = int(os.getenv("CAT_VEHICLE_TTL_S", "5"))
 CAT_SERVICE_ALERT_TTL_S = int(os.getenv("CAT_SERVICE_ALERT_TTL_S", "60"))
@@ -1124,6 +1125,36 @@ async def shutdown_ondemand_client() -> None:
     if transloc_client is not None:
         await transloc_client.aclose()
 
+
+@app.on_event("startup")
+async def warm_caches() -> None:
+    """Pre-warm caches after initial data is loaded to avoid cold-cache latency."""
+    async def _warm():
+        # Wait for updater to populate initial data
+        await asyncio.sleep(8)
+        try:
+            client = _get_transloc_client(None)
+            async with state.lock:
+                vehicle_ids = [
+                    v.get("VehicleID") for v in getattr(state, "vehicles_raw", [])
+                    if v.get("VehicleID") and v.get("RouteID")
+                ]
+            if vehicle_ids:
+                # Pre-fetch stop estimates to warm the cache
+                await _fetch_vehicle_stop_estimates_raw(
+                    vehicle_ids=vehicle_ids,
+                    base_url=None,
+                    quantity=3,
+                    client=client,
+                )
+                print(f"[startup] warmed stop estimates cache for {len(vehicle_ids)} vehicles")
+        except Exception as e:
+            print(f"[startup] cache warming failed: {e}")
+
+    # Run in background so it doesn't block startup
+    asyncio.create_task(_warm())
+
+
 BASE_DIR = Path(__file__).resolve().parent
 HTML_DIR = BASE_DIR / "html"
 CSS_DIR = BASE_DIR / "css"
@@ -1769,6 +1800,17 @@ class State:
         # {vehicle_id: {"block_number": "06", "position_name": "[06]",
         #               "drivers": [...], "shift_end_ts": 1234567890}}
         self.vehicle_block_cache: Dict[str, Dict[str, Any]] = {}
+        # Pre-fetched stop estimates for all active vehicles (updated in background)
+        self.stop_estimates: Dict[Any, List[Dict[str, Any]]] = {}
+        # Pre-materialized testmap vehicles payload (updated in background)
+        self.testmap_vehicles_payload: Optional[List[Dict[str, Any]]] = None
+        self.testmap_vehicles_ts: float = 0.0
+        # Pre-computed vehicle dropdown lists (sorted, deduplicated)
+        self.vehicles_dropdown_active: List[Dict[str, Any]] = []
+        self.vehicles_dropdown_all: List[Dict[str, Any]] = []
+        # Cached vehicle driver mapping
+        self.vehicle_drivers_cache: Optional[Dict[str, Any]] = None
+        self.vehicle_drivers_ts: float = 0.0
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -1795,6 +1837,7 @@ ondemand_rides_cache = TTLCache(ONDEMAND_RIDES_TTL_S)
 ondemand_schedules_cache_state: Dict[str, Any] = {"etag": None, "data": None}
 ondemand_schedules_cache_lock = asyncio.Lock()
 w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
+vehicle_drivers_cache = TTLCache(VEHICLE_DRIVERS_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
 
@@ -3772,6 +3815,23 @@ async def startup():
                 except Exception as e:
                     vehicle_capacities = {}
                     print(f"[updater] capacity fetch error: {e}")
+                # Fetch stop estimates for all active vehicles (pre-populate for fast serving)
+                stop_estimates: Dict[Any, List[Dict[str, Any]]] = {}
+                try:
+                    active_vehicle_ids = [
+                        v.get("VehicleID") for v in vehicles_raw
+                        if v.get("VehicleID") and v.get("RouteID")
+                    ]
+                    if active_vehicle_ids:
+                        stop_estimates = await _fetch_vehicle_stop_estimates_raw(
+                            vehicle_ids=active_vehicle_ids,
+                            base_url=None,
+                            quantity=3,
+                            client=client,
+                        )
+                        print(f"[updater] pre-fetched stop estimates for {len(stop_estimates)} vehicles")
+                except Exception as e:
+                    print(f"[updater] stop estimates fetch error: {e}")
                 try:
                     block_groups, block_meta = await fetch_block_groups(
                         client, include_metadata=True
@@ -3807,6 +3867,7 @@ async def startup():
                         state.vehicles_raw = vehicles_raw
                         state.stops_raw = stops_raw
                         state.vehicle_capacities = vehicle_capacities
+                        state.stop_estimates = stop_estimates
                         try:
                             trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
                             if routes_catalog:
@@ -3862,12 +3923,62 @@ async def startup():
                                     else:
                                         route_id_to_name_map[rid] = route_name
                             state.route_id_to_name = route_id_to_name_map
+                            # Pre-materialize testmap vehicles payload for instant serving
+                            try:
+                                assigned_map: Dict[Any, Tuple[int, Vehicle]] = {}
+                                for rid, vehs in state.vehicles_by_route.items():
+                                    for veh in vehs.values():
+                                        if veh.id is not None:
+                                            assigned_map[veh.id] = (rid, veh)
+                                testmap_payload = _assemble_transloc_vehicles(
+                                    raw_vehicle_records=vehicles_raw,
+                                    assigned=assigned_map,
+                                    include_stale=True,  # Include all, filter at serve time
+                                    capacities=vehicle_capacities,
+                                    stop_estimates=stop_estimates,
+                                    route_id_to_name=route_id_to_name_map,
+                                )
+                                state.testmap_vehicles_payload = testmap_payload
+                                state.testmap_vehicles_ts = time.time()
+                            except Exception as e:
+                                print(f"[updater] testmap payload build error: {e}")
                             if not hasattr(state, "roster_names"):
                                 state.roster_names = set()
                             for _v in vehicles_raw or []:
                                 nm = str(_v.get("Name") or "-")
                                 if nm:
                                     state.roster_names.add(nm)
+                            # Pre-compute sorted vehicle dropdown lists
+                            try:
+                                dropdown_all = []
+                                dropdown_active = []
+                                seen_names: set = set()
+                                sorted_vehicles = sorted(vehicles_raw or [], key=lambda x: str(x.get("Name") or "-"))
+                                for v in sorted_vehicles:
+                                    name = str(v.get("Name") or "-")
+                                    if name in seen_names:
+                                        continue
+                                    seen_names.add(name)
+                                    vid = v.get("VehicleID")
+                                    age = v.get("Seconds")
+                                    item = {
+                                        "id": vid,
+                                        "name": name,
+                                        "route_id": v.get("RouteID"),
+                                        "age_seconds": age,
+                                    }
+                                    if vid is not None and vid in vehicle_capacities:
+                                        cap_data = vehicle_capacities[vid]
+                                        item["capacity"] = cap_data.get("capacity")
+                                        item["current_occupation"] = cap_data.get("current_occupation")
+                                        item["percentage"] = cap_data.get("percentage")
+                                    dropdown_all.append(item)
+                                    if age is not None and age <= STALE_FIX_S:
+                                        dropdown_active.append(item)
+                                state.vehicles_dropdown_all = dropdown_all
+                                state.vehicles_dropdown_active = dropdown_active
+                            except Exception as e:
+                                print(f"[updater] dropdown build error: {e}")
                         except Exception as e:
                             print(f"[updater] roster/routes_all error: {e}")
                         # Build active routes set (with grace window to prevent flicker)
@@ -4403,7 +4514,15 @@ async def all_vehicles(include_stale: int = 1, include_unassigned: int = 1):
 
     Uses cached vehicle data from background polling loop for fast response.
     """
-    # Use cached data from background polling loop instead of making fresh API call
+    # Fast path: use pre-computed dropdown lists for common cases
+    if include_unassigned:
+        async with state.lock:
+            if include_stale and state.vehicles_dropdown_all:
+                return {"vehicles": list(state.vehicles_dropdown_all)}
+            elif not include_stale and state.vehicles_dropdown_active:
+                return {"vehicles": list(state.vehicles_dropdown_active)}
+
+    # Fallback: compute on request for filtered cases
     async with state.lock:
         data = state.vehicles_raw.copy() if state.vehicles_raw else []
         capacities = state.vehicle_capacities.copy()
@@ -4482,7 +4601,8 @@ async def public_vehicle_drivers():
         }
     """
     try:
-        full_data = await _fetch_vehicle_drivers()
+        # Use TTL cache to avoid repeated expensive joins
+        full_data = await vehicle_drivers_cache.get(_fetch_vehicle_drivers)
 
         # Strip out sensitive fields, only keep vehicle_name
         filtered_vehicle_drivers = {}
@@ -7140,6 +7260,49 @@ async def _assemble_transloc_metadata(
     return {"routes": raw_routes, "stops": stops, "blocks": blocks}
 
 
+async def _fetch_vehicle_stop_estimates_raw(
+    vehicle_ids: List[Any],
+    base_url: Optional[str] = None,
+    quantity: int = 3,
+    *,
+    client: Optional[httpx.AsyncClient] = None,
+) -> Dict[Any, List[Dict[str, Any]]]:
+    """
+    Fetch stop estimates directly from TransLoc API (no caching).
+    Used by background updater to pre-populate state.stop_estimates.
+    """
+    if not vehicle_ids:
+        return {}
+
+    try:
+        vehicle_id_strings = ",".join(str(vid) for vid in vehicle_ids)
+        url = build_transloc_url(base_url, "GetVehicleRouteStopEstimates")
+        params = {
+            "APIKey": TRANSLOC_KEY,
+            "quantity": quantity,
+            "vehicleIdStrings": vehicle_id_strings
+        }
+        resolved_client = _get_transloc_client(client)
+        data = await _proxy_transloc_get(
+            url, params=params, base_url=base_url, client=resolved_client
+        )
+
+        estimates_by_vehicle = {}
+        if data and isinstance(data, dict):
+            vehicles = data.get("Vehicles", [])
+            if isinstance(vehicles, list):
+                for vehicle in vehicles:
+                    if isinstance(vehicle, dict):
+                        vid = vehicle.get("VehicleID")
+                        estimates = vehicle.get("Estimates", [])
+                        if vid is not None and isinstance(estimates, list):
+                            estimates_by_vehicle[vid] = estimates
+        return estimates_by_vehicle
+    except Exception as e:
+        print(f"[vehicle_estimates_raw] Failed to fetch stop estimates: {e}")
+        return {}
+
+
 async def _fetch_vehicle_stop_estimates(
     vehicle_ids: List[Any],
     base_url: Optional[str] = None,
@@ -7220,6 +7383,15 @@ async def _fetch_vehicle_stop_estimates_guarded(
     timeout_seconds: float = 3.0,
     client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[Any, List[Dict[str, Any]]]:
+    # For default base_url, try to serve from pre-fetched state first (instant)
+    if is_default_transloc_base(base_url):
+        async with state.lock:
+            cached_estimates = state.stop_estimates
+        if cached_estimates:
+            print(f"[vehicle_estimates] served from pre-fetched state ({len(cached_estimates)} vehicles)")
+            return cached_estimates
+
+    # Fall back to cached/fetched estimates
     try:
         return await asyncio.wait_for(
             _fetch_vehicle_stop_estimates(
@@ -7337,7 +7509,24 @@ async def testmap_transloc_vehicles(
     client = _get_transloc_client(None)
     try:
         if is_default_transloc_base(base_url):
-            # Optimized path for default TransLoc base:
+            # Fast path: serve from pre-materialized payload if available
+            async with state.lock:
+                payload = state.testmap_vehicles_payload
+                payload_ts = state.testmap_vehicles_ts
+            if payload is not None:
+                # Filter by stale param
+                if stale:
+                    vehicles = payload
+                else:
+                    vehicles = [v for v in payload if not v.get("is_stale")]
+                _record_transloc_timing("handler_total", time.perf_counter() - handler_start)
+                print(f"[testmap_vehicles] served pre-materialized payload ({len(vehicles)} vehicles)")
+                return {
+                    "fetched_at": int(payload_ts),
+                    "vehicles": vehicles,
+                }
+
+            # Fallback: Optimized path for default TransLoc base when payload not yet built
             # - Use pre-cached capacities and route names from state
             # - Get vehicle IDs from state first to parallelize stop estimates fetch
             cap_start = time.perf_counter()
@@ -7417,12 +7606,15 @@ async def testmap_transloc_vehicles(
                     "routes", _load_transloc_route_sources(base_url, client=client)
                 )
             )
-            capacities = await _measure_transloc_call(
-                "capacities", fetch_capacities_cached()
+            capacities_task = asyncio.create_task(
+                _measure_transloc_call(
+                    "capacities", fetch_capacities_cached()
+                )
             )
-            (assigned, raw_vehicle_records), (routes_raw, _) = await asyncio.gather(
+            (assigned, raw_vehicle_records), (routes_raw, _), capacities = await asyncio.gather(
                 vehicle_task,
                 route_task,
+                capacities_task,
             )
 
             # Build route ID to name mapping
