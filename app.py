@@ -1238,16 +1238,33 @@ class TTLCache:
         self.value: Any = None
         self.ts: float = 0.0
         self.lock = asyncio.Lock()
+        self._inflight: Optional[asyncio.Task] = None
 
     async def get(self, fetcher):
         async with self.lock:
             now = time.time()
             if self.value is not None and now - self.ts < self.ttl:
                 return self.value
-        data = await fetcher()
+            # Singleflight: reuse in-flight fetch task
+            if self._inflight is not None:
+                inflight_task = self._inflight
+            else:
+                inflight_task = asyncio.create_task(fetcher())
+                self._inflight = inflight_task
+
+        try:
+            data = await inflight_task
+        except Exception:
+            async with self.lock:
+                if self._inflight is inflight_task:
+                    self._inflight = None
+            raise
+
         async with self.lock:
-            self.value = data
-            self.ts = time.time()
+            if self._inflight is inflight_task:
+                self.value = data
+                self.ts = time.time()
+                self._inflight = None
         return data
 
 
@@ -1330,32 +1347,56 @@ class StaleWhileRevalidateCache:
 
 
 class PerKeyStaleWhileRevalidateCache:
-    def __init__(self, ttl: float):
+    def __init__(self, ttl: float, max_keys: int = 100):
         self.ttl = ttl
+        self.max_keys = max_keys
         self._caches: Dict[Any, StaleWhileRevalidateCache] = {}
+        self._access_order: List[Any] = []
         self._lock = asyncio.Lock()
 
     async def get(self, key: Any, fetcher):
         async with self._lock:
             cache = self._caches.get(key)
             if cache is None:
+                # Evict oldest entries if at capacity
+                while len(self._caches) >= self.max_keys and self._access_order:
+                    oldest = self._access_order.pop(0)
+                    self._caches.pop(oldest, None)
                 cache = StaleWhileRevalidateCache(self.ttl)
                 self._caches[key] = cache
+                self._access_order.append(key)
+            else:
+                # Move to end (most recently used)
+                if key in self._access_order:
+                    self._access_order.remove(key)
+                self._access_order.append(key)
         return await cache.get(fetcher)
 
 
 class PerKeyTTLCache:
-    def __init__(self, ttl: float):
+    def __init__(self, ttl: float, max_keys: int = 100):
         self.ttl = ttl
+        self.max_keys = max_keys
         self._caches: Dict[Any, TTLCache] = {}
+        self._access_order: List[Any] = []
         self._lock = asyncio.Lock()
 
     async def get(self, key: Any, fetcher):
         async with self._lock:
             cache = self._caches.get(key)
             if cache is None:
+                # Evict oldest entries if at capacity
+                while len(self._caches) >= self.max_keys and self._access_order:
+                    oldest = self._access_order.pop(0)
+                    self._caches.pop(oldest, None)
                 cache = TTLCache(self.ttl)
                 self._caches[key] = cache
+                self._access_order.append(key)
+            else:
+                # Move to end (most recently used)
+                if key in self._access_order:
+                    self._access_order.remove(key)
+                self._access_order.append(key)
         return await cache.get(fetcher)
 
 
