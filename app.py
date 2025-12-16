@@ -733,8 +733,25 @@ def transloc_host_base(base_url: Optional[str]) -> str:
 
 
 def is_default_transloc_base(base_url: Optional[str]) -> bool:
+    """Check if base_url resolves to the default TransLoc base.
+
+    Handles cases where client passes just the host (e.g. https://uva.transloc.com)
+    which build_transloc_url would expand to the full default path.
+    """
     sanitized = sanitize_transloc_base(base_url)
-    return sanitized is None or sanitized == DEFAULT_TRANSLOC_BASE
+    if sanitized is None:
+        return True
+    if sanitized == DEFAULT_TRANSLOC_BASE:
+        return True
+    # Check if it's just the host of the default (no path or root path)
+    # which build_transloc_url would expand to the default
+    parsed = urlparse(sanitized)
+    default_parsed = urlparse(DEFAULT_TRANSLOC_BASE)
+    if (parsed.scheme == default_parsed.scheme and
+        parsed.netloc == default_parsed.netloc and
+        parsed.path in ("", "/")):
+        return True
+    return False
 
 
 async def fetch_routes_with_shapes(client: httpx.AsyncClient, base_url: Optional[str] = None):
