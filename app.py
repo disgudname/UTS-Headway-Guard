@@ -82,7 +82,7 @@ OVERPASS_EP   = os.getenv("OVERPASS_EP", "https://overpass-api.de/api/interprete
 CAT_API_BASE  = os.getenv("CAT_API_BASE", "https://catpublic.etaspot.net/service.php")
 CAT_API_TOKEN = os.getenv("CAT_API_TOKEN", "TESTING")
 TRANSLOC_HTTP_TIMEOUT = httpx.Timeout(20.0, connect=5.0, read=20.0, write=20.0, pool=20.0)
-TRANSLOC_HTTP_LIMITS = httpx.Limits(max_keepalive_connections=10, max_connections=50)
+TRANSLOC_HTTP_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=200)
 PULSEPOINT_ENDPOINT = os.getenv(
     "PULSEPOINT_ENDPOINT",
     "https://api.pulsepoint.org/v1/webapp?resource=incidents&agencyid=54000,00300",
@@ -1249,12 +1249,24 @@ async def not_found_handler(request: Request, exc: HTTPException):
 API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
 SERVICECREW_SUBS: set[asyncio.Queue] = set()
+TESTMAP_VEHICLES_SUBS: set[asyncio.Queue] = set()
 
 def record_api_call(method: str, url: str, status: int) -> None:
     item = {"ts": int(time.time()*1000), "method": method, "url": url, "status": status}
     API_CALL_LOG.append(item)
     for q in list(API_CALL_SUBS):
         q.put_nowait(item)
+
+def broadcast_testmap_vehicles(payload: List[Dict[str, Any]]) -> None:
+    """Broadcast vehicle updates to all SSE subscribers."""
+    if not TESTMAP_VEHICLES_SUBS:
+        return
+    data = {"ts": int(time.time() * 1000), "vehicles": payload}
+    for q in list(TESTMAP_VEHICLES_SUBS):
+        try:
+            q.put_nowait(data)
+        except Exception:
+            pass
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -3993,6 +4005,8 @@ async def startup():
                                 )
                                 state.testmap_vehicles_payload = testmap_payload
                                 state.testmap_vehicles_ts = time.time()
+                                # Broadcast to SSE subscribers
+                                broadcast_testmap_vehicles(testmap_payload)
                             except Exception as e:
                                 print(f"[updater] testmap payload build error: {e}")
                             if not hasattr(state, "roster_names"):
@@ -9167,6 +9181,35 @@ async def stream_api_calls():
                 yield f"data: {json.dumps(item)}\n\n"
         finally:
             API_CALL_SUBS.discard(q)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+# ---------------------------
+# SSE: Testmap vehicle updates
+# ---------------------------
+@app.get("/v1/stream/testmap/vehicles")
+async def stream_testmap_vehicles():
+    """SSE stream for testmap vehicle position updates.
+
+    Broadcasts vehicle updates whenever the background updater refreshes data.
+    This replaces polling for clients that support SSE.
+    """
+    async def gen():
+        q: asyncio.Queue = asyncio.Queue()
+        TESTMAP_VEHICLES_SUBS.add(q)
+        try:
+            # Send current state immediately on connect
+            state = getattr(app, "state", None)
+            if state:
+                current_payload = getattr(state, "testmap_vehicles_payload", None)
+                if current_payload:
+                    initial = {"ts": int(time.time() * 1000), "vehicles": current_payload}
+                    yield f"data: {json.dumps(initial)}\n\n"
+            # Then stream updates as they come
+            while True:
+                item = await q.get()
+                yield f"data: {json.dumps(item)}\n\n"
+        finally:
+            TESTMAP_VEHICLES_SUBS.discard(q)
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ---------------------------

@@ -7407,6 +7407,14 @@ TM.registerVisibilityResumeHandler(() => {
       let refreshIntervals = [];
       let refreshIntervalsActive = false;
       let refreshSuspendedForVisibility = false;
+
+      // SSE (Server-Sent Events) for vehicle updates - reduces polling load
+      let vehicleSSE = null;
+      let vehicleSSEConnected = false;
+      let vehicleSSEReconnectTimer = null;
+      const VEHICLE_SSE_ENDPOINT = '/v1/stream/testmap/vehicles';
+      const VEHICLE_SSE_RECONNECT_DELAY_MS = 5000;
+      const VEHICLE_SSE_FALLBACK_POLL_MS = 30000; // Slower polling when SSE is active
       let busLocationsFetchPromise = null;
       let busLocationsFetchBaseURL = null;
       let routePathsFetchPromise = null;
@@ -10315,16 +10323,110 @@ ${trainPlaneMarkup}
         refreshIntervals = [];
         refreshIntervalsActive = false;
         stopTrainPolling();
+        disconnectVehicleSSE();
+      }
+
+      // SSE connection management for vehicle updates
+      function handleVehicleSSEMessage(event) {
+        try {
+          const data = JSON.parse(event.data);
+          if (!data || !Array.isArray(data.vehicles)) {
+            return;
+          }
+          // Update the vehicle cache with SSE data
+          const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
+          const cacheKey = getVehicleCacheKey(sanitizedBaseURL, includeStaleVehicles);
+          const entry = getOrCreateCacheEntry(translocVehiclesCache, cacheKey);
+          entry.data = { vehicles: data.vehicles, fetched_at: Math.round(data.ts / 1000) };
+          entry.timestamp = Date.now();
+          // Trigger UI update with fresh data
+          if (utsOverlayEnabled && !refreshIntervalsPaused && pageIsVisible) {
+            fetchBusLocations();
+          }
+        } catch (error) {
+          console.error('[SSE] Failed to process vehicle update:', error);
+        }
+      }
+
+      function connectVehicleSSE() {
+        if (vehicleSSE) {
+          return; // Already connected or connecting
+        }
+        if (typeof EventSource === 'undefined') {
+          console.info('[SSE] EventSource not supported, using polling fallback');
+          return;
+        }
+        try {
+          vehicleSSE = new EventSource(VEHICLE_SSE_ENDPOINT);
+          vehicleSSE.onopen = () => {
+            vehicleSSEConnected = true;
+            if (vehicleSSEReconnectTimer) {
+              clearTimeout(vehicleSSEReconnectTimer);
+              vehicleSSEReconnectTimer = null;
+            }
+            console.info('[SSE] Vehicle stream connected');
+          };
+          vehicleSSE.onmessage = handleVehicleSSEMessage;
+          vehicleSSE.onerror = (error) => {
+            console.warn('[SSE] Vehicle stream error, will reconnect:', error);
+            vehicleSSEConnected = false;
+            disconnectVehicleSSE();
+            scheduleVehicleSSEReconnect();
+          };
+        } catch (error) {
+          console.error('[SSE] Failed to connect:', error);
+          vehicleSSEConnected = false;
+        }
+      }
+
+      function disconnectVehicleSSE() {
+        if (vehicleSSE) {
+          vehicleSSE.close();
+          vehicleSSE = null;
+        }
+        vehicleSSEConnected = false;
+        if (vehicleSSEReconnectTimer) {
+          clearTimeout(vehicleSSEReconnectTimer);
+          vehicleSSEReconnectTimer = null;
+        }
+      }
+
+      function scheduleVehicleSSEReconnect() {
+        if (vehicleSSEReconnectTimer) {
+          return; // Already scheduled
+        }
+        vehicleSSEReconnectTimer = setTimeout(() => {
+          vehicleSSEReconnectTimer = null;
+          if (!vehicleSSE && pageIsVisible && !refreshSuspendedForVisibility) {
+            connectVehicleSSE();
+          }
+        }, VEHICLE_SSE_RECONNECT_DELAY_MS);
       }
 
       function startRefreshIntervals() {
         if (refreshIntervalsActive) {
           return;
         }
-        // Performance optimized: Skip polling when tab is hidden, slightly increased intervals
+        // Start SSE connection for real-time vehicle updates
+        connectVehicleSSE();
+
+        // Performance optimized: Skip polling when tab is hidden
+        // Use slower fallback polling when SSE is connected (SSE provides real-time updates)
+        // Use normal polling when SSE is not available
         refreshIntervals.push(setInterval(() => {
-          if (!refreshIntervalsPaused && pageIsVisible) fetchBusLocations();
-        }, 7000)); // Increased from 5000ms to 7000ms for performance optimization
+          if (!refreshIntervalsPaused && pageIsVisible) {
+            // Skip polling if SSE just pushed an update (cache is fresh)
+            const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
+            const cacheKey = getVehicleCacheKey(sanitizedBaseURL, includeStaleVehicles);
+            const entry = translocVehiclesCache.get(cacheKey);
+            const cacheAge = entry ? Date.now() - entry.timestamp : Infinity;
+            // If SSE is connected and cache is fresh (< 5s old), skip this poll
+            if (vehicleSSEConnected && cacheAge < 5000) {
+              return;
+            }
+            fetchBusLocations();
+          }
+        }, 7000)); // Normal polling interval, but skipped when SSE keeps cache fresh
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) fetchBusStops();
         }, 60000));
@@ -14582,21 +14684,28 @@ ${trainPlaneMarkup}
                   state.percentage = percentage;
                   rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
 
-                  // Build popup content for this bus
-                  const popupContent = buildBusPopupContent(vehicleID, busName);
-                  if (popupContent) {
-                      state.driverPopupContent = popupContent;
-                      state.driverPopupAriaLabel = `${busName} - Click for details`;
+                  // Only build popup content when needed:
+                  // 1. For ondemand vehicles (they use pre-built content)
+                  // 2. When popup is currently open (to update capacity bar)
+                  // Regular buses build popup on-demand when clicked
+                  const existingMarker = markers[vehicleID];
+                  const isPopupOpen = existingMarker && typeof existingMarker.isPopupOpen === 'function' && existingMarker.isPopupOpen();
+                  const isOnDemand = typeof isOnDemandVehicleId === 'function' && isOnDemandVehicleId(vehicleID);
 
-                      // Update popup content if it's currently open (use targeted update for capacity bar)
-                      const marker = markers[vehicleID];
-                      if (marker && typeof marker.isPopupOpen === 'function' && marker.isPopupOpen()) {
-                          // Use targeted update to preserve animations
-                          updatePopupCapacityBar(marker, vehicleID, state);
+                  if (isOnDemand || isPopupOpen) {
+                      const popupContent = buildBusPopupContent(vehicleID, busName);
+                      if (popupContent) {
+                          state.driverPopupContent = popupContent;
+                          state.driverPopupAriaLabel = `${busName} - Click for details`;
+
+                          // Update popup content if it's currently open (use targeted update for capacity bar)
+                          if (isPopupOpen) {
+                              updatePopupCapacityBar(existingMarker, vehicleID, state);
+                          }
+                      } else {
+                          delete state.driverPopupContent;
+                          delete state.driverPopupAriaLabel;
                       }
-                  } else {
-                      delete state.driverPopupContent;
-                      delete state.driverPopupAriaLabel;
                   }
 
                   if (!state.size) {
