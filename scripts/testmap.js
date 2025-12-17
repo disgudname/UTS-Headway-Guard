@@ -3167,6 +3167,11 @@ TM.registerVisibilityResumeHandler(() => {
         if (!force && entry.data && (now - entry.timestamp) < TRANSLOC_VEHICLES_TTL_MS) {
           return Promise.resolve(entry.data);
         }
+        // When SSE is connected, don't poll - SSE keeps cache fresh
+        // Only fetch if cache is stale (> 15s) as a safety fallback
+        if (vehicleSSEConnected && entry.data && (now - entry.timestamp) < 15000) {
+          return Promise.resolve(entry.data);
+        }
         if (entry.promise) {
           return entry.promise;
         }
