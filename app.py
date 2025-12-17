@@ -9240,6 +9240,7 @@ _MEDIA_ASSETS: dict[str, str] = {
     "icon-512.png": "image/png",
     "icon-maskable-192.png": "image/png",
     "icon-maskable-512.png": "image/png",
+    "web.svg": "image/svg+xml",
 }
 
 

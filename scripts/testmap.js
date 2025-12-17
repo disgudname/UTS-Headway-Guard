@@ -9129,17 +9129,6 @@ ${trainPlaneMarkup}
             </button>
           </div>
         ` : '';
-        const adminAccessHtml = `
-          <div class="admin-auth-control">
-            <div class="admin-auth-actions">
-              <button type="button" class="admin-auth-link"${adminMode ? ' disabled aria-disabled="true"' : ' onclick="openAdminPasswordPrompt()"'}>
-                ${adminMode ? 'Admin tools unlocked' : 'Unlock admin tools'}
-              </button>
-              ${adminMode ? '<button type="button" class="pill-button admin-auth-logout" onclick="logoutAdminTools(event)">Log out</button>' : ''}
-            </div>
-            <div class="admin-auth-note">${adminMode ? 'Admin tools stay on until you log out or clear your cookies.' : 'Dispatch password required.'}</div>
-          </div>
-        `;
         const showAgencySelect = !catPriorityMode || utsOverlayEnabled;
 
         let html = `
@@ -9261,7 +9250,6 @@ ${trainPlaneMarkup}
         html += radarControlsHtml;
         html += trainToggleHtml;
         html += demoButtonHtml;
-        html += adminAccessHtml;
 
         html += `
           </div>

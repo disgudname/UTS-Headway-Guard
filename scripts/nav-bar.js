@@ -59,6 +59,13 @@
       requiresAuth: false,
     },
     {
+      href: 'https://parking.virginia.edu/',
+      label: 'Parking & Transportation',
+      icon: '/media/web.svg',
+      requiresAuth: false,
+      guestOnly: true,
+    },
+    {
       href: '/ridership',
       label: 'Ridership',
       icon: '/media/ridership.svg',
@@ -346,6 +353,45 @@
 
   const navAnchors = [];
 
+  // Page-level elements with data-requires-auth or data-guest-only attributes
+  const pageGatedElements = [];
+
+  const collectPageGatedElements = () => {
+    pageGatedElements.length = 0;
+    const requiresAuthElements = document.querySelectorAll('[data-requires-auth]');
+    const guestOnlyElements = document.querySelectorAll('[data-guest-only]');
+    requiresAuthElements.forEach((el) => {
+      // Skip elements inside the nav bar itself
+      if (nav && nav.contains(el)) return;
+      pageGatedElements.push({ element: el, requiresAuth: true, guestOnly: false });
+    });
+    guestOnlyElements.forEach((el) => {
+      if (nav && nav.contains(el)) return;
+      // Check if already added as requiresAuth (element might have both attributes)
+      const existing = pageGatedElements.find((item) => item.element === el);
+      if (existing) {
+        existing.guestOnly = true;
+      } else {
+        pageGatedElements.push({ element: el, requiresAuth: false, guestOnly: true });
+      }
+    });
+  };
+
+  const updatePageElementVisibility = (authorized) => {
+    pageGatedElements.forEach(({ element, requiresAuth, guestOnly }) => {
+      const shouldHide = (requiresAuth && !authorized) || (guestOnly && authorized);
+      if (shouldHide) {
+        element.setAttribute('hidden', '');
+        element.setAttribute('aria-hidden', 'true');
+        element.style.setProperty('display', 'none', 'important');
+      } else {
+        element.removeAttribute('hidden');
+        element.removeAttribute('aria-hidden');
+        element.style.removeProperty('display');
+      }
+    });
+  };
+
   let authSection = null;
   let authSecret = null;
   let logoutButton = null;
@@ -363,15 +409,19 @@
 
   const updateLinkVisibility = (authorized) => {
     const visibleAnchors = navAnchors
-      .filter(({ requiresAuth }) => authorized || !requiresAuth)
+      .filter(({ requiresAuth, guestOnly }) => {
+        if (guestOnly && authorized) return false;
+        if (requiresAuth && !authorized) return false;
+        return true;
+      })
       .sort((a, b) => a.index - b.index);
 
-    navAnchors.forEach(({ element, requiresAuth }) => {
+    navAnchors.forEach(({ element, requiresAuth, guestOnly }) => {
       if (element.parentElement === inner) {
         inner.removeChild(element);
       }
 
-      const shouldHide = requiresAuth && !authorized;
+      const shouldHide = (requiresAuth && !authorized) || (guestOnly && authorized);
       if (shouldHide) {
         element.hidden = true;
         element.setAttribute('aria-hidden', 'true');
@@ -412,6 +462,7 @@
     navAnchors.push({
       element: anchor,
       requiresAuth: link.requiresAuth === true,
+      guestOnly: link.guestOnly === true,
       index: navAnchors.length,
     });
   });
@@ -594,6 +645,7 @@
     section.appendChild(logoutButton);
     loginButton = null;
     updateLinkVisibility(true);
+    updatePageElementVisibility(true);
   };
 
   const renderLoggedOut = () => {
@@ -640,6 +692,7 @@
     authSecret = null;
     logoutButton = null;
     updateLinkVisibility(false);
+    updatePageElementVisibility(false);
   };
 
   const updateAuthSection = async () => {
@@ -740,6 +793,8 @@
   }
 
   updateLinkVisibility(false);
+  collectPageGatedElements();
+  updatePageElementVisibility(false);
   updateSpacerHeight();
   updateAuthSection();
   markScrollableContainers();

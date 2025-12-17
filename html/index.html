@@ -46,25 +46,28 @@
   .card:hover::before{opacity:1;}
   .card .card__icon{width:64px;height:64px;margin-bottom:12px;display:block;filter:drop-shadow(0 6px 8px rgba(0,0,0,0.35));}
   .card div{font-size:17px;letter-spacing:0.02em;}
-  .auth-container{position:fixed;top:16px;right:20px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
-  .auth-button{background:rgba(17,22,42,0.6);border:1px solid rgba(229,114,0,0.6);border-radius:999px;padding:7px 18px;color:var(--ink);font-size:14px;cursor:pointer;transition:background 0.2s ease,border-color 0.2s ease,box-shadow 0.2s ease;box-shadow:0 8px 16px rgba(0,0,0,0.25);}
+  .auth-container{position:fixed;top:16px;right:20px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;z-index:10;}
+  .auth-button{background:rgba(17,22,42,0.6);border:1px solid rgba(229,114,0,0.6);border-radius:999px;padding:7px 18px;color:var(--ink);font-size:14px;cursor:pointer;transition:background 0.2s ease,border-color 0.2s ease,box-shadow 0.2s ease;box-shadow:0 8px 16px rgba(0,0,0,0.25);white-space:nowrap;}
   .auth-button:hover{background:rgba(229,114,0,0.18);border-color:rgba(229,114,0,0.85);box-shadow:0 10px 18px rgba(0,0,0,0.28);}
   .auth-button:disabled{opacity:0.6;cursor:not-allowed;}
   .auth-secret{font-size:12px;color:var(--muted);text-shadow:0 2px 6px rgba(0,0,0,0.25);}
-  .github-link{position:fixed;top:16px;left:20px;color:var(--ink);text-decoration:none;font-size:14px;letter-spacing:0.04em;padding:6px 10px;border-radius:999px;background:rgba(26,33,64,0.6);border:1px solid rgba(255,255,255,0.1);box-shadow:0 8px 16px rgba(0,0,0,0.25);transition:background 0.2s ease,border-color 0.2s ease;}
+  .github-link{position:fixed;top:16px;left:20px;color:var(--ink);text-decoration:none;font-size:14px;letter-spacing:0.04em;padding:6px 10px;border-radius:999px;background:rgba(26,33,64,0.6);border:1px solid rgba(255,255,255,0.1);box-shadow:0 8px 16px rgba(0,0,0,0.25);transition:background 0.2s ease,border-color 0.2s ease;z-index:10;}
   .github-link:hover{background:rgba(229,114,0,0.22);border-color:rgba(229,114,0,0.6);}
   .credit{position:fixed;bottom:12px;right:16px;font-size:12px;color:var(--muted);text-shadow:0 2px 6px rgba(0,0,0,0.25);}
   @media(max-width:600px){
-    body{justify-content:flex-start;padding:32px 16px;}
+    body{justify-content:flex-start;padding:24px 16px 32px;}
+    .github-link{position:static;align-self:flex-start;margin-bottom:12px;}
+    .auth-container{position:static;align-self:stretch;align-items:center;margin-bottom:20px;order:-1;}
     header{margin-bottom:24px;}
     .container{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;max-width:420px;}
+    .credit{position:static;margin-top:32px;text-align:center;}
   }
 </style>
 </head>
 <body>
 <a href="https://github.com/disgudname/UTS-Headway-Guard" class="github-link" target="_blank" rel="noopener" data-requires-auth>GitHub</a>
 <div class="auth-container">
-  <button type="button" class="auth-button" id="auth-button">Log in</button>
+  <button type="button" class="auth-button" id="auth-button">UTS Staff Access</button>
   <div class="auth-secret" id="auth-secret" hidden></div>
 </div>
 <header>
@@ -82,6 +85,10 @@
   <a class="card" href="/map">
     <img src="/media/map.svg" alt="" class="card__icon" />
     <div>Live Map</div>
+  </a>
+  <a class="card" href="https://parking.virginia.edu/" target="_blank" rel="noopener" data-guest-only>
+    <img src="/media/web.svg" alt="" class="card__icon" />
+    <div>Parking & Transportation</div>
   </a>
   <a class="card" href="/ridership" data-requires-auth>
     <img src="/media/ridership.svg" alt="" class="card__icon" />
@@ -110,6 +117,7 @@
     const authButton = document.getElementById('auth-button');
     const authSecret = document.getElementById('auth-secret');
     const gatedElements = Array.from(document.querySelectorAll('[data-requires-auth]'));
+    const guestOnlyElements = Array.from(document.querySelectorAll('[data-guest-only]'));
     if(!authButton || !authSecret){
       return;
     }
@@ -119,6 +127,18 @@
     const applyAccessRestrictions = () => {
       gatedElements.forEach((element) => {
         const shouldHide = !loggedIn;
+        if(shouldHide){
+          element.setAttribute('hidden', '');
+          element.setAttribute('aria-hidden', 'true');
+          element.style.display = 'none';
+        } else {
+          element.removeAttribute('hidden');
+          element.removeAttribute('aria-hidden');
+          element.style.removeProperty('display');
+        }
+      });
+      guestOnlyElements.forEach((element) => {
+        const shouldHide = loggedIn;
         if(shouldHide){
           element.setAttribute('hidden', '');
           element.setAttribute('aria-hidden', 'true');
@@ -148,13 +168,13 @@
             authSecret.hidden = true;
           }
         } else {
-          authButton.textContent = 'Log in';
+          authButton.textContent = 'UTS Staff Access';
           authSecret.hidden = true;
         }
         applyAccessRestrictions();
       } catch(err){
         loggedIn = false;
-        authButton.textContent = 'Log in';
+        authButton.textContent = 'UTS Staff Access';
         authSecret.hidden = true;
         applyAccessRestrictions();
       }
