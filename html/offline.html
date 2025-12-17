@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="UTSShield.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#E57200">
+<meta charset="utf-8" />
+<title>Offline - UTS Operations Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preload" href="FGDC.ttf" as="font" type="font/ttf" crossorigin />
+<style>
+  @font-face{font-family:'FGDC';src:url('FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{--bg:#232D4B;--bg-dark:#1A2140;--ink:#FFFFFF;--muted:#9fb0c9;--accent:#E57200;--panel:rgba(26,33,64,0.72);--panel-border:rgba(229,114,0,0.4);}
+  body{margin:0;min-height:100vh;background:radial-gradient(circle at top left,rgba(229,114,0,0.18),transparent 40%),linear-gradient(160deg,var(--bg) 0%,var(--bg-dark) 60%,#11162a 100%);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;box-sizing:border-box;text-align:center;}
+  .icon{width:80px;height:80px;margin-bottom:24px;opacity:0.8;}
+  h1{font-size:28px;letter-spacing:0.04em;margin:0 0 16px 0;}
+  p{color:var(--muted);margin:0 0 32px 0;max-width:400px;}
+  .retry-button{background:rgba(229,114,0,0.9);border:none;border-radius:999px;padding:12px 32px;color:var(--ink);font:16px 'FGDC',sans-serif;cursor:pointer;transition:background 0.2s ease,transform 0.2s ease;box-shadow:0 8px 16px rgba(0,0,0,0.25);}
+  .retry-button:hover{background:rgba(229,114,0,1);transform:translateY(-2px);}
+  .retry-button:active{transform:translateY(0);}
+</style>
+</head>
+<body>
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <line x1="1" y1="1" x2="23" y2="23"></line>
+  <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+  <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+  <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+  <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+  <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+  <line x1="12" y1="20" x2="12.01" y2="20"></line>
+</svg>
+<h1>You're Offline</h1>
+<p>The UTS Operations Dashboard requires an internet connection to display real-time transit data.</p>
+<button class="retry-button" onclick="window.location.reload()">Try Again</button>
+</body>
+</html>

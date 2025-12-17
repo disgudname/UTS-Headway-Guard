@@ -1224,6 +1224,7 @@ REPAIRS_SCREEN_HTML = _load_html("repairsscreen.html")
 REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
 HEADWAY_HTML = _load_html("headway.html")
 HEADWAY_DIAGNOSTICS_HTML = _load_html("headway_diagnostics.html")
+OFFLINE_HTML = _load_html("offline.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -9429,6 +9430,24 @@ async def vehicle_log_file(log_name: str):
 @app.get("/")
 async def landing_page():
     return HTMLResponse(LANDING_HTML)
+
+
+# ---------------------------
+# PWA SUPPORT
+# ---------------------------
+@app.get("/manifest.json")
+async def manifest():
+    return FileResponse(BASE_DIR / "manifest.json", media_type="application/manifest+json")
+
+
+@app.get("/service-worker.js")
+async def service_worker():
+    return FileResponse(BASE_DIR / "service-worker.js", media_type="application/javascript")
+
+
+@app.get("/offline")
+async def offline_page():
+    return HTMLResponse(OFFLINE_HTML)
 
 
 @app.get("/sitemap")

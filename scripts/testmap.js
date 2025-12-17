@@ -162,7 +162,6 @@ TM.registerVisibilityResumeHandler(() => {
           setOnDemandStopsEnabled(false);
         } else {
           updateOnDemandButton();
-          updateOnDemandStopsButton();
         }
         return userIsAuthorizedForOnDemand();
       }
@@ -2963,13 +2962,9 @@ TM.registerVisibilityResumeHandler(() => {
         if (!userIsAuthorizedForOnDemand()) {
           if (onDemandVehiclesEnabled) {
             setOnDemandVehiclesEnabled(false);
-          } else {
-            updateOnDemandButton();
-          }
-          if (onDemandStopsEnabled) {
             setOnDemandStopsEnabled(false);
           } else {
-            updateOnDemandStopsButton();
+            updateOnDemandButton();
           }
           scheduleNextAdminKioskOnDemandCheck();
           return;
@@ -2977,8 +2972,6 @@ TM.registerVisibilityResumeHandler(() => {
         const shouldEnable = shouldEnableAdminKioskOnDemand();
         if (force || onDemandVehiclesEnabled !== shouldEnable) {
           setOnDemandVehiclesEnabled(shouldEnable);
-        }
-        if (force || onDemandStopsEnabled !== shouldEnable) {
           setOnDemandStopsEnabled(shouldEnable);
         }
         scheduleNextAdminKioskOnDemandCheck();
@@ -5436,27 +5429,6 @@ TM.registerVisibilityResumeHandler(() => {
         }
       }
 
-      function updateOnDemandStopsButton() {
-        const button = document.getElementById('onDemandStopsToggleButton');
-        if (!button) return;
-        const authorized = userIsAuthorizedForOnDemand();
-        if (typeof button.disabled === 'boolean') {
-          button.disabled = !authorized;
-        }
-        if (!authorized) {
-          button.setAttribute('aria-disabled', 'true');
-        } else {
-          button.removeAttribute('aria-disabled');
-        }
-        const isActive = !!onDemandStopsEnabled;
-        button.classList.toggle('is-active', isActive);
-        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-        const indicator = button.querySelector('.toggle-indicator');
-        if (indicator) {
-          indicator.textContent = isActive ? 'On' : 'Off';
-        }
-      }
-
       function updateOnDemandRoutingButton() {
         const button = document.getElementById('onDemandRoutingToggleButton');
         if (!button) return;
@@ -5915,15 +5887,24 @@ TM.registerVisibilityResumeHandler(() => {
         setOnDemandVehiclesEnabled(!onDemandVehiclesEnabled);
       }
 
+      function toggleOnDemand() {
+        // Combined toggle for both OnDemand vehicles and stops
+        if (!userIsAuthorizedForOnDemand()) {
+          updateOnDemandButton();
+          return;
+        }
+        const newState = !onDemandVehiclesEnabled;
+        setOnDemandVehiclesEnabled(newState);
+        setOnDemandStopsEnabled(newState);
+      }
+
       function setOnDemandStopsEnabled(value) {
         const authorized = userIsAuthorizedForOnDemand();
         const requestedEnable = !!value;
         if (requestedEnable && !authorized) {
-          updateOnDemandStopsButton();
           return;
         }
         if (onDemandStopsEnabled === requestedEnable) {
-          updateOnDemandStopsButton();
           return;
         }
         const pollingBefore = shouldPollOnDemandData();
@@ -5941,12 +5922,10 @@ TM.registerVisibilityResumeHandler(() => {
         } else if (onDemandStopsEnabled) {
           renderOnDemandStops();
         }
-        updateOnDemandStopsButton();
       }
 
       function toggleOnDemandStops() {
         if (!userIsAuthorizedForOnDemand()) {
-          updateOnDemandStopsButton();
           return;
         }
         setOnDemandStopsEnabled(!onDemandStopsEnabled);
@@ -9267,11 +9246,8 @@ ${trainPlaneMarkup}
           if (isUvaAgencySelected()) {
             html += `
             <div class="selector-group">
-              <button type="button" id="onDemandToggleButton" class="pill-button ondemand-toggle-button${onDemandVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${onDemandVehiclesEnabled ? 'true' : 'false'}" onclick="toggleOnDemandVehicles()">
+              <button type="button" id="onDemandToggleButton" class="pill-button ondemand-toggle-button${onDemandVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${onDemandVehiclesEnabled ? 'true' : 'false'}" onclick="toggleOnDemand()">
                 OnDemand<span class="toggle-indicator">${onDemandVehiclesEnabled ? 'On' : 'Off'}</span>
-              </button>
-              <button type="button" id="onDemandStopsToggleButton" class="pill-button ondemand-stops-toggle-button${onDemandStopsEnabled ? ' is-active' : ''}" aria-pressed="${onDemandStopsEnabled ? 'true' : 'false'}" onclick="toggleOnDemandStops()">
-                OnDemand Stops<span class="toggle-indicator">${onDemandStopsEnabled ? 'On' : 'Off'}</span>
               </button>
               <button type="button" id="onDemandRoutingToggleButton" class="pill-button ondemand-routing-toggle-button${onDemandRoutingEnabled ? ' is-active' : ''}" aria-pressed="${onDemandRoutingEnabled ? 'true' : 'false'}" onclick="toggleOnDemandRouting()">
                 OnDemand Routing<span class="toggle-indicator">${onDemandRoutingEnabled ? 'On' : 'Off'}</span>
@@ -9304,7 +9280,6 @@ ${trainPlaneMarkup}
         updateIncidentToggleButton();
         updateStaleVehiclesButton();
         updateOnDemandButton();
-        updateOnDemandStopsButton();
         updateOnDemandRoutingButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
