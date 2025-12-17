@@ -6,7 +6,7 @@ const STATIC_ASSETS = [
   '/FGDC.ttf',
   '/ANTONIO.ttf',
   '/centurygothic.ttf',
-  '/media/UTSShield.png',
+  '/media/favicon.ico',
   '/media/icon-192.png',
   '/media/icon-512.png',
   '/media/dispatcher.svg',

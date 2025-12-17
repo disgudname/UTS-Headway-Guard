@@ -6,7 +6,9 @@
       "Bash(fly logs:*)",
       "Bash(flyctl logs:*)",
       "Bash(dir:*)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(grep:*)",
+      "Bash(powershell -Command:*)"
     ]
   }
 }

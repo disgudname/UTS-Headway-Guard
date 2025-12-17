@@ -2783,11 +2783,27 @@ async def _collect_ondemand_data(
                         return value_stripped
             return ""
 
+        # Fetch roster and positions in parallel
         roster: List[Dict[str, Any]] = []
+        positions_data: Any = []
         try:
-            roster = await client.get_vehicle_details()
+            roster_result, positions_result = await asyncio.gather(
+                client.get_vehicle_details(),
+                client.get_vehicle_positions(),
+                return_exceptions=True,
+            )
+            if isinstance(roster_result, Exception):
+                print(f"[ondemand] vehicle roster fetch failed: {roster_result}")
+                roster = []
+            else:
+                roster = roster_result
+            if isinstance(positions_result, Exception):
+                print(f"[ondemand] vehicle positions fetch failed: {positions_result}")
+                positions_data = []
+            else:
+                positions_data = positions_result
         except Exception as exc:
-            print(f"[ondemand] vehicle roster fetch failed: {exc}")
+            print(f"[ondemand] parallel fetch failed: {exc}")
 
         color_map: Dict[str, str] = {}
         driver_name_map: Dict[str, str] = {}
@@ -2827,11 +2843,10 @@ async def _collect_ondemand_data(
             if last_active_value:
                 last_active_map[vehicle_key] = str(last_active_value)
 
-        data = await client.get_vehicle_positions()
-        if not isinstance(data, list):
-            return data
+        if not isinstance(positions_data, list):
+            return positions_data
 
-        for entry in data:
+        for entry in positions_data:
             if not isinstance(entry, dict):
                 continue
             vehicle_id = entry.get("vehicle_id") or entry.get("VehicleID")
@@ -2851,53 +2866,65 @@ async def _collect_ondemand_data(
             if last_active:
                 entry["last_active_at"] = last_active
                 entry.setdefault("lastActiveAt", last_active)
-        return data
+        return positions_data
 
     raw_positions = await ondemand_positions_cache.get(fetch)
 
+    # Fetch schedules and rides in parallel for lower latency
     schedules: List[Dict[str, Any]] = []
     pending_ride_ids: Set[str] = set()
     ride_status_map: Dict[str, str] = {}
     try:
-        schedules = await fetch_ondemand_schedules(client)
+        schedules_result, rides_result = await asyncio.gather(
+            fetch_ondemand_schedules(client),
+            fetch_ondemand_rides(client, None),  # Uses default time window
+            return_exceptions=True,
+        )
+        if isinstance(schedules_result, Exception):
+            print(f"[ondemand] schedules processing failed: {schedules_result}")
+            schedules = []
+        else:
+            schedules = schedules_result
+        if isinstance(rides_result, Exception):
+            print(f"[ondemand] rides processing failed: {rides_result}")
+            ride_status_map = {}
+        else:
+            ride_status_map = rides_result
     except Exception as exc:
-        print(f"[ondemand] schedules processing failed: {exc}")
-    try:
-        ride_status_map = await fetch_ondemand_rides(client, schedules)
-        pending_ride_ids = {
-            ride_id
-            for ride_id, status in ride_status_map.items()
-            if str(status).strip().lower().startswith("pending")
-        }
+        print(f"[ondemand] parallel schedules/rides fetch failed: {exc}")
 
-        # Enrich the schedule rides with statuses from the rides endpoint so every
-        # ride in the final payload carries a status.
-        for vehicle in schedules or []:
-            if not isinstance(vehicle, dict):
+    pending_ride_ids = {
+        ride_id
+        for ride_id, status in ride_status_map.items()
+        if str(status).strip().lower().startswith("pending")
+    }
+
+    # Enrich the schedule rides with statuses from the rides endpoint so every
+    # ride in the final payload carries a status.
+    for vehicle in schedules or []:
+        if not isinstance(vehicle, dict):
+            continue
+        stops = vehicle.get("stops")
+        if not isinstance(stops, list):
+            continue
+        for stop in stops:
+            if not isinstance(stop, dict):
                 continue
-            stops = vehicle.get("stops")
-            if not isinstance(stops, list):
+            rides = stop.get("rides")
+            if not isinstance(rides, list):
                 continue
-            for stop in stops:
-                if not isinstance(stop, dict):
+            for ride in rides:
+                if not isinstance(ride, dict):
                     continue
-                rides = stop.get("rides")
-                if not isinstance(rides, list):
+                ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
+                ride_id_key = (
+                    str(ride_id_val).strip().lower() if ride_id_val not in {None, ""} else ""
+                )
+                if not ride_id_key:
                     continue
-                for ride in rides:
-                    if not isinstance(ride, dict):
-                        continue
-                    ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
-                    ride_id_key = (
-                        str(ride_id_val).strip().lower() if ride_id_val not in {None, ""} else ""
-                    )
-                    if not ride_id_key:
-                        continue
-                    status_value = ride_status_map.get(ride_id_key)
-                    if status_value not in {None, ""}:
-                        ride["status"] = status_value
-    except Exception as exc:
-        print(f"[ondemand] rides processing failed: {exc}")
+                status_value = ride_status_map.get(ride_id_key)
+                if status_value not in {None, ""}:
+                    ride["status"] = status_value
 
     stop_plans = build_ondemand_vehicle_stop_plans(
         schedules, pending_ride_ids, ride_status_map
@@ -4472,6 +4499,28 @@ async def startup():
 
     asyncio.create_task(updater())
     asyncio.create_task(vehicle_logger())
+
+    # Background poller for ondemand data during operating hours (19:30-05:30 ET)
+    async def ondemand_poller():
+        await asyncio.sleep(1)  # Let other startup tasks complete
+        poll_interval_s = max(ONDEMAND_POSITIONS_TTL_S, 5)
+        idle_check_interval_s = 60  # Check every minute when outside operating hours
+        while True:
+            try:
+                if not _is_within_ondemand_operating_window():
+                    await asyncio.sleep(idle_check_interval_s)
+                    continue
+                client: Optional[OnDemandClient] = getattr(app.state, "ondemand_client", None)
+                if client is None:
+                    await asyncio.sleep(idle_check_interval_s)
+                    continue
+                # Warm the caches by fetching ondemand data
+                await _collect_ondemand_data(client)
+            except Exception as exc:
+                print(f"[ondemand_poller] error: {exc}")
+            await asyncio.sleep(poll_interval_s)
+
+    asyncio.create_task(ondemand_poller())
 
 # ---------------------------
 # REST: Routes
@@ -9184,6 +9233,13 @@ _MEDIA_ASSETS: dict[str, str] = {
     "apple-touch-icon-152.png": "image/png",
     "apple-touch-icon-180.png": "image/png",
     "KidsCheering.mp3": "audio/mpeg",
+    "favicon.ico": "image/x-icon",
+    "favicon.svg": "image/svg+xml",
+    "favicon-96x96.png": "image/png",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+    "icon-maskable-192.png": "image/png",
+    "icon-maskable-512.png": "image/png",
 }
 
 
