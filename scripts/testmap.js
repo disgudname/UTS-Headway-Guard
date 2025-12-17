@@ -10411,22 +10411,16 @@ ${trainPlaneMarkup}
         connectVehicleSSE();
 
         // Performance optimized: Skip polling when tab is hidden
-        // Use slower fallback polling when SSE is connected (SSE provides real-time updates)
-        // Use normal polling when SSE is not available
+        // When SSE is connected, it provides real-time updates - polling is just a fallback
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) {
-            // Skip polling if SSE just pushed an update (cache is fresh)
-            const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
-            const cacheKey = getVehicleCacheKey(sanitizedBaseURL, includeStaleVehicles);
-            const entry = translocVehiclesCache.get(cacheKey);
-            const cacheAge = entry ? Date.now() - entry.timestamp : Infinity;
-            // If SSE is connected and cache is fresh (< 5s old), skip this poll
-            if (vehicleSSEConnected && cacheAge < 5000) {
+            // Skip polling entirely when SSE is connected - SSE pushes updates in real-time
+            if (vehicleSSEConnected) {
               return;
             }
             fetchBusLocations();
           }
-        }, 7000)); // Normal polling interval, but skipped when SSE keeps cache fresh
+        }, 7000)); // Polling only used as fallback when SSE is disconnected
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) fetchBusStops();
         }, 60000));
