@@ -60,7 +60,7 @@
     },
     {
       href: 'https://parking.virginia.edu/',
-      label: 'Parking & Transportation',
+      label: 'Parking &\nTransportation',
       icon: '/media/web.svg',
       requiresAuth: false,
       guestOnly: true,
@@ -279,7 +279,7 @@
       color:inherit;
       text-decoration:none;
       word-break:break-word;
-      white-space:normal;
+      white-space:pre-line;
     }
     .hg-nav-spacer-bottom{display:none;}
     @media (max-width: 768px){
