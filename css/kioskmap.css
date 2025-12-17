@@ -40,9 +40,8 @@ body.kioskmap .map {
   min-width: 220px;
   padding: 16px 18px;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.72);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.55);
+  background: rgba(15, 23, 42, 0.88);
+  /* backdrop-filter removed for performance on low-power devices */
   pointer-events: none;
 }
 
@@ -197,7 +196,7 @@ body.kioskmap .map {
   height: 100%;
   transform-origin: 50% 50%;
   transform: rotate(var(--bus-heading, 0deg));
-  filter: drop-shadow(0 10px 28px rgba(15, 23, 42, 0.45));
+  /* drop-shadow removed for performance on low-power devices */
 }
 
 .bus-marker-icon__svg > svg {
@@ -207,7 +206,6 @@ body.kioskmap .map {
 }
 
 .bus-marker-icon--stale .bus-marker-icon__svg {
-  filter: drop-shadow(0 6px 18px rgba(15, 23, 42, 0.3));
   opacity: 0.65;
 }
 
@@ -234,4 +232,17 @@ body.kioskmap .map {
     transform: none;
     text-align: center;
   }
+}
+
+/* CSS-based position smoothing for markers - GPU accelerated, doesn't block main thread */
+body.kioskmap .leaflet-marker-icon,
+body.kioskmap .leaflet-marker-shadow {
+  transition: transform 1s ease-out;
+  will-change: transform;
+}
+
+/* Disable transition during initial load or rapid updates */
+body.kioskmap .leaflet-marker-icon.no-transition,
+body.kioskmap .leaflet-marker-shadow.no-transition {
+  transition: none;
 }

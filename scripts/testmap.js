@@ -14679,26 +14679,29 @@ ${trainPlaneMarkup}
                   rememberCachedVehicleHeading(vehicleID, headingDeg, state.lastUpdateTimestamp);
 
                   // Only build popup content when needed:
-                  // 1. For ondemand vehicles (they use pre-built content)
-                  // 2. When popup is currently open (to update capacity bar)
+                  // 1. Skip entirely in kiosk mode (popups can't be opened)
+                  // 2. For ondemand vehicles (they use pre-built content)
+                  // 3. When popup is currently open (to update capacity bar)
                   // Regular buses build popup on-demand when clicked
-                  const existingMarker = markers[vehicleID];
-                  const isPopupOpen = existingMarker && typeof existingMarker.isPopupOpen === 'function' && existingMarker.isPopupOpen();
-                  const isOnDemand = typeof isOnDemandVehicleId === 'function' && isOnDemandVehicleId(vehicleID);
+                  if (!kioskExperienceActive) {
+                      const existingMarker = markers[vehicleID];
+                      const isPopupOpen = existingMarker && typeof existingMarker.isPopupOpen === 'function' && existingMarker.isPopupOpen();
+                      const isOnDemand = typeof isOnDemandVehicleId === 'function' && isOnDemandVehicleId(vehicleID);
 
-                  if (isOnDemand || isPopupOpen) {
-                      const popupContent = buildBusPopupContent(vehicleID, busName);
-                      if (popupContent) {
-                          state.driverPopupContent = popupContent;
-                          state.driverPopupAriaLabel = `${busName} - Click for details`;
+                      if (isOnDemand || isPopupOpen) {
+                          const popupContent = buildBusPopupContent(vehicleID, busName);
+                          if (popupContent) {
+                              state.driverPopupContent = popupContent;
+                              state.driverPopupAriaLabel = `${busName} - Click for details`;
 
-                          // Update popup content if it's currently open (use targeted update for capacity bar)
-                          if (isPopupOpen) {
-                              updatePopupCapacityBar(existingMarker, vehicleID, state);
+                              // Update popup content if it's currently open (use targeted update for capacity bar)
+                              if (isPopupOpen) {
+                                  updatePopupCapacityBar(existingMarker, vehicleID, state);
+                              }
+                          } else {
+                              delete state.driverPopupContent;
+                              delete state.driverPopupAriaLabel;
                           }
-                      } else {
-                          delete state.driverPopupContent;
-                          delete state.driverPopupAriaLabel;
                       }
                   }
 
@@ -18937,6 +18940,10 @@ ${trainPlaneMarkup}
       }
 
       function attachBusMarkerInteractions(vehicleID) {
+          // Skip interaction setup in kiosk mode - markers aren't clickable
+          if (kioskExperienceActive) {
+              return;
+          }
           const state = busMarkerStates[vehicleID];
           const marker = markers[vehicleID];
           if (!state || !marker) {
@@ -19639,8 +19646,9 @@ ${trainPlaneMarkup}
           return;
         }
 
-        // Performance: Skip animations when tab is hidden or in low performance mode
-        if (disableSmoothing || lowPerformanceMode || !pageIsVisible || typeof requestAnimationFrame !== 'function') {
+        // Performance: Skip JS animations when tab is hidden, in low performance mode, or kiosk mode
+        // In kiosk mode, CSS transitions handle the smoothing (GPU-accelerated, doesn't block main thread)
+        if (disableSmoothing || lowPerformanceMode || kioskExperienceActive || !pageIsVisible || typeof requestAnimationFrame !== 'function') {
           marker.setLatLng(endPos);
           syncMarkerPopupPosition(marker);
           return;
