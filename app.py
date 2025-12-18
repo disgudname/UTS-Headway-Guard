@@ -9362,26 +9362,20 @@ async def anti_bunching_status(request: Request):
 # REST: UTS Service Level
 # ---------------------------
 
-# Browser-like headers for scraping parking.virginia.edu
-# The server blocks non-browser requests, so we simulate a browser
-SERVICE_LEVEL_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Cache-Control": "max-age=0",
-}
+# Use curl_cffi with browser impersonation to bypass TLS fingerprinting
+# parking.virginia.edu uses protection that blocks non-browser TLS fingerprints
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
 
 
 async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult:
     """
     Fetch and parse the service level from parking.virginia.edu.
+
+    Uses curl_cffi with Chrome impersonation to bypass TLS fingerprinting.
 
     Args:
         bypass_cache: If True, skip HTTP cache headers and force a fresh fetch
@@ -9402,8 +9396,8 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
                 # Cache hit for current service day
                 return cache.result
 
-        # Build request headers (start with browser-like headers)
-        headers = dict(SERVICE_LEVEL_HEADERS)
+        # Build request headers for conditional fetch
+        headers = {}
         if not bypass_cache:
             if cache.etag:
                 headers["If-None-Match"] = cache.etag
@@ -9411,8 +9405,17 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
                 headers["If-Modified-Since"] = cache.last_modified
 
         try:
-            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                resp = await client.get(SERVICE_SCHEDULE_URL, headers=headers)
+            if not CURL_CFFI_AVAILABLE:
+                raise ImportError("curl_cffi not available")
+
+            # Use curl_cffi with Chrome impersonation for TLS fingerprint bypass
+            async with CurlAsyncSession() as session:
+                resp = await session.get(
+                    SERVICE_SCHEDULE_URL,
+                    headers=headers if headers else None,
+                    impersonate="chrome",
+                    timeout=20,
+                )
                 record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
 
                 if resp.status_code == 304:
@@ -9420,10 +9423,10 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
                     if cache.result and cache.result.service_date == service_date_str:
                         return cache.result
                     # Cache is for a different date, need to re-fetch without cache headers
-                    fresh_headers = dict(SERVICE_LEVEL_HEADERS)
-                    resp = await client.get(
+                    resp = await session.get(
                         SERVICE_SCHEDULE_URL,
-                        headers=fresh_headers,
+                        impersonate="chrome",
+                        timeout=20,
                     )
                     record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
 
@@ -9452,9 +9455,9 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
 
                 return result
 
-        except httpx.HTTPError as exc:
-            error_msg = f"Network error fetching service schedule: {exc}"
-            # Return cached value if available for current date
+        except ImportError as exc:
+            # curl_cffi not available, fall back to error
+            error_msg = f"curl_cffi library not available: {exc}"
             if cache.result and cache.result.service_date == service_date_str:
                 return cache.result
             return ServiceLevelResult(
@@ -9465,7 +9468,7 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
                 error=error_msg,
             )
         except Exception as exc:
-            error_msg = f"Unexpected error: {exc}"
+            error_msg = f"Error fetching service schedule: {exc}"
             if cache.result and cache.result.service_date == service_date_str:
                 return cache.result
             return ServiceLevelResult(
