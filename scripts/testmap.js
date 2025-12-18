@@ -305,6 +305,10 @@ TM.registerVisibilityResumeHandler(() => {
           return ondemandAllowed;
         }
         navAuthorized = normalized;
+        // Notify Status Panel of auth change
+        if (typeof handleStatusPanelAuthChange === 'function') {
+          handleStatusPanelAuthChange(normalized);
+        }
         if (!navAuthorized) {
           clearOffRouteBusIndicators();
         }
@@ -10068,19 +10072,68 @@ ${trainPlaneMarkup}
         }
       }
 
+      let statusPanelAuthenticated = false;
+      let statusPanelRefreshIntervalId = null;
+
       async function fetchStatusPanelData() {
         const results = await Promise.allSettled([
-          fetch('/v1/uts/service_level').then(r => r.ok ? r.json() : null),
-          fetch('/v1/uts/on_duty').then(r => r.ok ? r.json() : null),
-          fetch('/v1/transloc/anti_bunching/status').then(r => r.ok ? r.json() : null)
+          fetch('/v1/uts/service_level', { credentials: 'include' }),
+          fetch('/v1/uts/on_duty', { credentials: 'include' }),
+          fetch('/v1/transloc/anti_bunching/status', { credentials: 'include' })
         ]);
 
-        statusPanelData.serviceLevel = results[0].status === 'fulfilled' ? results[0].value : null;
-        statusPanelData.onDuty = results[1].status === 'fulfilled' ? results[1].value : null;
-        statusPanelData.antiBunchingStatus = results[2].status === 'fulfilled' ? results[2].value : null;
+        // Check if all requests returned 401 (unauthorized)
+        const allUnauthorized = results.every(r => {
+          if (r.status !== 'fulfilled') return false;
+          return r.value && r.value.status === 401;
+        });
+
+        if (allUnauthorized) {
+          // User is not authenticated, hide the status panel
+          statusPanelAuthenticated = false;
+          hideStatusPanel();
+          return;
+        }
+
+        // User is authenticated, show the panel
+        statusPanelAuthenticated = true;
+        showStatusPanel();
+
+        // Parse successful responses
+        for (let i = 0; i < results.length; i++) {
+          if (results[i].status === 'fulfilled' && results[i].value && results[i].value.ok) {
+            try {
+              results[i].data = await results[i].value.json();
+            } catch (e) {
+              results[i].data = null;
+            }
+          } else {
+            results[i].data = null;
+          }
+        }
+
+        statusPanelData.serviceLevel = results[0].data;
+        statusPanelData.onDuty = results[1].data;
+        statusPanelData.antiBunchingStatus = results[2].data;
         statusPanelData.lastRefresh = Date.now();
 
         renderStatusPanel();
+      }
+
+      function hideStatusPanel() {
+        const panel = getCachedElementById('statusPanel');
+        if (panel) {
+          panel.style.display = 'none';
+          panel.innerHTML = '';
+        }
+        updateRightPanelSizing();
+      }
+
+      function showStatusPanel() {
+        const panel = getCachedElementById('statusPanel');
+        if (panel) {
+          panel.style.display = '';
+        }
       }
 
       function getStaleInServiceVehicles() {
@@ -10278,19 +10331,33 @@ ${trainPlaneMarkup}
       }
 
       function initStatusPanel() {
+        // Clear any existing refresh interval
+        if (statusPanelRefreshIntervalId) {
+          clearInterval(statusPanelRefreshIntervalId);
+          statusPanelRefreshIntervalId = null;
+        }
+
         if (!isUvaAgencySelected()) {
           // Hide status panel for non-UVA agencies
-          const panel = getCachedElementById('statusPanel');
-          if (panel) panel.style.display = 'none';
+          hideStatusPanel();
           return;
         }
 
+        // Start with panel hidden - fetchStatusPanelData will show it if user is authenticated
         const panel = getCachedElementById('statusPanel');
-        if (panel) panel.style.display = '';
+        if (panel) panel.style.display = 'none';
 
         fetchStatusPanelData();
         // Set up periodic refresh
-        setInterval(fetchStatusPanelData, STATUS_PANEL_REFRESH_INTERVAL_MS);
+        statusPanelRefreshIntervalId = setInterval(fetchStatusPanelData, STATUS_PANEL_REFRESH_INTERVAL_MS);
+      }
+
+      function handleStatusPanelAuthChange(authorized) {
+        // Re-fetch status panel data when auth state changes
+        // The fetch will show/hide the panel based on auth result
+        if (isUvaAgencySelected()) {
+          fetchStatusPanelData();
+        }
       }
 
       // Make functions globally accessible for onclick handlers

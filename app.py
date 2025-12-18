@@ -9291,8 +9291,10 @@ def _compute_anti_bunching_status(routes: List[Dict[str, Any]]) -> Dict[str, Any
 
 
 @app.get("/v1/transloc/anti_bunching/status")
-async def anti_bunching_status():
+async def anti_bunching_status(request: Request):
     """Get anti-bunching system status indicator.
+
+    Requires dispatcher authentication.
 
     Returns a derived status value:
     - ONLINE: Anti-bunching is producing guidance for eligible routes
@@ -9303,6 +9305,7 @@ async def anti_bunching_status():
     - Requires 2 consecutive failed evaluations before switching to OFFLINE
     - Requires 1 successful evaluation to return to ONLINE
     """
+    _require_dispatcher_access(request)
     # Fetch fresh anti-bunching data (uses internal cache)
     try:
         routes = await anti_bunching_raw()
@@ -9359,8 +9362,21 @@ async def anti_bunching_status():
 # REST: UTS Service Level
 # ---------------------------
 
-# User-Agent for scraping (be respectful)
-SERVICE_LEVEL_USER_AGENT = "UTS-Operations-Dashboard/1.0 (University of Virginia; +https://parking.virginia.edu)"
+# Browser-like headers for scraping parking.virginia.edu
+# The server blocks non-browser requests, so we simulate a browser
+SERVICE_LEVEL_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+}
 
 
 async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult:
@@ -9386,8 +9402,8 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
                 # Cache hit for current service day
                 return cache.result
 
-        # Build request headers
-        headers = {"User-Agent": SERVICE_LEVEL_USER_AGENT}
+        # Build request headers (start with browser-like headers)
+        headers = dict(SERVICE_LEVEL_HEADERS)
         if not bypass_cache:
             if cache.etag:
                 headers["If-None-Match"] = cache.etag
@@ -9395,7 +9411,7 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
                 headers["If-Modified-Since"] = cache.last_modified
 
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
                 resp = await client.get(SERVICE_SCHEDULE_URL, headers=headers)
                 record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
 
@@ -9404,9 +9420,10 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
                     if cache.result and cache.result.service_date == service_date_str:
                         return cache.result
                     # Cache is for a different date, need to re-fetch without cache headers
+                    fresh_headers = dict(SERVICE_LEVEL_HEADERS)
                     resp = await client.get(
                         SERVICE_SCHEDULE_URL,
-                        headers={"User-Agent": SERVICE_LEVEL_USER_AGENT},
+                        headers=fresh_headers,
                     )
                     record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
 
@@ -9461,27 +9478,32 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
 
 
 @app.get("/v1/uts/service_level")
-async def uts_service_level():
+async def uts_service_level(request: Request):
     """Get the current UTS service level.
+
+    Requires dispatcher authentication.
 
     Returns:
         JSON with service_date, service_level, notes, source_url, scraped_at, source_hash.
         If unable to determine, service_level will be "UNKNOWN" with an error field.
     """
+    _require_dispatcher_access(request)
     result = await _fetch_service_level(bypass_cache=False)
     return result.to_dict()
 
 
 @app.post("/v1/uts/service_level/refresh")
-async def uts_service_level_refresh():
+async def uts_service_level_refresh(request: Request):
     """Force refresh the UTS service level from the source page.
 
-    Admin-only endpoint to bypass cache and re-scrape the service schedule.
+    Requires dispatcher authentication.
+    Bypasses cache and re-scrapes the service schedule.
     Useful when the webpage is updated unexpectedly during the day.
 
     Returns:
         Same response shape as GET /v1/uts/service_level
     """
+    _require_dispatcher_access(request)
     result = await _fetch_service_level(bypass_cache=True)
     return result.to_dict()
 
@@ -9638,13 +9660,16 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
 
 
 @app.get("/v1/uts/on_duty")
-async def uts_on_duty():
+async def uts_on_duty(request: Request):
     """Get on-duty supervisors and dispatchers.
+
+    Requires dispatcher authentication.
 
     Returns:
         JSON with supervisors and ondemand_dispatchers arrays.
         Each entry has name, start time, and end time.
     """
+    _require_dispatcher_access(request)
     return await _fetch_on_duty_personnel()
 
 
