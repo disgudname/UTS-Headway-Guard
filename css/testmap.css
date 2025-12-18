@@ -47,6 +47,13 @@
         padding: 0;
         overflow: hidden;
       }
+      /* Fix white lines between map tiles caused by sub-pixel rendering */
+      .leaflet-tile-container img {
+        outline: 1px solid transparent;
+      }
+      body.theme-dark .leaflet-tile-container img {
+        outline-color: #0f172a;
+      }
       .leaflet-popup.ondemand-driver-popup .leaflet-popup-content-wrapper {
         background: #ffffff;
         border-radius: 12px;
@@ -144,8 +151,8 @@
         gap: 10px;
       }
       .ondemand-driver-popup__ride-card {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(35, 45, 75, 0.06);
+        border: 1px solid rgba(35, 45, 75, 0.12);
         border-radius: 12px;
         padding: 12px 14px;
         display: flex;
@@ -160,7 +167,7 @@
       .ondemand-driver-popup__ride-name {
         font-weight: 700;
         font-size: 15px;
-        color: #f8fafc;
+        color: #1f2937;
       }
       .ondemand-driver-popup__ride-order {
         font-weight: 700;
@@ -202,7 +209,7 @@
       }
       .ondemand-driver-popup__ride-location-text {
         flex: 1;
-        color: rgba(248, 250, 252, 0.9);
+        color: #374151;
         line-height: 1.4;
       }
       .custom-popup {
