@@ -145,6 +145,18 @@ TM.registerVisibilityResumeHandler(() => {
         return currentMapTheme;
       })();
 
+      // Apply initial panel theme immediately (before map loads)
+      (function applyInitialPanelTheme() {
+        if (typeof document !== 'undefined' && document.body) {
+          document.body.classList.toggle('theme-dark', effectiveMapTheme === MAP_THEMES.DARK);
+        } else if (typeof document !== 'undefined') {
+          // Body not ready yet, wait for DOMContentLoaded
+          document.addEventListener('DOMContentLoaded', function() {
+            document.body.classList.toggle('theme-dark', effectiveMapTheme === MAP_THEMES.DARK);
+          }, { once: true });
+        }
+      })();
+
       // Detect system color scheme preference
       function detectSystemTheme() {
         if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
@@ -189,10 +201,20 @@ TM.registerVisibilityResumeHandler(() => {
         return preference;
       }
 
+      // Apply body class for panel theming (can run before map is ready)
+      function applyPanelTheme(isDark) {
+        if (typeof document !== 'undefined' && document.body) {
+          document.body.classList.toggle('theme-dark', isDark);
+        }
+      }
+
       // Switch active tile layer based on effective theme
       function applyMapTheme() {
-        if (!map || !lightTileLayer || !darkTileLayer) return;
         const newEffective = resolveEffectiveTheme(currentMapTheme, systemPrefersDark);
+        // Always update panel theme
+        applyPanelTheme(newEffective === MAP_THEMES.DARK);
+        // Only update map tiles if map is ready and theme actually changed
+        if (!map || !lightTileLayer || !darkTileLayer) return;
         if (newEffective === effectiveMapTheme) return;
         effectiveMapTheme = newEffective;
         if (effectiveMapTheme === MAP_THEMES.DARK) {
@@ -18529,14 +18551,20 @@ ${trainPlaneMarkup}
           const horizontalPadding = SPEED_BUBBLE_HORIZONTAL_PADDING * safeScale;
           const verticalPadding = SPEED_BUBBLE_VERTICAL_PADDING * safeScale;
           const textWidth = measureLabelTextWidth(label, fontSize);
-          const width = Math.max(SPEED_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
-          const height = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const rectWidth = Math.max(SPEED_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
           const radius = SPEED_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          const svgWidth = roundToTwoDecimals(width);
-          const svgHeight = roundToTwoDecimals(height);
+          // Add stroke padding so stroke isn't clipped at edges
+          const strokePadding = strokeWidth / 2;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + strokeWidth);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectX = roundToTwoDecimals(strokePadding);
+          const rectY = roundToTwoDecimals(strokePadding);
+          const rectWidthRounded = roundToTwoDecimals(rectWidth);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
           const textY = roundToTwoDecimals(svgHeight / 2 + baselineShift);
@@ -18546,7 +18574,7 @@ ${trainPlaneMarkup}
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
-                      <rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
                       <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(label)}</text>
                   </g>
               </svg>`;
@@ -18575,13 +18603,17 @@ ${trainPlaneMarkup}
           const textWidth = measureLabelTextWidth(name, fontSize);
           const rectWidth = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
           const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
-          const svgWidth = roundToTwoDecimals(rectWidth);
-          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          // Add stroke padding so stroke isn't clipped at edges
+          const strokePadding = strokeWidth / 2;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectX = roundToTwoDecimals(strokePadding);
           const rectY = roundToTwoDecimals(frameInset);
+          const rectWidthRounded = roundToTwoDecimals(rectWidth);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
@@ -18594,7 +18626,7 @@ ${trainPlaneMarkup}
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
-                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
                       <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}"${textDecoration ? ' style="text-decoration: line-through;"' : ''}>${escapeHtml(name)}</text>
                   </g>
               </svg>`;
@@ -18622,13 +18654,17 @@ ${trainPlaneMarkup}
           const textWidth = measureLabelTextWidth(name, fontSize);
           const rectWidth = Math.max(BLOCK_BUBBLE_MIN_WIDTH * safeScale, textWidth + horizontalPadding * 2);
           const rectHeight = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
-          const svgWidth = roundToTwoDecimals(rectWidth);
-          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          // Add stroke padding so stroke isn't clipped at edges
+          const strokePadding = strokeWidth / 2;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectX = roundToTwoDecimals(strokePadding);
           const rectY = roundToTwoDecimals(frameInset);
+          const rectWidthRounded = roundToTwoDecimals(rectWidth);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
           const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
@@ -18641,7 +18677,7 @@ ${trainPlaneMarkup}
           const svg = `
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   <g>
-                      <rect x="0" y="${rectY}" width="${svgWidth}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
                       <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
                   </g>
               </svg>`;
