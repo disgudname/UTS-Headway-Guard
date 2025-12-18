@@ -1211,11 +1211,11 @@
         width: 8px;
       }
       .selector-panel .selector-content::-webkit-scrollbar-track {
-        background: rgba(35, 45, 75, 0.08);
+        background: var(--scrollbar-track);
         border-radius: 12px;
       }
       .selector-panel .selector-content::-webkit-scrollbar-thumb {
-        background: rgba(35, 45, 75, 0.35);
+        background: var(--scrollbar-thumb);
         border-radius: 12px;
       }
       .selector-panel .selector-content::-webkit-scrollbar-thumb:hover {
@@ -1252,7 +1252,7 @@
         font-weight: 600;
         letter-spacing: 0.12em;
         text-transform: uppercase;
-        color: rgba(35, 45, 75, 0.58);
+        color: var(--panel-muted-text);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -1264,7 +1264,7 @@
       }
       .selector-panel .admin-auth-link:hover,
       .selector-panel .admin-auth-link:focus-visible {
-        color: rgba(35, 45, 75, 0.85);
+        color: var(--panel-text-color);
         transform: none;
         box-shadow: none;
         background: none;
@@ -1273,7 +1273,8 @@
       }
       .selector-panel .admin-auth-link:disabled {
         cursor: default;
-        color: rgba(35, 45, 75, 0.35);
+        color: var(--panel-muted-text);
+        opacity: 0.5;
         text-decoration: none;
       }
       .selector-panel .admin-auth-logout {
@@ -1290,7 +1291,7 @@
       }
       .selector-panel .admin-auth-note {
         font-size: 12px;
-        color: rgba(35, 45, 75, 0.55);
+        color: var(--panel-muted-text);
         line-height: 1.4;
         text-align: center;
       }
@@ -1303,7 +1304,7 @@
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 1.2px;
-        color: rgba(35, 45, 75, 0.65);
+        color: var(--panel-muted-text);
       }
       .selector-panel .radar-opacity-row {
         display: flex;
@@ -1315,7 +1316,7 @@
         font-weight: 700;
         min-width: 48px;
         text-align: right;
-        color: rgba(35, 45, 75, 0.85);
+        color: var(--panel-text-color);
       }
       .selector-panel .radar-control-group input[type="range"] {
         width: 100%;
@@ -1323,13 +1324,13 @@
         appearance: none;
         height: 6px;
         border-radius: 999px;
-        background: rgba(35, 45, 75, 0.18);
+        background: var(--btn-bg);
         outline: none;
       }
       .selector-panel .radar-control-group input[type="range"]::-webkit-slider-runnable-track {
         height: 6px;
         border-radius: 999px;
-        background: rgba(35, 45, 75, 0.18);
+        background: var(--btn-bg);
       }
       .selector-panel .radar-control-group input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none;
@@ -1345,7 +1346,7 @@
       .selector-panel .radar-control-group input[type="range"]::-moz-range-track {
         height: 6px;
         border-radius: 999px;
-        background: rgba(35, 45, 75, 0.18);
+        background: var(--btn-bg);
       }
       .selector-panel .radar-control-group input[type="range"]::-moz-range-thumb {
         width: 16px;
@@ -1425,7 +1426,7 @@
         font-weight: 700;
         letter-spacing: 1.1px;
         text-transform: uppercase;
-        color: rgba(30, 41, 59, 0.92);
+        color: var(--panel-heading-color);
       }
       .selector-panel .service-alerts-toggle__status {
         font-size: 13px;
@@ -1437,7 +1438,7 @@
         font-weight: 600;
       }
       .selector-panel .service-alerts-toggle.is-loading .service-alerts-toggle__status {
-        color: rgba(30, 41, 59, 0.7);
+        color: var(--panel-muted-text);
       }
       .selector-panel .service-alerts-toggle.has-active-alerts .service-alerts-toggle__status {
         color: rgba(13, 148, 136, 0.95);
@@ -1448,8 +1449,8 @@
         width: 28px;
         height: 28px;
         border-radius: 999px;
-        background: rgba(30, 41, 59, 0.12);
-        color: rgba(30, 41, 59, 0.7);
+        background: var(--panel-highlight);
+        color: var(--panel-muted-text);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1457,7 +1458,7 @@
         transition: background 0.2s ease, color 0.2s ease;
       }
       .selector-panel .service-alerts-toggle:hover .service-alerts-toggle__chevron {
-        background: rgba(30, 41, 59, 0.18);
+        background: var(--btn-bg);
       }
       .selector-panel .service-alerts-toggle__chevron::before {
         content: '\25BC';
@@ -1468,7 +1469,7 @@
       .selector-panel .service-alerts-panel {
         border-radius: 12px;
         border: 1px solid rgba(67, 56, 202, 0.26);
-        background: rgba(255, 255, 255, 0.9);
+        background: var(--input-bg);
         padding: 16px 18px;
         box-shadow: 0 14px 28px rgba(37, 99, 235, 0.18);
         display: flex;
@@ -1496,7 +1497,7 @@
       .selector-panel .service-alerts-panel .service-alerts-state {
         font-size: 14px;
         letter-spacing: 0.3px;
-        color: rgba(30, 41, 59, 0.82);
+        color: var(--panel-text-color);
         line-height: 1.4;
       }
       .selector-panel .service-alerts-panel .service-alerts-state--loading {
@@ -1537,7 +1538,7 @@
         font-size: 15px;
         font-weight: 700;
         letter-spacing: 0.45px;
-        color: rgba(30, 41, 59, 0.95);
+        color: var(--panel-heading-color);
       }
       .selector-panel .service-alerts-item__status {
         font-size: 12px;
@@ -1557,7 +1558,7 @@
       .selector-panel .service-alerts-item__message {
         font-size: 14px;
         line-height: 1.55;
-        color: rgba(30, 41, 59, 0.85);
+        color: var(--panel-text-color);
         white-space: pre-line;
       }
       .selector-panel .service-alerts-item__meta {
@@ -1580,14 +1581,14 @@
       .selector-panel .service-alerts-item__meta-value {
         flex: 1;
         font-weight: 600;
-        color: rgba(30, 41, 59, 0.85);
+        color: var(--panel-text-color);
         overflow-wrap: anywhere;
       }
       .selector-panel .selector-label {
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 1.6px;
-        color: rgba(35, 45, 75, 0.75);
+        color: var(--panel-muted-text);
       }
       .selector-panel .selector-control {
         position: relative;
@@ -1600,19 +1601,19 @@
         transform: translateY(-50%);
         pointer-events: none;
         font-size: 12px;
-        color: rgba(35, 45, 75, 0.65);
+        color: var(--panel-muted-text);
         opacity: 0.6;
       }
       .selector-panel select {
         width: 100%;
         padding: 10px 42px 10px 14px;
         border-radius: 12px;
-        border: 1px solid rgba(35, 45, 75, 0.25);
-        background: rgba(255, 255, 255, 0.92);
-        box-shadow: 0 6px 18px rgba(17, 24, 39, 0.1);
+        border: 1px solid var(--btn-border);
+        background: var(--input-bg);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
         font-size: 16px;
         font-family: var(--app-font-family);
-        color: var(--panel-text-color);
+        color: var(--input-text);
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
         appearance: none;
         -webkit-appearance: none;
@@ -1638,7 +1639,7 @@
       .selector-panel .selector-section-heading h3 {
         margin: 0;
         font-size: 18px;
-        color: #232D4B;
+        color: var(--panel-heading-color);
         flex: 1 1 100%;
       }
       .selector-panel .selector-actions {
@@ -1717,7 +1718,7 @@
       }
       .selector-panel .route-option-name {
         font-weight: 600;
-        color: #111827;
+        color: var(--panel-text-color);
         letter-spacing: 0.2px;
       }
       .selector-panel .route-option-detail {
@@ -1733,9 +1734,9 @@
         font-weight: 600;
         cursor: pointer;
         transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
-        background: rgba(35, 45, 75, 0.1);
-        color: #1b2540;
-        border: 1px solid rgba(35, 45, 75, 0.18);
+        background: var(--btn-bg);
+        color: var(--btn-text);
+        border: 1px solid var(--btn-border);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1743,8 +1744,8 @@
       }
       .selector-panel button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 10px 20px rgba(35, 45, 75, 0.18);
-        background: rgba(35, 45, 75, 0.18);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18);
+        background: var(--btn-hover-bg);
       }
       .selector-panel button:focus-visible {
         outline: none;
@@ -1763,8 +1764,8 @@
         font-size: 12px;
         letter-spacing: 0.8px;
         text-transform: uppercase;
-        background: rgba(35, 45, 75, 0.12);
-        color: rgba(35, 45, 75, 0.78);
+        background: var(--panel-highlight);
+        color: var(--panel-muted-text);
       }
       .selector-panel button.is-active .toggle-indicator {
         background: rgba(229, 114, 0, 0.2);
@@ -2050,7 +2051,7 @@
         bottom: 16px;
         right: 16px;
         font-size: 13px;
-        color: rgba(35, 45, 75, 0.8);
+        color: var(--panel-muted-text);
         background: var(--panel-surface);
         border-radius: 999px;
         padding: 10px 16px;
