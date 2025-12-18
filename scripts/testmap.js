@@ -104,6 +104,135 @@ TM.registerVisibilityResumeHandler(() => {
       const KIOSK_TRANSLOC_ERROR_TEXT = 'TransLoc is currently failing to provide bus data.\nThe Operations Dashboard is functioning normally.';
       let displayMode = DISPLAY_MODES.BLOCK;
 
+      // Map theme (tile layer) settings
+      const MAP_THEMES = Object.freeze({
+        LIGHT: 'light',
+        DARK: 'dark',
+        AUTO: 'auto'
+      });
+      const MAP_THEME_STORAGE_KEY = 'testmap_theme_preference';
+      let lightTileLayer = null;
+      let darkTileLayer = null;
+      let systemPrefersDark = false;
+
+      // Initialize theme state early (before panel renders)
+      // These will be re-initialized when the map loads, but we need values for initial panel render
+      (function initThemeStateEarly() {
+        if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+          try {
+            systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          } catch (e) {
+            systemPrefersDark = false;
+          }
+        }
+      })();
+
+      let currentMapTheme = (function() {
+        if (typeof localStorage === 'undefined') return MAP_THEMES.AUTO;
+        try {
+          const stored = localStorage.getItem(MAP_THEME_STORAGE_KEY);
+          if (stored === MAP_THEMES.LIGHT || stored === MAP_THEMES.DARK || stored === MAP_THEMES.AUTO) {
+            return stored;
+          }
+        } catch (e) {}
+        return MAP_THEMES.AUTO;
+      })();
+
+      let effectiveMapTheme = (function() {
+        if (currentMapTheme === MAP_THEMES.AUTO) {
+          return systemPrefersDark ? MAP_THEMES.DARK : MAP_THEMES.LIGHT;
+        }
+        return currentMapTheme;
+      })();
+
+      // Detect system color scheme preference
+      function detectSystemTheme() {
+        if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+          try {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches;
+          } catch (e) {
+            return false;
+          }
+        }
+        return false;
+      }
+
+      // Get stored theme preference
+      function getStoredThemePreference() {
+        if (typeof localStorage === 'undefined') return MAP_THEMES.AUTO;
+        try {
+          const stored = localStorage.getItem(MAP_THEME_STORAGE_KEY);
+          if (stored === MAP_THEMES.LIGHT || stored === MAP_THEMES.DARK || stored === MAP_THEMES.AUTO) {
+            return stored;
+          }
+        } catch (e) {
+          // localStorage not available
+        }
+        return MAP_THEMES.AUTO;
+      }
+
+      // Store theme preference
+      function storeThemePreference(theme) {
+        if (typeof localStorage === 'undefined') return;
+        try {
+          localStorage.setItem(MAP_THEME_STORAGE_KEY, theme);
+        } catch (e) {
+          // localStorage not available
+        }
+      }
+
+      // Resolve effective theme from preference and system setting
+      function resolveEffectiveTheme(preference, systemDark) {
+        if (preference === MAP_THEMES.AUTO) {
+          return systemDark ? MAP_THEMES.DARK : MAP_THEMES.LIGHT;
+        }
+        return preference;
+      }
+
+      // Switch active tile layer based on effective theme
+      function applyMapTheme() {
+        if (!map || !lightTileLayer || !darkTileLayer) return;
+        const newEffective = resolveEffectiveTheme(currentMapTheme, systemPrefersDark);
+        if (newEffective === effectiveMapTheme) return;
+        effectiveMapTheme = newEffective;
+        if (effectiveMapTheme === MAP_THEMES.DARK) {
+          if (map.hasLayer(lightTileLayer)) map.removeLayer(lightTileLayer);
+          if (!map.hasLayer(darkTileLayer)) darkTileLayer.addTo(map);
+        } else {
+          if (map.hasLayer(darkTileLayer)) map.removeLayer(darkTileLayer);
+          if (!map.hasLayer(lightTileLayer)) lightTileLayer.addTo(map);
+        }
+        // Move tile layer to bottom
+        const activeLayer = effectiveMapTheme === MAP_THEMES.DARK ? darkTileLayer : lightTileLayer;
+        if (activeLayer && typeof activeLayer.bringToBack === 'function') {
+          activeLayer.bringToBack();
+        }
+      }
+
+      // Set map theme and update UI
+      function setMapTheme(theme) {
+        if (theme !== MAP_THEMES.LIGHT && theme !== MAP_THEMES.DARK && theme !== MAP_THEMES.AUTO) {
+          theme = MAP_THEMES.AUTO;
+        }
+        currentMapTheme = theme;
+        storeThemePreference(theme);
+        applyMapTheme();
+        updateThemeToggleButtons();
+      }
+      // Expose to global scope for onclick handlers
+      if (typeof window !== 'undefined') {
+        window.setMapTheme = setMapTheme;
+      }
+
+      // Update theme toggle button states
+      function updateThemeToggleButtons() {
+        const buttons = document.querySelectorAll('.theme-mode-button');
+        buttons.forEach(btn => {
+          const mode = btn.getAttribute('data-theme');
+          btn.classList.toggle('is-active', mode === currentMapTheme);
+        });
+      }
+
       const PANEL_COLLAPSE_BREAKPOINT = 600;
 
       const enableOverlapDashRendering = true;
@@ -9172,6 +9301,24 @@ ${trainPlaneMarkup}
           `;
         }
 
+        // Map theme toggle (always shown)
+        html += `
+          <div class="selector-group">
+            <div class="selector-label">Map Theme</div>
+            <div class="theme-mode-group" id="themeModeButtons">
+              <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.LIGHT ? 'is-active' : ''}" data-theme="${MAP_THEMES.LIGHT}" onclick="setMapTheme('${MAP_THEMES.LIGHT}')">
+                Light
+              </button>
+              <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.AUTO ? 'is-active' : ''}" data-theme="${MAP_THEMES.AUTO}" onclick="setMapTheme('${MAP_THEMES.AUTO}')">
+                Auto
+              </button>
+              <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.DARK ? 'is-active' : ''}" data-theme="${MAP_THEMES.DARK}" onclick="setMapTheme('${MAP_THEMES.DARK}')">
+                Dark
+              </button>
+            </div>
+          </div>
+        `;
+
         const centerMapButtonHtml = `
             <button type="button" id="centerMapButton" class="pill-button center-map-button" onclick="centerMapOnRoutes()">
               Center Map
@@ -9276,6 +9423,7 @@ ${trainPlaneMarkup}
         updateUtsToggleButtonState();
         initializeRadarControls();
         updateDisplayModeButtons();
+        updateThemeToggleButtons();
         updateTrainToggleButton();
         updateAircraftToggleButton();
         updateIncidentToggleButton();
@@ -10736,10 +10884,48 @@ ${trainPlaneMarkup}
           if (incidentsVisible && incidentHaloLayerGroup) {
               incidentHaloLayerGroup.addTo(map);
           }
-          const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          // Create both light and dark tile layers
+          const tileAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+          lightTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+              attribution: tileAttribution
           });
-          cartoLight.addTo(map);
+          darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+              attribution: tileAttribution
+          });
+
+          // Initialize theme from stored preference and system setting
+          systemPrefersDark = detectSystemTheme();
+          currentMapTheme = getStoredThemePreference();
+          effectiveMapTheme = resolveEffectiveTheme(currentMapTheme, systemPrefersDark);
+
+          // Add the appropriate tile layer based on effective theme
+          if (effectiveMapTheme === MAP_THEMES.DARK) {
+            darkTileLayer.addTo(map);
+          } else {
+            lightTileLayer.addTo(map);
+          }
+
+          // Listen for system theme changes
+          if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+            try {
+              const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+              const handleThemeChange = (e) => {
+                systemPrefersDark = e.matches;
+                if (currentMapTheme === MAP_THEMES.AUTO) {
+                  applyMapTheme();
+                }
+              };
+              if (typeof mediaQuery.addEventListener === 'function') {
+                mediaQuery.addEventListener('change', handleThemeChange);
+              } else if (typeof mediaQuery.addListener === 'function') {
+                // Fallback for older browsers
+                mediaQuery.addListener(handleThemeChange);
+              }
+            } catch (e) {
+              // matchMedia not fully supported
+            }
+          }
+
           applyRadarState();
 
           if (enableOverlapDashRendering) {

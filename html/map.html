@@ -1363,6 +1363,24 @@
         box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
         background: linear-gradient(135deg, #f4841a, #ffad55);
       }
+      .selector-panel .theme-mode-group {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+      .selector-panel .theme-mode-button {
+        width: 100%;
+      }
+      .selector-panel .theme-mode-button.is-active {
+        background: linear-gradient(135deg, var(--accent), var(--accent-bright));
+        color: #1f1300;
+        border-color: rgba(229, 114, 0, 0.35);
+        box-shadow: 0 12px 24px rgba(229, 114, 0, 0.28);
+      }
+      .selector-panel .theme-mode-button.is-active:hover {
+        box-shadow: 0 16px 30px rgba(229, 114, 0, 0.36);
+        background: linear-gradient(135deg, #f4841a, #ffad55);
+      }
       .selector-panel .full-width {
         width: 100%;
       }
