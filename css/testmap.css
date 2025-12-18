@@ -929,10 +929,7 @@
       #controlPanel {
         left: calc(var(--hg-nav-left-offset, 0px) + 10px);
       }
-      #routeSelector.hidden {
-        transform: translateX(calc(100% + 24px));
-        pointer-events: none;
-      }
+      /* Note: #routeSelector.hidden removed - now handled by .right-panel-column.hidden */
       #controlPanel.hidden {
         transform: translateX(calc(-100% - 24px));
         pointer-events: none;
@@ -1995,11 +1992,16 @@
         #controlPanel {
           left: calc(var(--hg-nav-left-offset, 0px) + 16px);
         }
-        #routeSelector.hidden {
-          transform: translateX(calc(100% + 20px));
-        }
         #controlPanel.hidden {
           transform: translateX(calc(-100% - 20px));
+        }
+        /* Right panel column mobile sizing */
+        .right-panel-column {
+          width: calc(100% - 32px);
+          right: 16px;
+        }
+        .right-panel-column .selector-panel {
+          width: 100%;
         }
         .selector-panel .selector-content {
           padding: 16px;
@@ -2329,6 +2331,7 @@
         gap: 10px;
         z-index: 1100;
         pointer-events: none;
+        transition: transform 0.35s ease;
       }
       .right-panel-column > * {
         pointer-events: auto;
@@ -2342,8 +2345,15 @@
         position: relative;
         top: auto;
         right: auto;
+        width: 100%;
         max-height: none;
         flex: 0 1 auto;
+      }
+      /* Override ID-specific positioning when inside column */
+      .right-panel-column #routeSelector,
+      .right-panel-column #statusPanel {
+        right: auto;
+        left: auto;
       }
       /* When both panels are open, split 50/50 */
       .right-panel-column .selector-panel.panel--half {

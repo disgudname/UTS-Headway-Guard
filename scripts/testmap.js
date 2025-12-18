@@ -10062,6 +10062,8 @@ ${trainPlaneMarkup}
           routePanel.classList.remove('panel--collapsed', 'panel--full');
           routePanel.classList.add('panel--half');
         }
+        // Reposition the toggle tab after size changes
+        positionAllPanelTabs();
       }
 
       function toggleStatusIncidentsExpanded() {
@@ -10134,6 +10136,7 @@ ${trainPlaneMarkup}
         if (panel) {
           panel.style.display = '';
         }
+        updateRightPanelSizing();
       }
 
       function getStaleInServiceVehicles() {
