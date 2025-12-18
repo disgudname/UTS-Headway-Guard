@@ -52,7 +52,7 @@
         outline: 1px solid transparent;
       }
       body.theme-dark .leaflet-tile-container img {
-        outline-color: #0f172a;
+        outline-color: #070707;
       }
       .leaflet-popup.ondemand-driver-popup .leaflet-popup-content-wrapper {
         background: #ffffff;
