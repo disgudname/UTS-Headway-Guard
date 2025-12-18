@@ -812,7 +812,9 @@ TM.registerVisibilityResumeHandler(() => {
         };
 
         hidePanelElement(getCachedElementById('controlPanel'));
+        hidePanelElement(getCachedElementById('statusPanel'));
         hidePanelElement(getCachedElementById('routeSelector'));
+        hidePanelElement(getCachedElementById('rightPanelColumn'));
         hideTabElement(getCachedElementById('controlPanelTab'));
         hideTabElement(getCachedElementById('routeSelectorTab'));
 
@@ -7103,6 +7105,14 @@ TM.registerVisibilityResumeHandler(() => {
             }
           } else if (stop.stopType === 'dropoff') {
             ride.dropoff = stop;
+            // Extract pickupAddress from ride details if available (for in_progress rides)
+            const rideDetails = stop.rides || [];
+            for (const rd of rideDetails) {
+              if (rd?.pickupAddress) {
+                ride.pickupAddressFromRides = rd.pickupAddress;
+                break;
+              }
+            }
           }
           // Merge riders if not already set
           if (stop.riders?.length && !ride.riders?.length) {
@@ -7117,9 +7127,12 @@ TM.registerVisibilityResumeHandler(() => {
           const riderName = ride.riders?.length ? ride.riders.join(', ') : 'Rider';
           const nextOrder = ride.pickup?.order ?? ride.dropoff?.order;
           const orderLabel = Number.isFinite(nextOrder) ? `#${nextOrder}` : '';
-          // Determine if rider is on board (has dropoff but no pickup, or status is in_progress)
+          // Determine if rider is on board (has dropoff but no pickup, and status is in_progress)
           const isOnBoard = !ride.pickup && ride.dropoff && ride.rideStatus === 'in_progress';
-          const pickupAddress = ride.pickup?.address || (isOnBoard ? 'On board' : 'Unknown pickup');
+          // For on-board rides, try to get the original pickup address from rides data
+          const pickupAddress = ride.pickup?.address
+            || (isOnBoard && ride.pickupAddressFromRides)
+            || (isOnBoard ? 'On board' : 'Unknown pickup');
           const dropoffAddress = ride.dropoff?.address || 'Unknown dropoff';
           // Use different styling for "on board" status
           const pickupIconClass = isOnBoard
@@ -7893,10 +7906,10 @@ TM.registerVisibilityResumeHandler(() => {
         }
 
         const controlPanel = getCachedElementById('controlPanel');
-        const routePanel = getCachedElementById('routeSelector');
+        const rightColumn = getCachedElementById('rightPanelColumn');
 
         const controlVisible = isPanelVisibleForMobileBehavior(controlPanel);
-        const routeVisible = isPanelVisibleForMobileBehavior(routePanel);
+        const routeVisible = isPanelVisibleForMobileBehavior(rightColumn);
 
         if (controlVisible && !routeVisible) {
           routeTab.classList.add('is-hidden-mobile');
@@ -7915,7 +7928,7 @@ TM.registerVisibilityResumeHandler(() => {
           ensurePanelsHiddenForKioskExperience();
           return;
         }
-        positionPanelTab('routeSelector', 'routeSelectorTab', 'right');
+        positionPanelTab('rightPanelColumn', 'routeSelectorTab', 'right');
         positionPanelTab('controlPanel', 'controlPanelTab', 'left');
         updatePanelTabVisibility();
       }
@@ -9646,12 +9659,14 @@ ${trainPlaneMarkup}
           ? activeElement.id
           : null;
 
+        const routeToggleSvg = `<svg class="selector-header__toggle" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg>`;
         let html = `
-          <div class="selector-header">
+          <div class="selector-header selector-header--collapsible" onclick="toggleRoutePanelCollapse()">
             <div class="selector-header-text">
               <div class="selector-title">Route Controls</div>
               <div class="selector-subtitle">Tailor the live map to the routes you care about.</div>
             </div>
+            ${routeToggleSvg}
           </div>
           <div class="selector-content">
             <div class="selector-section">
@@ -9960,12 +9975,328 @@ ${trainPlaneMarkup}
       }
 
       function toggleRoutePanel() {
-        togglePanelVisibility('routeSelector', 'routeSelectorTab', 'in', 'out');
+        toggleRightPanelColumn();
       }
 
       function toggleControlPanel() {
         togglePanelVisibility('controlPanel', 'controlPanelTab', 'in', 'out');
       }
+
+      // ===================================
+      // Status Panel State & Logic
+      // ===================================
+      let statusPanelCollapsed = false;
+      let routePanelCollapsed = false;
+      let statusPanelData = {
+        serviceLevel: null,
+        onDuty: null,
+        antiBunchingStatus: null,
+        lastRefresh: 0
+      };
+      let statusPanelIncidentsExpanded = false;
+      const STATUS_PANEL_REFRESH_INTERVAL_MS = 60000; // Refresh every 60 seconds
+
+      function toggleRightPanelColumn() {
+        const column = getCachedElementById('rightPanelColumn');
+        const tab = getCachedElementById('routeSelectorTab');
+        if (!column || !tab) return;
+        const isHidden = column.classList.toggle('hidden');
+        setPanelToggleArrow(tab, isHidden ? 'out' : 'in');
+        positionAllPanelTabs();
+      }
+
+      function toggleStatusPanelCollapse() {
+        const statusPanel = getCachedElementById('statusPanel');
+        const routePanel = getCachedElementById('routeSelector');
+        if (!statusPanel) return;
+
+        statusPanelCollapsed = !statusPanelCollapsed;
+        updateRightPanelSizing();
+      }
+
+      function toggleRoutePanelCollapse() {
+        const statusPanel = getCachedElementById('statusPanel');
+        const routePanel = getCachedElementById('routeSelector');
+        if (!routePanel) return;
+
+        routePanelCollapsed = !routePanelCollapsed;
+        updateRightPanelSizing();
+      }
+
+      function updateRightPanelSizing() {
+        const statusPanel = getCachedElementById('statusPanel');
+        const routePanel = getCachedElementById('routeSelector');
+        if (!statusPanel || !routePanel) return;
+
+        // Update collapsed state classes
+        statusPanel.classList.toggle('is-collapsed', statusPanelCollapsed);
+        routePanel.classList.toggle('is-collapsed', routePanelCollapsed);
+
+        // Update sizing classes based on collapse states
+        if (statusPanelCollapsed && routePanelCollapsed) {
+          // Both collapsed
+          statusPanel.classList.remove('panel--half', 'panel--full');
+          statusPanel.classList.add('panel--collapsed');
+          routePanel.classList.remove('panel--half', 'panel--full');
+          routePanel.classList.add('panel--collapsed');
+        } else if (statusPanelCollapsed) {
+          // Only status collapsed, route gets full height
+          statusPanel.classList.remove('panel--half', 'panel--full');
+          statusPanel.classList.add('panel--collapsed');
+          routePanel.classList.remove('panel--half', 'panel--collapsed');
+          routePanel.classList.add('panel--full');
+        } else if (routePanelCollapsed) {
+          // Only route collapsed, status gets full height
+          statusPanel.classList.remove('panel--half', 'panel--collapsed');
+          statusPanel.classList.add('panel--full');
+          routePanel.classList.remove('panel--half', 'panel--full');
+          routePanel.classList.add('panel--collapsed');
+        } else {
+          // Both open, 50/50 split
+          statusPanel.classList.remove('panel--collapsed', 'panel--full');
+          statusPanel.classList.add('panel--half');
+          routePanel.classList.remove('panel--collapsed', 'panel--full');
+          routePanel.classList.add('panel--half');
+        }
+      }
+
+      function toggleStatusIncidentsExpanded() {
+        statusPanelIncidentsExpanded = !statusPanelIncidentsExpanded;
+        const toggle = document.querySelector('.status-incidents-toggle');
+        if (toggle) {
+          toggle.classList.toggle('is-expanded', statusPanelIncidentsExpanded);
+        }
+      }
+
+      async function fetchStatusPanelData() {
+        const results = await Promise.allSettled([
+          fetch('/v1/uts/service_level').then(r => r.ok ? r.json() : null),
+          fetch('/v1/uts/on_duty').then(r => r.ok ? r.json() : null),
+          fetch('/v1/transloc/anti_bunching/status').then(r => r.ok ? r.json() : null)
+        ]);
+
+        statusPanelData.serviceLevel = results[0].status === 'fulfilled' ? results[0].value : null;
+        statusPanelData.onDuty = results[1].status === 'fulfilled' ? results[1].value : null;
+        statusPanelData.antiBunchingStatus = results[2].status === 'fulfilled' ? results[2].value : null;
+        statusPanelData.lastRefresh = Date.now();
+
+        renderStatusPanel();
+      }
+
+      function getStaleInServiceVehicles() {
+        // Get count of stale vehicles that are assigned to a route and in service
+        const staleVehicles = [];
+        if (typeof latestVehicles === 'undefined' || !Array.isArray(latestVehicles)) {
+          return staleVehicles;
+        }
+        for (const v of latestVehicles) {
+          if (!v) continue;
+          const routeId = v.RouteID || v.RouteId || v.route_id;
+          const isStale = v.stale === true || v.IsStale === true || v.Stale === true || v.StaleGPS === true;
+          // Only count if assigned to a route (not out of service) and stale
+          if (routeId && routeId !== '0' && isStale) {
+            staleVehicles.push(v);
+          }
+        }
+        return staleVehicles;
+      }
+
+      function getActiveSystemStateFlags() {
+        // Get current system state flags (weather radar, ADS-B, etc.)
+        const flags = [];
+        if (typeof radarEnabled !== 'undefined' && radarEnabled) {
+          flags.push('Weather radar active');
+        }
+        if (typeof adsb_enabled !== 'undefined' && adsb_enabled) {
+          flags.push('ADS-B overlay active');
+        }
+        return flags;
+      }
+
+      function renderStatusPanel() {
+        const panel = getCachedElementById('statusPanel');
+        if (!panel) return;
+
+        // Build SERVICE section
+        let serviceHtml = '';
+        const sl = statusPanelData.serviceLevel;
+        if (sl && sl.service_level && sl.service_level !== 'UNKNOWN') {
+          serviceHtml = `<div class="status-section__value">${escapeHtml(sl.service_level)}</div>`;
+          if (sl.notes) {
+            serviceHtml += `<div class="status-section__value" style="font-size:13px;color:var(--panel-muted-text)">${escapeHtml(sl.notes)}</div>`;
+          }
+        } else {
+          serviceHtml = `<div class="status-section__value status-section__value--empty">Unknown</div>`;
+        }
+
+        // Build ON DUTY section
+        let onDutyHtml = '';
+        const od = statusPanelData.onDuty;
+        const supervisors = od?.supervisors || [];
+        const dispatchers = od?.ondemand_dispatchers || [];
+
+        onDutyHtml += '<div style="margin-bottom:6px"><span style="font-size:12px;color:var(--panel-muted-text)">Supervisor:</span> ';
+        if (supervisors.length > 0) {
+          onDutyHtml += supervisors.map(s => escapeHtml(s.name)).join(', ');
+        } else {
+          onDutyHtml += '<span class="status-section__value--empty">— none assigned —</span>';
+        }
+        onDutyHtml += '</div>';
+
+        onDutyHtml += '<div><span style="font-size:12px;color:var(--panel-muted-text)">OnDemand Dispatcher:</span> ';
+        if (dispatchers.length > 0) {
+          onDutyHtml += dispatchers.map(d => escapeHtml(d.name)).join(', ');
+        } else {
+          onDutyHtml += '<span class="status-section__value--empty">— none assigned —</span>';
+        }
+        onDutyHtml += '</div>';
+
+        // Build ACTIVE CONDITIONS section
+        let conditionsHtml = '';
+
+        // Anti-Bunching status
+        const abStatus = statusPanelData.antiBunchingStatus?.status || 'N/A';
+        const abIndicatorClass = abStatus === 'ONLINE' ? 'online' : (abStatus === 'OFFLINE' ? 'offline' : 'na');
+        const abConditionClass = abStatus === 'OFFLINE' ? 'status-condition--warn' : '';
+        conditionsHtml += `
+          <div class="status-condition ${abConditionClass}">
+            <span class="status-condition__indicator status-condition__indicator--${abIndicatorClass}"></span>
+            Anti-Bunching: ${abStatus === 'ONLINE' ? 'Online' : (abStatus === 'OFFLINE' ? 'Offline' : 'N/A')}
+          </div>
+        `;
+
+        // Active Incidents
+        const nearRouteIncidents = Array.isArray(incidentsNearRoutes) ? incidentsNearRoutes : [];
+        const incidentCount = nearRouteIncidents.length;
+        const incidentsExpandedClass = statusPanelIncidentsExpanded ? 'is-expanded' : '';
+
+        conditionsHtml += `
+          <button type="button" class="status-incidents-toggle ${incidentsExpandedClass}" onclick="toggleStatusIncidentsExpanded()">
+            <svg class="status-incidents-toggle__chevron" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M4 2l4 4-4 4"/>
+            </svg>
+            Active incidents: ${incidentCount}
+          </button>
+        `;
+
+        if (incidentCount > 0) {
+          conditionsHtml += '<div class="status-incidents-list">';
+          // Sort by dispatch time, oldest first
+          const sortedIncidents = nearRouteIncidents.slice().sort((a, b) => {
+            const aTime = a.incident?.CallReceivedDateTime || 0;
+            const bTime = b.incident?.CallReceivedDateTime || 0;
+            return aTime - bTime;
+          });
+
+          // Limit to 5 incidents to avoid overflowing
+          const displayIncidents = sortedIncidents.slice(0, 5);
+          for (const entry of displayIncidents) {
+            const incident = entry.incident;
+            if (!incident) continue;
+            const callType = incident.PulsePointIncidentCallType || incident.CallType || 'Incident';
+            const location = incident.FullDisplayAddress || incident.DisplayAddress || 'Unknown location';
+            const dispatchTime = incident.CallReceivedDateTime
+              ? new Date(incident.CallReceivedDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+              : '—';
+            const onSceneTime = entry.firstOnSceneTimestamp
+              ? new Date(entry.firstOnSceneTimestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+              : '—';
+            const units = (incident.Unit || []).filter(u => u.UnitID && !u.UnitID.startsWith('UVA')).length;
+
+            conditionsHtml += `
+              <div class="status-incident">
+                <div class="status-incident__type">${escapeHtml(callType)}</div>
+                <div class="status-incident__location">${escapeHtml(location)}</div>
+                <div class="status-incident__meta">
+                  <span>Dispatch: ${dispatchTime}</span>
+                  <span>On-scene: ${onSceneTime}</span>
+                  <span>Units: ${units}</span>
+                </div>
+              </div>
+            `;
+          }
+          if (sortedIncidents.length > 5) {
+            conditionsHtml += `<div style="font-size:12px;color:var(--panel-muted-text);padding:4px 0">+ ${sortedIncidents.length - 5} more</div>`;
+          }
+          conditionsHtml += '</div>';
+        } else {
+          conditionsHtml += '<div class="status-incidents-list"></div>';
+        }
+
+        // Stale vehicles (conditional)
+        const staleVehicles = getStaleInServiceVehicles();
+        if (staleVehicles.length > 0) {
+          conditionsHtml += `
+            <div class="status-condition status-condition--warn">
+              Stale vehicles (in service): ${staleVehicles.length}
+            </div>
+          `;
+        }
+
+        // Build SYSTEM STATE section (optional)
+        const systemFlags = getActiveSystemStateFlags();
+        let systemStateHtml = '';
+        if (systemFlags.length > 0) {
+          systemStateHtml = `
+            <div class="status-section">
+              <div class="status-section__label">System State</div>
+              <div class="status-flags">
+                ${systemFlags.map(f => `<span class="status-flag">${escapeHtml(f)}</span>`).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        // Build the full panel HTML
+        const toggleSvg = `<svg class="selector-header__toggle" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg>`;
+        const html = `
+          <div class="selector-header selector-header--collapsible" onclick="toggleStatusPanelCollapse()">
+            <div class="selector-header-text">
+              <div class="selector-title">Status</div>
+            </div>
+            ${toggleSvg}
+          </div>
+          <div class="selector-content">
+            <div class="status-section">
+              <div class="status-section__label">Service</div>
+              ${serviceHtml}
+            </div>
+            <div class="status-section">
+              <div class="status-section__label">On Duty</div>
+              ${onDutyHtml}
+            </div>
+            <div class="status-section">
+              <div class="status-section__label">Active Conditions</div>
+              ${conditionsHtml}
+            </div>
+            ${systemStateHtml}
+          </div>
+        `;
+
+        panel.innerHTML = html;
+        updateRightPanelSizing();
+      }
+
+      function initStatusPanel() {
+        if (!isUvaAgencySelected()) {
+          // Hide status panel for non-UVA agencies
+          const panel = getCachedElementById('statusPanel');
+          if (panel) panel.style.display = 'none';
+          return;
+        }
+
+        const panel = getCachedElementById('statusPanel');
+        if (panel) panel.style.display = '';
+
+        fetchStatusPanelData();
+        // Set up periodic refresh
+        setInterval(fetchStatusPanelData, STATUS_PANEL_REFRESH_INTERVAL_MS);
+      }
+
+      // Make functions globally accessible for onclick handlers
+      window.toggleStatusPanelCollapse = toggleStatusPanelCollapse;
+      window.toggleRoutePanelCollapse = toggleRoutePanelCollapse;
+      window.toggleStatusIncidentsExpanded = toggleStatusIncidentsExpanded;
 
       function shouldCollapsePanelsOnLoad() {
         return dispatcherMode || isCompactViewport();
@@ -9980,7 +10311,7 @@ ${trainPlaneMarkup}
 
         const controlPanel = getCachedElementById('controlPanel');
         const controlTab = getCachedElementById('controlPanelTab');
-        const routePanel = getCachedElementById('routeSelector');
+        const rightPanelColumn = getCachedElementById('rightPanelColumn');
         const routeTab = getCachedElementById('routeSelectorTab');
 
         if (controlPanel && !controlPanel.classList.contains('hidden')) {
@@ -9990,8 +10321,8 @@ ${trainPlaneMarkup}
           setPanelToggleArrow(controlTab, 'out');
         }
 
-        if (routePanel && !routePanel.classList.contains('hidden')) {
-          routePanel.classList.add('hidden');
+        if (rightPanelColumn && !rightPanelColumn.classList.contains('hidden')) {
+          rightPanelColumn.classList.add('hidden');
         }
         if (routeTab) {
           setPanelToggleArrow(routeTab, 'out');
@@ -20841,6 +21172,7 @@ ${trainPlaneMarkup}
             return loadAgencyData()
               .then(() => {
                 startRefreshIntervals();
+                initStatusPanel();
               });
           })
           .catch(error => {

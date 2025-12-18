@@ -67,6 +67,13 @@ from uva_athletics import (
     is_home_location,
     load_cached_events,
 )
+from service_level import (
+    SERVICE_SCHEDULE_URL,
+    ServiceLevelResult,
+    ServiceLevelCache,
+    get_service_date,
+    parse_service_schedule,
+)
 
 # Ensure local time aligns with Charlottesville, VA
 os.environ.setdefault("TZ", "America/New_York")
@@ -1849,6 +1856,15 @@ class State:
         # Cached vehicle driver mapping
         self.vehicle_drivers_cache: Optional[Dict[str, Any]] = None
         self.vehicle_drivers_ts: float = 0.0
+        # Anti-bunching status tracking (anti-flap protection)
+        # Require 2 consecutive failures before switching to OFFLINE
+        # Require 1 successful evaluation to return to ONLINE
+        self.anti_bunching_consecutive_failures: int = 0
+        self.anti_bunching_last_status: str = "N/A"
+        self.anti_bunching_status_ts: float = 0.0
+        # Service level cache (scraped from parking.virginia.edu)
+        self.service_level_cache: ServiceLevelCache = ServiceLevelCache()
+        self.service_level_lock: asyncio.Lock = asyncio.Lock()
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -2277,25 +2293,57 @@ def _normalize_ride_id(value: Any) -> str:
 
 
 def _resolve_ride_status(
-    ride: Mapping[str, Any], status_lookup: Mapping[str, str]
+    ride: Mapping[str, Any], status_lookup: Mapping[str, Any]
 ) -> Optional[str]:
+    """Resolve ride status from lookup or ride object.
+
+    status_lookup can be either:
+    - Dict[str, str]: old format mapping ride_id -> status
+    - Dict[str, Dict[str, Any]]: new format mapping ride_id -> ride_info with 'status' key
+    """
     ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
     ride_id_normalized = _normalize_ride_id(ride_id_val)
     if ride_id_normalized:
         mapped = status_lookup.get(ride_id_normalized)
-        if mapped not in {None, ""}:
+        if isinstance(mapped, dict):
+            # New format: ride_info dict with 'status' key
+            status_val = mapped.get("status")
+            if status_val not in {None, ""}:
+                return status_val
+        elif mapped not in {None, ""}:
+            # Old format: direct status string
             return mapped
     status_raw = ride.get("status")
     return status_raw if status_raw not in {None, ""} else None
 
 
+def _get_ride_info(
+    ride_id: str, rides_map: Mapping[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Get full ride info from the rides map."""
+    ride_id_normalized = _normalize_ride_id(ride_id)
+    if not ride_id_normalized:
+        return None
+    info = rides_map.get(ride_id_normalized)
+    return info if isinstance(info, dict) else None
+
+
 async def fetch_ondemand_rides(
     client: OnDemandClient, schedules: Optional[Sequence[Dict[str, Any]]] = None
-) -> Dict[str, str]:
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch ride details including status and pickup/dropoff addresses.
+
+    Returns a dict mapping ride_id to ride info including:
+    - status: the ride status (pending, in_progress, etc.)
+    - pickup_address: pickup location address (if available)
+    - dropoff_address: dropoff location address (if available)
+    - rider_name: rider name (if available)
+    - vehicle_id: assigned vehicle ID (if available)
+    """
     if not ONDEMAND_RIDES_URL:
         return {}
 
-    async def fetch() -> Dict[str, str]:
+    async def fetch() -> Dict[str, Dict[str, Any]]:
         now = datetime.now(timezone.utc)
         schedule_start, schedule_end = _extract_schedule_time_bounds(schedules)
         padding = timedelta(minutes=max(0, ONDEMAND_RIDES_WINDOW_PADDING_MIN))
@@ -2340,27 +2388,7 @@ async def fetch_ondemand_rides(
             if isinstance(candidate, list):
                 data = candidate
 
-        schedule_ride_ids: Set[str] = set()
-        if schedules:
-            for vehicle in schedules:
-                if not isinstance(vehicle, dict):
-                    continue
-                stops = vehicle.get("stops")
-                if not isinstance(stops, list):
-                    continue
-                for stop in stops:
-                    rides = stop.get("rides") if isinstance(stop, dict) else None
-                    if not isinstance(rides, list):
-                        continue
-                    for ride in rides:
-                        if not isinstance(ride, dict):
-                            continue
-                        ride_id_val = ride.get("ride_id") or ride.get("rideId") or ride.get("id")
-                        ride_id_normalized = _normalize_ride_id(ride_id_val)
-                        if ride_id_normalized:
-                            schedule_ride_ids.add(ride_id_normalized)
-
-        status_map: Dict[str, str] = {}
+        rides_map: Dict[str, Dict[str, Any]] = {}
         for ride in data:
             if not isinstance(ride, dict):
                 continue
@@ -2368,12 +2396,60 @@ async def fetch_ondemand_rides(
             ride_id_normalized = _normalize_ride_id(ride_id_val)
             if not ride_id_normalized:
                 continue
-            if schedule_ride_ids and ride_id_normalized not in schedule_ride_ids:
-                continue
+
+            ride_info: Dict[str, Any] = {}
+
+            # Extract status
             status_val = ride.get("status")
             if status_val not in {None, ""}:
-                status_map[ride_id_normalized] = status_val
-        return status_map
+                ride_info["status"] = status_val
+
+            # Extract pickup address
+            pickup = ride.get("pickup") or ride.get("origin") or ride.get("pickup_location")
+            if isinstance(pickup, dict):
+                pickup_addr = pickup.get("address") or pickup.get("label") or pickup.get("name")
+                if pickup_addr:
+                    ride_info["pickup_address"] = str(pickup_addr).strip()
+            elif isinstance(pickup, str) and pickup.strip():
+                ride_info["pickup_address"] = pickup.strip()
+            # Also check top-level fields
+            if "pickup_address" not in ride_info:
+                for key in ("pickup_address", "pickupAddress", "origin_address", "originAddress"):
+                    val = ride.get(key)
+                    if isinstance(val, str) and val.strip():
+                        ride_info["pickup_address"] = val.strip()
+                        break
+
+            # Extract dropoff address
+            dropoff = ride.get("dropoff") or ride.get("destination") or ride.get("dropoff_location")
+            if isinstance(dropoff, dict):
+                dropoff_addr = dropoff.get("address") or dropoff.get("label") or dropoff.get("name")
+                if dropoff_addr:
+                    ride_info["dropoff_address"] = str(dropoff_addr).strip()
+            elif isinstance(dropoff, str) and dropoff.strip():
+                ride_info["dropoff_address"] = dropoff.strip()
+            # Also check top-level fields
+            if "dropoff_address" not in ride_info:
+                for key in ("dropoff_address", "dropoffAddress", "destination_address", "destinationAddress"):
+                    val = ride.get(key)
+                    if isinstance(val, str) and val.strip():
+                        ride_info["dropoff_address"] = val.strip()
+                        break
+
+            # Extract rider name
+            rider_name = _format_rider_name(ride.get("rider") or ride.get("passenger"))
+            if rider_name:
+                ride_info["rider_name"] = rider_name
+
+            # Extract vehicle ID
+            vehicle_id = ride.get("vehicle_id") or ride.get("vehicleId")
+            if vehicle_id not in {None, ""}:
+                ride_info["vehicle_id"] = str(vehicle_id).strip()
+
+            if ride_info:
+                rides_map[ride_id_normalized] = ride_info
+
+        return rides_map
 
     return await ondemand_rides_cache.get(fetch)
 
@@ -2382,19 +2458,19 @@ def build_ondemand_virtual_stops(
     schedules: Sequence[Dict[str, Any]],
     now: datetime,
     pending_ride_ids: Optional[Set[str]] = None,
-    ride_status_map: Optional[Mapping[str, str]] = None,
+    rides_map: Optional[Mapping[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     if not schedules:
         return []
 
     cutoff = now - timedelta(seconds=max(0, ONDEMAND_VIRTUAL_STOP_MAX_AGE_S))
     records: List[Dict[str, Any]] = []
-    status_lookup: Dict[str, str] = {}
-    if ride_status_map:
-        status_lookup = {
+    rides_lookup: Dict[str, Dict[str, Any]] = {}
+    if rides_map:
+        rides_lookup = {
             _normalize_ride_id(key): value
-            for key, value in ride_status_map.items()
-            if key not in {None, ""}
+            for key, value in rides_map.items()
+            if key not in {None, ""} and isinstance(value, dict)
         }
 
     for vehicle in schedules:
@@ -2448,7 +2524,7 @@ def build_ondemand_virtual_stops(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
-                status_raw = _resolve_ride_status(ride, status_lookup)
+                status_raw = _resolve_ride_status(ride, rides_lookup)
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
@@ -2524,18 +2600,18 @@ def build_ondemand_next_stop_targets(
     schedules: Sequence[Dict[str, Any]],
     now: datetime,
     pending_ride_ids: Optional[Set[str]] = None,
-    ride_status_map: Optional[Mapping[str, str]] = None,
+    rides_map: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     targets: Dict[str, Dict[str, Any]] = {}
     if not schedules:
         return targets
 
-    status_lookup: Dict[str, str] = {}
-    if ride_status_map:
-        status_lookup = {
+    rides_lookup: Dict[str, Dict[str, Any]] = {}
+    if rides_map:
+        rides_lookup = {
             _normalize_ride_id(key): value
-            for key, value in ride_status_map.items()
-            if key not in {None, ""}
+            for key, value in rides_map.items()
+            if key not in {None, ""} and isinstance(value, dict)
         }
 
     for vehicle in schedules:
@@ -2594,7 +2670,7 @@ def build_ondemand_next_stop_targets(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
-                ride_status_raw = _resolve_ride_status(ride, status_lookup)
+                ride_status_raw = _resolve_ride_status(ride, rides_lookup)
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
@@ -2644,15 +2720,20 @@ def build_ondemand_next_stop_targets(
 def build_ondemand_vehicle_stop_plans(
     schedules: Sequence[Dict[str, Any]],
     pending_ride_ids: Optional[Set[str]] = None,
-    ride_status_map: Optional[Mapping[str, str]] = None,
+    rides_map: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
+    """Build stop plans for each vehicle from schedule data.
+
+    Also supplements with pickup addresses from rides_map for in_progress rides
+    that only have dropoff stops in the schedule (pickup already completed).
+    """
     plans: Dict[str, List[Dict[str, Any]]] = {}
-    status_lookup: Dict[str, str] = {}
-    if ride_status_map:
-        status_lookup = {
+    rides_lookup: Dict[str, Dict[str, Any]] = {}
+    if rides_map:
+        rides_lookup = {
             _normalize_ride_id(key): value
-            for key, value in ride_status_map.items()
-            if key not in {None, ""}
+            for key, value in rides_map.items()
+            if key not in {None, ""} and isinstance(value, dict)
         }
     for vehicle in schedules:
         if not isinstance(vehicle, dict):
@@ -2679,7 +2760,7 @@ def build_ondemand_vehicle_stop_plans(
             for ride in rides:
                 if not isinstance(ride, dict):
                     continue
-                status_raw = _resolve_ride_status(ride, status_lookup)
+                status_raw = _resolve_ride_status(ride, rides_lookup)
                 stop_type_raw = ride.get("stop_type") or ride.get("stopType")
                 stop_type = str(stop_type_raw or "").strip().lower()
                 if stop_type not in {"pickup", "dropoff"}:
@@ -2702,6 +2783,13 @@ def build_ondemand_vehicle_stop_plans(
                 ride_id = str(ride_id_val).strip() if ride_id_val not in {None, ""} else ""
                 if ride_id:
                     ride_record["rideId"] = ride_id
+                    # For in_progress rides with dropoff, include pickup address from rides_map
+                    if stop_type == "dropoff":
+                        ride_info = rides_lookup.get(_normalize_ride_id(ride_id))
+                        if isinstance(ride_info, dict):
+                            pickup_addr = ride_info.get("pickup_address")
+                            if pickup_addr:
+                                ride_record["pickupAddress"] = pickup_addr
                 if status_raw is not None:
                     ride_record["rideStatus"] = status_raw
                 if ride_riders:
@@ -2885,7 +2973,7 @@ async def _collect_ondemand_data(
     # Fetch schedules and rides in parallel for lower latency
     schedules: List[Dict[str, Any]] = []
     pending_ride_ids: Set[str] = set()
-    ride_status_map: Dict[str, str] = {}
+    rides_map: Dict[str, Dict[str, Any]] = {}
     try:
         schedules_result, rides_result = await asyncio.gather(
             fetch_ondemand_schedules(client),
@@ -2899,16 +2987,17 @@ async def _collect_ondemand_data(
             schedules = schedules_result
         if isinstance(rides_result, Exception):
             print(f"[ondemand] rides processing failed: {rides_result}")
-            ride_status_map = {}
+            rides_map = {}
         else:
-            ride_status_map = rides_result
+            rides_map = rides_result
     except Exception as exc:
         print(f"[ondemand] parallel schedules/rides fetch failed: {exc}")
 
     pending_ride_ids = {
         ride_id
-        for ride_id, status in ride_status_map.items()
-        if str(status).strip().lower().startswith("pending")
+        for ride_id, ride_info in rides_map.items()
+        if isinstance(ride_info, dict)
+        and str(ride_info.get("status", "")).strip().lower().startswith("pending")
     }
 
     # Enrich the schedule rides with statuses from the rides endpoint so every
@@ -2934,15 +3023,17 @@ async def _collect_ondemand_data(
                 )
                 if not ride_id_key:
                     continue
-                status_value = ride_status_map.get(ride_id_key)
-                if status_value not in {None, ""}:
-                    ride["status"] = status_value
+                ride_info = rides_map.get(ride_id_key)
+                if isinstance(ride_info, dict):
+                    status_value = ride_info.get("status")
+                    if status_value not in {None, ""}:
+                        ride["status"] = status_value
 
     stop_plans = build_ondemand_vehicle_stop_plans(
-        schedules, pending_ride_ids, ride_status_map
+        schedules, pending_ride_ids, rides_map
     )
     next_stop_targets = build_ondemand_next_stop_targets(
-        schedules, current_dt, pending_ride_ids, ride_status_map
+        schedules, current_dt, pending_ride_ids, rides_map
     )
 
     vehicles: List[Dict[str, Any]] = []
@@ -3037,7 +3128,7 @@ async def _collect_ondemand_data(
         vehicles.append(vehicle_payload)
 
     ondemand_stops = build_ondemand_virtual_stops(
-        schedules, current_dt, pending_ride_ids, ride_status_map
+        schedules, current_dt, pending_ride_ids, rides_map
     )
 
     return {"vehicles": vehicles, "ondemandStops": ondemand_stops}
@@ -9156,6 +9247,406 @@ async def anti_bunching_raw():
         state.anti_cache = data
         state.anti_cache_ts = time.time()
     return data
+
+
+def _compute_anti_bunching_status(routes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compute anti-bunching system status from route data.
+
+    Status rules:
+    - N/A: No eligible routes (routes with 2+ assigned vehicles)
+    - ONLINE: At least one eligible route AND at least one unit has guidance
+    - OFFLINE: At least one eligible route AND zero units have guidance
+
+    Returns a dict with status, eligible_routes, eligible_units, units_with_guidance.
+    """
+    eligible_routes = 0
+    eligible_units = 0
+    units_with_guidance = 0
+
+    for route in routes:
+        assigned = route.get("AssignedVehicles", 0)
+        # A route is eligible if it has 2+ assigned vehicles
+        if assigned >= 2:
+            eligible_routes += 1
+            eligible_units += assigned
+            # Count vehicles that have guidance entries
+            guidance_entries = route.get("VehicleAntiBunching", [])
+            if isinstance(guidance_entries, list):
+                units_with_guidance += len(guidance_entries)
+
+    # Determine raw status (before anti-flap protection)
+    if eligible_routes == 0:
+        raw_status = "N/A"
+    elif units_with_guidance > 0:
+        raw_status = "ONLINE"
+    else:
+        raw_status = "OFFLINE"
+
+    return {
+        "raw_status": raw_status,
+        "eligible_routes": eligible_routes,
+        "eligible_units": eligible_units,
+        "units_with_guidance": units_with_guidance,
+    }
+
+
+@app.get("/v1/transloc/anti_bunching/status")
+async def anti_bunching_status():
+    """Get anti-bunching system status indicator.
+
+    Returns a derived status value:
+    - ONLINE: Anti-bunching is producing guidance for eligible routes
+    - OFFLINE: Eligible routes exist but no guidance is being produced
+    - N/A: No eligible routes (routes with 2+ vehicles in service)
+
+    Anti-flap protection:
+    - Requires 2 consecutive failed evaluations before switching to OFFLINE
+    - Requires 1 successful evaluation to return to ONLINE
+    """
+    # Fetch fresh anti-bunching data (uses internal cache)
+    try:
+        routes = await anti_bunching_raw()
+        if not isinstance(routes, list):
+            routes = []
+    except HTTPException:
+        # API error - treat as potential OFFLINE condition
+        routes = []
+
+    result = _compute_anti_bunching_status(routes)
+    raw_status = result["raw_status"]
+    now = datetime.now(timezone.utc)
+    now_ts = time.time()
+
+    # Apply anti-flap protection
+    async with state.lock:
+        prev_status = state.anti_bunching_last_status
+
+        if raw_status == "N/A":
+            # N/A is always immediate - no flap protection needed
+            final_status = "N/A"
+            state.anti_bunching_consecutive_failures = 0
+        elif raw_status == "ONLINE":
+            # Success: immediately return to ONLINE (1 success required)
+            final_status = "ONLINE"
+            state.anti_bunching_consecutive_failures = 0
+        else:
+            # raw_status == "OFFLINE"
+            # Increment consecutive failures
+            state.anti_bunching_consecutive_failures += 1
+            if state.anti_bunching_consecutive_failures >= 2:
+                # 2 consecutive failures: switch to OFFLINE
+                final_status = "OFFLINE"
+            else:
+                # First failure: maintain previous status (unless N/A)
+                if prev_status == "N/A":
+                    final_status = "OFFLINE"
+                else:
+                    final_status = prev_status
+
+        state.anti_bunching_last_status = final_status
+        state.anti_bunching_status_ts = now_ts
+
+    return {
+        "status": final_status,
+        "eligible_routes": result["eligible_routes"],
+        "eligible_units": result["eligible_units"],
+        "units_with_guidance": result["units_with_guidance"],
+        "evaluated_at": now.isoformat(),
+    }
+
+
+# ---------------------------
+# REST: UTS Service Level
+# ---------------------------
+
+# User-Agent for scraping (be respectful)
+SERVICE_LEVEL_USER_AGENT = "UTS-Operations-Dashboard/1.0 (University of Virginia; +https://parking.virginia.edu)"
+
+
+async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult:
+    """
+    Fetch and parse the service level from parking.virginia.edu.
+
+    Args:
+        bypass_cache: If True, skip HTTP cache headers and force a fresh fetch
+
+    Returns:
+        ServiceLevelResult with current service level data
+    """
+    service_date = get_service_date()
+    service_date_str = service_date.isoformat()
+    now_ts = time.time()
+
+    async with state.service_level_lock:
+        cache = state.service_level_cache
+
+        # Check if we have a valid cached result for current service date
+        if not bypass_cache and cache.result is not None:
+            if cache.result.service_date == service_date_str:
+                # Cache hit for current service day
+                return cache.result
+
+        # Build request headers
+        headers = {"User-Agent": SERVICE_LEVEL_USER_AGENT}
+        if not bypass_cache:
+            if cache.etag:
+                headers["If-None-Match"] = cache.etag
+            if cache.last_modified:
+                headers["If-Modified-Since"] = cache.last_modified
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(SERVICE_SCHEDULE_URL, headers=headers)
+                record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
+
+                if resp.status_code == 304:
+                    # Not modified - return cached result if valid for current date
+                    if cache.result and cache.result.service_date == service_date_str:
+                        return cache.result
+                    # Cache is for a different date, need to re-fetch without cache headers
+                    resp = await client.get(
+                        SERVICE_SCHEDULE_URL,
+                        headers={"User-Agent": SERVICE_LEVEL_USER_AGENT},
+                    )
+                    record_api_call("GET", SERVICE_SCHEDULE_URL, resp.status_code)
+
+                if resp.status_code != 200:
+                    error_msg = f"HTTP {resp.status_code} from {SERVICE_SCHEDULE_URL}"
+                    # Return cached value if available for current date
+                    if cache.result and cache.result.service_date == service_date_str:
+                        return cache.result
+                    return ServiceLevelResult(
+                        service_date=service_date_str,
+                        service_level="UNKNOWN",
+                        notes=None,
+                        scraped_at=datetime.now(UVA_TZ).isoformat(),
+                        error=error_msg,
+                    )
+
+                html = resp.text
+                result = parse_service_schedule(html, service_date)
+
+                # Update cache
+                cache.result = result
+                cache.etag = resp.headers.get("ETag")
+                cache.last_modified = resp.headers.get("Last-Modified")
+                cache.fetched_at = now_ts
+                state.service_level_cache = cache
+
+                return result
+
+        except httpx.HTTPError as exc:
+            error_msg = f"Network error fetching service schedule: {exc}"
+            # Return cached value if available for current date
+            if cache.result and cache.result.service_date == service_date_str:
+                return cache.result
+            return ServiceLevelResult(
+                service_date=service_date_str,
+                service_level="UNKNOWN",
+                notes=None,
+                scraped_at=datetime.now(UVA_TZ).isoformat(),
+                error=error_msg,
+            )
+        except Exception as exc:
+            error_msg = f"Unexpected error: {exc}"
+            if cache.result and cache.result.service_date == service_date_str:
+                return cache.result
+            return ServiceLevelResult(
+                service_date=service_date_str,
+                service_level="UNKNOWN",
+                notes=None,
+                scraped_at=datetime.now(UVA_TZ).isoformat(),
+                error=error_msg,
+            )
+
+
+@app.get("/v1/uts/service_level")
+async def uts_service_level():
+    """Get the current UTS service level.
+
+    Returns:
+        JSON with service_date, service_level, notes, source_url, scraped_at, source_hash.
+        If unable to determine, service_level will be "UNKNOWN" with an error field.
+    """
+    result = await _fetch_service_level(bypass_cache=False)
+    return result.to_dict()
+
+
+@app.post("/v1/uts/service_level/refresh")
+async def uts_service_level_refresh():
+    """Force refresh the UTS service level from the source page.
+
+    Admin-only endpoint to bypass cache and re-scrape the service schedule.
+    Useful when the webpage is updated unexpectedly during the day.
+
+    Returns:
+        Same response shape as GET /v1/uts/service_level
+    """
+    result = await _fetch_service_level(bypass_cache=True)
+    return result.to_dict()
+
+
+# ---------------------------
+# REST: On-Duty Personnel
+# ---------------------------
+
+# Position codes for on-duty personnel lookup
+ON_DUTY_POSITION_CODES = {
+    "Sup": "Supervisor",
+    "OnDemand Dispatch": "OnDemand Dispatcher",
+}
+
+
+async def _fetch_on_duty_personnel() -> Dict[str, Any]:
+    """
+    Fetch on-duty personnel from W2W assignments.
+
+    Returns supervisors and OnDemand dispatchers currently on shift.
+    """
+    tz = ZoneInfo("America/New_York")
+    now = datetime.now(tz)
+    now_ts = int(now.timestamp() * 1000)
+
+    try:
+        w2w_data = await w2w_assignments_cache.get(_fetch_w2w_assignments)
+        if w2w_data.get("disabled"):
+            return {
+                "supervisors": [],
+                "ondemand_dispatchers": [],
+                "fetched_at": now.isoformat(),
+                "disabled": True,
+            }
+    except Exception as exc:
+        print(f"[on_duty] w2w fetch failed: {exc}")
+        return {
+            "supervisors": [],
+            "ondemand_dispatchers": [],
+            "fetched_at": now.isoformat(),
+            "error": str(exc),
+        }
+
+    # Parse the raw W2W shift data to find Sup and OnDemand Dispatch positions
+    # We need to re-fetch and parse the raw shifts since _build_driver_assignments
+    # filters out non-block positions
+    supervisors = []
+    ondemand_dispatchers = []
+
+    # Fetch fresh W2W data with raw shifts
+    try:
+        if not W2W_KEY:
+            return {
+                "supervisors": [],
+                "ondemand_dispatchers": [],
+                "fetched_at": now.isoformat(),
+                "disabled": True,
+            }
+
+        service_day = now
+        if now.time() < dtime(hour=2, minute=30):
+            service_day = now - timedelta(days=1)
+
+        params = {
+            "start_date": f"{service_day.month}/{service_day.day}/{service_day.year}",
+            "end_date": f"{service_day.month}/{service_day.day}/{service_day.year}",
+            "key": W2W_KEY,
+        }
+        url = httpx.URL(W2W_ASSIGNED_SHIFT_URL)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=params, timeout=20)
+        record_api_call("GET", str(httpx.URL(str(url), params={**params, "key": "***"})), response.status_code)
+        response.raise_for_status()
+        payload = response.json()
+
+        shifts = []
+        if isinstance(payload, dict):
+            raw_shifts = payload.get("AssignedShiftList")
+            if isinstance(raw_shifts, list):
+                shifts = raw_shifts
+
+        for shift in shifts:
+            if not isinstance(shift, dict):
+                continue
+            position_name = shift.get("POSITION_NAME", "")
+            if not position_name:
+                continue
+
+            # Check if this is a Sup or OnDemand Dispatch position
+            position_key = None
+            for code in ON_DUTY_POSITION_CODES:
+                if position_name.strip() == code:
+                    position_key = code
+                    break
+
+            if not position_key:
+                continue
+
+            # Parse shift times
+            start_dt = _parse_w2w_datetime(shift.get("START_DATE"), shift.get("START_TIME"), tz)
+            if start_dt is None:
+                continue
+            end_dt = _parse_w2w_datetime(shift.get("END_DATE"), shift.get("END_TIME"), tz)
+            if end_dt is None:
+                duration_hours = _parse_duration_hours(shift.get("DURATION"))
+                if duration_hours:
+                    end_dt = start_dt + timedelta(hours=duration_hours)
+            if end_dt is None:
+                continue
+            if end_dt <= start_dt:
+                end_dt += timedelta(days=1)
+
+            # Check if shift is currently active
+            start_ts = int(start_dt.timestamp() * 1000)
+            end_ts = int(end_dt.timestamp() * 1000)
+            if now_ts < start_ts or now_ts >= end_ts:
+                continue
+
+            # Skip shifts with COLOR_ID 9 (no-show)
+            color_id = str(shift.get("COLOR_ID", "")).strip()
+            if color_id == "9":
+                continue
+
+            # Build person entry
+            first = str(shift.get("FIRST_NAME") or "").strip()
+            last = str(shift.get("LAST_NAME") or "").strip()
+            name = (first + " " + last).strip() or "OPEN"
+
+            person = {
+                "name": name,
+                "start": start_dt.strftime("%H:%M"),
+                "end": end_dt.strftime("%H:%M"),
+            }
+
+            if position_key == "Sup":
+                supervisors.append(person)
+            elif position_key == "OnDemand Dispatch":
+                ondemand_dispatchers.append(person)
+
+    except Exception as exc:
+        print(f"[on_duty] raw shift fetch failed: {exc}")
+        return {
+            "supervisors": [],
+            "ondemand_dispatchers": [],
+            "fetched_at": now.isoformat(),
+            "error": str(exc),
+        }
+
+    return {
+        "supervisors": supervisors,
+        "ondemand_dispatchers": ondemand_dispatchers,
+        "fetched_at": now.isoformat(),
+    }
+
+
+@app.get("/v1/uts/on_duty")
+async def uts_on_duty():
+    """Get on-duty supervisors and dispatchers.
+
+    Returns:
+        JSON with supervisors and ondemand_dispatchers arrays.
+        Each entry has name, start time, and end time.
+    """
+    return await _fetch_on_duty_personnel()
+
 
 # ---------------------------
 # REST: Low clearances

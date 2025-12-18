@@ -8,7 +8,10 @@
       "Bash(dir:*)",
       "Bash(git show:*)",
       "Bash(grep:*)",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(where:*)",
+      "Bash(pip install beautifulsoup4 lxml -q)",
+      "Bash(pip install:*)"
     ]
   }
 }

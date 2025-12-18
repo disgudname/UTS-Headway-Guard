@@ -47,6 +47,12 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
 <form id="cfg"></form>
 <button id="save">Save</button>
 <button id="forceRefresh">Force Refresh</button>
+<div class="panel" id="serviceLevelPanel">
+  <h2>Service Level</h2>
+  <p>Force refresh UTS service level from <a href="https://parking.virginia.edu/serviceschedule" target="_blank" style="color:#3a8ef6">parking.virginia.edu</a>.</p>
+  <button type="button" id="refreshServiceLevel">Refresh Service Level</button>
+  <div id="serviceLevelStatus" style="margin-top:12px;font-size:14px;"></div>
+</div>
 <div class="panel" id="headwayPanel">
   <h2>Headway Logs</h2>
   <p>Delete all stored headway log files from disk.</p>
@@ -234,6 +240,8 @@ document.getElementById('forceRefresh').onclick=()=>{
 };
 const logoutButton=document.getElementById('logoutButton');
 const clearHeadwayButton=document.getElementById('clearHeadway');
+const refreshServiceLevelButton=document.getElementById('refreshServiceLevel');
+const serviceLevelStatus=document.getElementById('serviceLevelStatus');
 if(logoutButton){
   const defaultLabel=logoutButton.textContent;
   logoutButton.addEventListener('click',async ()=>{
@@ -275,6 +283,42 @@ if(clearHeadwayButton){
     }finally{
       clearHeadwayButton.disabled=false;
       clearHeadwayButton.textContent=defaultLabel;
+    }
+  });
+}
+if(refreshServiceLevelButton){
+  const defaultLabel=refreshServiceLevelButton.textContent;
+  refreshServiceLevelButton.addEventListener('click',async ()=>{
+    refreshServiceLevelButton.disabled=true;
+    refreshServiceLevelButton.textContent='Refreshing...';
+    if(serviceLevelStatus) serviceLevelStatus.textContent='';
+    try{
+      const resp=await fetch('/v1/uts/service_level/refresh',{method:'POST'});
+      if(resp.status===401){
+        redirectToLogin();
+        return;
+      }
+      if(!resp.ok){
+        throw new Error('Failed to refresh');
+      }
+      const data=await resp.json().catch(()=>({}));
+      const level=data.service_level||'Unknown';
+      const notes=data.notes?` (${data.notes})`:'';
+      const scraped=data.scraped_at?new Date(data.scraped_at).toLocaleTimeString():'';
+      const statusMsg=data.error?`Error: ${data.error}`:`Service Level: ${level}${notes} — Scraped at ${scraped}`;
+      if(serviceLevelStatus){
+        serviceLevelStatus.textContent=statusMsg;
+        serviceLevelStatus.style.color=data.error?'#ff6b6b':'#4ecdc4';
+      }
+    }catch(err){
+      console.error('Failed to refresh service level',err);
+      if(serviceLevelStatus){
+        serviceLevelStatus.textContent='Unable to refresh service level. Please try again.';
+        serviceLevelStatus.style.color='#ff6b6b';
+      }
+    }finally{
+      refreshServiceLevelButton.disabled=false;
+      refreshServiceLevelButton.textContent=defaultLabel;
     }
   });
 }
