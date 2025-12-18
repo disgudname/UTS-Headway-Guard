@@ -7081,6 +7081,7 @@ TM.registerVisibilityResumeHandler(() => {
           if (!rideMap.has(rideKey)) {
             rideMap.set(rideKey, {
               rideId: stop.rideId,
+              rideStatus: stop.rideStatus || '',
               riders: stop.riders || [],
               pickup: null,
               dropoff: null,
@@ -7088,6 +7089,13 @@ TM.registerVisibilityResumeHandler(() => {
             });
           }
           const ride = rideMap.get(rideKey);
+          // Track the ride status (prefer in_progress over pending)
+          if (stop.rideStatus) {
+            const normalizedStatus = normalizeRideStatus(stop.rideStatus);
+            if (normalizedStatus === 'in_progress' || !ride.rideStatus) {
+              ride.rideStatus = normalizedStatus;
+            }
+          }
           if (stop.stopType === 'pickup') {
             ride.pickup = stop;
             if (Number.isFinite(stop.order) && stop.order < ride.minOrder) {
@@ -7108,9 +7116,16 @@ TM.registerVisibilityResumeHandler(() => {
         const rideCards = rides.map((ride, index) => {
           const riderName = ride.riders?.length ? ride.riders.join(', ') : 'Rider';
           const nextOrder = ride.pickup?.order ?? ride.dropoff?.order;
-          const orderLabel = Number.isFinite(nextOrder) ? `Next #${nextOrder}` : '';
-          const pickupAddress = ride.pickup?.address || 'Unknown pickup';
+          const orderLabel = Number.isFinite(nextOrder) ? `#${nextOrder}` : '';
+          // Determine if rider is on board (has dropoff but no pickup, or status is in_progress)
+          const isOnBoard = !ride.pickup && ride.dropoff && ride.rideStatus === 'in_progress';
+          const pickupAddress = ride.pickup?.address || (isOnBoard ? 'On board' : 'Unknown pickup');
           const dropoffAddress = ride.dropoff?.address || 'Unknown dropoff';
+          // Use different styling for "on board" status
+          const pickupIconClass = isOnBoard
+            ? 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--onboard'
+            : 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--pickup';
+          const pickupIcon = isOnBoard ? '✓' : 'P';
           return [
             '<div class="ondemand-driver-popup__ride-card">',
             '<div class="ondemand-driver-popup__ride-header">',
@@ -7119,7 +7134,7 @@ TM.registerVisibilityResumeHandler(() => {
             '</div>',
             '<div class="ondemand-driver-popup__ride-locations">',
             '<div class="ondemand-driver-popup__ride-location">',
-            '<span class="ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--pickup">P</span>',
+            `<span class="${pickupIconClass}">${pickupIcon}</span>`,
             `<span class="ondemand-driver-popup__ride-location-text">${escapeHtml(pickupAddress)}</span>`,
             '</div>',
             '<div class="ondemand-driver-popup__ride-location">',
