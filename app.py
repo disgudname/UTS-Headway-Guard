@@ -7527,6 +7527,7 @@ def _assemble_transloc_vehicles(
             ground_speed = veh.ground_mps / MPH_TO_MPS
             seconds = _coerce_float(getattr(veh, "age_s", seconds))
         is_stale = bool(seconds is not None and seconds > STALE_FIX_S)
+        is_very_stale = False  # Tracks if vehicle is hour+ old
         age_for_filter = _vehicle_age_seconds(
             seconds_since_report=seconds if seconds is not None else seconds_raw,
             timestamp=(
@@ -7538,6 +7539,9 @@ def _assemble_transloc_vehicles(
                 or rec.get("DateTimeUTC")
             ),
         )
+        # Track if vehicle is hour+ old (very stale)
+        if age_for_filter is not None and age_for_filter >= VEHICLE_STALE_THRESHOLD_S:
+            is_very_stale = True
         if (
             not include_stale
             and age_for_filter is not None
@@ -7556,6 +7560,7 @@ def _assemble_transloc_vehicles(
             "Name": rec.get("Name") or rec.get("VehicleName"),
             "SecondsSinceReport": seconds_output,
             "IsStale": is_stale,
+            "IsVeryStale": is_very_stale,
         }
         # Add route name if available
         if route_id_to_name and rid is not None:
@@ -7607,7 +7612,9 @@ async def testmap_transloc_vehicles(
                 if stale:
                     vehicles = payload
                 else:
-                    vehicles = [v for v in payload if not v.get("is_stale")]
+                    # Filter out hour+ old vehicles (IsVeryStale)
+                    # Note: IsStale (90s+) are kept but shown with stale styling
+                    vehicles = [v for v in payload if not v.get("IsVeryStale")]
                 _record_transloc_timing("handler_total", time.perf_counter() - handler_start)
                 print(f"[testmap_vehicles] served pre-materialized payload ({len(vehicles)} vehicles)")
                 return {
@@ -9202,11 +9209,17 @@ async def stream_testmap_vehicles():
             if state:
                 current_payload = getattr(state, "testmap_vehicles_payload", None)
                 if current_payload:
-                    initial = {"ts": int(time.time() * 1000), "vehicles": current_payload}
+                    # Filter out hour+ old vehicles for SSE stream (default behavior)
+                    filtered = [v for v in current_payload if not v.get("IsVeryStale")]
+                    initial = {"ts": int(time.time() * 1000), "vehicles": filtered}
                     yield f"data: {json.dumps(initial)}\n\n"
             # Then stream updates as they come
             while True:
                 item = await q.get()
+                # Filter out hour+ old vehicles from broadcast
+                if "vehicles" in item:
+                    item = dict(item)
+                    item["vehicles"] = [v for v in item["vehicles"] if not v.get("IsVeryStale")]
                 yield f"data: {json.dumps(item)}\n\n"
         finally:
             TESTMAP_VEHICLES_SUBS.discard(q)
