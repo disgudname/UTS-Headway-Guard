@@ -62,6 +62,15 @@
     .container{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;max-width:420px;}
     .credit{position:static;margin-top:32px;text-align:center;}
   }
+  /* Service Alert Banner */
+  .service-alert-banner{display:none;width:100%;max-width:760px;margin-bottom:24px;padding:16px 20px;border-radius:14px;background:linear-gradient(135deg,rgba(220,38,38,0.15),rgba(220,38,38,0.08));border:1px solid rgba(220,38,38,0.35);color:#fecaca;font-size:15px;line-height:1.5;text-align:left;}
+  .service-alert-banner.is-visible{display:block;}
+  .service-alert-banner__header{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-weight:700;font-size:16px;color:#fca5a5;text-transform:uppercase;letter-spacing:0.04em;}
+  .service-alert-banner__icon{width:20px;height:20px;flex-shrink:0;}
+  .service-alert-banner__message{color:#fee2e2;}
+  @media(max-width:600px){
+    .service-alert-banner{margin-bottom:16px;padding:14px 16px;}
+  }
 </style>
 </head>
 <body>
@@ -73,6 +82,15 @@
 <header>
   <div class="title">UTS Operations Dashboard</div>
 </header>
+<div class="service-alert-banner" id="service-alert-banner" hidden>
+  <div class="service-alert-banner__header">
+    <svg class="service-alert-banner__icon" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+    </svg>
+    <span>Service Alert</span>
+  </div>
+  <div class="service-alert-banner__message" id="service-alert-message"></div>
+</div>
 <div class="container">
   <a class="card" href="/dispatcher" data-requires-auth>
     <img src="/media/dispatcher.svg" alt="" class="card__icon" />
@@ -196,6 +214,75 @@
 
     applyAccessRestrictions();
     updateAuthState();
+  })();
+</script>
+<script>
+  // Service Alert Fetching (for unauthenticated users)
+  (function(){
+    const banner = document.getElementById('service-alert-banner');
+    const messageEl = document.getElementById('service-alert-message');
+    if(!banner || !messageEl) return;
+
+    async function fetchServiceAlerts(){
+      try{
+        const response = await fetch('/v1/transloc/alerts?showInactive=false&rows=5');
+        if(!response.ok) return;
+        const data = await response.json();
+        // Get active alerts from the response
+        const alerts = Array.isArray(data?.Data) ? data.Data : Array.isArray(data) ? data : [];
+        // Filter to only active alerts (not ended)
+        const now = Date.now();
+        const activeAlerts = alerts.filter(alert => {
+          if(!alert) return false;
+          // Check if alert has ended
+          const endDate = alert.EndDateUtc || alert.endDate || alert.end_date;
+          if(endDate){
+            const endTime = Date.parse(endDate);
+            if(Number.isFinite(endTime) && endTime < now) return false;
+          }
+          // Check if alert has started
+          const startDate = alert.StartDateUtc || alert.startDate || alert.start_date;
+          if(startDate){
+            const startTime = Date.parse(startDate);
+            if(Number.isFinite(startTime) && startTime > now) return false;
+          }
+          // Has message content
+          const message = alert.Message || alert.message || alert.text || '';
+          return message.trim().length > 0;
+        });
+        if(activeAlerts.length === 0){
+          banner.hidden = true;
+          banner.classList.remove('is-visible');
+          return;
+        }
+        // Display the first active alert (most recent)
+        const firstAlert = activeAlerts[0];
+        const message = (firstAlert.Message || firstAlert.message || firstAlert.text || '').trim();
+        if(!message){
+          banner.hidden = true;
+          banner.classList.remove('is-visible');
+          return;
+        }
+        // Escape HTML to prevent XSS
+        const escaped = message
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+        messageEl.innerHTML = escaped;
+        banner.hidden = false;
+        banner.classList.add('is-visible');
+      } catch(err){
+        // Silently fail - don't show banner if fetch fails
+        banner.hidden = true;
+        banner.classList.remove('is-visible');
+      }
+    }
+    // Fetch on load
+    fetchServiceAlerts();
+    // Refresh every 60 seconds
+    setInterval(fetchServiceAlerts, 60000);
   })();
 </script>
 <script>

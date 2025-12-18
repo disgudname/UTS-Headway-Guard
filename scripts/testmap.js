@@ -7072,30 +7072,70 @@ TM.registerVisibilityResumeHandler(() => {
         if (!stops.length) {
           return '';
         }
-        const entries = stops
-          .map(entry => {
-            const orderLabel = Number.isFinite(entry.order) ? `#${entry.order}` : '';
-            const stopTypeLabel = entry.stopType === 'pickup' ? 'Pickup' : 'Dropoff';
-            const addressText = entry.address || 'Stop';
-            const riderNames = entry.riders?.length ? entry.riders.join(', ') : 'Rider';
-            return [
-              '<li class="ondemand-driver-popup__stop">',
-              `<div class="ondemand-driver-popup__stop-order">${escapeHtml(orderLabel)}</div>`,
-              '<div class="ondemand-driver-popup__stop-body">',
-              `<div class="ondemand-driver-popup__stop-type">${escapeHtml(stopTypeLabel)}</div>`,
-              `<div class="ondemand-driver-popup__stop-address">${escapeHtml(addressText)}</div>`,
-              `<div class="ondemand-driver-popup__stop-riders">${escapeHtml(riderNames)}</div>`,
-              '</div>',
-              '</li>'
-            ].join('');
-          })
-          .join('');
+        // Group stops by rideId to create ride cards
+        // Each ride has a pickup and dropoff for the same rider
+        const rideMap = new Map();
+        for (const stop of stops) {
+          // Use rideId if available, otherwise use rider name as key
+          const rideKey = stop.rideId || (stop.riders?.length ? stop.riders.join(',') : `stop-${stop.order}`);
+          if (!rideMap.has(rideKey)) {
+            rideMap.set(rideKey, {
+              rideId: stop.rideId,
+              riders: stop.riders || [],
+              pickup: null,
+              dropoff: null,
+              minOrder: stop.order
+            });
+          }
+          const ride = rideMap.get(rideKey);
+          if (stop.stopType === 'pickup') {
+            ride.pickup = stop;
+            if (Number.isFinite(stop.order) && stop.order < ride.minOrder) {
+              ride.minOrder = stop.order;
+            }
+          } else if (stop.stopType === 'dropoff') {
+            ride.dropoff = stop;
+          }
+          // Merge riders if not already set
+          if (stop.riders?.length && !ride.riders?.length) {
+            ride.riders = stop.riders;
+          }
+        }
+        // Convert to array and sort by earliest stop order
+        const rides = Array.from(rideMap.values())
+          .sort((a, b) => (a.minOrder || 999) - (b.minOrder || 999));
+        // Render ride cards
+        const rideCards = rides.map((ride, index) => {
+          const riderName = ride.riders?.length ? ride.riders.join(', ') : 'Rider';
+          const nextOrder = ride.pickup?.order ?? ride.dropoff?.order;
+          const orderLabel = Number.isFinite(nextOrder) ? `Next #${nextOrder}` : '';
+          const pickupAddress = ride.pickup?.address || 'Unknown pickup';
+          const dropoffAddress = ride.dropoff?.address || 'Unknown dropoff';
+          return [
+            '<div class="ondemand-driver-popup__ride-card">',
+            '<div class="ondemand-driver-popup__ride-header">',
+            `<span class="ondemand-driver-popup__ride-name">${escapeHtml(riderName)}</span>`,
+            orderLabel ? `<span class="ondemand-driver-popup__ride-order">${escapeHtml(orderLabel)}</span>` : '',
+            '</div>',
+            '<div class="ondemand-driver-popup__ride-locations">',
+            '<div class="ondemand-driver-popup__ride-location">',
+            '<span class="ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--pickup">P</span>',
+            `<span class="ondemand-driver-popup__ride-location-text">${escapeHtml(pickupAddress)}</span>`,
+            '</div>',
+            '<div class="ondemand-driver-popup__ride-location">',
+            '<span class="ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--dropoff">D</span>',
+            `<span class="ondemand-driver-popup__ride-location-text">${escapeHtml(dropoffAddress)}</span>`,
+            '</div>',
+            '</div>',
+            '</div>'
+          ].join('');
+        }).join('');
         return [
           '<div class="ondemand-driver-popup__stops">',
-          '<div class="ondemand-driver-popup__label">Stops</div>',
-          '<ol class="ondemand-driver-popup__stop-list">',
-          entries,
-          '</ol>',
+          '<div class="ondemand-driver-popup__label">Rides</div>',
+          '<div class="ondemand-driver-popup__rides">',
+          rideCards,
+          '</div>',
           '</div>'
         ].join('');
       }
@@ -7531,7 +7571,7 @@ TM.registerVisibilityResumeHandler(() => {
       const BLOCK_BUBBLE_MIN_HEIGHT = 20;
       const BLOCK_BUBBLE_CORNER_RADIUS = 10;
       const BLOCK_BUBBLE_FRAME_INSET = 5;
-      const LABEL_BASE_STROKE_WIDTH = 3;
+      const LABEL_BASE_STROKE_WIDTH = 2.5;
       const MIN_HEADING_DISTANCE_METERS = 2;
       const MIN_POSITION_UPDATE_METERS = 0.5;
       const MIN_HEADING_SPEED_METERS_PER_SECOND = 1;
@@ -12219,9 +12259,9 @@ ${trainPlaneMarkup}
 
           if (etaEntries.length === 0) {
               if (catStopIdList.length > 0 && hasPendingCatRequest && !hasCatEtaData) {
-                  return '<div style="margin-top: 10px;">Loading arrival times…</div>';
+                  return '<div class="eta-empty">Loading arrival times…</div>';
               }
-              return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
+              return '<div class="eta-empty">No upcoming arrivals</div>';
           }
 
           const sortedEtas = etaEntries.slice().sort((a, b) => {
@@ -12248,7 +12288,7 @@ ${trainPlaneMarkup}
               }
           });
 
-          const etaRows = limitedEtas.map(eta => {
+          const etaCards = limitedEtas.map(eta => {
               const isCatEta = !!eta.isCat;
               let routeLabel = toNonEmptyString(eta.routeDescription) || '';
               let routeColor;
@@ -12281,22 +12321,20 @@ ${trainPlaneMarkup}
               const textColor = contrastBW(routeColor);
               const shadowColor = getColorWithAlpha(routeColor, 0.35);
               const etaText = getEtaDisplayText(eta);
-              return `<tr><td style="padding: 5px; text-align: center;"><div class="route-pill" style="background: ${routeColor}; color: ${textColor}; --route-pill-shadow-color: ${shadowColor};">${escapeHtml(routeLabel)}</div></td><td style="padding: 5px; text-align: center;">${escapeHtml(etaText)}</td></tr>`;
+              const etaMinutes = Number.isFinite(eta.etaMinutes) ? eta.etaMinutes : null;
+              // Add time class for color coding
+              let timeClass = 'eta-card__time';
+              if (etaMinutes !== null) {
+                  if (etaMinutes <= 1) {
+                      timeClass += ' eta-card__time--arriving';
+                  } else if (etaMinutes <= 5) {
+                      timeClass += ' eta-card__time--soon';
+                  }
+              }
+              return `<div class="eta-card"><div class="eta-card__route"><span class="eta-card__route-badge" style="background: ${routeColor}; color: ${textColor}; --eta-badge-shadow: ${shadowColor};">${escapeHtml(routeLabel)}</span></div><span class="${timeClass}">${escapeHtml(etaText)}</span></div>`;
           }).join('');
 
-          return `
-            <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
-              <thead>
-                <tr>
-                  <th style="border-bottom: 1px solid white; padding: 5px;">Route</th>
-                  <th style="border-bottom: 1px solid white; padding: 5px;">ETA</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${etaRows}
-              </tbody>
-            </table>
-          `;
+          return `<div class="eta-list">${etaCards}</div>`;
       }
 
       function getEtaDisplayText(eta) {
@@ -12317,7 +12355,7 @@ ${trainPlaneMarkup}
 
       function buildStopEntriesSectionHtml(stopEntries, multipleStops, hideStopIds = false) {
           if (!Array.isArray(stopEntries) || stopEntries.length === 0) {
-              return '<div style="margin-top: 10px;">No upcoming arrivals</div>';
+              return '<div class="eta-empty">No upcoming arrivals</div>';
           }
 
           if (!multipleStops) {
@@ -18555,10 +18593,10 @@ ${trainPlaneMarkup}
           const rectHeight = Math.max(SPEED_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
           const radius = SPEED_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          // Add stroke padding so stroke isn't clipped at edges
-          const strokePadding = strokeWidth / 2;
-          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth);
-          const svgHeight = roundToTwoDecimals(rectHeight + strokeWidth);
+          // Stroke padding = full stroke width for outside-aligned appearance (like Illustrator outside stroke)
+          const strokePadding = strokeWidth;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth * 2);
+          const svgHeight = roundToTwoDecimals(rectHeight + strokeWidth * 2);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
           const rectX = roundToTwoDecimals(strokePadding);
@@ -18605,14 +18643,14 @@ ${trainPlaneMarkup}
           const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
           const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          // Add stroke padding so stroke isn't clipped at edges
-          const strokePadding = strokeWidth / 2;
-          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth);
-          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+          // Stroke padding = full stroke width for outside-aligned appearance (like Illustrator outside stroke)
+          const strokePadding = strokeWidth;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth * 2);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2 + strokeWidth);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
           const rectX = roundToTwoDecimals(strokePadding);
-          const rectY = roundToTwoDecimals(frameInset);
+          const rectY = roundToTwoDecimals(frameInset + strokeWidth / 2);
           const rectWidthRounded = roundToTwoDecimals(rectWidth);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);
@@ -18656,14 +18694,14 @@ ${trainPlaneMarkup}
           const rectHeight = Math.max(BLOCK_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
           const radius = BLOCK_BUBBLE_CORNER_RADIUS * safeScale;
           const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
-          // Add stroke padding so stroke isn't clipped at edges
-          const strokePadding = strokeWidth / 2;
-          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth);
-          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2);
+          // Stroke padding = full stroke width for outside-aligned appearance (like Illustrator outside stroke)
+          const strokePadding = strokeWidth;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth * 2);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2 + strokeWidth);
           const radiusRounded = roundToTwoDecimals(radius);
           const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
           const rectX = roundToTwoDecimals(strokePadding);
-          const rectY = roundToTwoDecimals(frameInset);
+          const rectY = roundToTwoDecimals(frameInset + strokeWidth / 2);
           const rectWidthRounded = roundToTwoDecimals(rectWidth);
           const rectHeightRounded = roundToTwoDecimals(rectHeight);
           const textX = roundToTwoDecimals(svgWidth / 2);

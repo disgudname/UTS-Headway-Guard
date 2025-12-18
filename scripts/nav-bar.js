@@ -344,6 +344,10 @@
         margin-top:12px;
       }
     }
+    /* Dark mode: hide outer borders since nav stays navy but page goes dark */
+    body.theme-dark #${NAV_ID}{
+      border-color:transparent;
+    }
   `;
   document.head.appendChild(style);
 

@@ -308,6 +308,60 @@
         opacity: 0.9;
         margin-bottom: 6px;
       }
+      /* ETA Cards for stop popups */
+      .eta-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .eta-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      .eta-card__route {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+        min-width: 0;
+      }
+      .eta-card__route-badge {
+        flex-shrink: 0;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-weight: bold;
+        font-size: 13px;
+        text-align: center;
+        white-space: nowrap;
+        box-shadow: 0 4px 12px var(--eta-badge-shadow, rgba(0, 0, 0, 0.2));
+      }
+      .eta-card__time {
+        flex-shrink: 0;
+        font-size: 18px;
+        font-weight: bold;
+        text-align: right;
+        white-space: nowrap;
+      }
+      .eta-card__time--arriving {
+        color: #4ade80;
+      }
+      .eta-card__time--soon {
+        color: #fbbf24;
+      }
+      .eta-empty {
+        margin-top: 10px;
+        padding: 12px;
+        text-align: center;
+        opacity: 0.8;
+        font-style: italic;
+      }
       .bus-marker {
         background: transparent;
         border: 0;
@@ -450,7 +504,7 @@
       /* Dark theme panel colors - navy blues stay the same */
       body.theme-dark {
         --panel-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96));
-        --panel-border-color: rgba(148, 163, 184, 0.15);
+        --panel-border-color: rgba(15, 23, 42, 0.6);
         --panel-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
         --panel-highlight: rgba(148, 163, 184, 0.08);
         --panel-text-color: #e2e8f0;
@@ -478,6 +532,7 @@
         height: 100%;
         margin: 0;
         padding: 0;
+        overflow: hidden;
       }
       .loading-overlay {
         position: fixed;
