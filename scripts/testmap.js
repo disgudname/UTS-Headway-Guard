@@ -10032,12 +10032,19 @@ ${trainPlaneMarkup}
         const routePanel = getCachedElementById('routeSelector');
         if (!statusPanel || !routePanel) return;
 
+        // Check if status panel is hidden (not just collapsed)
+        const statusPanelHidden = statusPanel.style.display === 'none';
+
         // Update collapsed state classes
         statusPanel.classList.toggle('is-collapsed', statusPanelCollapsed);
         routePanel.classList.toggle('is-collapsed', routePanelCollapsed);
 
-        // Update sizing classes based on collapse states
-        if (statusPanelCollapsed && routePanelCollapsed) {
+        // Update sizing classes based on collapse/hidden states
+        if (statusPanelHidden) {
+          // Status panel is completely hidden, route gets full height
+          routePanel.classList.remove('panel--half', 'panel--collapsed');
+          routePanel.classList.add('panel--full');
+        } else if (statusPanelCollapsed && routePanelCollapsed) {
           // Both collapsed
           statusPanel.classList.remove('panel--half', 'panel--full');
           statusPanel.classList.add('panel--collapsed');
