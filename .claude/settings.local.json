@@ -11,7 +11,8 @@
       "Bash(powershell -Command:*)",
       "Bash(where:*)",
       "Bash(pip install beautifulsoup4 lxml -q)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(del \"C:\\\\Users\\\\Pat Cox\\\\Documents\\\\GitHub\\\\UTS-Headway-Guard\\\\nul\")"
     ]
   }
 }

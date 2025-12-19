@@ -10242,12 +10242,15 @@ ${trainPlaneMarkup}
         const incidentCount = nearRouteIncidents.length;
         const incidentsExpandedClass = statusPanelIncidentsExpanded ? 'is-expanded' : '';
 
+        const incidentIndicatorClass = incidentCount > 0 ? 'active' : 'none';
         conditionsHtml += `
           <button type="button" class="status-incidents-toggle ${incidentsExpandedClass}" onclick="toggleStatusIncidentsExpanded()">
+            <span class="status-condition__indicator status-condition__indicator--${incidentIndicatorClass}"></span>
+            <span class="status-incidents-toggle__label">Active Incidents</span>
+            <span class="status-incidents-toggle__count">${incidentCount}</span>
             <svg class="status-incidents-toggle__chevron" viewBox="0 0 12 12" aria-hidden="true">
               <path d="M4 2l4 4-4 4"/>
             </svg>
-            Active incidents: ${incidentCount}
           </button>
         `;
 

@@ -2544,14 +2544,47 @@
       .status-incidents-toggle:hover {
         color: var(--accent);
       }
+      .status-incidents-toggle__label {
+        flex: 1;
+      }
+      .status-incidents-toggle__count {
+        font-size: 12px;
+        font-weight: 600;
+        min-width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: var(--panel-highlight);
+        color: var(--panel-muted-text);
+      }
+      .status-incidents-toggle__count:not(:empty) {
+        padding: 0 6px;
+      }
+      .status-condition__indicator--active {
+        background: #f59e0b;
+        box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+      }
+      .status-condition__indicator--none {
+        background: #9ca3af;
+      }
       .status-incidents-toggle__chevron {
-        width: 12px;
-        height: 12px;
+        width: 10px;
+        height: 10px;
         flex-shrink: 0;
         transition: transform 0.2s ease;
+        opacity: 0.5;
+      }
+      .status-incidents-toggle:hover .status-incidents-toggle__chevron {
+        opacity: 1;
       }
       .status-incidents-toggle__chevron path {
-        fill: currentColor;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       .status-incidents-toggle.is-expanded .status-incidents-toggle__chevron {
         transform: rotate(90deg);
