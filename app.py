@@ -10211,6 +10211,11 @@ async def marker_selection_menu_js():
     return _serve_js_asset("marker-selection-menu.js")
 
 
+@app.get("/scripts/push-notifications.js", include_in_schema=False)
+async def push_notifications_js():
+    return _serve_js_asset("push-notifications.js")
+
+
 @app.get("/vehicle_log/{log_name}", include_in_schema=False)
 async def vehicle_log_file(log_name: str):
     if not re.fullmatch(r"\d{8}_(?:\d{2}\.jsonl|routes\.json)", log_name):

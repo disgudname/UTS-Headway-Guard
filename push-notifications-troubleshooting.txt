@@ -1,0 +1,21 @@
+Push Notification Bell Not Showing - Troubleshooting
+=====================================================
+
+The bell only appears if VAPID keys are configured.
+
+1. Check if secrets are set:
+
+   fly secrets list
+
+   Should show VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.
+
+2. If not set, generate and add them:
+
+   npx web-push generate-vapid-keys
+   fly secrets set VAPID_PUBLIC_KEY="..." VAPID_PRIVATE_KEY="..." VAPID_SUBJECT="mailto:your@email.com"
+
+3. Verify via the status endpoint:
+
+   https://your-app.fly.dev/api/push/status
+
+   If "configured" is false, the keys aren't set and the bell won't show.
