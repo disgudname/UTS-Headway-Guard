@@ -262,8 +262,10 @@ window.TestMap = window.TestMap || {};
             b = parseInt(hex.substring(4, 6), 16);
         }
         // YIQ formula for perceived brightness
+        // Threshold raised from 128 to 150 for better contrast on medium-brightness
+        // colors like orange (#FF7300 has YIQ ~144)
         const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-        return yiq >= 128 ? '#000000' : '#ffffff';
+        return yiq >= 150 ? '#000000' : '#ffffff';
     }
 
     // ============================================================
