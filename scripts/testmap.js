@@ -10149,6 +10149,10 @@ ${trainPlaneMarkup}
       }
 
       function showStatusPanel() {
+        // Never show in kiosk modes
+        if (kioskMode || adminKioskMode) {
+          return;
+        }
         const panel = getCachedElementById('statusPanel');
         if (panel) {
           panel.style.display = '';
@@ -10376,6 +10380,12 @@ ${trainPlaneMarkup}
           statusPanelRefreshIntervalId = null;
         }
 
+        // Never show status panel in kiosk modes
+        if (kioskMode || adminKioskMode) {
+          hideStatusPanel();
+          return;
+        }
+
         if (!isUvaAgencySelected()) {
           // Hide status panel for non-UVA agencies
           hideStatusPanel();
@@ -10394,6 +10404,10 @@ ${trainPlaneMarkup}
       function handleStatusPanelAuthChange(authorized) {
         // Re-fetch status panel data when auth state changes
         // The fetch will show/hide the panel based on auth result
+        // Skip in kiosk modes where the status panel should never appear
+        if (kioskMode || adminKioskMode) {
+          return;
+        }
         if (isUvaAgencySelected()) {
           fetchStatusPanelData();
         }
