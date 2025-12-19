@@ -10249,7 +10249,7 @@ ${trainPlaneMarkup}
           for (const entry of displayIncidents) {
             const incident = entry.incident;
             if (!incident) continue;
-            const callType = incident.PulsePointIncidentCallType || incident.CallType || 'Incident';
+            const callType = getIncidentTypeLabel(incident) || 'Incident';
             const location = incident.FullDisplayAddress || incident.DisplayAddress || 'Unknown location';
             const dispatchTime = incident.CallReceivedDateTime
               ? new Date(incident.CallReceivedDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
