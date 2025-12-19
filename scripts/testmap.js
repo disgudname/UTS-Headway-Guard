@@ -7633,6 +7633,8 @@ TM.registerVisibilityResumeHandler(() => {
       let busBlocks = {};
       let previousBusData = {};
       let cachedEtas = {};
+      let currentStopPopup = null;
+      let currentStopPopupConfig = null;
       let cachedVehicleDrivers = {};
       let cachedNextStops = {};
       let customPopups = [];
@@ -13954,9 +13956,16 @@ ${trainPlaneMarkup}
                   })
                   .setLatLng(position)
                   .setContent(popupContent);
-                  
+
+                  popup.on('remove', () => {
+                      currentStopPopup = null;
+                      currentStopPopupConfig = null;
+                  });
+
                   if (map && typeof map.openPopup === 'function') {
                       map.openPopup(popup);
+                      currentStopPopup = popup;
+                      currentStopPopupConfig = config;
                   }
               }
               return;
@@ -14042,6 +14051,14 @@ ${trainPlaneMarkup}
       }
 
       function updateCustomPopups() {
+          // Refresh Leaflet stop popup if open
+          if (currentStopPopup && currentStopPopupConfig) {
+              const newContent = buildStopPopupContent(currentStopPopupConfig);
+              if (newContent) {
+                  currentStopPopup.setContent(newContent);
+              }
+          }
+
           customPopups.forEach(popupElement => {
               if (!popupElement) {
                   return;
