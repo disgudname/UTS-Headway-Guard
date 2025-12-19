@@ -223,31 +223,36 @@
     const messageEl = document.getElementById('service-alert-message');
     if(!banner || !messageEl) return;
 
+    // Parse TransLoc date format: /Date(1234567890000)/ or /Date(1234567890000-0700)/
+    function parseTransLocDate(dateStr){
+      if(!dateStr) return null;
+      const match = dateStr.match(/\/Date\((-?\d+)/);
+      if(match) return parseInt(match[1], 10);
+      const parsed = Date.parse(dateStr);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
     async function fetchServiceAlerts(){
       try{
         const response = await fetch('/v1/transloc/alerts?showInactive=false&rows=5');
         if(!response.ok) return;
         const data = await response.json();
-        // Get active alerts from the response
-        const alerts = Array.isArray(data?.Data) ? data.Data : Array.isArray(data) ? data : [];
+        // Get active alerts from the response (API returns Rows or Data)
+        const alerts = Array.isArray(data?.Rows) ? data.Rows : Array.isArray(data?.Data) ? data.Data : Array.isArray(data) ? data : [];
         // Filter to only active alerts (not ended)
         const now = Date.now();
         const activeAlerts = alerts.filter(alert => {
           if(!alert) return false;
           // Check if alert has ended
           const endDate = alert.EndDateUtc || alert.endDate || alert.end_date;
-          if(endDate){
-            const endTime = Date.parse(endDate);
-            if(Number.isFinite(endTime) && endTime < now) return false;
-          }
+          const endTime = parseTransLocDate(endDate);
+          if(endTime !== null && endTime < now) return false;
           // Check if alert has started
           const startDate = alert.StartDateUtc || alert.startDate || alert.start_date;
-          if(startDate){
-            const startTime = Date.parse(startDate);
-            if(Number.isFinite(startTime) && startTime > now) return false;
-          }
+          const startTime = parseTransLocDate(startDate);
+          if(startTime !== null && startTime > now) return false;
           // Has message content
-          const message = alert.Message || alert.message || alert.text || '';
+          const message = alert.MessageText || alert.Message || alert.message || alert.text || '';
           return message.trim().length > 0;
         });
         if(activeAlerts.length === 0){
@@ -257,7 +262,7 @@
         }
         // Display the first active alert (most recent)
         const firstAlert = activeAlerts[0];
-        const message = (firstAlert.Message || firstAlert.message || firstAlert.text || '').trim();
+        const message = (firstAlert.MessageText || firstAlert.Message || firstAlert.message || firstAlert.text || '').trim();
         if(!message){
           banner.hidden = true;
           banner.classList.remove('is-visible');

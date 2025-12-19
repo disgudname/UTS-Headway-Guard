@@ -4685,13 +4685,13 @@ async def startup():
                         await asyncio.sleep(poll_interval_s)
                         continue
                     data = resp.json()
-                    alerts = data.get("Data", []) if isinstance(data, dict) else []
+                    alerts = data.get("Rows", []) or data.get("Data", []) if isinstance(data, dict) else []
                     new_alerts = []
                     for alert in alerts:
                         alert_id = str(alert.get("MessageId") or alert.get("Id", ""))
                         if not alert_id or alert_id in _sent_alert_ids:
                             continue
-                        message = (alert.get("Message") or "").strip()
+                        message = (alert.get("MessageText") or alert.get("Message") or "").strip()
                         if not message:
                             continue
                         new_alerts.append({
