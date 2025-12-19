@@ -6831,10 +6831,6 @@ TM.registerVisibilityResumeHandler(() => {
         }
       }
 
-      function isPendingRideStatus(status) {
-        return normalizeRideStatus(status) === 'pending';
-      }
-
       function normalizeRideStatus(status) {
         if (typeof status !== 'string') {
           return '';
@@ -6939,16 +6935,6 @@ TM.registerVisibilityResumeHandler(() => {
         return entries;
       }
 
-      function findEarliestPendingPickupRideId(entries) {
-        if (!Array.isArray(entries) || entries.length === 0) {
-          return null;
-        }
-        const pendingPickups = entries
-          .filter(entry => normalizeRideStatus(entry.rideStatus) === 'pending' && entry.stopType === 'pickup')
-          .sort((a, b) => a.order - b.order);
-        return pendingPickups.length > 0 ? pendingPickups[0].rideId : null;
-      }
-
       function computeVisibleOnDemandRideIds(vehicles) {
         const visibilityMap = new Map();
         if (!Array.isArray(vehicles)) {
@@ -6965,21 +6951,41 @@ TM.registerVisibilityResumeHandler(() => {
             return;
           }
           const entries = collectOnDemandRideStopEntries(vehicle.stops);
-          const earliestPendingRideId = findEarliestPendingPickupRideId(entries);
           const visibleRideIds = new Set();
-          entries.forEach(entry => {
-            const normalizedStatus = normalizeRideStatus(entry.rideStatus);
-            if (isTerminalOnDemandRideStatus(normalizedStatus)) {
-              return;
+
+          // Filter to non-terminal entries only
+          const activeEntries = entries.filter(entry =>
+            !isTerminalOnDemandRideStatus(normalizeRideStatus(entry.rideStatus))
+          );
+
+          if (activeEntries.length === 0) {
+            visibilityMap.set(vehicleId, visibleRideIds);
+            return;
+          }
+
+          // Find the minimum order (vehicle's next stop)
+          const minOrder = Math.min(...activeEntries.map(e => e.order));
+
+          // Collect all ride IDs that have any stop at the minimum order
+          const ridesAtNextStop = new Set();
+          activeEntries.forEach(entry => {
+            if (entry.order === minOrder && entry.rideId) {
+              ridesAtNextStop.add(entry.rideId);
             }
-            if (normalizedStatus === 'pending') {
-              if (entry.rideId && entry.rideId === earliestPendingRideId) {
-                visibleRideIds.add(entry.rideId);
-              }
-              return;
-            }
-            visibleRideIds.add(entry.rideId);
           });
+
+          // Show rides that are either:
+          // 1. in_progress (always show)
+          // 2. Have a pickup or dropoff at the vehicle's next stop
+          activeEntries.forEach(entry => {
+            const normalizedStatus = normalizeRideStatus(entry.rideStatus);
+            if (normalizedStatus === 'in_progress') {
+              visibleRideIds.add(entry.rideId);
+            } else if (ridesAtNextStop.has(entry.rideId)) {
+              visibleRideIds.add(entry.rideId);
+            }
+          });
+
           visibilityMap.set(vehicleId, visibleRideIds);
         });
 
