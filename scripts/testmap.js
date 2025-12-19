@@ -15884,25 +15884,16 @@ ${trainPlaneMarkup}
           const sanitizedStopName = sanitizeStopName(groupInfo.stopName || '');
           const multipleStops = stopEntries.length > 1;
 
-          // Stop name section
-          if (sanitizedStopName && (!multipleStops || !isOnDemandStop)) {
-              popupSections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">STOP</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(sanitizedStopName)}</div>`,
-                  '</div>'
-              ].join(''));
-          }
-
-          // Stop ID section (displays AddressID, labeled as "Stop ID")
+          // Stop name section (with stop ID in header if available)
           const primaryAddressIdText = !multipleStops
               ? normalizeIdentifier(stopEntries[0]?.addressId)
               : '';
-          if (primaryAddressIdText) {
+          if (sanitizedStopName && (!multipleStops || !isOnDemandStop)) {
+              const stopLabel = primaryAddressIdText ? `STOP (${primaryAddressIdText})` : 'STOP';
               popupSections.push([
                   '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Stop ID</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(primaryAddressIdText)}</div>`,
+                  `<div class="ondemand-driver-popup__label">${escapeHtml(stopLabel)}</div>`,
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(sanitizedStopName)}</div>`,
                   '</div>'
               ].join(''));
           }
