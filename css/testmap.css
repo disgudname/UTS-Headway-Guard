@@ -2479,6 +2479,11 @@
         color: var(--panel-muted-text);
         font-style: italic;
       }
+      .status-next-shift {
+        font-style: italic;
+        color: var(--panel-muted-text);
+        font-size: 13px;
+      }
       .status-section__list {
         list-style: none;
         margin: 0;

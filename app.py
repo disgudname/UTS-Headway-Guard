@@ -9522,11 +9522,63 @@ ON_DUTY_POSITION_CODES = {
 }
 
 
+def _get_current_and_next_shifts(
+    all_shifts: List[Dict[str, Any]],
+    now_ts: int,
+    near_end_threshold_ms: int = 30 * 60 * 1000,
+    transition_gap_ms: int = 2 * 60 * 1000,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Determine current and next shifts from a list of all shifts.
+
+    Args:
+        all_shifts: List of shift dicts with start_ts and end_ts
+        now_ts: Current timestamp in milliseconds
+        near_end_threshold_ms: Show next if current ends within this time (default 30 min)
+        transition_gap_ms: Next must start within this time of current ending (default 2 min)
+
+    Returns:
+        Tuple of (current_shifts, next_shifts_to_show)
+    """
+    current = []
+    future = []
+
+    for shift in all_shifts:
+        start_ts = shift.get("start_ts", 0)
+        end_ts = shift.get("end_ts", 0)
+        if start_ts <= now_ts < end_ts:
+            current.append(shift)
+        elif start_ts > now_ts:
+            future.append(shift)
+
+    # Sort future by start time to get the next one
+    future.sort(key=lambda x: x.get("start_ts", 0))
+    next_up = future[:1] if future else []
+
+    # Determine if we should show next
+    show_next = False
+    if not current and next_up:
+        # No one on duty, show next
+        show_next = True
+    elif current and next_up:
+        # Check if ANY current shift ends within threshold AND next starts near that ending
+        soonest_end = min(s.get("end_ts", 0) for s in current)
+        next_start = next_up[0].get("start_ts", 0)
+        if (soonest_end - now_ts) <= near_end_threshold_ms:
+            if abs(next_start - soonest_end) <= transition_gap_ms:
+                show_next = True
+
+    return current, next_up if show_next else []
+
+
 async def _fetch_on_duty_personnel() -> Dict[str, Any]:
     """
     Fetch on-duty personnel from W2W assignments.
 
-    Returns supervisors and OnDemand dispatchers currently on shift.
+    Returns supervisors and OnDemand dispatchers currently on shift,
+    plus upcoming shifts when applicable:
+    - If no one is currently on duty, shows the next scheduled person
+    - If within 30 min of shift end AND next shift starts at that time, shows transition
     """
     tz = ZoneInfo("America/New_York")
     now = datetime.now(tz)
@@ -9537,7 +9589,9 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
         if w2w_data.get("disabled"):
             return {
                 "supervisors": [],
+                "supervisors_next": [],
                 "ondemand_dispatchers": [],
+                "ondemand_dispatchers_next": [],
                 "fetched_at": now.isoformat(),
                 "disabled": True,
             }
@@ -9545,23 +9599,26 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
         print(f"[on_duty] w2w fetch failed: {exc}")
         return {
             "supervisors": [],
+            "supervisors_next": [],
             "ondemand_dispatchers": [],
+            "ondemand_dispatchers_next": [],
             "fetched_at": now.isoformat(),
             "error": str(exc),
         }
 
     # Parse the raw W2W shift data to find Sup and OnDemand Dispatch positions
-    # We need to re-fetch and parse the raw shifts since _build_driver_assignments
-    # filters out non-block positions
-    supervisors = []
-    ondemand_dispatchers = []
+    # Collect ALL shifts for the day (not just currently active)
+    all_supervisors = []
+    all_dispatchers = []
 
     # Fetch fresh W2W data with raw shifts
     try:
         if not W2W_KEY:
             return {
                 "supervisors": [],
+                "supervisors_next": [],
                 "ondemand_dispatchers": [],
+                "ondemand_dispatchers_next": [],
                 "fetched_at": now.isoformat(),
                 "disabled": True,
             }
@@ -9619,10 +9676,10 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
             if end_dt <= start_dt:
                 end_dt += timedelta(days=1)
 
-            # Check if shift is currently active
+            # Skip shifts that have already ended
             start_ts = int(start_dt.timestamp() * 1000)
             end_ts = int(end_dt.timestamp() * 1000)
-            if now_ts < start_ts or now_ts >= end_ts:
+            if end_ts <= now_ts:
                 continue
 
             # Skip shifts with COLOR_ID 9 (no-show)
@@ -9630,7 +9687,7 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
             if color_id == "9":
                 continue
 
-            # Build person entry
+            # Build person entry with timestamps for sorting
             first = str(shift.get("FIRST_NAME") or "").strip()
             last = str(shift.get("LAST_NAME") or "").strip()
             name = (first + " " + last).strip() or "OPEN"
@@ -9639,27 +9696,41 @@ async def _fetch_on_duty_personnel() -> Dict[str, Any]:
                 "name": name,
                 "start": start_dt.strftime("%H:%M"),
                 "end": end_dt.strftime("%H:%M"),
+                "start_ts": start_ts,
+                "end_ts": end_ts,
             }
 
             if position_key == "Sup":
-                supervisors.append(person)
+                all_supervisors.append(person)
             elif position_key == "OnDemand Dispatch":
-                ondemand_dispatchers.append(person)
+                all_dispatchers.append(person)
+
+        # Determine current and next for each position type
+        current_sups, next_sups = _get_current_and_next_shifts(all_supervisors, now_ts)
+        current_disps, next_disps = _get_current_and_next_shifts(all_dispatchers, now_ts)
+
+        # Remove internal timestamps from output
+        def clean_person(p):
+            return {"name": p["name"], "start": p["start"], "end": p["end"]}
+
+        return {
+            "supervisors": [clean_person(p) for p in current_sups],
+            "supervisors_next": [clean_person(p) for p in next_sups],
+            "ondemand_dispatchers": [clean_person(p) for p in current_disps],
+            "ondemand_dispatchers_next": [clean_person(p) for p in next_disps],
+            "fetched_at": now.isoformat(),
+        }
 
     except Exception as exc:
         print(f"[on_duty] raw shift fetch failed: {exc}")
         return {
             "supervisors": [],
+            "supervisors_next": [],
             "ondemand_dispatchers": [],
+            "ondemand_dispatchers_next": [],
             "fetched_at": now.isoformat(),
             "error": str(exc),
         }
-
-    return {
-        "supervisors": supervisors,
-        "ondemand_dispatchers": ondemand_dispatchers,
-        "fetched_at": now.isoformat(),
-    }
 
 
 @app.get("/v1/uts/on_duty")

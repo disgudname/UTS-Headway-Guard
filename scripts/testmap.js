@@ -10189,11 +10189,20 @@ ${trainPlaneMarkup}
         let onDutyHtml = '';
         const od = statusPanelData.onDuty;
         const supervisors = od?.supervisors || [];
+        const supervisorsNext = od?.supervisors_next || [];
         const dispatchers = od?.ondemand_dispatchers || [];
+        const dispatchersNext = od?.ondemand_dispatchers_next || [];
 
         onDutyHtml += '<div style="margin-bottom:6px"><span style="font-size:12px;color:var(--panel-muted-text)">Supervisor:</span> ';
         if (supervisors.length > 0) {
           onDutyHtml += supervisors.map(s => escapeHtml(s.name)).join(', ');
+          if (supervisorsNext.length > 0) {
+            const next = supervisorsNext[0];
+            onDutyHtml += ` <span class="status-next-shift">→ ${escapeHtml(next.name)} (${next.start})</span>`;
+          }
+        } else if (supervisorsNext.length > 0) {
+          const next = supervisorsNext[0];
+          onDutyHtml += `<span class="status-next-shift">Next: ${escapeHtml(next.name)} at ${next.start}</span>`;
         } else {
           onDutyHtml += '<span class="status-section__value--empty">— none assigned —</span>';
         }
@@ -10202,6 +10211,13 @@ ${trainPlaneMarkup}
         onDutyHtml += '<div><span style="font-size:12px;color:var(--panel-muted-text)">OnDemand Dispatcher:</span> ';
         if (dispatchers.length > 0) {
           onDutyHtml += dispatchers.map(d => escapeHtml(d.name)).join(', ');
+          if (dispatchersNext.length > 0) {
+            const next = dispatchersNext[0];
+            onDutyHtml += ` <span class="status-next-shift">→ ${escapeHtml(next.name)} (${next.start})</span>`;
+          }
+        } else if (dispatchersNext.length > 0) {
+          const next = dispatchersNext[0];
+          onDutyHtml += `<span class="status-next-shift">Next: ${escapeHtml(next.name)} at ${next.start}</span>`;
         } else {
           onDutyHtml += '<span class="status-section__value--empty">— none assigned —</span>';
         }
