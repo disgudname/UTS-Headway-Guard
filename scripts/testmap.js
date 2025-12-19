@@ -15984,24 +15984,23 @@ ${trainPlaneMarkup}
                           routeColor = sanitizeCssColor(getRouteColor(limitedEtas[0].RouteId)) || '#1f2937';
                       }
 
-                      // Build ETAs HTML
-                      const etasHtml = limitedEtas.map(eta => {
+                      // Build ETAs HTML as nice pill badges
+                      const etasHtml = limitedEtas.map((eta, index) => {
+                          const minutes = Number(eta.etaMinutes);
+                          const isArriving = Number.isFinite(minutes) && Math.round(minutes) <= 0;
                           const etaText = getEtaDisplayText(eta);
-                          return [
-                              '<div class="bus-popup__stop">',
-                              `<div class="bus-popup__stop-name">${escapeHtml(etaText)}</div>`,
-                              '</div>'
-                          ].join('');
+                          const pillClass = isArriving ? 'stop-popup__eta-pill stop-popup__eta-pill--arriving' : 'stop-popup__eta-pill';
+                          const prefix = index > 0 ? '<span class="stop-popup__eta-then">then</span>' : '';
+                          return `${prefix}<span class="${pillClass}">${escapeHtml(etaText)}</span>`;
                       }).join('');
 
                       popupSections.push([
-                          '<div class="ondemand-driver-popup__section">',
-                          '<div class="ondemand-driver-popup__label">ROUTE</div>',
-                          `<div class="ondemand-driver-popup__value">`,
-                          `<span style="display: inline-block; width: 12px; height: 12px; background: ${routeColor}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`,
-                          `<span style="vertical-align: middle;">${escapeHtml(routeLabel)}</span>`,
+                          '<div class="ondemand-driver-popup__section stop-popup__route-section">',
+                          '<div class="stop-popup__route-header">',
+                          `<span class="stop-popup__route-color" style="background: ${routeColor};"></span>`,
+                          `<span class="stop-popup__route-name">${escapeHtml(routeLabel)}</span>`,
                           '</div>',
-                          '<div class="bus-popup__stops" style="margin-top: 6px;">',
+                          '<div class="stop-popup__etas">',
                           etasHtml,
                           '</div>',
                           '</div>'

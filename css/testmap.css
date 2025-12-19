@@ -2226,6 +2226,58 @@
         min-width: 60px;
         text-align: right;
       }
+      /* Stop popup route and ETA styles */
+      .stop-popup__route-section {
+        padding: 2px 0;
+      }
+      .stop-popup__route-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .stop-popup__route-color {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        flex-shrink: 0;
+      }
+      .stop-popup__route-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1f2937;
+        line-height: 1.2;
+      }
+      .stop-popup__etas {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .stop-popup__eta-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 5px 10px;
+        background: linear-gradient(135deg, rgba(35, 45, 75, 0.08), rgba(35, 45, 75, 0.04));
+        border: 1px solid rgba(35, 45, 75, 0.12);
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #374151;
+        white-space: nowrap;
+      }
+      .stop-popup__eta-pill--arriving {
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.08));
+        border-color: rgba(34, 197, 94, 0.3);
+        color: #15803d;
+      }
+      .stop-popup__eta-then {
+        font-size: 11px;
+        font-weight: 500;
+        color: #9ca3af;
+        text-transform: lowercase;
+      }
       .bus-popup__drivers-list {
         display: flex;
         flex-direction: column;
