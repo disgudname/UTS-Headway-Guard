@@ -660,6 +660,8 @@
         touch-action: none;
         user-select: none;
         overflow: visible;
+        /* Establish stacking context so badge z-index works relative to SVG */
+        isolation: isolate;
       }
       .bus-marker__offroute-badge {
         position: absolute;
@@ -677,10 +679,7 @@
         justify-content: center;
         pointer-events: auto;
         box-shadow: 0 2px 6px rgba(15, 23, 42, 0.45);
-        z-index: 100;
-        /* Ensure badge sits above SVG which has will-change: transform */
-        transform: translateZ(0);
-        isolation: isolate;
+        z-index: 10;
       }
       .bus-label-icon {
         pointer-events: none !important;
@@ -697,10 +696,8 @@
         transition: transform 0.2s ease, filter 0.2s ease;
         transform-box: view-box;
         transform-origin: 50% 50%;
-        will-change: transform;
         pointer-events: none;
         position: relative;
-        z-index: 1;
       }
       .bus-marker__svg .st1 {
         paint-order: stroke fill;
