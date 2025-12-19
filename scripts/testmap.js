@@ -727,9 +727,10 @@ TM.registerVisibilityResumeHandler(() => {
 
         const controlPanel = getCachedElementById('controlPanel');
         const routeSelector = getCachedElementById('routeSelector');
+        const statusPanel = getCachedElementById('statusPanel');
         const controlTab = getCachedElementById('controlPanelTab');
         const routeTab = getCachedElementById('routeSelectorTab');
-        const elementsReady = controlPanel || routeSelector || controlTab || routeTab;
+        const elementsReady = controlPanel || routeSelector || statusPanel || controlTab || routeTab;
         if (!elementsReady) {
           return;
         }
@@ -754,6 +755,7 @@ TM.registerVisibilityResumeHandler(() => {
 
         hidePanel(controlPanel);
         hidePanel(routeSelector);
+        hidePanel(statusPanel);
 
         const hideTab = tab => {
           if (!tab) return;
