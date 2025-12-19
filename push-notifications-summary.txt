@@ -1,0 +1,39 @@
+Push Notification System Implementation Summary
+===============================================
+
+Files Created
+-------------
+- push_subscriptions.py - Storage module for push subscriptions
+- scripts/push-notifications.js - Bell icon UI component
+
+Files Modified
+--------------
+- requirements.txt - Added pywebpush>=1.14.0
+- app.py - Added:
+  - VAPID environment variables
+  - Push subscription store
+  - Background poller for TransLoc alerts (every 60s)
+  - REST endpoints: /api/push/vapid-public-key, /api/push/subscribe, /api/push/unsubscribe, /api/push/status
+- service-worker.js - Added push and notificationclick handlers, bumped cache to v6
+- html/index.html, html/map.html, html/dispatcher.html, html/driver.html - Added push-notifications.js script
+
+To Complete Setup
+-----------------
+
+1. Generate VAPID keys:
+
+   npx web-push generate-vapid-keys
+
+   This outputs something like:
+   Public Key: BN4x5Q...
+   Private Key: dGhpc...
+
+2. Set as Fly.io secrets:
+
+   fly secrets set VAPID_PUBLIC_KEY="BN4x5Q..." VAPID_PRIVATE_KEY="dGhpc..." VAPID_SUBJECT="mailto:ops@virginia.edu"
+
+Once deployed:
+- Users will see a bell icon in the bottom-right corner
+- Clicking it requests notification permission
+- New TransLoc service alerts trigger push notifications
+- Clicking a notification opens /map

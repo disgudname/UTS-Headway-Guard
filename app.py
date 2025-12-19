@@ -58,6 +58,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlparse, urlunparse, parse_qsl, urlencode
 
 from tickets_store import TicketStore
+from push_subscriptions import PushSubscriptionStore
 from ondemand_client import OnDemandClient
 from vehicle_drivers import VehicleDriversProvider
 from vehicle_drivers.uva import UVAVehicleDriversProvider, UVAProviderConfig
@@ -191,6 +192,34 @@ if TICKETS_PATH.is_absolute():
 else:
     _tickets_commit_name = str(TICKETS_PATH)
 tickets_store = TicketStore(TICKETS_PATH)
+
+# Push notifications (Web Push)
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:ops@virginia.edu")
+PUSH_SUBSCRIPTIONS_PATH = PRIMARY_DATA_DIR / "push_subscriptions.json"
+push_subscription_store = PushSubscriptionStore(PUSH_SUBSCRIPTIONS_PATH)
+
+# Track sent alert IDs to prevent duplicate notifications
+_sent_alert_ids: set = set()
+_SENT_ALERT_IDS_PATH = PRIMARY_DATA_DIR / "sent_alert_ids.json"
+
+def _load_sent_alert_ids() -> set:
+    try:
+        if _SENT_ALERT_IDS_PATH.exists():
+            data = json.loads(_SENT_ALERT_IDS_PATH.read_text())
+            return set(data.get("ids", []))
+    except Exception:
+        pass
+    return set()
+
+def _save_sent_alert_ids(ids: set) -> None:
+    # Keep only last 1000 IDs to prevent unbounded growth
+    recent_ids = list(ids)[-1000:]
+    _SENT_ALERT_IDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _SENT_ALERT_IDS_PATH.write_text(
+        json.dumps({"ids": recent_ids, "updated_at": datetime.now(timezone.utc).isoformat()})
+    )
 
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
@@ -4626,6 +4655,76 @@ async def startup():
             await asyncio.sleep(poll_interval_s)
 
     asyncio.create_task(ondemand_poller())
+
+    # Background poller for push notifications on new TransLoc service alerts
+    async def push_notification_poller():
+        global _sent_alert_ids
+        _sent_alert_ids = _load_sent_alert_ids()
+        await asyncio.sleep(5)  # Let other startup tasks complete
+        poll_interval_s = 60  # Check every minute
+        while True:
+            try:
+                if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+                    await asyncio.sleep(poll_interval_s * 5)  # Less frequent check if not configured
+                    continue
+                subscriptions = await push_subscription_store.get_all_subscriptions()
+                if not subscriptions:
+                    await asyncio.sleep(poll_interval_s)
+                    continue
+                # Fetch recent alerts from TransLoc
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    url = f"{transloc_host_base()}/Secure/Services/RoutesService.svc/GetMessagesPaged"
+                    resp = await client.get(url, params={
+                        "showInactive": "false",
+                        "rows": "20",
+                        "page": "1",
+                        "sortIndex": "StartDateUtc",
+                        "sortOrder": "desc",
+                    })
+                    if resp.status_code != 200:
+                        await asyncio.sleep(poll_interval_s)
+                        continue
+                    data = resp.json()
+                    alerts = data.get("Data", []) if isinstance(data, dict) else []
+                    new_alerts = []
+                    for alert in alerts:
+                        alert_id = str(alert.get("MessageId") or alert.get("Id", ""))
+                        if not alert_id or alert_id in _sent_alert_ids:
+                            continue
+                        message = (alert.get("Message") or "").strip()
+                        if not message:
+                            continue
+                        new_alerts.append({
+                            "id": alert_id,
+                            "title": "UTS Service Alert",
+                            "body": message[:200],
+                            "tag": f"alert-{alert_id}",
+                            "url": "/map",
+                        })
+                    if new_alerts:
+                        from pywebpush import webpush, WebPushException
+                        for alert_payload in new_alerts:
+                            for sub in subscriptions:
+                                try:
+                                    webpush(
+                                        subscription_info=sub.to_subscription_info(),
+                                        data=json.dumps(alert_payload),
+                                        vapid_private_key=VAPID_PRIVATE_KEY,
+                                        vapid_claims={"sub": VAPID_SUBJECT},
+                                    )
+                                except WebPushException as e:
+                                    if e.response and e.response.status_code == 410:
+                                        # Subscription expired
+                                        await push_subscription_store.remove_subscription(sub.endpoint)
+                                except Exception as push_err:
+                                    print(f"[push_notification_poller] push error: {push_err}")
+                            _sent_alert_ids.add(alert_payload["id"])
+                        _save_sent_alert_ids(_sent_alert_ids)
+            except Exception as exc:
+                print(f"[push_notification_poller] error: {exc}")
+            await asyncio.sleep(poll_interval_s)
+
+    asyncio.create_task(push_notification_poller())
 
 # ---------------------------
 # REST: Routes
@@ -10635,6 +10734,54 @@ async def dispatcher_auth(
 async def dispatcher_logout(response: Response):
     response.delete_cookie(DISPATCH_COOKIE_NAME)
     return {"ok": True}
+
+
+# ---------------------------
+# Push Notifications API
+# ---------------------------
+@app.get("/api/push/vapid-public-key")
+async def get_vapid_public_key():
+    """Return the VAPID public key for push subscription."""
+    if not VAPID_PUBLIC_KEY:
+        raise HTTPException(status_code=503, detail="Push notifications not configured")
+    return {"publicKey": VAPID_PUBLIC_KEY}
+
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(request: Request):
+    """Subscribe to push notifications."""
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        raise HTTPException(status_code=503, detail="Push notifications not configured")
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    keys = data.get("keys", {})
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(status_code=400, detail="Invalid subscription data")
+    user_agent = request.headers.get("user-agent")
+    is_new = await push_subscription_store.add_subscription(endpoint, keys, user_agent)
+    return {"status": "subscribed", "new": is_new}
+
+
+@app.post("/api/push/unsubscribe")
+async def push_unsubscribe(request: Request):
+    """Unsubscribe from push notifications."""
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Missing endpoint")
+    removed = await push_subscription_store.remove_subscription(endpoint)
+    return {"status": "unsubscribed", "found": removed}
+
+
+@app.get("/api/push/status")
+async def push_status():
+    """Return push notification status (for diagnostics)."""
+    count = await push_subscription_store.count()
+    return {
+        "configured": bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY),
+        "subscription_count": count,
+        "sent_alert_count": len(_sent_alert_ids),
+    }
 
 
 @app.get("/api/tickets")
