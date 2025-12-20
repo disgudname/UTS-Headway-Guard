@@ -268,13 +268,16 @@
           banner.classList.remove('is-visible');
           return;
         }
-        // Escape HTML to prevent XSS
+        // Escape HTML to prevent XSS, then apply formatting
         const escaped = message
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
+          .replace(/'/g, '&#039;')
+          .replace(/\*\*(.+?)\*\*/g, '<strong style="font-size:1.1em">$1</strong>')
+          .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br>');
         messageEl.innerHTML = escaped;
         banner.hidden = false;
         banner.classList.add('is-visible');
