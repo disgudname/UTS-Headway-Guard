@@ -11010,6 +11010,11 @@ ${trainPlaneMarkup}
       // SSE connection management for vehicle updates
       function handleVehicleSSEMessage(event) {
         try {
+          // SSE stream only contains UVA vehicles - ignore updates when another agency is selected
+          // to prevent overwriting non-UVA vehicle data in the cache
+          if (!isUvaAgencySelected()) {
+            return;
+          }
           const data = JSON.parse(event.data);
           if (!data || !Array.isArray(data.vehicles)) {
             return;
