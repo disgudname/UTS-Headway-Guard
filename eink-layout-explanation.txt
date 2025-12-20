@@ -1,0 +1,57 @@
+eink-block.html Layout Parameter Implementation
+================================================
+
+FLOW:
+1. URL param ?layout=My Cool Layout is read
+2. layoutParam lowercases it -> "my cool layout"
+3. normalizeLayoutIdentifier() sanitizes it:
+   - Replaces any non-alphanumeric characters (including spaces) with underscores
+   - Strips leading/trailing underscores
+   - Limits to 64 chars
+   - Result: "my_cool_layout"
+
+4. deriveLayoutDisplayName() converts back for display:
+   - Replaces underscores/hyphens with spaces
+   - Title-cases each word
+   - Result: "My Cool Layout"
+
+
+KEY CODE (lines 423-432):
+-------------------------
+function normalizeLayoutIdentifier(name){
+  if(name==null) return 'default';
+  if(typeof name==='number' && Number.isFinite(name)){
+    return normalizeLayoutIdentifier(String(name));
+  }
+  const text=String(name).trim();
+  if(!text) return 'default';
+  const sanitized=text.replace(/[^A-Za-z0-9_.-]+/g,'_').replace(/^_+|_+$/g,'');
+  if(!sanitized) return 'default';
+  return sanitized.slice(0,64);
+}
+
+
+SPACES WORK - THESE ARE ALL EQUIVALENT:
+---------------------------------------
+?layout=My Layout
+?layout=my_layout
+?layout=My_Layout
+
+All normalize to "my_layout" internally and display as "My Layout".
+
+
+CASE SENSITIVITY:
+-----------------
+Layout names are case-sensitive. The URL parameter preserves case:
+  const layoutParam=(params.get('layout')||'').trim();
+
+So "Recess Service" becomes "Recess_Service" (not "recess_service").
+Make sure the case in your URL matches how the layout was saved.
+
+
+STORAGE:
+--------
+- Layout data: localStorage key "einkBlockLayout"
+- Active layout: localStorage key "einkBlockLayout:active"
+- Display names: localStorage key "einkBlockLayout:names"
+- Server endpoint: /api/eink-block/layout?layout={name}

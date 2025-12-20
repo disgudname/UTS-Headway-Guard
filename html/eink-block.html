@@ -102,7 +102,7 @@
   #grid-view{
     width:520px;
     max-width:100%;
-    border:3px solid #000;
+    border:2px solid #000;
     display:flex;
     flex-direction:column;
     font-weight:600;
@@ -119,7 +119,7 @@
     align-items:stretch;
     gap:10px;
     padding:8px 12px;
-    border-bottom:3px solid #000;
+    border-bottom:2px solid #000;
     font-family:'CenturyGothic',sans-serif;
     font-size:14px;
     letter-spacing:0.04em;
@@ -181,31 +181,13 @@
   }
   #grid-view .grid-header{
     font-family:'CenturyGothic',sans-serif;
-    font-size:22px;
-    letter-spacing:0.1em;
+    font-size:18px;
+    font-weight:700;
+    letter-spacing:0.12em;
     text-transform:uppercase;
-    padding:12px 8px;
-    border-bottom:3px solid #000;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:8px;
-  }
-  #grid-view .grid-header .grid-title{
-    flex:1;
+    padding:10px 8px;
+    border-bottom:2px solid #000;
     text-align:center;
-  }
-  #grid-view .grid-header button{
-    font-family:'CenturyGothic',sans-serif;
-    font-size:12px;
-    letter-spacing:0.04em;
-    text-transform:uppercase;
-    padding:6px 10px;
-    border:2px solid #000;
-    background:#fff;
-    cursor:pointer;
-  }
-  #grid-view .grid-header button:active{
     background:#000;
     color:#fff;
   }
@@ -213,17 +195,19 @@
     --grid-columns:4;
     display:grid;
     grid-template-columns:repeat(var(--grid-columns),var(--grid-column-width,1fr));
-    grid-template-rows:repeat(var(--grid-rows,9),minmax(48px,1fr));
+    grid-template-rows:repeat(var(--grid-rows,9),minmax(44px,1fr));
     width:100%;
   }
   #grid-view .cell{
-    padding:10px 6px;
+    padding:6px 4px;
     display:flex;
     flex-direction:column;
     align-items:center;
     justify-content:center;
-    min-height:40px;
-    gap:4px;
+    min-height:36px;
+    gap:2px;
+    border-top:1px solid #000;
+    border-left:1px solid #000;
   }
   #grid-view .cell.editable{
     cursor:pointer;
@@ -232,15 +216,11 @@
   #grid-view .cell.editable::after{
     content:'Edit';
     position:absolute;
-    bottom:6px;
-    right:6px;
-    font-size:10px;
+    bottom:4px;
+    right:4px;
+    font-size:9px;
     letter-spacing:0.08em;
-    color:#555;
-  }
-  #grid-view .cell{
-    border-top:2px solid #000;
-    border-left:2px solid #000;
+    color:#666;
   }
   #grid-view .cell[data-row="0"]{
     border-top:none;
@@ -248,24 +228,31 @@
   #grid-view .cell[data-col="0"]{
     border-left:none;
   }
+  #grid-view .cell[data-row="0"] .block-label{
+    font-weight:700;
+  }
   #grid-view .cell .block-label{
     font-family:'CenturyGothic',sans-serif;
-    font-size:14px;
-    letter-spacing:0.06em;
+    font-size:13px;
+    letter-spacing:0.05em;
+    color:#333;
   }
   #grid-view .cell .bus{
-    font-size:18px;
+    font-size:20px;
+    font-weight:700;
+    letter-spacing:0.02em;
   }
   #grid-view .cell .drivers{
     font-family:'CenturyGothic',sans-serif;
-    font-size:11px;
+    font-size:10px;
     letter-spacing:0.01em;
     text-transform:none;
-    line-height:1.2;
+    line-height:1.15;
     display:none;
     flex-direction:column;
     align-items:center;
-    gap:2px;
+    gap:1px;
+    color:#444;
   }
   #grid-view .cell .drivers .driver-line{
     white-space:nowrap;
@@ -282,7 +269,7 @@
     <div id="status"></div>
   </div>
   <div id="grid-view" hidden>
-    <div class="grid-header"><span class="grid-title">BLOCK ASSIGNMENTS</span><button type="button" id="layout-toggle">Switch Layout</button></div>
+    <div class="grid-header"><span class="grid-title">BLOCK ASSIGNMENTS</span></div>
     <div class="grid-table"></div>
   </div>
 </main>
@@ -294,13 +281,12 @@
   const editMode=params.get('edit')==='true';
   let block=params.get('block');
   const periodParam=(params.get('period')||'').trim().toLowerCase();
-  const layoutParam=(params.get('layout')||'').trim().toLowerCase();
+  const layoutParam=(params.get('layout')||'').trim();
   const statusEl=document.getElementById('status');
   const busEl=document.getElementById('bus');
   const driverInfoEl=document.getElementById('driver-info');
   const blockView=document.getElementById('block-view');
   const gridView=document.getElementById('grid-view');
-  const layoutToggleButton=document.getElementById('layout-toggle');
   const gridTitleEl=gridView?gridView.querySelector('.grid-title'):null;
   const blockNumberEl=document.getElementById('block-number');
   const isGridMode=!block;
@@ -1124,19 +1110,6 @@
   }
 
   function updateLayoutToggleButton(){
-    if(layoutToggleButton){
-      const names=getAllLayoutNames();
-      const nextLayout=names.find(name=>name!==layoutName)||'';
-      if(nextLayout){
-        layoutToggleButton.textContent=`Switch to ${getLayoutDisplayName(nextLayout)}`;
-        layoutToggleButton.dataset.nextLayout=nextLayout;
-        layoutToggleButton.hidden=!isGridMode || names.length<=1;
-      }else{
-        layoutToggleButton.textContent='Switch Layout';
-        layoutToggleButton.hidden=true;
-        delete layoutToggleButton.dataset.nextLayout;
-      }
-    }
     if(gridTitleEl){
       if(layoutName===DEFAULT_LAYOUT_NAME){
         gridTitleEl.textContent='BLOCK ASSIGNMENTS';
@@ -1225,17 +1198,6 @@
       history.replaceState(null,'',newUrl);
     }
     fetchLayoutFromServer({announce:true,name:normalized}).catch(()=>{});
-  }
-
-  if(layoutToggleButton){
-    layoutToggleButton.addEventListener('click',()=>{
-      const target=layoutToggleButton.dataset.nextLayout
-        || getAllLayoutNames().find(name=>name!==layoutName)
-        || '';
-      if(target && target!==layoutName){
-        switchLayout(target);
-      }
-    });
   }
 
   function saveLayout(){

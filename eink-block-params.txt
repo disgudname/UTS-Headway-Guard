@@ -1,0 +1,51 @@
+eink-block.html URL Parameters
+===============================
+
+block
+  - Value: block number (e.g., "101", "202")
+  - If omitted: displays grid view showing all blocks
+  - If provided: displays single-block view for that specific block
+
+colors
+  - Value: "true" to enable
+  - Default: disabled (grayscale/e-ink optimized)
+  - Enables color display instead of e-ink optimized grayscale
+
+showDrivers
+  - Value: "true" to enable
+  - Default: disabled
+  - Shows driver names assigned to blocks
+
+edit
+  - Value: "true" to enable
+  - Default: disabled
+  - Enables edit mode for grid layout customization
+  - Only applies in grid mode (when no block is specified)
+
+period
+  - Value: "am" or "pm"
+  - Default: auto-detected based on current time
+  - Forces display of AM or PM block assignments
+
+layout
+  - Value: layout name string
+  - Default: uses default layout
+  - Selects a saved custom grid layout
+
+
+Example URLs
+------------
+Single block view:
+  /eink-block?block=101
+
+Grid view with colors:
+  /eink-block?colors=true
+
+Grid view in edit mode:
+  /eink-block?edit=true
+
+AM period with drivers shown:
+  /eink-block?period=am&showDrivers=true
+
+Custom layout:
+  /eink-block?layout=myLayout
