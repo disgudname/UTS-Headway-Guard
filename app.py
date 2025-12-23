@@ -1344,19 +1344,26 @@ TESTMAP_VEHICLES_SUBS: set[asyncio.Queue] = set()
 def record_api_call(method: str, url: str, status: int) -> None:
     item = {"ts": int(time.time()*1000), "method": method, "url": url, "status": status}
     API_CALL_LOG.append(item)
+    encoded = f"data: {json.dumps(item)}\n\n"
     for q in list(API_CALL_SUBS):
-        q.put_nowait(item)
+        try:
+            q.put_nowait(encoded)
+        except asyncio.QueueFull:
+            pass  # Drop update for slow clients
 
 def broadcast_testmap_vehicles(payload: List[Dict[str, Any]]) -> None:
     """Broadcast vehicle updates to all SSE subscribers."""
     if not TESTMAP_VEHICLES_SUBS:
         return
-    data = {"ts": int(time.time() * 1000), "vehicles": payload}
+    # Filter out stale vehicles once, encode JSON once, send to all
+    filtered = [v for v in payload if not v.get("IsVeryStale")]
+    data = {"ts": int(time.time() * 1000), "vehicles": filtered}
+    encoded = f"data: {json.dumps(data)}\n\n"
     for q in list(TESTMAP_VEHICLES_SUBS):
         try:
-            q.put_nowait(data)
-        except Exception:
-            pass
+            q.put_nowait(encoded)
+        except asyncio.QueueFull:
+            pass  # Drop update for slow clients
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -9898,14 +9905,15 @@ async def low_clearances():
 @app.get("/v1/stream/api_calls")
 async def stream_api_calls():
     async def gen():
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit queue to prevent memory bloat
         API_CALL_SUBS.add(q)
         try:
             for item in list(API_CALL_LOG):
                 yield f"data: {json.dumps(item)}\n\n"
+            # Stream updates as they come (pre-encoded by record_api_call)
             while True:
-                item = await q.get()
-                yield f"data: {json.dumps(item)}\n\n"
+                encoded = await q.get()
+                yield encoded
         finally:
             API_CALL_SUBS.discard(q)
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -9921,7 +9929,7 @@ async def stream_testmap_vehicles():
     This replaces polling for clients that support SSE.
     """
     async def gen():
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit queue to prevent memory bloat
         TESTMAP_VEHICLES_SUBS.add(q)
         try:
             # Send current state immediately on connect
@@ -9931,14 +9939,10 @@ async def stream_testmap_vehicles():
                 filtered = [v for v in current_payload if not v.get("IsVeryStale")]
                 initial = {"ts": int(time.time() * 1000), "vehicles": filtered}
                 yield f"data: {json.dumps(initial)}\n\n"
-            # Then stream updates as they come
+            # Then stream updates as they come (pre-encoded by broadcast function)
             while True:
-                item = await q.get()
-                # Filter out hour+ old vehicles from broadcast
-                if "vehicles" in item:
-                    item = dict(item)
-                    item["vehicles"] = [v for v in item["vehicles"] if not v.get("IsVeryStale")]
-                yield f"data: {json.dumps(item)}\n\n"
+                encoded = await q.get()
+                yield encoded
         finally:
             TESTMAP_VEHICLES_SUBS.discard(q)
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -10659,12 +10663,12 @@ async def servicecrew_reset(bus_name: str):
 @app.get("/v1/stream/servicecrew_refresh")
 async def stream_servicecrew_refresh():
     async def gen():
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit queue to prevent memory bloat
         SERVICECREW_SUBS.add(q)
         try:
             while True:
-                item = await q.get()
-                yield f"data: {json.dumps(item)}\n\n"
+                encoded = await q.get()
+                yield encoded
         finally:
             SERVICECREW_SUBS.discard(q)
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -10672,8 +10676,12 @@ async def stream_servicecrew_refresh():
 @app.post("/v1/servicecrew/refresh")
 async def servicecrew_refresh():
     item = {"ts": int(time.time()*1000)}
+    encoded = f"data: {json.dumps(item)}\n\n"
     for q in list(SERVICECREW_SUBS):
-        q.put_nowait(item)
+        try:
+            q.put_nowait(encoded)
+        except asyncio.QueueFull:
+            pass  # Drop update for slow clients
     return {"status": "ok"}
 
 # ---------------------------
