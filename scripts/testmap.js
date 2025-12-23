@@ -9227,14 +9227,12 @@ TM.registerVisibilityResumeHandler(() => {
         // Preserve scroll position during panel rebuild
         const previousScrollTop = panel.scrollTop || 0;
 
-        // Preserve existing logo element to avoid unnecessary image reload
-        // Logo only changes when agency or CAT mode changes
-        const existingLogoDiv = panel.querySelector('.selector-logo');
+        // Check if header needs rebuild (only when agency or CAT mode changes)
         const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
-        const logoNeedsRebuild = (lastLogoAgencyUrl !== sanitizedBaseURL) || (lastLogoCatPriorityMode !== catPriorityMode);
+        const headerNeedsRebuild = (lastLogoAgencyUrl !== sanitizedBaseURL) || (lastLogoCatPriorityMode !== catPriorityMode);
 
         let logoHtml = '';
-        if (logoNeedsRebuild) {
+        if (headerNeedsRebuild) {
           const selectedAgency = agencies.find(a => a.url === baseURL);
           if (catPriorityMode) {
             const safeLogoSrc = '/media/CATlogo.png';
@@ -9261,9 +9259,6 @@ TM.registerVisibilityResumeHandler(() => {
           }
           lastLogoAgencyUrl = sanitizedBaseURL;
           lastLogoCatPriorityMode = catPriorityMode;
-        } else if (existingLogoDiv) {
-          // Logo hasn't changed, preserve existing element
-          logoHtml = existingLogoDiv.outerHTML;
         }
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
@@ -9377,28 +9372,20 @@ ${trainPlaneMarkup}
         ` : '';
         const showAgencySelect = !catPriorityMode || utsOverlayEnabled;
 
-        let html = `
-          <div class="selector-header">
-            <div class="selector-header-text">
-              <div class="selector-title">System Controls</div>
-              <div class="selector-subtitle">Choose a transit system and label style.</div>
-            </div>
-            ${logoHtml}
-          </div>
-          <div class="selector-content">
-        `;
+        // Build content HTML separately so we can update just the content when header doesn't change
+        let contentHtml = '';
 
         if (showAgencySelect) {
-          html += `
+          contentHtml += `
             <div class="selector-group">
               <label class="selector-label" for="agencySelect">Select System</label>
               <div class="selector-control">
                 <select id="agencySelect" onchange="changeAgency(this.value)">
           `;
           agencies.forEach(a => {
-            html += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
+            contentHtml += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
           });
-          html += `
+          contentHtml += `
                 </select>
               </div>
             </div>
@@ -9406,7 +9393,7 @@ ${trainPlaneMarkup}
         }
 
         // Map theme toggle (always shown)
-        html += `
+        contentHtml += `
           <div class="selector-group">
             <div class="selector-label">Map Theme</div>
             <div class="theme-mode-group" id="themeModeButtons">
@@ -9445,7 +9432,7 @@ ${trainPlaneMarkup}
           `;
         }
         if (catPriorityMode) {
-          html += `
+          contentHtml += `
             <div class="selector-group">
               <button type="button" id="utsToggleButton" class="pill-button cat-toggle-button${utsOverlayEnabled ? ' is-active' : ''}" aria-pressed="${utsOverlayEnabled ? 'true' : 'false'}" onclick="toggleUtsOverlay()">
                 UTS<span class="toggle-indicator">${utsOverlayEnabled ? 'On' : 'Off'}</span>
@@ -9454,7 +9441,7 @@ ${trainPlaneMarkup}
             </div>
           `;
         } else if (catOverlayAvailable) {
-          html += `
+          contentHtml += `
             <div class="selector-group">
               <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
                 CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
@@ -9463,18 +9450,18 @@ ${trainPlaneMarkup}
             </div>
           `;
         } else {
-          html += `
+          contentHtml += `
             <div class="selector-group">
               ${centerMapButtonHtml}
             </div>
           `;
         }
-        html += bubbleStopFilterHtml;
-        html += serviceAlertsSectionHtml;
-        html += incidentAlertsHtml;
+        contentHtml += bubbleStopFilterHtml;
+        contentHtml += serviceAlertsSectionHtml;
+        contentHtml += incidentAlertsHtml;
 
         if (adminMode && !catPriorityMode) {
-          html += `
+          contentHtml += `
             <div class="selector-group">
               <div class="selector-label">Vehicle Labels</div>
               <div class="display-mode-group" id="displayModeButtons">
@@ -9497,7 +9484,7 @@ ${trainPlaneMarkup}
           `;
           // Only show OnDemand buttons for UVA agencies
           if (isUvaAgencySelected()) {
-            html += `
+            contentHtml += `
             <div class="selector-group">
               <button type="button" id="onDemandToggleButton" class="pill-button ondemand-toggle-button${onDemandVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${onDemandVehiclesEnabled ? 'true' : 'false'}" onclick="toggleOnDemand()">
                 OnDemand<span class="toggle-indicator">${onDemandVehiclesEnabled ? 'On' : 'Off'}</span>
@@ -9510,16 +9497,48 @@ ${trainPlaneMarkup}
           }
         }
 
-        html += incidentToggleHtml;
-        html += radarControlsHtml;
-        html += trainToggleHtml;
-        html += demoButtonHtml;
+        contentHtml += incidentToggleHtml;
+        contentHtml += radarControlsHtml;
+        contentHtml += trainToggleHtml;
+        contentHtml += demoButtonHtml;
 
-        html += `
-          </div>
-        `;
-
-        panel.innerHTML = html;
+        // Apply updates: full rebuild only when header changes, otherwise just update content
+        if (headerNeedsRebuild) {
+          // Full panel rebuild including header with logo
+          const fullHtml = `
+            <div class="selector-header">
+              <div class="selector-header-text">
+                <div class="selector-title">System Controls</div>
+                <div class="selector-subtitle">Choose a transit system and label style.</div>
+              </div>
+              ${logoHtml}
+            </div>
+            <div class="selector-content">
+              ${contentHtml}
+            </div>
+          `;
+          panel.innerHTML = fullHtml;
+        } else {
+          // Only update content, preserve header (and logo)
+          const contentEl = panel.querySelector('.selector-content');
+          if (contentEl) {
+            contentEl.innerHTML = contentHtml;
+          } else {
+            // Fallback: no content element found, do full rebuild
+            const fullHtml = `
+              <div class="selector-header">
+                <div class="selector-header-text">
+                  <div class="selector-title">System Controls</div>
+                  <div class="selector-subtitle">Choose a transit system and label style.</div>
+                </div>
+              </div>
+              <div class="selector-content">
+                ${contentHtml}
+              </div>
+            `;
+            panel.innerHTML = fullHtml;
+          }
+        }
         if (bubbleVisualizationEnabled && isUvaAgencySelected()) {
           refreshBubbleStopListSection();
         }

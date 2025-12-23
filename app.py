@@ -9894,14 +9894,12 @@ async def stream_testmap_vehicles():
         TESTMAP_VEHICLES_SUBS.add(q)
         try:
             # Send current state immediately on connect
-            state = getattr(app, "state", None)
-            if state:
-                current_payload = getattr(state, "testmap_vehicles_payload", None)
-                if current_payload:
-                    # Filter out hour+ old vehicles for SSE stream (default behavior)
-                    filtered = [v for v in current_payload if not v.get("IsVeryStale")]
-                    initial = {"ts": int(time.time() * 1000), "vehicles": filtered}
-                    yield f"data: {json.dumps(initial)}\n\n"
+            current_payload = state.testmap_vehicles_payload
+            if current_payload:
+                # Filter out hour+ old vehicles for SSE stream (default behavior)
+                filtered = [v for v in current_payload if not v.get("IsVeryStale")]
+                initial = {"ts": int(time.time() * 1000), "vehicles": filtered}
+                yield f"data: {json.dumps(initial)}\n\n"
             # Then stream updates as they come
             while True:
                 item = await q.get()

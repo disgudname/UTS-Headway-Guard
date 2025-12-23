@@ -1,0 +1,107 @@
+Stop-Specific Bus ETA Endpoints
+================================
+
+There are two main systems with stop ETA endpoints:
+
+
+1. TRANSLOC (UVA, etc.)
+========================
+
+GET /v1/transloc/stop_arrivals
+------------------------------
+Returns arrival time predictions for specified stops.
+
+Query Parameters:
+  - stopIDs: Comma-separated stop IDs (e.g., "4123771,4123772")
+  - stops: Alias for stopIDs
+  - base_url: Optional TransLoc base URL override for other agencies
+
+Example:
+  /v1/transloc/stop_arrivals?stopIDs=4123771,4123772
+
+Response: Proxied directly from TransLoc GetStopArrivalTimes API.
+Contains arrival predictions with route info, vehicle info, and ETAs.
+
+Cache TTL: 15 seconds (TRANSLOC_ARRIVALS_TTL_S)
+
+
+GET /v1/transloc/vehicle_route_stop_estimates
+---------------------------------------------
+Returns ETA estimates for specific vehicles to upcoming stops.
+
+Query Parameters:
+  - vehicleIdStrings: Comma-separated vehicle IDs (required)
+  - quantity: Number of stops per vehicle, 1-10 (default: 3)
+  - base_url: Optional TransLoc base URL override
+
+Example:
+  /v1/transloc/vehicle_route_stop_estimates?vehicleIdStrings=1234,5678&quantity=5
+
+Response: Proxied from TransLoc GetVehicleRouteStopEstimates API.
+
+
+2. CAT (Charlottesville Area Transit)
+=====================================
+
+GET /v1/testmap/cat/stop-etas
+-----------------------------
+Returns ETAs for buses arriving at a specific CAT stop.
+
+Query Parameters:
+  - stop_id: The CAT stop ID (required)
+
+Example:
+  /v1/testmap/cat/stop-etas?stop_id=1001
+
+Response Format:
+{
+  "etas": [
+    {
+      "routeID": "7",
+      "routeName": "Route Name",
+      "vehicleID": "123",
+      "minutes": 5,
+      "time": "01:41PM",
+      "direction": "Outbound",
+      "directionAbbr": "O"
+    },
+    ...
+  ]
+}
+
+Cache TTL: 30 seconds (CAT_STOP_ETA_TTL_S)
+
+Backend: Calls CAT's etaspot API (get_stop_etas service method)
+
+
+HELPER ENDPOINTS
+================
+
+GET /v1/testmap/cat/stops
+-------------------------
+Returns list of all CAT stops with IDs, names, and coordinates.
+Use this to find stop IDs for the stop-etas endpoint.
+
+
+GET /v1/testmap/transloc/metadata
+---------------------------------
+Returns TransLoc route and stop metadata.
+Includes stop IDs needed for stop_arrivals endpoint.
+
+
+USAGE NOTES
+===========
+
+1. For UVA buses: Use /v1/transloc/stop_arrivals with UVA stop IDs
+   - Stop IDs can be found in the metadata endpoint or testmap stop data
+
+2. For CAT buses: Use /v1/testmap/cat/stop-etas with CAT stop IDs
+   - Stop IDs available from /v1/testmap/cat/stops
+
+3. Both endpoints are cached to reduce upstream API load:
+   - TransLoc: 15s cache
+   - CAT: 30s cache (per stop ID)
+
+4. TransLoc responses are proxied directly; CAT responses are trimmed/normalized
+
+5. For real-time updates, poll at intervals >= cache TTL
