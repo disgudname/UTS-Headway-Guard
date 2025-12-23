@@ -4714,17 +4714,26 @@ async def startup():
     async def push_notification_poller():
         global _sent_alert_ids
         _sent_alert_ids = _load_sent_alert_ids()
+        print(f"[push_notification_poller] started, loaded {len(_sent_alert_ids)} previously sent alert IDs")
         await asyncio.sleep(5)  # Let other startup tasks complete
         poll_interval_s = 60  # Check every minute
+        poll_count = 0
         while True:
             try:
+                poll_count += 1
                 if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+                    if poll_count == 1:
+                        print("[push_notification_poller] VAPID keys not configured, sleeping")
                     await asyncio.sleep(poll_interval_s * 5)  # Less frequent check if not configured
                     continue
                 subscriptions = await push_subscription_store.get_all_subscriptions()
                 if not subscriptions:
+                    if poll_count == 1:
+                        print("[push_notification_poller] no subscribers, sleeping")
                     await asyncio.sleep(poll_interval_s)
                     continue
+                if poll_count <= 3 or poll_count % 10 == 0:
+                    print(f"[push_notification_poller] poll #{poll_count}, {len(subscriptions)} subscribers")
                 # Fetch recent alerts from TransLoc
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     url = f"{transloc_host_base()}/Secure/Services/RoutesService.svc/GetMessagesPaged"
@@ -4736,17 +4745,23 @@ async def startup():
                         "sortOrder": "desc",
                     })
                     if resp.status_code != 200:
+                        print(f"[push_notification_poller] TransLoc API returned {resp.status_code}")
                         await asyncio.sleep(poll_interval_s)
                         continue
                     data = resp.json()
                     alerts = data.get("Rows", []) or data.get("Data", []) if isinstance(data, dict) else []
+                    print(f"[push_notification_poller] fetched {len(alerts)} alerts from TransLoc, {len(_sent_alert_ids)} already sent")
                     new_alerts = []
                     for alert in alerts:
                         alert_id = str(alert.get("MessageId") or alert.get("Id", ""))
-                        if not alert_id or alert_id in _sent_alert_ids:
+                        if not alert_id:
+                            print(f"[push_notification_poller] skipping alert with no ID: {alert}")
+                            continue
+                        if alert_id in _sent_alert_ids:
                             continue
                         message = (alert.get("MessageText") or alert.get("Message") or "").strip()
                         if not message:
+                            print(f"[push_notification_poller] skipping alert {alert_id} with no message")
                             continue
                         new_alerts.append({
                             "id": alert_id,
@@ -4755,9 +4770,12 @@ async def startup():
                             "tag": f"alert-{alert_id}",
                             "url": "/map",
                         })
+                        print(f"[push_notification_poller] new alert {alert_id}: {message[:50]}...")
                     if new_alerts:
                         from pywebpush import webpush, WebPushException
+                        print(f"[push_notification_poller] sending {len(new_alerts)} alerts to {len(subscriptions)} subscribers")
                         for alert_payload in new_alerts:
+                            sent_count = 0
                             for sub in subscriptions:
                                 try:
                                     webpush(
@@ -4766,13 +4784,18 @@ async def startup():
                                         vapid_private_key=VAPID_PRIVATE_KEY,
                                         vapid_claims={"sub": VAPID_SUBJECT},
                                     )
+                                    sent_count += 1
                                 except WebPushException as e:
                                     if e.response and e.response.status_code == 410:
                                         # Subscription expired
+                                        print(f"[push_notification_poller] removing expired subscription")
                                         await push_subscription_store.remove_subscription(sub.endpoint)
+                                    else:
+                                        print(f"[push_notification_poller] WebPushException: {e}")
                                 except Exception as push_err:
                                     print(f"[push_notification_poller] push error: {push_err}")
                             _sent_alert_ids.add(alert_payload["id"])
+                            print(f"[push_notification_poller] sent alert {alert_payload['id']} to {sent_count}/{len(subscriptions)} subscribers")
                         _save_sent_alert_ids(_sent_alert_ids)
             except Exception as exc:
                 print(f"[push_notification_poller] error: {exc}")

@@ -287,25 +287,27 @@
           banner.classList.remove('is-visible');
           return;
         }
-        // Display the first active alert (most recent)
-        const firstAlert = activeAlerts[0];
-        const message = (firstAlert.MessageText || firstAlert.Message || firstAlert.message || firstAlert.text || '').trim();
-        if(!message){
+        // Display all active alerts
+        const formattedAlerts = activeAlerts.map(alert => {
+          const message = (alert.MessageText || alert.Message || alert.message || alert.text || '').trim();
+          if(!message) return null;
+          // Escape HTML to prevent XSS, then apply formatting
+          return message
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;')
+            .replace(/\*\*(.+?)\*\*/g, '<strong style="font-size:1.1em">$1</strong>')
+            .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
+        }).filter(Boolean);
+        if(formattedAlerts.length === 0){
           banner.hidden = true;
           banner.classList.remove('is-visible');
           return;
         }
-        // Escape HTML to prevent XSS, then apply formatting
-        const escaped = message
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;')
-          .replace(/\*\*(.+?)\*\*/g, '<strong style="font-size:1.1em">$1</strong>')
-          .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
-          .replace(/\n/g, '<br>');
-        messageEl.innerHTML = escaped;
+        messageEl.innerHTML = formattedAlerts.join('<hr style="border:none;border-top:1px solid rgba(252,165,165,0.3);margin:12px 0;">');
         banner.hidden = false;
         banner.classList.add('is-visible');
       } catch(err){
