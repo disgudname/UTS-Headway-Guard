@@ -10833,6 +10833,66 @@ async def dispatcher_auth_status(request: Request):
     }
 
 
+@app.get("/v1/index/init")
+async def index_init(request: Request):
+    """Combined endpoint for index.html initial page load.
+
+    Returns auth status, service alerts, system notices, and service level
+    in a single request to reduce page load latency.
+    """
+    # Get auth status (sync)
+    info = _get_dispatcher_secret_info(request)
+    is_authed = bool(info)
+    auth_data = {
+        "required": True,
+        "authorized": is_authed,
+        "secret": info[0] if info else None,
+        "access_type": info[1] if info else None,
+    }
+
+    # Fetch async data in parallel
+    async def fetch_alerts():
+        try:
+            root = transloc_host_base(None)
+            url = f"{root}/Secure/Services/RoutesService.svc/GetMessagesPaged"
+            params = {
+                "showInactive": False,
+                "includeDeleted": False,
+                "messageTypeId": 1,
+                "search": False,
+                "rows": 5,
+                "page": 1,
+                "sortIndex": "StartDateUtc",
+                "sortOrder": "asc",
+            }
+            return await _proxy_transloc_get(url, params=params, base_url=None)
+        except Exception:
+            return {"Rows": []}
+
+    async def fetch_service_level():
+        try:
+            result = await _fetch_service_level(bypass_cache=False)
+            return result.to_dict()
+        except Exception:
+            return {"service_level": "UNKNOWN"}
+
+    # Run async fetches in parallel
+    alerts_result, service_level_result = await asyncio.gather(
+        fetch_alerts(),
+        fetch_service_level(),
+    )
+
+    # Get system notices (sync, but depends on auth status)
+    notices = _get_active_system_notices(include_auth_only=is_authed)
+
+    return {
+        "auth": auth_data,
+        "alerts": alerts_result,
+        "notices": notices,
+        "service_level": service_level_result,
+    }
+
+
 @app.post("/api/dispatcher/auth")
 async def dispatcher_auth(
     response: Response, payload: dict[str, Any] = Body(...)

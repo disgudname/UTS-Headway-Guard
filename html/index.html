@@ -198,6 +198,23 @@
       });
     };
 
+    function applyAuthData(data){
+      loggedIn = Boolean(data?.authorized);
+      if(loggedIn){
+        authButton.textContent = 'Log out';
+        if(data.secret){
+          authSecret.textContent = `Logged in as ${data.secret}`;
+          authSecret.hidden = false;
+        } else {
+          authSecret.hidden = true;
+        }
+      } else {
+        authButton.textContent = 'UTS Staff Access';
+        authSecret.hidden = true;
+      }
+      applyAccessRestrictions();
+    }
+
     async function updateAuthState(){
       try{
         const response = await fetch('/api/dispatcher/auth', {credentials: 'same-origin'});
@@ -205,27 +222,14 @@
           throw new Error('status');
         }
         const data = await response.json();
-        loggedIn = Boolean(data.authorized);
-        if(loggedIn){
-          authButton.textContent = 'Log out';
-          if(data.secret){
-            authSecret.textContent = `Logged in as ${data.secret}`;
-            authSecret.hidden = false;
-          } else {
-            authSecret.hidden = true;
-          }
-        } else {
-          authButton.textContent = 'UTS Staff Access';
-          authSecret.hidden = true;
-        }
-        applyAccessRestrictions();
+        applyAuthData(data);
       } catch(err){
-        loggedIn = false;
-        authButton.textContent = 'UTS Staff Access';
-        authSecret.hidden = true;
-        applyAccessRestrictions();
+        applyAuthData(null);
       }
     }
+
+    // Expose for combined init
+    window._applyAuthData = applyAuthData;
 
     authButton.addEventListener('click', async () => {
       if(loggedIn){
@@ -242,7 +246,7 @@
     });
 
     applyAccessRestrictions();
-    updateAuthState();
+    // Initial auth fetch replaced by combined init
   })();
 </script>
 <script>
@@ -340,30 +344,40 @@
 
     window._toggleServiceAlert = toggleCollapse;
 
+    function filterActiveAlerts(alerts){
+      const now = Date.now();
+      return alerts.filter(alert => {
+        if(!alert) return false;
+        const endDate = alert.EndDateUtc || alert.endDate || alert.end_date;
+        const endTime = parseTransLocDate(endDate);
+        if(endTime !== null && endTime < now) return false;
+        const startDate = alert.StartDateUtc || alert.startDate || alert.start_date;
+        const startTime = parseTransLocDate(startDate);
+        if(startTime !== null && startTime > now) return false;
+        const message = alert.MessageText || alert.Message || alert.message || alert.text || '';
+        return message.trim().length > 0;
+      });
+    }
+
     async function fetchServiceAlerts(){
       try{
         const response = await fetch('/v1/transloc/alerts?showInactive=false&rows=5');
         if(!response.ok) return;
         const data = await response.json();
         const alerts = Array.isArray(data?.Rows) ? data.Rows : Array.isArray(data?.Data) ? data.Data : Array.isArray(data) ? data : [];
-        const now = Date.now();
-        const activeAlerts = alerts.filter(alert => {
-          if(!alert) return false;
-          const endDate = alert.EndDateUtc || alert.endDate || alert.end_date;
-          const endTime = parseTransLocDate(endDate);
-          if(endTime !== null && endTime < now) return false;
-          const startDate = alert.StartDateUtc || alert.startDate || alert.start_date;
-          const startTime = parseTransLocDate(startDate);
-          if(startTime !== null && startTime > now) return false;
-          const message = alert.MessageText || alert.Message || alert.message || alert.text || '';
-          return message.trim().length > 0;
-        });
-        renderAlerts(activeAlerts);
+        renderAlerts(filterActiveAlerts(alerts));
       } catch(err){
         container.innerHTML = '';
       }
     }
-    fetchServiceAlerts();
+
+    // Expose for combined init
+    window._renderServiceAlerts = function(data){
+      const alerts = Array.isArray(data?.Rows) ? data.Rows : Array.isArray(data?.Data) ? data.Data : Array.isArray(data) ? data : [];
+      renderAlerts(filterActiveAlerts(alerts));
+    };
+
+    // Initial fetch replaced by combined init; keep refresh interval
     setInterval(fetchServiceAlerts, 60000);
   })();
 </script>
@@ -473,18 +487,12 @@
       }
     }
 
-    async function checkAuthAndFetch(){
-      try{
-        const authResp = await fetch('/api/dispatcher/auth', {credentials: 'same-origin'});
-        if(authResp.ok){
-          const authData = await authResp.json();
-          isAuthenticated = Boolean(authData.authorized);
-        }
-      } catch(e){}
-      await fetchSystemNotices();
-    }
+    // Expose for combined init
+    window._renderSystemNotices = function(notices){
+      renderNotices(notices || []);
+    };
 
-    checkAuthAndFetch();
+    // Initial fetch replaced by combined init; keep refresh interval
     setInterval(fetchSystemNotices, 60000);
   })();
 </script>
@@ -494,24 +502,30 @@
     const el = document.getElementById('service-level');
     if(!el) return;
 
+    function renderServiceLevel(data){
+      const level = data?.service_level;
+      if(!level || level === 'UNKNOWN'){
+        el.textContent = '';
+        return;
+      }
+      el.innerHTML = `Today's Service Level: <span class="service-level__value">${level.replace(/</g,'&lt;')}</span>`;
+    }
+
     async function fetchServiceLevel(){
       try{
         const resp = await fetch('/v1/uts/service_level');
         if(!resp.ok) return;
         const data = await resp.json();
-        const level = data.service_level;
-        if(!level || level === 'UNKNOWN'){
-          el.textContent = '';
-          return;
-        }
-        el.innerHTML = `Today's Service Level: <span class="service-level__value">${level.replace(/</g,'&lt;')}</span>`;
+        renderServiceLevel(data);
       } catch(e){
         // Silently fail
       }
     }
 
-    fetchServiceLevel();
-    // Refresh every 5 minutes
+    // Expose for combined init
+    window._renderServiceLevel = renderServiceLevel;
+
+    // Initial fetch replaced by combined init; keep refresh interval
     setInterval(fetchServiceLevel, 300000);
   })();
 </script>
@@ -519,6 +533,24 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js');
   }
+</script>
+<script>
+  // Combined init: fetch all initial data in one request
+  (async function(){
+    try{
+      const resp = await fetch('/v1/index/init', {credentials: 'same-origin'});
+      if(!resp.ok) throw new Error('init failed');
+      const data = await resp.json();
+      // Apply auth state and render all components with combined data
+      if(window._applyAuthData) window._applyAuthData(data.auth);
+      if(window._renderServiceAlerts) window._renderServiceAlerts(data.alerts);
+      if(window._renderSystemNotices) window._renderSystemNotices(data.notices);
+      if(window._renderServiceLevel) window._renderServiceLevel(data.service_level);
+    } catch(e){
+      // Fallback: trigger individual fetches if combined fails
+      console.warn('Combined init failed, using individual fetches');
+    }
+  })();
 </script>
 <script src="/scripts/push-notifications.js" defer></script>
 </body>
