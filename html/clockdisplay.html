@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=438, height=174">
+    <title>Clock Display</title>
+    <style>
+        @font-face {
+            font-family: 'FGDC';
+            src: url('/fonts/FGDC.ttf') format('truetype');
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 438px;
+            height: 174px;
+            overflow: hidden;
+            background-color: #24234b;
+        }
+        .container {
+            width: 438px;
+            height: 174px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: 'FGDC', sans-serif;
+            color: #ffffff;
+        }
+        .time {
+            font-size: 72px;
+            letter-spacing: 2px;
+        }
+        .date {
+            font-size: 36px;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="time" id="time">00:00:00</div>
+        <div class="date" id="date">01/01/2025</div>
+    </div>
+    <script>
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const year = now.getFullYear();
+
+            document.getElementById('time').textContent = `${hours}:${minutes}:${seconds}`;
+            document.getElementById('date').textContent = `${month}/${day}/${year}`;
+        }
+
+        updateClock();
+        setInterval(updateClock, 1000);
+    </script>
+</body>
+</html>
