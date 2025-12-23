@@ -4736,7 +4736,7 @@ async def startup():
                     print(f"[push_notification_poller] poll #{poll_count}, {len(subscriptions)} subscribers")
                 # Fetch recent alerts from TransLoc
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    url = f"{transloc_host_base()}/Secure/Services/RoutesService.svc/GetMessagesPaged"
+                    url = f"{transloc_host_base(None)}/Secure/Services/RoutesService.svc/GetMessagesPaged"
                     resp = await client.get(url, params={
                         "showInactive": "false",
                         "rows": "20",
