@@ -4767,6 +4767,7 @@ async def startup():
                             "id": alert_id,
                             "title": "UTS Service Alert",
                             "body": message[:200],
+                            "icon": "/media/icon-192.png",
                             "tag": f"alert-{alert_id}",
                             "url": "/map",
                         })

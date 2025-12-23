@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uts-ops-v6';
+const CACHE_NAME = 'uts-ops-v7';
 const OFFLINE_URL = '/offline';
 
 const STATIC_ASSETS = [
@@ -9,6 +9,7 @@ const STATIC_ASSETS = [
   '/media/favicon.ico',
   '/media/icon-192.png',
   '/media/icon-512.png',
+  '/media/notification-badge.png',
   '/media/dispatcher.svg',
   '/media/transloc.svg',
   '/media/map.svg',
@@ -126,7 +127,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: payload.body || '',
     icon: '/media/icon-192.png',
-    badge: '/media/icon-192.png',
+    badge: '/media/notification-badge.png',
     tag: payload.tag || 'uts-alert',
     renotify: true,
     requireInteraction: true,
