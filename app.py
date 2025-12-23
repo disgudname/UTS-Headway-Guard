@@ -221,6 +221,60 @@ def _save_sent_alert_ids(ids: set) -> None:
         json.dumps({"ids": recent_ids, "updated_at": datetime.now(timezone.utc).isoformat()})
     )
 
+# ---------------------------
+# System Notices (admin-managed alerts for index.html)
+# ---------------------------
+SYSTEM_NOTICES_PATH = PRIMARY_DATA_DIR / "system_notices.json"
+
+def _load_system_notices() -> List[Dict[str, Any]]:
+    """Load system notices from disk."""
+    try:
+        if SYSTEM_NOTICES_PATH.exists():
+            data = json.loads(SYSTEM_NOTICES_PATH.read_text())
+            return data.get("notices", [])
+    except Exception:
+        pass
+    return []
+
+def _save_system_notices(notices: List[Dict[str, Any]]) -> None:
+    """Save system notices to disk."""
+    SYSTEM_NOTICES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SYSTEM_NOTICES_PATH.write_text(
+        json.dumps({
+            "notices": notices,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }, indent=2)
+    )
+
+def _get_active_system_notices(include_auth_only: bool = False) -> List[Dict[str, Any]]:
+    """Get currently active system notices, optionally filtering auth-only notices."""
+    notices = _load_system_notices()
+    now = datetime.now(timezone.utc)
+    active = []
+    for notice in notices:
+        # Check time window
+        start_str = notice.get("start_time")
+        end_str = notice.get("end_time")
+        if start_str:
+            try:
+                start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                if now < start_dt:
+                    continue
+            except Exception:
+                pass
+        if end_str:
+            try:
+                end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                if now > end_dt:
+                    continue
+            except Exception:
+                pass
+        # Check visibility
+        if notice.get("auth_only") and not include_auth_only:
+            continue
+        active.append(notice)
+    return active
+
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
 
@@ -10389,6 +10443,88 @@ async def set_config(payload: Dict[str, Any]):
     response_body.update(config_snapshot)
     response_body["saved_at"] = metadata.get("saved_at") if metadata else None
     return JSONResponse(response_body, headers=headers)
+
+
+# ---------------------------
+# SYSTEM NOTICES
+# ---------------------------
+@app.get("/v1/system-notices")
+async def get_system_notices(request: Request, all: bool = Query(False)):
+    """Get system notices. Public endpoint returns only active, public notices.
+    With all=true (requires auth), returns all notices including inactive and auth-only."""
+    if all:
+        _require_dispatcher_access(request)
+        return {"notices": _load_system_notices()}
+    # Check if user is authenticated for auth-only notices
+    is_authed = False
+    try:
+        _require_dispatcher_access(request)
+        is_authed = True
+    except Exception:
+        pass
+    return {"notices": _get_active_system_notices(include_auth_only=is_authed)}
+
+
+@app.post("/v1/system-notices")
+async def create_system_notice(request: Request):
+    """Create a new system notice. Requires auth."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    notice = {
+        "id": str(uuid.uuid4()),
+        "message": body.get("message", "").strip(),
+        "severity": body.get("severity", "yellow"),  # red, yellow, green
+        "start_time": body.get("start_time"),  # ISO8601 string or null
+        "end_time": body.get("end_time"),  # ISO8601 string or null
+        "auth_only": bool(body.get("auth_only", False)),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not notice["message"]:
+        raise HTTPException(status_code=400, detail="Message is required")
+    if notice["severity"] not in ("red", "yellow", "green"):
+        notice["severity"] = "yellow"
+    notices = _load_system_notices()
+    notices.append(notice)
+    _save_system_notices(notices)
+    return {"notice": notice}
+
+
+@app.put("/v1/system-notices/{notice_id}")
+async def update_system_notice(request: Request, notice_id: str):
+    """Update an existing system notice. Requires auth."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    notices = _load_system_notices()
+    for i, notice in enumerate(notices):
+        if notice.get("id") == notice_id:
+            if "message" in body:
+                notices[i]["message"] = body["message"].strip()
+            if "severity" in body:
+                sev = body["severity"]
+                notices[i]["severity"] = sev if sev in ("red", "yellow", "green") else "yellow"
+            if "start_time" in body:
+                notices[i]["start_time"] = body["start_time"]
+            if "end_time" in body:
+                notices[i]["end_time"] = body["end_time"]
+            if "auth_only" in body:
+                notices[i]["auth_only"] = bool(body["auth_only"])
+            notices[i]["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _save_system_notices(notices)
+            return {"notice": notices[i]}
+    raise HTTPException(status_code=404, detail="Notice not found")
+
+
+@app.delete("/v1/system-notices/{notice_id}")
+async def delete_system_notice(request: Request, notice_id: str):
+    """Delete a system notice. Requires auth."""
+    _require_dispatcher_access(request)
+    notices = _load_system_notices()
+    original_len = len(notices)
+    notices = [n for n in notices if n.get("id") != notice_id]
+    if len(notices) == original_len:
+        raise HTTPException(status_code=404, detail="Notice not found")
+    _save_system_notices(notices)
+    return {"deleted": True}
 
 
 @app.get("/v1/stop-approach")

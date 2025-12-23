@@ -58,6 +58,39 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
   <p>Delete all stored headway log files from disk.</p>
   <button type="button" id="clearHeadway">Clear headway logs</button>
 </div>
+<div class="panel" id="systemNoticesPanel">
+  <h2>System Notices</h2>
+  <p>Create notices to display on the home page. Set time windows and visibility.</p>
+  <div id="noticesList" style="margin-bottom:16px;"></div>
+  <div style="border:1px solid #2a3442;border-radius:6px;padding:12px;background:#15202b;">
+    <h3 style="margin:0 0 12px;font-size:15px;">Add New Notice</h3>
+    <label>Message
+      <textarea id="noticeMessage" rows="2" placeholder="Enter notice text..."></textarea>
+    </label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+      <label>Severity
+        <select id="noticeSeverity" style="width:100%;padding:6px;border-radius:4px;border:1px solid #2a3442;background:#10151c;color:#e8eef5;">
+          <option value="yellow">Yellow (Warning)</option>
+          <option value="red">Red (Critical)</option>
+          <option value="green">Green (Info)</option>
+        </select>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:auto;">
+        <input type="checkbox" id="noticeAuthOnly" style="width:auto;">
+        <span>Staff only</span>
+      </label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+      <label>Start Time
+        <input type="datetime-local" id="noticeStartTime">
+      </label>
+      <label>End Time
+        <input type="datetime-local" id="noticeEndTime">
+      </label>
+    </div>
+    <button type="button" id="addNoticeBtn" style="margin-top:12px;">Add Notice</button>
+  </div>
+</div>
 <div class="panel" id="secretPanel">
   <h2>Environment Secrets</h2>
   <div id="secrets"></div>
@@ -331,10 +364,143 @@ if(warningButton){
     }
   });
 }
+
+// System Notices Management
+const noticesList=document.getElementById('noticesList');
+const noticeMessage=document.getElementById('noticeMessage');
+const noticeSeverity=document.getElementById('noticeSeverity');
+const noticeAuthOnly=document.getElementById('noticeAuthOnly');
+const noticeStartTime=document.getElementById('noticeStartTime');
+const noticeEndTime=document.getElementById('noticeEndTime');
+const addNoticeBtn=document.getElementById('addNoticeBtn');
+
+function formatNoticeTime(isoStr){
+  if(!isoStr) return 'Not set';
+  try{
+    const d=new Date(isoStr);
+    return d.toLocaleString();
+  }catch(e){return isoStr;}
+}
+
+function severityColor(sev){
+  if(sev==='red') return '#ff6b6b';
+  if(sev==='green') return '#4ecdc4';
+  return '#ffd93d';
+}
+
+function renderNotices(notices){
+  if(!noticesList) return;
+  if(!notices.length){
+    noticesList.innerHTML='<div style="color:#9fb0c9;font-size:14px;">No system notices configured.</div>';
+    return;
+  }
+  const now=new Date();
+  noticesList.innerHTML=notices.map(n=>{
+    const isActive=(!n.start_time||new Date(n.start_time)<=now)&&(!n.end_time||new Date(n.end_time)>=now);
+    const statusBadge=isActive?'<span style="background:#4ecdc4;color:#000;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:8px;">ACTIVE</span>':'<span style="background:#666;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:8px;">INACTIVE</span>';
+    const authBadge=n.auth_only?'<span style="background:#3a8ef6;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:4px;">STAFF ONLY</span>':'';
+    return `
+      <div style="border:1px solid #2a3442;border-radius:6px;padding:12px;margin-bottom:8px;border-left:4px solid ${severityColor(n.severity)};">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div style="flex:1;">
+            <div style="font-size:14px;margin-bottom:6px;">${escapeHtml(n.message)}</div>
+            <div style="font-size:12px;color:#9fb0c9;">
+              ${statusBadge}${authBadge}
+              <span style="margin-left:8px;">Start: ${formatNoticeTime(n.start_time)}</span>
+              <span style="margin-left:8px;">End: ${formatNoticeTime(n.end_time)}</span>
+            </div>
+          </div>
+          <button type="button" onclick="deleteNotice('${n.id}')" style="padding:4px 8px;font-size:12px;background:#ff6b6b;border:none;border-radius:4px;color:#fff;cursor:pointer;">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function escapeHtml(str){
+  if(!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadNotices(){
+  try{
+    const resp=await fetch('/v1/system-notices?all=true',{cache:'no-store'});
+    if(resp.status===401){
+      redirectToLogin();
+      return;
+    }
+    if(!resp.ok) throw new Error('Failed to load notices');
+    const data=await resp.json();
+    renderNotices(data.notices||[]);
+  }catch(err){
+    console.error('Failed to load notices',err);
+    if(noticesList) noticesList.innerHTML='<div style="color:#ff6b6b;">Failed to load notices.</div>';
+  }
+}
+
+async function deleteNotice(id){
+  if(!confirm('Delete this notice?')) return;
+  try{
+    const resp=await fetch(`/v1/system-notices/${id}`,{method:'DELETE'});
+    if(resp.status===401){
+      redirectToLogin();
+      return;
+    }
+    if(!resp.ok) throw new Error('Delete failed');
+    await loadNotices();
+  }catch(err){
+    console.error('Failed to delete notice',err);
+    alert('Unable to delete notice.');
+  }
+}
+
+if(addNoticeBtn){
+  addNoticeBtn.addEventListener('click',async ()=>{
+    const msg=(noticeMessage?.value||'').trim();
+    if(!msg){
+      alert('Please enter a message.');
+      return;
+    }
+    const payload={
+      message:msg,
+      severity:noticeSeverity?.value||'yellow',
+      auth_only:noticeAuthOnly?.checked||false,
+      start_time:noticeStartTime?.value?new Date(noticeStartTime.value).toISOString():null,
+      end_time:noticeEndTime?.value?new Date(noticeEndTime.value).toISOString():null
+    };
+    addNoticeBtn.disabled=true;
+    addNoticeBtn.textContent='Adding...';
+    try{
+      const resp=await fetch('/v1/system-notices',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+      });
+      if(resp.status===401){
+        redirectToLogin();
+        return;
+      }
+      if(!resp.ok) throw new Error('Create failed');
+      if(noticeMessage) noticeMessage.value='';
+      if(noticeStartTime) noticeStartTime.value='';
+      if(noticeEndTime) noticeEndTime.value='';
+      if(noticeAuthOnly) noticeAuthOnly.checked=false;
+      await loadNotices();
+    }catch(err){
+      console.error('Failed to create notice',err);
+      alert('Unable to create notice.');
+    }finally{
+      addNoticeBtn.disabled=false;
+      addNoticeBtn.textContent='Add Notice';
+    }
+  });
+}
+
 async function bootstrap(){
   try{
     await load();
     await loadMissingEnv();
+    await loadNotices();
     if(logoutButton) logoutButton.hidden=false;
   }catch(err){
     if(err && err.status===401){

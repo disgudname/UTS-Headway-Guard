@@ -74,6 +74,21 @@
   @media(max-width:600px){
     .service-alert-banner{margin-bottom:16px;padding:14px 16px;}
   }
+  /* System Notices */
+  .system-notices{width:100%;margin-bottom:24px;display:flex;flex-direction:column;gap:12px;}
+  .system-notice{padding:14px 18px;border-radius:12px;font-size:15px;line-height:1.5;text-align:left;box-sizing:border-box;}
+  .system-notice--red{background:linear-gradient(135deg,rgba(220,38,38,0.18),rgba(220,38,38,0.08));border:1px solid rgba(220,38,38,0.4);color:#fecaca;}
+  .system-notice--yellow{background:linear-gradient(135deg,rgba(250,204,21,0.18),rgba(250,204,21,0.08));border:1px solid rgba(250,204,21,0.4);color:#fef3c7;}
+  .system-notice--green{background:linear-gradient(135deg,rgba(34,197,94,0.18),rgba(34,197,94,0.08));border:1px solid rgba(34,197,94,0.4);color:#bbf7d0;}
+  .system-notice__header{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:0.04em;}
+  .system-notice--red .system-notice__header{color:#fca5a5;}
+  .system-notice--yellow .system-notice__header{color:#fde047;}
+  .system-notice--green .system-notice__header{color:#86efac;}
+  .system-notice__icon{width:18px;height:18px;flex-shrink:0;}
+  @media(max-width:600px){
+    .system-notices{margin-bottom:16px;gap:10px;}
+    .system-notice{padding:12px 14px;}
+  }
 </style>
 </head>
 <body>
@@ -88,6 +103,7 @@
   <div class="title">UTS Operations Dashboard</div>
 </header>
 <div class="main-content">
+<div class="system-notices" id="system-notices"></div>
 <div class="service-alert-banner" id="service-alert-banner" hidden>
   <div class="service-alert-banner__header">
     <svg class="service-alert-banner__icon" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -298,6 +314,90 @@
     fetchServiceAlerts();
     // Refresh every 60 seconds
     setInterval(fetchServiceAlerts, 60000);
+  })();
+</script>
+<script>
+  // System Notices Fetching
+  (function(){
+    const container = document.getElementById('system-notices');
+    if(!container) return;
+
+    let isAuthenticated = false;
+
+    function escapeHtml(str){
+      if(!str) return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+        .replace(/\n/g, '<br>');
+    }
+
+    function getSeverityIcon(severity){
+      if(severity === 'red'){
+        return '<svg class="system-notice__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>';
+      }
+      if(severity === 'green'){
+        return '<svg class="system-notice__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>';
+      }
+      // yellow (default)
+      return '<svg class="system-notice__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>';
+    }
+
+    function getSeverityLabel(severity){
+      if(severity === 'red') return 'Alert';
+      if(severity === 'green') return 'Notice';
+      return 'Warning';
+    }
+
+    function renderNotices(notices){
+      if(!notices || !notices.length){
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = notices.map(n => {
+        const sev = n.severity || 'yellow';
+        return `
+          <div class="system-notice system-notice--${sev}">
+            <div class="system-notice__header">
+              ${getSeverityIcon(sev)}
+              <span>${getSeverityLabel(sev)}</span>
+            </div>
+            <div>${escapeHtml(n.message)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function fetchSystemNotices(){
+      try{
+        const response = await fetch('/v1/system-notices');
+        if(!response.ok) return;
+        const data = await response.json();
+        renderNotices(data.notices || []);
+      } catch(err){
+        // Silently fail
+      }
+    }
+
+    // Check auth state to potentially show auth-only notices
+    async function checkAuthAndFetch(){
+      try{
+        const authResp = await fetch('/api/dispatcher/auth', {credentials: 'same-origin'});
+        if(authResp.ok){
+          const authData = await authResp.json();
+          isAuthenticated = Boolean(authData.authorized);
+        }
+      } catch(e){}
+      await fetchSystemNotices();
+    }
+
+    // Initial fetch
+    checkAuthAndFetch();
+    // Refresh every 60 seconds
+    setInterval(fetchSystemNotices, 60000);
   })();
 </script>
 <script>
