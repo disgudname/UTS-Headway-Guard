@@ -65,29 +65,39 @@
     .container{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;}
     .credit{position:static;margin-top:32px;text-align:center;}
   }
-  /* Service Alert Banner */
-  .service-alert-banner{display:none;width:100%;margin-bottom:24px;padding:16px 20px;border-radius:14px;background:linear-gradient(135deg,rgba(220,38,38,0.15),rgba(220,38,38,0.08));border:1px solid rgba(220,38,38,0.35);color:#fecaca;font-size:15px;line-height:1.5;text-align:left;box-sizing:border-box;}
-  .service-alert-banner.is-visible{display:block;}
-  .service-alert-banner__header{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-weight:700;font-size:16px;color:#fca5a5;text-transform:uppercase;letter-spacing:0.04em;}
-  .service-alert-banner__icon{width:20px;height:20px;flex-shrink:0;}
-  .service-alert-banner__message{color:#fee2e2;}
-  @media(max-width:600px){
-    .service-alert-banner{margin-bottom:16px;padding:14px 16px;}
-  }
   /* System Notices */
   .system-notices{width:100%;margin-bottom:24px;display:flex;flex-direction:column;gap:12px;}
   .system-notice{padding:14px 18px;border-radius:12px;font-size:15px;line-height:1.5;text-align:left;box-sizing:border-box;}
   .system-notice--red{background:linear-gradient(135deg,rgba(220,38,38,0.18),rgba(220,38,38,0.08));border:1px solid rgba(220,38,38,0.4);color:#fecaca;}
   .system-notice--yellow{background:linear-gradient(135deg,rgba(250,204,21,0.18),rgba(250,204,21,0.08));border:1px solid rgba(250,204,21,0.4);color:#fef3c7;}
   .system-notice--green{background:linear-gradient(135deg,rgba(34,197,94,0.18),rgba(34,197,94,0.08));border:1px solid rgba(34,197,94,0.4);color:#bbf7d0;}
-  .system-notice__header{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:0.04em;}
+  .system-notice__header{display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;user-select:none;}
+  .system-notice__header:not(.is-collapsed){margin-bottom:6px;}
   .system-notice--red .system-notice__header{color:#fca5a5;}
   .system-notice--yellow .system-notice__header{color:#fde047;}
   .system-notice--green .system-notice__header{color:#86efac;}
   .system-notice__icon{width:18px;height:18px;flex-shrink:0;}
+  .system-notice__toggle{width:16px;height:16px;margin-left:auto;flex-shrink:0;transition:transform 0.2s ease;}
+  .system-notice__toggle.is-collapsed{transform:rotate(-90deg);}
+  .system-notice__body{overflow:hidden;transition:max-height 0.2s ease,opacity 0.2s ease;}
+  .system-notice__body.is-collapsed{max-height:0 !important;opacity:0;}
   @media(max-width:600px){
     .system-notices{margin-bottom:16px;gap:10px;}
     .system-notice{padding:12px 14px;}
+  }
+  /* Service Alerts (collapsible) */
+  .service-alerts{width:100%;margin-bottom:24px;display:flex;flex-direction:column;gap:12px;}
+  .service-alert{padding:16px 20px;border-radius:14px;background:linear-gradient(135deg,rgba(220,38,38,0.15),rgba(220,38,38,0.08));border:1px solid rgba(220,38,38,0.35);color:#fecaca;font-size:15px;line-height:1.5;text-align:left;box-sizing:border-box;}
+  .service-alert__header{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:#fca5a5;text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;user-select:none;}
+  .service-alert__header:not(.is-collapsed){margin-bottom:8px;}
+  .service-alert__icon{width:20px;height:20px;flex-shrink:0;}
+  .service-alert__toggle{width:16px;height:16px;margin-left:auto;flex-shrink:0;transition:transform 0.2s ease;}
+  .service-alert__toggle.is-collapsed{transform:rotate(-90deg);}
+  .service-alert__body{color:#fee2e2;overflow:hidden;transition:max-height 0.2s ease,opacity 0.2s ease;}
+  .service-alert__body.is-collapsed{max-height:0 !important;opacity:0;}
+  @media(max-width:600px){
+    .service-alerts{margin-bottom:16px;gap:10px;}
+    .service-alert{padding:14px 16px;}
   }
   /* Service Level */
   .service-level{font-size:13px;color:var(--muted);text-align:center;margin-bottom:20px;}
@@ -108,15 +118,7 @@
 <div class="service-level" id="service-level"></div>
 <div class="main-content">
 <div class="system-notices" id="system-notices"></div>
-<div class="service-alert-banner" id="service-alert-banner" hidden>
-  <div class="service-alert-banner__header">
-    <svg class="service-alert-banner__icon" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-      <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-    </svg>
-    <span>Service Alert</span>
-  </div>
-  <div class="service-alert-banner__message" id="service-alert-message"></div>
-</div>
+<div class="service-alerts" id="service-alerts"></div>
 <div class="container">
   <a class="card" href="/dispatcher" data-requires-auth>
     <img src="/media/dispatcher.svg" alt="" class="card__icon" />
@@ -244,11 +246,47 @@
   })();
 </script>
 <script>
-  // Service Alert Fetching (for unauthenticated users)
+  // Service Alert Fetching (collapsible)
   (function(){
-    const banner = document.getElementById('service-alert-banner');
-    const messageEl = document.getElementById('service-alert-message');
-    if(!banner || !messageEl) return;
+    const container = document.getElementById('service-alerts');
+    if(!container) return;
+
+    const STORAGE_KEY = 'collapsed_service_alerts';
+
+    function getCollapsedIds(){
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        return stored ? JSON.parse(stored) : [];
+      } catch(e) { return []; }
+    }
+
+    function setCollapsedIds(ids){
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+      } catch(e) {}
+    }
+
+    function toggleCollapse(alertId){
+      const ids = getCollapsedIds();
+      const idx = ids.indexOf(alertId);
+      if(idx >= 0){
+        ids.splice(idx, 1);
+      } else {
+        ids.push(alertId);
+      }
+      setCollapsedIds(ids);
+      // Update DOM
+      const el = container.querySelector(`[data-alert-id="${alertId}"]`);
+      if(el){
+        const header = el.querySelector('.service-alert__header');
+        const body = el.querySelector('.service-alert__body');
+        const toggle = el.querySelector('.service-alert__toggle');
+        const isCollapsed = ids.indexOf(alertId) >= 0;
+        if(header) header.classList.toggle('is-collapsed', isCollapsed);
+        if(body) body.classList.toggle('is-collapsed', isCollapsed);
+        if(toggle) toggle.classList.toggle('is-collapsed', isCollapsed);
+      }
+    }
 
     // Parse TransLoc date format: /Date(1234567890000)/ or /Date(1234567890000-0700)/
     function parseTransLocDate(dateStr){
@@ -259,76 +297,121 @@
       return Number.isFinite(parsed) ? parsed : null;
     }
 
+    function escapeAndFormat(str){
+      if(!str) return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong style="font-size:1.1em">$1</strong>')
+        .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+    }
+
+    const chevronSvg = '<svg class="service-alert__toggle" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
+    const alertIcon = '<svg class="service-alert__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>';
+
+    function renderAlerts(alerts){
+      if(!alerts || !alerts.length){
+        container.innerHTML = '';
+        return;
+      }
+      const collapsedIds = getCollapsedIds();
+      container.innerHTML = alerts.map(alert => {
+        const id = String(alert.MessageId || alert.Id || '');
+        const message = (alert.MessageText || alert.Message || alert.message || alert.text || '').trim();
+        if(!message || !id) return '';
+        const isCollapsed = collapsedIds.includes(id);
+        const collapsedClass = isCollapsed ? 'is-collapsed' : '';
+        return `
+          <div class="service-alert" data-alert-id="${id}">
+            <div class="service-alert__header ${collapsedClass}" onclick="window._toggleServiceAlert('${id}')">
+              ${alertIcon}
+              <span>Service Alert</span>
+              ${chevronSvg.replace('class="service-alert__toggle"', `class="service-alert__toggle ${collapsedClass}"`)}
+            </div>
+            <div class="service-alert__body ${collapsedClass}">${escapeAndFormat(message)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    window._toggleServiceAlert = toggleCollapse;
+
     async function fetchServiceAlerts(){
       try{
         const response = await fetch('/v1/transloc/alerts?showInactive=false&rows=5');
         if(!response.ok) return;
         const data = await response.json();
-        // Get active alerts from the response (API returns Rows or Data)
         const alerts = Array.isArray(data?.Rows) ? data.Rows : Array.isArray(data?.Data) ? data.Data : Array.isArray(data) ? data : [];
-        // Filter to only active alerts (not ended)
         const now = Date.now();
         const activeAlerts = alerts.filter(alert => {
           if(!alert) return false;
-          // Check if alert has ended
           const endDate = alert.EndDateUtc || alert.endDate || alert.end_date;
           const endTime = parseTransLocDate(endDate);
           if(endTime !== null && endTime < now) return false;
-          // Check if alert has started
           const startDate = alert.StartDateUtc || alert.startDate || alert.start_date;
           const startTime = parseTransLocDate(startDate);
           if(startTime !== null && startTime > now) return false;
-          // Has message content
           const message = alert.MessageText || alert.Message || alert.message || alert.text || '';
           return message.trim().length > 0;
         });
-        if(activeAlerts.length === 0){
-          banner.hidden = true;
-          banner.classList.remove('is-visible');
-          return;
-        }
-        // Display all active alerts
-        const formattedAlerts = activeAlerts.map(alert => {
-          const message = (alert.MessageText || alert.Message || alert.message || alert.text || '').trim();
-          if(!message) return null;
-          // Escape HTML to prevent XSS, then apply formatting
-          return message
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;')
-            .replace(/\*\*(.+?)\*\*/g, '<strong style="font-size:1.1em">$1</strong>')
-            .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
-            .replace(/\n/g, '<br>');
-        }).filter(Boolean);
-        if(formattedAlerts.length === 0){
-          banner.hidden = true;
-          banner.classList.remove('is-visible');
-          return;
-        }
-        messageEl.innerHTML = formattedAlerts.join('<hr style="border:none;border-top:1px solid rgba(252,165,165,0.3);margin:12px 0;">');
-        banner.hidden = false;
-        banner.classList.add('is-visible');
+        renderAlerts(activeAlerts);
       } catch(err){
-        // Silently fail - don't show banner if fetch fails
-        banner.hidden = true;
-        banner.classList.remove('is-visible');
+        container.innerHTML = '';
       }
     }
-    // Fetch on load
     fetchServiceAlerts();
-    // Refresh every 60 seconds
     setInterval(fetchServiceAlerts, 60000);
   })();
 </script>
 <script>
-  // System Notices Fetching
+  // System Notices Fetching (collapsible)
   (function(){
     const container = document.getElementById('system-notices');
     if(!container) return;
 
+    const STORAGE_KEY = 'collapsed_system_notices';
     let isAuthenticated = false;
+
+    function getCollapsedIds(){
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        return stored ? JSON.parse(stored) : [];
+      } catch(e) { return []; }
+    }
+
+    function setCollapsedIds(ids){
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+      } catch(e) {}
+    }
+
+    function toggleCollapse(noticeId){
+      const ids = getCollapsedIds();
+      const idx = ids.indexOf(noticeId);
+      if(idx >= 0){
+        ids.splice(idx, 1);
+      } else {
+        ids.push(noticeId);
+      }
+      setCollapsedIds(ids);
+      // Update DOM
+      const el = container.querySelector(`[data-notice-id="${noticeId}"]`);
+      if(el){
+        const header = el.querySelector('.system-notice__header');
+        const body = el.querySelector('.system-notice__body');
+        const toggle = el.querySelector('.system-notice__toggle');
+        const isCollapsed = ids.indexOf(noticeId) >= 0;
+        if(header) header.classList.toggle('is-collapsed', isCollapsed);
+        if(body) body.classList.toggle('is-collapsed', isCollapsed);
+        if(toggle) toggle.classList.toggle('is-collapsed', isCollapsed);
+      }
+    }
+
+    window._toggleSystemNotice = toggleCollapse;
 
     function escapeHtml(str){
       if(!str) return '';
@@ -348,29 +431,32 @@
       if(severity === 'green'){
         return '<svg class="system-notice__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>';
       }
-      // yellow (default)
       return '<svg class="system-notice__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>';
     }
 
-    function getSeverityLabel(severity){
-      return 'System Notice';
-    }
+    const chevronSvg = '<svg class="system-notice__toggle" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
 
     function renderNotices(notices){
       if(!notices || !notices.length){
         container.innerHTML = '';
         return;
       }
+      const collapsedIds = getCollapsedIds();
       container.innerHTML = notices.map(n => {
         const sev = n.severity || 'yellow';
+        const id = n.id || '';
+        if(!id) return '';
+        const isCollapsed = collapsedIds.includes(id);
+        const collapsedClass = isCollapsed ? 'is-collapsed' : '';
         const staffBadge = n.auth_only ? '<span style="margin-left:8px;font-size:11px;padding:2px 6px;background:rgba(58,142,246,0.3);border-radius:4px;color:#93c5fd;">STAFF ONLY</span>' : '';
         return `
-          <div class="system-notice system-notice--${sev}">
-            <div class="system-notice__header">
+          <div class="system-notice system-notice--${sev}" data-notice-id="${id}">
+            <div class="system-notice__header ${collapsedClass}" onclick="window._toggleSystemNotice('${id}')">
               ${getSeverityIcon(sev)}
-              <span>${getSeverityLabel(sev)}</span>${staffBadge}
+              <span>System Notice</span>${staffBadge}
+              ${chevronSvg.replace('class="system-notice__toggle"', `class="system-notice__toggle ${collapsedClass}"`)}
             </div>
-            <div>${escapeHtml(n.message)}</div>
+            <div class="system-notice__body ${collapsedClass}">${escapeHtml(n.message)}</div>
           </div>
         `;
       }).join('');
@@ -387,7 +473,6 @@
       }
     }
 
-    // Check auth state to potentially show auth-only notices
     async function checkAuthAndFetch(){
       try{
         const authResp = await fetch('/api/dispatcher/auth', {credentials: 'same-origin'});
@@ -399,9 +484,7 @@
       await fetchSystemNotices();
     }
 
-    // Initial fetch
     checkAuthAndFetch();
-    // Refresh every 60 seconds
     setInterval(fetchSystemNotices, 60000);
   })();
 </script>
