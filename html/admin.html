@@ -88,7 +88,10 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
         <input type="datetime-local" id="noticeEndTime">
       </label>
     </div>
-    <button type="button" id="addNoticeBtn" style="margin-top:12px;">Add Notice</button>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button type="button" id="addNoticeBtn">Add Notice</button>
+      <button type="button" id="cancelEditBtn" style="background:#666;display:none;">Cancel</button>
+    </div>
   </div>
 </div>
 <div class="panel" id="secretPanel">
@@ -373,6 +376,7 @@ const noticeAuthOnly=document.getElementById('noticeAuthOnly');
 const noticeStartTime=document.getElementById('noticeStartTime');
 const noticeEndTime=document.getElementById('noticeEndTime');
 const addNoticeBtn=document.getElementById('addNoticeBtn');
+const cancelEditBtn=document.getElementById('cancelEditBtn');
 
 function formatNoticeTime(isoStr){
   if(!isoStr) return 'Not set';
@@ -388,6 +392,8 @@ function severityColor(sev){
   return '#ffd93d';
 }
 
+let editingNoticeId = null;
+
 function renderNotices(notices){
   if(!noticesList) return;
   if(!notices.length){
@@ -400,7 +406,7 @@ function renderNotices(notices){
     const statusBadge=isActive?'<span style="background:#4ecdc4;color:#000;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:8px;">ACTIVE</span>':'<span style="background:#666;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:8px;">INACTIVE</span>';
     const authBadge=n.auth_only?'<span style="background:#3a8ef6;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin-left:4px;">STAFF ONLY</span>':'';
     return `
-      <div style="border:1px solid #2a3442;border-radius:6px;padding:12px;margin-bottom:8px;border-left:4px solid ${severityColor(n.severity)};">
+      <div style="border:1px solid #2a3442;border-radius:6px;padding:12px;margin-bottom:8px;border-left:4px solid ${severityColor(n.severity)};" data-notice-id="${n.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
           <div style="flex:1;">
             <div style="font-size:14px;margin-bottom:6px;">${escapeHtml(n.message)}</div>
@@ -410,11 +416,60 @@ function renderNotices(notices){
               <span style="margin-left:8px;">End: ${formatNoticeTime(n.end_time)}</span>
             </div>
           </div>
-          <button type="button" onclick="deleteNotice('${n.id}')" style="padding:4px 8px;font-size:12px;background:#ff6b6b;border:none;border-radius:4px;color:#fff;cursor:pointer;">Delete</button>
+          <div style="display:flex;gap:4px;">
+            <button type="button" onclick="editNotice('${n.id}')" style="padding:4px 8px;font-size:12px;background:#3a8ef6;border:none;border-radius:4px;color:#fff;cursor:pointer;">Edit</button>
+            <button type="button" onclick="deleteNotice('${n.id}')" style="padding:4px 8px;font-size:12px;background:#ff6b6b;border:none;border-radius:4px;color:#fff;cursor:pointer;">Delete</button>
+          </div>
         </div>
       </div>
     `;
   }).join('');
+}
+
+let cachedNotices = [];
+
+function findNoticeById(id){
+  return cachedNotices.find(n => n.id === id);
+}
+
+function toLocalDatetimeValue(isoStr){
+  if(!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 16);
+  } catch(e) { return ''; }
+}
+
+function editNotice(id){
+  const notice = findNoticeById(id);
+  if(!notice) return;
+  editingNoticeId = id;
+  if(noticeMessage) noticeMessage.value = notice.message || '';
+  if(noticeSeverity) noticeSeverity.value = notice.severity || 'yellow';
+  if(noticeAuthOnly) noticeAuthOnly.checked = Boolean(notice.auth_only);
+  if(noticeStartTime) noticeStartTime.value = toLocalDatetimeValue(notice.start_time);
+  if(noticeEndTime) noticeEndTime.value = toLocalDatetimeValue(notice.end_time);
+  if(addNoticeBtn) addNoticeBtn.textContent = 'Update Notice';
+  if(cancelEditBtn) cancelEditBtn.style.display = 'inline-block';
+  // Scroll to form
+  document.getElementById('systemNoticesPanel')?.scrollIntoView({behavior:'smooth', block:'end'});
+}
+
+function cancelEdit(){
+  editingNoticeId = null;
+  if(noticeMessage) noticeMessage.value = '';
+  if(noticeSeverity) noticeSeverity.value = 'yellow';
+  if(noticeAuthOnly) noticeAuthOnly.checked = false;
+  if(noticeStartTime) noticeStartTime.value = '';
+  if(noticeEndTime) noticeEndTime.value = '';
+  if(addNoticeBtn) addNoticeBtn.textContent = 'Add Notice';
+  if(cancelEditBtn) cancelEditBtn.style.display = 'none';
+}
+
+if(cancelEditBtn){
+  cancelEditBtn.addEventListener('click', cancelEdit);
 }
 
 function escapeHtml(str){
@@ -431,7 +486,8 @@ async function loadNotices(){
     }
     if(!resp.ok) throw new Error('Failed to load notices');
     const data=await resp.json();
-    renderNotices(data.notices||[]);
+    cachedNotices = data.notices || [];
+    renderNotices(cachedNotices);
   }catch(err){
     console.error('Failed to load notices',err);
     if(noticesList) noticesList.innerHTML='<div style="color:#ff6b6b;">Failed to load notices.</div>';
@@ -468,11 +524,14 @@ if(addNoticeBtn){
       start_time:noticeStartTime?.value?new Date(noticeStartTime.value).toISOString():null,
       end_time:noticeEndTime?.value?new Date(noticeEndTime.value).toISOString():null
     };
+    const isEditing = Boolean(editingNoticeId);
     addNoticeBtn.disabled=true;
-    addNoticeBtn.textContent='Adding...';
+    addNoticeBtn.textContent=isEditing?'Updating...':'Adding...';
     try{
-      const resp=await fetch('/v1/system-notices',{
-        method:'POST',
+      const url = isEditing ? `/v1/system-notices/${editingNoticeId}` : '/v1/system-notices';
+      const method = isEditing ? 'PUT' : 'POST';
+      const resp=await fetch(url,{
+        method,
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify(payload)
       });
@@ -480,18 +539,15 @@ if(addNoticeBtn){
         redirectToLogin();
         return;
       }
-      if(!resp.ok) throw new Error('Create failed');
-      if(noticeMessage) noticeMessage.value='';
-      if(noticeStartTime) noticeStartTime.value='';
-      if(noticeEndTime) noticeEndTime.value='';
-      if(noticeAuthOnly) noticeAuthOnly.checked=false;
+      if(!resp.ok) throw new Error(isEditing?'Update failed':'Create failed');
+      cancelEdit();
       await loadNotices();
     }catch(err){
-      console.error('Failed to create notice',err);
-      alert('Unable to create notice.');
+      console.error(isEditing?'Failed to update notice':'Failed to create notice',err);
+      alert(isEditing?'Unable to update notice.':'Unable to create notice.');
     }finally{
       addNoticeBtn.disabled=false;
-      addNoticeBtn.textContent='Add Notice';
+      addNoticeBtn.textContent=editingNoticeId?'Update Notice':'Add Notice';
     }
   });
 }
