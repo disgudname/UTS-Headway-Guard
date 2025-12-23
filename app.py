@@ -10950,8 +10950,7 @@ async def push_status():
 @app.post("/api/push/test")
 async def push_test(request: Request):
     """Send a test push notification to all subscribers (admin only)."""
-    if not _check_dispatcher_cookie(request):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    _require_dispatcher_access(request)
     if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
         raise HTTPException(status_code=503, detail="Push notifications not configured")
     data = await request.json()
