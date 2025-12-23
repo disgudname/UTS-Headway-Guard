@@ -94,6 +94,17 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
     </div>
   </div>
 </div>
+<div class="panel" id="pushTestPanel">
+  <h2>Test Push Notification</h2>
+  <p>Send a test push notification to all subscribers.</p>
+  <label>Message
+    <input type="text" id="pushTestMessage" placeholder="Test notification message..." value="This is a test notification">
+  </label>
+  <div style="display:flex;gap:8px;margin-top:12px;align-items:center;">
+    <button type="button" id="sendPushTestBtn">Send Test Notification</button>
+    <span id="pushTestStatus" style="font-size:14px;"></span>
+  </div>
+</div>
 <div class="panel" id="secretPanel">
   <h2>Environment Secrets</h2>
   <div id="secrets"></div>
@@ -548,6 +559,53 @@ if(addNoticeBtn){
     }finally{
       addNoticeBtn.disabled=false;
       addNoticeBtn.textContent=editingNoticeId?'Update Notice':'Add Notice';
+    }
+  });
+}
+
+// Test Push Notification
+const sendPushTestBtn=document.getElementById('sendPushTestBtn');
+const pushTestMessage=document.getElementById('pushTestMessage');
+const pushTestStatus=document.getElementById('pushTestStatus');
+if(sendPushTestBtn){
+  sendPushTestBtn.addEventListener('click',async()=>{
+    const msg=(pushTestMessage?.value||'').trim();
+    if(!msg){
+      alert('Please enter a message.');
+      return;
+    }
+    sendPushTestBtn.disabled=true;
+    sendPushTestBtn.textContent='Sending...';
+    if(pushTestStatus) pushTestStatus.textContent='';
+    try{
+      const resp=await fetch('/api/push/test',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:msg})
+      });
+      if(resp.status===401){
+        redirectToLogin();
+        return;
+      }
+      const data=await resp.json().catch(()=>({}));
+      if(!resp.ok){
+        throw new Error(data.detail||'Failed to send');
+      }
+      const sent=data.sent||0;
+      const total=data.total||0;
+      if(pushTestStatus){
+        pushTestStatus.textContent=`Sent to ${sent}/${total} subscriber(s)`;
+        pushTestStatus.style.color='#4ecdc4';
+      }
+    }catch(err){
+      console.error('Failed to send test notification',err);
+      if(pushTestStatus){
+        pushTestStatus.textContent=err.message||'Failed to send';
+        pushTestStatus.style.color='#ff6b6b';
+      }
+    }finally{
+      sendPushTestBtn.disabled=false;
+      sendPushTestBtn.textContent='Send Test Notification';
     }
   });
 }

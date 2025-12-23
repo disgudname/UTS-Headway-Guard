@@ -10060,6 +10060,7 @@ _MEDIA_ASSETS: dict[str, str] = {
     "icon-512.png": "image/png",
     "icon-maskable-192.png": "image/png",
     "icon-maskable-512.png": "image/png",
+    "notification-badge.png": "image/png",
     "web.svg": "image/svg+xml",
 }
 
@@ -10944,6 +10945,46 @@ async def push_status():
         "subscription_count": count,
         "sent_alert_count": len(_sent_alert_ids),
     }
+
+
+@app.post("/api/push/test")
+async def push_test(request: Request):
+    """Send a test push notification to all subscribers (admin only)."""
+    if not _check_dispatcher_cookie(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        raise HTTPException(status_code=503, detail="Push notifications not configured")
+    data = await request.json()
+    message = (data.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Missing message")
+    subscriptions = await push_subscription_store.get_all_subscriptions()
+    if not subscriptions:
+        return {"sent": 0, "total": 0, "message": "No subscribers"}
+    from pywebpush import webpush, WebPushException
+    payload = {
+        "title": "UTS Test Notification",
+        "body": message[:200],
+        "icon": "/media/icon-192.png",
+        "tag": f"test-{int(datetime.now(timezone.utc).timestamp())}",
+        "url": "/admin",
+    }
+    sent_count = 0
+    for sub in subscriptions:
+        try:
+            webpush(
+                subscription_info=sub.to_subscription_info(),
+                data=json.dumps(payload),
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": VAPID_SUBJECT},
+            )
+            sent_count += 1
+        except WebPushException as e:
+            if e.response and e.response.status_code == 410:
+                await push_subscription_store.remove_subscription(sub.endpoint)
+        except Exception as err:
+            print(f"[push_test] error sending to subscriber: {err}")
+    return {"sent": sent_count, "total": len(subscriptions)}
 
 
 @app.get("/api/tickets")
