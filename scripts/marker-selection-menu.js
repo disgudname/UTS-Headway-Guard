@@ -4,6 +4,49 @@
 (function(global) {
     'use strict';
 
+    /**
+     * Calculate contrasting text color (black or white) based on background
+     * Uses YIQ formula for perceived brightness with threshold of 150
+     * @param {string} hexColor - Hex color string (with or without #)
+     * @returns {string} - '#000000' for light backgrounds, '#ffffff' for dark
+     */
+    function contrastBW(hexColor) {
+        if (typeof hexColor !== 'string') return '#ffffff';
+        const hex = hexColor.replace('#', '');
+        if (hex.length !== 6 && hex.length !== 3) return '#ffffff';
+        let r, g, b;
+        if (hex.length === 3) {
+            r = parseInt(hex[0] + hex[0], 16);
+            g = parseInt(hex[1] + hex[1], 16);
+            b = parseInt(hex[2] + hex[2], 16);
+        } else {
+            r = parseInt(hex.substring(0, 2), 16);
+            g = parseInt(hex.substring(2, 4), 16);
+            b = parseInt(hex.substring(4, 6), 16);
+        }
+        // YIQ formula for perceived brightness
+        // Threshold of 150 for better contrast on medium-brightness colors
+        const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+        return yiq >= 150 ? '#000000' : '#ffffff';
+    }
+
+    /**
+     * Get best text color for a pie chart (multiple colors)
+     * Checks if any segment is light enough to warrant black text
+     * @param {Array} colors - Array of hex colors
+     * @returns {string} - '#000000' or '#ffffff'
+     */
+    function contrastBWForPieChart(colors) {
+        if (!colors || colors.length === 0) return '#ffffff';
+        // If any color needs black text, use black (safer for readability)
+        for (const color of colors) {
+            if (contrastBW(color) === '#000000') {
+                return '#000000';
+            }
+        }
+        return '#ffffff';
+    }
+
     // Configuration
     const OVERLAP_THRESHOLD_PX = 40; // Pixels to consider markers overlapping
     const MENU_ITEM_SIZE = 120; // Size of each menu circle
@@ -289,6 +332,7 @@
     function createMenuItem(item, startX, startY, targetX, targetY) {
         // Determine background: use pie chart if multiple routes, otherwise use single color
         let background = item.color || '#0f172a';
+        let textColor = '#ffffff';
 
         // Check if we have route information for pie chart
         const hasRoutes = (Array.isArray(item.routeIds) && item.routeIds.length > 0) ||
@@ -298,7 +342,12 @@
             const colors = collectRouteColors(item.routeIds || [], item.catRouteKeys || []);
             if (colors.length > 0) {
                 background = buildPieChartGradient(colors);
+                // Calculate text color based on route colors
+                textColor = contrastBWForPieChart(colors);
             }
+        } else {
+            // Single color - calculate contrast directly
+            textColor = contrastBW(item.color || '#0f172a');
         }
 
         // Use larger font for buses (vehicles with routes), smaller for ondemand/stops
@@ -317,7 +366,7 @@
             border-radius: 50%;
             background: ${background};
             border: 3px solid rgba(255, 255, 255, 0.9);
-            color: #ffffff;
+            color: ${textColor};
             font-family: 'FGDC', sans-serif;
             font-size: ${fontSize};
             font-weight: 700;
