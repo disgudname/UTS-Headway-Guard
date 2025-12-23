@@ -1302,6 +1302,7 @@ TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
+STATUSSIGNAGE_HTML = _load_html("statussignage.html")
 BUS_TABLE_HTML = _load_html("buses.html")
 NOT_FOUND_HTML = _load_html("404.html")
 RADAR_HTML = _load_html("radar.html")
@@ -11236,6 +11237,13 @@ async def arrivalsdisplay_page():
 @app.get("/clockdisplay")
 async def clockdisplay_page():
     return HTMLResponse(CLOCKDISPLAY_HTML)
+
+# ---------------------------
+# STATUS SIGNAGE PAGE
+# ---------------------------
+@app.get("/statussignage")
+async def statussignage_page():
+    return HTMLResponse(STATUSSIGNAGE_HTML)
 
 # ---------------------------
 # REPLAY PAGE

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=438, height=174">
+    <title>Status Signage</title>
+    <style>
+        @font-face {
+            font-family: 'FGDC';
+            src: url('/fonts/FGDC.ttf') format('truetype');
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 438px;
+            height: 174px;
+            overflow: hidden;
+            background-color: #24234b;
+        }
+        .container {
+            width: 438px;
+            height: 174px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 12px 16px;
+            font-family: 'FGDC', sans-serif;
+            color: #ffffff;
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .row:last-child {
+            margin-bottom: 0;
+        }
+        .label {
+            font-size: 16px;
+            color: #a0a0c0;
+            min-width: 110px;
+        }
+        .value {
+            font-size: 18px;
+            text-align: right;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .service-row {
+            margin-bottom: 8px;
+        }
+        .service-level {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .notes {
+            font-size: 14px;
+            color: #c0c0e0;
+            margin-left: 8px;
+        }
+        .status-online {
+            color: #4ade80;
+        }
+        .status-offline {
+            color: #f87171;
+        }
+        .status-degraded {
+            color: #fbbf24;
+        }
+        .status-unknown {
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row service-row">
+            <span class="label">Service:</span>
+            <span class="value">
+                <span class="service-level" id="serviceLevel">--</span>
+                <span class="notes" id="serviceNotes"></span>
+            </span>
+        </div>
+        <div class="row">
+            <span class="label">Supervisor:</span>
+            <span class="value" id="supervisor">--</span>
+        </div>
+        <div class="row">
+            <span class="label">Dispatcher:</span>
+            <span class="value" id="dispatcher">--</span>
+        </div>
+        <div class="row">
+            <span class="label">Antibunching:</span>
+            <span class="value" id="antibunching">--</span>
+        </div>
+    </div>
+    <script>
+        let authenticated = false;
+
+        async function authenticate() {
+            const params = new URLSearchParams(window.location.search);
+            const pass = params.get('pass');
+            if (!pass) {
+                return false;
+            }
+            try {
+                const resp = await fetch('/api/dispatcher/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ password: pass.trim() })
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    return data.ok === true;
+                }
+            } catch (e) {
+                console.error('Auth failed:', e);
+            }
+            return false;
+        }
+
+        async function fetchServiceLevel() {
+            try {
+                const resp = await fetch('/v1/uts/service_level');
+                if (resp.ok) {
+                    return await resp.json();
+                }
+            } catch (e) {
+                console.error('Service level fetch failed:', e);
+            }
+            return null;
+        }
+
+        async function fetchOnDuty() {
+            try {
+                const resp = await fetch('/v1/uts/on_duty', { credentials: 'same-origin' });
+                if (resp.ok) {
+                    return await resp.json();
+                }
+            } catch (e) {
+                console.error('On duty fetch failed:', e);
+            }
+            return null;
+        }
+
+        async function fetchAntibunching() {
+            try {
+                const resp = await fetch('/v1/antibunching/status', { credentials: 'same-origin' });
+                if (resp.ok) {
+                    return await resp.json();
+                }
+            } catch (e) {
+                console.error('Antibunching fetch failed:', e);
+            }
+            return null;
+        }
+
+        function formatPersonList(people) {
+            if (!people || people.length === 0) {
+                return '--';
+            }
+            return people.map(p => p.name || p).join(', ');
+        }
+
+        function getAntibunchingClass(status) {
+            if (!status) return 'status-unknown';
+            const s = status.toUpperCase();
+            if (s === 'ONLINE') return 'status-online';
+            if (s === 'OFFLINE') return 'status-offline';
+            if (s === 'DEGRADED') return 'status-degraded';
+            return 'status-unknown';
+        }
+
+        async function updateDisplay() {
+            const [serviceData, onDutyData, antibunchingData] = await Promise.all([
+                fetchServiceLevel(),
+                authenticated ? fetchOnDuty() : Promise.resolve(null),
+                authenticated ? fetchAntibunching() : Promise.resolve(null)
+            ]);
+
+            // Service level
+            const levelEl = document.getElementById('serviceLevel');
+            const notesEl = document.getElementById('serviceNotes');
+            if (serviceData) {
+                levelEl.textContent = serviceData.service_level || '--';
+                notesEl.textContent = serviceData.notes ? `(${serviceData.notes})` : '';
+            } else {
+                levelEl.textContent = '--';
+                notesEl.textContent = '';
+            }
+
+            // Supervisor
+            const supEl = document.getElementById('supervisor');
+            if (onDutyData) {
+                supEl.textContent = formatPersonList(onDutyData.supervisors);
+            } else {
+                supEl.textContent = authenticated ? '--' : '(auth required)';
+            }
+
+            // Dispatcher
+            const dispEl = document.getElementById('dispatcher');
+            if (onDutyData) {
+                dispEl.textContent = formatPersonList(onDutyData.ondemand_dispatchers);
+            } else {
+                dispEl.textContent = authenticated ? '--' : '(auth required)';
+            }
+
+            // Antibunching
+            const abEl = document.getElementById('antibunching');
+            if (antibunchingData) {
+                const status = antibunchingData.status || 'UNKNOWN';
+                abEl.textContent = status;
+                abEl.className = 'value ' + getAntibunchingClass(status);
+            } else {
+                abEl.textContent = authenticated ? '--' : '(auth required)';
+                abEl.className = 'value status-unknown';
+            }
+        }
+
+        async function init() {
+            authenticated = await authenticate();
+            await updateDisplay();
+            // Refresh every 60 seconds
+            setInterval(updateDisplay, 60000);
+        }
+
+        init();
+    </script>
+</body>
+</html>
