@@ -64,6 +64,10 @@
             color: #c0c0e0;
             margin-left: 8px;
         }
+        .next-info {
+            font-size: 14px;
+            color: #a0a0c0;
+        }
         .status-online {
             color: #4ade80;
         }
@@ -102,6 +106,7 @@
     </div>
     <script>
         let authenticated = false;
+        const NEAR_END_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 
         async function authenticate() {
             const params = new URLSearchParams(window.location.search);
@@ -152,7 +157,7 @@
 
         async function fetchAntibunching() {
             try {
-                const resp = await fetch('/v1/antibunching/status', { credentials: 'same-origin' });
+                const resp = await fetch('/v1/transloc/anti_bunching/status', { credentials: 'same-origin' });
                 if (resp.ok) {
                     return await resp.json();
                 }
@@ -162,11 +167,71 @@
             return null;
         }
 
-        function formatPersonList(people) {
-            if (!people || people.length === 0) {
-                return '--';
+        function parseTime(timeStr) {
+            // Parse time like "7:00 AM" or "3:30 PM"
+            if (!timeStr) return null;
+            const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+            if (!match) return null;
+            let hours = parseInt(match[1], 10);
+            const minutes = parseInt(match[2], 10);
+            const ampm = match[3].toUpperCase();
+            if (ampm === 'PM' && hours !== 12) hours += 12;
+            if (ampm === 'AM' && hours === 12) hours = 0;
+            const now = new Date();
+            return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+        }
+
+        function formatStartTime(timeStr) {
+            // Convert "7:00 AM" to "7:00a" or "3:30 PM" to "3:30p"
+            if (!timeStr) return '';
+            const match = timeStr.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
+            if (!match) return timeStr;
+            const suffix = match[2].toUpperCase() === 'AM' ? 'a' : 'p';
+            return match[1] + suffix;
+        }
+
+        function shouldShowNext(current, next) {
+            // Show next if no one is current, or if current shift ends within 30 min
+            if (!current || current.length === 0) {
+                return next && next.length > 0;
             }
-            return people.map(p => p.name || p).join(', ');
+            // Check if any current person's shift ends within 30 minutes
+            const now = new Date();
+            for (const person of current) {
+                const endTime = parseTime(person.end);
+                if (endTime) {
+                    const timeUntilEnd = endTime.getTime() - now.getTime();
+                    if (timeUntilEnd > 0 && timeUntilEnd <= NEAR_END_THRESHOLD_MS) {
+                        return next && next.length > 0;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function formatPersonDisplay(current, next) {
+            if (!current && !next) return '--';
+
+            const showNext = shouldShowNext(current, next);
+
+            if (current && current.length > 0) {
+                const names = current.map(p => p.name).join(', ');
+                if (showNext && next && next.length > 0) {
+                    const nextPerson = next[0];
+                    const startTime = formatStartTime(nextPerson.start);
+                    return `${names} <span class="next-info">(${nextPerson.name} @ ${startTime})</span>`;
+                }
+                return names;
+            }
+
+            // No one currently on duty, show next
+            if (next && next.length > 0) {
+                const nextPerson = next[0];
+                const startTime = formatStartTime(nextPerson.start);
+                return `<span class="next-info">${nextPerson.name} @ ${startTime}</span>`;
+            }
+
+            return '--';
         }
 
         function getAntibunchingClass(status) {
@@ -199,7 +264,10 @@
             // Supervisor
             const supEl = document.getElementById('supervisor');
             if (onDutyData) {
-                supEl.textContent = formatPersonList(onDutyData.supervisors);
+                supEl.innerHTML = formatPersonDisplay(
+                    onDutyData.supervisors,
+                    onDutyData.supervisors_next
+                );
             } else {
                 supEl.textContent = authenticated ? '--' : '(auth required)';
             }
@@ -207,7 +275,10 @@
             // Dispatcher
             const dispEl = document.getElementById('dispatcher');
             if (onDutyData) {
-                dispEl.textContent = formatPersonList(onDutyData.ondemand_dispatchers);
+                dispEl.innerHTML = formatPersonDisplay(
+                    onDutyData.ondemand_dispatchers,
+                    onDutyData.ondemand_dispatchers_next
+                );
             } else {
                 dispEl.textContent = authenticated ? '--' : '(auth required)';
             }
