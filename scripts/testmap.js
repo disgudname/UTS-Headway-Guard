@@ -10120,13 +10120,12 @@ ${trainPlaneMarkup}
           fetch('/v1/transloc/anti_bunching/status', { credentials: 'include' })
         ]);
 
-        // Check if all requests returned 401 (unauthorized)
-        const allUnauthorized = results.every(r => {
-          if (r.status !== 'fulfilled') return false;
-          return r.value && r.value.status === 401;
-        });
+        // Check if auth-required endpoints (on_duty, anti_bunching) returned 401
+        // service_level is public, so we check the other two for auth status
+        const onDutyUnauthorized = results[1].status === 'fulfilled' && results[1].value && results[1].value.status === 401;
+        const antiBunchingUnauthorized = results[2].status === 'fulfilled' && results[2].value && results[2].value.status === 401;
 
-        if (allUnauthorized) {
+        if (onDutyUnauthorized || antiBunchingUnauthorized) {
           // User is not authenticated, hide the status panel
           statusPanelAuthenticated = false;
           hideStatusPanel();

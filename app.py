@@ -9637,13 +9637,12 @@ async def _fetch_service_level(bypass_cache: bool = False) -> ServiceLevelResult
 async def uts_service_level(request: Request):
     """Get the current UTS service level.
 
-    Requires dispatcher authentication.
+    Public endpoint.
 
     Returns:
         JSON with service_date, service_level, notes, source_url, scraped_at, source_hash.
         If unable to determine, service_level will be "UNKNOWN" with an error field.
     """
-    _require_dispatcher_access(request)
     result = await _fetch_service_level(bypass_cache=False)
     return result.to_dict()
 

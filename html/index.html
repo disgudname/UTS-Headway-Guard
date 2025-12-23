@@ -89,6 +89,9 @@
     .system-notices{margin-bottom:16px;gap:10px;}
     .system-notice{padding:12px 14px;}
   }
+  /* Service Level */
+  .service-level{font-size:13px;color:var(--muted);text-align:center;margin-bottom:20px;}
+  .service-level__value{color:var(--accent);font-weight:700;}
 </style>
 </head>
 <body>
@@ -102,6 +105,7 @@
 <header>
   <div class="title">UTS Operations Dashboard</div>
 </header>
+<div class="service-level" id="service-level"></div>
 <div class="main-content">
 <div class="system-notices" id="system-notices"></div>
 <div class="service-alert-banner" id="service-alert-banner" hidden>
@@ -396,6 +400,33 @@
     checkAuthAndFetch();
     // Refresh every 60 seconds
     setInterval(fetchSystemNotices, 60000);
+  })();
+</script>
+<script>
+  // Service Level
+  (function(){
+    const el = document.getElementById('service-level');
+    if(!el) return;
+
+    async function fetchServiceLevel(){
+      try{
+        const resp = await fetch('/v1/uts/service_level');
+        if(!resp.ok) return;
+        const data = await resp.json();
+        const level = data.service_level;
+        if(!level || level === 'UNKNOWN'){
+          el.textContent = '';
+          return;
+        }
+        el.innerHTML = `Today's Service Level: <span class="service-level__value">${level.replace(/</g,'&lt;')}</span>`;
+      } catch(e){
+        // Silently fail
+      }
+    }
+
+    fetchServiceLevel();
+    // Refresh every 5 minutes
+    setInterval(fetchServiceLevel, 300000);
   })();
 </script>
 <script>
