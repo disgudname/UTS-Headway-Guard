@@ -101,6 +101,8 @@
   }
   /* Service Level */
   .service-level{font-size:13px;color:var(--muted);text-align:center;margin-bottom:20px;}
+  .service-level a{color:var(--muted);text-decoration:none;transition:color 0.2s ease;}
+  .service-level a:hover{color:var(--ink);}
   .service-level__value{color:var(--accent);font-weight:700;}
 </style>
 </head>
@@ -508,7 +510,7 @@
         el.textContent = '';
         return;
       }
-      el.innerHTML = `Today's Service Level: <span class="service-level__value">${level.replace(/</g,'&lt;')}</span>`;
+      el.innerHTML = `<a href="https://parking.virginia.edu/serviceschedule" target="_blank" rel="noopener">Today's Service Level: <span class="service-level__value">${level.replace(/</g,'&lt;')}</span></a>`;
     }
 
     async function fetchServiceLevel(){
