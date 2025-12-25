@@ -175,13 +175,114 @@
     @media (max-width: 640px) {
       select[multiple] { height: 10rem; }
     }
+    /* Disclaimer Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1rem;
+    }
+    .modal-overlay.hidden {
+      display: none;
+    }
+    .modal {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      max-width: 640px;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 1.5rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+    .modal h2 {
+      margin-top: 0;
+      color: #fca5a5;
+      font-size: 1.3rem;
+    }
+    .modal h3 {
+      color: #fde68a;
+      font-size: 1rem;
+      margin: 1.25rem 0 0.5rem;
+    }
+    .modal ul {
+      margin: 0;
+      padding-left: 1.5rem;
+      color: #d1d5db;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    .modal li {
+      margin-bottom: 0.35rem;
+    }
+    .modal-close {
+      margin-top: 1.25rem;
+      background: linear-gradient(120deg, #1f7aff, #16a1ff);
+      border: none;
+      color: #fff;
+      font-weight: 700;
+      padding: 0.6rem 1.5rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .modal-close:hover {
+      opacity: 0.9;
+    }
+    .disclaimer-link {
+      font-size: 0.85rem;
+      color: #9fb7ff;
+      cursor: pointer;
+      text-decoration: underline;
+      margin-left: 1rem;
+    }
+    .disclaimer-link:hover {
+      color: #c4d5ff;
+    }
   </style>
 </head>
 <body>
+  <div class="modal-overlay" id="disclaimer-modal">
+    <div class="modal">
+      <h2>Data Disclaimer</h2>
+      <h3>Vehicle assignment issues:</h3>
+      <ul>
+        <li>Unassigned/out-of-service buses (startups and OOS blocks)</li>
+        <li>Switches – might look like a gap or duplicate</li>
+      </ul>
+      <h3>GPS/detection issues:</h3>
+      <ul>
+        <li>GPS drift may cause false arrivals/departures (we attempt to avoid this but are ultimately dependent on the data TransLoc provides)</li>
+        <li>Unusual stop approaches (e.g. detours) might not trigger the approach bubble detection</li>
+        <li>Traffic congestion – bus might be moving &lt; 0.5 m/s but not actually at the stop</li>
+      </ul>
+      <h3>Operational edge cases:</h3>
+      <ul>
+        <li>Detours around construction – stops on detour path get missed</li>
+        <li>Deadheading – bus passes stop without stopping while still marked as in service, will register as a 0s dwell</li>
+        <li>Layovers at timestops – very long dwell times could skew stats</li>
+      </ul>
+      <h3>Data boundary issues:</h3>
+      <ul>
+        <li>Arrivals might not be detected if bus arrives at stop while marked as out of service</li>
+        <li>Departures might not be detected if bus is marked as out of service while at stop</li>
+        <li>Server restarts/API outages/whatever else TransLoc throws at us create gaps in data</li>
+      </ul>
+      <h3>Filtering blind spots:</h3>
+      <ul>
+        <li>Only tracking configured routes/stops – truly new stops might not be in config. Existing stops added to routes should be accounted for but may not be.</li>
+      </ul>
+      <button class="modal-close" id="disclaimer-close">I understand</button>
+    </div>
+  </div>
   <header>
     <div class="content-width header-inner">
       <h1>Headway Explorer</h1>
-      <p>Select routes, stops, and a window to inspect recorded headway events.</p>
+      <p>Select routes, stops, and a window to inspect recorded headway events. <span class="disclaimer-link" id="show-disclaimer">View data disclaimer</span></p>
     </div>
   </header>
   <main class="content-width">
@@ -1073,6 +1174,26 @@
 
     setDefaults();
     loadMetadata();
+
+    // Disclaimer modal
+    const disclaimerModal = document.getElementById('disclaimer-modal');
+    const disclaimerClose = document.getElementById('disclaimer-close');
+    const showDisclaimer = document.getElementById('show-disclaimer');
+
+    disclaimerClose.addEventListener('click', () => {
+      disclaimerModal.classList.add('hidden');
+    });
+
+    showDisclaimer.addEventListener('click', () => {
+      disclaimerModal.classList.remove('hidden');
+    });
+
+    // Close modal on overlay click (but not modal content click)
+    disclaimerModal.addEventListener('click', (e) => {
+      if (e.target === disclaimerModal) {
+        disclaimerModal.classList.add('hidden');
+      }
+    });
   </script>
 </body>
 </html>
