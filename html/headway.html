@@ -440,25 +440,16 @@
     }
 
     // Data point counting mode:
-    // 'paired' = count arrival+departure pairs as one data point
+    // 'arrivals' = count arrivals only (each arrival = one bus visit)
     // 'individual' = count each arrival and departure as separate data points
-    const DATA_POINT_COUNT_MODE = 'paired';
+    const DATA_POINT_COUNT_MODE = 'arrivals';
 
     function countDataPoints(events) {
       if (DATA_POINT_COUNT_MODE === 'individual') {
         return events.length;
       }
-      // Paired mode: group by vehicle+stop, count unique pairs
-      const pairKeys = new Set();
-      events.forEach(ev => {
-        const vehicleId = ev.vehicle_id || ev.vehicle || '';
-        const stopId = ev.address_id || ev.stop_id || ev.stop || '';
-        const ts = new Date(ev.timestamp);
-        // Round to nearest minute to group arrival/departure pairs
-        const timeKey = Math.floor(ts.getTime() / 60000);
-        pairKeys.add(`${vehicleId}|${stopId}|${timeKey}`);
-      });
-      return pairKeys.size;
+      // Arrivals mode: count only arrival events (each arrival = one bus visit)
+      return events.filter(ev => ev.event_type === 'arrival').length;
     }
 
     function calculateHeadwayStats(events, headwaySelectEl) {
