@@ -336,37 +336,6 @@
     </section>
 
     <section class="card">
-      <h2>Live headway</h2>
-      <p style="margin-top: 0; color: #9ca3af;">Pick one route and one stop to watch arrivals in the last hour.</p>
-      <div class="grid">
-        <div>
-          <label for="live-route">Route</label>
-          <select id="live-route"></select>
-        </div>
-        <div>
-          <label for="live-stop">Stop</label>
-          <select id="live-stop"></select>
-        </div>
-        <div>
-          <label for="live-headway-type">Headway type</label>
-          <select id="live-headway-type">
-            <option value="arrival_arrival" selected>Arrival to arrival</option>
-            <option value="departure_arrival">Departure to arrival</option>
-          </select>
-        </div>
-      </div>
-      <div class="actions">
-        <button id="live-refresh-btn">Refresh live headway</button>
-        <button id="live-toggle-btn" class="secondary">Start live view</button>
-      </div>
-      <div class="status" id="live-status">Select a route and stop to begin.</div>
-      <div id="live-summary" class="status" style="margin-top: 0.4rem;"></div>
-      <div id="live-results" style="margin-top: 0.75rem;">
-        <div class="empty-state">Waiting for a selection.</div>
-      </div>
-    </section>
-
-    <section class="card">
       <h2>Results</h2>
       <div id="summary" class="status"></div>
       <div id="results-container">
@@ -381,13 +350,7 @@
     const statusEl = document.getElementById('status');
     const summaryEl = document.getElementById('summary');
     const resultsContainer = document.getElementById('results-container');
-    const liveRouteSelect = document.getElementById('live-route');
-    const liveStopSelect = document.getElementById('live-stop');
     const headwayTypeSelect = document.getElementById('headway-type');
-    const liveHeadwayTypeSelect = document.getElementById('live-headway-type');
-    const liveStatusEl = document.getElementById('live-status');
-    const liveSummaryEl = document.getElementById('live-summary');
-    const liveResultsEl = document.getElementById('live-results');
     const highlightInput = document.getElementById('highlight-threshold');
 
     let allRoutes = [];
@@ -396,9 +359,6 @@
     let stopNameById = new Map();
     let stopIdsByCanonical = new Map();
     let vehicleNameById = new Map();
-    let liveIntervalId = null;
-    const LIVE_WINDOW_MS = 60 * 60 * 1000;
-    const LIVE_REFRESH_MS = 30 * 1000;
 
     function formatRouteLabel(route) {
       const id = route.RouteID ?? route.RouteId ?? route.id ?? '';
@@ -648,19 +608,15 @@
 
     function populateRoutes() {
       routeSelect.innerHTML = '';
-      liveRouteSelect.innerHTML = '<option value="">Select a route…</option>';
       const frag = document.createDocumentFragment();
-      const liveFrag = document.createDocumentFragment();
       allRoutes.forEach(route => {
         const opt = document.createElement('option');
         const id = route.RouteID ?? route.RouteId ?? route.id;
         opt.value = id;
         opt.textContent = formatRouteLabel(route);
-        frag.appendChild(opt.cloneNode(true));
-        liveFrag.appendChild(opt);
+        frag.appendChild(opt);
       });
       routeSelect.appendChild(frag);
-      liveRouteSelect.appendChild(liveFrag);
     }
 
     function filteredStops(filterRoutes = []) {
@@ -684,20 +640,6 @@
         frag.appendChild(opt);
       });
       stopSelect.appendChild(frag);
-    }
-
-    function populateLiveStops(routeId) {
-      liveStopSelect.innerHTML = '<option value="">Select a stop…</option>';
-      const frag = document.createDocumentFragment();
-      filteredStops(routeId ? [routeId] : []).forEach(stop => {
-        const id = getStopId(stop);
-        if (!id) return;
-        const opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = formatStopLabel(stop);
-        frag.appendChild(opt);
-      });
-      liveStopSelect.appendChild(frag);
     }
 
     function getSelected(selectEl) {
@@ -772,7 +714,6 @@
         });
         populateRoutes();
         populateStops();
-        populateLiveStops();
         setStatus('Routes and stops loaded. Choose filters and load headway.');
         refreshVehicleRoster();
       } catch (err) {
@@ -871,206 +812,6 @@
       if (stopCount) selection.push(`${stopCount} stop${stopCount === 1 ? '' : 's'}`);
       const stats = calculateHeadwayStats(events, headwayTypeSelect);
       summaryEl.innerHTML = `${events.length} event${events.length === 1 ? '' : 's'} loaded${selection.length ? ` for ${selection.join(' and ')}` : ''}.<br>${formatStatsDisplay(stats)}`;
-    }
-
-    function setLiveStatus(message, isError = false) {
-      liveStatusEl.textContent = message;
-      liveStatusEl.style.color = isError ? '#fca5a5' : '#9fb7ff';
-    }
-
-    function renderLiveResults(events, etaInfo = null) {
-      if (!events.length) {
-        liveResultsEl.innerHTML = '<div class="empty-state">No headway events recorded in the past hour for this stop.</div>';
-        liveSummaryEl.textContent = '';
-        return;
-      }
-      const arrivals = events
-        .filter(ev => ev.event_type === 'arrival')
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      const latest = arrivals[0];
-      const summaryParts = [];
-
-      // Calculate stats for all events
-      const stats = calculateHeadwayStats(events, liveHeadwayTypeSelect);
-
-      if (latest) {
-        const time = formatTime24(new Date(latest.timestamp));
-        summaryParts.push(`Latest arrival at ${time}.`);
-      } else {
-        summaryParts.push('No arrivals recorded yet for this stop in the past hour.');
-      }
-
-      if (etaInfo && etaInfo.secondsToArrival != null) {
-        const etaMinutes = (etaInfo.secondsToArrival / 60).toFixed(1);
-        const etaTime = formatTime24(new Date(etaInfo.arrivalTimeMs));
-        if (latest) {
-          const latestTs = new Date(latest.timestamp).getTime();
-          const estimatedHeadwaySeconds = (etaInfo.arrivalTimeMs - latestTs) / 1000;
-          const estimatedHeadway = estimatedHeadwaySeconds > 0 ? `${(estimatedHeadwaySeconds / 60).toFixed(1)} min` : null;
-          const headwayPart = estimatedHeadway ? `Estimated current headway: ${estimatedHeadway}.` : 'Current headway estimate unavailable.';
-          summaryParts.push(`${headwayPart} Next arrival in ${etaMinutes} min at ${etaTime}.`);
-        } else {
-          summaryParts.push(`Next arrival in ${etaMinutes} min at ${etaTime}.`);
-        }
-      }
-
-      liveSummaryEl.innerHTML = summaryParts.join(' ') + '<br>' + formatStatsDisplay(stats);
-
-      const recent = events
-        .slice()
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        .slice(0, 10);
-      const etaRow = etaInfo && etaInfo.arrivalTimeMs
-        ? `<tr class="highlight-row">
-          <td>${formatTime24(new Date(etaInfo.arrivalTimeMs))}</td>
-          <td>ETA</td>
-          <td></td>
-          <td>${formatMinutesSeconds(etaInfo.estimatedHeadwaySeconds)}</td>
-          <td></td>
-        </tr>`
-        : '';
-
-      const rows = recent.map(ev => {
-        const tsLocal = formatTime24(new Date(ev.timestamp));
-        const headwaySeconds = getHeadwayValue(ev, liveHeadwayTypeSelect);
-        const headway = formatMinutesSeconds(headwaySeconds);
-        const dwell = formatMinutesSeconds(ev.dwell_seconds);
-        const vehicle = formatVehicleLabel(ev);
-        return `<tr>
-          <td>${tsLocal}</td>
-          <td>${ev.event_type}</td>
-          <td>${vehicle}</td>
-          <td>${headway}</td>
-          <td>${dwell}</td>
-        </tr>`;
-      }).join('');
-
-      liveResultsEl.innerHTML = `<div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Event</th>
-              <th>Vehicle</th>
-              <th>Headway</th>
-              <th>Dwell</th>
-            </tr>
-          </thead>
-          <tbody>${etaRow}${rows}</tbody>
-        </table>
-      </div>`;
-    }
-
-    async function fetchLiveHeadway() {
-      const routeId = liveRouteSelect.value;
-      const stopId = liveStopSelect.value;
-      if (!routeId || !stopId) {
-        setLiveStatus('Please pick a route and stop first.', true);
-        liveResultsEl.innerHTML = '<div class="empty-state">Waiting for a route and stop selection.</div>';
-        liveSummaryEl.textContent = '';
-        return;
-      }
-      try {
-        setLiveStatus('Loading live headway…');
-        const now = new Date();
-        const start = new Date(now.getTime() - LIVE_WINDOW_MS);
-        const stopIds = stopIdsByCanonical.get(String(stopId)) || [stopId];
-        const headwayParams = new URLSearchParams({
-          start: start.toISOString(),
-          end: now.toISOString(),
-          route_ids: routeId,
-          stop_ids: stopIds.join(','),
-        });
-        const stopIdSet = new Set(stopIds.map(String));
-        const [headwayRes, etaRes] = await Promise.all([
-          fetch(`/api/headway?${headwayParams.toString()}`),
-          fetch('/v1/transloc/stop_arrivals'),
-        ]);
-        if (!headwayRes.ok) throw new Error(`Live headway fetch failed (${headwayRes.status})`);
-        const data = await headwayRes.json();
-        const events = Array.isArray(data.events) ? data.events : [];
-        updateVehicleNameLookup(events, data.vehicle_names);
-
-        let etaInfo = null;
-        if (etaRes.ok) {
-          const etaPayload = await etaRes.json();
-          const arrivals = Array.isArray(etaPayload?.Arrivals)
-            ? etaPayload.Arrivals
-            : Array.isArray(etaPayload)
-              ? etaPayload
-              : [];
-
-          const parseArrivalTimeMs = arrival => {
-            const raw = arrival?.EstimateTime || arrival?.Time;
-            if (typeof raw === 'string') {
-              const match = /\/Date\((\d+)\)\//.exec(raw);
-              if (match) return Number(match[1]);
-            }
-            const parsed = Date.parse(raw);
-            return Number.isFinite(parsed) ? parsed : null;
-          };
-
-          arrivals.forEach(stop => {
-            const stopIdFromPayload = String(stop?.StopId ?? stop?.StopID ?? stop?.stop_id ?? '');
-            if (stopIdSet.size && stopIdFromPayload && !stopIdSet.has(stopIdFromPayload)) return;
-            const stopArrivals = Array.isArray(stop?.Arrivals) ? stop.Arrivals : Array.isArray(stop?.Times) ? stop.Times : [];
-            stopArrivals.forEach(arrival => {
-              const arrivalRouteId = arrival.RouteId ?? arrival.RouteID ?? stop.RouteId ?? stop.RouteID ?? arrival.route_id;
-              const routeMatch = String(arrivalRouteId || '') === String(routeId);
-              if (!routeMatch) return;
-              let seconds = Number(arrival.SecondsToArrival ?? arrival.SecondsToDeparture ?? arrival.Seconds ?? arrival.seconds);
-              const arrivalTimeMs = parseArrivalTimeMs(arrival);
-              if (!Number.isFinite(seconds) && Number.isFinite(arrivalTimeMs)) {
-                seconds = (arrivalTimeMs - Date.now()) / 1000;
-              }
-              if (!Number.isFinite(seconds)) return;
-              const timeMs = Number.isFinite(arrivalTimeMs) ? arrivalTimeMs : Date.now() + seconds * 1000;
-              if (!etaInfo || seconds < etaInfo.secondsToArrival) {
-                etaInfo = {
-                  secondsToArrival: seconds,
-                  arrivalTimeMs: timeMs,
-                };
-              }
-            });
-          });
-          if (etaInfo && events.length) {
-            const latestArrival = events
-              .filter(ev => ev.event_type === 'arrival')
-              .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
-            if (latestArrival) {
-              etaInfo.estimatedHeadwaySeconds = Math.max(
-                0,
-                (etaInfo.arrivalTimeMs - new Date(latestArrival.timestamp).getTime()) / 1000,
-              );
-            }
-          }
-        }
-
-        renderLiveResults(events, etaInfo);
-        setLiveStatus('Live headway updated.');
-      } catch (err) {
-        console.error(err);
-        setLiveStatus(err.message || 'Could not load live headway.', true);
-      }
-    }
-
-    function startLiveView() {
-      if (liveIntervalId) {
-        clearInterval(liveIntervalId);
-      }
-      liveIntervalId = setInterval(fetchLiveHeadway, LIVE_REFRESH_MS);
-      fetchLiveHeadway();
-      document.getElementById('live-toggle-btn').textContent = 'Stop live view';
-      setLiveStatus('Live updates running every 30 seconds.');
-    }
-
-    function stopLiveView() {
-      if (liveIntervalId) {
-        clearInterval(liveIntervalId);
-        liveIntervalId = null;
-      }
-      document.getElementById('live-toggle-btn').textContent = 'Start live view';
-      setLiveStatus('Live updates paused.');
     }
 
     async function fetchHeadway() {
@@ -1178,24 +919,6 @@
     document.getElementById('clear-btn').addEventListener('click', clearSelections);
     routeSelect.addEventListener('change', () => {
       populateStops(getSelected(routeSelect));
-    });
-    liveRouteSelect.addEventListener('change', () => {
-      populateLiveStops(liveRouteSelect.value);
-      liveStopSelect.value = '';
-      if (liveIntervalId) stopLiveView();
-    });
-
-    document.getElementById('live-refresh-btn').addEventListener('click', fetchLiveHeadway);
-    document.getElementById('live-toggle-btn').addEventListener('click', () => {
-      if (liveIntervalId) {
-        stopLiveView();
-      } else {
-        if (!liveRouteSelect.value || !liveStopSelect.value) {
-          setLiveStatus('Select both a route and stop to start live view.', true);
-          return;
-        }
-        startLiveView();
-      }
     });
 
     setDefaults();
