@@ -439,6 +439,14 @@
       return `${minutes}m ${paddedSeconds}s`;
     }
 
+    function formatTime24(date) {
+      return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    }
+
+    function formatDateTime24(date) {
+      return date.toLocaleDateString() + ' ' + formatTime24(date);
+    }
+
     // Data point counting mode:
     // 'arrivals' = count arrivals only (each arrival = one bus visit)
     // 'individual' = count each arrival and departure as separate data points
@@ -696,7 +704,7 @@
       }
       const highlightThresholdSeconds = getHighlightThresholdSeconds();
       const rows = events.map(ev => {
-        const tsLocal = new Date(ev.timestamp).toLocaleString();
+        const tsLocal = formatDateTime24(new Date(ev.timestamp));
         const headwaySeconds = getHeadwayValue(ev, headwayTypeSelect);
         const headway = formatMinutesSeconds(headwaySeconds);
         const dwell = formatMinutesSeconds(ev.dwell_seconds);
@@ -762,7 +770,7 @@
       const stats = calculateHeadwayStats(events, liveHeadwayTypeSelect);
 
       if (latest) {
-        const time = new Date(latest.timestamp).toLocaleTimeString();
+        const time = formatTime24(new Date(latest.timestamp));
         summaryParts.push(`Latest arrival at ${time}.`);
       } else {
         summaryParts.push('No arrivals recorded yet for this stop in the past hour.');
@@ -770,7 +778,7 @@
 
       if (etaInfo && etaInfo.secondsToArrival != null) {
         const etaMinutes = (etaInfo.secondsToArrival / 60).toFixed(1);
-        const etaTime = new Date(etaInfo.arrivalTimeMs).toLocaleTimeString();
+        const etaTime = formatTime24(new Date(etaInfo.arrivalTimeMs));
         if (latest) {
           const latestTs = new Date(latest.timestamp).getTime();
           const estimatedHeadwaySeconds = (etaInfo.arrivalTimeMs - latestTs) / 1000;
@@ -790,7 +798,7 @@
         .slice(0, 10);
       const etaRow = etaInfo && etaInfo.arrivalTimeMs
         ? `<tr class="highlight-row">
-          <td>${new Date(etaInfo.arrivalTimeMs).toLocaleTimeString()}</td>
+          <td>${formatTime24(new Date(etaInfo.arrivalTimeMs))}</td>
           <td>ETA</td>
           <td></td>
           <td>${formatMinutesSeconds(etaInfo.estimatedHeadwaySeconds)}</td>
@@ -799,7 +807,7 @@
         : '';
 
       const rows = recent.map(ev => {
-        const tsLocal = new Date(ev.timestamp).toLocaleTimeString();
+        const tsLocal = formatTime24(new Date(ev.timestamp));
         const headwaySeconds = getHeadwayValue(ev, liveHeadwayTypeSelect);
         const headway = formatMinutesSeconds(headwaySeconds);
         const dwell = formatMinutesSeconds(ev.dwell_seconds);
@@ -958,6 +966,30 @@
       }
     }
 
+    function getRouteInitials() {
+      const selectedRouteIds = getSelected(routeSelect);
+      if (!selectedRouteIds.length) return '';
+      const initials = selectedRouteIds.map(id => {
+        const name = routeNameById.get(String(id)) || '';
+        // Get first letter of each word
+        return name.split(/\s+/).map(word => word.charAt(0).toUpperCase()).join('');
+      }).join('-');
+      return initials;
+    }
+
+    function buildExportFilename() {
+      const fromDate = document.getElementById('from-date').value || '';
+      const toDate = document.getElementById('to-date').value || '';
+      const routeInitials = getRouteInitials();
+
+      let filename = 'headway_export';
+      if (routeInitials) filename += '_' + routeInitials;
+      if (fromDate) filename += '_' + fromDate;
+      if (toDate && toDate !== fromDate) filename += '_to_' + toDate;
+      filename += '.csv';
+      return filename;
+    }
+
     async function exportCsv() {
       try {
         setStatus('Preparing CSV export…');
@@ -993,7 +1025,7 @@
         const dlUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = dlUrl;
-        link.download = 'headway_export.csv';
+        link.download = buildExportFilename();
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
