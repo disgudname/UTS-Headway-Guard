@@ -980,9 +980,21 @@
           }
         })();
 
+        // Fetch events first to calculate stats
+        const dataUrl = buildQuery('/api/headway');
+        const dataRes = await fetch(dataUrl);
+        if (!dataRes.ok) throw new Error(`Failed to fetch headway data (${dataRes.status})`);
+        const data = await dataRes.json();
+        const events = Array.isArray(data.events) ? data.events : [];
+        const stats = calculateHeadwayStats(events, headwayTypeSelect);
+
         const url = buildQuery('/api/headway/export', {
           headway_type: headwayTypeSelect.value,
           timezone_name: timezoneName,
+          stat_avg_headway: stats.average,
+          stat_longest_headway: stats.longest,
+          stat_std_dev: stats.stdDev,
+          stat_data_points: stats.dataPoints,
         });
         const res = await fetch(url);
         if (!res.ok) throw new Error(`Headway export failed (${res.status})`);

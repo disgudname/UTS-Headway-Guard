@@ -3708,6 +3708,18 @@ async def api_headway_export(
         None,
         description="IANA timezone name to localize timestamps (defaults to America/New_York)",
     ),
+    stat_avg_headway: Optional[float] = Query(
+        None, description="Average headway in seconds (calculated by frontend)"
+    ),
+    stat_longest_headway: Optional[float] = Query(
+        None, description="Longest headway in seconds (calculated by frontend)"
+    ),
+    stat_std_dev: Optional[float] = Query(
+        None, description="Standard deviation of headway in seconds (calculated by frontend)"
+    ),
+    stat_data_points: Optional[int] = Query(
+        None, description="Number of data points (calculated by frontend)"
+    ),
 ):
     start_dt = _parse_headway_timestamp(start)
     end_dt = _parse_headway_timestamp(end)
@@ -3843,6 +3855,24 @@ async def api_headway_export(
                 _format_hms(headway_value),
             ]
         )
+
+    # Append statistics summary if provided
+    has_stats = any(
+        v is not None
+        for v in [stat_avg_headway, stat_longest_headway, stat_std_dev, stat_data_points]
+    )
+    if has_stats:
+        writer.writerow([])  # Blank row separator
+        writer.writerow(["Statistics Summary"])
+        if stat_avg_headway is not None:
+            writer.writerow(["Average Headway", _format_hms(stat_avg_headway)])
+        if stat_longest_headway is not None:
+            writer.writerow(["Longest Headway", _format_hms(stat_longest_headway)])
+        if stat_std_dev is not None:
+            writer.writerow(["Standard Deviation", _format_hms(stat_std_dev)])
+        if stat_data_points is not None:
+            writer.writerow(["Data Points", str(stat_data_points)])
+
     payload = buf.getvalue()
     headers = {
         "Content-Disposition": "attachment; filename=\"headway_export.csv\"",
