@@ -1179,10 +1179,23 @@
     const disclaimerModal = document.getElementById('disclaimer-modal');
     const disclaimerClose = document.getElementById('disclaimer-close');
     const showDisclaimer = document.getElementById('show-disclaimer');
+    const DISCLAIMER_KEY = 'headway_disclaimer_dismissed';
 
-    disclaimerClose.addEventListener('click', () => {
+    function dismissDisclaimer() {
       disclaimerModal.classList.add('hidden');
-    });
+      try {
+        localStorage.setItem(DISCLAIMER_KEY, '1');
+      } catch (e) {}
+    }
+
+    // Check if already dismissed
+    try {
+      if (localStorage.getItem(DISCLAIMER_KEY)) {
+        disclaimerModal.classList.add('hidden');
+      }
+    } catch (e) {}
+
+    disclaimerClose.addEventListener('click', dismissDisclaimer);
 
     showDisclaimer.addEventListener('click', () => {
       disclaimerModal.classList.remove('hidden');
@@ -1191,7 +1204,7 @@
     // Close modal on overlay click (but not modal content click)
     disclaimerModal.addEventListener('click', (e) => {
       if (e.target === disclaimerModal) {
-        disclaimerModal.classList.add('hidden');
+        dismissDisclaimer();
       }
     });
   </script>
