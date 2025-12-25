@@ -566,42 +566,65 @@
         .map(ev => getHeadwayValue(ev, headwaySelectEl))
         .filter(hw => hw != null && !Number.isNaN(Number(hw)) && Number(hw) > 0);
 
-      if (headwayValues.length === 0) {
-        return {
-          average: null,
-          longest: null,
-          stdDev: null,
-          dataPoints: countDataPoints(events),
-          headwayCount: 0,
-        };
+      const dwellValues = events
+        .map(ev => ev.dwell_seconds)
+        .filter(dw => dw != null && !Number.isNaN(Number(dw)) && Number(dw) >= 0);
+
+      let average = null, longest = null, stdDev = null;
+      if (headwayValues.length > 0) {
+        const sum = headwayValues.reduce((acc, v) => acc + v, 0);
+        average = sum / headwayValues.length;
+        longest = Math.max(...headwayValues);
+        const squaredDiffs = headwayValues.map(v => Math.pow(v - average, 2));
+        const avgSquaredDiff = squaredDiffs.reduce((acc, v) => acc + v, 0) / headwayValues.length;
+        stdDev = Math.sqrt(avgSquaredDiff);
       }
 
-      const sum = headwayValues.reduce((acc, v) => acc + v, 0);
-      const average = sum / headwayValues.length;
-      const longest = Math.max(...headwayValues);
-
-      // Standard deviation
-      const squaredDiffs = headwayValues.map(v => Math.pow(v - average, 2));
-      const avgSquaredDiff = squaredDiffs.reduce((acc, v) => acc + v, 0) / headwayValues.length;
-      const stdDev = Math.sqrt(avgSquaredDiff);
+      let dwellAverage = null, dwellLongest = null, dwellStdDev = null;
+      if (dwellValues.length > 0) {
+        const dwellSum = dwellValues.reduce((acc, v) => acc + v, 0);
+        dwellAverage = dwellSum / dwellValues.length;
+        dwellLongest = Math.max(...dwellValues);
+        const dwellSquaredDiffs = dwellValues.map(v => Math.pow(v - dwellAverage, 2));
+        const dwellAvgSquaredDiff = dwellSquaredDiffs.reduce((acc, v) => acc + v, 0) / dwellValues.length;
+        dwellStdDev = Math.sqrt(dwellAvgSquaredDiff);
+      }
 
       return {
         average,
         longest,
         stdDev,
+        dwellAverage,
+        dwellLongest,
+        dwellStdDev,
         dataPoints: countDataPoints(events),
         headwayCount: headwayValues.length,
+        dwellCount: dwellValues.length,
       };
     }
 
     function formatStatsDisplay(stats) {
-      if (stats.headwayCount === 0) {
-        return `<strong>Data points:</strong> ${stats.dataPoints}`;
+      const parts = [];
+
+      // Headway stats
+      if (stats.headwayCount > 0) {
+        const avgDisplay = stats.average != null ? formatMinutesSeconds(stats.average) : 'N/A';
+        const longestDisplay = stats.longest != null ? formatMinutesSeconds(stats.longest) : 'N/A';
+        const stdDevDisplay = stats.stdDev != null ? formatMinutesSeconds(stats.stdDev) : 'N/A';
+        parts.push(`<strong>Avg headway:</strong> ${avgDisplay} · <strong>Longest:</strong> ${longestDisplay} · <strong>Std dev:</strong> ${stdDevDisplay}`);
       }
-      const avgDisplay = stats.average != null ? formatMinutesSeconds(stats.average) : 'N/A';
-      const longestDisplay = stats.longest != null ? formatMinutesSeconds(stats.longest) : 'N/A';
-      const stdDevDisplay = stats.stdDev != null ? formatMinutesSeconds(stats.stdDev) : 'N/A';
-      return `<strong>Avg headway:</strong> ${avgDisplay} · <strong>Longest:</strong> ${longestDisplay} · <strong>Std dev:</strong> ${stdDevDisplay} · <strong>Data points:</strong> ${stats.dataPoints}`;
+
+      // Dwell stats
+      if (stats.dwellCount > 0) {
+        const dwellAvgDisplay = stats.dwellAverage != null ? formatMinutesSeconds(stats.dwellAverage) : 'N/A';
+        const dwellLongestDisplay = stats.dwellLongest != null ? formatMinutesSeconds(stats.dwellLongest) : 'N/A';
+        const dwellStdDevDisplay = stats.dwellStdDev != null ? formatMinutesSeconds(stats.dwellStdDev) : 'N/A';
+        parts.push(`<strong>Avg dwell:</strong> ${dwellAvgDisplay} · <strong>Longest:</strong> ${dwellLongestDisplay} · <strong>Std dev:</strong> ${dwellStdDevDisplay}`);
+      }
+
+      parts.push(`<strong>Data points:</strong> ${stats.dataPoints}`);
+
+      return parts.join('<br>');
     }
 
     function resolveHeadwayField(selectEl) {
@@ -1118,6 +1141,9 @@
           stat_avg_headway: stats.average,
           stat_longest_headway: stats.longest,
           stat_std_dev: stats.stdDev,
+          stat_avg_dwell: stats.dwellAverage,
+          stat_longest_dwell: stats.dwellLongest,
+          stat_dwell_std_dev: stats.dwellStdDev,
           stat_data_points: stats.dataPoints,
         });
         const res = await fetch(url);

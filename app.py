@@ -3717,6 +3717,15 @@ async def api_headway_export(
     stat_std_dev: Optional[float] = Query(
         None, description="Standard deviation of headway in seconds (calculated by frontend)"
     ),
+    stat_avg_dwell: Optional[float] = Query(
+        None, description="Average dwell time in seconds (calculated by frontend)"
+    ),
+    stat_longest_dwell: Optional[float] = Query(
+        None, description="Longest dwell time in seconds (calculated by frontend)"
+    ),
+    stat_dwell_std_dev: Optional[float] = Query(
+        None, description="Standard deviation of dwell time in seconds (calculated by frontend)"
+    ),
     stat_data_points: Optional[int] = Query(
         None, description="Number of data points (calculated by frontend)"
     ),
@@ -3859,7 +3868,7 @@ async def api_headway_export(
     # Append statistics summary if provided
     has_stats = any(
         v is not None
-        for v in [stat_avg_headway, stat_longest_headway, stat_std_dev, stat_data_points]
+        for v in [stat_avg_headway, stat_longest_headway, stat_std_dev, stat_avg_dwell, stat_longest_dwell, stat_dwell_std_dev, stat_data_points]
     )
     if has_stats:
         writer.writerow([])  # Blank row separator
@@ -3869,7 +3878,13 @@ async def api_headway_export(
         if stat_longest_headway is not None:
             writer.writerow(["Longest Headway", _format_hms(stat_longest_headway)])
         if stat_std_dev is not None:
-            writer.writerow(["Standard Deviation", _format_hms(stat_std_dev)])
+            writer.writerow(["Headway Std Dev", _format_hms(stat_std_dev)])
+        if stat_avg_dwell is not None:
+            writer.writerow(["Average Dwell", _format_hms(stat_avg_dwell)])
+        if stat_longest_dwell is not None:
+            writer.writerow(["Longest Dwell", _format_hms(stat_longest_dwell)])
+        if stat_dwell_std_dev is not None:
+            writer.writerow(["Dwell Std Dev", _format_hms(stat_dwell_std_dev)])
         if stat_data_points is not None:
             writer.writerow(["Data Points", str(stat_data_points)])
 
