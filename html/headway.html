@@ -439,6 +439,71 @@
       return `${minutes}m ${paddedSeconds}s`;
     }
 
+    // Data point counting mode:
+    // 'paired' = count arrival+departure pairs as one data point
+    // 'individual' = count each arrival and departure as separate data points
+    const DATA_POINT_COUNT_MODE = 'paired';
+
+    function countDataPoints(events) {
+      if (DATA_POINT_COUNT_MODE === 'individual') {
+        return events.length;
+      }
+      // Paired mode: group by vehicle+stop, count unique pairs
+      const pairKeys = new Set();
+      events.forEach(ev => {
+        const vehicleId = ev.vehicle_id || ev.vehicle || '';
+        const stopId = ev.address_id || ev.stop_id || ev.stop || '';
+        const ts = new Date(ev.timestamp);
+        // Round to nearest minute to group arrival/departure pairs
+        const timeKey = Math.floor(ts.getTime() / 60000);
+        pairKeys.add(`${vehicleId}|${stopId}|${timeKey}`);
+      });
+      return pairKeys.size;
+    }
+
+    function calculateHeadwayStats(events, headwaySelectEl) {
+      const headwayValues = events
+        .map(ev => getHeadwayValue(ev, headwaySelectEl))
+        .filter(hw => hw != null && !Number.isNaN(Number(hw)) && Number(hw) > 0);
+
+      if (headwayValues.length === 0) {
+        return {
+          average: null,
+          longest: null,
+          stdDev: null,
+          dataPoints: countDataPoints(events),
+          headwayCount: 0,
+        };
+      }
+
+      const sum = headwayValues.reduce((acc, v) => acc + v, 0);
+      const average = sum / headwayValues.length;
+      const longest = Math.max(...headwayValues);
+
+      // Standard deviation
+      const squaredDiffs = headwayValues.map(v => Math.pow(v - average, 2));
+      const avgSquaredDiff = squaredDiffs.reduce((acc, v) => acc + v, 0) / headwayValues.length;
+      const stdDev = Math.sqrt(avgSquaredDiff);
+
+      return {
+        average,
+        longest,
+        stdDev,
+        dataPoints: countDataPoints(events),
+        headwayCount: headwayValues.length,
+      };
+    }
+
+    function formatStatsDisplay(stats) {
+      if (stats.headwayCount === 0) {
+        return `<strong>Data points:</strong> ${stats.dataPoints}`;
+      }
+      const avgDisplay = stats.average != null ? formatMinutesSeconds(stats.average) : 'N/A';
+      const longestDisplay = stats.longest != null ? formatMinutesSeconds(stats.longest) : 'N/A';
+      const stdDevDisplay = stats.stdDev != null ? formatMinutesSeconds(stats.stdDev) : 'N/A';
+      return `<strong>Avg headway:</strong> ${avgDisplay} · <strong>Longest:</strong> ${longestDisplay} · <strong>Std dev:</strong> ${stdDevDisplay} · <strong>Data points:</strong> ${stats.dataPoints}`;
+    }
+
     function resolveHeadwayField(selectEl) {
       return selectEl?.value === 'departure_arrival'
         ? 'headway_departure_arrival'
@@ -681,7 +746,8 @@
       const stopCount = getSelected(stopSelect).length;
       if (routeCount) selection.push(`${routeCount} route${routeCount === 1 ? '' : 's'}`);
       if (stopCount) selection.push(`${stopCount} stop${stopCount === 1 ? '' : 's'}`);
-      summaryEl.textContent = `${events.length} event${events.length === 1 ? '' : 's'} loaded${selection.length ? ` for ${selection.join(' and ')}` : ''}.`;
+      const stats = calculateHeadwayStats(events, headwayTypeSelect);
+      summaryEl.innerHTML = `${events.length} event${events.length === 1 ? '' : 's'} loaded${selection.length ? ` for ${selection.join(' and ')}` : ''}.<br>${formatStatsDisplay(stats)}`;
     }
 
     function setLiveStatus(message, isError = false) {
@@ -700,17 +766,13 @@
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       const latest = arrivals[0];
       const summaryParts = [];
+
+      // Calculate stats for all events
+      const stats = calculateHeadwayStats(events, liveHeadwayTypeSelect);
+
       if (latest) {
         const time = new Date(latest.timestamp).toLocaleTimeString();
-        // Calculate average headway over the last hour
-        const headwayValues = arrivals
-          .map(ev => getHeadwayValue(ev, liveHeadwayTypeSelect))
-          .filter(hw => hw != null && !Number.isNaN(hw));
-        const avgHeadway = headwayValues.length > 0
-          ? headwayValues.reduce((sum, hw) => sum + hw, 0) / headwayValues.length
-          : null;
-        const avgHeadwayDisplay = avgHeadway != null ? `${(avgHeadway / 60).toFixed(1)} min` : 'N/A';
-        summaryParts.push(`Latest arrival at ${time}. Avg headway (1hr): ${avgHeadwayDisplay}.`);
+        summaryParts.push(`Latest arrival at ${time}.`);
       } else {
         summaryParts.push('No arrivals recorded yet for this stop in the past hour.');
       }
@@ -729,7 +791,7 @@
         }
       }
 
-      liveSummaryEl.textContent = summaryParts.join(' ');
+      liveSummaryEl.innerHTML = summaryParts.join(' ') + '<br>' + formatStatsDisplay(stats);
 
       const recent = events
         .slice()
