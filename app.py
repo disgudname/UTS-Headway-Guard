@@ -29,7 +29,7 @@ from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, 
 from dataclasses import dataclass, field
 import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
 from datetime import date, datetime, timedelta, time as dtime, timezone
-from email.utils import parsedate_to_datetime
+from email.utils import parsedate_to_datetime, formatdate
 from zoneinfo import ZoneInfo
 import httpx
 from collections import deque, defaultdict
@@ -9998,47 +9998,65 @@ async def stream_testmap_vehicles():
 # Static assets
 # ---------------------------
 
+ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+def _asset_headers(path: Path) -> dict[str, str]:
+    stat = path.stat()
+    etag = f'W/"{stat.st_mtime_ns}-{stat.st_size}"'
+    last_modified = formatdate(stat.st_mtime, usegmt=True)
+    return {
+        "Cache-Control": ASSET_CACHE_CONTROL,
+        "ETag": etag,
+        "Last-Modified": last_modified,
+    }
+
+
+def _file_response_with_cache(path: Path, media_type: str) -> FileResponse:
+    return FileResponse(path, media_type=media_type, headers=_asset_headers(path))
+
+
 def _serve_js_asset(name: str) -> FileResponse:
-    return FileResponse(SCRIPT_DIR / name, media_type="application/javascript")
+    return _file_response_with_cache(SCRIPT_DIR / name, media_type="application/javascript")
 
 
 def _serve_css_asset(name: str) -> FileResponse:
-    return FileResponse(CSS_DIR / name, media_type="text/css")
+    return _file_response_with_cache(CSS_DIR / name, media_type="text/css")
 
 
 @app.get("/FGDC.ttf", include_in_schema=False)
 async def fgdc_font():
-    return FileResponse(FONT_DIR / "FGDC.ttf", media_type="font/ttf")
+    return _file_response_with_cache(FONT_DIR / "FGDC.ttf", media_type="font/ttf")
 
 
 @app.get("/fonts/FGDC.ttf", include_in_schema=False)
 async def fgdc_font_nested():
-    return FileResponse(FONT_DIR / "FGDC.ttf", media_type="font/ttf")
+    return _file_response_with_cache(FONT_DIR / "FGDC.ttf", media_type="font/ttf")
 
 
 @app.get("/ANTONIO.ttf", include_in_schema=False)
 async def antonio_font():
-    return FileResponse(FONT_DIR / "ANTONIO.ttf", media_type="font/ttf")
+    return _file_response_with_cache(FONT_DIR / "ANTONIO.ttf", media_type="font/ttf")
 
 
 @app.get("/centurygothic.ttf", include_in_schema=False)
 async def centurygothic_font():
-    return FileResponse(FONT_DIR / "centurygothic.ttf", media_type="font/ttf")
+    return _file_response_with_cache(FONT_DIR / "centurygothic.ttf", media_type="font/ttf")
 
 
 @app.get("/busmarker.svg", include_in_schema=False)
 async def busmarker_svg():
-    return FileResponse(MEDIA_DIR / "busmarker.svg", media_type="image/svg+xml")
+    return _file_response_with_cache(MEDIA_DIR / "busmarker.svg", media_type="image/svg+xml")
 
 
 @app.get("/radar.wav", include_in_schema=False)
 async def radar_wav():
-    return FileResponse(MEDIA_DIR / "radar.wav", media_type="audio/wav")
+    return _file_response_with_cache(MEDIA_DIR / "radar.wav", media_type="audio/wav")
 
 
 @app.get("/UTSShield.png", include_in_schema=False)
 async def headwayguard_icon():
-    return FileResponse(MEDIA_DIR / "UTSShield.png", media_type="image/png")
+    return _file_response_with_cache(MEDIA_DIR / "UTSShield.png", media_type="image/png")
 
 
 _MEDIA_ASSETS: dict[str, str] = {
@@ -10078,7 +10096,7 @@ async def media_asset(asset_name: str):
     path = MEDIA_DIR / asset_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="Media asset not found")
-    return FileResponse(path, media_type=media_type)
+    return _file_response_with_cache(path, media_type=media_type)
 
 
 def _arrival_sound_files(subdir: Optional[str] = None) -> list[str]:
@@ -10131,7 +10149,7 @@ async def arrival_sound_file(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Media asset not found")
 
-    return FileResponse(path, media_type="audio/mpeg")
+    return _file_response_with_cache(path, media_type="audio/mpeg")
 
 
 @app.get("/media/arrivalsounds/passthrough/", include_in_schema=False)
@@ -10160,7 +10178,7 @@ async def arrival_sound_passthrough_file(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Media asset not found")
 
-    return FileResponse(path, media_type="audio/mpeg")
+    return _file_response_with_cache(path, media_type="audio/mpeg")
 
 
 @app.get("/media/arrivalsounds/stopped/", include_in_schema=False)
@@ -10189,7 +10207,7 @@ async def arrival_sound_stopped_file(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Media asset not found")
 
-    return FileResponse(path, media_type="audio/mpeg")
+    return _file_response_with_cache(path, media_type="audio/mpeg")
 
 
 @app.get("/map_defaults.js", include_in_schema=False)
