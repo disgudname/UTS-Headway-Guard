@@ -118,6 +118,31 @@ TM.registerVisibilityResumeHandler(() => {
       let darkTileLayer = null;
       let systemPrefersDark = false;
 
+      // Solar-based theme for kiosk modes (Charlottesville, VA coordinates)
+      const SOLAR_THEME_LAT = 38.0293;
+      const SOLAR_THEME_LON = -78.4767;
+      let solarThemeIntervalId = null;
+
+      // Check if current time is after dusk or before dawn (civil twilight)
+      function isSolarDark() {
+        if (typeof SunCalc === 'undefined') return null;
+        try {
+          const now = new Date();
+          const times = SunCalc.getTimes(now, SOLAR_THEME_LAT, SOLAR_THEME_LON);
+          // dawn = civil twilight start (sun 6° below horizon, getting light)
+          // dusk = civil twilight end (sun 6° below horizon, getting dark)
+          const dawn = times.dawn;
+          const dusk = times.dusk;
+          if (!dawn || !dusk || isNaN(dawn.getTime()) || isNaN(dusk.getTime())) {
+            return null; // Invalid times (polar regions edge case)
+          }
+          // Dark if before dawn or after dusk
+          return now < dawn || now > dusk;
+        } catch (e) {
+          return null;
+        }
+      }
+
       // Initialize theme state early (before panel renders)
       // These will be re-initialized when the map loads, but we need values for initial panel render
       (function initThemeStateEarly() {
@@ -197,8 +222,17 @@ TM.registerVisibilityResumeHandler(() => {
       }
 
       // Resolve effective theme from preference and system setting
+      // In kiosk modes, AUTO uses solar position (civil twilight) instead of system preference
       function resolveEffectiveTheme(preference, systemDark) {
         if (preference === MAP_THEMES.AUTO) {
+          // In kiosk modes, use solar-based theme switching
+          if (kioskMode || adminKioskMode) {
+            const solarDark = isSolarDark();
+            if (solarDark !== null) {
+              return solarDark ? MAP_THEMES.DARK : MAP_THEMES.LIGHT;
+            }
+            // Fall back to system preference if SunCalc unavailable
+          }
           return systemDark ? MAP_THEMES.DARK : MAP_THEMES.LIGHT;
         }
         return preference;
@@ -11543,6 +11577,20 @@ ${trainPlaneMarkup}
             } catch (e) {
               // matchMedia not fully supported
             }
+          }
+
+          // In kiosk modes, periodically check solar position for theme changes at dawn/dusk
+          if ((kioskMode || adminKioskMode) && typeof SunCalc !== 'undefined') {
+            // Clear any existing interval
+            if (solarThemeIntervalId !== null) {
+              clearInterval(solarThemeIntervalId);
+            }
+            // Check every minute for dawn/dusk transitions
+            solarThemeIntervalId = setInterval(function() {
+              if (currentMapTheme === MAP_THEMES.AUTO) {
+                applyMapTheme();
+              }
+            }, 60000);
           }
 
           applyRadarState();
