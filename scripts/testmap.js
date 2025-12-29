@@ -100,8 +100,11 @@ TM.registerVisibilityResumeHandler(() => {
       let kioskUiSuppressed = false;
       let kioskVehicleStatusKnown = false;
       let kioskTranslocErrorActive = false;
+      let kioskErrorType = null; // 'network' | 'service' | null
       const KIOSK_DEFAULT_STATUS_TEXT = 'No active vehicles';
       const KIOSK_TRANSLOC_ERROR_TEXT = 'TransLoc is currently failing to provide bus data.\nThe Operations Dashboard is functioning normally.';
+      const KIOSK_NETWORK_ERROR_TEXT = 'Unable to connect to the network.\nPlease check your internet connection.';
+      const KIOSK_SERVICE_ERROR_TEXT = 'TransLoc is currently failing to provide bus data.\nThe Operations Dashboard is functioning normally.';
       let displayMode = DISPLAY_MODES.BLOCK;
 
       // Map theme (tile layer) settings
@@ -3380,7 +3383,7 @@ TM.registerVisibilityResumeHandler(() => {
           })
           .catch(error => {
             console.error('Failed to load TransLoc snapshot:', error);
-            markKioskTranslocError();
+            markKioskTranslocError(error);
             throw error;
           });
       }
@@ -8020,22 +8023,56 @@ TM.registerVisibilityResumeHandler(() => {
         }
       }
 
-      function markKioskTranslocError() {
-        if (!isKioskExperienceActive()) {
-          return;
+      function classifyKioskError(error) {
+        // Check if browser reports offline
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          return 'network';
         }
-        if (!kioskTranslocErrorActive) {
+        // TypeError with "fetch" or "network" typically indicates network failure
+        if (error instanceof TypeError) {
+          const msg = String(error.message || '').toLowerCase();
+          if (msg.includes('fetch') || msg.includes('network') || msg.includes('failed to fetch')) {
+            return 'network';
+          }
+        }
+        // DOMException for network errors
+        if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+          if (error.name === 'NetworkError' || error.name === 'AbortError') {
+            return 'network';
+          }
+        }
+        // Default to service error (TransLoc issue)
+        return 'service';
+      }
+
+      function markKioskTranslocError(error) {
+        const errorType = classifyKioskError(error);
+        const stateChanged = !kioskTranslocErrorActive || kioskErrorType !== errorType;
+        if (stateChanged) {
           kioskTranslocErrorActive = true;
+          kioskErrorType = errorType;
         }
-        updateKioskStatusMessage();
+        if (isKioskExperienceActive()) {
+          updateKioskStatusMessage();
+        }
+        // Update status panel if visible (non-kiosk mode)
+        if (stateChanged && typeof renderStatusPanel === 'function') {
+          renderStatusPanel();
+        }
       }
 
       function clearKioskTranslocErrorState() {
-        if (!kioskTranslocErrorActive) {
+        if (!kioskTranslocErrorActive && kioskErrorType === null) {
           return;
         }
+        const wasActive = kioskTranslocErrorActive;
         kioskTranslocErrorActive = false;
+        kioskErrorType = null;
         updateKioskStatusMessage();
+        // Update status panel if error was active (non-kiosk mode)
+        if (wasActive && typeof renderStatusPanel === 'function') {
+          renderStatusPanel();
+        }
       }
 
       function setKioskStatusMessageVisibility(visible) {
@@ -8064,12 +8101,16 @@ TM.registerVisibilityResumeHandler(() => {
         if (!kioskMode && !adminKioskMode) {
           kioskVehicleStatusKnown = false;
           kioskTranslocErrorActive = false;
+          kioskErrorType = null;
           setKioskStatusMessageVisibility(false);
           return;
         }
 
         if (kioskTranslocErrorActive) {
-          setKioskStatusMessageText(KIOSK_TRANSLOC_ERROR_TEXT);
+          const errorText = kioskErrorType === 'network'
+            ? KIOSK_NETWORK_ERROR_TEXT
+            : KIOSK_SERVICE_ERROR_TEXT;
+          setKioskStatusMessageText(errorText);
           setKioskStatusMessageVisibility(true);
           return;
         }
@@ -10018,6 +10059,31 @@ ${trainPlaneMarkup}
       // ===================================
       // Status Panel State & Logic
       // ===================================
+
+      function buildDataWarningHtml() {
+        if (!kioskTranslocErrorActive) {
+          return '';
+        }
+        const isNetwork = kioskErrorType === 'network';
+        const title = isNetwork ? 'Network Issue' : 'Data Service Issue';
+        const message = isNetwork
+          ? 'Unable to connect to the network. Vehicle data may be outdated.'
+          : 'TransLoc is not providing bus data. The dashboard is working normally.';
+        return `
+          <div class="status-data-warning status-data-warning--${isNetwork ? 'network' : 'service'}">
+            <div class="status-data-warning__icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+              </svg>
+            </div>
+            <div class="status-data-warning__content">
+              <div class="status-data-warning__title">${title}</div>
+              <div class="status-data-warning__message">${message}</div>
+            </div>
+          </div>
+        `;
+      }
+
       let statusPanelCollapsed = false;
       let routePanelCollapsed = false;
       let statusPanelData = {
@@ -10362,6 +10428,7 @@ ${trainPlaneMarkup}
         }
 
         // Build the full panel HTML
+        const dataWarningHtml = buildDataWarningHtml();
         const toggleSvg = `<svg class="selector-header__toggle" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg>`;
         const html = `
           <div class="selector-header selector-header--collapsible" onclick="toggleStatusPanelCollapse()">
@@ -10371,6 +10438,7 @@ ${trainPlaneMarkup}
             ${toggleSvg}
           </div>
           <div class="selector-content">
+            ${dataWarningHtml}
             <div class="status-section">
               <div class="status-section__label">Service</div>
               ${serviceHtml}
