@@ -1308,6 +1308,7 @@ NOT_FOUND_HTML = _load_html("404.html")
 RADAR_HTML = _load_html("radar.html")
 EINK_BLOCK_HTML = _load_html("eink-block.html")
 STOP_APPROACH_HTML = _load_html("stop-approach.html")
+DUCK_CONFIG_HTML = _load_html("duck-config.html")
 DOWNED_HTML = _load_html("downed.html")
 IPS_HTML = _load_html("ips.html")
 LOGIN_HTML = _load_html("login.html")
@@ -10414,6 +10415,14 @@ async def stop_approach_page(request: Request):
     if _has_dispatcher_access(request):
         return HTMLResponse(STOP_APPROACH_HTML)
     return _login_redirect(request)
+
+
+# ---------------------------
+# DUCK CONFIG PAGE
+# ---------------------------
+@app.get("/duck-config")
+async def duck_config_page():
+    return HTMLResponse(DUCK_CONFIG_HTML)
 
 
 # ---------------------------

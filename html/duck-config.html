@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DUCK Config Editor - UTS Operations Dashboard</title>
+    <link rel="icon" type="image/png" href="/media/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
+    />
+    <link rel="stylesheet" href="/css/duck-config.css" />
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <h1>DUCK Config Editor</h1>
+        <p class="subtitle">Driver Underpass Clearance Keeper - Configuration Tool</p>
+      </div>
+      <div class="header-actions">
+        <label class="file-input-label">
+          <input type="file" id="loadConfigFile" accept=".json" />
+          Load Config
+        </label>
+        <button id="createDefaultBtn" type="button">New Default Config</button>
+        <button id="downloadBtn" type="button" class="primary">Download Config</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="map-wrapper" aria-label="Polygon map">
+        <div id="map" role="presentation"></div>
+        <div class="map-instructions">
+          <p><strong>Drawing:</strong> Select a polygon type below, then use the polygon tool on the map.</p>
+          <p><strong>Editing:</strong> Click a polygon to select it, then drag vertices to adjust.</p>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Configuration controls">
+        <div class="controls-scroll">
+          <!-- General Settings -->
+          <div class="control-section">
+            <h3>General Settings</h3>
+            <div class="control-group">
+              <label for="volumeSlider">Volume</label>
+              <div class="range-with-value">
+                <input type="range" id="volumeSlider" min="0" max="100" value="80" />
+                <span class="value" id="volumeValue">80</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Thresholds -->
+          <div class="control-section">
+            <h3>Thresholds</h3>
+            <div class="control-group">
+              <label for="movingSpeedInput">Moving Speed (mph)</label>
+              <input type="number" id="movingSpeedInput" min="0.5" max="15" step="0.1" value="3.0" />
+              <span class="hint">Speed above which vehicle is considered moving (0.5-15.0)</span>
+            </div>
+            <div class="control-group">
+              <label for="gpsDebounceInput">GPS Debounce (ms)</label>
+              <input type="number" id="gpsDebounceInput" min="0" step="100" value="1000" />
+            </div>
+            <div class="control-group">
+              <label for="powerDebounceInput">Power Debounce (ms)</label>
+              <input type="number" id="powerDebounceInput" min="0" step="100" value="500" />
+            </div>
+            <div class="control-group">
+              <label for="shutdownTimeoutInput">Shutdown Timeout (sec)</label>
+              <input type="number" id="shutdownTimeoutInput" min="10" max="300" value="60" />
+              <span class="hint">Countdown when power is lost (10-300)</span>
+            </div>
+            <div class="control-group">
+              <label for="configTimeoutInput">Config Timeout (sec)</label>
+              <input type="number" id="configTimeoutInput" min="60" step="60" value="900" />
+            </div>
+          </div>
+
+          <!-- WiFi Settings -->
+          <div class="control-section">
+            <h3>WiFi Settings</h3>
+            <div class="control-group">
+              <label for="wifiSsidInput">SSID</label>
+              <input type="text" id="wifiSsidInput" maxlength="32" value="DUCK-CONFIG" />
+            </div>
+            <div class="control-group">
+              <label for="wifiPasswordInput">Password</label>
+              <input type="text" id="wifiPasswordInput" maxlength="64" placeholder="Leave empty for open network" />
+            </div>
+          </div>
+
+          <!-- Audio Paths -->
+          <div class="control-section collapsible">
+            <h3 class="collapsible-header" data-target="audioPaths">
+              Audio Paths
+              <span class="collapse-icon">+</span>
+            </h3>
+            <div class="collapsible-content" id="audioPaths" style="display: none;">
+              <div class="control-group">
+                <label for="audioAlarmInput">Alarm</label>
+                <input type="text" id="audioAlarmInput" maxlength="64" value="/duck/audio/alarm.mp3" />
+              </div>
+              <div class="control-group">
+                <label for="audioBootMusicInput">Boot Music</label>
+                <input type="text" id="audioBootMusicInput" maxlength="64" value="/duck/audio/boot_music.mp3" />
+              </div>
+              <div class="control-group">
+                <label for="audioBootCompleteInput">Boot Complete</label>
+                <input type="text" id="audioBootCompleteInput" maxlength="64" value="/duck/audio/boot_complete.mp3" />
+              </div>
+              <div class="control-group">
+                <label for="audioGpsFixInput">GPS Fix Acquired</label>
+                <input type="text" id="audioGpsFixInput" maxlength="64" value="/duck/audio/gps_fix.mp3" />
+              </div>
+              <div class="control-group">
+                <label for="audioShutdownInput">Shutdown Safe</label>
+                <input type="text" id="audioShutdownInput" maxlength="64" value="/duck/audio/safe_to_power_down.mp3" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Yard Polygon -->
+          <div class="control-section">
+            <h3>
+              Yard Geofence
+              <span class="badge" id="yardPointCount">0 pts</span>
+            </h3>
+            <p class="hint">The depot/yard area where config mode can be entered.</p>
+            <div class="polygon-controls">
+              <button type="button" id="drawYardBtn" class="draw-btn">Draw Yard Polygon</button>
+              <button type="button" id="clearYardBtn" class="clear-btn">Clear</button>
+            </div>
+            <div class="validation-status" id="yardValidation"></div>
+          </div>
+
+          <!-- Hazards -->
+          <div class="control-section hazards-section">
+            <h3>
+              Hazard Zones
+              <span class="badge" id="hazardCount">0</span>
+            </h3>
+            <p class="hint">Low-clearance underpasses and other hazards. At least one required.</p>
+
+            <div class="hazard-tabs" id="hazardTabs">
+              <button class="hazard-tab add-new" id="addHazardBtn" type="button">+ Add Hazard</button>
+            </div>
+
+            <div id="hazardContent">
+              <div class="empty-state" id="noHazardsMessage">
+                <p>No hazards configured.</p>
+                <p class="hint">Click "+ Add Hazard" to create one.</p>
+              </div>
+              <div id="activeHazardControls" style="display: none;">
+                <div class="control-group">
+                  <label for="hazardNameInput">Hazard Name</label>
+                  <input type="text" id="hazardNameInput" maxlength="32" placeholder="e.g., Main St Underpass" />
+                </div>
+                <div class="control-group">
+                  <label for="hazardVoicePromptInput">Voice Prompt Path</label>
+                  <input type="text" id="hazardVoicePromptInput" maxlength="64" placeholder="/duck/audio/hazards/..." />
+                </div>
+                <div class="polygon-pair">
+                  <div class="polygon-box enter">
+                    <h4>Enter Zone <span class="badge" id="enterPointCount">0 pts</span></h4>
+                    <div class="polygon-controls">
+                      <button type="button" id="drawEnterBtn" class="draw-btn">Draw</button>
+                      <button type="button" id="clearEnterBtn" class="clear-btn">Clear</button>
+                    </div>
+                  </div>
+                  <div class="polygon-box exit">
+                    <h4>Exit Zone <span class="badge" id="exitPointCount">0 pts</span></h4>
+                    <div class="polygon-controls">
+                      <button type="button" id="drawExitBtn" class="draw-btn">Draw</button>
+                      <button type="button" id="clearExitBtn" class="clear-btn">Clear</button>
+                    </div>
+                  </div>
+                </div>
+                <button type="button" id="deleteHazardBtn" class="delete-btn">Delete This Hazard</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Validation Summary -->
+          <div class="control-section validation-section">
+            <h3>Validation</h3>
+            <div id="validationSummary" class="validation-summary">
+              <p class="hint">Config will be validated before download.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/scripts/duck-config.js"></script>
+    <script defer src="/nav-bar.js"></script>
+  </body>
+</html>
