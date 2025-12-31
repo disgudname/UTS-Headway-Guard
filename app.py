@@ -10268,6 +10268,16 @@ async def stop_approach_css():
     return _serve_css_asset("stop-approach.css")
 
 
+@app.get("/css/duck-config.css", include_in_schema=False)
+async def duck_config_css():
+    return _serve_css_asset("duck-config.css")
+
+
+@app.get("/scripts/duck-config.js", include_in_schema=False)
+async def duck_config_js():
+    return _serve_js_asset("duck-config.js")
+
+
 @app.get("/kioskmap.css", include_in_schema=False)
 async def kioskmap_css():
     return _serve_css_asset("kioskmap.css")
