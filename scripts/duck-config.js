@@ -9,6 +9,7 @@
   // Default config values
   const DEFAULTS = {
     volume: 80,
+    demo_mode: false,
     thresholds: {
       moving_speed_mph: 3.0,
       gps_debounce_ms: 1000,
@@ -81,6 +82,7 @@
 
     elements.volumeSlider = document.getElementById('volumeSlider');
     elements.volumeValue = document.getElementById('volumeValue');
+    elements.demoModeCheckbox = document.getElementById('demoModeCheckbox');
 
     elements.movingSpeedInput = document.getElementById('movingSpeedInput');
     elements.gpsDebounceInput = document.getElementById('gpsDebounceInput');
@@ -543,6 +545,7 @@
   function buildConfig() {
     const config = {
       volume: parseInt(elements.volumeSlider.value),
+      demo_mode: elements.demoModeCheckbox.checked,
       thresholds: {
         moving_speed_mph: parseFloat(elements.movingSpeedInput.value),
         gps_debounce_ms: parseInt(elements.gpsDebounceInput.value),
@@ -593,6 +596,9 @@
       elements.volumeSlider.value = config.volume;
       elements.volumeValue.textContent = config.volume;
     }
+
+    // Load demo mode
+    elements.demoModeCheckbox.checked = config.demo_mode === true;
 
     // Load thresholds
     if (config.thresholds) {
@@ -696,6 +702,7 @@
   function createDefaultConfig() {
     loadConfig({
       volume: DEFAULTS.volume,
+      demo_mode: DEFAULTS.demo_mode,
       thresholds: { ...DEFAULTS.thresholds },
       audio: { ...DEFAULTS.audio },
       wifi: { ...DEFAULTS.wifi },
