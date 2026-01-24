@@ -418,18 +418,28 @@ Multi-state traffic camera dashboard with HLS video streams. Frontend at `html/v
   1. `hls_stream_protected` field contains `https://actis.idrivearkansas.com/index.php/api/cameras/feed/{id}.m3u8`
   2. This URL returns **302 redirect** to CDN: `https://7212406.r.worldssl.net/...?token=xxx`
   3. CDN serves actual HLS playlist with time-sensitive token
-  4. All playlist URLs (chunklist, .ts segments) include the token
-- **Proxy:** `/api/ardot/stream/{server}/{path}`
-  - Handles 302 redirect from actis to CDN
-  - Validates both `*.idrivearkansas.com` and `*.worldssl.net` domains
-  - Rewrites playlist URLs to route through proxy
+  4. **Tokens expire after ~30-60 seconds** - must be refreshed automatically
+- **Proxy (primary):** `/api/ardot/cam/{camera_id}/{filename}`
+  - Camera-based endpoint with **automatic token management**
+  - Maintains per-camera token cache, refreshed every 25 seconds
+  - Playlist URLs rewritten to `/api/ardot/cam/{id}/chunklist.m3u8` (no tokens in URLs)
+  - On 403, force-refreshes token and retries automatically
+  - Video playback is uninterrupted during token refresh
+- **Proxy (legacy):** `/api/ardot/stream/{server}/{path}`
+  - Kept for backwards compatibility
+  - Actis requests redirect to new `/api/ardot/cam/` endpoint
 - **Required headers:** `Origin: https://idrivearkansas.com`, `Referer: https://idrivearkansas.com/`
 - **Coords:** Yes (GeoJSON Point `geometry.coordinates = [lng, lat]`)
 - **Count:** ~544 cameras
 
 **Common proxy patterns:**
 ```python
-# All proxies rewrite m3u8 playlists to route sub-requests through proxy
+# Arkansas uses camera-based proxy for automatic token management:
+# /api/ardot/cam/{camera_id}/playlist.m3u8 -> fetches with current token
+# /api/ardot/cam/{camera_id}/chunklist.m3u8 -> uses same cached token
+# /api/ardot/cam/{camera_id}/media_123.ts -> uses same cached token
+
+# Other states rewrite m3u8 playlists to route sub-requests through proxy:
 # Relative URLs: /api/{state}/stream/{server}/{base_path}/{chunk.m3u8}
 # Absolute URLs: Extract server/path and rewrite to proxy path
 ```

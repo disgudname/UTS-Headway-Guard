@@ -701,6 +701,23 @@
 
     // Refresh camera lists every 5 minutes
     setInterval(fetchAllCameras, 300000);
+
+    // When tab regains focus, seek all streams to live edge
+    document.addEventListener('visibilitychange', () => {
+      if(document.visibilityState === 'visible'){
+        Object.entries(hlsPlayers).forEach(([cellIndex, hls]) => {
+          if(hls && hls.media){
+            // Seek to live edge
+            const livePos = hls.liveSyncPosition;
+            if(livePos && isFinite(livePos)){
+              hls.media.currentTime = livePos;
+            }
+            // Ensure playback resumes
+            hls.media.play().catch(() => {});
+          }
+        });
+      }
+    });
   }
 
   init();
