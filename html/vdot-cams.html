@@ -166,6 +166,7 @@
   let gridRows = 4;
   let selections = {}; // { cellIndex: { state, id } }
   let hlsPlayers = {};
+  let retryState = {}; // { cellIndex: { attempt: number, timer: timeoutId } }
 
   // Map picker state
   let pickerMap = null;
@@ -314,27 +315,78 @@
     return camerasById[`${state}:${id}`];
   }
 
+  // Clear retry state for a cell
+  function clearRetryState(cellIndex){
+    if(retryState[cellIndex]){
+      if(retryState[cellIndex].timer){
+        clearTimeout(retryState[cellIndex].timer);
+      }
+      delete retryState[cellIndex];
+    }
+  }
+
   // Destroy HLS player for a cell
   function destroyPlayer(cellIndex){
+    clearRetryState(cellIndex);
     if(hlsPlayers[cellIndex]){
       hlsPlayers[cellIndex].destroy();
       delete hlsPlayers[cellIndex];
     }
   }
 
+  // Get retry delay based on attempt number
+  // Attempt 0: immediate, Attempt 1: 5 seconds, Attempt 2+: 60 seconds
+  function getRetryDelay(attempt){
+    if(attempt === 0) return 0;
+    if(attempt === 1) return 5000;
+    return 60000;
+  }
+
+  // Schedule a retry for a cell
+  function scheduleRetry(cellIndex, camera){
+    const state = retryState[cellIndex] || { attempt: 0, timer: null };
+    const delay = getRetryDelay(state.attempt);
+
+    const container = document.querySelector(`[data-cell="${cellIndex}"] .camera-video-container`);
+    if(container){
+      const retryText = state.attempt === 0 ? 'Retrying...' :
+                        state.attempt === 1 ? 'Retrying in 5s...' :
+                        `Retrying in 60s... (attempt ${state.attempt + 1})`;
+      container.innerHTML = `<div class="camera-error">Stream unavailable<br><small>${camera.description}</small><br><small style="color:var(--muted)">${retryText}</small></div>`;
+    }
+
+    state.attempt++;
+    state.timer = setTimeout(() => {
+      retryState[cellIndex] = state;
+      startVideo(cellIndex, camera, true);
+    }, delay);
+
+    retryState[cellIndex] = state;
+  }
+
   // Start video for a camera
-  function startVideo(cellIndex, camera){
+  function startVideo(cellIndex, camera, isRetry = false){
     const container = document.querySelector(`[data-cell="${cellIndex}"] .camera-video-container`);
     if(!container) return;
 
-    destroyPlayer(cellIndex);
+    // Clear existing player but preserve retry state if this is a retry
+    if(!isRetry){
+      clearRetryState(cellIndex);
+    }
+    if(hlsPlayers[cellIndex]){
+      hlsPlayers[cellIndex].destroy();
+      delete hlsPlayers[cellIndex];
+    }
 
     if(!camera || !camera.https_url){
+      clearRetryState(cellIndex);
       container.innerHTML = '<div class="camera-placeholder">Click "Select" to choose a camera</div>';
       return;
     }
 
-    container.innerHTML = '<div class="camera-loading">Loading stream...</div>';
+    const retryAttempt = retryState[cellIndex]?.attempt || 0;
+    const loadingText = retryAttempt > 0 ? `Loading stream... (attempt ${retryAttempt + 1})` : 'Loading stream...';
+    container.innerHTML = `<div class="camera-loading">${loadingText}</div>`;
 
     const video = document.createElement('video');
     video.className = 'camera-video';
@@ -353,6 +405,8 @@
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        // Success - clear retry state
+        clearRetryState(cellIndex);
         container.innerHTML = '';
         container.appendChild(video);
         video.play().catch(() => {});
@@ -360,8 +414,11 @@
 
       hls.on(Hls.Events.ERROR, (event, data) => {
         if(data.fatal){
-          container.innerHTML = `<div class="camera-error">Stream unavailable<br><small>${camera.description}</small></div>`;
-          destroyPlayer(cellIndex);
+          if(hlsPlayers[cellIndex]){
+            hlsPlayers[cellIndex].destroy();
+            delete hlsPlayers[cellIndex];
+          }
+          scheduleRetry(cellIndex, camera);
         }
       });
 
@@ -369,14 +426,17 @@
     } else if(video.canPlayType('application/vnd.apple.mpegurl')){
       video.src = camera.https_url;
       video.addEventListener('loadedmetadata', () => {
+        // Success - clear retry state
+        clearRetryState(cellIndex);
         container.innerHTML = '';
         container.appendChild(video);
         video.play().catch(() => {});
       });
       video.addEventListener('error', () => {
-        container.innerHTML = `<div class="camera-error">Stream unavailable<br><small>${camera.description}</small></div>`;
+        scheduleRetry(cellIndex, camera);
       });
     } else {
+      clearRetryState(cellIndex);
       container.innerHTML = '<div class="camera-error">HLS not supported in this browser</div>';
     }
   }
