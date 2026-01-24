@@ -114,6 +114,7 @@
       <span class="grid-label">State:</span>
       <select class="state-select" id="picker-state">
         <option value="VA">Virginia (VDOT 511)</option>
+        <option value="MD">Maryland (CHART)</option>
         <option value="WV">West Virginia (WV511)</option>
       </select>
     </div>
@@ -144,14 +145,16 @@
   const STORAGE_KEY = 'traffic_cams_config';
   const VA_API = 'https://511.vdot.virginia.gov/services/map/layers/map/cams';
   const WV_API = '/api/wv511/cameras';
+  const MD_API = '/api/mdchart/cameras';
 
   // State configurations
   const STATES = {
     VA: { name: 'Virginia', hasCoords: true, api: VA_API },
+    MD: { name: 'Maryland', hasCoords: true, api: MD_API },
     WV: { name: 'West Virginia', hasCoords: false, api: WV_API }
   };
 
-  let camerasByState = { VA: [], WV: [] };
+  let camerasByState = { VA: [], MD: [], WV: [] };
   let camerasById = {};
   let gridCols = 4;
   let gridRows = 4;
@@ -235,11 +238,30 @@
     }
   }
 
+  // Fetch MD cameras
+  async function fetchMDCameras(){
+    try {
+      const resp = await fetch(MD_API);
+      if(!resp.ok) throw new Error('Failed to fetch MD cameras');
+      const data = await resp.json();
+      camerasByState.MD = (data.cameras || []).map(c => ({
+        ...c,
+        state: 'MD'
+      }));
+
+      camerasByState.MD.forEach(c => { camerasById[`MD:${c.id}`] = c; });
+      return camerasByState.MD;
+    } catch(err){
+      console.error('Error fetching MD cameras:', err);
+      return [];
+    }
+  }
+
   // Fetch all cameras
   async function fetchAllCameras(){
-    const [va, wv] = await Promise.all([fetchVACameras(), fetchWVCameras()]);
-    const totalCount = va.length + wv.length;
-    document.getElementById('camera-count').textContent = `${totalCount} cameras (VA: ${va.length}, WV: ${wv.length})`;
+    const [va, md, wv] = await Promise.all([fetchVACameras(), fetchMDCameras(), fetchWVCameras()]);
+    const totalCount = va.length + md.length + wv.length;
+    document.getElementById('camera-count').textContent = `${totalCount} cameras (VA: ${va.length}, MD: ${md.length}, WV: ${wv.length})`;
     document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
   }
 
@@ -450,21 +472,24 @@
     }
   }
 
-  // Populate map markers for VA
+  // Populate map markers for states with coordinates (VA, MD)
   function populateMapMarkers(){
     pickerMarkers.clearLayers();
 
+    const state = activePickerState;
+    const cameras = camerasByState[state] || [];
+
     const usedCameraIds = new Set();
     Object.entries(selections).forEach(([idx, sel]) => {
-      if(parseInt(idx, 10) !== activeCellIndex && sel && sel.state === 'VA'){
+      if(parseInt(idx, 10) !== activeCellIndex && sel && sel.state === state){
         usedCameraIds.add(sel.id);
       }
     });
 
     const currentSel = selections[activeCellIndex];
-    const currentId = (currentSel && currentSel.state === 'VA') ? currentSel.id : null;
+    const currentId = (currentSel && currentSel.state === state) ? currentSel.id : null;
 
-    camerasByState.VA.forEach(cam => {
+    cameras.forEach(cam => {
       const isUsed = usedCameraIds.has(cam.id);
       const isCurrentSelection = cam.id === currentId;
 
@@ -484,7 +509,7 @@
       marker.bindTooltip(label, { direction: 'top', offset: [0, -8] });
 
       marker.on('click', () => {
-        selectCamera(activeCellIndex, 'VA', cam.id);
+        selectCamera(activeCellIndex, state, cam.id);
         closePicker();
       });
 
@@ -493,10 +518,10 @@
 
     // Center on current or fit bounds
     if(currentId){
-      const cam = getCamera('VA', currentId);
+      const cam = getCamera(state, currentId);
       if(cam) pickerMap.setView([cam.lat, cam.lng], 12);
-    } else if(camerasByState.VA.length > 0){
-      const bounds = L.latLngBounds(camerasByState.VA.map(c => [c.lat, c.lng]));
+    } else if(cameras.length > 0){
+      const bounds = L.latLngBounds(cameras.map(c => [c.lat, c.lng]));
       pickerMap.fitBounds(bounds, { padding: [20, 20] });
     }
   }

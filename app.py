@@ -10448,6 +10448,135 @@ async def wv511_stream_proxy(cam_id: str):
         return Response(status_code=502, content=str(e))
 
 
+@app.get("/api/mdchart/stream/{stream_path:path}")
+async def mdchart_stream_proxy(stream_path: str):
+    """Proxy Maryland CHART camera HLS streams to avoid CORS issues."""
+    import re
+
+    # stream_path format: "strmr5.sha.maryland.gov/CAM_ID/playlist.m3u8"
+    # or "strmr5.sha.maryland.gov/CAM_ID/chunklist.m3u8" etc.
+    parts = stream_path.split("/", 1)
+    if len(parts) < 2:
+        return Response(status_code=400, content="Invalid stream path")
+
+    server = parts[0]
+    path = parts[1]
+
+    # Validate server format
+    if not re.match(r'^strmr\d+\.sha\.maryland\.gov$', server):
+        return Response(status_code=400, content="Invalid server")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(f"https://{server}/rtplive/{path}", headers=headers)
+
+            if resp.status_code != 200:
+                return Response(status_code=resp.status_code, content=resp.content)
+
+            content = resp.content
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+
+            # If it's a playlist, rewrite URLs to go through our proxy
+            if stream_path.endswith(".m3u8"):
+                text = content.decode("utf-8")
+                # Extract camera ID base from path
+                path_parts = path.split("/")
+                cam_id = path_parts[0] if path_parts else ""
+                # Rewrite relative URLs to use our proxy
+                lines = []
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        if not line.startswith("http"):
+                            line = f"/api/mdchart/stream/{server}/{cam_id}/{line}"
+                    lines.append(line)
+                content = "\n".join(lines).encode("utf-8")
+                content_type = "application/vnd.apple.mpegurl"
+
+            return Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-cache"
+                }
+            )
+    except Exception as e:
+        return Response(status_code=502, content=str(e))
+
+
+@app.get("/api/mdchart/cameras")
+async def mdchart_cameras():
+    """Fetch Maryland CHART camera data."""
+    import re
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://chartexp1.sha.maryland.gov/CHARTExportClientService/getCameraMapDataJSON.do",
+                headers=headers
+            )
+            resp.raise_for_status()
+            text = resp.text
+
+        # Strip JSONP wrapper: jQuery...({...})
+        match = re.search(r'\((\{.*\})\)\s*$', text, re.DOTALL)
+        if not match:
+            return {"cameras": [], "error": "Failed to parse JSONP"}
+
+        import json
+        data = json.loads(match.group(1))
+        raw_cameras = data.get("data", [])
+
+        cameras = []
+        for cam in raw_cameras:
+            cam_id = cam.get("id", "")
+            cctv_ip = cam.get("cctvIp", "")
+            lat = cam.get("lat")
+            lon = cam.get("lon")
+
+            if not cam_id or not cctv_ip or lat is None or lon is None:
+                continue
+
+            # Build route string
+            route_prefix = cam.get("routePrefix", "")
+            route_num = cam.get("routeNumber", 0)
+            if route_prefix == "IS":
+                route = f"I-{route_num}"
+            elif route_prefix and route_num:
+                route = f"{route_prefix}-{route_num}"
+            elif route_num:
+                route = str(route_num)
+            else:
+                route = "Other"
+
+            # Use description or name
+            description = cam.get("description") or cam.get("name") or cam_id
+
+            cameras.append({
+                "id": cam_id,
+                "description": description,
+                "route": route,
+                "lat": float(lat),
+                "lng": float(lon),
+                "https_url": f"/api/mdchart/stream/{cctv_ip}/{cam_id}/playlist.m3u8",
+                "status": cam.get("opStatus", "")
+            })
+
+        return {"cameras": cameras, "count": len(cameras)}
+    except Exception as e:
+        import traceback
+        return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.get("/api/wv511/cameras")
 async def wv511_cameras():
     """Fetch and parse WV511 camera listing from all routes."""
