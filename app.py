@@ -10636,6 +10636,11 @@ async def ardot_cameras():
         return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
 
 
+# Cache mapping CDN directory paths to (camera_id, token) for token refresh
+# Key is directory path (e.g., "live/camera123"), value is (camera_id, current_token)
+_ardot_cdn_to_camera: dict[str, tuple[str, str]] = {}
+
+
 @app.get("/api/ardot/stream/{stream_path:path}")
 async def ardot_stream_proxy(stream_path: str):
     """Proxy Arkansas DOT camera HLS streams to avoid CORS issues.
@@ -10643,6 +10648,9 @@ async def ardot_stream_proxy(stream_path: str):
     Arkansas streams use a redirect flow:
     1. actis.idrivearkansas.com returns HTML with meta-refresh to CDN
     2. CDN (7212406.r.worldssl.net) serves actual HLS content with token
+
+    Tokens expire after some time. When we get 403 from CDN, we try to
+    refresh the token by re-requesting from actis.
     """
     import re
 
@@ -10668,9 +10676,58 @@ async def ardot_stream_proxy(stream_path: str):
         "Sec-Fetch-Site": "cross-site"
     }
 
+    async def get_fresh_token_url(camera_id: str, client: httpx.AsyncClient) -> tuple[str, str] | None:
+        """Get fresh CDN URL with new token for a camera."""
+        actis_url = f"https://actis.idrivearkansas.com/index.php/api/cameras/feed/{camera_id}.m3u8"
+        try:
+            resp = await client.get(actis_url, headers=headers)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location", "")
+                if location:
+                    cdn_match = re.match(r'https://([^/]+)/(.+)$', location)
+                    if cdn_match:
+                        return cdn_match.group(1), cdn_match.group(2)
+            elif "text/html" in resp.headers.get("content-type", ""):
+                html = resp.text
+                match = re.search(r'url=(https://[^"\'>\s]+)', html)
+                if not match:
+                    match = re.search(r'href="(https://[^"]+)"', html)
+                if match:
+                    cdn_url = match.group(1)
+                    cdn_match = re.match(r'https://([^/]+)/(.+)$', cdn_url)
+                    if cdn_match:
+                        return cdn_match.group(1), cdn_match.group(2)
+        except Exception:
+            pass
+        return None
+
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
             resp = await client.get(f"https://{server}/{path}", headers=headers)
+
+            # Extract camera ID from actis URLs for later token refresh
+            camera_id = None
+            if "idrivearkansas.com" in server:
+                cam_match = re.search(r'/feed/(\d+)\.m3u8', path)
+                if cam_match:
+                    camera_id = cam_match.group(1)
+
+            def get_cdn_dir(p: str) -> str:
+                """Get directory path from CDN path, without query string."""
+                base = p.split("?")[0]
+                # Remove filename to get directory
+                if "/" in base:
+                    return "/".join(base.split("/")[:-1])
+                return ""
+
+            def get_token(p: str) -> str:
+                """Extract token from query string."""
+                if "?" in p:
+                    query = p.split("?", 1)[1]
+                    for param in query.split("&"):
+                        if param.startswith("token="):
+                            return param.split("=", 1)[1]
+                return ""
 
             # Check if this is a redirect (actis returns 302 to CDN)
             if resp.status_code in (301, 302, 303, 307, 308):
@@ -10680,6 +10737,12 @@ async def ardot_stream_proxy(stream_path: str):
                     if cdn_match:
                         server = cdn_match.group(1)
                         path = cdn_match.group(2)
+                        # Store mapping for token refresh - use directory path as key
+                        if camera_id:
+                            cdn_dir = get_cdn_dir(path)
+                            token = get_token(path)
+                            if cdn_dir:
+                                _ardot_cdn_to_camera[cdn_dir] = (camera_id, token)
                         resp = await client.get(location, headers=headers)
 
             # Also check for HTML meta refresh (backup)
@@ -10694,7 +10757,36 @@ async def ardot_stream_proxy(stream_path: str):
                     if cdn_match:
                         server = cdn_match.group(1)
                         path = cdn_match.group(2)
+                        # Store mapping for token refresh
+                        if camera_id:
+                            cdn_dir = get_cdn_dir(path)
+                            token = get_token(path)
+                            if cdn_dir:
+                                _ardot_cdn_to_camera[cdn_dir] = (camera_id, token)
                         resp = await client.get(cdn_url, headers=headers)
+
+            # Handle 403 from CDN - try to refresh token
+            if resp.status_code == 403 and "worldssl.net" in server:
+                # Look up camera ID from CDN directory path
+                cdn_dir = get_cdn_dir(path)
+                cached = _ardot_cdn_to_camera.get(cdn_dir)
+                if cached:
+                    cached_camera_id, _ = cached
+                    fresh = await get_fresh_token_url(cached_camera_id, client)
+                    if fresh:
+                        new_server, new_path = fresh
+                        # Update cache with new token
+                        new_cdn_dir = get_cdn_dir(new_path)
+                        new_token = get_token(new_path)
+                        if new_cdn_dir:
+                            _ardot_cdn_to_camera[new_cdn_dir] = (cached_camera_id, new_token)
+                        # Rebuild request URL with fresh token and original filename
+                        filename = path.split("?")[0].split("/")[-1]
+                        fresh_path = f"{new_cdn_dir}/{filename}?token={new_token}"
+                        resp = await client.get(f"https://{new_server}/{fresh_path}", headers=headers)
+                        if resp.status_code == 200:
+                            server = new_server
+                            path = fresh_path
 
             if resp.status_code != 200:
                 return Response(status_code=resp.status_code, content=resp.content)

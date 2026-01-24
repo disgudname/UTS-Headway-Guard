@@ -699,6 +699,23 @@
 
     // Refresh camera lists every 5 minutes
     setInterval(fetchAllCameras, 300000);
+
+    // Refresh AR camera tokens every 60 seconds to prevent 403 expiry
+    setInterval(refreshARTokens, 60000);
+  }
+
+  // Refresh tokens for Arkansas cameras to prevent expiry
+  function refreshARTokens(){
+    Object.entries(selections).forEach(([cellIndex, sel]) => {
+      if(sel && sel.state === 'AR'){
+        const hls = hlsPlayers[cellIndex];
+        const camera = getCamera('AR', sel.id);
+        if(hls && camera && camera.https_url){
+          // Re-load source to get fresh token via actis redirect
+          hls.loadSource(camera.https_url);
+        }
+      }
+    });
   }
 
   init();

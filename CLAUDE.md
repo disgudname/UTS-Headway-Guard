@@ -336,6 +336,7 @@ fly secrets set TRANSLOC_KEY=xxx W2W_KEY=yyy
 - `GET /headway` - Headway visualization
 - `GET /headway-diagnostics` - Diagnostic view
 - `GET /arrivalsdisplay` - Arrivals board
+- `GET /vdot-cams` - Multi-state traffic camera viewer
 - `GET /sitemap` - Full page list
 
 **Specialized endpoints:**
@@ -360,6 +361,78 @@ fly secrets set TRANSLOC_KEY=xxx W2W_KEY=yyy
 **Status validation:**
 - OPS statuses: `reported`, `en_route`, `ready_for_service`
 - SHOP statuses: `pending`, `diagnosed`, `parts_ordered`, `in_progress`, `completed`
+
+### Traffic Camera API (`/vdot-cams`)
+
+Multi-state traffic camera dashboard with HLS video streams. Frontend at `html/vdot-cams.html`.
+
+**Architecture:**
+- States with coordinates use Leaflet map picker (VA, MD, TN, AR)
+- States without coordinates use dropdown picker (WV)
+- All streams proxied through backend to handle CORS
+- Grid layout configurable (columns × rows), persisted in localStorage
+
+#### Virginia (VDOT 511)
+- **Camera API:** `https://www.511virginia.org/data/geojson/icons-702702.geojson`
+- **Stream pattern:** Direct HLS URLs in GeoJSON `properties.https_url`
+- **Proxy:** `/api/vdot/stream/{stream_path}` - not currently needed (CORS allowed)
+- **Coords:** Yes (`geometry.coordinates = [lng, lat]`)
+- **Count:** ~1,669 cameras
+
+#### West Virginia (WV511)
+- **Camera API:** `/api/wv511/cameras` (backend aggregates 24 routes)
+- **Source:** `https://wv511.org/map/data/CameraListing.aspx?ROUTE={route}`
+- **Data format:** JavaScript with `myCams[]` array, pipe-delimited: `name|?|?|CAM_ID|?|is_break|?|description`
+- **Routes:** I-64, I-68, I-70, I-77, I-79, I-81, I-470, US-19, US-33, US-35, US-48, US-50, US-52, US-60, US-119, US-219, US-220, US-250, US-340, WV-2, WV-9, WV-10, WV-61, Statewide
+- **Stream pattern:** `https://vtcN.roadsummary.com/rtplive/{CAM_ID}/playlist.m3u8`
+- **Proxy:** `/api/wv511/stream/{cam_id}` - tries vtc1-5 servers with fallback
+- **Coords:** No (dropdown picker only)
+- **Count:** ~200+ cameras
+
+#### Maryland (CHART)
+- **Camera API:** `/api/mdchart/cameras`
+- **Source:** `https://chart.maryland.gov/video/GetCCTVDataNew.aspx?callback=processCCTVs`
+- **Data format:** JSONP or plain JSON (backend handles both)
+- **Stream pattern:** `https://strmrN.sha.maryland.gov/rtplive/{cctv_id}/playlist.m3u8`
+  - Server number (`N`) is per-camera in `cctvIp` field
+- **Proxy:** `/api/mdchart/stream/{server}/{path}` - validates `strmrN.sha.maryland.gov` format
+- **Coords:** Yes (`Latitude`, `Longitude` fields)
+- **Count:** ~556 cameras
+
+#### Tennessee (TDOT SmartWay)
+- **Camera API:** `/api/tndot/cameras`
+- **Source:** `https://www.tdot.tn.gov/opendata/api/public/RoadwayCameras`
+- **Auth:** Requires `ApiKey: 8d3b7a82635d476795c09b2c41facc60` header
+- **Data format:** JSON array with `httpsVideoUrl` field
+- **Stream pattern:** `https://{server}:443/rtplive/{path}/playlist.m3u8`
+  - Various servers like `mcleansfs1.us-east-1.skyvdn.com`
+- **Proxy:** `/api/tndot/stream/{server}/{path}`
+- **Coords:** Yes (`lat`, `lng` fields)
+- **Count:** ~667 cameras
+
+#### Arkansas (IDrive Arkansas)
+- **Camera API:** `/api/ardot/cameras`
+- **Source:** `https://layers.idrivearkansas.com/cameras.geojson`
+- **Data format:** GeoJSON FeatureCollection
+- **Stream flow (important!):**
+  1. `hls_stream_protected` field contains `https://actis.idrivearkansas.com/index.php/api/cameras/feed/{id}.m3u8`
+  2. This URL returns **302 redirect** to CDN: `https://7212406.r.worldssl.net/...?token=xxx`
+  3. CDN serves actual HLS playlist with time-sensitive token
+  4. All playlist URLs (chunklist, .ts segments) include the token
+- **Proxy:** `/api/ardot/stream/{server}/{path}`
+  - Handles 302 redirect from actis to CDN
+  - Validates both `*.idrivearkansas.com` and `*.worldssl.net` domains
+  - Rewrites playlist URLs to route through proxy
+- **Required headers:** `Origin: https://idrivearkansas.com`, `Referer: https://idrivearkansas.com/`
+- **Coords:** Yes (GeoJSON Point `geometry.coordinates = [lng, lat]`)
+- **Count:** ~544 cameras
+
+**Common proxy patterns:**
+```python
+# All proxies rewrite m3u8 playlists to route sub-requests through proxy
+# Relative URLs: /api/{state}/stream/{server}/{base_path}/{chunk.m3u8}
+# Absolute URLs: Extract server/path and rewrite to proxy path
+```
 
 ---
 
