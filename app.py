@@ -10382,6 +10382,63 @@ async def vdot_cams_page():
     return HTMLResponse(VDOT_CAMS_HTML)
 
 
+@app.get("/api/wv511/stream/{cam_id:path}")
+async def wv511_stream_proxy(cam_id: str):
+    """Proxy WV511 camera HLS streams to avoid CORS issues."""
+    import re
+
+    # Validate cam_id format
+    if not re.match(r'^CAM\d+', cam_id):
+        return Response(status_code=400, content="Invalid camera ID")
+
+    # Handle both playlist and segment requests
+    # cam_id could be "CAM033/playlist.m3u8" or "CAM033/chunklist.m3u8" or "CAM033/media_123.ts"
+    base_url = "https://vtc1.roadsummary.com/rtplive"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(f"{base_url}/{cam_id}", headers=headers)
+
+            if resp.status_code != 200:
+                return Response(status_code=resp.status_code, content=resp.content)
+
+            content = resp.content
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+
+            # If it's a playlist, rewrite URLs to go through our proxy
+            if cam_id.endswith(".m3u8"):
+                text = content.decode("utf-8")
+                # Extract camera ID base (e.g., CAM033 from CAM033/playlist.m3u8)
+                cam_base = cam_id.split("/")[0]
+                # Rewrite relative URLs to use our proxy
+                # e.g., "chunklist.m3u8" -> "/api/wv511/stream/CAM033/chunklist.m3u8"
+                lines = []
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        # This is a URL line - make it use our proxy
+                        if not line.startswith("http"):
+                            line = f"/api/wv511/stream/{cam_base}/{line}"
+                    lines.append(line)
+                content = "\n".join(lines).encode("utf-8")
+                content_type = "application/vnd.apple.mpegurl"
+
+            return Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-cache"
+                }
+            )
+    except Exception as e:
+        return Response(status_code=502, content=str(e))
+
+
 @app.get("/api/wv511/cameras")
 async def wv511_cameras():
     """Fetch and parse WV511 camera listing from all routes."""
@@ -10443,7 +10500,7 @@ async def wv511_cameras():
                             "id": cam_id,
                             "description": title,
                             "route": cam_route,
-                            "https_url": f"https://vtc1.roadsummary.com/rtplive/{cam_id}/playlist.m3u8"
+                            "https_url": f"/api/wv511/stream/{cam_id}/playlist.m3u8"
                         }
                 except Exception as route_err:
                     errors.append(f"{route}: {str(route_err)}")
