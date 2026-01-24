@@ -10611,15 +10611,8 @@ async def ardot_cameras():
             # Route label (e.g., "Interstate 555" or "US 67")
             route_label = f"{route_type} {route}".strip() if route else "Other"
 
-            # Create proxy URL for the stream
-            # hls_url format: https://actis.idrivearkansas.com/index.php/api/cameras/feed/727.m3u8
-            match = re.match(r'https://([^/]+)/(.+)$', hls_url)
-            if match:
-                server = match.group(1)
-                path = match.group(2)
-                proxy_url = f"/api/ardot/stream/{server}/{path}"
-            else:
-                proxy_url = hls_url
+            # Create proxy URL using the new camera-based endpoint with automatic token management
+            proxy_url = f"/api/ardot/cam/{cam_id}/playlist.m3u8"
 
             cameras.append({
                 "id": str(cam_id),
@@ -10636,21 +10629,164 @@ async def ardot_cameras():
         return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
 
 
-# Cache mapping CDN directory paths to (camera_id, token) for token refresh
-# Key is directory path (e.g., "live/camera123"), value is (camera_id, current_token)
-_ardot_cdn_to_camera: dict[str, tuple[str, str]] = {}
+# Cache current CDN session info per camera: camera_id -> (server, base_path, token, timestamp)
+_ardot_camera_sessions: dict[str, tuple[str, str, str, float]] = {}
+_ardot_session_lock = asyncio.Lock()
+
+# How often to refresh tokens (seconds)
+ARDOT_TOKEN_REFRESH_INTERVAL = 25.0
+
+
+async def _ardot_get_fresh_session(camera_id: str) -> tuple[str, str, str] | None:
+    """Get fresh CDN session (server, base_path, token) for a camera."""
+    import re
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Origin": "https://idrivearkansas.com",
+        "Referer": "https://idrivearkansas.com/",
+    }
+    actis_url = f"https://actis.idrivearkansas.com/index.php/api/cameras/feed/{camera_id}.m3u8"
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            resp = await client.get(actis_url, headers=headers)
+            location = None
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location", "")
+            elif "text/html" in resp.headers.get("content-type", ""):
+                html = resp.text
+                match = re.search(r'url=(https://[^"\'>\s]+)', html)
+                if not match:
+                    match = re.search(r'href="(https://[^"]+)"', html)
+                if match:
+                    location = match.group(1)
+
+            if location:
+                cdn_match = re.match(r'https://([^/]+)/(.+)$', location)
+                if cdn_match:
+                    server = cdn_match.group(1)
+                    full_path = cdn_match.group(2)
+                    # Extract base path (without filename) and token
+                    path_part = full_path.split("?")[0]
+                    base_path = "/".join(path_part.split("/")[:-1])
+                    token = ""
+                    if "?" in full_path:
+                        for param in full_path.split("?", 1)[1].split("&"):
+                            if param.startswith("token="):
+                                token = param.split("=", 1)[1]
+                                break
+                    return server, base_path, token
+    except Exception:
+        pass
+    return None
+
+
+async def _ardot_ensure_fresh_session(camera_id: str) -> tuple[str, str, str] | None:
+    """Ensure we have a fresh session for a camera, refreshing if needed."""
+    import time
+    async with _ardot_session_lock:
+        now = time.time()
+        cached = _ardot_camera_sessions.get(camera_id)
+        if cached:
+            server, base_path, token, timestamp = cached
+            if now - timestamp < ARDOT_TOKEN_REFRESH_INTERVAL:
+                return server, base_path, token
+
+        # Need to refresh
+        fresh = await _ardot_get_fresh_session(camera_id)
+        if fresh:
+            server, base_path, token = fresh
+            _ardot_camera_sessions[camera_id] = (server, base_path, token, now)
+            return fresh
+
+        # If refresh failed but we have cached, return it anyway
+        if cached:
+            return cached[0], cached[1], cached[2]
+        return None
+
+
+@app.get("/api/ardot/cam/{camera_id}/{filename:path}")
+async def ardot_camera_proxy(camera_id: str, filename: str):
+    """Proxy Arkansas camera streams using camera ID for automatic token management.
+
+    This endpoint maintains fresh tokens automatically, so clients don't need to
+    worry about token expiration.
+    """
+    import re
+
+    if not re.match(r'^\d+$', camera_id):
+        return Response(status_code=400, content="Invalid camera ID")
+
+    session = await _ardot_ensure_fresh_session(camera_id)
+    if not session:
+        return Response(status_code=502, content="Could not get camera session")
+
+    server, base_path, token = session
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "*/*",
+        "Origin": "https://idrivearkansas.com",
+        "Referer": "https://idrivearkansas.com/",
+    }
+
+    # Build the CDN URL
+    cdn_url = f"https://{server}/{base_path}/{filename}"
+    if token:
+        cdn_url += f"?token={token}"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(cdn_url, headers=headers)
+
+            # If 403, force refresh and retry once
+            if resp.status_code == 403:
+                async with _ardot_session_lock:
+                    # Force refresh by clearing cache
+                    _ardot_camera_sessions.pop(camera_id, None)
+                session = await _ardot_ensure_fresh_session(camera_id)
+                if session:
+                    server, base_path, token = session
+                    cdn_url = f"https://{server}/{base_path}/{filename}"
+                    if token:
+                        cdn_url += f"?token={token}"
+                    resp = await client.get(cdn_url, headers=headers)
+
+            if resp.status_code != 200:
+                return Response(status_code=resp.status_code, content=resp.content)
+
+            content = resp.content
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+
+            # Rewrite playlist URLs to use our camera proxy
+            if filename.endswith(".m3u8") or "mpegurl" in content_type.lower():
+                text = content.decode("utf-8")
+                lines = []
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        # Strip any existing path/token, just keep filename
+                        if line.startswith("http"):
+                            # Absolute URL - extract just the filename
+                            line_filename = line.split("?")[0].split("/")[-1]
+                        else:
+                            # Relative URL - might have token
+                            line_filename = line.split("?")[0]
+                        line = f"/api/ardot/cam/{camera_id}/{line_filename}"
+                    lines.append(line)
+                content = "\n".join(lines).encode("utf-8")
+                content_type = "application/vnd.apple.mpegurl"
+
+            return Response(content=content, media_type=content_type)
+    except Exception as e:
+        return Response(status_code=502, content=f"Upstream error: {e}")
 
 
 @app.get("/api/ardot/stream/{stream_path:path}")
 async def ardot_stream_proxy(stream_path: str):
-    """Proxy Arkansas DOT camera HLS streams to avoid CORS issues.
+    """Legacy proxy for Arkansas DOT camera HLS streams.
 
-    Arkansas streams use a redirect flow:
-    1. actis.idrivearkansas.com returns HTML with meta-refresh to CDN
-    2. CDN (7212406.r.worldssl.net) serves actual HLS content with token
-
-    Tokens expire after some time. When we get 403 from CDN, we try to
-    refresh the token by re-requesting from actis.
+    This endpoint is kept for backwards compatibility. New code should use
+    /api/ardot/cam/{camera_id}/{filename} which handles tokens automatically.
     """
     import re
 
@@ -10665,6 +10801,13 @@ async def ardot_stream_proxy(stream_path: str):
     if not re.match(r'^[a-z0-9.-]+\.(idrivearkansas\.com|worldssl\.net)$', server):
         return Response(status_code=400, content="Invalid server")
 
+    # If this is an actis request, extract camera ID and redirect to new endpoint
+    if "idrivearkansas.com" in server:
+        cam_match = re.search(r'/feed/(\d+)\.m3u8', path)
+        if cam_match:
+            camera_id = cam_match.group(1)
+            return await ardot_camera_proxy(camera_id, "playlist.m3u8")
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
         "Accept": "*/*",
@@ -10676,117 +10819,9 @@ async def ardot_stream_proxy(stream_path: str):
         "Sec-Fetch-Site": "cross-site"
     }
 
-    async def get_fresh_token_url(camera_id: str, client: httpx.AsyncClient) -> tuple[str, str] | None:
-        """Get fresh CDN URL with new token for a camera."""
-        actis_url = f"https://actis.idrivearkansas.com/index.php/api/cameras/feed/{camera_id}.m3u8"
-        try:
-            resp = await client.get(actis_url, headers=headers)
-            if resp.status_code in (301, 302, 303, 307, 308):
-                location = resp.headers.get("location", "")
-                if location:
-                    cdn_match = re.match(r'https://([^/]+)/(.+)$', location)
-                    if cdn_match:
-                        return cdn_match.group(1), cdn_match.group(2)
-            elif "text/html" in resp.headers.get("content-type", ""):
-                html = resp.text
-                match = re.search(r'url=(https://[^"\'>\s]+)', html)
-                if not match:
-                    match = re.search(r'href="(https://[^"]+)"', html)
-                if match:
-                    cdn_url = match.group(1)
-                    cdn_match = re.match(r'https://([^/]+)/(.+)$', cdn_url)
-                    if cdn_match:
-                        return cdn_match.group(1), cdn_match.group(2)
-        except Exception:
-            pass
-        return None
-
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             resp = await client.get(f"https://{server}/{path}", headers=headers)
-
-            # Extract camera ID from actis URLs for later token refresh
-            camera_id = None
-            if "idrivearkansas.com" in server:
-                cam_match = re.search(r'/feed/(\d+)\.m3u8', path)
-                if cam_match:
-                    camera_id = cam_match.group(1)
-
-            def get_cdn_dir(p: str) -> str:
-                """Get directory path from CDN path, without query string."""
-                base = p.split("?")[0]
-                # Remove filename to get directory
-                if "/" in base:
-                    return "/".join(base.split("/")[:-1])
-                return ""
-
-            def get_token(p: str) -> str:
-                """Extract token from query string."""
-                if "?" in p:
-                    query = p.split("?", 1)[1]
-                    for param in query.split("&"):
-                        if param.startswith("token="):
-                            return param.split("=", 1)[1]
-                return ""
-
-            # Check if this is a redirect (actis returns 302 to CDN)
-            if resp.status_code in (301, 302, 303, 307, 308):
-                location = resp.headers.get("location", "")
-                if location:
-                    cdn_match = re.match(r'https://([^/]+)/(.+)$', location)
-                    if cdn_match:
-                        server = cdn_match.group(1)
-                        path = cdn_match.group(2)
-                        # Store mapping for token refresh - use directory path as key
-                        if camera_id:
-                            cdn_dir = get_cdn_dir(path)
-                            token = get_token(path)
-                            if cdn_dir:
-                                _ardot_cdn_to_camera[cdn_dir] = (camera_id, token)
-                        resp = await client.get(location, headers=headers)
-
-            # Also check for HTML meta refresh (backup)
-            elif "text/html" in resp.headers.get("content-type", ""):
-                html = resp.text
-                match = re.search(r'url=(https://[^"\'>\s]+)', html)
-                if not match:
-                    match = re.search(r'href="(https://[^"]+)"', html)
-                if match:
-                    cdn_url = match.group(1)
-                    cdn_match = re.match(r'https://([^/]+)/(.+)$', cdn_url)
-                    if cdn_match:
-                        server = cdn_match.group(1)
-                        path = cdn_match.group(2)
-                        # Store mapping for token refresh
-                        if camera_id:
-                            cdn_dir = get_cdn_dir(path)
-                            token = get_token(path)
-                            if cdn_dir:
-                                _ardot_cdn_to_camera[cdn_dir] = (camera_id, token)
-                        resp = await client.get(cdn_url, headers=headers)
-
-            # Handle 403 from CDN - try to refresh token
-            if resp.status_code == 403 and "worldssl.net" in server:
-                # Look up camera ID from CDN directory path
-                cdn_dir = get_cdn_dir(path)
-                cached = _ardot_cdn_to_camera.get(cdn_dir)
-                if cached:
-                    cached_camera_id, _ = cached
-                    fresh = await get_fresh_token_url(cached_camera_id, client)
-                    if fresh:
-                        new_server, new_path = fresh
-                        # Update cache with new token
-                        new_cdn_dir = get_cdn_dir(new_path)
-                        new_token = get_token(new_path)
-                        if new_cdn_dir:
-                            _ardot_cdn_to_camera[new_cdn_dir] = (cached_camera_id, new_token)
-                        # Rebuild request URL with fresh token and original filename
-                        filename = path.split("?")[0].split("/")[-1]
-                        fresh_path = f"{new_cdn_dir}/{filename}?token={new_token}"
-                        resp = await client.get(f"https://{new_server}/{fresh_path}", headers=headers)
-                        if resp.status_code == 200:
-                            server = new_server
-                            path = fresh_path
 
             if resp.status_code != 200:
                 return Response(status_code=resp.status_code, content=resp.content)
@@ -10801,14 +10836,12 @@ async def ardot_stream_proxy(stream_path: str):
                 for line in text.split("\n"):
                     line = line.strip()
                     if line and not line.startswith("#"):
-                        # Handle relative URLs (chunklist with token)
+                        # Handle relative URLs
                         if not line.startswith("http"):
-                            # Build absolute path relative to current path
                             base_path = "/".join(path.split("/")[:-1])
                             full_path = f"{base_path}/{line}" if base_path else line
                             line = f"/api/ardot/stream/{server}/{full_path}"
                         else:
-                            # Absolute URL - extract and proxy
                             match = re.match(r'https://([^/]+)/(.+)$', line)
                             if match:
                                 line = f"/api/ardot/stream/{match.group(1)}/{match.group(2)}"
