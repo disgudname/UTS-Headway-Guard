@@ -10391,9 +10391,8 @@ async def wv511_stream_proxy(cam_id: str):
     if not re.match(r'^CAM\d+', cam_id):
         return Response(status_code=400, content="Invalid camera ID")
 
-    # Handle both playlist and segment requests
-    # cam_id could be "CAM033/playlist.m3u8" or "CAM033/chunklist.m3u8" or "CAM033/media_123.ts"
-    base_url = "https://vtc1.roadsummary.com/rtplive"
+    # Try both VTC servers - some cameras are on vtc1, some on vtc2
+    servers = ["vtc1.roadsummary.com", "vtc2.roadsummary.com"]
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -10401,10 +10400,21 @@ async def wv511_stream_proxy(cam_id: str):
 
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            resp = await client.get(f"{base_url}/{cam_id}", headers=headers)
+            resp = None
+            working_server = None
 
-            if resp.status_code != 200:
-                return Response(status_code=resp.status_code, content=resp.content)
+            for server in servers:
+                try:
+                    url = f"https://{server}/rtplive/{cam_id}"
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code == 200:
+                        working_server = server
+                        break
+                except Exception:
+                    continue
+
+            if resp is None or resp.status_code != 200:
+                return Response(status_code=404, content="Stream not available on any server")
 
             content = resp.content
             content_type = resp.headers.get("content-type", "application/octet-stream")
@@ -10415,7 +10425,6 @@ async def wv511_stream_proxy(cam_id: str):
                 # Extract camera ID base (e.g., CAM033 from CAM033/playlist.m3u8)
                 cam_base = cam_id.split("/")[0]
                 # Rewrite relative URLs to use our proxy
-                # e.g., "chunklist.m3u8" -> "/api/wv511/stream/CAM033/chunklist.m3u8"
                 lines = []
                 for line in text.split("\n"):
                     line = line.strip()
