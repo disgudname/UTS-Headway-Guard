@@ -10384,47 +10384,80 @@ async def vdot_cams_page():
 
 @app.get("/api/wv511/cameras")
 async def wv511_cameras():
-    """Fetch and parse WV511 camera listing."""
+    """Fetch and parse WV511 camera listing from all routes."""
     import re
+
+    # All WV511 routes with cameras
+    WV_ROUTES = [
+        "I-64", "I-68", "I-70", "I-77", "I-79", "I-81", "I-470",
+        "US-19", "US-35", "US-50", "US-60", "US-119", "US-219", "US-340", "US-460",
+        "WV-7", "WV-9", "WV-43", "WV-46", "WV-48", "WV-705",
+        "ChestnutRidge", "Elmer Prince", "University Dr."
+    ]
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    pattern = r'myCams\s*\[\s*\d+\s*\]\s*=\s*"([^"]+)"'
+
+    all_cameras = {}
+    errors = []
+    routes_fetched = 0
+
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get("https://www.wv511.org/CameraListing.aspx")
-            resp.raise_for_status()
-            html = resp.text
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            for route in WV_ROUTES:
+                try:
+                    resp = await client.get(
+                        f"https://www.wv511.org/CameraListing.aspx?ROUTE={route}",
+                        headers=headers
+                    )
+                    if resp.status_code != 200:
+                        continue
 
-        # Extract myCams array entries
-        pattern = r'myCams\[\d+\]\s*=\s*"([^"]+)"'
-        matches = re.findall(pattern, html)
+                    html = resp.text
+                    matches = re.findall(pattern, html)
+                    routes_fetched += 1
 
-        cameras = []
-        for entry in matches:
-            parts = entry.split("|")
-            if len(parts) < 6:
-                continue
+                    for entry in matches:
+                        parts = entry.split("|")
+                        if len(parts) < 6:
+                            continue
 
-            title = parts[0].strip()
-            cam_id = parts[3].strip() if len(parts) > 3 else ""
-            is_junction = parts[5] == "1" if len(parts) > 5 else False
+                        title = parts[0].strip()
+                        cam_id = parts[3].strip() if len(parts) > 3 else ""
+                        is_junction = parts[5] == "1" if len(parts) > 5 else False
 
-            # Skip junction entries
-            if is_junction or not cam_id.startswith("CAM"):
-                continue
+                        # Skip junction entries and duplicates
+                        if is_junction or not cam_id.startswith("CAM"):
+                            continue
+                        if cam_id in all_cameras:
+                            continue
 
-            # Extract route from title (before the colon)
-            route = ""
-            if ":" in title:
-                route = title.split(":")[0].strip()
+                        # Extract route from title (before the colon)
+                        cam_route = ""
+                        if ":" in title:
+                            cam_route = title.split(":")[0].strip()
 
-            cameras.append({
-                "id": cam_id,
-                "description": title,
-                "route": route,
-                "https_url": f"https://vtc1.roadsummary.com/rtplive/{cam_id}/playlist.m3u8"
-            })
+                        all_cameras[cam_id] = {
+                            "id": cam_id,
+                            "description": title,
+                            "route": cam_route,
+                            "https_url": f"https://vtc1.roadsummary.com/rtplive/{cam_id}/playlist.m3u8"
+                        }
+                except Exception as route_err:
+                    errors.append(f"{route}: {str(route_err)}")
 
-        return {"cameras": cameras}
+        cameras = list(all_cameras.values())
+        return {
+            "cameras": cameras,
+            "count": len(cameras),
+            "routes_fetched": routes_fetched,
+            "errors": errors if errors else None
+        }
     except Exception as e:
-        return {"cameras": [], "error": str(e)}
+        import traceback
+        return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
 
 
 # ---------------------------
