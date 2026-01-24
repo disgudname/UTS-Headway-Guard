@@ -10448,6 +10448,117 @@ async def wv511_stream_proxy(cam_id: str):
         return Response(status_code=502, content=str(e))
 
 
+@app.get("/api/tndot/stream/{stream_path:path}")
+async def tndot_stream_proxy(stream_path: str):
+    """Proxy Tennessee DOT camera HLS streams to avoid CORS issues."""
+    import re
+
+    # stream_path format: "mcleansfs1.us-east-1.skyvdn.com/R1_010/playlist.m3u8"
+    parts = stream_path.split("/", 1)
+    if len(parts) < 2:
+        return Response(status_code=400, content="Invalid stream path")
+
+    server = parts[0]
+    path = parts[1]
+
+    # Validate server format
+    if not re.match(r'^mcleansfs\d+\.us-east-1\.skyvdn\.com$', server):
+        return Response(status_code=400, content="Invalid server")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(f"https://{server}:443/rtplive/{path}", headers=headers)
+
+            if resp.status_code != 200:
+                return Response(status_code=resp.status_code, content=resp.content)
+
+            content = resp.content
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+
+            # If it's a playlist, rewrite URLs to go through our proxy
+            if stream_path.endswith(".m3u8"):
+                text = content.decode("utf-8")
+                path_parts = path.split("/")
+                cam_id = path_parts[0] if path_parts else ""
+                lines = []
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        if not line.startswith("http"):
+                            line = f"/api/tndot/stream/{server}/{cam_id}/{line}"
+                    lines.append(line)
+                content = "\n".join(lines).encode("utf-8")
+                content_type = "application/vnd.apple.mpegurl"
+
+            return Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-cache"
+                }
+            )
+    except Exception as e:
+        return Response(status_code=502, content=str(e))
+
+
+@app.get("/api/tndot/cameras")
+async def tndot_cameras():
+    """Fetch Tennessee DOT camera data."""
+    import re
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://www.tdot.tn.gov/opendata/api/public/RoadwayCameras",
+                headers=headers
+            )
+            resp.raise_for_status()
+            raw_cameras = resp.json()
+
+        cameras = []
+        for cam in raw_cameras:
+            cam_id = cam.get("id")
+            lat = cam.get("lat")
+            lng = cam.get("lng")
+            stream_url = cam.get("httpsVideoUrl", "")
+            active = cam.get("active", "false")
+
+            if not cam_id or lat is None or lng is None or active != "true":
+                continue
+
+            # Extract server and camera path from stream URL
+            # e.g., https://mcleansfs1.us-east-1.skyvdn.com:443/rtplive/R1_010/playlist.m3u8
+            proxy_url = ""
+            match = re.match(r'https://([^:]+):443/rtplive/(.+)$', stream_url)
+            if match:
+                server = match.group(1)
+                path = match.group(2)
+                proxy_url = f"/api/tndot/stream/{server}/{path}"
+
+            cameras.append({
+                "id": str(cam_id),
+                "description": cam.get("title") or cam.get("description") or str(cam_id),
+                "route": cam.get("route", "Other"),
+                "lat": float(lat),
+                "lng": float(lng),
+                "https_url": proxy_url or stream_url
+            })
+
+        return {"cameras": cameras, "count": len(cameras)}
+    except Exception as e:
+        import traceback
+        return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.get("/api/mdchart/stream/{stream_path:path}")
 async def mdchart_stream_proxy(stream_path: str):
     """Proxy Maryland CHART camera HLS streams to avoid CORS issues."""

@@ -115,6 +115,7 @@
       <select class="state-select" id="picker-state">
         <option value="VA">Virginia (VDOT 511)</option>
         <option value="MD">Maryland (CHART)</option>
+        <option value="TN">Tennessee (TDOT)</option>
         <option value="WV">West Virginia (WV511)</option>
       </select>
     </div>
@@ -146,15 +147,17 @@
   const VA_API = 'https://511.vdot.virginia.gov/services/map/layers/map/cams';
   const WV_API = '/api/wv511/cameras';
   const MD_API = '/api/mdchart/cameras';
+  const TN_API = '/api/tndot/cameras';
 
   // State configurations
   const STATES = {
     VA: { name: 'Virginia', hasCoords: true, api: VA_API },
     MD: { name: 'Maryland', hasCoords: true, api: MD_API },
+    TN: { name: 'Tennessee', hasCoords: true, api: TN_API },
     WV: { name: 'West Virginia', hasCoords: false, api: WV_API }
   };
 
-  let camerasByState = { VA: [], MD: [], WV: [] };
+  let camerasByState = { VA: [], MD: [], TN: [], WV: [] };
   let camerasById = {};
   let gridCols = 4;
   let gridRows = 4;
@@ -257,11 +260,30 @@
     }
   }
 
+  // Fetch TN cameras
+  async function fetchTNCameras(){
+    try {
+      const resp = await fetch(TN_API);
+      if(!resp.ok) throw new Error('Failed to fetch TN cameras');
+      const data = await resp.json();
+      camerasByState.TN = (data.cameras || []).map(c => ({
+        ...c,
+        state: 'TN'
+      }));
+
+      camerasByState.TN.forEach(c => { camerasById[`TN:${c.id}`] = c; });
+      return camerasByState.TN;
+    } catch(err){
+      console.error('Error fetching TN cameras:', err);
+      return [];
+    }
+  }
+
   // Fetch all cameras
   async function fetchAllCameras(){
-    const [va, md, wv] = await Promise.all([fetchVACameras(), fetchMDCameras(), fetchWVCameras()]);
-    const totalCount = va.length + md.length + wv.length;
-    document.getElementById('camera-count').textContent = `${totalCount} cameras (VA: ${va.length}, MD: ${md.length}, WV: ${wv.length})`;
+    const [va, md, tn, wv] = await Promise.all([fetchVACameras(), fetchMDCameras(), fetchTNCameras(), fetchWVCameras()]);
+    const totalCount = va.length + md.length + tn.length + wv.length;
+    document.getElementById('camera-count').textContent = `${totalCount} cameras (VA: ${va.length}, MD: ${md.length}, TN: ${tn.length}, WV: ${wv.length})`;
     document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
   }
 
