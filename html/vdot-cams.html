@@ -151,12 +151,12 @@
   const TN_API = '/api/tndot/cameras';
   const AR_API = '/api/ardot/cameras';
 
-  // State configurations
+  // State configurations with default map centers (avoids bad data throwing off fitBounds)
   const STATES = {
-    VA: { name: 'Virginia', hasCoords: true, api: VA_API },
-    MD: { name: 'Maryland', hasCoords: true, api: MD_API },
-    TN: { name: 'Tennessee', hasCoords: true, api: TN_API },
-    AR: { name: 'Arkansas', hasCoords: true, api: AR_API },
+    VA: { name: 'Virginia', hasCoords: true, api: VA_API, center: [37.5, -78.8], zoom: 7 },
+    MD: { name: 'Maryland', hasCoords: true, api: MD_API, center: [39.0, -76.7], zoom: 8 },
+    TN: { name: 'Tennessee', hasCoords: true, api: TN_API, center: [35.8, -86.4], zoom: 7 },
+    AR: { name: 'Arkansas', hasCoords: true, api: AR_API, center: [34.8, -92.2], zoom: 7 },
     WV: { name: 'West Virginia', hasCoords: false, api: WV_API }
   };
 
@@ -560,13 +560,15 @@
       pickerMarkers.addLayer(marker);
     });
 
-    // Center on current or fit bounds
+    // Center on current selection, or use state default center
     if(currentId){
       const cam = getCamera(state, currentId);
       if(cam) pickerMap.setView([cam.lat, cam.lng], 12);
-    } else if(cameras.length > 0){
-      const bounds = L.latLngBounds(cameras.map(c => [c.lat, c.lng]));
-      pickerMap.fitBounds(bounds, { padding: [20, 20] });
+    } else {
+      const stateConfig = STATES[state];
+      if(stateConfig && stateConfig.center){
+        pickerMap.setView(stateConfig.center, stateConfig.zoom || 7);
+      }
     }
   }
 
@@ -700,8 +702,8 @@
     // Refresh camera lists every 5 minutes
     setInterval(fetchAllCameras, 300000);
 
-    // Refresh AR camera tokens every 60 seconds to prevent 403 expiry
-    setInterval(refreshARTokens, 60000);
+    // Refresh AR camera tokens every 30 seconds to prevent 403 expiry
+    setInterval(refreshARTokens, 30000);
   }
 
   // Refresh tokens for Arkansas cameras to prevent expiry
