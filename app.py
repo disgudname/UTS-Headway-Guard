@@ -10381,6 +10381,52 @@ async def eink_block_page():
 async def vdot_cams_page():
     return HTMLResponse(VDOT_CAMS_HTML)
 
+
+@app.get("/api/wv511/cameras")
+async def wv511_cameras():
+    """Fetch and parse WV511 camera listing."""
+    import re
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get("https://www.wv511.org/CameraListing.aspx")
+            resp.raise_for_status()
+            html = resp.text
+
+        # Extract myCams array entries
+        pattern = r'myCams\[\d+\]\s*=\s*"([^"]+)"'
+        matches = re.findall(pattern, html)
+
+        cameras = []
+        for entry in matches:
+            parts = entry.split("|")
+            if len(parts) < 6:
+                continue
+
+            title = parts[0].strip()
+            cam_id = parts[3].strip() if len(parts) > 3 else ""
+            is_junction = parts[5] == "1" if len(parts) > 5 else False
+
+            # Skip junction entries
+            if is_junction or not cam_id.startswith("CAM"):
+                continue
+
+            # Extract route from title (before the colon)
+            route = ""
+            if ":" in title:
+                route = title.split(":")[0].strip()
+
+            cameras.append({
+                "id": cam_id,
+                "description": title,
+                "route": route,
+                "https_url": f"https://vtc1.roadsummary.com/rtplive/{cam_id}/playlist.m3u8"
+            })
+
+        return {"cameras": cameras}
+    except Exception as e:
+        return {"cameras": [], "error": str(e)}
+
+
 # ---------------------------
 # TEST MAP PAGE
 # ---------------------------

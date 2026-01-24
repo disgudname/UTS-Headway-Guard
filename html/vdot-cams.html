@@ -4,7 +4,7 @@
 <link rel="icon" type="image/png" href="/media/favicon.ico" />
 <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
 <meta charset="utf-8" />
-<title>VDOT 511 Camera Dashboard</title>
+<title>Traffic Camera Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -16,7 +16,7 @@
   body{margin:0;min-height:100vh;background:radial-gradient(circle at top left,rgba(229,114,0,0.18),transparent 40%),linear-gradient(160deg,var(--bg) 0%,var(--bg-dark) 60%,#11162a 100%);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;display:flex;flex-direction:column;}
   header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;background:var(--panel);border-bottom:1px solid var(--panel-border);}
   .title{font-size:22px;letter-spacing:0.04em;text-transform:uppercase;}
-  .controls{display:flex;align-items:center;gap:16px;}
+  .controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
   .grid-selector{display:flex;align-items:center;gap:8px;}
   .grid-label{font-size:14px;color:var(--muted);}
   .grid-input{width:50px;background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:6px 8px;color:var(--ink);font:inherit;font-size:14px;text-align:center;}
@@ -29,6 +29,7 @@
   .camera-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.1);}
   .camera-name{flex:1;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .camera-name.has-camera{color:var(--ink);}
+  .camera-state-badge{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(99,102,241,0.3);color:#a5b4fc;}
   .camera-btn{background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:4px 10px;color:var(--ink);font:inherit;font-size:12px;cursor:pointer;transition:background 0.2s,border-color 0.2s;white-space:nowrap;}
   .camera-btn:hover{background:rgba(229,114,0,0.18);border-color:rgba(229,114,0,0.7);}
   .camera-btn.clear{padding:4px 8px;color:var(--muted);}
@@ -48,18 +49,34 @@
   .modal-title{font-size:18px;letter-spacing:0.03em;}
   .modal-close{background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;padding:4px 8px;line-height:1;}
   .modal-close:hover{color:var(--ink);}
-  .modal-body{flex:1;position:relative;}
+  .modal-body{flex:1;position:relative;overflow:hidden;}
   #picker-map{width:100%;height:100%;}
   .modal-footer{padding:12px 20px;background:var(--panel);border-top:1px solid var(--panel-border);display:flex;justify-content:space-between;align-items:center;}
   .modal-hint{font-size:13px;color:var(--muted);}
   .modal-actions{display:flex;gap:10px;}
   .modal-btn{background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:8px;padding:8px 16px;color:var(--ink);font:inherit;font-size:14px;cursor:pointer;transition:background 0.2s,border-color 0.2s;}
   .modal-btn:hover{background:rgba(229,114,0,0.18);border-color:rgba(229,114,0,0.7);}
-  .modal-btn.primary{background:rgba(229,114,0,0.3);border-color:var(--accent);}
+
+  /* State selector in modal */
+  .modal-state-row{display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.1);}
+  .state-select{background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:8px 12px;color:var(--ink);font:inherit;font-size:14px;cursor:pointer;min-width:200px;}
+  .state-select:focus{outline:none;border-color:var(--accent);}
+  .state-select option{background:#1A2140;color:var(--ink);}
+
+  /* Dropdown picker (for states without coords) */
+  .dropdown-picker{display:none;flex-direction:column;height:100%;overflow:hidden;}
+  .dropdown-picker.active{display:flex;}
+  .map-picker{display:none;height:100%;}
+  .map-picker.active{display:block;}
+  .camera-dropdown-container{flex:1;overflow-y:auto;padding:16px 20px;}
+  .camera-dropdown{width:100%;background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:8px;padding:10px 14px;color:var(--ink);font:inherit;font-size:14px;cursor:pointer;}
+  .camera-dropdown:focus{outline:none;border-color:var(--accent);}
+  .camera-dropdown option{background:#1A2140;color:var(--ink);padding:4px 0;}
+  .camera-dropdown optgroup{color:var(--accent);font-weight:bold;}
 
   @media(max-width:768px){
     header{flex-direction:column;gap:12px;padding:12px 16px;}
-    .controls{flex-wrap:wrap;justify-content:center;}
+    .controls{justify-content:center;}
     .camera-grid{gap:6px;padding:6px;}
     .modal{width:95vw;height:90vh;}
   }
@@ -67,7 +84,7 @@
 </head>
 <body>
 <header>
-  <div class="title">VDOT 511 Camera Dashboard</div>
+  <div class="title">Traffic Camera Dashboard</div>
   <div class="controls">
     <div class="grid-selector">
       <span class="grid-label">Grid:</span>
@@ -86,20 +103,37 @@
   <span id="last-update"></span>
 </div>
 
-<!-- Map Picker Modal -->
+<!-- Camera Picker Modal -->
 <div class="modal-overlay" id="map-modal">
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title">Select Camera</div>
       <button class="modal-close" id="modal-close">&times;</button>
     </div>
+    <div class="modal-state-row">
+      <span class="grid-label">State:</span>
+      <select class="state-select" id="picker-state">
+        <option value="VA">Virginia (VDOT 511)</option>
+        <option value="WV">West Virginia (WV511)</option>
+      </select>
+    </div>
     <div class="modal-body">
-      <div id="picker-map"></div>
+      <div class="map-picker active" id="map-picker">
+        <div id="picker-map"></div>
+      </div>
+      <div class="dropdown-picker" id="dropdown-picker">
+        <div class="camera-dropdown-container">
+          <select class="camera-dropdown" id="camera-dropdown" size="20">
+            <option value="">Loading cameras...</option>
+          </select>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
-      <div class="modal-hint">Click to select. <span style="color:#E57200">Orange</span> = available, <span style="color:#6366f1">Purple</span> = in use, <span style="color:#22c55e">Green</span> = current</div>
+      <div class="modal-hint" id="modal-hint">Click to select. <span style="color:#E57200">Orange</span> = available, <span style="color:#6366f1">Purple</span> = in use, <span style="color:#22c55e">Green</span> = current</div>
       <div class="modal-actions">
         <button class="modal-btn" id="modal-cancel">Cancel</button>
+        <button class="modal-btn" id="modal-select" style="display:none">Select</button>
       </div>
     </div>
   </div>
@@ -107,20 +141,28 @@
 
 <script>
 (function(){
-  const STORAGE_KEY = 'vdot_cams_config';
-  const VDOT_API = 'https://511.vdot.virginia.gov/services/map/layers/map/cams';
+  const STORAGE_KEY = 'traffic_cams_config';
+  const VA_API = 'https://511.vdot.virginia.gov/services/map/layers/map/cams';
+  const WV_API = '/api/wv511/cameras';
 
-  let cameras = [];
-  let camerasByCoord = {};
+  // State configurations
+  const STATES = {
+    VA: { name: 'Virginia', hasCoords: true, api: VA_API },
+    WV: { name: 'West Virginia', hasCoords: false, api: WV_API }
+  };
+
+  let camerasByState = { VA: [], WV: [] };
+  let camerasById = {};
   let gridCols = 4;
   let gridRows = 4;
-  let selections = {};
+  let selections = {}; // { cellIndex: { state, id } }
   let hlsPlayers = {};
 
   // Map picker state
   let pickerMap = null;
   let pickerMarkers = null;
   let activeCellIndex = null;
+  let activePickerState = 'VA';
 
   // Load saved config
   function loadConfig(){
@@ -146,39 +188,64 @@
     } catch(e){}
   }
 
-  // Fetch cameras from VDOT
-  async function fetchCameras(){
+  // Fetch VA cameras
+  async function fetchVACameras(){
     try {
-      const resp = await fetch(VDOT_API);
-      if(!resp.ok) throw new Error('Failed to fetch cameras');
+      const resp = await fetch(VA_API);
+      if(!resp.ok) throw new Error('Failed to fetch VA cameras');
       const data = await resp.json();
-      cameras = (data.features || [])
+      camerasByState.VA = (data.features || [])
         .filter(f => f.properties && f.properties.active !== false && f.geometry && f.geometry.coordinates)
         .map(f => ({
           id: f.properties.id,
+          state: 'VA',
           name: f.properties.name,
           description: f.properties.description || f.properties.name,
           route: f.properties.route,
-          jurisdiction: f.properties.jurisdiction,
           https_url: f.properties.https_url,
-          image_url: f.properties.image_url,
           lat: parseFloat(f.geometry.coordinates[1]),
           lng: parseFloat(f.geometry.coordinates[0])
         }))
         .filter(c => !isNaN(c.lat) && !isNaN(c.lng));
 
-      // Build lookup by id
-      camerasByCoord = {};
-      cameras.forEach(c => { camerasByCoord[c.id] = c; });
-
-      document.getElementById('camera-count').textContent = `${cameras.length} cameras available`;
-      document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-      return cameras;
+      camerasByState.VA.forEach(c => { camerasById[`VA:${c.id}`] = c; });
+      return camerasByState.VA;
     } catch(err){
-      document.getElementById('camera-count').textContent = 'Failed to load cameras';
-      console.error('Error fetching cameras:', err);
+      console.error('Error fetching VA cameras:', err);
       return [];
     }
+  }
+
+  // Fetch WV cameras
+  async function fetchWVCameras(){
+    try {
+      const resp = await fetch(WV_API);
+      if(!resp.ok) throw new Error('Failed to fetch WV cameras');
+      const data = await resp.json();
+      camerasByState.WV = (data.cameras || []).map(c => ({
+        ...c,
+        state: 'WV'
+      }));
+
+      camerasByState.WV.forEach(c => { camerasById[`WV:${c.id}`] = c; });
+      return camerasByState.WV;
+    } catch(err){
+      console.error('Error fetching WV cameras:', err);
+      return [];
+    }
+  }
+
+  // Fetch all cameras
+  async function fetchAllCameras(){
+    const [va, wv] = await Promise.all([fetchVACameras(), fetchWVCameras()]);
+    const totalCount = va.length + wv.length;
+    document.getElementById('camera-count').textContent = `${totalCount} cameras (VA: ${va.length}, WV: ${wv.length})`;
+    document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+  }
+
+  // Get camera by state and id
+  function getCamera(state, id){
+    return camerasById[`${state}:${id}`];
   }
 
   // Destroy HLS player for a cell
@@ -234,7 +301,6 @@
 
       hlsPlayers[cellIndex] = hls;
     } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-      // Native HLS support (Safari)
       video.src = camera.https_url;
       video.addEventListener('loadedmetadata', () => {
         container.innerHTML = '';
@@ -252,6 +318,7 @@
   // Update cell header to show camera name
   function updateCellHeader(cellIndex, camera){
     const nameEl = document.querySelector(`[data-cell="${cellIndex}"] .camera-name`);
+    const badgeEl = document.querySelector(`[data-cell="${cellIndex}"] .camera-state-badge`);
     const clearBtn = document.querySelector(`[data-cell="${cellIndex}"] .camera-btn.clear`);
     if(nameEl){
       if(camera){
@@ -262,16 +329,20 @@
         nameEl.classList.remove('has-camera');
       }
     }
+    if(badgeEl){
+      badgeEl.style.display = camera ? '' : 'none';
+      if(camera) badgeEl.textContent = camera.state;
+    }
     if(clearBtn){
       clearBtn.style.display = camera ? '' : 'none';
     }
   }
 
   // Select camera for a cell
-  function selectCamera(cellIndex, cameraId){
-    if(cameraId){
-      selections[cellIndex] = cameraId;
-      const camera = camerasByCoord[cameraId];
+  function selectCamera(cellIndex, state, cameraId){
+    if(state && cameraId){
+      selections[cellIndex] = { state, id: cameraId };
+      const camera = getCamera(state, cameraId);
       updateCellHeader(cellIndex, camera);
       startVideo(cellIndex, camera);
     } else {
@@ -291,25 +362,26 @@
     const grid = document.getElementById('camera-grid');
     const totalCells = gridCols * gridRows;
 
-    // Destroy all existing players
     Object.keys(hlsPlayers).forEach(key => destroyPlayer(key));
 
-    // Set grid columns and rows
     grid.style.gridTemplateColumns = `repeat(${gridCols}, 1fr)`;
     grid.style.gridTemplateRows = `repeat(${gridRows}, 1fr)`;
 
     let html = '';
     for(let i = 0; i < totalCells; i++){
-      const selectedId = selections[i] || '';
-      const camera = selectedId ? camerasByCoord[selectedId] : null;
+      const sel = selections[i];
+      const camera = sel ? getCamera(sel.state, sel.id) : null;
       const cameraName = camera ? camera.description : 'No camera selected';
       const hasCamera = camera ? 'has-camera' : '';
       const clearDisplay = camera ? '' : 'style="display:none"';
+      const badgeDisplay = camera ? '' : 'style="display:none"';
+      const badgeText = camera ? camera.state : '';
 
       html += `
         <div class="camera-cell" data-cell="${i}">
           <div class="camera-header">
             <span class="camera-name ${hasCamera}">${cameraName}</span>
+            <span class="camera-state-badge" ${badgeDisplay}>${badgeText}</span>
             <button class="camera-btn clear" data-clear="${i}" ${clearDisplay} title="Clear">X</button>
             <button class="camera-btn" data-pick="${i}">Select</button>
           </div>
@@ -322,30 +394,25 @@
 
     grid.innerHTML = html;
 
-    // Start videos for selected cameras
     for(let i = 0; i < totalCells; i++){
-      const selectedId = selections[i];
-      if(selectedId){
-        const camera = camerasByCoord[selectedId];
-        if(camera){
-          startVideo(i, camera);
-        }
+      const sel = selections[i];
+      if(sel){
+        const camera = getCamera(sel.state, sel.id);
+        if(camera) startVideo(i, camera);
       }
     }
 
-    // Add click listeners for select buttons
     document.querySelectorAll('[data-pick]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const cellIndex = parseInt(e.target.dataset.pick, 10);
-        openMapPicker(cellIndex);
+        openPicker(cellIndex);
       });
     });
 
-    // Add click listeners for clear buttons
     document.querySelectorAll('[data-clear]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const cellIndex = parseInt(e.target.dataset.clear, 10);
-        selectCamera(cellIndex, null);
+        selectCamera(cellIndex, null, null);
       });
     });
   }
@@ -353,34 +420,53 @@
   // Initialize map picker
   function initMapPicker(){
     pickerMap = L.map('picker-map').setView([37.5, -78.8], 7);
-
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(pickerMap);
-
     pickerMarkers = L.layerGroup().addTo(pickerMap);
   }
 
-  // Open map picker for a cell
-  function openMapPicker(cellIndex){
-    activeCellIndex = cellIndex;
-    const modal = document.getElementById('map-modal');
-    modal.classList.add('active');
+  // Update picker state (show map or dropdown)
+  function updatePickerMode(state){
+    activePickerState = state;
+    const mapPicker = document.getElementById('map-picker');
+    const dropdownPicker = document.getElementById('dropdown-picker');
+    const hint = document.getElementById('modal-hint');
+    const selectBtn = document.getElementById('modal-select');
 
-    // Build set of already-selected camera IDs (excluding current cell)
+    if(STATES[state].hasCoords){
+      mapPicker.classList.add('active');
+      dropdownPicker.classList.remove('active');
+      hint.innerHTML = 'Click to select. <span style="color:#E57200">Orange</span> = available, <span style="color:#6366f1">Purple</span> = in use, <span style="color:#22c55e">Green</span> = current';
+      selectBtn.style.display = 'none';
+      setTimeout(() => pickerMap.invalidateSize(), 100);
+      populateMapMarkers();
+    } else {
+      mapPicker.classList.remove('active');
+      dropdownPicker.classList.add('active');
+      hint.textContent = 'Select a camera from the dropdown';
+      selectBtn.style.display = '';
+      populateDropdown();
+    }
+  }
+
+  // Populate map markers for VA
+  function populateMapMarkers(){
+    pickerMarkers.clearLayers();
+
     const usedCameraIds = new Set();
-    Object.entries(selections).forEach(([idx, camId]) => {
-      if(parseInt(idx, 10) !== cellIndex && camId){
-        usedCameraIds.add(camId);
+    Object.entries(selections).forEach(([idx, sel]) => {
+      if(parseInt(idx, 10) !== activeCellIndex && sel && sel.state === 'VA'){
+        usedCameraIds.add(sel.id);
       }
     });
 
-    // Clear and add markers
-    pickerMarkers.clearLayers();
+    const currentSel = selections[activeCellIndex];
+    const currentId = (currentSel && currentSel.state === 'VA') ? currentSel.id : null;
 
-    cameras.forEach(cam => {
+    camerasByState.VA.forEach(cam => {
       const isUsed = usedCameraIds.has(cam.id);
-      const isCurrentSelection = selections[cellIndex] === cam.id;
+      const isCurrentSelection = cam.id === currentId;
 
       const marker = L.circleMarker([cam.lat, cam.lng], {
         radius: isUsed ? 8 : 6,
@@ -395,40 +481,80 @@
         ? `${cam.description} (current)`
         : (isUsed ? `${cam.description} (in use)` : cam.description);
 
-      marker.bindTooltip(label, {
-        direction: 'top',
-        offset: [0, -8]
-      });
+      marker.bindTooltip(label, { direction: 'top', offset: [0, -8] });
 
       marker.on('click', () => {
-        selectCamera(activeCellIndex, cam.id);
-        closeMapPicker();
+        selectCamera(activeCellIndex, 'VA', cam.id);
+        closePicker();
       });
 
       pickerMarkers.addLayer(marker);
     });
 
-    // Invalidate size after modal is visible
-    setTimeout(() => {
-      pickerMap.invalidateSize();
-
-      // If there's a currently selected camera, center on it
-      const currentId = selections[cellIndex];
-      if(currentId && camerasByCoord[currentId]){
-        const cam = camerasByCoord[currentId];
-        pickerMap.setView([cam.lat, cam.lng], 12);
-      } else {
-        // Fit bounds to all cameras
-        if(cameras.length > 0){
-          const bounds = L.latLngBounds(cameras.map(c => [c.lat, c.lng]));
-          pickerMap.fitBounds(bounds, { padding: [20, 20] });
-        }
-      }
-    }, 100);
+    // Center on current or fit bounds
+    if(currentId){
+      const cam = getCamera('VA', currentId);
+      if(cam) pickerMap.setView([cam.lat, cam.lng], 12);
+    } else if(camerasByState.VA.length > 0){
+      const bounds = L.latLngBounds(camerasByState.VA.map(c => [c.lat, c.lng]));
+      pickerMap.fitBounds(bounds, { padding: [20, 20] });
+    }
   }
 
-  // Close map picker
-  function closeMapPicker(){
+  // Populate dropdown for WV
+  function populateDropdown(){
+    const dropdown = document.getElementById('camera-dropdown');
+    const cameras = camerasByState[activePickerState] || [];
+
+    const usedCameraIds = new Set();
+    Object.entries(selections).forEach(([idx, sel]) => {
+      if(parseInt(idx, 10) !== activeCellIndex && sel && sel.state === activePickerState){
+        usedCameraIds.add(sel.id);
+      }
+    });
+
+    const currentSel = selections[activeCellIndex];
+    const currentId = (currentSel && currentSel.state === activePickerState) ? currentSel.id : null;
+
+    // Group by route
+    const byRoute = {};
+    cameras.forEach(cam => {
+      const route = cam.route || 'Other';
+      if(!byRoute[route]) byRoute[route] = [];
+      byRoute[route].push(cam);
+    });
+
+    let html = '<option value="">-- Select Camera --</option>';
+    Object.keys(byRoute).sort().forEach(route => {
+      html += `<optgroup label="${route}">`;
+      byRoute[route].forEach(cam => {
+        const isUsed = usedCameraIds.has(cam.id);
+        const isCurrent = cam.id === currentId;
+        const suffix = isCurrent ? ' (current)' : (isUsed ? ' (in use)' : '');
+        const selected = isCurrent ? 'selected' : '';
+        html += `<option value="${cam.id}" ${selected}>${cam.description}${suffix}</option>`;
+      });
+      html += '</optgroup>';
+    });
+
+    dropdown.innerHTML = html;
+  }
+
+  // Open picker modal
+  function openPicker(cellIndex){
+    activeCellIndex = cellIndex;
+    const modal = document.getElementById('map-modal');
+    modal.classList.add('active');
+
+    // Set initial state based on current selection or default to VA
+    const currentSel = selections[cellIndex];
+    const initialState = currentSel ? currentSel.state : 'VA';
+    document.getElementById('picker-state').value = initialState;
+    updatePickerMode(initialState);
+  }
+
+  // Close picker modal
+  function closePicker(){
     const modal = document.getElementById('map-modal');
     modal.classList.remove('active');
     activeCellIndex = null;
@@ -445,7 +571,6 @@
     loadConfig();
     updateGridInputs();
 
-    // Grid dimension input handlers
     const colsInput = document.getElementById('grid-cols');
     const rowsInput = document.getElementById('grid-rows');
 
@@ -464,24 +589,47 @@
     colsInput.addEventListener('change', handleGridChange);
     rowsInput.addEventListener('change', handleGridChange);
 
-    // Modal close handlers
-    document.getElementById('modal-close').addEventListener('click', closeMapPicker);
-    document.getElementById('modal-cancel').addEventListener('click', closeMapPicker);
+    // Modal handlers
+    document.getElementById('modal-close').addEventListener('click', closePicker);
+    document.getElementById('modal-cancel').addEventListener('click', closePicker);
     document.getElementById('map-modal').addEventListener('click', (e) => {
-      if(e.target.id === 'map-modal') closeMapPicker();
+      if(e.target.id === 'map-modal') closePicker();
+    });
+
+    // State selector change
+    document.getElementById('picker-state').addEventListener('change', (e) => {
+      updatePickerMode(e.target.value);
+    });
+
+    // Dropdown select button
+    document.getElementById('modal-select').addEventListener('click', () => {
+      const dropdown = document.getElementById('camera-dropdown');
+      const cameraId = dropdown.value;
+      if(cameraId){
+        selectCamera(activeCellIndex, activePickerState, cameraId);
+      }
+      closePicker();
+    });
+
+    // Dropdown double-click to select
+    document.getElementById('camera-dropdown').addEventListener('dblclick', () => {
+      const dropdown = document.getElementById('camera-dropdown');
+      const cameraId = dropdown.value;
+      if(cameraId){
+        selectCamera(activeCellIndex, activePickerState, cameraId);
+        closePicker();
+      }
     });
 
     // Initialize map
     initMapPicker();
 
-    // Fetch cameras and render
-    await fetchCameras();
+    // Fetch all cameras and render
+    await fetchAllCameras();
     renderGrid();
 
-    // Refresh camera list every 5 minutes
-    setInterval(async () => {
-      await fetchCameras();
-    }, 300000);
+    // Refresh camera lists every 5 minutes
+    setInterval(fetchAllCameras, 300000);
   }
 
   init();
