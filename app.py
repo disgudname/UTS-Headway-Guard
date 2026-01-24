@@ -10391,8 +10391,8 @@ async def wv511_stream_proxy(cam_id: str):
     if not re.match(r'^CAM\d+', cam_id):
         return Response(status_code=400, content="Invalid camera ID")
 
-    # Try both VTC servers - some cameras are on vtc1, some on vtc2
-    servers = ["vtc1.roadsummary.com", "vtc2.roadsummary.com"]
+    # Try all VTC servers - cameras are distributed across multiple servers
+    servers = ["vtc1.roadsummary.com", "vtc2.roadsummary.com", "vtc3.roadsummary.com", "vtc4.roadsummary.com", "vtc5.roadsummary.com"]
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
