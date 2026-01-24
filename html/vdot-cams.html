@@ -1,0 +1,349 @@
+<!doctype html>
+<html>
+<head>
+<link rel="icon" type="image/png" href="/media/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+<meta charset="utf-8" />
+<title>VDOT 511 Camera Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<style>
+  @font-face{font-family:'FGDC';src:url('/fonts/FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
+  :root{--bg:#232D4B;--bg-dark:#1A2140;--ink:#FFFFFF;--muted:#9fb0c9;--accent:#E57200;--panel:rgba(26,33,64,0.72);--panel-border:rgba(229,114,0,0.4);}
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;background:radial-gradient(circle at top left,rgba(229,114,0,0.18),transparent 40%),linear-gradient(160deg,var(--bg) 0%,var(--bg-dark) 60%,#11162a 100%);color:var(--ink);font:16px/1.45 'FGDC',sans-serif;display:flex;flex-direction:column;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;background:var(--panel);border-bottom:1px solid var(--panel-border);}
+  .title{font-size:22px;letter-spacing:0.04em;text-transform:uppercase;}
+  .controls{display:flex;align-items:center;gap:16px;}
+  .grid-selector{display:flex;align-items:center;gap:8px;}
+  .grid-label{font-size:14px;color:var(--muted);}
+  .grid-input{width:50px;background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:6px 8px;color:var(--ink);font:inherit;font-size:14px;text-align:center;}
+  .grid-input:focus{outline:none;border-color:var(--accent);}
+  .grid-x{color:var(--muted);font-size:14px;}
+  .back-link{color:var(--muted);text-decoration:none;font-size:14px;transition:color 0.2s;}
+  .back-link:hover{color:var(--ink);}
+  .camera-grid{flex:1;display:grid;gap:8px;padding:8px;overflow:auto;}
+  .camera-cell{background:var(--panel);border:1px solid var(--panel-border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;min-height:0;}
+  .camera-header{display:flex;align-items:center;padding:8px 12px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.1);}
+  .camera-select{flex:1;background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:6px 10px;color:var(--ink);font:inherit;font-size:13px;cursor:pointer;}
+  .camera-select:focus{outline:none;border-color:var(--accent);}
+  .camera-select option{background:#1A2140;color:var(--ink);}
+  .camera-video-container{flex:1;display:flex;align-items:center;justify-content:center;background:#000;position:relative;min-height:0;}
+  .camera-video{width:100%;height:100%;object-fit:contain;}
+  .camera-placeholder{color:var(--muted);font-size:14px;text-align:center;padding:20px;}
+  .camera-error{color:#fca5a5;font-size:13px;text-align:center;padding:20px;}
+  .camera-loading{color:var(--muted);font-size:13px;}
+  .status-bar{padding:8px 24px;background:var(--panel);border-top:1px solid var(--panel-border);font-size:13px;color:var(--muted);display:flex;justify-content:space-between;}
+  @media(max-width:768px){
+    header{flex-direction:column;gap:12px;padding:12px 16px;}
+    .controls{flex-wrap:wrap;justify-content:center;}
+    .camera-grid{gap:6px;padding:6px;}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">VDOT 511 Camera Dashboard</div>
+  <div class="controls">
+    <div class="grid-selector">
+      <span class="grid-label">Grid:</span>
+      <input type="number" class="grid-input" id="grid-cols" min="1" max="8" value="4">
+      <span class="grid-x">x</span>
+      <input type="number" class="grid-input" id="grid-rows" min="1" max="8" value="4">
+    </div>
+    <a href="/" class="back-link">Back to Dashboard</a>
+  </div>
+</header>
+
+<div class="camera-grid" id="camera-grid"></div>
+
+<div class="status-bar">
+  <span id="camera-count">Loading cameras...</span>
+  <span id="last-update"></span>
+</div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'vdot_cams_config';
+  const VDOT_API = 'https://511.vdot.virginia.gov/services/map/layers/map/cams';
+
+  let cameras = [];
+  let gridCols = 4;
+  let gridRows = 4;
+  let selections = {};
+  let hlsPlayers = {};
+
+  // Load saved config
+  function loadConfig(){
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if(saved){
+        const config = JSON.parse(saved);
+        gridCols = config.gridCols || config.gridSize || 4;
+        gridRows = config.gridRows || config.gridSize || 4;
+        selections = config.selections || {};
+      }
+    } catch(e){}
+  }
+
+  // Save config
+  function saveConfig(){
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        gridCols,
+        gridRows,
+        selections
+      }));
+    } catch(e){}
+  }
+
+  // Fetch cameras from VDOT
+  async function fetchCameras(){
+    try {
+      const resp = await fetch(VDOT_API);
+      if(!resp.ok) throw new Error('Failed to fetch cameras');
+      const data = await resp.json();
+      cameras = (data.features || [])
+        .filter(f => f.properties && f.properties.active !== false)
+        .map(f => ({
+          id: f.properties.id,
+          name: f.properties.name,
+          description: f.properties.description || f.properties.name,
+          route: f.properties.route,
+          jurisdiction: f.properties.jurisdiction,
+          https_url: f.properties.https_url,
+          image_url: f.properties.image_url
+        }))
+        .sort((a, b) => {
+          // Sort by route then description
+          const routeCompare = (a.route || '').localeCompare(b.route || '');
+          if(routeCompare !== 0) return routeCompare;
+          return (a.description || '').localeCompare(b.description || '');
+        });
+
+      document.getElementById('camera-count').textContent = `${cameras.length} cameras available`;
+      document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+      return cameras;
+    } catch(err){
+      document.getElementById('camera-count').textContent = 'Failed to load cameras';
+      console.error('Error fetching cameras:', err);
+      return [];
+    }
+  }
+
+  // Create dropdown options
+  function createCameraOptions(){
+    let html = '<option value="">-- Select Camera --</option>';
+
+    // Group by route
+    const byRoute = {};
+    cameras.forEach(cam => {
+      const route = cam.route || 'Other';
+      if(!byRoute[route]) byRoute[route] = [];
+      byRoute[route].push(cam);
+    });
+
+    // Sort routes
+    const routes = Object.keys(byRoute).sort();
+
+    routes.forEach(route => {
+      html += `<optgroup label="${route}">`;
+      byRoute[route].forEach(cam => {
+        html += `<option value="${cam.id}">${cam.description}</option>`;
+      });
+      html += '</optgroup>';
+    });
+
+    return html;
+  }
+
+  // Destroy HLS player for a cell
+  function destroyPlayer(cellIndex){
+    if(hlsPlayers[cellIndex]){
+      hlsPlayers[cellIndex].destroy();
+      delete hlsPlayers[cellIndex];
+    }
+  }
+
+  // Start video for a camera
+  function startVideo(cellIndex, camera){
+    const container = document.querySelector(`[data-cell="${cellIndex}"] .camera-video-container`);
+    if(!container) return;
+
+    destroyPlayer(cellIndex);
+
+    if(!camera || !camera.https_url){
+      container.innerHTML = '<div class="camera-placeholder">Select a camera</div>';
+      return;
+    }
+
+    container.innerHTML = '<div class="camera-loading">Loading stream...</div>';
+
+    const video = document.createElement('video');
+    video.className = 'camera-video';
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    if(Hls.isSupported()){
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 30
+      });
+
+      hls.loadSource(camera.https_url);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        container.innerHTML = '';
+        container.appendChild(video);
+        video.play().catch(() => {});
+      });
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if(data.fatal){
+          container.innerHTML = `<div class="camera-error">Stream unavailable<br><small>${camera.description}</small></div>`;
+          destroyPlayer(cellIndex);
+        }
+      });
+
+      hlsPlayers[cellIndex] = hls;
+    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+      // Native HLS support (Safari)
+      video.src = camera.https_url;
+      video.addEventListener('loadedmetadata', () => {
+        container.innerHTML = '';
+        container.appendChild(video);
+        video.play().catch(() => {});
+      });
+      video.addEventListener('error', () => {
+        container.innerHTML = `<div class="camera-error">Stream unavailable<br><small>${camera.description}</small></div>`;
+      });
+    } else {
+      container.innerHTML = '<div class="camera-error">HLS not supported in this browser</div>';
+    }
+  }
+
+  // Render the grid
+  function renderGrid(){
+    const grid = document.getElementById('camera-grid');
+    const totalCells = gridCols * gridRows;
+
+    // Destroy all existing players
+    Object.keys(hlsPlayers).forEach(key => destroyPlayer(key));
+
+    // Set grid columns and rows
+    grid.style.gridTemplateColumns = `repeat(${gridCols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${gridRows}, 1fr)`;
+
+    const optionsHtml = createCameraOptions();
+
+    let html = '';
+    for(let i = 0; i < totalCells; i++){
+      const selectedId = selections[i] || '';
+      html += `
+        <div class="camera-cell" data-cell="${i}">
+          <div class="camera-header">
+            <select class="camera-select" data-cell-select="${i}">
+              ${optionsHtml}
+            </select>
+          </div>
+          <div class="camera-video-container">
+            <div class="camera-placeholder">Select a camera</div>
+          </div>
+        </div>
+      `;
+    }
+
+    grid.innerHTML = html;
+
+    // Set selected values and start videos
+    for(let i = 0; i < totalCells; i++){
+      const select = document.querySelector(`[data-cell-select="${i}"]`);
+      const selectedId = selections[i] || '';
+      if(select && selectedId){
+        select.value = selectedId;
+        const camera = cameras.find(c => c.id === selectedId);
+        if(camera){
+          startVideo(i, camera);
+        }
+      }
+    }
+
+    // Add change listeners
+    document.querySelectorAll('.camera-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const cellIndex = parseInt(e.target.dataset.cellSelect, 10);
+        const cameraId = e.target.value;
+
+        if(cameraId){
+          selections[cellIndex] = cameraId;
+          const camera = cameras.find(c => c.id === cameraId);
+          startVideo(cellIndex, camera);
+        } else {
+          delete selections[cellIndex];
+          destroyPlayer(cellIndex);
+          const container = document.querySelector(`[data-cell="${cellIndex}"] .camera-video-container`);
+          if(container){
+            container.innerHTML = '<div class="camera-placeholder">Select a camera</div>';
+          }
+        }
+
+        saveConfig();
+      });
+    });
+  }
+
+  // Update grid input values
+  function updateGridInputs(){
+    document.getElementById('grid-cols').value = gridCols;
+    document.getElementById('grid-rows').value = gridRows;
+  }
+
+  // Initialize
+  async function init(){
+    loadConfig();
+    updateGridInputs();
+
+    // Grid dimension input handlers
+    const colsInput = document.getElementById('grid-cols');
+    const rowsInput = document.getElementById('grid-rows');
+
+    function handleGridChange(){
+      const newCols = Math.max(1, Math.min(8, parseInt(colsInput.value, 10) || 1));
+      const newRows = Math.max(1, Math.min(8, parseInt(rowsInput.value, 10) || 1));
+      if(newCols !== gridCols || newRows !== gridRows){
+        gridCols = newCols;
+        gridRows = newRows;
+        updateGridInputs();
+        saveConfig();
+        renderGrid();
+      }
+    }
+
+    colsInput.addEventListener('change', handleGridChange);
+    rowsInput.addEventListener('change', handleGridChange);
+
+    // Fetch cameras and render
+    await fetchCameras();
+    renderGrid();
+
+    // Refresh camera list every 5 minutes
+    setInterval(async () => {
+      await fetchCameras();
+      // Update dropdowns without disrupting current selections
+      const optionsHtml = createCameraOptions();
+      document.querySelectorAll('.camera-select').forEach(select => {
+        const currentValue = select.value;
+        select.innerHTML = optionsHtml;
+        select.value = currentValue;
+      });
+    }, 300000);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

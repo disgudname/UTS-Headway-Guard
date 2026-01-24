@@ -1318,6 +1318,7 @@ REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
 HEADWAY_HTML = _load_html("headway.html")
 HEADWAY_DIAGNOSTICS_HTML = _load_html("headway_diagnostics.html")
 OFFLINE_HTML = _load_html("offline.html")
+VDOT_CAMS_HTML = _load_html("vdot-cams.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -10375,6 +10376,10 @@ async def radar_page():
 @app.get("/eink-block")
 async def eink_block_page():
     return HTMLResponse(EINK_BLOCK_HTML)
+
+@app.get("/vdot-cams")
+async def vdot_cams_page():
+    return HTMLResponse(VDOT_CAMS_HTML)
 
 # ---------------------------
 # TEST MAP PAGE
