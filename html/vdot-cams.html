@@ -7,6 +7,8 @@
 <title>VDOT 511 Camera Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   @font-face{font-family:'FGDC';src:url('/fonts/FGDC.ttf') format('truetype');font-weight:normal;font-style:normal;}
   :root{--bg:#232D4B;--bg-dark:#1A2140;--ink:#FFFFFF;--muted:#9fb0c9;--accent:#E57200;--panel:rgba(26,33,64,0.72);--panel-border:rgba(229,114,0,0.4);}
@@ -24,20 +26,42 @@
   .back-link:hover{color:var(--ink);}
   .camera-grid{flex:1;display:grid;gap:8px;padding:8px;overflow:auto;}
   .camera-cell{background:var(--panel);border:1px solid var(--panel-border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;min-height:0;}
-  .camera-header{display:flex;align-items:center;padding:8px 12px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.1);}
-  .camera-select{flex:1;background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:6px 10px;color:var(--ink);font:inherit;font-size:13px;cursor:pointer;}
-  .camera-select:focus{outline:none;border-color:var(--accent);}
-  .camera-select option{background:#1A2140;color:var(--ink);}
+  .camera-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.1);}
+  .camera-name{flex:1;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .camera-name.has-camera{color:var(--ink);}
+  .camera-btn{background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:4px 10px;color:var(--ink);font:inherit;font-size:12px;cursor:pointer;transition:background 0.2s,border-color 0.2s;white-space:nowrap;}
+  .camera-btn:hover{background:rgba(229,114,0,0.18);border-color:rgba(229,114,0,0.7);}
+  .camera-btn.clear{padding:4px 8px;color:var(--muted);}
+  .camera-btn.clear:hover{color:#fca5a5;}
   .camera-video-container{flex:1;display:flex;align-items:center;justify-content:center;background:#000;position:relative;min-height:0;}
   .camera-video{width:100%;height:100%;object-fit:contain;}
   .camera-placeholder{color:var(--muted);font-size:14px;text-align:center;padding:20px;}
   .camera-error{color:#fca5a5;font-size:13px;text-align:center;padding:20px;}
   .camera-loading{color:var(--muted);font-size:13px;}
   .status-bar{padding:8px 24px;background:var(--panel);border-top:1px solid var(--panel-border);font-size:13px;color:var(--muted);display:flex;justify-content:space-between;}
+
+  /* Map Modal */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:1000;}
+  .modal-overlay.active{display:flex;}
+  .modal{background:var(--bg-dark);border:1px solid var(--panel-border);border-radius:16px;width:90vw;height:85vh;max-width:1200px;display:flex;flex-direction:column;overflow:hidden;}
+  .modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:var(--panel);border-bottom:1px solid var(--panel-border);}
+  .modal-title{font-size:18px;letter-spacing:0.03em;}
+  .modal-close{background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;padding:4px 8px;line-height:1;}
+  .modal-close:hover{color:var(--ink);}
+  .modal-body{flex:1;position:relative;}
+  #picker-map{width:100%;height:100%;}
+  .modal-footer{padding:12px 20px;background:var(--panel);border-top:1px solid var(--panel-border);display:flex;justify-content:space-between;align-items:center;}
+  .modal-hint{font-size:13px;color:var(--muted);}
+  .modal-actions{display:flex;gap:10px;}
+  .modal-btn{background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:8px;padding:8px 16px;color:var(--ink);font:inherit;font-size:14px;cursor:pointer;transition:background 0.2s,border-color 0.2s;}
+  .modal-btn:hover{background:rgba(229,114,0,0.18);border-color:rgba(229,114,0,0.7);}
+  .modal-btn.primary{background:rgba(229,114,0,0.3);border-color:var(--accent);}
+
   @media(max-width:768px){
     header{flex-direction:column;gap:12px;padding:12px 16px;}
     .controls{flex-wrap:wrap;justify-content:center;}
     .camera-grid{gap:6px;padding:6px;}
+    .modal{width:95vw;height:90vh;}
   }
 </style>
 </head>
@@ -62,16 +86,41 @@
   <span id="last-update"></span>
 </div>
 
+<!-- Map Picker Modal -->
+<div class="modal-overlay" id="map-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Select Camera</div>
+      <button class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="picker-map"></div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-hint">Click a camera marker to select it</div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="modal-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   const STORAGE_KEY = 'vdot_cams_config';
   const VDOT_API = 'https://511.vdot.virginia.gov/services/map/layers/map/cams';
 
   let cameras = [];
+  let camerasByCoord = {};
   let gridCols = 4;
   let gridRows = 4;
   let selections = {};
   let hlsPlayers = {};
+
+  // Map picker state
+  let pickerMap = null;
+  let pickerMarkers = null;
+  let activeCellIndex = null;
 
   // Load saved config
   function loadConfig(){
@@ -104,7 +153,7 @@
       if(!resp.ok) throw new Error('Failed to fetch cameras');
       const data = await resp.json();
       cameras = (data.features || [])
-        .filter(f => f.properties && f.properties.active !== false)
+        .filter(f => f.properties && f.properties.active !== false && f.geometry && f.geometry.coordinates)
         .map(f => ({
           id: f.properties.id,
           name: f.properties.name,
@@ -112,14 +161,15 @@
           route: f.properties.route,
           jurisdiction: f.properties.jurisdiction,
           https_url: f.properties.https_url,
-          image_url: f.properties.image_url
+          image_url: f.properties.image_url,
+          lat: parseFloat(f.geometry.coordinates[1]),
+          lng: parseFloat(f.geometry.coordinates[0])
         }))
-        .sort((a, b) => {
-          // Sort by route then description
-          const routeCompare = (a.route || '').localeCompare(b.route || '');
-          if(routeCompare !== 0) return routeCompare;
-          return (a.description || '').localeCompare(b.description || '');
-        });
+        .filter(c => !isNaN(c.lat) && !isNaN(c.lng));
+
+      // Build lookup by id
+      camerasByCoord = {};
+      cameras.forEach(c => { camerasByCoord[c.id] = c; });
 
       document.getElementById('camera-count').textContent = `${cameras.length} cameras available`;
       document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
@@ -129,32 +179,6 @@
       console.error('Error fetching cameras:', err);
       return [];
     }
-  }
-
-  // Create dropdown options
-  function createCameraOptions(){
-    let html = '<option value="">-- Select Camera --</option>';
-
-    // Group by route
-    const byRoute = {};
-    cameras.forEach(cam => {
-      const route = cam.route || 'Other';
-      if(!byRoute[route]) byRoute[route] = [];
-      byRoute[route].push(cam);
-    });
-
-    // Sort routes
-    const routes = Object.keys(byRoute).sort();
-
-    routes.forEach(route => {
-      html += `<optgroup label="${route}">`;
-      byRoute[route].forEach(cam => {
-        html += `<option value="${cam.id}">${cam.description}</option>`;
-      });
-      html += '</optgroup>';
-    });
-
-    return html;
   }
 
   // Destroy HLS player for a cell
@@ -173,7 +197,7 @@
     destroyPlayer(cellIndex);
 
     if(!camera || !camera.https_url){
-      container.innerHTML = '<div class="camera-placeholder">Select a camera</div>';
+      container.innerHTML = '<div class="camera-placeholder">Click "Select" to choose a camera</div>';
       return;
     }
 
@@ -225,6 +249,43 @@
     }
   }
 
+  // Update cell header to show camera name
+  function updateCellHeader(cellIndex, camera){
+    const nameEl = document.querySelector(`[data-cell="${cellIndex}"] .camera-name`);
+    const clearBtn = document.querySelector(`[data-cell="${cellIndex}"] .camera-btn.clear`);
+    if(nameEl){
+      if(camera){
+        nameEl.textContent = camera.description;
+        nameEl.classList.add('has-camera');
+      } else {
+        nameEl.textContent = 'No camera selected';
+        nameEl.classList.remove('has-camera');
+      }
+    }
+    if(clearBtn){
+      clearBtn.style.display = camera ? '' : 'none';
+    }
+  }
+
+  // Select camera for a cell
+  function selectCamera(cellIndex, cameraId){
+    if(cameraId){
+      selections[cellIndex] = cameraId;
+      const camera = camerasByCoord[cameraId];
+      updateCellHeader(cellIndex, camera);
+      startVideo(cellIndex, camera);
+    } else {
+      delete selections[cellIndex];
+      updateCellHeader(cellIndex, null);
+      destroyPlayer(cellIndex);
+      const container = document.querySelector(`[data-cell="${cellIndex}"] .camera-video-container`);
+      if(container){
+        container.innerHTML = '<div class="camera-placeholder">Click "Select" to choose a camera</div>';
+      }
+    }
+    saveConfig();
+  }
+
   // Render the grid
   function renderGrid(){
     const grid = document.getElementById('camera-grid');
@@ -237,20 +298,23 @@
     grid.style.gridTemplateColumns = `repeat(${gridCols}, 1fr)`;
     grid.style.gridTemplateRows = `repeat(${gridRows}, 1fr)`;
 
-    const optionsHtml = createCameraOptions();
-
     let html = '';
     for(let i = 0; i < totalCells; i++){
       const selectedId = selections[i] || '';
+      const camera = selectedId ? camerasByCoord[selectedId] : null;
+      const cameraName = camera ? camera.description : 'No camera selected';
+      const hasCamera = camera ? 'has-camera' : '';
+      const clearDisplay = camera ? '' : 'style="display:none"';
+
       html += `
         <div class="camera-cell" data-cell="${i}">
           <div class="camera-header">
-            <select class="camera-select" data-cell-select="${i}">
-              ${optionsHtml}
-            </select>
+            <span class="camera-name ${hasCamera}">${cameraName}</span>
+            <button class="camera-btn clear" data-clear="${i}" ${clearDisplay} title="Clear">X</button>
+            <button class="camera-btn" data-pick="${i}">Select</button>
           </div>
           <div class="camera-video-container">
-            <div class="camera-placeholder">Select a camera</div>
+            <div class="camera-placeholder">Click "Select" to choose a camera</div>
           </div>
         </div>
       `;
@@ -258,41 +322,101 @@
 
     grid.innerHTML = html;
 
-    // Set selected values and start videos
+    // Start videos for selected cameras
     for(let i = 0; i < totalCells; i++){
-      const select = document.querySelector(`[data-cell-select="${i}"]`);
-      const selectedId = selections[i] || '';
-      if(select && selectedId){
-        select.value = selectedId;
-        const camera = cameras.find(c => c.id === selectedId);
+      const selectedId = selections[i];
+      if(selectedId){
+        const camera = camerasByCoord[selectedId];
         if(camera){
           startVideo(i, camera);
         }
       }
     }
 
-    // Add change listeners
-    document.querySelectorAll('.camera-select').forEach(select => {
-      select.addEventListener('change', (e) => {
-        const cellIndex = parseInt(e.target.dataset.cellSelect, 10);
-        const cameraId = e.target.value;
-
-        if(cameraId){
-          selections[cellIndex] = cameraId;
-          const camera = cameras.find(c => c.id === cameraId);
-          startVideo(cellIndex, camera);
-        } else {
-          delete selections[cellIndex];
-          destroyPlayer(cellIndex);
-          const container = document.querySelector(`[data-cell="${cellIndex}"] .camera-video-container`);
-          if(container){
-            container.innerHTML = '<div class="camera-placeholder">Select a camera</div>';
-          }
-        }
-
-        saveConfig();
+    // Add click listeners for select buttons
+    document.querySelectorAll('[data-pick]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const cellIndex = parseInt(e.target.dataset.pick, 10);
+        openMapPicker(cellIndex);
       });
     });
+
+    // Add click listeners for clear buttons
+    document.querySelectorAll('[data-clear]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const cellIndex = parseInt(e.target.dataset.clear, 10);
+        selectCamera(cellIndex, null);
+      });
+    });
+  }
+
+  // Initialize map picker
+  function initMapPicker(){
+    pickerMap = L.map('picker-map').setView([37.5, -78.8], 7);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(pickerMap);
+
+    pickerMarkers = L.layerGroup().addTo(pickerMap);
+  }
+
+  // Open map picker for a cell
+  function openMapPicker(cellIndex){
+    activeCellIndex = cellIndex;
+    const modal = document.getElementById('map-modal');
+    modal.classList.add('active');
+
+    // Clear and add markers
+    pickerMarkers.clearLayers();
+
+    cameras.forEach(cam => {
+      const marker = L.circleMarker([cam.lat, cam.lng], {
+        radius: 6,
+        fillColor: '#E57200',
+        color: '#fff',
+        weight: 1,
+        opacity: 1,
+        fillOpacity: 0.8
+      });
+
+      marker.bindTooltip(cam.description, {
+        direction: 'top',
+        offset: [0, -8]
+      });
+
+      marker.on('click', () => {
+        selectCamera(activeCellIndex, cam.id);
+        closeMapPicker();
+      });
+
+      pickerMarkers.addLayer(marker);
+    });
+
+    // Invalidate size after modal is visible
+    setTimeout(() => {
+      pickerMap.invalidateSize();
+
+      // If there's a currently selected camera, center on it
+      const currentId = selections[cellIndex];
+      if(currentId && camerasByCoord[currentId]){
+        const cam = camerasByCoord[currentId];
+        pickerMap.setView([cam.lat, cam.lng], 12);
+      } else {
+        // Fit bounds to all cameras
+        if(cameras.length > 0){
+          const bounds = L.latLngBounds(cameras.map(c => [c.lat, c.lng]));
+          pickerMap.fitBounds(bounds, { padding: [20, 20] });
+        }
+      }
+    }, 100);
+  }
+
+  // Close map picker
+  function closeMapPicker(){
+    const modal = document.getElementById('map-modal');
+    modal.classList.remove('active');
+    activeCellIndex = null;
   }
 
   // Update grid input values
@@ -325,6 +449,16 @@
     colsInput.addEventListener('change', handleGridChange);
     rowsInput.addEventListener('change', handleGridChange);
 
+    // Modal close handlers
+    document.getElementById('modal-close').addEventListener('click', closeMapPicker);
+    document.getElementById('modal-cancel').addEventListener('click', closeMapPicker);
+    document.getElementById('map-modal').addEventListener('click', (e) => {
+      if(e.target.id === 'map-modal') closeMapPicker();
+    });
+
+    // Initialize map
+    initMapPicker();
+
     // Fetch cameras and render
     await fetchCameras();
     renderGrid();
@@ -332,13 +466,6 @@
     // Refresh camera list every 5 minutes
     setInterval(async () => {
       await fetchCameras();
-      // Update dropdowns without disrupting current selections
-      const optionsHtml = createCameraOptions();
-      document.querySelectorAll('.camera-select').forEach(select => {
-        const currentValue = select.value;
-        select.innerHTML = optionsHtml;
-        select.value = currentValue;
-      });
     }, 300000);
   }
 
