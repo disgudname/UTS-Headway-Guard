@@ -10512,11 +10512,12 @@ async def tndot_cameras():
     import re
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.tdot.tn.gov/",
-        "Origin": "https://www.tdot.tn.gov"
+        "Referer": "https://smartway.tn.gov/",
+        "Origin": "https://smartway.tn.gov",
+        "ApiKey": "8d3b7a82635d476795c09b2c41facc60"
     }
 
     try:

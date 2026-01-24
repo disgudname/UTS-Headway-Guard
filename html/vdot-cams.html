@@ -147,7 +147,7 @@
   const VA_API = 'https://511.vdot.virginia.gov/services/map/layers/map/cams';
   const WV_API = '/api/wv511/cameras';
   const MD_API = '/api/mdchart/cameras';
-  const TN_API = 'https://www.tdot.tn.gov/opendata/api/public/RoadwayCameras';
+  const TN_API = '/api/tndot/cameras';
 
   // State configurations
   const STATES = {
@@ -265,27 +265,11 @@
     try {
       const resp = await fetch(TN_API);
       if(!resp.ok) throw new Error('Failed to fetch TN cameras');
-      const rawCameras = await resp.json();
-
-      camerasByState.TN = (Array.isArray(rawCameras) ? rawCameras : [])
-        .filter(c => c.active === "true" && c.lat && c.lng && c.httpsVideoUrl)
-        .map(c => {
-          // Extract server and path from stream URL for proxy
-          let proxyUrl = c.httpsVideoUrl;
-          const match = c.httpsVideoUrl.match(/https:\/\/([^:]+):443\/rtplive\/(.+)$/);
-          if(match){
-            proxyUrl = `/api/tndot/stream/${match[1]}/${match[2]}`;
-          }
-          return {
-            id: String(c.id),
-            description: c.title || c.description || String(c.id),
-            route: c.route || 'Other',
-            lat: c.lat,
-            lng: c.lng,
-            https_url: proxyUrl,
-            state: 'TN'
-          };
-        });
+      const data = await resp.json();
+      camerasByState.TN = (data.cameras || []).map(c => ({
+        ...c,
+        state: 'TN'
+      }));
 
       camerasByState.TN.forEach(c => { camerasById[`TN:${c.id}`] = c; });
       return camerasByState.TN;
