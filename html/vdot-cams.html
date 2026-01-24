@@ -29,7 +29,7 @@
   .camera-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.1);}
   .camera-name{flex:1;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .camera-name.has-camera{color:var(--ink);}
-  .camera-state-badge{font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(99,102,241,0.3);color:#a5b4fc;}
+  .camera-state-badge{font-size:11px;padding:3px 8px;border-radius:4px;background:rgba(229,114,0,0.4);color:#fff;font-weight:bold;letter-spacing:0.05em;}
   .camera-btn{background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:4px 10px;color:var(--ink);font:inherit;font-size:12px;cursor:pointer;transition:background 0.2s,border-color 0.2s;white-space:nowrap;}
   .camera-btn:hover{background:rgba(229,114,0,0.18);border-color:rgba(229,114,0,0.7);}
   .camera-btn.clear{padding:4px 8px;color:var(--muted);}
@@ -380,8 +380,8 @@
       html += `
         <div class="camera-cell" data-cell="${i}">
           <div class="camera-header">
-            <span class="camera-name ${hasCamera}">${cameraName}</span>
             <span class="camera-state-badge" ${badgeDisplay}>${badgeText}</span>
+            <span class="camera-name ${hasCamera}">${cameraName}</span>
             <button class="camera-btn clear" data-clear="${i}" ${clearDisplay} title="Clear">X</button>
             <button class="camera-btn" data-pick="${i}">Select</button>
           </div>
