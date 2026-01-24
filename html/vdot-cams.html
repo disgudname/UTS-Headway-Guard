@@ -116,6 +116,7 @@
         <option value="VA">Virginia (VDOT 511)</option>
         <option value="MD">Maryland (CHART)</option>
         <option value="TN">Tennessee (TDOT)</option>
+        <option value="AR">Arkansas (IDrive)</option>
         <option value="WV">West Virginia (WV511)</option>
       </select>
     </div>
@@ -148,16 +149,18 @@
   const WV_API = '/api/wv511/cameras';
   const MD_API = '/api/mdchart/cameras';
   const TN_API = '/api/tndot/cameras';
+  const AR_API = '/api/ardot/cameras';
 
   // State configurations
   const STATES = {
     VA: { name: 'Virginia', hasCoords: true, api: VA_API },
     MD: { name: 'Maryland', hasCoords: true, api: MD_API },
     TN: { name: 'Tennessee', hasCoords: true, api: TN_API },
+    AR: { name: 'Arkansas', hasCoords: true, api: AR_API },
     WV: { name: 'West Virginia', hasCoords: false, api: WV_API }
   };
 
-  let camerasByState = { VA: [], MD: [], TN: [], WV: [] };
+  let camerasByState = { VA: [], MD: [], TN: [], AR: [], WV: [] };
   let camerasById = {};
   let gridCols = 4;
   let gridRows = 4;
@@ -279,11 +282,30 @@
     }
   }
 
+  // Fetch AR cameras
+  async function fetchARCameras(){
+    try {
+      const resp = await fetch(AR_API);
+      if(!resp.ok) throw new Error('Failed to fetch AR cameras');
+      const data = await resp.json();
+      camerasByState.AR = (data.cameras || []).map(c => ({
+        ...c,
+        state: 'AR'
+      }));
+
+      camerasByState.AR.forEach(c => { camerasById[`AR:${c.id}`] = c; });
+      return camerasByState.AR;
+    } catch(err){
+      console.error('Error fetching AR cameras:', err);
+      return [];
+    }
+  }
+
   // Fetch all cameras
   async function fetchAllCameras(){
-    const [va, md, tn, wv] = await Promise.all([fetchVACameras(), fetchMDCameras(), fetchTNCameras(), fetchWVCameras()]);
-    const totalCount = va.length + md.length + tn.length + wv.length;
-    document.getElementById('camera-count').textContent = `${totalCount} cameras (VA: ${va.length}, MD: ${md.length}, TN: ${tn.length}, WV: ${wv.length})`;
+    const [va, md, tn, ar, wv] = await Promise.all([fetchVACameras(), fetchMDCameras(), fetchTNCameras(), fetchARCameras(), fetchWVCameras()]);
+    const totalCount = va.length + md.length + tn.length + ar.length + wv.length;
+    document.getElementById('camera-count').textContent = `${totalCount} cameras (VA: ${va.length}, MD: ${md.length}, TN: ${tn.length}, AR: ${ar.length}, WV: ${wv.length})`;
     document.getElementById('last-update').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
   }
 
@@ -488,7 +510,7 @@
     } else {
       mapPicker.classList.remove('active');
       dropdownPicker.classList.add('active');
-      hint.textContent = 'Select a camera from the dropdown';
+      hint.textContent = 'This state doesn\'t share camera locations, so no map view - pick from the list instead';
       selectBtn.style.display = '';
       populateDropdown();
     }

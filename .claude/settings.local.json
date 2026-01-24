@@ -14,7 +14,8 @@
       "Bash(pip install:*)",
       "Bash(del \"C:\\\\Users\\\\Pat Cox\\\\Documents\\\\GitHub\\\\UTS-Headway-Guard\\\\nul\")",
       "Bash(cd:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(curl:*)"
     ]
   }
 }

@@ -10564,6 +10564,138 @@ async def tndot_cameras():
         return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
 
 
+@app.get("/api/ardot/cameras")
+async def ardot_cameras():
+    """Fetch Arkansas DOT camera data from IDriveArkansas GeoJSON feed."""
+    import re
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+        "Accept": "application/json, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.idrivearkansas.com/",
+        "Origin": "https://www.idrivearkansas.com"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://layers.idrivearkansas.com/cameras.geojson",
+                headers=headers
+            )
+            resp.raise_for_status()
+            geojson = resp.json()
+
+        cameras = []
+        for feature in geojson.get("features", []):
+            props = feature.get("properties", {})
+            geom = feature.get("geometry", {})
+
+            cam_id = props.get("id")
+            status = props.get("status", "")
+            hls_url = props.get("hls_stream_protected", "")
+            coords = geom.get("coordinates", [])
+
+            # Skip cameras that are offline or have no stream/coords
+            if status != "online" or not hls_url or len(coords) < 2:
+                continue
+
+            lng, lat = coords[0], coords[1]
+
+            # Build description from name and route info
+            name = props.get("name", "").strip()
+            route = props.get("route", "")
+            route_type = props.get("route_type_abbr", "")
+            description = name or f"Camera {cam_id}"
+
+            # Route label (e.g., "Interstate 555" or "US 67")
+            route_label = f"{route_type} {route}".strip() if route else "Other"
+
+            # Create proxy URL for the stream
+            # hls_url format: https://actis.idrivearkansas.com/index.php/api/cameras/feed/727.m3u8
+            match = re.match(r'https://([^/]+)/(.+)$', hls_url)
+            if match:
+                server = match.group(1)
+                path = match.group(2)
+                proxy_url = f"/api/ardot/stream/{server}/{path}"
+            else:
+                proxy_url = hls_url
+
+            cameras.append({
+                "id": str(cam_id),
+                "description": description,
+                "route": route_label,
+                "lat": float(lat),
+                "lng": float(lng),
+                "https_url": proxy_url
+            })
+
+        return {"cameras": cameras, "count": len(cameras)}
+    except Exception as e:
+        import traceback
+        return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
+
+
+@app.get("/api/ardot/stream/{stream_path:path}")
+async def ardot_stream_proxy(stream_path: str):
+    """Proxy Arkansas DOT camera HLS streams to avoid CORS issues."""
+    import re
+
+    # stream_path format: "actis.idrivearkansas.com/index.php/api/cameras/feed/727.m3u8"
+    parts = stream_path.split("/", 1)
+    if len(parts) < 2:
+        return Response(status_code=400, content="Invalid stream path")
+
+    server = parts[0]
+    path = parts[1]
+
+    # Validate server format
+    if not re.match(r'^[a-z0-9.-]+\.idrivearkansas\.com$', server):
+        return Response(status_code=400, content="Invalid server")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://www.idrivearkansas.com/",
+        "Origin": "https://www.idrivearkansas.com"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(f"https://{server}/{path}", headers=headers)
+
+            if resp.status_code != 200:
+                return Response(status_code=resp.status_code, content=resp.content)
+
+            content = resp.content
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+
+            # If it's a playlist, rewrite URLs to go through our proxy
+            if stream_path.endswith(".m3u8"):
+                text = content.decode("utf-8")
+                lines = []
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        # Handle relative URLs
+                        if not line.startswith("http"):
+                            # Build absolute path relative to current path
+                            base_path = "/".join(path.split("/")[:-1])
+                            full_path = f"{base_path}/{line}" if base_path else line
+                            line = f"/api/ardot/stream/{server}/{full_path}"
+                        else:
+                            # Absolute URL - extract and proxy
+                            match = re.match(r'https://([^/]+)/(.+)$', line)
+                            if match:
+                                line = f"/api/ardot/stream/{match.group(1)}/{match.group(2)}"
+                    lines.append(line)
+                content = "\n".join(lines).encode("utf-8")
+                content_type = "application/vnd.apple.mpegurl"
+
+            return Response(content=content, media_type=content_type)
+    except Exception as e:
+        return Response(status_code=502, content=f"Upstream error: {e}")
+
+
 @app.get("/api/mdchart/stream/{stream_path:path}")
 async def mdchart_stream_proxy(stream_path: str):
     """Proxy Maryland CHART camera HLS streams to avoid CORS issues."""
