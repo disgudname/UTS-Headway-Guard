@@ -10638,10 +10638,14 @@ async def ardot_cameras():
 
 @app.get("/api/ardot/stream/{stream_path:path}")
 async def ardot_stream_proxy(stream_path: str):
-    """Proxy Arkansas DOT camera HLS streams to avoid CORS issues."""
+    """Proxy Arkansas DOT camera HLS streams to avoid CORS issues.
+
+    Arkansas streams use a redirect flow:
+    1. actis.idrivearkansas.com returns HTML with meta-refresh to CDN
+    2. CDN (7212406.r.worldssl.net) serves actual HLS content with token
+    """
     import re
 
-    # stream_path format: "actis.idrivearkansas.com/index.php/api/cameras/feed/727.m3u8"
     parts = stream_path.split("/", 1)
     if len(parts) < 2:
         return Response(status_code=400, content="Invalid stream path")
@@ -10649,19 +10653,48 @@ async def ardot_stream_proxy(stream_path: str):
     server = parts[0]
     path = parts[1]
 
-    # Validate server format
-    if not re.match(r'^[a-z0-9.-]+\.idrivearkansas\.com$', server):
+    # Validate server format - allow idrivearkansas.com and worldssl.net CDN
+    if not re.match(r'^[a-z0-9.-]+\.(idrivearkansas\.com|worldssl\.net)$', server):
         return Response(status_code=400, content="Invalid server")
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://www.idrivearkansas.com/",
-        "Origin": "https://www.idrivearkansas.com"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://idrivearkansas.com",
+        "Referer": "https://idrivearkansas.com/",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "cross-site"
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
             resp = await client.get(f"https://{server}/{path}", headers=headers)
+
+            # Check if this is a redirect (actis returns 302 to CDN)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                location = resp.headers.get("location", "")
+                if location:
+                    cdn_match = re.match(r'https://([^/]+)/(.+)$', location)
+                    if cdn_match:
+                        server = cdn_match.group(1)
+                        path = cdn_match.group(2)
+                        resp = await client.get(location, headers=headers)
+
+            # Also check for HTML meta refresh (backup)
+            elif "text/html" in resp.headers.get("content-type", ""):
+                html = resp.text
+                match = re.search(r'url=(https://[^"\'>\s]+)', html)
+                if not match:
+                    match = re.search(r'href="(https://[^"]+)"', html)
+                if match:
+                    cdn_url = match.group(1)
+                    cdn_match = re.match(r'https://([^/]+)/(.+)$', cdn_url)
+                    if cdn_match:
+                        server = cdn_match.group(1)
+                        path = cdn_match.group(2)
+                        resp = await client.get(cdn_url, headers=headers)
 
             if resp.status_code != 200:
                 return Response(status_code=resp.status_code, content=resp.content)
@@ -10670,13 +10703,13 @@ async def ardot_stream_proxy(stream_path: str):
             content_type = resp.headers.get("content-type", "application/octet-stream")
 
             # If it's a playlist, rewrite URLs to go through our proxy
-            if stream_path.endswith(".m3u8"):
+            if ".m3u8" in stream_path or "mpegurl" in content_type.lower():
                 text = content.decode("utf-8")
                 lines = []
                 for line in text.split("\n"):
                     line = line.strip()
                     if line and not line.startswith("#"):
-                        # Handle relative URLs
+                        # Handle relative URLs (chunklist with token)
                         if not line.startswith("http"):
                             # Build absolute path relative to current path
                             base_path = "/".join(path.split("/")[:-1])
@@ -10693,7 +10726,8 @@ async def ardot_stream_proxy(stream_path: str):
 
             return Response(content=content, media_type=content_type)
     except Exception as e:
-        return Response(status_code=502, content=f"Upstream error: {e}")
+        import traceback
+        return Response(status_code=502, content=f"Upstream error: {e}\n{traceback.format_exc()}")
 
 
 @app.get("/api/mdchart/stream/{stream_path:path}")
