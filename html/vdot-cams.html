@@ -97,7 +97,7 @@
       <div id="picker-map"></div>
     </div>
     <div class="modal-footer">
-      <div class="modal-hint">Click a camera marker to select it</div>
+      <div class="modal-hint">Click to select. <span style="color:#E57200">Orange</span> = available, <span style="color:#6366f1">Purple</span> = in use, <span style="color:#22c55e">Green</span> = current</div>
       <div class="modal-actions">
         <button class="modal-btn" id="modal-cancel">Cancel</button>
       </div>
@@ -367,20 +367,35 @@
     const modal = document.getElementById('map-modal');
     modal.classList.add('active');
 
+    // Build set of already-selected camera IDs (excluding current cell)
+    const usedCameraIds = new Set();
+    Object.entries(selections).forEach(([idx, camId]) => {
+      if(parseInt(idx, 10) !== cellIndex && camId){
+        usedCameraIds.add(camId);
+      }
+    });
+
     // Clear and add markers
     pickerMarkers.clearLayers();
 
     cameras.forEach(cam => {
+      const isUsed = usedCameraIds.has(cam.id);
+      const isCurrentSelection = selections[cellIndex] === cam.id;
+
       const marker = L.circleMarker([cam.lat, cam.lng], {
-        radius: 6,
-        fillColor: '#E57200',
+        radius: isUsed ? 8 : 6,
+        fillColor: isCurrentSelection ? '#22c55e' : (isUsed ? '#6366f1' : '#E57200'),
         color: '#fff',
-        weight: 1,
+        weight: isUsed ? 2 : 1,
         opacity: 1,
-        fillOpacity: 0.8
+        fillOpacity: isUsed ? 0.9 : 0.8
       });
 
-      marker.bindTooltip(cam.description, {
+      const label = isCurrentSelection
+        ? `${cam.description} (current)`
+        : (isUsed ? `${cam.description} (in use)` : cam.description);
+
+      marker.bindTooltip(label, {
         direction: 'top',
         offset: [0, -8]
       });
