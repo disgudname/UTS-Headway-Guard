@@ -10527,13 +10527,19 @@ async def mdchart_cameras():
             resp.raise_for_status()
             text = resp.text
 
-        # Strip JSONP wrapper: jQuery...({...}); - note trailing semicolon
-        match = re.search(r'\((\{.*\})\);?\s*$', text, re.DOTALL)
-        if not match:
-            return {"cameras": [], "error": "Failed to parse JSONP", "debug": {"text_start": text[:100], "text_end": text[-100:]}}
-
         import json
-        data = json.loads(match.group(1))
+
+        # Handle both plain JSON and JSONP wrapper
+        text = text.strip()
+        if text.startswith('{'):
+            # Plain JSON
+            data = json.loads(text)
+        else:
+            # JSONP wrapper: jQuery...({...});
+            match = re.search(r'\((\{.*\})\);?\s*$', text, re.DOTALL)
+            if not match:
+                return {"cameras": [], "error": "Failed to parse JSONP"}
+            data = json.loads(match.group(1))
         raw_cameras = data.get("data", [])
 
         cameras = []
