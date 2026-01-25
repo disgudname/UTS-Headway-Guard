@@ -11074,13 +11074,16 @@ async def vdot_stream_proxy(stream_path: str):
     path = parts[1]
 
     # Allow VDOT-related domains and known CDN providers they use
+    # Note: server may include port (e.g., media-sfs8.vdotcameras.com:443)
     allowed_patterns = [
-        r'.*\.vdot\.virginia\.gov$',
-        r'.*\.511virginia\.org$',
-        r'^[a-z0-9-]+\.cloudfront\.net$',  # AWS CloudFront
-        r'^[a-z0-9-]+\.akamaihd\.net$',     # Akamai
-        r'^[a-z0-9-]+\.akamaized\.net$',    # Akamai
-        r'^[a-z0-9-]+\.llnwd\.net$',        # Limelight
+        r'.*\.vdot\.virginia\.gov(:\d+)?$',
+        r'.*\.511virginia\.org(:\d+)?$',
+        r'^media-sfs\d+\.vdotcameras\.com(:\d+)?$',  # VDOT camera streams
+        r'^snapshot\.vdotcameras\.com(:\d+)?$',       # VDOT snapshots
+        r'^[a-z0-9-]+\.cloudfront\.net(:\d+)?$',      # AWS CloudFront
+        r'^[a-z0-9-]+\.akamaihd\.net(:\d+)?$',        # Akamai
+        r'^[a-z0-9-]+\.akamaized\.net(:\d+)?$',       # Akamai
+        r'^[a-z0-9-]+\.llnwd\.net(:\d+)?$',           # Limelight
     ]
 
     server_allowed = any(re.match(p, server, re.IGNORECASE) for p in allowed_patterns)
