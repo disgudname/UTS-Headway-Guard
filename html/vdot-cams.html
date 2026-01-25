@@ -24,6 +24,13 @@
   .grid-x{color:var(--muted);font-size:14px;}
   .back-link{color:var(--muted);text-decoration:none;font-size:14px;transition:color 0.2s;}
   .back-link:hover{color:var(--ink);}
+  .record-btn{background:rgba(17,22,42,0.8);border:1px solid rgba(229,114,0,0.4);border-radius:6px;padding:8px 16px;color:var(--ink);font:inherit;font-size:14px;cursor:pointer;transition:background 0.2s,border-color 0.2s;display:flex;align-items:center;gap:8px;}
+  .record-btn:hover{background:rgba(229,114,0,0.18);border-color:rgba(229,114,0,0.7);}
+  .record-btn.recording{background:rgba(220,38,38,0.3);border-color:#dc2626;animation:pulse-record 1.5s ease-in-out infinite;}
+  .record-indicator{width:12px;height:12px;border-radius:50%;background:#dc2626;opacity:0;}
+  .record-btn.recording .record-indicator{opacity:1;animation:blink-record 1s ease-in-out infinite;}
+  @keyframes pulse-record{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0.4);}50%{box-shadow:0 0 0 8px rgba(220,38,38,0);}}
+  @keyframes blink-record{0%,100%{opacity:1;}50%{opacity:0.3;}}
   .camera-grid{flex:1;display:grid;gap:8px;padding:8px;overflow:auto;}
   .camera-cell{background:var(--panel);border:1px solid var(--panel-border);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;min-height:0;}
   .camera-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.1);}
@@ -92,6 +99,10 @@
       <span class="grid-x">x</span>
       <input type="number" class="grid-input" id="grid-rows" min="1" max="8" value="4">
     </div>
+    <button class="record-btn" id="record-btn">
+      <span class="record-indicator"></span>
+      <span id="record-label">Record</span>
+    </button>
     <a href="/" class="back-link">Back to Dashboard</a>
   </div>
 </header>
@@ -779,6 +790,268 @@
       }
     });
   }
+
+  // =====================
+  // Recording functionality
+  // =====================
+  let isRecording = false;
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordingCanvas = null;
+  let recordingCtx = null;
+  let recordingAnimationId = null;
+  let recordingStream = null;
+
+  function getRecordingFilename(){
+    const now = new Date();
+    const pad = (n, len = 2) => String(n).padStart(len, '0');
+    return `traffic-cams-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.webm`;
+  }
+
+  function formatTimestamp(date){
+    const pad = (n, len = 2) => String(n).padStart(len, '0');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}  ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+
+  function drawRecordingFrame(){
+    if(!isRecording || !recordingCtx) return;
+
+    const grid = document.getElementById('camera-grid');
+    const cells = grid.querySelectorAll('.camera-cell');
+    const totalCells = gridCols * gridRows;
+
+    // Canvas dimensions - use a reasonable resolution
+    const canvasWidth = recordingCanvas.width;
+    const canvasHeight = recordingCanvas.height;
+
+    // Reserve space for timestamp bar at bottom
+    const timestampBarHeight = 40;
+    const gridHeight = canvasHeight - timestampBarHeight;
+
+    // Calculate cell dimensions
+    const cellWidth = Math.floor(canvasWidth / gridCols);
+    const cellHeight = Math.floor(gridHeight / gridRows);
+
+    // Clear canvas with dark background
+    recordingCtx.fillStyle = '#1A2140';
+    recordingCtx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    // Draw each video cell
+    for(let i = 0; i < totalCells && i < cells.length; i++){
+      const col = i % gridCols;
+      const row = Math.floor(i / gridCols);
+      const x = col * cellWidth;
+      const y = row * cellHeight;
+
+      // Draw cell background
+      recordingCtx.fillStyle = '#000';
+      recordingCtx.fillRect(x, y, cellWidth, cellHeight);
+
+      // Find video element in this cell
+      const video = cells[i].querySelector('video');
+      if(video && video.readyState >= 2 && video.videoWidth > 0){
+        // Calculate aspect-fit dimensions
+        const videoAspect = video.videoWidth / video.videoHeight;
+        const cellAspect = cellWidth / cellHeight;
+
+        let drawWidth, drawHeight, drawX, drawY;
+        if(videoAspect > cellAspect){
+          // Video is wider - fit to width
+          drawWidth = cellWidth;
+          drawHeight = cellWidth / videoAspect;
+          drawX = x;
+          drawY = y + (cellHeight - drawHeight) / 2;
+        } else {
+          // Video is taller - fit to height
+          drawHeight = cellHeight;
+          drawWidth = cellHeight * videoAspect;
+          drawX = x + (cellWidth - drawWidth) / 2;
+          drawY = y;
+        }
+
+        try {
+          recordingCtx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+        } catch(e){
+          // CORS or other error - draw placeholder
+          recordingCtx.fillStyle = '#333';
+          recordingCtx.fillRect(x, y, cellWidth, cellHeight);
+        }
+
+        // Draw camera label
+        const sel = selections[i];
+        if(sel){
+          const camera = getCamera(sel.state, sel.id);
+          if(camera){
+            const label = `${camera.state}: ${camera.description}`;
+            recordingCtx.fillStyle = 'rgba(0,0,0,0.6)';
+            recordingCtx.fillRect(x, y, cellWidth, 24);
+            recordingCtx.fillStyle = '#fff';
+            recordingCtx.font = '12px sans-serif';
+            recordingCtx.fillText(label, x + 6, y + 16, cellWidth - 12);
+          }
+        }
+      } else {
+        // No video - draw placeholder
+        recordingCtx.fillStyle = '#333';
+        recordingCtx.fillRect(x, y, cellWidth, cellHeight);
+        recordingCtx.fillStyle = '#666';
+        recordingCtx.font = '14px sans-serif';
+        recordingCtx.textAlign = 'center';
+        recordingCtx.fillText('No Signal', x + cellWidth/2, y + cellHeight/2);
+        recordingCtx.textAlign = 'left';
+      }
+
+      // Draw cell border
+      recordingCtx.strokeStyle = 'rgba(229,114,0,0.4)';
+      recordingCtx.lineWidth = 1;
+      recordingCtx.strokeRect(x + 0.5, y + 0.5, cellWidth - 1, cellHeight - 1);
+    }
+
+    // Draw timestamp bar at bottom
+    recordingCtx.fillStyle = 'rgba(26,33,64,0.95)';
+    recordingCtx.fillRect(0, gridHeight, canvasWidth, timestampBarHeight);
+
+    // Draw timestamp
+    const timestamp = formatTimestamp(new Date());
+    recordingCtx.fillStyle = '#E57200';
+    recordingCtx.font = 'bold 20px sans-serif';
+    recordingCtx.textAlign = 'center';
+    recordingCtx.fillText(timestamp, canvasWidth / 2, gridHeight + 28);
+    recordingCtx.textAlign = 'left';
+
+    // Draw recording indicator
+    recordingCtx.fillStyle = '#dc2626';
+    recordingCtx.beginPath();
+    recordingCtx.arc(20, gridHeight + 20, 8, 0, Math.PI * 2);
+    recordingCtx.fill();
+    recordingCtx.fillStyle = '#fff';
+    recordingCtx.font = '14px sans-serif';
+    recordingCtx.fillText('REC', 34, gridHeight + 25);
+
+    recordingAnimationId = requestAnimationFrame(drawRecordingFrame);
+  }
+
+  function startRecording(){
+    // Create canvas for compositing
+    // Use a resolution that balances quality and performance
+    const baseWidth = 1920;
+    const baseHeight = 1080;
+
+    recordingCanvas = document.createElement('canvas');
+    recordingCanvas.width = baseWidth;
+    recordingCanvas.height = baseHeight;
+    recordingCtx = recordingCanvas.getContext('2d');
+
+    // Create stream from canvas
+    recordingStream = recordingCanvas.captureStream(30); // 30 fps
+
+    // Determine supported codec
+    const mimeTypes = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4'
+    ];
+
+    let selectedMimeType = '';
+    for(const mime of mimeTypes){
+      if(MediaRecorder.isTypeSupported(mime)){
+        selectedMimeType = mime;
+        break;
+      }
+    }
+
+    if(!selectedMimeType){
+      alert('Recording not supported in this browser');
+      return;
+    }
+
+    recordedChunks = [];
+
+    try {
+      mediaRecorder = new MediaRecorder(recordingStream, {
+        mimeType: selectedMimeType,
+        videoBitsPerSecond: 5000000 // 5 Mbps
+      });
+    } catch(e){
+      alert('Failed to create MediaRecorder: ' + e.message);
+      return;
+    }
+
+    mediaRecorder.ondataavailable = (event) => {
+      if(event.data && event.data.size > 0){
+        recordedChunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      // Create blob and download
+      const blob = new Blob(recordedChunks, { type: selectedMimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = getRecordingFilename();
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Cleanup
+      recordedChunks = [];
+    };
+
+    // Start recording
+    isRecording = true;
+    mediaRecorder.start(1000); // Collect data every second
+    drawRecordingFrame();
+
+    // Update UI
+    const btn = document.getElementById('record-btn');
+    const label = document.getElementById('record-label');
+    btn.classList.add('recording');
+    label.textContent = 'Stop';
+  }
+
+  function stopRecording(){
+    isRecording = false;
+
+    if(recordingAnimationId){
+      cancelAnimationFrame(recordingAnimationId);
+      recordingAnimationId = null;
+    }
+
+    if(mediaRecorder && mediaRecorder.state !== 'inactive'){
+      mediaRecorder.stop();
+    }
+
+    if(recordingStream){
+      recordingStream.getTracks().forEach(track => track.stop());
+      recordingStream = null;
+    }
+
+    recordingCanvas = null;
+    recordingCtx = null;
+
+    // Update UI
+    const btn = document.getElementById('record-btn');
+    const label = document.getElementById('record-label');
+    btn.classList.remove('recording');
+    label.textContent = 'Record';
+  }
+
+  function toggleRecording(){
+    if(isRecording){
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }
+
+  // Attach record button handler after DOM ready
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('record-btn').addEventListener('click', toggleRecording);
+  });
 
   init();
 })();
