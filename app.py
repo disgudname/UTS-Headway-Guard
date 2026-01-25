@@ -10990,6 +10990,155 @@ async def mdchart_cameras():
         return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
 
 
+@app.get("/api/vdot/cameras")
+async def vdot_cameras():
+    """Fetch Virginia VDOT camera data and transform URLs to use proxy."""
+    import urllib.parse
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://511.vdot.virginia.gov/services/map/layers/map/cams",
+                headers=headers
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        cameras = []
+        for feature in data.get("features", []):
+            props = feature.get("properties", {})
+            geom = feature.get("geometry", {})
+
+            if not props or props.get("active") is False:
+                continue
+            if not geom or not geom.get("coordinates"):
+                continue
+
+            cam_id = props.get("id", "")
+            https_url = props.get("https_url", "")
+
+            if not cam_id or not https_url:
+                continue
+
+            coords = geom["coordinates"]
+            try:
+                lng = float(coords[0])
+                lat = float(coords[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+
+            # Transform the https_url to use our proxy
+            # URL format: https://server/path -> /api/vdot/stream/server/path
+            parsed = urllib.parse.urlparse(https_url)
+            if parsed.scheme in ("http", "https") and parsed.netloc:
+                proxy_path = f"{parsed.netloc}{parsed.path}"
+                proxy_url = f"/api/vdot/stream/{proxy_path}"
+            else:
+                proxy_url = https_url  # Fallback, shouldn't happen
+
+            cameras.append({
+                "id": cam_id,
+                "name": props.get("name", ""),
+                "description": props.get("description") or props.get("name", ""),
+                "route": props.get("route", ""),
+                "lat": lat,
+                "lng": lng,
+                "https_url": proxy_url,
+                "original_url": https_url  # Keep for debugging
+            })
+
+        return {"cameras": cameras, "count": len(cameras)}
+    except Exception as e:
+        import traceback
+        return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
+
+
+@app.get("/api/vdot/stream/{stream_path:path}")
+async def vdot_stream_proxy(stream_path: str):
+    """Proxy Virginia VDOT camera HLS streams to avoid CORS issues."""
+    import re
+    import urllib.parse
+
+    cors_headers = {"Access-Control-Allow-Origin": "*"}
+
+    # stream_path format: "server.domain.com/path/to/playlist.m3u8"
+    parts = stream_path.split("/", 1)
+    if len(parts) < 2:
+        return Response(status_code=400, content="Invalid stream path", headers=cors_headers)
+
+    server = parts[0]
+    path = parts[1]
+
+    # Allow VDOT-related domains and known CDN providers they use
+    allowed_patterns = [
+        r'.*\.vdot\.virginia\.gov$',
+        r'.*\.511virginia\.org$',
+        r'^[a-z0-9-]+\.cloudfront\.net$',  # AWS CloudFront
+        r'^[a-z0-9-]+\.akamaihd\.net$',     # Akamai
+        r'^[a-z0-9-]+\.akamaized\.net$',    # Akamai
+        r'^[a-z0-9-]+\.llnwd\.net$',        # Limelight
+    ]
+
+    server_allowed = any(re.match(p, server, re.IGNORECASE) for p in allowed_patterns)
+    if not server_allowed:
+        return Response(status_code=400, content=f"Server not allowed: {server}", headers=cors_headers)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            upstream_url = f"https://{server}/{path}"
+            resp = await client.get(upstream_url, headers=headers)
+
+            if resp.status_code != 200:
+                return Response(status_code=resp.status_code, content=resp.content, headers=cors_headers)
+
+            content = resp.content
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+
+            # If it's a playlist, rewrite URLs to go through our proxy
+            if stream_path.endswith(".m3u8"):
+                text = content.decode("utf-8")
+                lines = []
+                # Get the base path for relative URLs
+                path_dir = "/".join(path.split("/")[:-1])
+
+                for line in text.split("\n"):
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        if line.startswith("http://") or line.startswith("https://"):
+                            # Absolute URL - parse and rewrite
+                            parsed = urllib.parse.urlparse(line)
+                            new_path = f"{parsed.netloc}{parsed.path}"
+                            line = f"/api/vdot/stream/{new_path}"
+                        elif not line.startswith("/"):
+                            # Relative URL - make it go through proxy
+                            if path_dir:
+                                line = f"/api/vdot/stream/{server}/{path_dir}/{line}"
+                            else:
+                                line = f"/api/vdot/stream/{server}/{line}"
+                    lines.append(line)
+                content = "\n".join(lines).encode("utf-8")
+                content_type = "application/vnd.apple.mpegurl"
+
+            return Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-cache"
+                }
+            )
+    except Exception as e:
+        return Response(status_code=502, content=str(e), headers=cors_headers)
+
+
 @app.get("/api/wv511/cameras")
 async def wv511_cameras():
     """Fetch and parse WV511 camera listing from all routes."""
