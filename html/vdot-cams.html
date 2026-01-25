@@ -1022,7 +1022,8 @@
         width: RECORDING_WIDTH,
         height: RECORDING_HEIGHT
       },
-      fastStart: 'in-memory' // Enables seeking by putting moov atom at start
+      fastStart: 'in-memory', // Enables seeking by putting moov atom at start
+      firstTimestampBehavior: 'offset' // Auto-offset timestamps so first frame is 0
     });
 
     // Create video encoder
