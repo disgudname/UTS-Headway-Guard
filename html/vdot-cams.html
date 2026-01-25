@@ -802,13 +802,15 @@
   let videoEncoder = null;
   let muxer = null;
   let recordingStartTime = 0;
-  let frameCount = 0;
+  let lastFrameTime = 0;
+  let lastKeyframeSec = -1;
+  let isFirstFrame = true;
   let encoderReady = false;
 
   const RECORDING_WIDTH = 1920;
   const RECORDING_HEIGHT = 1080;
   const RECORDING_FPS = 30;
-  const FRAME_DURATION_US = Math.round(1000000 / RECORDING_FPS); // microseconds per frame
+  const FRAME_INTERVAL_MS = 1000 / RECORDING_FPS; // ~33.33ms between frames
 
   function getRecordingFilename(){
     const now = new Date();
@@ -933,22 +935,39 @@
     recordingCtx.fillText('REC', 34, gridHeight + 25);
   }
 
-  function encodeFrame(){
-    if(!isRecording || !videoEncoder || !encoderReady) return;
+  function encodeFrame(now){
+    if(!isRecording || !videoEncoder || !encoderReady){
+      recordingAnimationId = requestAnimationFrame(encodeFrame);
+      return;
+    }
+
+    // Throttle to target framerate
+    const elapsed = now - lastFrameTime;
+    if(elapsed < FRAME_INTERVAL_MS){
+      recordingAnimationId = requestAnimationFrame(encodeFrame);
+      return;
+    }
+    lastFrameTime = now - (elapsed % FRAME_INTERVAL_MS); // Account for overshoot
 
     drawFrame();
 
+    // Use actual elapsed time since recording started for timestamp
+    const timestampUs = Math.round((now - recordingStartTime) * 1000); // ms to microseconds
+
     // Create VideoFrame from canvas
     const frame = new VideoFrame(recordingCanvas, {
-      timestamp: frameCount * FRAME_DURATION_US
+      timestamp: timestampUs
     });
 
-    // Encode - keyframe every 2 seconds (60 frames at 30fps)
-    const keyFrame = frameCount % 60 === 0;
-    videoEncoder.encode(frame, { keyFrame });
+    // Encode - keyframe on first frame and every 2 seconds
+    const elapsedSec = Math.floor((now - recordingStartTime) / 2000); // 2-second intervals
+    const needsKeyframe = isFirstFrame || elapsedSec !== lastKeyframeSec;
+    if(needsKeyframe) lastKeyframeSec = elapsedSec;
+    isFirstFrame = false;
+
+    videoEncoder.encode(frame, { keyFrame: needsKeyframe });
     frame.close();
 
-    frameCount++;
     recordingAnimationId = requestAnimationFrame(encodeFrame);
   }
 
@@ -965,9 +984,11 @@
     recordingCanvas.height = RECORDING_HEIGHT;
     recordingCtx = recordingCanvas.getContext('2d', { willReadFrequently: true });
 
-    frameCount = 0;
     encoderReady = false;
-    recordingStartTime = Date.now();
+    recordingStartTime = performance.now();
+    lastFrameTime = 0;
+    lastKeyframeSec = -1;
+    isFirstFrame = true;
 
     // Create muxer with ArrayBuffer target for download
     muxer = new Mp4Muxer.Muxer({
@@ -1019,7 +1040,7 @@
     }
 
     isRecording = true;
-    encodeFrame();
+    recordingAnimationId = requestAnimationFrame(encodeFrame);
 
     // Update UI
     const btn = document.getElementById('record-btn');
@@ -1034,6 +1055,8 @@
     videoEncoder = null;
     muxer = null;
     encoderReady = false;
+    isFirstFrame = true;
+    lastKeyframeSec = -1;
   }
 
   async function stopRecording(){
