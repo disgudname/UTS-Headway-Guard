@@ -15,7 +15,8 @@
       "Bash(del \"C:\\\\Users\\\\Pat Cox\\\\Documents\\\\GitHub\\\\UTS-Headway-Guard\\\\nul\")",
       "Bash(cd:*)",
       "Bash(cat:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(xxd:*)"
     ]
   }
 }

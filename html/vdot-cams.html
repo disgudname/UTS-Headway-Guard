@@ -803,6 +803,7 @@
   let isFirstFrame = true;
   let encoderReady = false;
   let encodedFrameCount = 0;
+  let encodeFrameCallCount = 0;
 
   const RECORDING_WIDTH = 1920;
   const RECORDING_HEIGHT = 1080;
@@ -933,8 +934,13 @@
   }
 
   function encodeFrame(now){
+    encodeFrameCallCount++;
+    if(encodeFrameCallCount <= 3){
+      console.log(`encodeFrame #${encodeFrameCallCount}: isRecording=${isRecording}, videoEncoder=${!!videoEncoder}, encoderReady=${encoderReady}, now=${now}`);
+    }
+
     if(!isRecording || !videoEncoder || !encoderReady){
-      recordingAnimationId = requestAnimationFrame(encodeFrame);
+      if(isRecording) recordingAnimationId = requestAnimationFrame(encodeFrame);
       return;
     }
 
@@ -945,6 +951,10 @@
       return;
     }
     lastFrameTime = now - (elapsed % FRAME_INTERVAL_MS); // Account for overshoot
+
+    if(encodedFrameCount < 3){
+      console.log(`Encoding frame ${encodedFrameCount + 1}, elapsed=${elapsed.toFixed(1)}ms, timestamp=${((now - recordingStartTime) * 1000).toFixed(0)}us`);
+    }
 
     drawFrame();
 
@@ -1002,6 +1012,7 @@
     lastKeyframeSec = -1;
     isFirstFrame = true;
     encodedFrameCount = 0;
+    encodeFrameCallCount = 0;
 
     // Create muxer with ArrayBuffer target for download
     muxer = new Mp4Muxer.Muxer({
@@ -1015,8 +1026,13 @@
     });
 
     // Create video encoder
+    let chunksReceived = 0;
     videoEncoder = new VideoEncoder({
       output: (chunk, meta) => {
+        chunksReceived++;
+        if(chunksReceived <= 3){
+          console.log(`VideoEncoder output chunk #${chunksReceived}: type=${chunk.type}, size=${chunk.byteLength}, timestamp=${chunk.timestamp}`);
+        }
         muxer.addVideoChunk(chunk, meta);
       },
       error: (e) => {
@@ -1053,6 +1069,7 @@
     }
 
     isRecording = true;
+    console.log('Recording started. encoderReady:', encoderReady, 'isRecording:', isRecording);
     recordingAnimationId = requestAnimationFrame(encodeFrame);
 
     // Update UI
