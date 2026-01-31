@@ -996,7 +996,7 @@
   async function startRecording(){
     // Check for WebCodecs support
     if(typeof VideoEncoder === 'undefined'){
-      alert('Recording requires WebCodecs API. Please use Chrome, Edge, or Safari 16.4+. Firefox is not yet supported.');
+      alert('Recording requires WebCodecs API. Please use Chrome 94+, Edge 94+, or Safari 16.4+. Firefox is not yet supported.');
       return;
     }
 
@@ -1018,7 +1018,7 @@
     muxer = new Mp4Muxer.Muxer({
       target: new Mp4Muxer.ArrayBufferTarget(),
       video: {
-        codec: 'avc',
+        codec: 'av1',
         width: RECORDING_WIDTH,
         height: RECORDING_HEIGHT
       },
@@ -1042,23 +1042,37 @@
       }
     });
 
-    // Configure encoder - H.264 baseline for maximum compatibility
+    // Configure encoder - AV1 for better compression (~30-50% smaller than H.264)
+    // 2 Mbps AV1 ≈ 3-4 Mbps H.264 visual quality
     const config = {
-      codec: 'avc1.42001f', // H.264 Baseline Level 3.1
+      codec: 'av01.0.08M.08', // AV1 Main profile, level 4.0, 8-bit
       width: RECORDING_WIDTH,
       height: RECORDING_HEIGHT,
-      bitrate: 5_000_000, // 5 Mbps
+      bitrate: 2_000_000, // 2 Mbps (sufficient for traffic cams, ~900 MB/hr)
       framerate: RECORDING_FPS
     };
 
     try {
       const support = await VideoEncoder.isConfigSupported(config);
       if(!support.supported){
-        // Try High profile if Baseline not supported
+        // Fall back to H.264 if AV1 not supported
+        console.warn('AV1 not supported, falling back to H.264');
         config.codec = 'avc1.640028'; // H.264 High Level 4.0
+        config.bitrate = 3_000_000; // 3 Mbps for H.264 fallback
+        // Also update muxer codec
+        muxer = new Mp4Muxer.Muxer({
+          target: new Mp4Muxer.ArrayBufferTarget(),
+          video: {
+            codec: 'avc',
+            width: RECORDING_WIDTH,
+            height: RECORDING_HEIGHT
+          },
+          fastStart: 'in-memory',
+          firstTimestampBehavior: 'offset'
+        });
         const support2 = await VideoEncoder.isConfigSupported(config);
         if(!support2.supported){
-          throw new Error('H.264 encoding not supported');
+          throw new Error('Neither AV1 nor H.264 encoding supported');
         }
       }
       videoEncoder.configure(config);
@@ -1070,7 +1084,7 @@
     }
 
     isRecording = true;
-    console.log('Recording started. encoderReady:', encoderReady, 'isRecording:', isRecording);
+    console.log(`Recording started. Codec: ${config.codec}, Bitrate: ${(config.bitrate/1_000_000).toFixed(1)} Mbps`);
     recordingAnimationId = requestAnimationFrame(encodeFrame);
 
     // Update UI

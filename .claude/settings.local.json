@@ -16,7 +16,8 @@
       "Bash(cd:*)",
       "Bash(cat:*)",
       "Bash(curl:*)",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(ls:*)"
     ]
   }
 }
