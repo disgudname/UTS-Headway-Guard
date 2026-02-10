@@ -681,6 +681,25 @@
         box-shadow: 0 2px 6px rgba(15, 23, 42, 0.45);
         z-index: 10;
       }
+      .bus-marker__battery-badge {
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #f59e0b;
+        border: 2px solid #ffffff;
+        color: #ffffff;
+        font-size: 10px;
+        line-height: 14px;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.45);
+        z-index: 11;
+      }
       .bus-label-icon {
         pointer-events: none !important;
         background: transparent !important;

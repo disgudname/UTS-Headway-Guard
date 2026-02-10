@@ -2100,6 +2100,10 @@ TM.registerVisibilityResumeHandler(() => {
       let map;
       let markers = {};
       let busMarkerStates = {};
+
+      // ViriCiti SOC (State of Charge) tracking for electric buses
+      const VIRICITI_SOC_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+      let viricitiSocData = {}; // bus_number -> {soc, odo, low_battery, timestamp}
       let busPopupRefreshIntervals = {};
       const BUS_POPUP_REFRESH_INTERVAL_MS = 10000;
       const INITIAL_MAP_VIEW = Object.freeze({
@@ -11271,6 +11275,11 @@ ${trainPlaneMarkup}
         if (shouldPollOnDemandData()) {
           startOnDemandPolling();
         }
+        // ViriCiti SOC polling for electric bus battery levels
+        fetchViricitiSOC(); // Fetch immediately on start
+        refreshIntervals.push(setInterval(() => {
+          if (!refreshIntervalsPaused && pageIsVisible) fetchViricitiSOC();
+        }, VIRICITI_SOC_POLL_INTERVAL_MS));
         refreshIntervalsActive = true;
       }
 
@@ -15612,6 +15621,7 @@ ${trainPlaneMarkup}
                           updateBusMarkerZIndex(state);
                           applyBusMarkerOutlineWidth(state);
                           applyBusMarkerOffRouteIndicator(state);
+                          applyBusMarkerLowBatteryIndicator(state);
                       } catch (error) {
                           console.error(`Failed to create bus marker icon for vehicle ${vehicleID}:`, error);
                       }
@@ -15787,6 +15797,52 @@ ${trainPlaneMarkup}
               console.error('Error fetching vehicle drivers:', error);
               return {};
           }
+      }
+
+      async function fetchViricitiSOC() {
+          try {
+              const response = await fetch('/api/viriciti/soc');
+              if (!response.ok) {
+                  return;
+              }
+              const data = await response.json();
+              if (!data || !data.vehicles) {
+                  return;
+              }
+              const previousData = viricitiSocData;
+              viricitiSocData = data.vehicles;
+              // Update bus marker states with new battery info
+              Object.entries(viricitiSocData).forEach(([busNumber, socInfo]) => {
+                  // Find matching vehicle by bus name (ViriCiti bus_number matches TransLoc Name)
+                  const vehicleKey = findVehicleKeyByBusNumber(busNumber);
+                  if (vehicleKey) {
+                      const previousLowBattery = previousData[busNumber]?.low_battery;
+                      const currentLowBattery = socInfo.low_battery;
+                      // Queue visual update if low battery state changed or on initial load
+                      if (currentLowBattery !== previousLowBattery || !previousData[busNumber]) {
+                          queueBusMarkerVisualUpdate(vehicleKey, { lowBattery: currentLowBattery });
+                      }
+                  }
+              });
+          } catch (error) {
+              // Silently ignore - ViriCiti may not be configured
+          }
+      }
+
+      function findVehicleKeyByBusNumber(busNumber) {
+          // Find vehicle by matching bus name to ViriCiti bus number
+          if (!busNumber || !busMarkerStates) {
+              return null;
+          }
+          const target = String(busNumber).trim();
+          for (const [vehicleKey, state] of Object.entries(busMarkerStates)) {
+              if (!state) continue;
+              const busName = String(state.busName || '').trim();
+              if (busName === target) {
+                  return vehicleKey;
+              }
+          }
+          return null;
       }
 
       async function fetchNextStops(vehicleIds) {
@@ -18750,6 +18806,7 @@ ${trainPlaneMarkup}
               isHovered: false,
               isOffRoute: false,
               offRouteDistanceMeters: null,
+              lowBattery: false,
               lastUpdateTimestamp: 0,
               size: null,
               elements: null,
@@ -19554,6 +19611,17 @@ ${trainPlaneMarkup}
           offRouteBadge.style.display = state.isOffRoute ? 'flex' : 'none';
           root.appendChild(offRouteBadge);
 
+          const batteryBadge = document.createElement('div');
+          batteryBadge.className = 'bus-marker__battery-badge';
+          batteryBadge.textContent = '🔋';
+          batteryBadge.title = 'Low battery';
+          batteryBadge.setAttribute('aria-label', 'Low battery warning');
+          batteryBadge.setAttribute('role', 'img');
+          batteryBadge.style.pointerEvents = 'auto';
+          batteryBadge.style.cursor = 'default';
+          batteryBadge.style.display = state.lowBattery ? 'flex' : 'none';
+          root.appendChild(batteryBadge);
+
           const wrapper = document.createElement('div');
           wrapper.appendChild(root);
 
@@ -19605,6 +19673,7 @@ ${trainPlaneMarkup}
           const centerRing = svg ? svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`) : null;
           const heading = svg ? svg.querySelector('#heading') : null;
           const offRouteBadge = root ? root.querySelector('.bus-marker__offroute-badge') : null;
+          const batteryBadge = root ? root.querySelector('.bus-marker__battery-badge') : null;
           state.elements = {
               icon: iconElement,
               root,
@@ -19614,7 +19683,8 @@ ${trainPlaneMarkup}
               centerRing,
               centerSquare,
               heading,
-              offRouteBadge
+              offRouteBadge,
+              batteryBadge
           };
           if (root) {
               root.dataset.vehicleId = `${vehicleID}`;
@@ -19637,6 +19707,7 @@ ${trainPlaneMarkup}
           updateBusMarkerColorElements(state);
           applyBusMarkerStoppedVisualState(state);
           applyBusMarkerOffRouteIndicator(state);
+          applyBusMarkerLowBatteryIndicator(state);
           return state.elements;
       }
 
@@ -19696,6 +19767,9 @@ ${trainPlaneMarkup}
                   ? update.offRouteDistanceMeters
                   : null;
           }
+          if (update && Object.prototype.hasOwnProperty.call(update, 'lowBattery')) {
+              state.lowBattery = Boolean(update.lowBattery);
+          }
           applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
@@ -19714,6 +19788,7 @@ ${trainPlaneMarkup}
           updateBusMarkerZIndex(state);
           applyBusMarkerOutlineWidth(state);
           applyBusMarkerOffRouteIndicator(state);
+          applyBusMarkerLowBatteryIndicator(state);
       }
 
       function applyBusMarkerOutlineWidth(state) {
@@ -19773,6 +19848,19 @@ ${trainPlaneMarkup}
           badge.style.display = isOffRoute ? 'flex' : 'none';
           badge.title = tooltip;
           badge.setAttribute('aria-label', tooltip);
+      }
+
+      function applyBusMarkerLowBatteryIndicator(state) {
+          if (!state?.elements?.root) {
+              return;
+          }
+          const badge = state.elements.batteryBadge;
+          const isLowBattery = Boolean(state.lowBattery);
+          state.elements.root.classList.toggle('is-low-battery', isLowBattery);
+          if (!badge) {
+              return;
+          }
+          badge.style.display = isLowBattery ? 'flex' : 'none';
       }
 
       function setBusMarkerHovered(vehicleID, isHovered) {

@@ -4872,11 +4872,13 @@ async def startup():
 
         def on_soc_update(soc: VehicleSOC):
             """Callback when SOC update received from ViriCiti."""
+            LOW_BATTERY_THRESHOLD = 35.0
             data = {
                 "bus_number": soc.bus_number,
                 "vid": soc.vid,
                 "soc": soc.soc,
                 "odo": soc.odo,
+                "low_battery": soc.soc <= LOW_BATTERY_THRESHOLD,
                 "timestamp": soc.timestamp.isoformat()
             }
             # Update state cache (keyed by bus number for TransLoc matching)
