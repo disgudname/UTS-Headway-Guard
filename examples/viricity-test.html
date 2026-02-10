@@ -1,0 +1,397 @@
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ViriCiti API Tester</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 20px; background: #1a1a2e; color: #eee; }
+      h1 { margin: 0 0 20px; color: #00d4ff; }
+      .container { max-width: 1200px; margin: 0 auto; }
+      .input-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+      input[type="text"] { flex: 1; min-width: 300px; padding: 12px; font-size: 16px; border: 2px solid #333; border-radius: 6px; background: #0f0f1a;
+  color: #fff; }
+      button { padding: 12px 24px; font-size: 14px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+      button:hover { transform: translateY(-1px); }
+      .btn-primary { background: #00d4ff; color: #000; }
+      .btn-secondary { background: #444; color: #fff; }
+      .btn-danger { background: #ff4757; color: #fff; }
+      .btn-success { background: #2ed573; color: #000; }
+      .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
+      .panel { background: #0f0f1a; border: 1px solid #333; border-radius: 8px; padding: 15px; }
+      .panel h2 { margin: 0 0 10px; font-size: 16px; color: #00d4ff; display: flex; align-items: center; gap: 8px; }
+      .status { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+      .status.ok { background: #2ed573; }
+      .status.error { background: #ff4757; }
+      .status.pending { background: #ffa502; }
+      .status.idle { background: #666; }
+      pre { background: #000; padding: 12px; border-radius: 4px; overflow: auto; max-height: 300px; margin: 0; font-size: 12px; line-height: 1.4;
+  white-space: pre-wrap; word-break: break-all; }
+      .error { color: #ff4757; }
+      .success { color: #2ed573; }
+      .info { color: #ffa502; }
+      .log-entry { padding: 4px 0; border-bottom: 1px solid #222; }
+      .log-entry:last-child { border-bottom: none; }
+      .timestamp { color: #666; font-size: 11px; }
+      .ws-controls { display: flex; gap: 10px; margin-bottom: 10px; }
+      .vehicle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; }
+      .vehicle-card { background: #1a1a2e; padding: 10px; border-radius: 4px; border: 1px solid #333; }
+      .vehicle-card .vid { font-weight: 600; color: #00d4ff; }
+      .vehicle-card .soc { font-size: 24px; font-weight: 700; }
+      .vehicle-card .soc.high { color: #2ed573; }
+      .vehicle-card .soc.mid { color: #ffa502; }
+      .vehicle-card .soc.low { color: #ff4757; }
+      .vehicle-card .time { font-size: 11px; color: #666; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔋 ViriCiti API Tester</h1>
+
+      <div class="input-row">
+        <input type="text" id="apiKey" placeholder="Enter your ViriCiti API key">
+        <button class="btn-primary" onclick="testAll()">Test All</button>
+        <button class="btn-secondary" onclick="clearAll()">Clear</button>
+      </div>
+
+      <div class="panels">
+        <!-- Vehicle List Panel -->
+        <div class="panel">
+          <h2><span class="status idle" id="vehicleStatus"></span> Vehicle List (REST)</h2>
+          <button class="btn-secondary" onclick="fetchVehicles()">Fetch Vehicles</button>
+          <pre id="vehicleOutput">Click "Fetch Vehicles" to test /api/v1/my/assets</pre>
+        </div>
+
+        <!-- Current SOC Panel -->
+        <div class="panel">
+          <h2><span class="status idle" id="socStatus"></span> Current SOC (REST)</h2>
+          <button class="btn-secondary" onclick="fetchCurrentSOC()">Fetch Current SOC</button>
+          <pre id="socOutput">Click "Fetch Current SOC" to test /api/v2/state</pre>
+          <div class="vehicle-grid" id="socCards"></div>
+        </div>
+
+        <!-- WebSocket Panel -->
+        <div class="panel" style="grid-column: 1 / -1;">
+          <h2><span class="status idle" id="wsStatus"></span> WebSocket Live Stream</h2>
+          <div class="ws-controls">
+            <button class="btn-success" onclick="connectWebSocket()">Connect</button>
+            <button class="btn-danger" onclick="disconnectWebSocket()">Disconnect</button>
+            <button class="btn-secondary" onclick="clearWsLog()">Clear Log</button>
+          </div>
+          <pre id="wsOutput" style="max-height: 400px;">WebSocket not connected</pre>
+        </div>
+
+        <!-- Raw Response Panel -->
+        <div class="panel" style="grid-column: 1 / -1;">
+          <h2>📋 Raw Responses (for sharing)</h2>
+          <p style="margin: 0 0 10px; color: #888; font-size: 12px;">Copy this sanitized output to share - API key and sensitive IDs are redacted</p>
+          <pre id="rawOutput">Responses will appear here after testing...</pre>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = 'https://sdk.viriciti.com';
+      let ws = null;
+      let vehicleList = [];
+      let rawResponses = {};
+
+      function getApiKey() {
+        const key = document.getElementById('apiKey').value.trim();
+        if (!key) {
+          alert('Please enter your API key');
+          return null;
+        }
+        return key;
+      }
+
+      function setStatus(id, status) {
+        const el = document.getElementById(id);
+        el.className = 'status ' + status;
+      }
+
+      function log(elementId, message, type = '') {
+        const el = document.getElementById(elementId);
+        const timestamp = new Date().toISOString().substr(11, 12);
+        const cls = type ? ` class="${type}"` : '';
+        el.innerHTML += `<div class="log-entry"><span class="timestamp">[${timestamp}]</span> <span${cls}>${escapeHtml(message)}</span></div>`;
+        el.scrollTop = el.scrollHeight;
+      }
+
+      function escapeHtml(str) {
+        if (typeof str !== 'string') str = JSON.stringify(str, null, 2);
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      function sanitize(obj) {
+        // Deep clone and redact sensitive info
+        const str = JSON.stringify(obj, null, 2);
+        return str
+          .replace(/"_id":\s*"[^"]+"/g, '"_id": "[REDACTED]"')
+          .replace(/"vid":\s*"([^"]+)"/g, (m, vid) => `"vid": "${vid.replace(/\d+/g, 'XXX')}"`)
+          .replace(/"name":\s*"[^"]+"/g, '"name": "[VEHICLE_NAME]"');
+      }
+
+      function updateRawOutput() {
+        document.getElementById('rawOutput').textContent =
+          '// Sanitized API Responses\n' +
+          JSON.stringify(rawResponses, null, 2)
+            .replace(/"_id":\s*"[^"]+"/g, '"_id": "[REDACTED]"');
+      }
+
+      async function fetchVehicles() {
+        const apiKey = getApiKey();
+        if (!apiKey) return;
+
+        setStatus('vehicleStatus', 'pending');
+        const output = document.getElementById('vehicleOutput');
+        output.innerHTML = 'Fetching vehicles...';
+
+        try {
+          const resp = await fetch(`${API_BASE}/api/v1/my/assets`, {
+            headers: { 'x-api-key': apiKey }
+          });
+
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
+          }
+
+          vehicleList = data;
+          rawResponses.vehicles = {
+            endpoint: 'GET /api/v1/my/assets',
+            status: resp.status,
+            vehicleCount: data.length,
+            sampleStructure: data[0] ? {
+              _id: '[REDACTED]',
+              name: data[0].name,
+              vid: data[0].vid,
+              fleets: data[0].fleets?.map(f => ({ _id: '[REDACTED]', name: f.name })) || []
+            } : null
+          };
+
+          output.innerHTML = `<span class="success">✓ Found ${data.length} vehicles</span>\n\n`;
+          output.innerHTML += data.map(v =>
+            `• ${v.vid} - "${v.name}" (${v.fleets?.length || 0} fleets)`
+          ).join('\n');
+
+          setStatus('vehicleStatus', 'ok');
+          updateRawOutput();
+
+        } catch (err) {
+          output.innerHTML = `<span class="error">✗ Error: ${err.message}</span>`;
+          rawResponses.vehicles = { error: err.message };
+          setStatus('vehicleStatus', 'error');
+          updateRawOutput();
+        }
+      }
+
+      async function fetchCurrentSOC() {
+        const apiKey = getApiKey();
+        if (!apiKey) return;
+
+        if (vehicleList.length === 0) {
+          alert('Fetch vehicles first to get the list of vehicle IDs');
+          return;
+        }
+
+        setStatus('socStatus', 'pending');
+        const output = document.getElementById('socOutput');
+        const cards = document.getElementById('socCards');
+        output.innerHTML = 'Fetching current SOC...';
+        cards.innerHTML = '';
+
+        try {
+          // Build request body with all vehicles
+          const requestBody = {};
+          vehicleList.forEach(v => {
+            requestBody[v.vid] = ['soc', 'odo'];
+          });
+
+          const resp = await fetch(`${API_BASE}/api/v2/state`, {
+            method: 'POST',
+            headers: {
+              'x-api-key': apiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+          });
+
+          const data = await resp.json();
+
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
+          }
+
+          rawResponses.currentSOC = {
+            endpoint: 'POST /api/v2/state',
+            status: resp.status,
+            requestedVehicles: Object.keys(requestBody).length,
+            sampleStructure: Object.keys(data)[0] ? {
+              [Object.keys(data)[0]]: data[Object.keys(data)[0]]
+            } : null
+          };
+
+          output.innerHTML = `<span class="success">✓ Got SOC for ${Object.keys(data).length} vehicles</span>\n\n`;
+          output.innerHTML += JSON.stringify(data, null, 2);
+
+          // Create vehicle cards
+          Object.entries(data).forEach(([vid, params]) => {
+            const soc = params.soc?.value;
+            const time = params.soc?.time;
+            const socClass = soc > 50 ? 'high' : soc > 20 ? 'mid' : 'low';
+            const timeStr = time ? new Date(time).toLocaleTimeString() : 'N/A';
+
+            cards.innerHTML += `
+              <div class="vehicle-card">
+                <div class="vid">${vid}</div>
+                <div class="soc ${socClass}">${soc !== undefined ? soc.toFixed(1) + '%' : 'N/A'}</div>
+                <div class="time">Updated: ${timeStr}</div>
+              </div>
+            `;
+          });
+
+          setStatus('socStatus', 'ok');
+          updateRawOutput();
+
+        } catch (err) {
+          output.innerHTML = `<span class="error">✗ Error: ${err.message}</span>`;
+          rawResponses.currentSOC = { error: err.message };
+          setStatus('socStatus', 'error');
+          updateRawOutput();
+        }
+      }
+
+      function connectWebSocket() {
+        const apiKey = getApiKey();
+        if (!apiKey) return;
+
+        if (ws) {
+          log('wsOutput', 'Already connected, disconnect first', 'info');
+          return;
+        }
+
+        const output = document.getElementById('wsOutput');
+        output.innerHTML = '';
+        setStatus('wsStatus', 'pending');
+        log('wsOutput', 'Connecting to WebSocket...');
+
+        try {
+          ws = new WebSocket(`wss://sdk.viriciti.com/api/v2/live?apiKey=${apiKey}`);
+
+          ws.onopen = () => {
+            setStatus('wsStatus', 'ok');
+            log('wsOutput', 'Connected!', 'success');
+
+            // Subscribe to SOC for all known vehicles
+            if (vehicleList.length > 0) {
+              const subscription = { vehicles: {} };
+              vehicleList.forEach(v => {
+                subscription.vehicles[v.vid] = ['soc'];
+              });
+              ws.send(JSON.stringify(subscription));
+              log('wsOutput', `Subscribed to ${vehicleList.length} vehicles: ${JSON.stringify(subscription)}`, 'info');
+            } else {
+              log('wsOutput', 'No vehicles loaded - fetch vehicles first, then reconnect to subscribe', 'info');
+            }
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const msg = JSON.parse(event.data);
+              const msgType = msg.type || 'unknown';
+
+              if (msgType === 'vehicles' && msg.payload?.label === 'soc') {
+                const p = msg.payload;
+                log('wsOutput', `SOC Update: ${p.vid} = ${p.value}% (${new Date(p.time).toLocaleTimeString()})`, 'success');
+
+                // Store sample for raw output
+                if (!rawResponses.websocket) {
+                  rawResponses.websocket = { sampleMessages: [] };
+                }
+                if (rawResponses.websocket.sampleMessages.length < 5) {
+                  rawResponses.websocket.sampleMessages.push({
+                    type: msg.type,
+                    payload: { vid: '[VID]', label: p.label, value: p.value, time: p.time }
+                  });
+                  updateRawOutput();
+                }
+              } else if (msgType === 'acl') {
+                log('wsOutput', `ACL received: ${JSON.stringify(msg.payload).substring(0, 200)}...`, 'info');
+              } else if (msgType === 'error') {
+                log('wsOutput', `Error from server: ${JSON.stringify(msg.payload)}`, 'error');
+              } else {
+                log('wsOutput', `Message (${msgType}): ${JSON.stringify(msg).substring(0, 300)}`, 'info');
+              }
+            } catch (e) {
+              log('wsOutput', `Raw message: ${event.data.substring(0, 200)}`, 'info');
+            }
+          };
+
+          ws.onerror = (err) => {
+            setStatus('wsStatus', 'error');
+            log('wsOutput', `WebSocket error: ${err.message || 'Connection failed'}`, 'error');
+          };
+
+          ws.onclose = (event) => {
+            setStatus('wsStatus', 'idle');
+            log('wsOutput', `Disconnected (code: ${event.code}, reason: ${event.reason || 'none'})`, 'info');
+            ws = null;
+          };
+
+        } catch (err) {
+          setStatus('wsStatus', 'error');
+          log('wsOutput', `Failed to connect: ${err.message}`, 'error');
+        }
+      }
+
+      function disconnectWebSocket() {
+        if (ws) {
+          ws.close();
+          ws = null;
+          log('wsOutput', 'Disconnected by user', 'info');
+        }
+      }
+
+      function clearWsLog() {
+        document.getElementById('wsOutput').innerHTML = 'Log cleared';
+      }
+
+      function testAll() {
+        fetchVehicles().then(() => {
+          setTimeout(() => {
+            fetchCurrentSOC();
+            setTimeout(connectWebSocket, 1000);
+          }, 1000);
+        });
+      }
+
+      function clearAll() {
+        disconnectWebSocket();
+        document.getElementById('vehicleOutput').innerHTML = 'Click "Fetch Vehicles" to test';
+        document.getElementById('socOutput').innerHTML = 'Click "Fetch Current SOC" to test';
+        document.getElementById('wsOutput').innerHTML = 'WebSocket not connected';
+        document.getElementById('socCards').innerHTML = '';
+        document.getElementById('rawOutput').textContent = 'Responses will appear here...';
+        setStatus('vehicleStatus', 'idle');
+        setStatus('socStatus', 'idle');
+        setStatus('wsStatus', 'idle');
+        vehicleList = [];
+        rawResponses = {};
+      }
+
+      // Save API key to localStorage
+      document.getElementById('apiKey').addEventListener('change', (e) => {
+        localStorage.setItem('viriciti_test_key', e.target.value);
+      });
+
+      // Restore API key from localStorage
+      const savedKey = localStorage.getItem('viriciti_test_key');
+      if (savedKey) {
+        document.getElementById('apiKey').value = savedKey;
+      }
+    </script>
+  </body>
+  </html>

@@ -17,7 +17,10 @@
       "Bash(cat:*)",
       "Bash(curl:*)",
       "Bash(xxd:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(xargs:*)",
+      "WebSearch",
+      "WebFetch(domain:sdk.viriciti.com)"
     ]
   }
 }

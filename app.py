@@ -27,7 +27,7 @@ Environment
 from __future__ import annotations
 from typing import List, Dict, Optional, Tuple, Any, Iterable, Union, Sequence, Set, Mapping, Awaitable
 from dataclasses import dataclass, field
-import asyncio, time, math, os, json, re, base64, hashlib, secrets, csv, io, uuid
+import asyncio, time, math, os, json, re, base64, binascii, hashlib, secrets, csv, io, uuid
 from datetime import date, datetime, timedelta, time as dtime, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
@@ -45,6 +45,7 @@ from headway_tracker import (
     DEFAULT_STOP_APPROACH_CONFIG_PATH,
     HEADWAY_DISTANCE_THRESHOLD_M,
 )
+from viriciti_client import ViriCitiClient, VehicleSOC
 
 from fastapi import Body, FastAPI, HTTPException, Request, Response, Query
 from fastapi.responses import (
@@ -114,6 +115,9 @@ if W2W_KEY:
 W2W_ASSIGNMENT_TTL_S = int(os.getenv("W2W_ASSIGNMENT_TTL_S", "45"))
 W2W_POSITION_RE = re.compile(r"\[(\d{1,2})(?:\s*(AM|PM))?\]", re.IGNORECASE)
 AM_PM_BLOCKS: set[str] = {f"{number:02d}" for number in range(20, 27)}
+# ViriCiti EV telemetry (optional - disabled if VIRICITI_API_KEY not set)
+VIRICITI_API_KEY = os.getenv("VIRICITI_API_KEY", "").strip()
+VIRICITI_ENABLED = bool(VIRICITI_API_KEY)
 W2W_TIME_RE = re.compile(
     r"^\s*(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*([AP])?M?\s*$",
     re.IGNORECASE,
@@ -209,8 +213,8 @@ def _load_sent_alert_ids() -> set:
         if _SENT_ALERT_IDS_PATH.exists():
             data = json.loads(_SENT_ALERT_IDS_PATH.read_text())
             return set(data.get("ids", []))
-    except Exception:
-        pass
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[alerts] failed to load sent_alert_ids.json: {exc}")
     return set()
 
 def _save_sent_alert_ids(ids: set) -> None:
@@ -232,8 +236,8 @@ def _load_system_notices() -> List[Dict[str, Any]]:
         if SYSTEM_NOTICES_PATH.exists():
             data = json.loads(SYSTEM_NOTICES_PATH.read_text())
             return data.get("notices", [])
-    except Exception:
-        pass
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[notices] failed to load system_notices.json: {exc}")
     return []
 
 def _save_system_notices(notices: List[Dict[str, Any]]) -> None:
@@ -260,15 +264,15 @@ def _get_active_system_notices(include_auth_only: bool = False) -> List[Dict[str
                 start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
                 if now < start_dt:
                     continue
-            except Exception:
-                pass
+            except ValueError:
+                pass  # ignore malformed start_time
         if end_str:
             try:
                 end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
                 if now > end_dt:
                     continue
-            except Exception:
-                pass
+            except ValueError:
+                pass  # ignore malformed end_time
         # Check visibility
         if notice.get("auth_only") and not include_auth_only:
             continue
@@ -722,7 +726,7 @@ def parse_maxheight(val: Optional[str]) -> Optional[float]:
             return num * 3.28084
         num = float(re.findall(r"[0-9.]+", s)[0])
         return num
-    except Exception:
+    except (ValueError, IndexError):
         return None
 
 
@@ -733,7 +737,7 @@ def parse_maxspeed(val: Optional[str]) -> Optional[float]:
     s = str(val).strip().lower()
     try:
         num = float(re.findall(r"[0-9.]+", s)[0])
-    except Exception:
+    except (ValueError, IndexError):
         return None
     if "km/h" in s or "kph" in s:
         return num * 0.621371
@@ -1088,7 +1092,8 @@ out geom;
         record_api_call("POST", OVERPASS_EP, r.status_code)
         r.raise_for_status()
         data = r.json()
-    except Exception:
+    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        print(f"[overpass] failed to fetch speed limits: {exc}")
         return [DEFAULT_CAP_MPS for _ in range(len(pts)-1)], [""] * (len(pts)-1)
 
     ways: List[Dict[str, Any]] = []
@@ -1231,6 +1236,21 @@ async def init_transloc_client() -> None:
     app.state.transloc_timing_history: Dict[str, deque[float]] = {}
 
 
+@app.on_event("startup")
+async def init_viriciti_client() -> None:
+    """Initialize ViriCiti client for EV telemetry (SOC, odometer)."""
+    if not VIRICITI_ENABLED:
+        print("[viriciti] VIRICITI_API_KEY not set, SOC tracking disabled")
+        app.state.viriciti_client = None
+        return
+    try:
+        app.state.viriciti_client = ViriCitiClient.from_env()
+        print("[viriciti] client initialized")
+    except RuntimeError as exc:
+        print(f"[viriciti] client not configured: {exc}")
+        app.state.viriciti_client = None
+
+
 @app.on_event("shutdown")
 async def shutdown_ondemand_client() -> None:
     client = getattr(app.state, "ondemand_client", None)
@@ -1318,6 +1338,7 @@ REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
 HEADWAY_HTML = _load_html("headway.html")
 HEADWAY_DIAGNOSTICS_HTML = _load_html("headway_diagnostics.html")
 OFFLINE_HTML = _load_html("offline.html")
+INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
@@ -1368,6 +1389,20 @@ def broadcast_testmap_vehicles(payload: List[Dict[str, Any]]) -> None:
             q.put_nowait(encoded)
         except asyncio.QueueFull:
             pass  # Drop update for slow clients
+
+# ViriCiti SOC SSE subscribers
+VIRICITI_SOC_SUBS: set[asyncio.Queue] = set()
+
+def broadcast_viriciti_soc(soc_data: Dict[str, Any]) -> None:
+    """Broadcast SOC update to all SSE subscribers."""
+    if not VIRICITI_SOC_SUBS:
+        return
+    encoded = f"data: {json.dumps(soc_data)}\n\n"
+    for q in list(VIRICITI_SOC_SUBS):
+        try:
+            q.put_nowait(encoded)
+        except asyncio.QueueFull:
+            pass
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -1959,6 +1994,11 @@ class State:
         # Service level cache (scraped from parking.virginia.edu)
         self.service_level_cache: ServiceLevelCache = ServiceLevelCache()
         self.service_level_lock: asyncio.Lock = asyncio.Lock()
+        # ViriCiti EV telemetry (keyed by bus number for TransLoc matching)
+        self.vehicle_soc: Dict[str, Dict[str, Any]] = {}  # bus_number -> {soc, odo, timestamp, vid}
+        self.viriciti_connected: bool = False
+        self.viriciti_last_update: float = 0.0
+        self.viriciti_vehicle_count: int = 0
 
 state = State()
 MILEAGE_NAME = "mileage.json"
@@ -3681,7 +3721,7 @@ async def api_headway_bubbles():
         ts = activation.get("timestamp")
         try:
             ts_dt = parse_iso8601_utc(ts) if ts else None
-        except Exception:
+        except (ValueError, AttributeError):
             ts_dt = None
         if ts_dt and ts_dt < activation_cutoff:
             continue
@@ -3754,7 +3794,7 @@ async def api_headway_export(
     if timezone_name:
         try:
             tz = ZoneInfo(timezone_name)
-        except Exception:
+        except KeyError:
             raise HTTPException(status_code=400, detail="invalid timezone_name")
 
     def _format_date(dt: datetime) -> str:
@@ -3927,6 +3967,61 @@ def _load_cached_uva_events(now: datetime) -> List[Dict[str, Any]]:
     if isinstance(events, list):
         return events
     return load_cached_events()
+
+
+# ---------------------------
+# ViriCiti EV Telemetry API
+# ---------------------------
+
+@app.get("/api/viriciti/soc")
+async def get_viriciti_soc():
+    """Get current SOC for all ViriCiti-tracked vehicles (keyed by bus number)."""
+    return {
+        "enabled": VIRICITI_ENABLED,
+        "connected": state.viriciti_connected,
+        "vehicle_count": state.viriciti_vehicle_count,
+        "last_update": state.viriciti_last_update,
+        "vehicles": state.vehicle_soc  # {bus_number: {soc, odo, timestamp, vid}}
+    }
+
+
+@app.get("/api/viriciti/soc/{bus_number}")
+async def get_viriciti_soc_vehicle(bus_number: str):
+    """Get SOC for specific vehicle by bus number."""
+    if not VIRICITI_ENABLED:
+        raise HTTPException(status_code=503, detail="ViriCiti integration not enabled")
+    soc = state.vehicle_soc.get(bus_number)
+    if not soc:
+        raise HTTPException(status_code=404, detail=f"Vehicle {bus_number} not found")
+    return soc
+
+
+@app.get("/v1/stream/viriciti/soc")
+async def stream_viriciti_soc():
+    """SSE stream for real-time ViriCiti SOC updates."""
+    async def gen():
+        q: asyncio.Queue = asyncio.Queue(maxsize=50)
+        VIRICITI_SOC_SUBS.add(q)
+        try:
+            # Send current state on connect
+            initial = {
+                "type": "initial",
+                "payload": {
+                    "enabled": VIRICITI_ENABLED,
+                    "connected": state.viriciti_connected,
+                    "vehicle_count": state.viriciti_vehicle_count,
+                    "vehicles": state.vehicle_soc
+                }
+            }
+            yield f"data: {json.dumps(initial)}\n\n"
+
+            while True:
+                encoded = await q.get()
+                yield encoded
+        finally:
+            VIRICITI_SOC_SUBS.discard(q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/api/uva_athletics/home")
@@ -4766,6 +4861,40 @@ async def startup():
 
     asyncio.create_task(ondemand_poller())
 
+    # Background WebSocket connection for ViriCiti EV telemetry
+    async def viriciti_poller():
+        """Maintain ViriCiti WebSocket connection for live SOC updates."""
+        await asyncio.sleep(2)  # Let other startup tasks complete
+        client: Optional[ViriCitiClient] = getattr(app.state, "viriciti_client", None)
+        if not client:
+            print("[viriciti] client not configured, poller disabled")
+            return
+
+        def on_soc_update(soc: VehicleSOC):
+            """Callback when SOC update received from ViriCiti."""
+            data = {
+                "bus_number": soc.bus_number,
+                "vid": soc.vid,
+                "soc": soc.soc,
+                "odo": soc.odo,
+                "timestamp": soc.timestamp.isoformat()
+            }
+            # Update state cache (keyed by bus number for TransLoc matching)
+            state.vehicle_soc[soc.bus_number] = data
+            state.viriciti_last_update = time.time()
+            state.viriciti_connected = client.is_connected
+            state.viriciti_vehicle_count = client.vehicle_count
+            # Broadcast to SSE subscribers
+            broadcast_viriciti_soc({"type": "soc_update", "payload": data})
+
+        client._on_soc_update = on_soc_update
+
+        # Run the WebSocket connection (auto-reconnects internally)
+        await client.connect_and_subscribe()
+
+    if getattr(app.state, "viriciti_client", None):
+        asyncio.create_task(viriciti_poller())
+
     # Background poller for push notifications on new TransLoc service alerts
     async def push_notification_poller():
         global _sent_alert_ids
@@ -5446,7 +5575,7 @@ def _parse_w2w_datetime(date_str: Any, time_str: Any, tz: ZoneInfo) -> Optional[
         return None
     try:
         base_date = datetime.strptime(str(date_str).strip(), "%m/%d/%Y")
-    except Exception:
+    except ValueError:
         return None
     time_parts = _parse_w2w_time_components(time_str)
     if time_parts is None:
@@ -6608,7 +6737,7 @@ def _route_membership_from_routes(routes: List[Dict[str, Any]]) -> Dict[str, Set
             continue
         try:
             rid_norm = str(int(rid))
-        except Exception:
+        except (ValueError, TypeError):
             rid_norm = str(rid)
         for stop in route.get("Stops", []) or []:
             sid = stop.get("StopID") or stop.get("StopId") or stop.get("RouteStopID") or stop.get("RouteStopId")
@@ -6637,7 +6766,7 @@ def _normalize_transloc_stop(stop: Dict[str, Any], *, route_membership: Mapping[
                     continue
                 try:
                     route_ids.add(str(int(val)))
-                except Exception:
+                except (ValueError, TypeError):
                     route_ids.add(str(val))
     if isinstance(stop.get("Routes"), list):
         for entry in stop["Routes"]:
@@ -6648,13 +6777,13 @@ def _normalize_transloc_stop(stop: Dict[str, Any], *, route_membership: Mapping[
                 continue
             try:
                 route_ids.add(str(int(rid_val)))
-            except Exception:
+            except (ValueError, TypeError):
                 route_ids.add(str(rid_val))
     direct_route = stop.get("RouteID") or stop.get("RouteId") or fallback_route_id
     if direct_route is not None:
         try:
             route_ids.add(str(int(direct_route)))
-        except Exception:
+        except (ValueError, TypeError):
             route_ids.add(str(direct_route))
     for rid in route_membership.get(str(stop_id), set()):
         route_ids.add(rid)
@@ -7468,7 +7597,7 @@ def _parse_headway_ids(param: Optional[str]) -> Set[str]:
 def _parse_headway_timestamp(value: str) -> datetime:
     try:
         return parse_iso8601_utc(value)
-    except Exception:
+    except ValueError:
         raise HTTPException(status_code=400, detail="invalid timestamp format; use ISO-8601")
 
 
@@ -9107,7 +9236,7 @@ def _decrypt_pulsepoint_payload(payload: Dict[str, Any]) -> Any:
         return payload
     try:
         ciphertext_bytes = base64.b64decode(cipher_text)
-    except Exception:
+    except (ValueError, binascii.Error):
         return payload
     salt_hex = payload.get("s")
     salt = bytes.fromhex(salt_hex) if isinstance(salt_hex, str) else b""
@@ -9119,7 +9248,7 @@ def _decrypt_pulsepoint_payload(payload: Dict[str, Any]) -> Any:
     try:
         decrypted = cipher.decrypt(ciphertext_bytes)
         plaintext = unpad(decrypted, AES.block_size)
-    except Exception:
+    except ValueError:
         return payload
     text = plaintext.decode("utf-8", errors="ignore")
     parsed: Any = text
@@ -9128,7 +9257,7 @@ def _decrypt_pulsepoint_payload(payload: Dict[str, Any]) -> Any:
             try:
                 parsed = json.loads(parsed)
                 continue
-            except Exception:
+            except json.JSONDecodeError:
                 break
         break
     return parsed
@@ -9144,7 +9273,7 @@ async def _get_pulsepoint_incidents() -> Any:
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except Exception:
+            except json.JSONDecodeError:
                 return data
         payload = _decrypt_pulsepoint_payload(data)
         await _update_pulsepoint_first_on_scene(payload)
@@ -10350,6 +10479,11 @@ async def offline_page():
     return HTMLResponse(OFFLINE_HTML)
 
 
+@app.get("/incidents")
+async def incidents_page():
+    return HTMLResponse(INCIDENTS_HTML)
+
+
 @app.get("/sitemap")
 async def sitemap_page():
     return HTMLResponse(SITEMAP_HTML)
@@ -11352,7 +11486,7 @@ async def get_system_notices(request: Request, all: bool = Query(False)):
     try:
         _require_dispatcher_access(request)
         is_authed = True
-    except Exception:
+    except HTTPException:
         pass
     return {"notices": _get_active_system_notices(include_auth_only=is_authed)}
 
@@ -11776,14 +11910,16 @@ async def index_init(request: Request):
                 "sortOrder": "asc",
             }
             return await _proxy_transloc_get(url, params=params, base_url=None)
-        except Exception:
+        except Exception as exc:
+            print(f"[landing] failed to fetch TransLoc alerts: {exc}")
             return {"Rows": []}
 
     async def fetch_service_level():
         try:
             result = await _fetch_service_level(bypass_cache=False)
             return result.to_dict()
-        except Exception:
+        except Exception as exc:
+            print(f"[landing] failed to fetch service level: {exc}")
             return {"service_level": "UNKNOWN"}
 
     # Run async fetches in parallel

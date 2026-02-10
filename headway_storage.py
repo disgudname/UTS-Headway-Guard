@@ -161,8 +161,8 @@ class HeadwayStorage:
                         continue
                     try:
                         ts = parse_iso8601_utc(row[0])
-                    except Exception:
-                        continue
+                    except ValueError:
+                        continue  # skip rows with malformed timestamps
                     if ts < start_utc or ts > end_utc:
                         continue
 

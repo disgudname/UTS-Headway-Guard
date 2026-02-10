@@ -1087,10 +1087,10 @@ class HeadwayTracker:
                 text = value.strip()
                 return text if text else None
             return str(int(value))
-        except Exception:
+        except (ValueError, TypeError):
             try:
                 return str(value)
-            except Exception:
+            except (ValueError, TypeError):
                 return None
 
     def _isoformat(self, dt: Optional[datetime]) -> Optional[str]:
