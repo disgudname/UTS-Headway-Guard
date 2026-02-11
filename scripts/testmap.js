@@ -19631,8 +19631,11 @@ ${trainPlaneMarkup}
           wrapper.appendChild(offRouteBadge);
           wrapper.appendChild(batteryBadge);
 
+          const outerWrapper = document.createElement('div');
+          outerWrapper.appendChild(wrapper);
+
           return L.divIcon({
-              html: wrapper.innerHTML,
+              html: outerWrapper.innerHTML,
               className: 'leaflet-div-icon bus-marker',
               iconSize: [width, height],
               iconAnchor: [anchorX, anchorY]
