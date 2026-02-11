@@ -2,10 +2,17 @@
 
 import asyncio
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+
+
+# Default notification preferences for authenticated users
+DEFAULT_AUTH_PREFERENCES = {
+    "low_soc": True,      # Low battery alerts for electric buses
+    "headway": True,      # Bunching/headway issues
+}
 
 
 @dataclass
@@ -16,6 +23,8 @@ class PushSubscription:
     auth: str
     created_at: str
     user_agent: Optional[str] = None
+    auth_label: str = ""  # Non-empty if user was authenticated when subscribing
+    preferences: Dict[str, bool] = field(default_factory=dict)
 
     def to_subscription_info(self) -> dict:
         """Return dict in the format expected by pywebpush."""
@@ -65,6 +74,8 @@ class PushSubscriptionStore:
                 auth=auth,
                 created_at=entry.get("created_at", _now_iso()),
                 user_agent=entry.get("user_agent"),
+                auth_label=entry.get("auth_label", ""),
+                preferences=entry.get("preferences", {}),
             )
 
     def _serialise_state(self) -> str:
@@ -86,12 +97,19 @@ class PushSubscriptionStore:
         endpoint: str,
         keys: dict,
         user_agent: Optional[str] = None,
+        auth_label: str = "",
+        preferences: Optional[Dict[str, bool]] = None,
     ) -> bool:
         """Add or update a subscription. Returns True if new."""
         p256dh = keys.get("p256dh", "")
         auth = keys.get("auth", "")
         if not endpoint or not p256dh or not auth:
             return False
+
+        # Use default preferences for auth'd users, empty for public
+        prefs = preferences if preferences is not None else (
+            DEFAULT_AUTH_PREFERENCES.copy() if auth_label else {}
+        )
 
         async with self._lock:
             is_new = endpoint not in self._subscriptions
@@ -101,6 +119,8 @@ class PushSubscriptionStore:
                 auth=auth,
                 created_at=_now_iso(),
                 user_agent=user_agent,
+                auth_label=auth_label,
+                preferences=prefs,
             )
             await self._persist()
             return is_new
@@ -123,6 +143,36 @@ class PushSubscriptionStore:
         """Return count of subscriptions."""
         async with self._lock:
             return len(self._subscriptions)
+
+    def get_subscription(self, endpoint: str) -> Optional[PushSubscription]:
+        """Get a subscription by endpoint (non-async for simple lookups)."""
+        return self._subscriptions.get(endpoint)
+
+    async def update_preferences(self, endpoint: str, preferences: Dict[str, bool]) -> bool:
+        """Update notification preferences for a subscription. Returns True if found."""
+        async with self._lock:
+            if endpoint not in self._subscriptions:
+                return False
+            sub = self._subscriptions[endpoint]
+            # Create new subscription with updated preferences
+            self._subscriptions[endpoint] = PushSubscription(
+                endpoint=sub.endpoint,
+                p256dh=sub.p256dh,
+                auth=sub.auth,
+                created_at=sub.created_at,
+                user_agent=sub.user_agent,
+                auth_label=sub.auth_label,
+                preferences=preferences,
+            )
+            await self._persist()
+            return True
+
+    def get_subscriptions_with_preference(self, pref_key: str) -> List[PushSubscription]:
+        """Get subscriptions that have a specific preference enabled."""
+        return [
+            sub for sub in self._subscriptions.values()
+            if sub.preferences.get(pref_key, False)
+        ]
 
 
 __all__ = ["PushSubscription", "PushSubscriptionStore"]

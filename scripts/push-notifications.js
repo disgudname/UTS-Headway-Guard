@@ -8,6 +8,7 @@
   'use strict';
 
   const BELL_ID = 'uts-push-bell';
+  const PANEL_ID = 'uts-push-prefs';
 
   // Avoid duplicate initialization
   if (document.getElementById(BELL_ID)) return;
@@ -19,6 +20,9 @@
   }
 
   let isSubscribed = false;
+  let isAuthenticated = false;
+  let preferences = {};
+  let currentEndpoint = null;
   let swRegistration = null;
 
   // Inject styles
@@ -96,6 +100,102 @@
         height: 24px;
       }
     }
+    #${PANEL_ID} {
+      position: fixed;
+      bottom: 90px;
+      right: 20px;
+      width: 280px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      z-index: 1051;
+      display: none;
+      overflow: hidden;
+    }
+    #${PANEL_ID}.visible {
+      display: block;
+    }
+    .prefs-header {
+      padding: 16px;
+      border-bottom: 1px solid #eee;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    .prefs-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: #666;
+      padding: 0;
+      line-height: 1;
+    }
+    .prefs-close:hover {
+      color: #333;
+    }
+    .prefs-body {
+      padding: 8px 0;
+    }
+    .pref-item {
+      display: flex;
+      align-items: flex-start;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .pref-item:hover {
+      background: #f5f5f5;
+    }
+    .pref-item input {
+      margin-right: 12px;
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+    .pref-item-content {
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    .pref-item-label {
+      font-size: 14px;
+      color: #333;
+    }
+    .pref-item-desc {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+    }
+    .prefs-footer {
+      padding: 12px 16px;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: center;
+    }
+    .prefs-unsubscribe {
+      background: none;
+      border: 1px solid #dc2626;
+      color: #dc2626;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: system-ui, -apple-system, sans-serif;
+      transition: background 0.15s ease;
+    }
+    .prefs-unsubscribe:hover {
+      background: #fef2f2;
+    }
+    @media (max-width: 768px) {
+      #${PANEL_ID} {
+        bottom: 140px;
+        right: 16px;
+        width: calc(100% - 32px);
+        max-width: 320px;
+      }
+    }
   `;
   document.head.appendChild(style);
 
@@ -113,6 +213,103 @@
     <span class="badge"></span>
   `;
   document.body.appendChild(bell);
+
+  // Create preferences panel (for authenticated users)
+  const panel = document.createElement('div');
+  panel.id = PANEL_ID;
+  panel.innerHTML = `
+    <div class="prefs-header">
+      <span>Notification Settings</span>
+      <button class="prefs-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="prefs-body">
+      <label class="pref-item">
+        <input type="checkbox" data-pref="service_alerts" checked disabled>
+        <div class="pref-item-content">
+          <span class="pref-item-label">Service Alerts</span>
+          <span class="pref-item-desc">Always on for all subscribers</span>
+        </div>
+      </label>
+      <label class="pref-item">
+        <input type="checkbox" data-pref="low_soc">
+        <div class="pref-item-content">
+          <span class="pref-item-label">Low Battery Alerts</span>
+          <span class="pref-item-desc">Electric buses below 35%</span>
+        </div>
+      </label>
+      <label class="pref-item">
+        <input type="checkbox" data-pref="headway">
+        <div class="pref-item-content">
+          <span class="pref-item-label">Headway Issues</span>
+          <span class="pref-item-desc">Bunching and large gaps</span>
+        </div>
+      </label>
+    </div>
+    <div class="prefs-footer">
+      <button class="prefs-unsubscribe">Unsubscribe</button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  // Panel event handlers
+  panel.querySelector('.prefs-close').addEventListener('click', () => {
+    panel.classList.remove('visible');
+  });
+
+  panel.querySelector('.prefs-unsubscribe').addEventListener('click', async () => {
+    panel.classList.remove('visible');
+    await unsubscribeUser();
+  });
+
+  // Close panel when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!panel.contains(e.target) && e.target !== bell && !bell.contains(e.target)) {
+      panel.classList.remove('visible');
+    }
+  });
+
+  // Handle preference checkbox changes
+  panel.querySelectorAll('input[data-pref]').forEach(checkbox => {
+    checkbox.addEventListener('change', async (e) => {
+      const pref = e.target.dataset.pref;
+      if (pref === 'service_alerts') return; // Always on
+
+      preferences[pref] = e.target.checked;
+      await savePreferences();
+    });
+  });
+
+  // Update panel checkboxes from current preferences
+  function updatePanelCheckboxes() {
+    panel.querySelectorAll('input[data-pref]').forEach(checkbox => {
+      const pref = checkbox.dataset.pref;
+      if (pref === 'service_alerts') return;
+      checkbox.checked = preferences[pref] === true;
+    });
+  }
+
+  // Save preferences to server
+  async function savePreferences() {
+    if (!currentEndpoint) return;
+    try {
+      const resp = await fetch('/api/push/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: currentEndpoint, preferences })
+      });
+      if (!resp.ok) {
+        console.error('[push] Failed to save preferences');
+      }
+    } catch (err) {
+      console.error('[push] Error saving preferences:', err);
+    }
+  }
+
+  // Show preferences panel
+  function showPreferencesPanel() {
+    updatePanelCheckboxes();
+    panel.classList.add('visible');
+  }
 
   // Helper: Convert URL-safe base64 to Uint8Array
   function urlBase64ToUint8Array(base64String) {
@@ -158,6 +355,8 @@
         applicationServerKey: urlBase64ToUint8Array(vapidKey)
       });
 
+      currentEndpoint = subscription.endpoint;
+
       // Send subscription to server
       const resp = await fetch('/api/push/subscribe', {
         method: 'POST',
@@ -169,9 +368,13 @@
         throw new Error('Failed to save subscription on server');
       }
 
+      const data = await resp.json();
+      isAuthenticated = data.authenticated === true;
+      preferences = data.preferences || {};
+
       isSubscribed = true;
       updateUI();
-      console.log('[push] Subscribed to push notifications');
+      console.log('[push] Subscribed to push notifications', { authenticated: isAuthenticated });
     } catch (err) {
       console.error('[push] Subscribe error:', err);
       // If permission denied, show alert
@@ -197,6 +400,9 @@
       }
 
       isSubscribed = false;
+      isAuthenticated = false;
+      preferences = {};
+      currentEndpoint = null;
       updateUI();
       console.log('[push] Unsubscribed from push notifications');
     } catch (err) {
@@ -207,7 +413,13 @@
   // Handle bell click
   bell.addEventListener('click', async () => {
     if (isSubscribed) {
-      await unsubscribeUser();
+      if (isAuthenticated) {
+        // Show preferences panel for authenticated users
+        showPreferencesPanel();
+      } else {
+        // Unauthenticated users just toggle subscription
+        await unsubscribeUser();
+      }
     } else {
       // Request permission first
       const permission = await Notification.requestPermission();
@@ -234,6 +446,26 @@
     // Check current subscription state
     const subscription = await registration.pushManager.getSubscription();
     isSubscribed = subscription !== null;
+
+    if (isSubscribed && subscription) {
+      currentEndpoint = subscription.endpoint;
+      // Fetch current preferences from server
+      try {
+        const resp = await fetch('/api/push/preferences', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: subscription.endpoint })
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          isAuthenticated = data.authenticated === true;
+          preferences = data.preferences || {};
+        }
+      } catch (e) {
+        console.log('[push] Could not fetch preferences');
+      }
+    }
+
     updateUI();
 
     // Show the bell

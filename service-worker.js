@@ -1,4 +1,4 @@
-const CACHE_NAME = 'uts-ops-v8';
+const CACHE_NAME = 'uts-ops-v9';
 const OFFLINE_URL = '/offline';
 
 const STATIC_ASSETS = [

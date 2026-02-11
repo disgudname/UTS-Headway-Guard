@@ -225,6 +225,69 @@ def _save_sent_alert_ids(ids: set) -> None:
         json.dumps({"ids": recent_ids, "updated_at": datetime.now(timezone.utc).isoformat()})
     )
 
+# Low SOC notifications - track which thresholds have been notified per bus
+_notified_soc_thresholds: Dict[str, set] = {}  # bus_number -> set of thresholds already notified
+LOW_SOC_THRESHOLDS = [35, 25, 20, 15, 10]  # Notification triggers at each level
+
+
+def _check_soc_threshold_crossed(bus_number: str, soc: float) -> Optional[int]:
+    """Check if SOC crossed a threshold that hasn't been notified yet. Returns threshold or None."""
+    notified = _notified_soc_thresholds.setdefault(bus_number, set())
+
+    # Find the highest threshold that SOC is at or below
+    for threshold in LOW_SOC_THRESHOLDS:
+        if soc <= threshold and threshold not in notified:
+            notified.add(threshold)
+            return threshold
+
+    # Clear thresholds when SOC recovers above them
+    for threshold in list(notified):
+        if soc > threshold:
+            notified.discard(threshold)
+
+    return None
+
+
+async def send_low_soc_notification(bus_number: str, soc: float, threshold: int) -> None:
+    """Send low SOC notification to subscribers with preference enabled."""
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        return
+
+    subs = push_subscription_store.get_subscriptions_with_preference("low_soc")
+    if not subs:
+        return
+
+    from pywebpush import webpush, WebPushException
+
+    payload = json.dumps({
+        "title": "Low Battery Alert",
+        "body": f"Bus {bus_number} at {threshold}%",
+        "icon": "/media/icon-192.png",
+        "badge": "/media/notification-badge.png",
+        "tag": f"low-soc-{bus_number}",
+        "url": "/map"
+    })
+
+    sent = 0
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info=sub.to_subscription_info(),
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": VAPID_SUBJECT},
+            )
+            sent += 1
+        except WebPushException as e:
+            if e.response and e.response.status_code == 410:
+                await push_subscription_store.remove_subscription(sub.endpoint)
+        except Exception:
+            pass
+
+    if sent:
+        print(f"[low_soc] Bus {bus_number} at {threshold}% (actual {soc:.0f}%) -> {sent} notifications sent")
+
+
 # ---------------------------
 # System Notices (admin-managed alerts for index.html)
 # ---------------------------
@@ -4872,13 +4935,12 @@ async def startup():
 
         def on_soc_update(soc: VehicleSOC):
             """Callback when SOC update received from ViriCiti."""
-            LOW_BATTERY_THRESHOLD = 35.0
             data = {
                 "bus_number": soc.bus_number,
                 "vid": soc.vid,
                 "soc": soc.soc,
                 "odo": soc.odo,
-                "low_battery": soc.soc <= LOW_BATTERY_THRESHOLD,
+                "low_battery": soc.soc <= LOW_SOC_THRESHOLDS[0],
                 "timestamp": soc.timestamp.isoformat()
             }
             # Update state cache (keyed by bus number for TransLoc matching)
@@ -4888,6 +4950,11 @@ async def startup():
             state.viriciti_vehicle_count = client.vehicle_count
             # Broadcast to SSE subscribers
             broadcast_viriciti_soc({"type": "soc_update", "payload": data})
+
+            # Check for low SOC notification (thresholds: 35%, 25%, 20%, 15%, 10%)
+            threshold = _check_soc_threshold_crossed(soc.bus_number, soc.soc)
+            if threshold is not None:
+                asyncio.create_task(send_low_soc_notification(soc.bus_number, soc.soc, threshold))
 
         client._on_soc_update = on_soc_update
 
@@ -11991,8 +12058,23 @@ async def push_subscribe(request: Request):
     if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
         raise HTTPException(status_code=400, detail="Invalid subscription data")
     user_agent = request.headers.get("user-agent")
-    is_new = await push_subscription_store.add_subscription(endpoint, keys, user_agent)
-    return {"status": "subscribed", "new": is_new}
+
+    # Check if user is authenticated (dispatcher login)
+    auth_info = _get_dispatcher_secret_info(request)
+    auth_label = auth_info[0] if auth_info else ""
+
+    is_new = await push_subscription_store.add_subscription(
+        endpoint, keys, user_agent, auth_label=auth_label
+    )
+
+    # Return subscription info including preferences
+    sub = push_subscription_store.get_subscription(endpoint)
+    return {
+        "status": "subscribed",
+        "new": is_new,
+        "authenticated": bool(auth_label),
+        "preferences": sub.preferences if sub else {},
+    }
 
 
 @app.post("/api/push/unsubscribe")
@@ -12004,6 +12086,46 @@ async def push_unsubscribe(request: Request):
         raise HTTPException(status_code=400, detail="Missing endpoint")
     removed = await push_subscription_store.remove_subscription(endpoint)
     return {"status": "unsubscribed", "found": removed}
+
+
+@app.post("/api/push/preferences")
+async def get_push_preferences(request: Request):
+    """Get notification preferences for a subscription."""
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Missing endpoint")
+    sub = push_subscription_store.get_subscription(endpoint)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    return {
+        "authenticated": bool(sub.auth_label),
+        "preferences": sub.preferences,
+    }
+
+
+@app.put("/api/push/preferences")
+async def update_push_preferences(request: Request):
+    """Update notification preferences for a subscription."""
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    preferences = data.get("preferences", {})
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Missing endpoint")
+    sub = push_subscription_store.get_subscription(endpoint)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if not sub.auth_label:
+        raise HTTPException(status_code=403, detail="Preferences only available for authenticated users")
+
+    # Validate preference keys - only allow known keys
+    valid_keys = {"low_soc", "headway"}
+    filtered = {k: bool(v) for k, v in preferences.items() if k in valid_keys}
+
+    success = await push_subscription_store.update_preferences(endpoint, filtered)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update preferences")
+    return {"ok": True, "preferences": filtered}
 
 
 @app.get("/api/push/status")
