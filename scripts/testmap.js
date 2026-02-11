@@ -19614,7 +19614,6 @@ ${trainPlaneMarkup}
           offRouteBadge.style.pointerEvents = 'auto';
           offRouteBadge.style.cursor = 'default';
           offRouteBadge.style.display = state.isOffRoute ? 'flex' : 'none';
-          root.appendChild(offRouteBadge);
 
           const batteryBadge = document.createElement('div');
           batteryBadge.className = 'bus-marker__battery-badge';
@@ -19625,10 +19624,12 @@ ${trainPlaneMarkup}
           batteryBadge.style.pointerEvents = 'auto';
           batteryBadge.style.cursor = 'default';
           batteryBadge.style.display = state.lowBattery ? 'flex' : 'none';
-          root.appendChild(batteryBadge);
 
           const wrapper = document.createElement('div');
+          wrapper.className = 'bus-marker__wrapper';
           wrapper.appendChild(root);
+          wrapper.appendChild(offRouteBadge);
+          wrapper.appendChild(batteryBadge);
 
           return L.divIcon({
               html: wrapper.innerHTML,
@@ -19670,15 +19671,17 @@ ${trainPlaneMarkup}
               return null;
           }
           iconElement.style.pointerEvents = 'none';
-          const root = iconElement.querySelector('.bus-marker__root');
+          const wrapper = iconElement.querySelector('.bus-marker__wrapper');
+          const root = wrapper ? wrapper.querySelector('.bus-marker__root') : iconElement.querySelector('.bus-marker__root');
           const svg = root ? root.querySelector('.bus-marker__svg') : null;
           const title = svg ? svg.querySelector('title') : null;
           const routeShape = svg ? svg.querySelector('#route_color') : null;
           const centerSquare = svg ? ensureCenterSquareElement(svg) : null;
           const centerRing = svg ? svg.querySelector(`#${BUS_MARKER_CENTER_RING_ID}`) : null;
           const heading = svg ? svg.querySelector('#heading') : null;
-          const offRouteBadge = root ? root.querySelector('.bus-marker__offroute-badge') : null;
-          const batteryBadge = root ? root.querySelector('.bus-marker__battery-badge') : null;
+          const badgeParent = wrapper || root;
+          const offRouteBadge = badgeParent ? badgeParent.querySelector('.bus-marker__offroute-badge') : null;
+          const batteryBadge = badgeParent ? badgeParent.querySelector('.bus-marker__battery-badge') : null;
           state.elements = {
               icon: iconElement,
               root,
