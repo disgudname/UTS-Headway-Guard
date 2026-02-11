@@ -717,6 +717,7 @@
         transform-origin: 50% 50%;
         pointer-events: none;
         position: relative;
+        z-index: 1;
       }
       .bus-marker__svg .st1 {
         paint-order: stroke fill;
