@@ -15956,6 +15956,11 @@ ${trainPlaneMarkup}
               }
               if (busName) {
                   blockVehicleParts.push(escapeHtml(busName));
+                  // Add SOC if available from ViriCiti
+                  const socInfo = viricitiSocData[busName];
+                  if (socInfo && typeof socInfo.soc === 'number') {
+                      blockVehicleParts.push(`SOC ${Math.round(socInfo.soc)}%`);
+                  }
               }
               if (blockVehicleParts.length > 0) {
                   cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${blockVehicleParts.join(' • ')}</div>`);
