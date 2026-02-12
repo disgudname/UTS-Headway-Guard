@@ -37,6 +37,8 @@ import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from headway_storage import HeadwayStorage, parse_iso8601_utc
+from fullbus_storage import FullBusStorage
+from fullbus_tracker import FullBusTracker
 from headway_tracker import (
     HeadwayTracker,
     VehicleSnapshot,
@@ -186,6 +188,7 @@ VEH_LOG_DIRS = [
 ]
 VEH_LOG_DIR = VEH_LOG_DIRS[0]
 HEADWAY_DIR = PRIMARY_DATA_DIR / "headway"
+FULLBUS_DIR = PRIMARY_DATA_DIR / "fullbus_events"
 
 TICKETS_PATH = Path(os.getenv("TICKETS_PATH", str(PRIMARY_DATA_DIR / "tickets.json")))
 if TICKETS_PATH.is_absolute():
@@ -1433,6 +1436,7 @@ REPAIRS_SCREEN_HTML = _load_html("repairsscreen.html")
 REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
 HEADWAY_HTML = _load_html("headway.html")
 HEADWAY_DIAGNOSTICS_HTML = _load_html("headway_diagnostics.html")
+FULLBUS_HTML = _load_html("fullbus.html")
 OFFLINE_HTML = _load_html("offline.html")
 INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
@@ -4141,6 +4145,123 @@ async def api_headway_export(
 
 
 # ---------------------------
+# REST: Full Bus Tracker
+# ---------------------------
+
+
+def _get_fullbus_storage() -> FullBusStorage:
+    storage = getattr(app.state, "fullbus_storage", None)
+    if storage is None:
+        raise HTTPException(status_code=503, detail="full bus storage unavailable")
+    return storage
+
+
+@app.get("/api/fullbus")
+async def api_fullbus(
+    start: str = Query(..., description="Start timestamp (ISO-8601 UTC)"),
+    end: str = Query(..., description="End timestamp (ISO-8601 UTC)"),
+    route_ids: Optional[str] = Query(None, description="Comma-separated route IDs"),
+    stop_ids: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+):
+    start_dt = _parse_headway_timestamp(start)
+    end_dt = _parse_headway_timestamp(end)
+    routes = _parse_headway_ids(route_ids)
+    stops = _parse_headway_ids(stop_ids)
+    storage = _get_fullbus_storage()
+    events = storage.query_events(
+        start_dt,
+        end_dt,
+        route_ids=routes if routes else None,
+        stop_ids=stops if stops else None,
+    )
+    enriched = [ev.to_dict() for ev in events]
+
+    # Include active episodes from tracker
+    active = []
+    fb_tracker = getattr(app.state, "fullbus_tracker", None)
+    if fb_tracker:
+        active = fb_tracker.get_active_episodes()
+
+    return {"events": enriched, "active": active}
+
+
+@app.get("/api/fullbus/export")
+async def api_fullbus_export(
+    start: str = Query(..., description="Start timestamp (ISO-8601 UTC)"),
+    end: str = Query(..., description="End timestamp (ISO-8601 UTC)"),
+    route_ids: Optional[str] = Query(None, description="Comma-separated route IDs"),
+    stop_ids: Optional[str] = Query(None, description="Comma-separated stop IDs"),
+    timezone_name: Optional[str] = Query(None, description="IANA timezone name"),
+):
+    start_dt = _parse_headway_timestamp(start)
+    end_dt = _parse_headway_timestamp(end)
+    routes = _parse_headway_ids(route_ids)
+    stops = _parse_headway_ids(stop_ids)
+    storage = _get_fullbus_storage()
+    events = storage.query_events(
+        start_dt,
+        end_dt,
+        route_ids=routes if routes else None,
+        stop_ids=stops if stops else None,
+    )
+
+    tz = UVA_TZ
+    if timezone_name:
+        try:
+            tz = ZoneInfo(timezone_name)
+        except KeyError:
+            raise HTTPException(status_code=400, detail="invalid timezone_name")
+
+    def _fmt_dt(dt: datetime) -> str:
+        return dt.astimezone(tz).strftime("%m-%d-%Y %I:%M:%S %p").lstrip("0")
+
+    def _fmt_duration(start_t: datetime, end_t: datetime) -> str:
+        total = int((end_t - start_t).total_seconds())
+        if total < 0:
+            return ""
+        hours, rem = divmod(total, 3600)
+        mins, secs = divmod(rem, 60)
+        return f"{hours:02d}:{mins:02d}:{secs:02d}"
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Start Time",
+        "End Time",
+        "Duration",
+        "Vehicle",
+        "Block",
+        "Route",
+        "Nearest Stop",
+        "Lat",
+        "Lon",
+        "Capacity",
+        "Peak Occupation",
+    ])
+    for ev in sorted(events, key=lambda e: e.start_time):
+        writer.writerow([
+            _fmt_dt(ev.start_time),
+            _fmt_dt(ev.end_time),
+            _fmt_duration(ev.start_time, ev.end_time),
+            ev.vehicle_name or ev.vehicle_id or "",
+            ev.block or "",
+            ev.route_name or ev.route_id or "",
+            ev.nearest_stop_name or ev.nearest_stop_id or "",
+            f"{ev.lat:.6f}" if ev.lat is not None else "",
+            f"{ev.lon:.6f}" if ev.lon is not None else "",
+            str(ev.capacity) if ev.capacity is not None else "",
+            str(ev.peak_occupation) if ev.peak_occupation is not None else "",
+        ])
+
+    payload = buf.getvalue()
+    headers = {
+        "Content-Disposition": "attachment; filename=\"fullbus_export.csv\"",
+        "Content-Type": "text/csv",
+    }
+    return Response(content=payload, media_type="text/csv", headers=headers)
+
+
+# ---------------------------
 # REST: UVA Athletics (home games)
 # ---------------------------
 
@@ -4379,6 +4500,20 @@ async def startup():
         app.state.headway_storage = None
         app.state.headway_tracker = None
         app.state.approach_sets_config = {}
+
+    try:
+        fullbus_storage = FullBusStorage(FULLBUS_DIR)
+        fullbus_tracker = FullBusTracker(
+            storage=fullbus_storage,
+            route_name_lookup=route_name_lookup,
+            vehicle_block_lookup=vehicle_block_lookup,
+        )
+        app.state.fullbus_storage = fullbus_storage
+        app.state.fullbus_tracker = fullbus_tracker
+    except Exception as exc:
+        print(f"[fullbus] initialization failed: {exc}")
+        app.state.fullbus_storage = None
+        app.state.fullbus_tracker = None
 
     async def updater():
         await asyncio.sleep(0.1)
@@ -4851,6 +4986,18 @@ async def startup():
                     tracker = getattr(app.state, "headway_tracker", None)
                     if tracker and headway_snapshots:
                         tracker.process_snapshots(headway_snapshots)
+                    # Full bus tracking
+                    try:
+                        fb_tracker = getattr(app.state, "fullbus_tracker", None)
+                        if fb_tracker:
+                            fb_tracker.process_cycle(
+                                vehicle_capacities,
+                                vehicles_raw,
+                                stops_raw,
+                                fetch_completed_at,
+                            )
+                    except Exception as fb_exc:
+                        print(f"[fullbus] process_cycle error: {fb_exc}")
             except Exception as e:
                 # record last error for UI surfacing
                 try:
@@ -12547,6 +12694,16 @@ async def headway_diagnostics_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(HEADWAY_DIAGNOSTICS_HTML)
+    return _login_redirect(request)
+
+# ---------------------------
+# FULL BUS PAGE
+# ---------------------------
+@app.get("/fullbus")
+async def fullbus_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(FULLBUS_HTML)
     return _login_redirect(request)
 
 # ---------------------------

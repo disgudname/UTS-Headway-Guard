@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#E57200">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Full Bus Tracker</title>
+  <script defer src="/nav-bar.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #0d0d0d;
+      color: #f5f5f5;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: linear-gradient(120deg, #5b1212, #3a0f1f);
+      padding: 1.5rem 0;
+      color: #ffe6e6;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .content-width {
+      width: min(1200px, calc(100% - 2.5rem));
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+    .header-inner {
+      padding: 0 0.5rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.8rem;
+      letter-spacing: 0.02em;
+    }
+    header p {
+      margin: 0.25rem 0 0;
+      color: #ffb9b9;
+    }
+    main {
+      padding: 2rem 0;
+      flex: 1;
+      width: min(1200px, calc(100% - 2.5rem));
+      margin: 0 auto;
+      display: grid;
+      gap: 1.5rem;
+    }
+    .card {
+      background: #161616;
+      border: 1px solid #222;
+      border-radius: 10px;
+      padding: 1.25rem;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
+    }
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      font-size: 1.2rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem 1.5rem;
+      align-items: start;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      color: #ffd9d9;
+    }
+    input, select, button {
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 8px;
+      border: 1px solid #2d2d2d;
+      background: #0f0f0f;
+      color: #f3f4f6;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.95rem;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+    select[multiple] {
+      height: 12rem;
+    }
+    button {
+      background: linear-gradient(120deg, #c0392b, #e74c3c);
+      border: none;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+      box-shadow: 0 6px 18px rgba(192, 57, 43, 0.35);
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 28px rgba(192, 57, 43, 0.45);
+    }
+    button.secondary {
+      background: #202020;
+      border: 1px solid #2b2b2b;
+      box-shadow: none;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .status {
+      margin-top: 0.75rem;
+      color: #ffb9b9;
+      font-size: 0.95rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      background: #0f0f0f;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid #1f1f1f;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      background: #1a0a0a;
+      color: #ffe5e5;
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    tr:nth-child(even) td { background: #131313; }
+    tr:hover td { background: #1a1a1a; }
+    .active-row td {
+      background: #3a0d0d !important;
+      color: #ffdede;
+    }
+    .active-row:hover td {
+      background: #4a1010 !important;
+    }
+    .empty-state {
+      padding: 1rem;
+      background: #111;
+      border: 1px dashed #2d2d2d;
+      border-radius: 8px;
+      color: #9ca3af;
+      text-align: center;
+    }
+    .stat-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .stat-card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 8px;
+      padding: 0.75rem;
+      text-align: center;
+    }
+    .stat-card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #ff6b6b;
+    }
+    .stat-card .label {
+      font-size: 0.8rem;
+      color: #999;
+      margin-top: 0.25rem;
+    }
+    .active-badge {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      background: #7f1d1d;
+      color: #fca5a5;
+      font-size: 0.8rem;
+      border: 1px solid #991b1b;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    @media (max-width: 640px) {
+      select[multiple] { height: 10rem; }
+      th, td { padding: 0.4rem 0.5rem; font-size: 0.85rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="content-width header-inner">
+      <h1>Full Bus Tracker</h1>
+      <p>Monitor episodes where buses reach or exceed passenger capacity.</p>
+    </div>
+  </header>
+  <main class="content-width">
+    <section class="card">
+      <h2>Filters</h2>
+      <div class="grid">
+        <div>
+          <label for="from-date">From date</label>
+          <input type="date" id="from-date" />
+        </div>
+        <div>
+          <label for="from-time">From time</label>
+          <input type="time" id="from-time" step="60" />
+        </div>
+        <div>
+          <label for="to-date">To date</label>
+          <input type="date" id="to-date" />
+        </div>
+        <div>
+          <label for="to-time">To time</label>
+          <input type="time" id="to-time" step="60" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top: 1rem;">
+        <div>
+          <label for="route-select">Routes (select one or more)</label>
+          <select id="route-select" multiple></select>
+        </div>
+        <div>
+          <label for="stop-select">Stops (select one or more)</label>
+          <select id="stop-select" multiple></select>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="load-btn">Load events</button>
+        <button id="export-btn" class="secondary">Export CSV</button>
+        <button id="clear-btn" class="secondary">Clear selections</button>
+      </div>
+      <div class="status" id="status">Loading routes and stops...</div>
+    </section>
+
+    <section class="card">
+      <h2>Results</h2>
+      <div id="stats-container"></div>
+      <div id="results-container">
+        <div class="empty-state">No data loaded yet.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const routeSelect = document.getElementById('route-select');
+    const stopSelect = document.getElementById('stop-select');
+    const statusEl = document.getElementById('status');
+    const statsContainer = document.getElementById('stats-container');
+    const resultsContainer = document.getElementById('results-container');
+
+    let allRoutes = [];
+    let allStops = [];
+    let stopIdsByCanonical = new Map();
+
+    function formatRouteLabel(route) {
+      const id = route.RouteID ?? route.RouteId ?? route.id ?? '';
+      const name = route.RouteName || route.Description || route.LongName || route.ShortName || `Route ${id}`;
+      const short = route.ShortName || route.InfoText;
+      return short && short !== name ? `${name} (${short})` : name;
+    }
+
+    function collectStopIds(stop) {
+      return [
+        stop.StopID, stop.StopId, stop.stop_id,
+        stop.Stop?.StopID, stop.Stop?.StopId,
+        stop.RouteStopID, stop.RouteStopId,
+        stop.AddressID, stop.AddressId, stop.address_id, stop.id,
+      ].filter(id => id !== undefined && id !== null);
+    }
+
+    function getStopId(stop) {
+      const candidates = collectStopIds(stop);
+      return candidates.length ? candidates[0] : null;
+    }
+
+    function normalizeStopName(stop) {
+      return (stop.Name || stop.Description || stop.StopName || '').trim().toLowerCase();
+    }
+
+    function getStopCoords(stop) {
+      const lat = stop.Latitude ?? stop.latitude ?? stop.lat;
+      const lon = stop.Longitude ?? stop.longitude ?? stop.lon ?? stop.Lng;
+      if (lat == null || lon == null) return null;
+      return { lat: Number(lat), lon: Number(lon) };
+    }
+
+    function getStopKey(stop) {
+      const name = normalizeStopName(stop);
+      const coords = getStopCoords(stop);
+      if (name && coords) return `${name}|${coords.lat.toFixed(5)},${coords.lon.toFixed(5)}`;
+      if (coords) return `coords:${coords.lat.toFixed(5)},${coords.lon.toFixed(5)}`;
+      if (name) return `name:${name}`;
+      const id = getStopId(stop);
+      return id != null ? `id:${id}` : null;
+    }
+
+    function formatStopLabel(stop) {
+      const id = getStopId(stop) ?? '';
+      const name = stop.Name || stop.Description || stop.StopName || `Stop ${id}`;
+      return name;
+    }
+
+    function setStatus(message, isError = false) {
+      statusEl.textContent = message;
+      statusEl.style.color = isError ? '#fca5a5' : '#ffb9b9';
+    }
+
+    function populateRoutes() {
+      routeSelect.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      allRoutes.forEach(route => {
+        const opt = document.createElement('option');
+        opt.value = route.RouteID ?? route.RouteId ?? route.id;
+        opt.textContent = formatRouteLabel(route);
+        frag.appendChild(opt);
+      });
+      routeSelect.appendChild(frag);
+    }
+
+    function filteredStops(filterRoutes = []) {
+      const filterSet = new Set(filterRoutes);
+      return allStops.filter(stop => {
+        if (!filterSet.size) return true;
+        return (stop._routeIds || []).some(r => filterSet.has(String(r)));
+      });
+    }
+
+    function populateStops(filterRoutes = []) {
+      stopSelect.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      filteredStops(filterRoutes).forEach(stop => {
+        const id = getStopId(stop);
+        if (!id) return;
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = formatStopLabel(stop);
+        frag.appendChild(opt);
+      });
+      stopSelect.appendChild(frag);
+    }
+
+    function getSelected(selectEl) {
+      return Array.from(selectEl.selectedOptions).map(opt => opt.value).filter(Boolean);
+    }
+
+    function setDefaults() {
+      const now = new Date();
+      document.getElementById('to-date').value = now.toISOString().slice(0, 10);
+      document.getElementById('to-time').value = now.toTimeString().slice(0, 5);
+      const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      document.getElementById('from-date').value = from.toISOString().slice(0, 10);
+      document.getElementById('from-time').value = from.toTimeString().slice(0, 5);
+    }
+
+    async function loadMetadata() {
+      try {
+        const res = await fetch('/v1/testmap/transloc/metadata');
+        if (!res.ok) throw new Error(`Metadata fetch failed (${res.status})`);
+        const data = await res.json();
+        allRoutes = Array.isArray(data.routes) ? data.routes : [];
+        const stopMap = new Map();
+        (Array.isArray(data.stops) ? data.stops : []).forEach(stop => {
+          const candidateIds = collectStopIds(stop);
+          const id = candidateIds[0];
+          const key = getStopKey(stop);
+          if (!key || !id) return;
+          const routes = new Set([
+            ...(stop.RouteIds || stop.RouteIDs || []),
+            ...(Array.isArray(stop.Routes) ? stop.Routes.map(r => r.RouteID ?? r.RouteId ?? r.id) : []),
+            stop.RouteID ?? stop.RouteId,
+          ].filter(Boolean).map(String));
+          const existing = stopMap.get(key) || { ...stop, _routeIds: [], _allIds: [] };
+          const mergedRoutes = new Set([...(existing._routeIds || []), ...routes]);
+          const mergedIds = new Set([...(existing._allIds || []), ...candidateIds.map(String)]);
+          stopMap.set(key, {
+            ...existing, ...stop,
+            StopID: getStopId(existing) ?? id,
+            _routeIds: Array.from(mergedRoutes),
+            _allIds: Array.from(mergedIds),
+          });
+        });
+        allStops = Array.from(stopMap.values()).sort((a, b) =>
+          formatStopLabel(a).toLowerCase().localeCompare(formatStopLabel(b).toLowerCase())
+        );
+        stopIdsByCanonical = new Map();
+        allStops.forEach(stop => {
+          const id = getStopId(stop);
+          if (id == null) return;
+          const ids = stop._allIds?.length ? stop._allIds.map(String) : collectStopIds(stop).map(String);
+          if (!ids.length) ids.push(String(id));
+          stopIdsByCanonical.set(String(id), ids);
+        });
+        populateRoutes();
+        populateStops();
+        setStatus('Routes and stops loaded. Choose filters and load events.');
+      } catch (err) {
+        console.error(err);
+        setStatus('Unable to load routes/stops. Try refreshing.', true);
+      }
+    }
+
+    function combineDateTime(dateInputId, timeInputId) {
+      const dateVal = document.getElementById(dateInputId).value;
+      const timeVal = document.getElementById(timeInputId).value || '00:00';
+      if (!dateVal) throw new Error('Please select both start and end dates.');
+      const dt = new Date(`${dateVal}T${timeVal}:00`);
+      if (Number.isNaN(dt.getTime())) throw new Error('Invalid date or time.');
+      return dt.toISOString();
+    }
+
+    function buildQuery(base) {
+      const start = combineDateTime('from-date', 'from-time');
+      const end = combineDateTime('to-date', 'to-time');
+      if (end < start) throw new Error('End time must be after start time.');
+      const routes = getSelected(routeSelect);
+      const stops = getSelected(stopSelect)
+        .flatMap(id => stopIdsByCanonical.get(String(id)) || [id]);
+      const uniqueStops = Array.from(new Set(stops));
+      const params = new URLSearchParams({ start, end });
+      if (routes.length) params.set('route_ids', routes.join(','));
+      if (uniqueStops.length) params.set('stop_ids', uniqueStops.join(','));
+      return `${base}?${params.toString()}`;
+    }
+
+    function formatDuration(startStr, endStr) {
+      const s = new Date(startStr);
+      const e = new Date(endStr);
+      const diff = Math.round((e - s) / 1000);
+      if (diff < 0) return '';
+      const m = Math.floor(diff / 60);
+      const sec = diff % 60;
+      return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+    }
+
+    function formatLocalTime(isoStr) {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      return d.toLocaleString('en-US', {
+        month: '2-digit', day: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      });
+    }
+
+    function renderStats(events, activeCount) {
+      const total = events.length;
+      if (total === 0 && activeCount === 0) {
+        statsContainer.innerHTML = '';
+        return;
+      }
+      const totalDuration = events.reduce((sum, ev) => {
+        if (!ev.end_time || !ev.start_time) return sum;
+        return sum + Math.max(0, (new Date(ev.end_time) - new Date(ev.start_time)) / 1000);
+      }, 0);
+      const avgDuration = total > 0 ? totalDuration / total : 0;
+      const avgMin = Math.floor(avgDuration / 60);
+      const avgSec = Math.round(avgDuration % 60);
+      const totalMin = Math.floor(totalDuration / 60);
+
+      statsContainer.innerHTML = `
+        <div class="stat-cards">
+          <div class="stat-card">
+            <div class="value">${total}</div>
+            <div class="label">Total Episodes</div>
+          </div>
+          <div class="stat-card">
+            <div class="value">${activeCount}</div>
+            <div class="label">Currently Active</div>
+          </div>
+          <div class="stat-card">
+            <div class="value">${totalMin}m</div>
+            <div class="label">Total Duration</div>
+          </div>
+          <div class="stat-card">
+            <div class="value">${avgMin}m ${avgSec}s</div>
+            <div class="label">Avg Duration</div>
+          </div>
+        </div>`;
+    }
+
+    function renderTable(events) {
+      if (!events.length) {
+        resultsContainer.innerHTML = '<div class="empty-state">No full-bus events found for the selected window.</div>';
+        statsContainer.innerHTML = '';
+        return;
+      }
+
+      const activeCount = events.filter(ev => ev.active).length;
+      const completedEvents = events.filter(ev => !ev.active);
+      renderStats(completedEvents, activeCount);
+
+      const rows = events.map(ev => {
+        const isActive = ev.active;
+        const rowClass = isActive ? ' class="active-row"' : '';
+        const endDisplay = isActive
+          ? '<span class="active-badge">ACTIVE</span>'
+          : formatLocalTime(ev.end_time);
+        const duration = isActive ? '' : formatDuration(ev.start_time, ev.end_time);
+        const coords = (ev.lat != null && ev.lon != null && ev.lat !== 0 && ev.lon !== 0)
+          ? `${Number(ev.lat).toFixed(4)}, ${Number(ev.lon).toFixed(4)}`
+          : '';
+        return `<tr${rowClass}>
+          <td>${formatLocalTime(ev.start_time)}</td>
+          <td>${endDisplay}</td>
+          <td>${duration}</td>
+          <td>${ev.vehicle_name || ev.vehicle_id || ''}</td>
+          <td>${ev.block || ''}</td>
+          <td>${ev.route_name || ev.route_id || ''}</td>
+          <td>${ev.nearest_stop_name || ev.nearest_stop_id || ''}</td>
+          <td>${coords}</td>
+          <td>${ev.capacity ?? ''}</td>
+          <td>${ev.peak_occupation ?? ''}</td>
+        </tr>`;
+      }).join('');
+
+      resultsContainer.innerHTML = `<div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Start Time</th>
+              <th>End Time</th>
+              <th>Duration</th>
+              <th>Vehicle</th>
+              <th>Block</th>
+              <th>Route</th>
+              <th>Nearest Stop</th>
+              <th>Lat/Lon</th>
+              <th>Capacity</th>
+              <th>Peak Occ.</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    }
+
+    async function fetchEvents() {
+      try {
+        setStatus('Loading events...');
+        const url = buildQuery('/api/fullbus');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
+        const data = await res.json();
+        const events = [
+          ...(Array.isArray(data.active) ? data.active : []),
+          ...(Array.isArray(data.events) ? data.events : []),
+        ];
+        // Sort: active first, then by start_time descending
+        events.sort((a, b) => {
+          if (a.active && !b.active) return -1;
+          if (!a.active && b.active) return 1;
+          return new Date(b.start_time) - new Date(a.start_time);
+        });
+        renderTable(events);
+        setStatus(`Loaded ${events.length} event${events.length === 1 ? '' : 's'}.`);
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Failed to load events.', true);
+      }
+    }
+
+    async function exportCsv() {
+      try {
+        setStatus('Preparing CSV export...');
+        const tz = (() => {
+          try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+          catch { return undefined; }
+        })();
+        let url = buildQuery('/api/fullbus/export');
+        if (tz) url += `&timezone_name=${encodeURIComponent(tz)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Export failed (${res.status})`);
+        const blob = await res.blob();
+        const dlUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = dlUrl;
+        const fromDate = document.getElementById('from-date').value || '';
+        const toDate = document.getElementById('to-date').value || '';
+        let filename = 'fullbus_export';
+        if (fromDate) filename += '_' + fromDate;
+        if (toDate && toDate !== fromDate) filename += '_to_' + toDate;
+        filename += '.csv';
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(dlUrl);
+        setStatus('CSV exported.');
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Unable to export.', true);
+      }
+    }
+
+    function clearSelections() {
+      routeSelect.selectedIndex = -1;
+      stopSelect.selectedIndex = -1;
+      populateStops();
+      statsContainer.innerHTML = '';
+      resultsContainer.innerHTML = '<div class="empty-state">Selections cleared.</div>';
+      setStatus('Selections cleared.');
+    }
+
+    document.getElementById('load-btn').addEventListener('click', fetchEvents);
+    document.getElementById('export-btn').addEventListener('click', exportCsv);
+    document.getElementById('clear-btn').addEventListener('click', clearSelections);
+    routeSelect.addEventListener('change', () => populateStops(getSelected(routeSelect)));
+
+    setDefaults();
+    loadMetadata();
+  </script>
+</body>
+</html>
