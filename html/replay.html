@@ -820,6 +820,22 @@
         transform: translateX(calc(100% + 20px));
       }
     }
+    /* Stop marker styles */
+    .replay-stop-marker {
+      background: transparent;
+      border: none;
+    }
+    .replay-stop-marker__dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      background: var(--stop-color, #232D4B);
+    }
+    .replay-stop-marker__dot.multi-route {
+      background: conic-gradient(var(--stop-gradient));
+    }
   </style>
 </head>
 <body>
@@ -1073,6 +1089,10 @@
     let stopApproachStops = [];
     let stopApproachLayerGroup = null;
     let stopApproachFetchPromise = null;
+    // Stop marker state
+    let showStops = true;
+    let stopMarkersLayer = null;
+    let renderedStopsDayKey = null;
     let currentFrameIndex = 0;
     let lastFrameDisplayMs = null;
     let lastFrameRealTime = null;
@@ -3945,6 +3965,21 @@
       }
     }
 
+    function toggleStopMarkers() {
+      showStops = !showStops;
+      updateRouteSelector(activeRoutes, { force: true });
+      if (showStops) {
+        // Find current day from playback data and render stops
+        if (playbackData.length > 0 && currentFrameIndex < playbackData.length) {
+          const currentTs = playbackData[currentFrameIndex].ts;
+          const dayKey = new Date(currentTs).toISOString().slice(0, 10).replace(/-/g, '');
+          renderStopsForDay(dayKey);
+        }
+      } else {
+        clearStopMarkers();
+      }
+    }
+
     function applyBusOptionState(inputElement) {
       if (!inputElement || typeof inputElement.closest !== 'function') return;
       const parentLabel = inputElement.closest('label.selector-option');
@@ -4169,7 +4204,8 @@
         showOnDemand: !!showOnDemand,
         showStaleOnDemand: !!showStaleOnDemand,
         onDemandDataAvailable: !!onDemandDataAvailable,
-        showStopApproachCones: !!showStopApproachCones
+        showStopApproachCones: !!showStopApproachCones,
+        showStops: !!showStops
       });
 
       if (!forceUpdate && nextStateKey === lastRouteSelectorStateKey) {
@@ -4267,6 +4303,11 @@
               <div class="selector-label">Approach Cones</div>
               <button type="button" class="pill-button ${showStopApproachCones ? 'is-active' : ''}" onclick="toggleStopApproachCones()">${showStopApproachCones ? 'Hide Approach Cones' : 'Show Approach Cones'}</button>
               <div class="selector-option-detail">Displays all stops with configured approach cones.</div>
+            </div>
+            <div class="selector-group">
+              <div class="selector-label">Stop Markers</div>
+              <button type="button" class="pill-button ${showStops ? 'is-active' : ''}" onclick="toggleStopMarkers()">${showStops ? 'Hide Stops' : 'Show Stops'}</button>
+              <div class="selector-option-detail">Shows stops from the historical route data.</div>
             </div>
           </div>
         </div>
@@ -4437,15 +4478,107 @@
           return;
         }
         const data = await response.json();
-        if (!Array.isArray(data)) {
+        // Handle both old format (array) and new format ({routes, stops})
+        let routes = [];
+        let stops = [];
+        if (Array.isArray(data)) {
+          routes = data;
+        } else if (data && typeof data === 'object') {
+          routes = data.routes || [];
+          stops = data.stops || [];
+        }
+        if (!routes.length) {
           loadedRouteDays.add(dayKey);
           return;
         }
-        data.forEach(route => mergeRouteMetadata(route));
+        routes.forEach(route => mergeRouteMetadata(route));
+        // Store stops for headway context (keyed by day)
+        if (stops.length && !window.replayStopsByDay) {
+          window.replayStopsByDay = {};
+        }
+        if (stops.length) {
+          window.replayStopsByDay[dayKey] = stops;
+        }
         loadedRouteDays.add(dayKey);
         updateRouteSelector(activeRoutes, { force: true });
+        // Render stops for this day
+        renderStopsForDay(dayKey);
       } catch (err) {
         console.error(`Failed to load routes for ${dayKey}`, err);
+      }
+    }
+
+    function renderStopsForDay(dayKey) {
+      if (!showStops || !map) return;
+      if (renderedStopsDayKey === dayKey) return;
+
+      // Clear existing stop markers
+      if (stopMarkersLayer) {
+        map.removeLayer(stopMarkersLayer);
+        stopMarkersLayer = null;
+      }
+
+      const stops = window.replayStopsByDay?.[dayKey];
+      if (!stops || !stops.length) return;
+
+      stopMarkersLayer = L.layerGroup();
+
+      stops.forEach(stop => {
+        const lat = stop.Latitude;
+        const lng = stop.Longitude;
+        if (!lat || !lng) return;
+
+        const routeIds = stop.RouteIds || [];
+        const colors = routeIds
+          .map(rid => routeColors[rid] || routeColors[Number(rid)])
+          .filter(Boolean);
+
+        let style = '';
+        if (colors.length === 0) {
+          style = '--stop-color: #232D4B;';
+        } else if (colors.length === 1) {
+          style = `--stop-color: ${colors[0]};`;
+        } else {
+          // Multi-route stop - create gradient
+          const step = 360 / colors.length;
+          const gradientStops = colors.map((c, i) => `${c} ${i * step}deg ${(i + 1) * step}deg`).join(', ');
+          style = `--stop-gradient: ${gradientStops};`;
+        }
+
+        const icon = L.divIcon({
+          className: 'replay-stop-marker',
+          html: `<div class="replay-stop-marker__dot${colors.length > 1 ? ' multi-route' : ''}" style="${style}"></div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7]
+        });
+
+        const marker = L.marker([lat, lng], { icon, interactive: true });
+        const name = stop.Name || stop.Description || `Stop ${stop.StopID}`;
+        marker.bindTooltip(name, { direction: 'top', offset: [0, -8] });
+        stopMarkersLayer.addLayer(marker);
+      });
+
+      stopMarkersLayer.addTo(map);
+      renderedStopsDayKey = dayKey;
+    }
+
+    function clearStopMarkers() {
+      if (stopMarkersLayer && map) {
+        map.removeLayer(stopMarkersLayer);
+        stopMarkersLayer = null;
+      }
+      renderedStopsDayKey = null;
+    }
+
+    function toggleStops(show) {
+      showStops = show;
+      if (show && renderedStopsDayKey) {
+        // Re-render for current day
+        const dayKey = renderedStopsDayKey;
+        renderedStopsDayKey = null;
+        renderStopsForDay(dayKey);
+      } else if (!show) {
+        clearStopMarkers();
       }
     }
 

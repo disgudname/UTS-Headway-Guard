@@ -237,13 +237,6 @@
           <span class="pref-item-desc">Electric buses below 35%</span>
         </div>
       </label>
-      <label class="pref-item">
-        <input type="checkbox" data-pref="headway">
-        <div class="pref-item-content">
-          <span class="pref-item-label">Headway Issues</span>
-          <span class="pref-item-desc">Bunching and large gaps</span>
-        </div>
-      </label>
     </div>
     <div class="prefs-footer">
       <button class="prefs-unsubscribe">Unsubscribe</button>

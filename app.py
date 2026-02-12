@@ -228,22 +228,55 @@ def _save_sent_alert_ids(ids: set) -> None:
 # Low SOC notifications - track which thresholds have been notified per bus
 _notified_soc_thresholds: Dict[str, set] = {}  # bus_number -> set of thresholds already notified
 LOW_SOC_THRESHOLDS = [35, 25, 20, 15, 10]  # Notification triggers at each level
+_LOW_SOC_STATE_PATH = PRIMARY_DATA_DIR / "low_soc_notifications.json"
+
+
+def _load_low_soc_state() -> Dict[str, set]:
+    """Load persisted low SOC notification state."""
+    try:
+        if _LOW_SOC_STATE_PATH.exists():
+            data = json.loads(_LOW_SOC_STATE_PATH.read_text())
+            thresholds = data.get("thresholds", {})
+            # Convert lists back to sets
+            return {bus: set(levels) for bus, levels in thresholds.items()}
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[low_soc] failed to load state: {exc}")
+    return {}
+
+
+def _save_low_soc_state() -> None:
+    """Persist low SOC notification state."""
+    try:
+        # Convert sets to lists for JSON serialization
+        thresholds = {bus: list(levels) for bus, levels in _notified_soc_thresholds.items() if levels}
+        _LOW_SOC_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _LOW_SOC_STATE_PATH.write_text(
+            json.dumps({"thresholds": thresholds, "updated_at": datetime.now(timezone.utc).isoformat()})
+        )
+    except OSError as exc:
+        print(f"[low_soc] failed to save state: {exc}")
 
 
 def _check_soc_threshold_crossed(bus_number: str, soc: float) -> Optional[int]:
     """Check if SOC crossed a threshold that hasn't been notified yet. Returns threshold or None."""
     notified = _notified_soc_thresholds.setdefault(bus_number, set())
+    state_changed = False
 
     # Find the highest threshold that SOC is at or below
     for threshold in LOW_SOC_THRESHOLDS:
         if soc <= threshold and threshold not in notified:
             notified.add(threshold)
+            _save_low_soc_state()
             return threshold
 
     # Clear thresholds when SOC recovers above them
     for threshold in list(notified):
         if soc > threshold:
             notified.discard(threshold)
+            state_changed = True
+
+    if state_changed:
+        _save_low_soc_state()
 
     return None
 
@@ -261,7 +294,7 @@ async def send_low_soc_notification(bus_number: str, soc: float, threshold: int)
 
     payload = json.dumps({
         "title": "Low Battery Alert",
-        "body": f"Bus {bus_number} at {threshold}%",
+        "body": f"Unit {bus_number} at {int(soc)}%",
         "icon": "/media/icon-192.png",
         "badge": "/media/notification-badge.png",
         "tag": f"low-soc-{bus_number}",
@@ -285,7 +318,7 @@ async def send_low_soc_notification(bus_number: str, soc: float, threshold: int)
             pass
 
     if sent:
-        print(f"[low_soc] Bus {bus_number} at {threshold}% (actual {soc:.0f}%) -> {sent} notifications sent")
+        print(f"[low_soc] Unit {bus_number} at {soc:.0f}% (crossed {threshold}% threshold) -> {sent} notifications sent")
 
 
 # ---------------------------
@@ -3537,6 +3570,104 @@ def _attach_vehicle_names(events: Sequence[HeadwayEvent]) -> Dict[str, str]:
     return mapping
 
 
+# Cache for historical stops loaded from replay logs
+_historical_stops_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}  # day_key -> {stop_id -> stop_data}
+
+
+def _load_historical_stops_for_day(day_key: str) -> Dict[str, Dict[str, Any]]:
+    """Load stops from replay log for a specific day. Returns {stop_id -> stop_data}."""
+    if day_key in _historical_stops_cache:
+        return _historical_stops_cache[day_key]
+
+    stops_by_id: Dict[str, Dict[str, Any]] = {}
+    for log_dir in VEH_LOG_DIRS:
+        routes_path = log_dir / f"{day_key}_routes.json"
+        if not routes_path.exists():
+            continue
+        try:
+            data = json.loads(routes_path.read_text())
+            # Handle both old format (array) and new format ({routes, stops})
+            stops = []
+            if isinstance(data, dict):
+                stops = data.get("stops", [])
+            for stop in stops:
+                sid = stop.get("StopID")
+                if sid:
+                    stops_by_id[str(sid)] = stop
+            if stops_by_id:
+                break  # Found stops, no need to check other dirs
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"[headway] failed to load historical stops for {day_key}: {exc}")
+
+    _historical_stops_cache[day_key] = stops_by_id
+    # Limit cache size
+    if len(_historical_stops_cache) > 30:
+        oldest = next(iter(_historical_stops_cache))
+        del _historical_stops_cache[oldest]
+
+    return stops_by_id
+
+
+def _get_historical_stop_name(stop_id: str, event_timestamp: datetime) -> Optional[str]:
+    """Look up stop name from historical replay logs based on event date."""
+    day_key = event_timestamp.strftime("%Y%m%d")
+    stops = _load_historical_stops_for_day(day_key)
+    stop = stops.get(str(stop_id))
+    if stop:
+        return stop.get("Name") or stop.get("Description")
+    return None
+
+
+# Cache for historical routes loaded from replay logs
+_historical_routes_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}  # day_key -> {route_id -> route_data}
+
+
+def _load_historical_routes_for_day(day_key: str) -> Dict[str, Dict[str, Any]]:
+    """Load routes from replay log for a specific day. Returns {route_id -> route_data}."""
+    if day_key in _historical_routes_cache:
+        return _historical_routes_cache[day_key]
+
+    routes_by_id: Dict[str, Dict[str, Any]] = {}
+    for log_dir in VEH_LOG_DIRS:
+        routes_path = log_dir / f"{day_key}_routes.json"
+        if not routes_path.exists():
+            continue
+        try:
+            data = json.loads(routes_path.read_text())
+            # Handle both old format (array) and new format ({routes, stops})
+            routes = []
+            if isinstance(data, list):
+                routes = data
+            elif isinstance(data, dict):
+                routes = data.get("routes", [])
+            for route in routes:
+                rid = route.get("RouteID")
+                if rid:
+                    routes_by_id[str(rid)] = route
+            if routes_by_id:
+                break  # Found routes, no need to check other dirs
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"[headway] failed to load historical routes for {day_key}: {exc}")
+
+    _historical_routes_cache[day_key] = routes_by_id
+    # Limit cache size
+    if len(_historical_routes_cache) > 30:
+        oldest = next(iter(_historical_routes_cache))
+        del _historical_routes_cache[oldest]
+
+    return routes_by_id
+
+
+def _get_historical_route_name(route_id: str, event_timestamp: datetime) -> Optional[str]:
+    """Look up route name from historical replay logs based on event date."""
+    day_key = event_timestamp.strftime("%Y%m%d")
+    routes = _load_historical_routes_for_day(day_key)
+    route = routes.get(str(route_id))
+    if route:
+        return route.get("RouteName") or route.get("Description")
+    return None
+
+
 def _iso_or_none(dt: Optional[datetime]) -> Optional[str]:
     if dt is None:
         return None
@@ -3736,6 +3867,9 @@ async def api_headway(
                     route_name = route_id_to_name.get(int(rid))
                 except (ValueError, TypeError):
                     pass
+            # Fallback to historical routes from replay logs
+            if not route_name:
+                route_name = _get_historical_route_name(str(rid), ev.timestamp)
             if route_name:
                 ev_dict["route_name"] = route_name
 
@@ -3751,7 +3885,7 @@ async def api_headway(
         address_id = ev_dict.get("address_id")
         stop_point = None
 
-        # Try to find the stop point
+        # Try to find the stop point in current data
         if stop_id and stop_id in stop_lookup:
             stop_point = stop_lookup[stop_id]
         elif address_id and address_id in address_lookup:
@@ -3764,6 +3898,11 @@ async def api_headway(
             # Fix address_id if it's a lat/lon fallback (starts with "loc_")
             if address_id and address_id.startswith("loc_") and stop_point.address_id and not stop_point.address_id.startswith("loc_"):
                 ev_dict["address_id"] = stop_point.address_id
+        elif not ev_dict.get("stop_name") and stop_id:
+            # Fallback to historical stops from replay logs
+            historical_name = _get_historical_stop_name(str(stop_id), ev.timestamp)
+            if historical_name:
+                ev_dict["stop_name"] = historical_name
 
         enriched_events.append(ev_dict)
 
@@ -4815,9 +4954,11 @@ async def startup():
                 try:
                     routes_raw: List[Dict[str, Any]] = []
                     routes_catalog_raw: List[Dict[str, Any]] = []
+                    stops_raw_snapshot: List[Dict[str, Any]] = []
                     async with state.lock:
                         routes_raw = list(getattr(state, "routes_raw", []))
                         routes_catalog_raw = list(getattr(state, "routes_catalog_raw", []))
+                        stops_raw_snapshot = list(getattr(state, "stops_raw", []))
                     trimmed_routes = [_trim_transloc_route(r) for r in routes_raw]
                     if routes_catalog_raw:
                         trimmed_routes = _merge_transloc_route_metadata(trimmed_routes, routes_catalog_raw)
@@ -4836,8 +4977,28 @@ async def startup():
                         minimal.append(entry_min)
                     minimal.sort(key=lambda item: str(item.get("RouteID")))
                     minimal_routes = minimal
+
+                    # Build minimal stops snapshot
+                    built_stops = _build_transloc_stops(trimmed_routes, stops_raw_snapshot)
+                    minimal_stops: List[Dict[str, Any]] = []
+                    for stop in built_stops:
+                        if not isinstance(stop, dict):
+                            continue
+                        sid = stop.get("StopID")
+                        if sid is None:
+                            continue
+                        stop_min: Dict[str, Any] = {"StopID": sid}
+                        for key in ("Name", "Description", "Latitude", "Longitude", "RouteIds"):
+                            val = stop.get(key)
+                            if val not in (None, "", []):
+                                stop_min[key] = val
+                        minimal_stops.append(stop_min)
+                    minimal_stops.sort(key=lambda item: str(item.get("StopID")))
+
+                    # Combine routes and stops into single snapshot
+                    snapshot_data = {"routes": minimal_routes, "stops": minimal_stops}
                     routes_serialized = json.dumps(
-                        minimal_routes,
+                        snapshot_data,
                         sort_keys=True,
                         separators=(",", ":"),
                     )
@@ -4927,6 +5088,9 @@ async def startup():
     # Background WebSocket connection for ViriCiti EV telemetry
     async def viriciti_poller():
         """Maintain ViriCiti WebSocket connection for live SOC updates."""
+        global _notified_soc_thresholds
+        _notified_soc_thresholds = _load_low_soc_state()
+        print(f"[viriciti] loaded low SOC state for {len(_notified_soc_thresholds)} buses")
         await asyncio.sleep(2)  # Let other startup tasks complete
         client: Optional[ViriCitiClient] = getattr(app.state, "viriciti_client", None)
         if not client:
@@ -12119,7 +12283,7 @@ async def update_push_preferences(request: Request):
         raise HTTPException(status_code=403, detail="Preferences only available for authenticated users")
 
     # Validate preference keys - only allow known keys
-    valid_keys = {"low_soc", "headway"}
+    valid_keys = {"low_soc"}
     filtered = {k: bool(v) for k, v in preferences.items() if k in valid_keys}
 
     success = await push_subscription_store.update_preferences(endpoint, filtered)

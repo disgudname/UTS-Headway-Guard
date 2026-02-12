@@ -11,7 +11,6 @@ from typing import Dict, List, Optional
 # Default notification preferences for authenticated users
 DEFAULT_AUTH_PREFERENCES = {
     "low_soc": True,      # Low battery alerts for electric buses
-    "headway": True,      # Bunching/headway issues
 }
 
 
