@@ -8328,6 +8328,15 @@ TM.registerVisibilityResumeHandler(() => {
             }
           });
         }
+        if (trainsFeature && trainsFeature.markers && typeof trainsFeature.markers === 'object') {
+          Object.keys(trainsFeature.markers).forEach(id => {
+            trackedIds.add(`${id}`);
+            const layer = trainsFeature.markers[id];
+            if (layer) {
+              trackedLayers.add(layer);
+            }
+          });
+        }
         map.eachLayer(layer => {
           if (!layer || typeof layer.getElement !== 'function') {
             return;

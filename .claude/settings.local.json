@@ -20,7 +20,11 @@
       "Bash(ls:*)",
       "Bash(xargs:*)",
       "WebSearch",
-      "WebFetch(domain:sdk.viriciti.com)"
+      "WebFetch(domain:sdk.viriciti.com)",
+      "WebFetch(domain:utsopsdashboard.com)",
+      "Bash(flyctl deploy:*)",
+      "Bash(flyctl auth login:*)",
+      "Bash(flyctl status:*)"
     ]
   }
 }

@@ -92,11 +92,27 @@ class FullBusTracker:
                     ep.last_seen = now
                 else:
                     # Start new episode
-                    veh = vehicle_by_id.get(vid, {})
+                    veh = vehicle_by_id.get(vid)
+                    if veh is None:
+                        # Try string key in case of type mismatch
+                        veh = vehicle_by_id.get(str(vid))
+                    if veh is None:
+                        print(
+                            f"[fullbus] WARNING: vehicle {vid} has capacity data "
+                            f"but not found in vehicles_raw "
+                            f"(vehicles_raw has {len(vehicle_by_id)} entries, "
+                            f"keys sample: {list(vehicle_by_id.keys())[:5]})"
+                        )
+                        veh = {}
+
                     lat = veh.get("Latitude")
                     lon = veh.get("Longitude")
                     route_id = veh.get("RouteID")
                     vehicle_name = veh.get("Name") or ""
+
+                    # RouteID 0 means unassigned — treat as no route
+                    if route_id == 0:
+                        route_id = None
 
                     route_name = ""
                     if route_id is not None:
@@ -132,7 +148,9 @@ class FullBusTracker:
                         f"[fullbus] new episode: vehicle={vehicle_name or vid_str} "
                         f"route={route_name or route_id} "
                         f"stop={nearest_stop_name or nearest_stop_id} "
-                        f"occ={current_occ}/{capacity}"
+                        f"occ={current_occ}/{capacity} "
+                        f"lat={lat} lon={lon} "
+                        f"veh_found={'yes' if veh else 'NO'}"
                     )
             else:
                 # Not full - close episode if one exists
