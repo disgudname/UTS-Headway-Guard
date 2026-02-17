@@ -269,6 +269,10 @@
         if (typeof animateMarkerTo === 'function') {
           animateMarkerTo(trainMarker, latLng);
         }
+        // Re-enable pointer events after icon rebuild
+        if (stateEntry.markerEventsBound) {
+          enableTrainMarkerPointerEvents(trainMarker);
+        }
 
         const routeColor = stateEntry.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
         const trainNumDisplay = typeof stateEntry.trainNumRaw === 'string' && stateEntry.trainNumRaw.length > 0
@@ -318,10 +322,35 @@
       }
     }
 
+    function enableTrainMarkerPointerEvents(marker) {
+      if (!marker) {
+        return;
+      }
+      if (marker.options) {
+        marker.options.interactive = true;
+      }
+      const iconEl = typeof marker.getElement === 'function' ? marker.getElement() : marker._icon;
+      if (!iconEl) {
+        return;
+      }
+      iconEl.style.pointerEvents = 'auto';
+      iconEl.classList.add('leaflet-interactive');
+      const root = iconEl.querySelector('.bus-marker__root');
+      if (root) {
+        root.style.pointerEvents = 'auto';
+        root.style.cursor = 'pointer';
+      }
+      const svg = iconEl.querySelector('.bus-marker__svg');
+      if (svg) {
+        svg.style.pointerEvents = 'auto';
+      }
+    }
+
     function attachTrainMarkerInteractions(trainID, marker, stateEntry) {
       if (!marker || stateEntry.markerEventsBound) {
         return;
       }
+      enableTrainMarkerPointerEvents(marker);
       const popupOptions = {
         className: 'ondemand-driver-popup',
         closeButton: false,
