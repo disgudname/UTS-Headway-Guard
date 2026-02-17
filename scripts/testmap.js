@@ -2869,10 +2869,12 @@ TM.registerVisibilityResumeHandler(() => {
                           return module.fetchTrains();
                       }
                       return undefined;
-                  });
+                  })
+                  .then(() => { attachTrainMarkerInteractions(); });
           }
           if (typeof trainsFeature.module.fetchTrains === 'function') {
-              return trainsFeature.module.fetchTrains();
+              return trainsFeature.module.fetchTrains()
+                  .then(() => { attachTrainMarkerInteractions(); });
           }
           return Promise.resolve();
       }
@@ -2889,6 +2891,72 @@ TM.registerVisibilityResumeHandler(() => {
           trainsFeature.markerStates = {};
           trainsFeature.nameBubbles = {};
       }
+      function attachTrainMarkerInteractions() {
+          if (!trainsFeature.markers || !trainsFeature.markerStates) return;
+          const popupOptions = {
+              className: 'ondemand-driver-popup',
+              closeButton: false,
+              autoClose: true,
+              autoPan: false,
+              offset: [0, -20]
+          };
+          Object.keys(trainsFeature.markers).forEach(trainID => {
+              const marker = trainsFeature.markers[trainID];
+              const state = trainsFeature.markerStates[trainID];
+              if (!marker || !state) return;
+              if (state._clickBound) return;
+
+              // Use the exact same pattern as bus markers
+              if (marker.options) {
+                  marker.options.interactive = true;
+                  marker.options.keyboard = true;
+              }
+              const iconEl = typeof marker.getElement === 'function' ? marker.getElement() : marker._icon;
+              if (iconEl) {
+                  iconEl.style.pointerEvents = 'auto';
+                  if (!iconEl.classList.contains('leaflet-interactive')) {
+                      iconEl.classList.add('leaflet-interactive');
+                  }
+                  const root = iconEl.querySelector('.bus-marker__root');
+                  if (root) {
+                      root.style.pointerEvents = 'auto';
+                      root.style.cursor = 'pointer';
+                  }
+                  const svg = iconEl.querySelector('.bus-marker__svg');
+                  if (svg) {
+                      svg.style.pointerEvents = 'auto';
+                  }
+              }
+
+              const handleTrainClick = (e) => {
+                  const clickedLatLng = marker.getLatLng();
+                  const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+                  if (overlappingItems.length >= 2) {
+                      if (typeof MarkerSelectionMenu !== 'undefined') {
+                          if (e && e.originalEvent) {
+                              L.DomEvent.stopPropagation(e.originalEvent);
+                          }
+                          MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+                          return;
+                      }
+                  }
+                  // Single train - open popup directly
+                  let popupHtml = null;
+                  if (trainsFeature.module && typeof trainsFeature.module.getTrainPopupContent === 'function') {
+                      popupHtml = trainsFeature.module.getTrainPopupContent(trainID);
+                  }
+                  if (!popupHtml) return;
+                  if (typeof marker.unbindPopup === 'function') marker.unbindPopup();
+                  marker.bindPopup(popupHtml, popupOptions);
+                  marker.openPopup();
+                  syncMarkerPopupPosition(marker);
+              };
+
+              marker.on('click', handleTrainClick);
+              state._clickBound = true;
+          });
+      }
+
       const vehicleHeadingCache = new Map();
       let vehicleHeadingCachePromise = null;
       const VEHICLE_HEADING_CACHE_ENDPOINT = '/v1/vehicle_headings';
@@ -12027,6 +12095,55 @@ ${trainPlaneMarkup}
                               }
                           });
                       }
+                  }
+              });
+          }
+
+          // Check train markers
+          if (trainsFeature.markers && typeof trainsFeature.markers === 'object') {
+              Object.keys(trainsFeature.markers).forEach(trainID => {
+                  const marker = trainsFeature.markers[trainID];
+                  if (!marker || typeof marker.getLatLng !== 'function') return;
+                  const markerLatLng = marker.getLatLng();
+                  if (!markerLatLng) return;
+
+                  if (isNearby(markerLatLng)) {
+                      const state = trainsFeature.markerStates && trainsFeature.markerStates[trainID];
+                      if (!state) return;
+                      const routeColor = state.fillColor || '#0f172a';
+                      const routeName = state.routeName || 'Train';
+                      const trainNumRaw = state.trainNumRaw || state.trainNum || '';
+                      const label = trainNumRaw ? `${trainNumRaw} ${routeName}` : routeName;
+
+                      items.push({
+                          latlng: markerLatLng,
+                          color: routeColor,
+                          label: label,
+                          onClick: () => {
+                              let popupHtml = null;
+                              if (trainsFeature.module && typeof trainsFeature.module.getTrainPopupContent === 'function') {
+                                  popupHtml = trainsFeature.module.getTrainPopupContent(trainID);
+                              }
+                              if (!popupHtml) return;
+                              const popupOptions = {
+                                  className: 'ondemand-driver-popup',
+                                  closeButton: false,
+                                  autoClose: true,
+                                  autoPan: false,
+                                  offset: [0, -20]
+                              };
+                              if (typeof marker.unbindPopup === 'function') {
+                                  marker.unbindPopup();
+                              }
+                              if (typeof marker.bindPopup === 'function') {
+                                  marker.bindPopup(popupHtml, popupOptions);
+                                  if (typeof marker.openPopup === 'function') {
+                                      marker.openPopup();
+                                      syncMarkerPopupPosition(marker);
+                                  }
+                              }
+                          }
+                      });
                   }
               });
           }

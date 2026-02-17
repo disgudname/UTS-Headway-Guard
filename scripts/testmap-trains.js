@@ -112,8 +112,7 @@
         trainNum: '',
         trainNumRaw: '',
         trainTimely: '',
-        stations: [],
-        markerEventsBound: false
+        stations: []
       };
       moduleState.markerStates[key] = newState;
       return newState;
@@ -269,8 +268,6 @@
         if (typeof animateMarkerTo === 'function') {
           animateMarkerTo(trainMarker, latLng);
         }
-        // Always enable pointer events for train markers (icon rebuild resets them)
-        enableTrainMarkerPointerEvents(trainMarker);
 
         const routeColor = stateEntry.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
         const trainNumDisplay = typeof stateEntry.trainNumRaw === 'string' && stateEntry.trainNumRaw.length > 0
@@ -312,78 +309,15 @@
         } else {
           removeTrainNameBubble(trainID);
         }
-
-        // Bind click handler for popup
-        if (!stateEntry.markerEventsBound && trainMarker) {
-          attachTrainMarkerInteractions(trainID, trainMarker, stateEntry);
-        }
       }
     }
 
-    function enableTrainMarkerPointerEvents(marker) {
-      if (!marker) {
-        return;
+    function getTrainPopupContent(trainID) {
+      const stateEntry = moduleState.markerStates[trainID];
+      if (!stateEntry) {
+        return null;
       }
-      if (marker.options) {
-        marker.options.interactive = true;
-      }
-      const iconEl = typeof marker.getElement === 'function' ? marker.getElement() : marker._icon;
-      if (!iconEl) {
-        console.warn('[trains] enablePointerEvents: no icon element found');
-        return;
-      }
-      console.log('[trains] enablePointerEvents: setting up', iconEl.className);
-      iconEl.style.pointerEvents = 'auto';
-      if (!iconEl.classList.contains('leaflet-interactive')) {
-        iconEl.classList.add('leaflet-interactive');
-      }
-      const root = iconEl.querySelector('.bus-marker__root');
-      if (root) {
-        root.style.pointerEvents = 'auto';
-        root.style.cursor = 'pointer';
-      }
-      const svg = iconEl.querySelector('.bus-marker__svg');
-      if (svg) {
-        svg.style.pointerEvents = 'auto';
-      }
-    }
-
-    function attachTrainMarkerInteractions(trainID, marker, stateEntry) {
-      if (!marker || stateEntry.markerEventsBound) {
-        return;
-      }
-      enableTrainMarkerPointerEvents(marker);
-      const popupOptions = {
-        className: 'ondemand-driver-popup',
-        closeButton: false,
-        autoClose: true,
-        autoPan: false,
-        offset: [0, -20]
-      };
-
-      // Leaflet event handler
-      marker.on('click', (e) => {
-        console.log('[trains] marker clicked:', trainID, stateEntry.routeName);
-        const popupHtml = buildTrainPopupContent(trainID, stateEntry);
-        if (!popupHtml) {
-          return;
-        }
-        if (typeof marker.unbindPopup === 'function') {
-          marker.unbindPopup();
-        }
-        if (typeof marker.bindPopup === 'function') {
-          marker.bindPopup(popupHtml, popupOptions);
-          if (typeof marker.openPopup === 'function') {
-            marker.openPopup();
-          }
-        }
-      });
-
-      // Re-enable pointer events after Leaflet re-renders icon on add
-      marker.on('add', () => {
-        enableTrainMarkerPointerEvents(marker);
-      });
-      stateEntry.markerEventsBound = true;
+      return buildTrainPopupContent(trainID, stateEntry);
     }
 
     function formatStationTime(isoString, tz) {
@@ -692,7 +626,8 @@
       updateTrainMarkersVisibility,
       fetchTrains,
       clearAllMarkers,
-      removeTrainNameBubble
+      removeTrainNameBubble,
+      getTrainPopupContent
     };
   }
 
