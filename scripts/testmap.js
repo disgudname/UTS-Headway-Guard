@@ -19348,6 +19348,66 @@ ${trainPlaneMarkup}
           });
       }
 
+      function createTrainNameBubbleDivIcon(prefix, mainText, routeColor, scale, headingDeg) {
+          if (!mainText || (typeof mainText === 'string' && mainText.trim().length === 0)) {
+              return null;
+          }
+          const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+          const text = (typeof mainText === 'string' ? mainText : `${mainText}`).trim();
+          const pfx = (typeof prefix === 'string' ? prefix : '').trim().toUpperCase();
+          const fillColor = typeof routeColor === 'string' && routeColor.trim().length > 0
+              ? routeColor
+              : BUS_MARKER_DEFAULT_ROUTE_COLOR;
+          const fontSize = Math.max(BUS_MARKER_LABEL_MIN_FONT_PX, NAME_BUBBLE_BASE_FONT_PX * safeScale);
+          const prefixFontSize = roundToTwoDecimals(fontSize * 0.55);
+          const horizontalPadding = NAME_BUBBLE_HORIZONTAL_PADDING * safeScale;
+          const verticalPadding = NAME_BUBBLE_VERTICAL_PADDING * safeScale;
+          const frameInset = NAME_BUBBLE_FRAME_INSET * safeScale;
+          const prefixWidth = pfx ? measureLabelTextWidth(pfx, prefixFontSize) : 0;
+          const mainWidth = measureLabelTextWidth(text, fontSize);
+          const totalTextWidth = prefixWidth + mainWidth;
+          const rectWidth = Math.max(NAME_BUBBLE_MIN_WIDTH * safeScale, totalTextWidth + horizontalPadding * 2);
+          const rectHeight = Math.max(NAME_BUBBLE_MIN_HEIGHT * safeScale, fontSize + verticalPadding * 2);
+          const radius = NAME_BUBBLE_CORNER_RADIUS * safeScale;
+          const strokeWidth = Math.max(1, LABEL_BASE_STROKE_WIDTH * safeScale);
+          const strokePadding = strokeWidth;
+          const svgWidth = roundToTwoDecimals(rectWidth + strokeWidth * 2);
+          const svgHeight = roundToTwoDecimals(rectHeight + frameInset * 2 + strokeWidth);
+          const radiusRounded = roundToTwoDecimals(radius);
+          const strokeWidthRounded = roundToTwoDecimals(strokeWidth);
+          const rectX = roundToTwoDecimals(strokePadding);
+          const rectY = roundToTwoDecimals(frameInset + strokeWidth / 2);
+          const rectWidthRounded = roundToTwoDecimals(rectWidth);
+          const rectHeightRounded = roundToTwoDecimals(rectHeight);
+          const textCenterX = roundToTwoDecimals(svgWidth / 2);
+          const baselineShift = fontSize * LABEL_TEXT_VERTICAL_ADJUSTMENT_RATIO;
+          const textY = roundToTwoDecimals(rectY + rectHeight / 2 + baselineShift);
+          const anchorX = textCenterX;
+          const leaderOffset = roundToTwoDecimals(computeLabelLeaderOffset(safeScale, headingDeg, 'above'));
+          const anchorY = svgHeight + leaderOffset;
+          const textColor = computeBusMarkerGlyphColor(fillColor);
+          const fontSizeRounded = roundToTwoDecimals(fontSize);
+          const prefixFontSizeRounded = roundToTwoDecimals(prefixFontSize);
+          let textContent = '';
+          if (pfx) {
+              textContent += `<tspan font-size="${prefixFontSizeRounded}" alignment-baseline="middle">${escapeHtml(pfx)}</tspan>`;
+          }
+          textContent += escapeHtml(text);
+          const svg = `
+              <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
+                  <g>
+                      <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${fillColor}" stroke="white" stroke-width="${strokeWidthRounded}" />
+                      <text x="${textCenterX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${textContent}</text>
+                  </g>
+              </svg>`;
+          return L.divIcon({
+              html: svg,
+              className: 'leaflet-div-icon bus-label-icon',
+              iconSize: [svgWidth, svgHeight],
+              iconAnchor: [anchorX, anchorY]
+          });
+      }
+
       function createBlockBubbleDivIcon(blockName, routeColor, scale, headingDeg) {
           if (typeof blockName !== 'string' || blockName.trim() === '') {
               return null;
@@ -20330,9 +20390,15 @@ ${trainPlaneMarkup}
                   }
                   return;
               }
-              const trainNumPart = typeof state.trainNum === 'string' && state.trainNum.length > 0 ? state.trainNum : '';
+              const trainNumDisplay = typeof state.trainNumRaw === 'string' && state.trainNumRaw.length > 0
+                  ? state.trainNumRaw
+                  : (typeof state.trainNum === 'string' ? state.trainNum.replace(/^[a-zA-Z]/, '') : '');
               const routeNamePart = typeof state.routeName === 'string' ? state.routeName.trim() : '';
-              const labelText = trainNumPart && routeNamePart ? `${trainNumPart} ${routeNamePart}` : (routeNamePart || trainNumPart);
+              const labelText = trainNumDisplay && routeNamePart ? `${trainNumDisplay} ${routeNamePart}` : (routeNamePart || trainNumDisplay);
+              const trainNumStr = typeof state.trainNum === 'string' ? state.trainNum : '';
+              const companyPrefix = trainNumStr.charAt(0) === 'v' ? 'V'
+                  : trainNumStr.charAt(0) === 'b' ? 'B'
+                  : 'A';
               if (!(adminMode && !kioskMode && labelText)) {
                   if (trainsFeature.module && typeof trainsFeature.module.removeTrainNameBubble === 'function') {
                       trainsFeature.module.removeTrainNameBubble(trainID ?? key);
@@ -20340,7 +20406,7 @@ ${trainPlaneMarkup}
                   return;
               }
               const routeColor = state.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
-              const nameIcon = createNameBubbleDivIcon(labelText, routeColor, scale, state.headingDeg);
+              const nameIcon = createTrainNameBubbleDivIcon(companyPrefix, labelText, routeColor, scale, state.headingDeg);
               if (!nameIcon) {
                   if (trainsFeature.module && typeof trainsFeature.module.removeTrainNameBubble === 'function') {
                       trainsFeature.module.removeTrainNameBubble(trainID ?? key);

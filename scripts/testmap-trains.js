@@ -108,7 +108,9 @@
         marker: null,
         size: null,
         lastUpdateTimestamp: 0,
-        routeName: ''
+        routeName: '',
+        trainNum: '',
+        trainNumRaw: ''
       };
       moduleState.markerStates[key] = newState;
       return newState;
@@ -266,13 +268,21 @@
         }
 
         const routeColor = stateEntry.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
-        const trainNumPart = typeof stateEntry.trainNum === 'string' && stateEntry.trainNum.length > 0 ? stateEntry.trainNum : '';
+        const trainNumDisplay = typeof stateEntry.trainNumRaw === 'string' && stateEntry.trainNumRaw.length > 0
+          ? stateEntry.trainNumRaw
+          : (typeof stateEntry.trainNum === 'string' ? stateEntry.trainNum.replace(/^[a-zA-Z]/, '') : '');
         const routeNamePart = typeof stateEntry.routeName === 'string' ? stateEntry.routeName.trim() : '';
-        const labelText = trainNumPart && routeNamePart ? `${trainNumPart} ${routeNamePart}` : (routeNamePart || trainNumPart);
+        const labelText = trainNumDisplay && routeNamePart ? `${trainNumDisplay} ${routeNamePart}` : (routeNamePart || trainNumDisplay);
+        const trainNumStr = typeof stateEntry.trainNum === 'string' ? stateEntry.trainNum : '';
+        const companyPrefix = trainNumStr.charAt(0) === 'v' ? 'V'
+          : trainNumStr.charAt(0) === 'b' ? 'B'
+          : 'A';
         const bubbleKey = getTrainNameBubbleKey(trainID);
         if (typeof adminMode !== 'undefined' && typeof kioskMode !== 'undefined' && adminMode && !kioskMode && labelText) {
           let nameIcon = null;
-          if (typeof createNameBubbleDivIcon === 'function') {
+          if (typeof createTrainNameBubbleDivIcon === 'function') {
+            nameIcon = createTrainNameBubbleDivIcon(companyPrefix, labelText, routeColor, metrics ? metrics.scale : 1, stateEntry.headingDeg);
+          } else if (typeof createNameBubbleDivIcon === 'function') {
             nameIcon = createNameBubbleDivIcon(labelText, routeColor, metrics ? metrics.scale : 1, stateEntry.headingDeg);
           }
           if (nameIcon) {
@@ -398,8 +408,8 @@
               stateEntry.isStopped = false;
               stateEntry.lastUpdateTimestamp = timestamp;
               stateEntry.routeName = typeof train?.routeName === 'string' ? train.routeName.trim() : '';
-              const rawNum = train?.trainNumRaw ?? train?.trainNum;
-              stateEntry.trainNum = (rawNum !== undefined && rawNum !== null) ? `${rawNum}`.trim() : '';
+              stateEntry.trainNum = (train?.trainNum !== undefined && train?.trainNum !== null) ? `${train.trainNum}`.trim() : '';
+              stateEntry.trainNumRaw = (train?.trainNumRaw !== undefined && train?.trainNumRaw !== null) ? `${train.trainNumRaw}`.trim() : '';
               const headingValue = typeof getTrainHeadingValue === 'function'
                 ? getTrainHeadingValue(train)
                 : train?.heading;
