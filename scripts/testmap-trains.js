@@ -361,39 +361,27 @@
         offset: [0, -20]
       };
 
-      // Use DOM-level click on the icon element for reliability
-      const bindDomClick = () => {
-        const iconEl = typeof marker.getElement === 'function' ? marker.getElement() : marker._icon;
-        if (!iconEl) {
+      // Leaflet event handler
+      marker.on('click', (e) => {
+        console.log('[trains] marker clicked:', trainID, stateEntry.routeName);
+        const popupHtml = buildTrainPopupContent(trainID, stateEntry);
+        if (!popupHtml) {
           return;
         }
-        if (iconEl._trainClickBound) {
-          return;
+        if (typeof marker.unbindPopup === 'function') {
+          marker.unbindPopup();
         }
-        iconEl._trainClickBound = true;
-        iconEl.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const popupHtml = buildTrainPopupContent(trainID, stateEntry);
-          if (!popupHtml) {
-            return;
+        if (typeof marker.bindPopup === 'function') {
+          marker.bindPopup(popupHtml, popupOptions);
+          if (typeof marker.openPopup === 'function') {
+            marker.openPopup();
           }
-          if (typeof marker.unbindPopup === 'function') {
-            marker.unbindPopup();
-          }
-          if (typeof marker.bindPopup === 'function') {
-            marker.bindPopup(popupHtml, popupOptions);
-            if (typeof marker.openPopup === 'function') {
-              marker.openPopup();
-            }
-          }
-        });
-      };
+        }
+      });
 
-      // Try immediately, and also on next add (in case element isn't ready)
-      bindDomClick();
+      // Re-enable pointer events after Leaflet re-renders icon on add
       marker.on('add', () => {
         enableTrainMarkerPointerEvents(marker);
-        bindDomClick();
       });
       stateEntry.markerEventsBound = true;
     }
