@@ -334,7 +334,9 @@
         return;
       }
       iconEl.style.pointerEvents = 'auto';
-      iconEl.classList.add('leaflet-interactive');
+      if (!iconEl.classList.contains('leaflet-interactive')) {
+        iconEl.classList.add('leaflet-interactive');
+      }
       const root = iconEl.querySelector('.bus-marker__root');
       if (root) {
         root.style.pointerEvents = 'auto';
@@ -358,23 +360,40 @@
         autoPan: false,
         offset: [0, -20]
       };
-      marker.on('click', () => {
-        const popupHtml = buildTrainPopupContent(trainID, stateEntry);
-        if (!popupHtml) {
+
+      // Use DOM-level click on the icon element for reliability
+      const bindDomClick = () => {
+        const iconEl = typeof marker.getElement === 'function' ? marker.getElement() : marker._icon;
+        if (!iconEl) {
           return;
         }
-        if (typeof marker.unbindPopup === 'function') {
-          marker.unbindPopup();
+        if (iconEl._trainClickBound) {
+          return;
         }
-        if (typeof marker.bindPopup === 'function') {
-          marker.bindPopup(popupHtml, popupOptions);
-          if (typeof marker.openPopup === 'function') {
-            marker.openPopup();
-            if (typeof syncMarkerPopupPosition === 'function') {
-              syncMarkerPopupPosition(marker);
+        iconEl._trainClickBound = true;
+        iconEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const popupHtml = buildTrainPopupContent(trainID, stateEntry);
+          if (!popupHtml) {
+            return;
+          }
+          if (typeof marker.unbindPopup === 'function') {
+            marker.unbindPopup();
+          }
+          if (typeof marker.bindPopup === 'function') {
+            marker.bindPopup(popupHtml, popupOptions);
+            if (typeof marker.openPopup === 'function') {
+              marker.openPopup();
             }
           }
-        }
+        });
+      };
+
+      // Try immediately, and also on next add (in case element isn't ready)
+      bindDomClick();
+      marker.on('add', () => {
+        enableTrainMarkerPointerEvents(marker);
+        bindDomClick();
       });
       stateEntry.markerEventsBound = true;
     }
