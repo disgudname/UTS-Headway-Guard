@@ -110,7 +110,10 @@
         lastUpdateTimestamp: 0,
         routeName: '',
         trainNum: '',
-        trainNumRaw: ''
+        trainNumRaw: '',
+        trainTimely: '',
+        stations: [],
+        markerEventsBound: false
       };
       moduleState.markerStates[key] = newState;
       return newState;
@@ -252,7 +255,7 @@
           trainMarker = L.marker(latLng, {
             icon,
             pane: 'busesPane',
-            interactive: false,
+            interactive: true,
             keyboard: false
           });
           moduleState.markers[trainID] = trainMarker;
@@ -307,7 +310,195 @@
         } else {
           removeTrainNameBubble(trainID);
         }
+
+        // Bind click handler for popup
+        if (!stateEntry.markerEventsBound && trainMarker) {
+          attachTrainMarkerInteractions(trainID, trainMarker, stateEntry);
+        }
       }
+    }
+
+    function attachTrainMarkerInteractions(trainID, marker, stateEntry) {
+      if (!marker || stateEntry.markerEventsBound) {
+        return;
+      }
+      const popupOptions = {
+        className: 'ondemand-driver-popup',
+        closeButton: false,
+        autoClose: true,
+        autoPan: false,
+        offset: [0, -20]
+      };
+      marker.on('click', () => {
+        const popupHtml = buildTrainPopupContent(trainID, stateEntry);
+        if (!popupHtml) {
+          return;
+        }
+        if (typeof marker.unbindPopup === 'function') {
+          marker.unbindPopup();
+        }
+        if (typeof marker.bindPopup === 'function') {
+          marker.bindPopup(popupHtml, popupOptions);
+          if (typeof marker.openPopup === 'function') {
+            marker.openPopup();
+            if (typeof syncMarkerPopupPosition === 'function') {
+              syncMarkerPopupPosition(marker);
+            }
+          }
+        }
+      });
+      stateEntry.markerEventsBound = true;
+    }
+
+    function formatStationTime(isoString, tz) {
+      if (!isoString) {
+        return '';
+      }
+      try {
+        const date = new Date(isoString);
+        if (isNaN(date.getTime())) {
+          return '';
+        }
+        const options = { hour: 'numeric', minute: '2-digit' };
+        if (typeof tz === 'string' && tz.length > 0) {
+          options.timeZone = tz;
+        }
+        return date.toLocaleTimeString('en-US', options);
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function getMinutesFromNow(isoString) {
+      if (!isoString) {
+        return null;
+      }
+      try {
+        const date = new Date(isoString);
+        if (isNaN(date.getTime())) {
+          return null;
+        }
+        const diffMs = date.getTime() - Date.now();
+        return Math.round(diffMs / 60000);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function buildTrainPopupContent(trainID, stateEntry) {
+      if (!stateEntry) {
+        return null;
+      }
+      const popupSections = [];
+      const esc = typeof escapeHtml === 'function'
+        ? escapeHtml
+        : (typeof window !== 'undefined' && window.TestMap && typeof window.TestMap.utils?.escapeHtml === 'function')
+          ? window.TestMap.utils.escapeHtml
+          : (s => `${s}`);
+
+      // Info card: route name, train number, timeliness
+      const routeName = typeof stateEntry.routeName === 'string' ? stateEntry.routeName.trim() : '';
+      const trainNumDisplay = typeof stateEntry.trainNumRaw === 'string' && stateEntry.trainNumRaw.length > 0
+        ? stateEntry.trainNumRaw
+        : (typeof stateEntry.trainNum === 'string' ? stateEntry.trainNum.replace(/^[a-zA-Z]/, '') : '');
+      const trainNumStr = typeof stateEntry.trainNum === 'string' ? stateEntry.trainNum : '';
+      const providerLabel = trainNumStr.charAt(0) === 'v' ? 'VIA Rail'
+        : trainNumStr.charAt(0) === 'b' ? 'Brightline'
+        : 'Amtrak';
+      const routeColor = stateEntry.fillColor || (typeof BUS_MARKER_DEFAULT_ROUTE_COLOR === 'string' ? BUS_MARKER_DEFAULT_ROUTE_COLOR : '#0f172a');
+      const trainTimely = typeof stateEntry.trainTimely === 'string' ? stateEntry.trainTimely.trim() : '';
+
+      const cardLines = [];
+      if (routeName) {
+        cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${esc(routeName)}</div>`);
+      }
+      const metaParts = [];
+      if (providerLabel && trainNumDisplay) {
+        metaParts.push(`${esc(providerLabel)} ${esc(trainNumDisplay)}`);
+      } else if (trainNumDisplay) {
+        metaParts.push(`Train ${esc(trainNumDisplay)}`);
+      } else if (providerLabel) {
+        metaParts.push(esc(providerLabel));
+      }
+      if (metaParts.length > 0) {
+        cardLines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${metaParts.join(' • ')}</div>`);
+      }
+
+      if (cardLines.length > 0) {
+        popupSections.push([
+          '<div class="ondemand-driver-popup__section">',
+          '<div class="bus-popup__drivers-list">',
+          `<div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color: ${routeColor};">`,
+          cardLines.join(''),
+          '</div>',
+          '</div>',
+          '</div>'
+        ].join(''));
+      }
+
+      // Timeliness section
+      if (trainTimely) {
+        popupSections.push([
+          '<div class="ondemand-driver-popup__section">',
+          '<div class="ondemand-driver-popup__label">Status</div>',
+          `<div class="ondemand-driver-popup__value">${esc(trainTimely)}</div>`,
+          '</div>'
+        ].join(''));
+      }
+
+      // Next stops section (cap at 3)
+      const stations = Array.isArray(stateEntry.stations) ? stateEntry.stations : [];
+      const upcomingStations = stations.filter(s => {
+        if (!s) return false;
+        const status = typeof s.status === 'string' ? s.status.trim().toLowerCase() : '';
+        return status !== 'departed';
+      });
+      const nextStops = upcomingStations.slice(0, 3);
+
+      if (nextStops.length > 0) {
+        const stopsHtml = nextStops.map(stop => {
+          const name = stop.name || stop.code || 'Unknown';
+          const arrTime = stop.arr || stop.schArr;
+          const clockTime = formatStationTime(arrTime, stop.tz);
+          const minutes = getMinutesFromNow(arrTime);
+          let etaText = '';
+          if (minutes !== null) {
+            if (minutes <= 0) {
+              etaText = clockTime ? `Arriving • ${clockTime}` : 'Arriving';
+            } else {
+              etaText = clockTime ? `${minutes} min • ${clockTime}` : `${minutes} min`;
+            }
+          } else if (clockTime) {
+            etaText = clockTime;
+          }
+
+          return [
+            '<div class="bus-popup__stop">',
+            `<div class="bus-popup__stop-name">${esc(name)}</div>`,
+            `<div class="bus-popup__stop-eta">${esc(etaText)}</div>`,
+            '</div>'
+          ].join('');
+        }).join('');
+
+        popupSections.push([
+          '<div class="ondemand-driver-popup__section">',
+          '<div class="ondemand-driver-popup__label">Next Stops</div>',
+          '<div class="bus-popup__stops">',
+          stopsHtml,
+          '</div>',
+          '</div>'
+        ].join(''));
+      }
+
+      if (popupSections.length === 0) {
+        return null;
+      }
+
+      return [
+        '<div class="ondemand-driver-popup__content">',
+        popupSections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>'),
+        '</div>'
+      ].join('');
     }
 
     function getStationCodeFilter() {
@@ -410,6 +601,8 @@
               stateEntry.routeName = typeof train?.routeName === 'string' ? train.routeName.trim() : '';
               stateEntry.trainNum = (train?.trainNum !== undefined && train?.trainNum !== null) ? `${train.trainNum}`.trim() : '';
               stateEntry.trainNumRaw = (train?.trainNumRaw !== undefined && train?.trainNumRaw !== null) ? `${train.trainNumRaw}`.trim() : '';
+              stateEntry.trainTimely = typeof train?.trainTimely === 'string' ? train.trainTimely.trim() : '';
+              stateEntry.stations = Array.isArray(train?.stations) ? train.stations : [];
               const headingValue = typeof getTrainHeadingValue === 'function'
                 ? getTrainHeadingValue(train)
                 : train?.heading;
