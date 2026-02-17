@@ -25,7 +25,8 @@
       "Bash(flyctl deploy:*)",
       "Bash(flyctl auth login:*)",
       "Bash(flyctl status:*)",
-      "WebFetch(domain:api-v3.amtraker.com)"
+      "WebFetch(domain:api-v3.amtraker.com)",
+      "WebFetch(domain:unpkg.com)"
     ]
   }
 }

@@ -269,10 +269,8 @@
         if (typeof animateMarkerTo === 'function') {
           animateMarkerTo(trainMarker, latLng);
         }
-        // Re-enable pointer events after icon rebuild
-        if (stateEntry.markerEventsBound) {
-          enableTrainMarkerPointerEvents(trainMarker);
-        }
+        // Always enable pointer events for train markers (icon rebuild resets them)
+        enableTrainMarkerPointerEvents(trainMarker);
 
         const routeColor = stateEntry.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
         const trainNumDisplay = typeof stateEntry.trainNumRaw === 'string' && stateEntry.trainNumRaw.length > 0
@@ -331,8 +329,10 @@
       }
       const iconEl = typeof marker.getElement === 'function' ? marker.getElement() : marker._icon;
       if (!iconEl) {
+        console.warn('[trains] enablePointerEvents: no icon element found');
         return;
       }
+      console.log('[trains] enablePointerEvents: setting up', iconEl.className);
       iconEl.style.pointerEvents = 'auto';
       if (!iconEl.classList.contains('leaflet-interactive')) {
         iconEl.classList.add('leaflet-interactive');
