@@ -20330,7 +20330,9 @@ ${trainPlaneMarkup}
                   }
                   return;
               }
-              const labelText = typeof state.routeName === 'string' ? state.routeName.trim() : '';
+              const trainNumPart = typeof state.trainNum === 'string' && state.trainNum.length > 0 ? state.trainNum : '';
+              const routeNamePart = typeof state.routeName === 'string' ? state.routeName.trim() : '';
+              const labelText = trainNumPart && routeNamePart ? `${trainNumPart} ${routeNamePart}` : (routeNamePart || trainNumPart);
               if (!(adminMode && !kioskMode && labelText)) {
                   if (trainsFeature.module && typeof trainsFeature.module.removeTrainNameBubble === 'function') {
                       trainsFeature.module.removeTrainNameBubble(trainID ?? key);

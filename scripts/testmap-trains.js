@@ -266,7 +266,9 @@
         }
 
         const routeColor = stateEntry.fillColor || BUS_MARKER_DEFAULT_ROUTE_COLOR;
-        const labelText = typeof stateEntry.routeName === 'string' ? stateEntry.routeName.trim() : '';
+        const trainNumPart = typeof stateEntry.trainNum === 'string' && stateEntry.trainNum.length > 0 ? stateEntry.trainNum : '';
+        const routeNamePart = typeof stateEntry.routeName === 'string' ? stateEntry.routeName.trim() : '';
+        const labelText = trainNumPart && routeNamePart ? `${trainNumPart} ${routeNamePart}` : (routeNamePart || trainNumPart);
         const bubbleKey = getTrainNameBubbleKey(trainID);
         if (typeof adminMode !== 'undefined' && typeof kioskMode !== 'undefined' && adminMode && !kioskMode && labelText) {
           let nameIcon = null;
@@ -396,6 +398,8 @@
               stateEntry.isStopped = false;
               stateEntry.lastUpdateTimestamp = timestamp;
               stateEntry.routeName = typeof train?.routeName === 'string' ? train.routeName.trim() : '';
+              const rawNum = train?.trainNumRaw ?? train?.trainNum;
+              stateEntry.trainNum = (rawNum !== undefined && rawNum !== null) ? `${rawNum}`.trim() : '';
               const headingValue = typeof getTrainHeadingValue === 'function'
                 ? getTrainHeadingValue(train)
                 : train?.heading;

@@ -24,7 +24,8 @@
       "WebFetch(domain:utsopsdashboard.com)",
       "Bash(flyctl deploy:*)",
       "Bash(flyctl auth login:*)",
-      "Bash(flyctl status:*)"
+      "Bash(flyctl status:*)",
+      "WebFetch(domain:api-v3.amtraker.com)"
     ]
   }
 }
