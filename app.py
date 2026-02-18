@@ -9892,6 +9892,7 @@ async def transloc_stop_arrivals(
 
 @app.get("/api/rss/stop_arrivals")
 async def rss_stop_arrivals(
+    request: Request,
     stopID: str = Query(..., description="TransLoc stop ID"),
     base_url: Optional[str] = Query(None),
 ):
@@ -9910,6 +9911,7 @@ async def rss_stop_arrivals(
     except HTTPException:
         data = []
 
+    site_root = str(request.base_url).rstrip("/")
     now = datetime.now(timezone.utc)
     pub_date = now.strftime("%a, %d %b %Y %H:%M:%S +0000")
 
@@ -9953,11 +9955,13 @@ async def rss_stop_arrivals(
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     # Build RSS 2.0 XML
+    arrivals_link = f"{site_root}/arrivalsdisplay?stopid={stopID}"
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
     ET.SubElement(channel, "title").text = f"Bus Arrivals - {stop_name}"
-    ET.SubElement(channel, "link").text = f"/arrivalsdisplay?stopid={stopID}"
+    ET.SubElement(channel, "link").text = arrivals_link
     ET.SubElement(channel, "description").text = f"Next bus arrivals at {stop_name}"
+    ET.SubElement(channel, "language").text = "en"
     ET.SubElement(channel, "ttl").text = "1"
     ET.SubElement(channel, "pubDate").text = pub_date
     ET.SubElement(channel, "lastBuildDate").text = pub_date
@@ -9966,19 +9970,26 @@ async def rss_stop_arrivals(
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = "No arrivals currently scheduled"
         ET.SubElement(item, "description").text = "No buses are scheduled at this stop right now."
+        ET.SubElement(item, "link").text = arrivals_link
         ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{stopID}-none"
         ET.SubElement(item, "pubDate").text = pub_date
     else:
         for route_desc, labels in sorted_routes:
+            safe_route = re.sub(r"[^a-z0-9]+", "-", route_desc.lower()).strip("-")
             item = ET.SubElement(channel, "item")
             ET.SubElement(item, "title").text = f"{route_desc}: {labels[0]}"
             ET.SubElement(item, "description").text = "Next arrivals: " + ", ".join(labels)
-            ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{stopID}-{route_desc}"
+            ET.SubElement(item, "link").text = arrivals_link
+            ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{stopID}-{safe_route}"
             ET.SubElement(item, "pubDate").text = pub_date
 
     xml_body = ET.tostring(rss, encoding="unicode")
     xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
-    return Response(content=xml_bytes, media_type="application/rss+xml")
+    return Response(
+        content=xml_bytes,
+        media_type="application/rss+xml; charset=utf-8",
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 
 @app.get("/v1/transloc/vehicle_capacities")

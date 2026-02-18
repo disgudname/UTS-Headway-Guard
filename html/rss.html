@@ -207,9 +207,10 @@
       }
     };
 
-    // Start animation loop, then load initial data
+    // Start animation loop, then load initial data and poll every 60 s
     requestAnimationFrame(scroll);
     loadStop();
+    setInterval(loadStop, 60_000);
   })();
   </script>
 
