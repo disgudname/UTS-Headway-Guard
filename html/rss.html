@@ -125,10 +125,10 @@
   <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
 
   <h2>Sign Preview</h2>
-  <p>Enter a stop ID below to see a simulation of how live arrival data might appear on a destination-sign style display.</p>
+  <p>Enter a stop ID below to preview live arrival data as it would appear on a destination-sign style display. Data is pulled directly from the RSS feed.</p>
 
   <div class="disclaimer">
-    <strong>Note:</strong> This render is entirely theoretical. The actual appearance — font, scroll speed, color, layout, and content format — will depend on how UVA Safety &amp; Security chooses to configure the display.
+    <strong>Note:</strong> Arrival times shown are live data from the RSS feed. The visual appearance — font, scroll speed, color, and layout — is illustrative; the actual sign configuration will depend on how UVA Safety &amp; Security programs the display.
   </div>
 
   <br>
@@ -187,46 +187,19 @@
       statusEl.textContent = 'Loading\u2026';
 
       try {
-        const r = await fetch('/v1/transloc/stop_arrivals?stopIDs=' + encodeURIComponent(stopID));
-        const data = await r.json();
+        const r = await fetch('/api/rss/stop_arrivals?stopID=' + encodeURIComponent(stopID));
+        const xmlText = await r.text();
+        const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
 
-        if (!Array.isArray(data) || !data.length) {
-          setText('NO ARRIVALS CURRENTLY SCHEDULED');
-          statusEl.textContent = 'No data for stop ' + stopID + '.';
-          return;
-        }
+        // Show stop name from channel title ("Bus Arrivals - {Stop Name}")
+        const chanTitle = doc.querySelector('channel > title');
+        const stopName = chanTitle ? chanTitle.textContent.replace(/^Bus Arrivals\s*-\s*/i, '').trim() : 'Stop ' + stopID;
+        statusEl.textContent = stopName;
 
-        const rawName = (data[0].StopDescription || ('Stop ' + stopID))
-          .replace(/\s*\(.*?\)\s*/g, ' ').trim();
-        statusEl.textContent = rawName;
+        // Each <item><title> is already formatted as "Route: time"
+        const items = [...doc.querySelectorAll('item > title')].map(el => el.textContent.trim());
 
-        // Group times by route
-        const routes = new Map();
-        for (const entry of data) {
-          const name = (entry.RouteDescription || 'Bus').trim().replace(/\.$/, '');
-          if (!routes.has(name)) routes.set(name, { firstSecs: Infinity, labels: [] });
-          const route = routes.get(name);
-          for (const t of (entry.Times || [])) {
-            const arriving = t.IsArriving || (t.Text || '').trim().toLowerCase() === 'arriving';
-            if (arriving) {
-              route.labels.push('Arriving');
-              route.firstSecs = 0;
-            } else if (t.Seconds != null) {
-              const mins = Math.ceil(t.Seconds / 60);
-              route.labels.push(mins <= 1 ? '1 min' : mins + ' min');
-              if (t.Seconds < route.firstSecs) route.firstSecs = t.Seconds;
-            }
-          }
-        }
-
-        const sorted = [...routes.entries()]
-          .filter(([, r]) => r.labels.length > 0)
-          .sort((a, b) => a[1].firstSecs - b[1].firstSecs);
-
-        const text = sorted.length
-          ? sorted.map(([name, r]) => name + ': ' + r.labels[0]).join('          ')
-          : 'No arrivals currently scheduled';
-
+        const text = items.length ? items.join('          ') : 'No arrivals currently scheduled';
         setText(text.toUpperCase());
       } catch (e) {
         statusEl.textContent = 'Error loading data.';
