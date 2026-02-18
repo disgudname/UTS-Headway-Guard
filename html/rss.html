@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bus Arrival RSS Feed - UTS</title>
   <style>
+    @font-face { font-family: 'Luminator'; src: url('/fonts/luminator-4x7s.otf'); }
+
     body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
     h1 { color: #232D4B; }
     h2 { color: #232D4B; margin-top: 2rem; }
@@ -22,25 +24,29 @@
 
     /* Sign preview */
     #sign-outer {
-      display: inline-block;
-      background: #111;
-      border: 4px solid #555;
+      background: #0d0d0d;
+      border: 5px solid #444;
       border-radius: 6px;
-      padding: 10px 14px;
-      box-shadow: inset 0 0 8px #000, 0 2px 6px rgba(0,0,0,0.4);
+      padding: 10px 0;
+      overflow: hidden;
+      max-width: 100%;
+      box-shadow: inset 0 0 10px #000, 0 3px 8px rgba(0,0,0,0.4);
     }
-    #sign {
-      display: block;
-      width: 384px;
-      height: 64px;
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
+    #sign-viewport {
+      overflow: hidden;
+      white-space: nowrap;
+      height: 2.4rem;
+      display: flex;
+      align-items: center;
     }
-    .sign-label {
-      color: #888;
-      font-size: 0.75rem;
-      margin-top: 4px;
-      text-align: right;
+    #sign-text {
+      display: inline-block;
+      font-family: 'Luminator', monospace;
+      font-size: 2rem;
+      color: #FF8C00;
+      white-space: nowrap;
+      will-change: transform;
+      padding-left: 100%;
     }
     .disclaimer {
       background: #fff8e6;
@@ -119,7 +125,7 @@
   <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
 
   <h2>Sign Preview</h2>
-  <p>Enter a stop ID below to see a simulation of how live arrival data might scroll across a NovaNex 16&times;96 LED display (rendered at 4&times; scale).</p>
+  <p>Enter a stop ID below to see a simulation of how live arrival data might appear on a destination-sign style display.</p>
 
   <div class="disclaimer">
     <strong>Note:</strong> This render is entirely theoretical. The actual appearance — font, scroll speed, color, layout, and content format — will depend on how UVA Safety &amp; Security chooses to configure the display.
@@ -127,8 +133,9 @@
 
   <br>
   <div id="sign-outer">
-    <canvas id="sign" width="96" height="16"></canvas>
-    <div class="sign-label">NovaNex 16&times;96 &mdash; 4&times; scale</div>
+    <div id="sign-viewport">
+      <span id="sign-text"></span>
+    </div>
   </div>
 
   <div id="preview-controls">
@@ -140,42 +147,41 @@
 
   <script>
   (function () {
-    const canvas = document.getElementById('sign');
-    const ctx = canvas.getContext('2d');
+    const textEl = document.getElementById('sign-text');
+    const viewport = document.getElementById('sign-viewport');
     const statusEl = document.getElementById('preview-status');
 
-    let scrollText = '';
-    let scrollX = 96;
+    let posX = 0;       // current offset in px, starting just off right edge
+    let textWidth = 0;
     let lastTs = null;
-    const SPEED = 25; // canvas pixels per second
+    const SPEED = 80;   // px per second
 
-    function draw(ts) {
+    function scroll(ts) {
       if (lastTs !== null) {
-        scrollX -= SPEED * (ts - lastTs) / 1000;
+        posX -= SPEED * (ts - lastTs) / 1000;
       }
       lastTs = ts;
 
-      // Background — very dark, not pure black, to hint at unlit LEDs
-      ctx.fillStyle = '#0d0d0d';
-      ctx.fillRect(0, 0, 96, 16);
-
-      if (scrollText) {
-        ctx.font = '7px "Luminator4x7"';
-        ctx.fillStyle = '#FF8C00';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(scrollText, Math.round(scrollX), 8);
-
-        const w = ctx.measureText(scrollText).width;
-        if (scrollX < -w) {
-          scrollX = 96;
-        }
+      // Reset once the text has fully scrolled off the left
+      if (posX < -textWidth) {
+        posX = viewport.offsetWidth;
       }
 
-      requestAnimationFrame(draw);
+      textEl.style.transform = 'translateX(' + Math.round(posX) + 'px)';
+      textEl.style.paddingLeft = '0';
+      requestAnimationFrame(scroll);
     }
 
-    // Build scroll text from stop arrivals JSON
-    async function loadStop() {
+    function setText(text) {
+      textEl.textContent = text;
+      // Measure after paint so width is accurate
+      requestAnimationFrame(function () {
+        textWidth = textEl.offsetWidth;
+        posX = viewport.offsetWidth;
+      });
+    }
+
+    window.loadStop = async function () {
       const stopID = document.getElementById('preview-stop').value.trim();
       if (!stopID) return;
       statusEl.textContent = 'Loading\u2026';
@@ -185,22 +191,20 @@
         const data = await r.json();
 
         if (!Array.isArray(data) || !data.length) {
-          scrollText = 'No arrivals currently scheduled     ';
+          setText('NO ARRIVALS CURRENTLY SCHEDULED');
           statusEl.textContent = 'No data for stop ' + stopID + '.';
-          scrollX = 96;
           return;
         }
 
-        const rawName = (data[0].StopDescription || ('Stop ' + stopID)).replace(/\s*\(.*?\)\s*/g, ' ').trim();
+        const rawName = (data[0].StopDescription || ('Stop ' + stopID))
+          .replace(/\s*\(.*?\)\s*/g, ' ').trim();
         statusEl.textContent = rawName;
 
-        // Group all times by route name
+        // Group times by route
         const routes = new Map();
         for (const entry of data) {
           const name = (entry.RouteDescription || 'Bus').trim().replace(/\.$/, '');
-          if (!routes.has(name)) {
-            routes.set(name, { firstSecs: Infinity, labels: [] });
-          }
+          if (!routes.has(name)) routes.set(name, { firstSecs: Infinity, labels: [] });
           const route = routes.get(name);
           for (const t of (entry.Times || [])) {
             const arriving = t.IsArriving || (t.Text || '').trim().toLowerCase() === 'arriving';
@@ -219,33 +223,20 @@
           .filter(([, r]) => r.labels.length > 0)
           .sort((a, b) => a[1].firstSecs - b[1].firstSecs);
 
-        if (!sorted.length) {
-          scrollText = 'No arrivals currently scheduled     ';
-        } else {
-          // Each route shown as "Route Name: X min", separated by wide gaps
-          scrollText = sorted.map(([name, r]) => name + ': ' + r.labels[0]).join('          ') + '          ';
-        }
+        const text = sorted.length
+          ? sorted.map(([name, r]) => name + ': ' + r.labels[0]).join('          ')
+          : 'No arrivals currently scheduled';
 
-        scrollX = 96;
+        setText(text.toUpperCase());
       } catch (e) {
         statusEl.textContent = 'Error loading data.';
         console.error(e);
       }
-    }
+    };
 
-    // Load font, then kick off animation and initial data fetch
-    const face = new FontFace('Luminator4x7', 'url(/fonts/luminator-4x7s.otf)');
-    face.load().then(function (f) {
-      document.fonts.add(f);
-    }).catch(function (e) {
-      console.warn('Luminator font failed to load:', e);
-    }).finally(function () {
-      loadStop();
-      requestAnimationFrame(draw);
-    });
-
-    // Expose for inline onclick
-    window.loadStop = loadStop;
+    // Start animation loop, then load initial data
+    requestAnimationFrame(scroll);
+    loadStop();
   })();
   </script>
 
