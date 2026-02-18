@@ -9926,13 +9926,13 @@ async def rss_stop_arrivals(
 
     def _arrival_label(t: Dict[str, Any]) -> str:
         if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
-            return "Arriving"
+            return "Due"
         seconds = t.get("Seconds")
         if seconds is None:
             return ""
         mins = math.ceil(seconds / 60)
         if mins <= 0:
-            return "Arriving"
+            return "Due"
         return "1 min" if mins == 1 else f"{mins} min"
 
     # Group arrivals by route; keep insertion order (data is already sorted)
