@@ -199,7 +199,7 @@
         // Each <item><title> is already formatted as "Route: time"
         const items = [...doc.querySelectorAll('item > title')].map(el => el.textContent.trim());
 
-        const text = items.length ? items.join('          ') : 'No arrivals currently scheduled';
+        const text = items.length ? items.join('   |   ') : 'No arrivals currently scheduled';
         setText(text.toUpperCase());
       } catch (e) {
         statusEl.textContent = 'Error loading data.';
