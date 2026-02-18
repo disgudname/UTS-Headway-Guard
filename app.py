@@ -1419,6 +1419,7 @@ REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
+RSS_HTML = _load_html("rss.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
 STATUSSIGNAGE_HTML = _load_html("statussignage.html")
@@ -9889,6 +9890,97 @@ async def transloc_stop_arrivals(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
+@app.get("/api/rss/stop_arrivals")
+async def rss_stop_arrivals(
+    stopID: str = Query(..., description="TransLoc stop ID"),
+    base_url: Optional[str] = Query(None),
+):
+    """RSS 2.0 feed of upcoming bus arrivals at a given stop.
+
+    Designed for digital signage (e.g. NovaNex LED displays) that consume RSS.
+    One <item> per route, sorted by soonest arrival, with all upcoming times
+    listed in the description.  Clients should poll every minute (<ttl>1</ttl>).
+
+    Example: /api/rss/stop_arrivals?stopID=26
+    """
+    url = build_transloc_url(base_url, "GetStopArrivalTimes")
+    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": stopID}
+    try:
+        data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+    except HTTPException:
+        data = []
+
+    now = datetime.now(timezone.utc)
+    pub_date = now.strftime("%a, %d %b %Y %H:%M:%S +0000")
+
+    # Pull stop name from the first entry that has one
+    stop_name = f"Stop {stopID}"
+    if isinstance(data, list):
+        for entry in data:
+            raw = (entry.get("StopDescription") or "").strip()
+            if raw:
+                stop_name = raw
+                break
+
+    def _arrival_label(t: Dict[str, Any]) -> str:
+        if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
+            return "Arriving"
+        seconds = t.get("Seconds")
+        if seconds is None:
+            return ""
+        mins = math.ceil(seconds / 60)
+        if mins <= 0:
+            return "Arriving"
+        return "1 min" if mins == 1 else f"{mins} min"
+
+    # Group arrivals by route; keep insertion order (data is already sorted)
+    route_labels: Dict[str, List[str]] = {}
+    route_first_seconds: Dict[str, float] = {}
+    if isinstance(data, list):
+        for entry in data:
+            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
+            for t in entry.get("Times") or []:
+                label = _arrival_label(t)
+                if not label:
+                    continue
+                if route_desc not in route_labels:
+                    route_labels[route_desc] = []
+                    secs = t.get("Seconds") or 0
+                    route_first_seconds[route_desc] = secs if not t.get("IsArriving") else 0
+                route_labels[route_desc].append(label)
+
+    # Sort routes by soonest arrival
+    sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
+
+    # Build RSS 2.0 XML
+    rss = ET.Element("rss", version="2.0")
+    channel = ET.SubElement(rss, "channel")
+    ET.SubElement(channel, "title").text = f"Bus Arrivals - {stop_name}"
+    ET.SubElement(channel, "link").text = f"/arrivalsdisplay?stopid={stopID}"
+    ET.SubElement(channel, "description").text = f"Next bus arrivals at {stop_name}"
+    ET.SubElement(channel, "ttl").text = "1"
+    ET.SubElement(channel, "pubDate").text = pub_date
+    ET.SubElement(channel, "lastBuildDate").text = pub_date
+
+    if not sorted_routes:
+        item = ET.SubElement(channel, "item")
+        ET.SubElement(item, "title").text = "No arrivals currently scheduled"
+        ET.SubElement(item, "description").text = "No buses are scheduled at this stop right now."
+        ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{stopID}-none"
+        ET.SubElement(item, "pubDate").text = pub_date
+    else:
+        for route_desc, labels in sorted_routes:
+            item = ET.SubElement(channel, "item")
+            ET.SubElement(item, "title").text = f"{route_desc}: {labels[0]}"
+            ET.SubElement(item, "description").text = "Next arrivals: " + ", ".join(labels)
+            ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{stopID}-{route_desc}"
+            ET.SubElement(item, "pubDate").text = pub_date
+
+    xml_body = ET.tostring(rss, encoding="unicode")
+    xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
+    return Response(content=xml_bytes, media_type="application/rss+xml")
+
+
 @app.get("/v1/transloc/vehicle_capacities")
 async def transloc_vehicle_capacities(base_url: Optional[str] = Query(None)):
     url = build_transloc_url(base_url, "GetVehicleCapacities")
@@ -10867,6 +10959,10 @@ async def incidents_page():
 @app.get("/sitemap")
 async def sitemap_page():
     return HTMLResponse(SITEMAP_HTML)
+
+@app.get("/rss")
+async def rss_info_page():
+    return HTMLResponse(RSS_HTML)
 
 @app.get("/login")
 async def login_page():

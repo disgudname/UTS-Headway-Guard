@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bus Arrival RSS Feed - UTS</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { color: #232D4B; }
+    h2 { color: #232D4B; margin-top: 2rem; }
+    code, pre { background: #f0f0f0; border-radius: 4px; font-family: monospace; }
+    code { padding: 2px 6px; }
+    pre { padding: 1rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+    .feed-url { background: #eef4ff; border-left: 4px solid #232D4B; padding: 0.75rem 1rem; border-radius: 0 4px 4px 0; font-family: monospace; word-break: break-all; }
+    .step { margin-bottom: 1rem; }
+    .step strong { display: inline-block; background: #232D4B; color: #fff; border-radius: 50%; width: 1.5rem; height: 1.5rem; text-align: center; line-height: 1.5rem; margin-right: 0.5rem; font-size: 0.85rem; }
+    a { color: #0b63ce; }
+    table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; }
+    th { background: #232D4B; color: #fff; }
+    tr:nth-child(even) { background: #f8f8f8; }
+  </style>
+</head>
+<body>
+
+  <h1>Bus Arrival RSS Feed</h1>
+  <p>
+    UTS provides a real-time RSS 2.0 feed of bus arrival predictions for any stop on the system.
+    The feed is designed for digital signage devices (such as NovaNex LED displays) that consume RSS,
+    but it works with any standard RSS reader.
+  </p>
+
+  <h2>Feed URL</h2>
+  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=<strong>{stopID}</strong></div>
+  <p>Replace <code>{stopID}</code> with the numeric ID for the stop you want. The feed updates every 15 seconds on the server; configure your device to poll at least once per minute.</p>
+
+  <h2>How to Find a Stop ID</h2>
+  <div class="step"><strong>1</strong> Go to <a href="https://uva.transloc.com/" target="_blank">uva.transloc.com</a></div>
+  <div class="step"><strong>2</strong> Click on the bus stop you need on the map.</div>
+  <div class="step"><strong>3</strong> The stop ID appears in the URL, for example:<br>
+    <code>https://uva.transloc.com/stops/<strong>26</strong></code><br>
+    In this case the stop ID is <strong>26</strong>.
+  </div>
+
+  <h2>Example</h2>
+  <p>Feed for <strong>Massie Rd @ JPJ South Lot</strong> (stop 26):</p>
+  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=26</div>
+  <p>This produces an RSS feed like:</p>
+  <pre>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;rss version="2.0"&gt;
+  &lt;channel&gt;
+    &lt;title&gt;Bus Arrivals - Massie Rd @ JPJ South Lot&lt;/title&gt;
+    &lt;ttl&gt;1&lt;/ttl&gt;
+    &lt;item&gt;
+      &lt;title&gt;Silver Line: Arriving&lt;/title&gt;
+      &lt;description&gt;Next arrivals: Arriving, 8 min&lt;/description&gt;
+    &lt;/item&gt;
+    &lt;item&gt;
+      &lt;title&gt;Gold Line: 3 min&lt;/title&gt;
+      &lt;description&gt;Next arrivals: 3 min, 10 min, 18 min, 24 min&lt;/description&gt;
+    &lt;/item&gt;
+  &lt;/channel&gt;
+&lt;/rss&gt;</pre>
+
+  <h2>Feed Structure</h2>
+  <table>
+    <tr><th>Field</th><th>Description</th></tr>
+    <tr><td><code>&lt;title&gt;</code> (channel)</td><td>Stop name, e.g. "Bus Arrivals - Massie Rd @ JPJ South Lot"</td></tr>
+    <tr><td><code>&lt;ttl&gt;</code></td><td>1 (minute) — recommended poll interval</td></tr>
+    <tr><td><code>&lt;item&gt; &lt;title&gt;</code></td><td>Route name and next arrival, e.g. "Gold Line: 3 min" or "Silver Line: Arriving"</td></tr>
+    <tr><td><code>&lt;item&gt; &lt;description&gt;</code></td><td>All upcoming arrivals for that route, e.g. "Next arrivals: 3 min, 10 min, 18 min"</td></tr>
+  </table>
+  <p>Items are sorted by soonest arrival. If no buses are scheduled, the feed contains a single item indicating no arrivals.</p>
+
+  <h2>Common Stop IDs</h2>
+  <table>
+    <tr><th>Stop</th><th>ID</th><th>Feed URL</th></tr>
+    <tr><td>Massie Rd @ JPJ South Lot</td><td>26</td><td><a href="/api/rss/stop_arrivals?stopID=26">/api/rss/stop_arrivals?stopID=26</a></td></tr>
+    <tr><td>Jefferson Park Ave @ Brandon Ave</td><td>54</td><td><a href="/api/rss/stop_arrivals?stopID=54">/api/rss/stop_arrivals?stopID=54</a></td></tr>
+    <tr><td>Jefferson Park Ave @ Cabell Hall</td><td>2</td><td><a href="/api/rss/stop_arrivals?stopID=2">/api/rss/stop_arrivals?stopID=2</a></td></tr>
+    <tr><td>Ivy Rd @ Emmet / Ivy Garage (EIG)</td><td>3</td><td><a href="/api/rss/stop_arrivals?stopID=3">/api/rss/stop_arrivals?stopID=3</a></td></tr>
+    <tr><td>Emmet St @ Central Grounds Garage</td><td>159</td><td><a href="/api/rss/stop_arrivals?stopID=159">/api/rss/stop_arrivals?stopID=159</a></td></tr>
+  </table>
+  <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
+
+</body>
+</html>

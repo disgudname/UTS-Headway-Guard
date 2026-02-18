@@ -26,7 +26,13 @@
       "Bash(flyctl auth login:*)",
       "Bash(flyctl status:*)",
       "WebFetch(domain:api-v3.amtraker.com)",
-      "WebFetch(domain:unpkg.com)"
+      "WebFetch(domain:unpkg.com)",
+      "WebFetch(domain:web.archive.org)",
+      "Bash(python3:*)",
+      "Bash(node -e:*)",
+      "Bash(node --input-type=module:*)",
+      "WebFetch(domain:novanexsolutions.com)",
+      "WebFetch(domain:www.alertus.com)"
     ]
   }
 }
