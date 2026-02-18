@@ -10629,6 +10629,11 @@ async def centurygothic_font():
     return FileResponse(FONT_DIR / "centurygothic.ttf", media_type="font/ttf")
 
 
+@app.get("/fonts/luminator-4x7s.otf", include_in_schema=False)
+async def luminator_font():
+    return FileResponse(FONT_DIR / "luminator-4x7s.otf", media_type="font/otf")
+
+
 @app.get("/busmarker.svg", include_in_schema=False)
 async def busmarker_svg():
     return FileResponse(MEDIA_DIR / "busmarker.svg", media_type="image/svg+xml")
