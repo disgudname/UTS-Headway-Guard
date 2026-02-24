@@ -107,6 +107,15 @@ function friendlyBlock(name){
   return s.replace(/_/g,' ');
 }
 
+function deduplicateBlocks(names){
+  const unique=[...new Set(names)];
+  // Drop any name that is a word-boundary prefix of a longer name:
+  // e.g. "[22]/[06]" is dropped when "[22]/[06] Detour" is also present
+  return unique.filter((name,_,arr)=>
+    !arr.some(other=>other!==name&&other.startsWith(name+' '))
+  );
+}
+
 function todayStr(){
   // Treat "today" as the 24h period starting at the most recent 3AM
   const tz='America/New_York';
@@ -125,7 +134,7 @@ async function fetchData(){
     .sort(([,a],[,b]) => (b.actual_miles||0)-(a.actual_miles||0));
   for(const [b,info] of buses){
     const tr=document.createElement('tr');
-    const blocks=info.blocks.length?[...new Set(info.blocks.map(friendlyBlock))].join(', '):'—';
+    const blocks=info.blocks.length?deduplicateBlocks(info.blocks.map(friendlyBlock)).join(', '):'—';
     const totalMilesToday=(info.actual_miles||0).toFixed(2);
     tr.innerHTML=`<td>${b}</td><td>${blocks}</td><td>${totalMilesToday}</td>`;
     const busCell=tr.children[0];
