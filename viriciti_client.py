@@ -153,6 +153,16 @@ class ViriCitiClient:
                         await asyncio.sleep(60)
                         continue
 
+                    # Seed initial state from REST API so offline buses still appear
+                    try:
+                        await self.fetch_current_soc()
+                        if self._on_soc_update:
+                            for soc_data in self._soc_cache.values():
+                                self._on_soc_update(soc_data)
+                        print(f"[viriciti] Seeded initial state for {len(self._soc_cache)} vehicles")
+                    except Exception as e:
+                        print(f"[viriciti] Could not seed initial state: {e}")
+
                     # Subscribe to SOC, odometer, and power for all vehicles
                     subscription = {"vehicles": {vid: ["soc", "odo", "power"] for vid in vids}}
                     await ws.send(json.dumps(subscription))

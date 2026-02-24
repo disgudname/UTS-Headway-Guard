@@ -30,12 +30,15 @@
   #soc-panel{flex:1;display:flex;flex-direction:column;justify-content:center;gap:4px;overflow-y:auto;padding:0 4px;}
   .soc-row{display:flex;align-items:center;gap:8px;padding:2px 4px;}
   .soc-bus{font-size:22px;width:5ch;flex-shrink:0;}
+  .soc-chg{width:1.2em;flex-shrink:0;text-align:center;color:#4caf50;font-style:normal;}
+  @keyframes chg-flash{0%,100%{opacity:1;}50%{opacity:0.1;}}
+  .soc-chg.soc-charging{animation:chg-flash 1.8s ease-in-out infinite;}
   .soc-bar-bg{flex:1;height:22px;background:#1a1a3a;border-radius:4px;overflow:hidden;}
   .soc-bar-fill{height:100%;}
   .soc-pct{font-size:20px;width:4ch;text-align:right;flex-shrink:0;}
   #clock-panel{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;}
-  #clock-time{font-size:56px;line-height:1;}
-  #clock-date{font-size:20px;margin-top:6px;color:var(--muted);}
+  #clock-time{font-size:80px;line-height:1;}
+  #clock-date{font-size:28px;margin-top:6px;color:var(--muted);}
   #mapframe{border:1px solid var(--line);flex:1;}
   .credit{position:fixed;bottom:8px;right:8px;font-size:12px;color:var(--muted,#9fb0c9);}
   td.high-mileage{background:red;}
@@ -206,8 +209,8 @@ async function fetchData(){
       const pct=soc!=null?Math.max(0,Math.min(100,soc)):0;
       const color=pct>40?'#4caf50':pct>20?'#ff9800':'#f44336';
       const label=soc!=null?Math.round(soc)+'%':'?';
-      const chg=d.charging?'<span title="Charging" style="color:#4caf50;">⚡</span>':'';
-      return `<div class="soc-row"><span class="soc-bus">${bus}${chg}</span><div class="soc-bar-bg"><div class="soc-bar-fill" style="width:${pct}%;background:${color};"></div></div><span class="soc-pct">${label}</span></div>`;
+      const chg=`<span class="soc-chg${d.charging?' soc-charging':''}" title="${d.charging?'Charging':''}">${d.charging?'⚡':''}</span>`;
+      return `<div class="soc-row"><span class="soc-bus">${bus}</span>${chg}<div class="soc-bar-bg"><div class="soc-bar-fill" style="width:${pct}%;background:${color};"></div></div><span class="soc-pct">${label}</span></div>`;
     }).join('');
   }
   const socES=new EventSource('/v1/stream/viriciti/soc');
