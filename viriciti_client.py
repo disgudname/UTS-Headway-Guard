@@ -15,7 +15,13 @@ class VehicleSOC:
     vid: str          # ViriCiti internal ID (e.g., "gillig_1430")
     soc: float        # State of charge percentage 0-100
     odo: Optional[float]  # Odometer in km
+    power: Optional[float]  # kW; negative = charging, positive = discharging
     timestamp: datetime
+
+    @property
+    def is_charging(self) -> bool:
+        """True if power indicates the bus is plugged in and charging."""
+        return self.power is not None and self.power < -1.0
 
 
 class ViriCitiClient:
@@ -83,7 +89,7 @@ class ViriCitiClient:
         if not self._vid_to_bus:
             return {}
 
-        request_body = {vid: ["soc", "odo"] for vid in self._vid_to_bus.keys()}
+        request_body = {vid: ["soc", "odo", "power"] for vid in self._vid_to_bus.keys()}
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -107,6 +113,7 @@ class ViriCitiClient:
             soc_val = params.get("soc", {}).get("value")
             soc_time = params.get("soc", {}).get("time", 0)
             odo_val = params.get("odo", {}).get("value")
+            power_val = params.get("power", {}).get("value")
 
             if soc_val is not None:
                 self._soc_cache[bus_number] = VehicleSOC(
@@ -114,6 +121,7 @@ class ViriCitiClient:
                     vid=vid,
                     soc=float(soc_val),
                     odo=float(odo_val) if odo_val is not None else None,
+                    power=float(power_val) if power_val is not None else None,
                     timestamp=datetime.fromtimestamp(soc_time / 1000, tz=timezone.utc)
                 )
 
@@ -145,8 +153,8 @@ class ViriCitiClient:
                         await asyncio.sleep(60)
                         continue
 
-                    # Subscribe to SOC and odometer for all vehicles
-                    subscription = {"vehicles": {vid: ["soc", "odo"] for vid in vids}}
+                    # Subscribe to SOC, odometer, and power for all vehicles
+                    subscription = {"vehicles": {vid: ["soc", "odo", "power"] for vid in vids}}
                     await ws.send(json.dumps(subscription))
                     print(f"[viriciti] Subscribed to {len(vids)} vehicles: {list(self._vid_to_bus.values())}")
 
@@ -189,6 +197,7 @@ class ViriCitiClient:
                         vid=vid,
                         soc=float(value),
                         odo=existing.odo if existing else None,
+                        power=existing.power if existing else None,
                         timestamp=timestamp
                     )
                     self._soc_cache[bus_number] = soc_data
@@ -198,6 +207,12 @@ class ViriCitiClient:
                 elif label == "odo" and existing:
                     # Update odometer on existing entry
                     existing.odo = float(value)
+
+                elif label == "power" and existing:
+                    # Update power and broadcast so charging state stays current
+                    existing.power = float(value)
+                    if self._on_soc_update:
+                        self._on_soc_update(existing)
 
             elif msg_type == "error":
                 print(f"[viriciti] Error from server: {payload}")

@@ -5252,6 +5252,8 @@ async def startup():
                 "vid": soc.vid,
                 "soc": soc.soc,
                 "odo": soc.odo,
+                "power": soc.power,
+                "charging": soc.is_charging,
                 "low_battery": soc.soc <= LOW_SOC_THRESHOLDS[0],
                 "timestamp": soc.timestamp.isoformat()
             }

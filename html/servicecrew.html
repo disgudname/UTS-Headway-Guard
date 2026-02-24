@@ -206,7 +206,8 @@ async function fetchData(){
       const pct=soc!=null?Math.max(0,Math.min(100,soc)):0;
       const color=pct>40?'#4caf50':pct>20?'#ff9800':'#f44336';
       const label=soc!=null?Math.round(soc)+'%':'?';
-      return `<div class="soc-row"><span class="soc-bus">${bus}</span><div class="soc-bar-bg"><div class="soc-bar-fill" style="width:${pct}%;background:${color};"></div></div><span class="soc-pct">${label}</span></div>`;
+      const chg=d.charging?'<span title="Charging" style="color:#4caf50;">⚡</span>':'';
+      return `<div class="soc-row"><span class="soc-bus">${bus}${chg}</span><div class="soc-bar-bg"><div class="soc-bar-fill" style="width:${pct}%;background:${color};"></div></div><span class="soc-pct">${label}</span></div>`;
     }).join('');
   }
   const socES=new EventSource('/v1/stream/viriciti/soc');
