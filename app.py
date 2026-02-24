@@ -4976,13 +4976,13 @@ async def startup():
                         today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
                         bus_days = state.bus_days.setdefault(today, {})
                         for grp in block_groups:
+                            grp_id = str(grp.get("BlockGroupId") or "").strip()
                             for blk in grp.get("Blocks", []):
-                                bid = blk.get("BlockId")
                                 for trip in blk.get("Trips", []):
                                     bus = normalize_bus_name(trip.get("VehicleName"))
-                                    if bus and bid:
+                                    if bus and grp_id:
                                         bd = bus_days.setdefault(bus, BusDay())
-                                        bd.blocks.add(bid)
+                                        bd.blocks.add(grp_id)
                         save_bus_days()
                     tracker = getattr(app.state, "headway_tracker", None)
                     if tracker and headway_snapshots:
