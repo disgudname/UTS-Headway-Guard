@@ -103,15 +103,18 @@ function friendlyBlock(name){
   const s=String(name||'').trim();
   // [N]-style names are already human-friendly
   if(s.includes('[')) return s;
-  // For other names (Charter_01, Training, etc.) replace underscores with spaces
-  return s.replace(/_/g,' ');
+  // For other names: replace underscores with spaces, strip leading zeros from numbers
+  return s.replace(/_/g,' ').replace(/\b0+(\d)/g,'$1');
 }
 
 function deduplicateBlocks(names){
   const unique=[...new Set(names)];
+  // If any bracket-style names exist, suppress non-bracket ones entirely
+  const bracketNames=unique.filter(n=>n.includes('['));
+  const pool=bracketNames.length?bracketNames:unique;
   // Drop any name that is a word-boundary prefix of a longer name:
   // e.g. "[22]/[06]" is dropped when "[22]/[06] Detour" is also present
-  return unique.filter((name,_,arr)=>
+  return pool.filter((name,_,arr)=>
     !arr.some(other=>other!==name&&other.startsWith(name+' '))
   );
 }
