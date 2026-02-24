@@ -32,7 +32,10 @@
       "Bash(node -e:*)",
       "Bash(node --input-type=module:*)",
       "WebFetch(domain:novanexsolutions.com)",
-      "WebFetch(domain:www.alertus.com)"
+      "WebFetch(domain:www.alertus.com)",
+      "Bash(head:*)",
+      "Bash(where python3 2>/dev/null || where python 2>/dev/null || py --version 2>/dev/null)",
+      "Bash(python3 --version 2>/dev/null || python --version 2>/dev/null || py --version 2>/dev/null)"
     ]
   }
 }

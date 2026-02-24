@@ -192,7 +192,7 @@ async function fetchData(){
   function updateClock(){
     const tz='America/New_York';
     const now=new Date();
-    document.getElementById('clock-time').textContent=now.toLocaleTimeString('en-US',{timeZone:tz,hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    document.getElementById('clock-time').textContent=now.toLocaleTimeString('en-US',{timeZone:tz,hourCycle:'h23',hour:'2-digit',minute:'2-digit',second:'2-digit'});
     document.getElementById('clock-date').textContent=now.toLocaleDateString('en-US',{timeZone:tz,month:'2-digit',day:'2-digit',year:'numeric'});
   }
   updateClock();

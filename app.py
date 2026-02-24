@@ -4935,9 +4935,9 @@ async def startup():
                                 route_by_bus[str(v.name)] = rid
                         vehicle_roster: List[Dict[str, Any]] = []
                         if isinstance(block_meta, dict):
-                            vehicles_raw = block_meta.get("Vehicles")
-                            if isinstance(vehicles_raw, list):
-                                vehicle_roster.extend(vehicles_raw)
+                            _block_veh = block_meta.get("Vehicles")
+                            if isinstance(_block_veh, list):
+                                vehicle_roster.extend(_block_veh)
                             sched_trip = block_meta.get("ScheduleTripVehicles")
                             if isinstance(sched_trip, list):
                                 vehicle_roster.extend(sched_trip)
