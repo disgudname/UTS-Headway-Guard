@@ -10071,6 +10071,15 @@ async def cap_stop_arrivals(
 
     arrivals_link = f"{site_root}/arrivalsdisplay?stopid={stopID}"
 
+    # Look up stop coordinates from cached state
+    stop_lat: Optional[float] = None
+    stop_lon: Optional[float] = None
+    for _s in state.stops:
+        if str(_s.get("StopID")) == str(stopID):
+            stop_lat = _coerce_float(_s.get("Latitude"))
+            stop_lon = _coerce_float(_s.get("Longitude"))
+            break
+
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
     alert = ET.Element("alert", xmlns=CAP_NS)
@@ -10084,6 +10093,8 @@ async def cap_stop_arrivals(
     def _add_cap_area(info_el: ET.Element, desc: str) -> None:
         area = ET.SubElement(info_el, "area")
         ET.SubElement(area, "areaDesc").text = desc
+        if stop_lat is not None and stop_lon is not None:
+            ET.SubElement(area, "circle").text = f"{stop_lat:.6f},{stop_lon:.6f} 0.05"
         gc1 = ET.SubElement(area, "geocode")
         ET.SubElement(gc1, "valueName").text = "SAME"
         ET.SubElement(gc1, "value").text = "051540"  # Charlottesville city
