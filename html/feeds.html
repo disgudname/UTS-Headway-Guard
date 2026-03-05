@@ -66,12 +66,12 @@
 
   <h1>Bus Arrival Feeds</h1>
   <p>
-    UTS provides a real-time RSS 2.0 feed of bus arrival predictions for any stop on the system.
-    The feed is designed for digital signage devices (such as NovaNex LED displays) that consume RSS,
-    but it works with any standard RSS reader.
+    The UTS Operations Dashboard provides real-time bus arrival predictions for any stop on the system
+    in two feed formats: <a href="#rss">RSS 2.0</a> for digital signage devices such as NovaNex LED displays,
+    and <a href="#cap">CAP 1.2</a> for alerting platforms such as Rave and Alertus.
   </p>
 
-  <h2>Feed URL</h2>
+  <h2 id="rss">Feed URL</h2>
   <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=<strong>{stopID}</strong></div>
   <p>Replace <code>{stopID}</code> with the numeric ID for the stop you want. The feed updates every 15 seconds on the server; configure your device to poll at least once per minute.</p>
 
@@ -124,7 +124,7 @@
   </table>
   <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
 
-  <h2>CAP Feed (Rave / Alertus)</h2>
+  <h2 id="cap">CAP Feed (Rave / Alertus)</h2>
   <p>
     For digital signage systems that consume <strong>CAP 1.2</strong> (Common Alerting Protocol) — such as Rave and Alertus displays — a parallel feed is available at:
   </p>
