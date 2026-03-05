@@ -10028,7 +10028,7 @@ async def cap_stop_arrivals(
     # Rotate identifier every minute so consumers treat each poll as fresh
     minute_stamp = now.strftime("%Y%m%dT%H%MZ")
     sent_str = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-    site_root = str(request.base_url).rstrip("/")
+    site_root = str(request.base_url).rstrip("/").replace("http://", "https://", 1)
 
     stop_name = f"Stop {stopID}"
     if isinstance(data, list):
@@ -10074,7 +10074,7 @@ async def cap_stop_arrivals(
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
     alert = ET.Element("alert", xmlns=CAP_NS)
     ET.SubElement(alert, "identifier").text = f"uts-stop-{stopID}-{minute_stamp}"
-    ET.SubElement(alert, "sender").text = "uts.virginia.edu"
+    ET.SubElement(alert, "sender").text = "utsopsdashboard.com"
     ET.SubElement(alert, "sent").text = sent_str
     ET.SubElement(alert, "status").text = "Actual"
     ET.SubElement(alert, "msgType").text = "Alert"
