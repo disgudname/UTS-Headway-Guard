@@ -1419,7 +1419,7 @@ REPLAY_HTML = _load_html("replay.html")
 RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
-RSS_HTML = _load_html("rss.html")
+FEEDS_HTML = _load_html("feeds.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
 STATUSSIGNAGE_HTML = _load_html("statussignage.html")
@@ -5247,13 +5247,23 @@ async def startup():
 
         def on_soc_update(soc: VehicleSOC):
             """Callback when SOC update received from ViriCiti."""
+            # Suppress charging indicator during regen: look up TransLoc ground speed
+            # and treat negative power as regen (not charging) if the bus is moving.
+            norm_bus = normalize_bus_name(soc.bus_number)
+            speed_mph = next(
+                (float(v.get("GroundSpeed") or 0.0)
+                 for v in getattr(state, "vehicles_raw", [])
+                 if normalize_bus_name(str(v.get("Name") or v.get("Label") or "")) == norm_bus),
+                0.0,
+            )
+            charging = soc.is_charging and speed_mph <= 1.0
             data = {
                 "bus_number": soc.bus_number,
                 "vid": soc.vid,
                 "soc": soc.soc,
                 "odo": soc.odo,
                 "power": soc.power,
-                "charging": soc.is_charging,
+                "charging": charging,
                 "low_battery": soc.soc <= LOW_SOC_THRESHOLDS[0],
                 "timestamp": soc.timestamp.isoformat()
             }
@@ -9994,6 +10004,113 @@ async def rss_stop_arrivals(
     )
 
 
+@app.get("/api/cap/stop_arrivals")
+async def cap_stop_arrivals(
+    request: Request,
+    stopID: str = Query(..., description="TransLoc stop ID"),
+    base_url: Optional[str] = Query(None),
+):
+    """CAP 1.2 feed of upcoming bus arrivals at a given stop.
+
+    Intended for Rave/Alertus digital signage systems that consume CAP.
+    One <info> block per route with the next two ETAs.  Poll every minute.
+
+    Example: /api/cap/stop_arrivals?stopID=26
+    """
+    url = build_transloc_url(base_url, "GetStopArrivalTimes")
+    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": stopID}
+    try:
+        data = await _proxy_transloc_get(url, params=params, base_url=base_url)
+    except HTTPException:
+        data = []
+
+    now = datetime.now(timezone.utc)
+    # Rotate identifier every minute so consumers treat each poll as fresh
+    minute_stamp = now.strftime("%Y%m%dT%H%MZ")
+    sent_str = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    site_root = str(request.base_url).rstrip("/")
+
+    stop_name = f"Stop {stopID}"
+    if isinstance(data, list):
+        for entry in data:
+            raw = (entry.get("StopDescription") or "").strip()
+            if raw:
+                stop_name = raw
+                break
+
+    def _arrival_label(t: Dict[str, Any]) -> str:
+        if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
+            return "Due"
+        seconds = t.get("Seconds")
+        if seconds is None:
+            return ""
+        mins = math.ceil(seconds / 60)
+        if mins <= 0:
+            return "Due"
+        return "1 min" if mins == 1 else f"{mins} min"
+
+    # Group arrivals by route; cap at 2 ETAs per route
+    route_labels: Dict[str, List[str]] = {}
+    route_first_seconds: Dict[str, float] = {}
+    if isinstance(data, list):
+        for entry in data:
+            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
+            for t in entry.get("Times") or []:
+                label = _arrival_label(t)
+                if not label:
+                    continue
+                if route_desc not in route_labels:
+                    route_labels[route_desc] = []
+                    secs = t.get("Seconds") or 0
+                    route_first_seconds[route_desc] = secs if not t.get("IsArriving") else 0
+                if len(route_labels[route_desc]) < 2:
+                    route_labels[route_desc].append(label)
+
+    sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
+
+    arrivals_link = f"{site_root}/arrivalsdisplay?stopid={stopID}"
+
+    # Build CAP 1.2 XML
+    CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
+    alert = ET.Element("alert", xmlns=CAP_NS)
+    ET.SubElement(alert, "identifier").text = f"uts-stop-{stopID}-{minute_stamp}"
+    ET.SubElement(alert, "sender").text = "uts.virginia.edu"
+    ET.SubElement(alert, "sent").text = sent_str
+    ET.SubElement(alert, "status").text = "Actual"
+    ET.SubElement(alert, "msgType").text = "Alert"
+    ET.SubElement(alert, "scope").text = "Public"
+
+    if not sorted_routes:
+        info = ET.SubElement(alert, "info")
+        ET.SubElement(info, "category").text = "Transport"
+        ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
+        ET.SubElement(info, "urgency").text = "Unknown"
+        ET.SubElement(info, "severity").text = "Minor"
+        ET.SubElement(info, "certainty").text = "Observed"
+        ET.SubElement(info, "headline").text = f"Bus Arrivals – {stop_name}"
+        ET.SubElement(info, "description").text = "No buses currently scheduled at this stop."
+        ET.SubElement(info, "web").text = arrivals_link
+    else:
+        for route_desc, labels in sorted_routes:
+            info = ET.SubElement(alert, "info")
+            ET.SubElement(info, "category").text = "Transport"
+            ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
+            ET.SubElement(info, "urgency").text = "Expected"
+            ET.SubElement(info, "severity").text = "Minor"
+            ET.SubElement(info, "certainty").text = "Observed"
+            ET.SubElement(info, "headline").text = f"{route_desc} – {stop_name}"
+            ET.SubElement(info, "description").text = f"{route_desc}: {', '.join(labels)}"
+            ET.SubElement(info, "web").text = arrivals_link
+
+    xml_body = ET.tostring(alert, encoding="unicode")
+    xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
+    return Response(
+        content=xml_bytes,
+        media_type="application/cap+xml; charset=utf-8",
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+
 @app.get("/v1/transloc/vehicle_capacities")
 async def transloc_vehicle_capacities(base_url: Optional[str] = Query(None)):
     url = build_transloc_url(base_url, "GetVehicleCapacities")
@@ -10978,9 +11095,13 @@ async def incidents_page():
 async def sitemap_page():
     return HTMLResponse(SITEMAP_HTML)
 
+@app.get("/feeds")
+async def feeds_info_page():
+    return HTMLResponse(FEEDS_HTML)
+
 @app.get("/rss")
-async def rss_info_page():
-    return HTMLResponse(RSS_HTML)
+async def rss_redirect():
+    return RedirectResponse(url="/feeds", status_code=301)
 
 @app.get("/login")
 async def login_page():
