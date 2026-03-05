@@ -10074,8 +10074,10 @@ async def cap_stop_arrivals(
     # Look up stop coordinates from cached state
     stop_lat: Optional[float] = None
     stop_lon: Optional[float] = None
+    # Match by name — the stopID param is the AddressID scheme used by GetStopArrivalTimes,
+    # which doesn't reliably map to StopID in state.stops.
     for _s in state.stops:
-        if str(_s.get("StopID")) == str(stopID):
+        if (_s.get("Name") or _s.get("Description") or "").strip() == stop_name and stop_name != f"Stop {stopID}":
             stop_lat = _coerce_float(_s.get("Latitude"))
             stop_lon = _coerce_float(_s.get("Longitude"))
             break
