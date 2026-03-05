@@ -10081,10 +10081,21 @@ async def cap_stop_arrivals(
     ET.SubElement(alert, "msgType").text = "Alert"
     ET.SubElement(alert, "scope").text = "Public"
 
+    def _add_cap_area(info_el: ET.Element, desc: str) -> None:
+        area = ET.SubElement(info_el, "area")
+        ET.SubElement(area, "areaDesc").text = desc
+        gc1 = ET.SubElement(area, "geocode")
+        ET.SubElement(gc1, "valueName").text = "SAME"
+        ET.SubElement(gc1, "value").text = "051540"  # Charlottesville city
+        gc2 = ET.SubElement(area, "geocode")
+        ET.SubElement(gc2, "valueName").text = "SAME"
+        ET.SubElement(gc2, "value").text = "051003"  # Albemarle County
+
     if not sorted_routes:
         info = ET.SubElement(alert, "info")
         ET.SubElement(info, "category").text = "Transport"
         ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
+        ET.SubElement(info, "responseType").text = "Monitor"
         ET.SubElement(info, "urgency").text = "Unknown"
         ET.SubElement(info, "severity").text = "Minor"
         ET.SubElement(info, "certainty").text = "Observed"
@@ -10092,12 +10103,16 @@ async def cap_stop_arrivals(
         ET.SubElement(info, "senderName").text = "UVA Transit"
         ET.SubElement(info, "headline").text = f"Bus Arrivals – {stop_name}"
         ET.SubElement(info, "description").text = "No buses currently scheduled at this stop."
+        ET.SubElement(info, "instruction").text = "Check the arrivals display or UVA Transit app for updates."
         ET.SubElement(info, "web").text = arrivals_link
+        ET.SubElement(info, "contact").text = "UVA Transit – parking.virginia.edu"
+        _add_cap_area(info, f"{stop_name} – UVA Transit Service Area")
     else:
         for route_desc, labels in sorted_routes:
             info = ET.SubElement(alert, "info")
             ET.SubElement(info, "category").text = "Transport"
             ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
+            ET.SubElement(info, "responseType").text = "Monitor"
             ET.SubElement(info, "urgency").text = "Expected"
             ET.SubElement(info, "severity").text = "Minor"
             ET.SubElement(info, "certainty").text = "Observed"
@@ -10105,7 +10120,10 @@ async def cap_stop_arrivals(
             ET.SubElement(info, "senderName").text = "UVA Transit"
             ET.SubElement(info, "headline").text = f"{route_desc} – {stop_name}"
             ET.SubElement(info, "description").text = f"{route_desc}: {', '.join(labels)}"
+            ET.SubElement(info, "instruction").text = "Board the next available bus. Check the arrivals display for real-time updates."
             ET.SubElement(info, "web").text = arrivals_link
+            ET.SubElement(info, "contact").text = "UVA Transit – parking.virginia.edu"
+            _add_cap_area(info, f"{stop_name} – UVA Transit Service Area")
 
     xml_body = ET.tostring(alert, encoding="unicode")
     xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
