@@ -124,13 +124,14 @@
   </table>
   <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
 
-  <h2 id="cap">CAP Feed (Rave / Alertus)</h2>
-  <p>
-    For digital signage systems that consume <strong>CAP 1.2</strong> (Common Alerting Protocol) — such as Rave and Alertus displays — a parallel feed is available at:
-  </p>
+  <h2 id="cap">CAP Feed URL</h2>
   <div class="feed-url">https://utsopsdashboard.com/api/cap/stop_arrivals?stopID=<strong>{stopID}</strong></div>
-  <p>The same stop IDs apply. The feed returns an <code>application/cap+xml</code> document with one <code>&lt;info&gt;</code> block per route, each containing the next two arrival times. Poll every minute.</p>
-  <p>Example output for stop 26:</p>
+  <p>Replace <code>{stopID}</code> with the numeric ID for the stop you want. The same stop IDs used for the RSS feed apply here. Configure your device to poll at least once per minute.</p>
+
+  <h2>CAP Example</h2>
+  <p>Feed for <strong>Massie Rd @ JPJ South Lot</strong> (stop 26):</p>
+  <div class="feed-url">https://utsopsdashboard.com/api/cap/stop_arrivals?stopID=26</div>
+  <p>This produces a CAP feed like:</p>
   <pre>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
 &lt;alert xmlns="urn:oasis:names:tc:emergency:cap:1.2"&gt;
   &lt;identifier&gt;uts-stop-26-20260305T1430Z&lt;/identifier&gt;
@@ -160,6 +161,27 @@
     &lt;web&gt;https://utsopsdashboard.com/arrivalsdisplay?stopid=26&lt;/web&gt;
   &lt;/info&gt;
 &lt;/alert&gt;</pre>
+
+  <h2>CAP Feed Structure</h2>
+  <table>
+    <tr><th>Field</th><th>Description</th></tr>
+    <tr><td><code>&lt;identifier&gt;</code></td><td>Unique ID rotated every minute, e.g. "uts-stop-26-20260305T1430Z"</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>Route name and stop, e.g. "Gold Line – Massie Rd @ JPJ South Lot"</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Next two arrivals for that route, e.g. "Gold Line: 3 min, 10 min"</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
+  </table>
+  <p>One <code>&lt;info&gt;</code> block is included per route, sorted by soonest arrival. If no buses are scheduled, the feed contains a single block indicating no arrivals.</p>
+
+  <h2>CAP Common Stop IDs</h2>
+  <table>
+    <tr><th>Stop</th><th>ID</th><th>Feed URL</th></tr>
+    <tr><td>Massie Rd @ JPJ South Lot</td><td>26</td><td><a href="/api/cap/stop_arrivals?stopID=26">/api/cap/stop_arrivals?stopID=26</a></td></tr>
+    <tr><td>Jefferson Park Ave @ Brandon Ave</td><td>54</td><td><a href="/api/cap/stop_arrivals?stopID=54">/api/cap/stop_arrivals?stopID=54</a></td></tr>
+    <tr><td>Jefferson Park Ave @ Cabell Hall</td><td>2</td><td><a href="/api/cap/stop_arrivals?stopID=2">/api/cap/stop_arrivals?stopID=2</a></td></tr>
+    <tr><td>Ivy Rd @ Emmet / Ivy Garage (EIG)</td><td>3</td><td><a href="/api/cap/stop_arrivals?stopID=3">/api/cap/stop_arrivals?stopID=3</a></td></tr>
+    <tr><td>Emmet St @ Central Grounds Garage</td><td>159</td><td><a href="/api/cap/stop_arrivals?stopID=159">/api/cap/stop_arrivals?stopID=159</a></td></tr>
+  </table>
+  <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
 
   <h2>Sign Preview</h2>
   <p>Enter a stop ID below to preview live arrival data as it would appear on a destination-sign style display. Data is pulled directly from the RSS feed.</p>
