@@ -10028,6 +10028,7 @@ async def cap_stop_arrivals(
     # Rotate identifier every minute so consumers treat each poll as fresh
     minute_stamp = now.strftime("%Y%m%dT%H%MZ")
     sent_str = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    expires_str = (now + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
     site_root = str(request.base_url).rstrip("/").replace("http://", "https://", 1)
 
     stop_name = f"Stop {stopID}"
@@ -10087,6 +10088,8 @@ async def cap_stop_arrivals(
         ET.SubElement(info, "urgency").text = "Unknown"
         ET.SubElement(info, "severity").text = "Minor"
         ET.SubElement(info, "certainty").text = "Observed"
+        ET.SubElement(info, "expires").text = expires_str
+        ET.SubElement(info, "senderName").text = "UVA Transit"
         ET.SubElement(info, "headline").text = f"Bus Arrivals – {stop_name}"
         ET.SubElement(info, "description").text = "No buses currently scheduled at this stop."
         ET.SubElement(info, "web").text = arrivals_link
@@ -10098,6 +10101,8 @@ async def cap_stop_arrivals(
             ET.SubElement(info, "urgency").text = "Expected"
             ET.SubElement(info, "severity").text = "Minor"
             ET.SubElement(info, "certainty").text = "Observed"
+            ET.SubElement(info, "expires").text = expires_str
+            ET.SubElement(info, "senderName").text = "UVA Transit"
             ET.SubElement(info, "headline").text = f"{route_desc} – {stop_name}"
             ET.SubElement(info, "description").text = f"{route_desc}: {', '.join(labels)}"
             ET.SubElement(info, "web").text = arrivals_link
