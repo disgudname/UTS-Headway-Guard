@@ -19365,6 +19365,16 @@ ${trainPlaneMarkup}
 
       let _bubbleSvgIdCounter = 0;
 
+      function darkenRouteColor(color, factor) {
+          if (typeof color !== 'string') return color;
+          const hex = color.trim().replace('#', '');
+          if (hex.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+          const r = Math.round(parseInt(hex.slice(0, 2), 16) * factor);
+          const g = Math.round(parseInt(hex.slice(2, 4), 16) * factor);
+          const b = Math.round(parseInt(hex.slice(4, 6), 16) * factor);
+          return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      }
+
       function computeVehicleOccupancyPct(state) {
           if (!state || !Number.isFinite(state.capacity) || state.capacity <= 0 || !Number.isFinite(state.current_occupation)) {
               return null;
@@ -19410,11 +19420,16 @@ ${trainPlaneMarkup}
           const hasOccupancy = Number.isFinite(occupancyPct) && occupancyPct >= 0;
           let rectFill;
           let svgDefs = '';
+          let textStrokeAttr = '';
           if (hasOccupancy) {
               const gradId = `cap-${++_bubbleSvgIdCounter}`;
               const pct = roundToTwoDecimals(Math.min(100, occupancyPct));
-              svgDefs = `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${fillColor}" stop-opacity="0.28"/><stop offset="100%" stop-color="${fillColor}" stop-opacity="0.28"/></linearGradient></defs>`;
+              const darkenedColor = darkenRouteColor(fillColor, 0.6);
+              svgDefs = `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${darkenedColor}"/><stop offset="100%" stop-color="${darkenedColor}"/></linearGradient></defs>`;
               rectFill = `url(#${gradId})`;
+              const strokeClr = (textColor === '#ffffff' || textColor.toLowerCase() === 'white')
+                  ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.75)';
+              textStrokeAttr = ` stroke="${strokeClr}" stroke-width="2.5" paint-order="stroke fill" stroke-linejoin="round"`;
           } else {
               rectFill = fillColor;
           }
@@ -19422,7 +19437,7 @@ ${trainPlaneMarkup}
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   ${svgDefs}<g>
                       <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${rectFill}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(label)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${roundToTwoDecimals(fontSize)}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}"${textStrokeAttr}>${escapeHtml(label)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
@@ -19584,11 +19599,16 @@ ${trainPlaneMarkup}
           const hasOccupancy = Number.isFinite(occupancyPct) && occupancyPct >= 0;
           let rectFill;
           let svgDefs = '';
+          let textStrokeAttr = '';
           if (hasOccupancy) {
               const gradId = `cap-${++_bubbleSvgIdCounter}`;
               const pct = roundToTwoDecimals(Math.min(100, occupancyPct));
-              svgDefs = `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${fillColor}" stop-opacity="0.28"/><stop offset="100%" stop-color="${fillColor}" stop-opacity="0.28"/></linearGradient></defs>`;
+              const darkenedColor = darkenRouteColor(fillColor, 0.6);
+              svgDefs = `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${fillColor}"/><stop offset="${pct}%" stop-color="${darkenedColor}"/><stop offset="100%" stop-color="${darkenedColor}"/></linearGradient></defs>`;
               rectFill = `url(#${gradId})`;
+              const strokeClr = (textColor === '#ffffff' || textColor.toLowerCase() === 'white')
+                  ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.75)';
+              textStrokeAttr = ` stroke="${strokeClr}" stroke-width="2.5" paint-order="stroke fill" stroke-linejoin="round"`;
           } else {
               rectFill = fillColor;
           }
@@ -19596,7 +19616,7 @@ ${trainPlaneMarkup}
               <svg width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
                   ${svgDefs}<g>
                       <rect x="${rectX}" y="${rectY}" width="${rectWidthRounded}" height="${rectHeightRounded}" rx="${radiusRounded}" ry="${radiusRounded}" fill="${rectFill}" stroke="white" stroke-width="${strokeWidthRounded}" />
-                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}">${escapeHtml(name)}</text>
+                      <text x="${textX}" y="${textY}" dominant-baseline="middle" alignment-baseline="middle" text-anchor="middle" font-size="${fontSizeRounded}" font-weight="bold" fill="${textColor}" font-family="${BUS_MARKER_LABEL_FONT_FAMILY}"${textStrokeAttr}>${escapeHtml(name)}</text>
                   </g>
               </svg>`;
           return L.divIcon({
