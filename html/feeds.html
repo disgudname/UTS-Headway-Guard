@@ -141,27 +141,17 @@
   &lt;msgType&gt;Alert&lt;/msgType&gt;
   &lt;scope&gt;Public&lt;/scope&gt;
   &lt;info&gt;
+    &lt;language&gt;en-US&lt;/language&gt;
     &lt;category&gt;Transport&lt;/category&gt;
     &lt;event&gt;Bus Arrivals – Massie Rd @ JPJ South Lot&lt;/event&gt;
     &lt;urgency&gt;Expected&lt;/urgency&gt;
     &lt;severity&gt;Minor&lt;/severity&gt;
     &lt;certainty&gt;Observed&lt;/certainty&gt;
+    &lt;effective&gt;2026-03-05T14:30:00+00:00&lt;/effective&gt;
     &lt;expires&gt;2026-03-05T14:32:00+00:00&lt;/expires&gt;
     &lt;senderName&gt;UVA Transit&lt;/senderName&gt;
-    &lt;headline&gt;Silver Line – Massie Rd @ JPJ South Lot&lt;/headline&gt;
-    &lt;description&gt;Silver Line: Due, 8 min&lt;/description&gt;
-    &lt;web&gt;https://utsopsdashboard.com/arrivalsdisplay?stopid=26&lt;/web&gt;
-  &lt;/info&gt;
-  &lt;info&gt;
-    &lt;category&gt;Transport&lt;/category&gt;
-    &lt;event&gt;Bus Arrivals – Massie Rd @ JPJ South Lot&lt;/event&gt;
-    &lt;urgency&gt;Expected&lt;/urgency&gt;
-    &lt;severity&gt;Minor&lt;/severity&gt;
-    &lt;certainty&gt;Observed&lt;/certainty&gt;
-    &lt;expires&gt;2026-03-05T14:32:00+00:00&lt;/expires&gt;
-    &lt;senderName&gt;UVA Transit&lt;/senderName&gt;
-    &lt;headline&gt;Gold Line – Massie Rd @ JPJ South Lot&lt;/headline&gt;
-    &lt;description&gt;Gold Line: 3 min, 10 min&lt;/description&gt;
+    &lt;headline&gt;Silver Line: Due, 8 min | Gold Line: 3 min, 10 min&lt;/headline&gt;
+    &lt;description&gt;Silver Line: Due, 8 min | Gold Line: 3 min, 10 min&lt;/description&gt;
     &lt;web&gt;https://utsopsdashboard.com/arrivalsdisplay?stopid=26&lt;/web&gt;
   &lt;/info&gt;
 &lt;/alert&gt;</pre>
@@ -170,13 +160,14 @@
   <table>
     <tr><th>Field</th><th>Description</th></tr>
     <tr><td><code>&lt;identifier&gt;</code></td><td>Unique ID rotated every minute, e.g. "uts-stop-26-20260305T1430Z"</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;effective&gt;</code></td><td>Same as <code>&lt;sent&gt;</code> — the message is valid immediately</td></tr>
     <tr><td><code>&lt;info&gt; &lt;expires&gt;</code></td><td>Two minutes after <code>&lt;sent&gt;</code> — when this data should be considered stale</td></tr>
     <tr><td><code>&lt;info&gt; &lt;senderName&gt;</code></td><td>Always "UVA Transit"</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>Route name and stop, e.g. "Gold Line – Massie Rd @ JPJ South Lot"</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Next two arrivals for that route, e.g. "Gold Line: 3 min, 10 min"</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, pipe-separated, e.g. "Silver Line: Due, 8 min | Gold Line: 3 min, 10 min"</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Same as <code>&lt;headline&gt;</code> — duplicated so the sign works regardless of which field is configured to display</td></tr>
     <tr><td><code>&lt;info&gt; &lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
   </table>
-  <p>One <code>&lt;info&gt;</code> block is included per route, sorted by soonest arrival. If no buses are scheduled, the feed contains a single block indicating no arrivals.</p>
+  <p>The feed always contains a single <code>&lt;info&gt;</code> block. All routes are combined into one message, sorted by soonest arrival. If no buses are scheduled, the message reads "No buses currently scheduled."</p>
 
   <h2>CAP Common Stop IDs</h2>
   <table>
