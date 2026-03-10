@@ -1422,6 +1422,7 @@ SITEMAP_HTML = _load_html("sitemap.html")
 FEEDS_HTML = _load_html("feeds.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
+SOCDISPLAY_HTML = _load_html("socdisplay.html")
 STATUSSIGNAGE_HTML = _load_html("statussignage.html")
 BUS_TABLE_HTML = _load_html("buses.html")
 NOT_FOUND_HTML = _load_html("404.html")
@@ -12988,6 +12989,13 @@ async def arrivalsdisplay_page():
 @app.get("/clockdisplay")
 async def clockdisplay_page():
     return HTMLResponse(CLOCKDISPLAY_HTML)
+
+# ---------------------------
+# SOC DISPLAY PAGE
+# ---------------------------
+@app.get("/socdisplay")
+async def socdisplay_page():
+    return HTMLResponse(SOCDISPLAY_HTML)
 
 # ---------------------------
 # STATUS SIGNAGE PAGE
