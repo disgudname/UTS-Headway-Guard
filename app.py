@@ -10106,12 +10106,14 @@ async def cap_stop_arrivals(
 
     if not sorted_routes:
         info = ET.SubElement(alert, "info")
+        ET.SubElement(info, "language").text = "en-US"
         ET.SubElement(info, "category").text = "Transport"
         ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
         ET.SubElement(info, "responseType").text = "Monitor"
         ET.SubElement(info, "urgency").text = "Unknown"
         ET.SubElement(info, "severity").text = "Minor"
         ET.SubElement(info, "certainty").text = "Observed"
+        ET.SubElement(info, "effective").text = sent_str
         ET.SubElement(info, "expires").text = expires_str
         ET.SubElement(info, "senderName").text = "UVA Transit"
         ET.SubElement(info, "headline").text = f"Bus Arrivals – {stop_name}"
@@ -10123,12 +10125,14 @@ async def cap_stop_arrivals(
     else:
         for route_desc, labels in sorted_routes:
             info = ET.SubElement(alert, "info")
+            ET.SubElement(info, "language").text = "en-US"
             ET.SubElement(info, "category").text = "Transport"
             ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
             ET.SubElement(info, "responseType").text = "Monitor"
             ET.SubElement(info, "urgency").text = "Expected"
             ET.SubElement(info, "severity").text = "Minor"
             ET.SubElement(info, "certainty").text = "Observed"
+            ET.SubElement(info, "effective").text = sent_str
             ET.SubElement(info, "expires").text = expires_str
             ET.SubElement(info, "senderName").text = "UVA Transit"
             ET.SubElement(info, "headline").text = f"{route_desc} – {stop_name}"

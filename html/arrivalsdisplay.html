@@ -291,7 +291,7 @@ const SpeechQueue=(()=>{
 const Announcement=(()=>{
   // Tunables
   const THRESHOLDS = [10,5,1];
-  const WINDOW_MIN = 0.5;            // ±30s threshold window
+  const WINDOW_MIN = 0;              // exact crossing — fire at ≤ threshold, not ≤ threshold+0.5
   const REARM_JUMP_MIN = 6;          // ETA jump later by >=6m → re-arm 10/5
   const NEW_LAP_AFTER_MIN = 8;       // If ETA was ≤1.5 then jumps to ≥8 → new lap
   const COOLDOWN_MS = 2 * 60 * 1000; // per-vehicle-threshold cooldown
@@ -462,7 +462,7 @@ function updateArrivalTable(data, vc){
             ${r.routeDescription}
           </span>
         </td>
-        <td style="color:#fff;">${r.minutesUntilArrival} min</td>
+        <td style="color:#fff;">${r.minutesUntilArrival <= 1 ? 'DUE' : r.minutesUntilArrival + ' min'}</td>
         <td>
           <div class="capacity-bar-container">
             <div class="capacity-bar" style="width:${r.capacityPercentage}%;background-color:${capColor};"></div>
