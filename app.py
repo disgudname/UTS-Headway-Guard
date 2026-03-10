@@ -3334,7 +3334,11 @@ async def _collect_ondemand_data(
             vehicle_payload["last_active_at"] = last_active_at
             vehicle_payload["lastActiveAt"] = last_active_at
         if "speed" in entry:
-            vehicle_payload["speed"] = entry.get("speed")
+            raw_speed = entry.get("speed")
+            if isinstance(raw_speed, (int, float)):
+                vehicle_payload["speed"] = raw_speed / MPH_TO_MPS
+            else:
+                vehicle_payload["speed"] = raw_speed
         if "stale" in entry:
             vehicle_payload["stale"] = bool(entry.get("stale"))
         if "enabled" in entry:
