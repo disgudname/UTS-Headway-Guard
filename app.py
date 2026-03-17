@@ -12041,6 +12041,24 @@ async def metromap_data():
         routes_all: dict = dict(getattr(state, "routes_all", {}) or {})
         routes_obj: dict = dict(state.routes)
         routes_raw: list = list(getattr(state, "routes_raw", []) or [])
+        # state.stops has coordinates merged from stops_raw; build a lookup by StopID
+        stops_lookup: dict = {}
+        for s in (getattr(state, "stops", []) or []):
+            sid = s.get("StopID") or s.get("StopId")
+            if sid is None:
+                continue
+            lat = s.get("Latitude") or s.get("Lat")
+            lon = s.get("Longitude") or s.get("Lon") or s.get("Lng")
+            name = s.get("Name") or s.get("Description") or str(sid)
+            if lat is not None and lon is not None:
+                try:
+                    stops_lookup[str(sid)] = {
+                        "lat": float(lat),
+                        "lon": float(lon),
+                        "name": str(name),
+                    }
+                except (TypeError, ValueError):
+                    pass
 
     out = []
     for raw in routes_raw:
@@ -12053,15 +12071,21 @@ async def metromap_data():
         color = color.lstrip("#")
         stops_out = []
         for s in (raw.get("Stops") or []):
-            sid = s.get("StopID")
-            lat = s.get("Latitude")
-            lon = s.get("Longitude")
-            sname = s.get("Name") or s.get("Description") or str(sid)
-            if sid is None or lat is None or lon is None:
+            sid = s.get("StopID") or s.get("StopId")
+            if sid is None:
+                continue
+            sid_str = str(sid)
+            # Prefer coordinates from the merged stops_lookup (has coordinates from GetStops)
+            # Fall back to inline coordinates on the route stop entry if present
+            info = stops_lookup.get(sid_str)
+            lat = (info["lat"] if info else None) or s.get("Latitude") or s.get("Lat")
+            lon = (info["lon"] if info else None) or s.get("Longitude") or s.get("Lon") or s.get("Lng")
+            sname = (info["name"] if info else None) or s.get("Name") or s.get("Description") or sid_str
+            if lat is None or lon is None:
                 continue
             try:
                 stops_out.append({
-                    "id": str(sid),
+                    "id": sid_str,
                     "name": str(sname),
                     "lat": float(lat),
                     "lon": float(lon),
