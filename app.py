@@ -12117,6 +12117,29 @@ async def metromap_data():
         })
     return {"routes": out}
 
+
+@app.get("/v1/metromap/debug")
+async def metromap_debug():
+    """Temporary diagnostic: shows what state data is available for the metro map."""
+    async with state.lock:
+        routes_all = dict(getattr(state, "routes_all", {}) or {})
+        routes_obj = dict(state.routes)
+        stops_list = list(getattr(state, "stops", []) or [])
+
+    sample_stop = stops_list[0] if stops_list else None
+    stops_with_route_ids = sum(1 for s in stops_list if s.get("RouteIds"))
+    routes_with_poly = sum(1 for r in routes_obj.values() if r.poly and len(r.poly) >= 2)
+
+    return {
+        "routes_all_count": len(routes_all),
+        "routes_with_poly": routes_with_poly,
+        "stops_count": len(stops_list),
+        "stops_with_route_ids": stops_with_route_ids,
+        "sample_stop_keys": list(sample_stop.keys()) if sample_stop else None,
+        "sample_stop": sample_stop,
+    }
+
+
 # ---------------------------
 # DEBUG PAGE
 # ---------------------------
