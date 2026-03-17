@@ -12033,68 +12033,84 @@ async def madmap_page():
 async def metromap_page():
     return HTMLResponse(METROMAP_HTML)
 
+def _project_onto_polyline(lat: float, lon: float, poly: List[Tuple[float, float]], cum: List[float]) -> float:
+    """Return the arc-length (metres) of the closest point on poly to (lat, lon)."""
+    if len(poly) < 2:
+        return 0.0
+    best_s = 0.0
+    best_d2 = float('inf')
+    for i in range(len(poly) - 1):
+        alat, alon = poly[i]
+        blat, blon = poly[i + 1]
+        dlat, dlon = blat - alat, blon - alon
+        seg2 = dlat * dlat + dlon * dlon
+        t = 0.0 if seg2 == 0 else max(0.0, min(1.0, ((lat - alat) * dlat + (lon - alon) * dlon) / seg2))
+        rlat, rlon = alat + t * dlat, alon + t * dlon
+        d2 = (lat - rlat) ** 2 + (lon - rlon) ** 2
+        if d2 < best_d2:
+            best_d2 = d2
+            best_s = cum[i] + t * (cum[i + 1] - cum[i])
+    return best_s
+
+
 @app.get("/v1/metromap")
 async def metromap_data():
-    """Return route + ordered stop sequence data for the metro map layout."""
+    """Return route + ordered stop sequence data for the metro map layout.
+
+    Stop order is recovered by projecting each stop onto the route's encoded
+    polyline and sorting by arc length — routes_raw does not carry stop coords
+    for this TransLoc deployment, so we join against state.stops instead.
+    """
     async with state.lock:
         actives: set = set(state.vehicles_by_route.keys())
         routes_all: dict = dict(getattr(state, "routes_all", {}) or {})
         routes_obj: dict = dict(state.routes)
-        routes_raw: list = list(getattr(state, "routes_raw", []) or [])
-        # state.stops has coordinates merged from stops_raw; build a lookup by StopID
-        stops_lookup: dict = {}
+        # Build stop-info lookup: sid_str -> {id, name, lat, lon}
+        stop_info: dict = {}
+        # Build reverse index: rid_str -> [sid_str, ...]  (unordered)
+        stops_for_route: dict = {}
         for s in (getattr(state, "stops", []) or []):
             sid = s.get("StopID") or s.get("StopId")
             if sid is None:
                 continue
             lat = s.get("Latitude") or s.get("Lat")
             lon = s.get("Longitude") or s.get("Lon") or s.get("Lng")
-            name = s.get("Name") or s.get("Description") or str(sid)
-            if lat is not None and lon is not None:
-                try:
-                    stops_lookup[str(sid)] = {
-                        "lat": float(lat),
-                        "lon": float(lon),
-                        "name": str(name),
-                    }
-                except (TypeError, ValueError):
-                    pass
-
-    out = []
-    for raw in routes_raw:
-        rid = raw.get("RouteID")
-        if rid is None:
-            continue
-        name = routes_all.get(rid) or raw.get("Description") or str(rid)
-        route_obj = routes_obj.get(rid)
-        color = (route_obj.color if route_obj else None) or raw.get("MapLineColor") or "888888"
-        color = color.lstrip("#")
-        stops_out = []
-        for s in (raw.get("Stops") or []):
-            sid = s.get("StopID") or s.get("StopId")
-            if sid is None:
-                continue
-            sid_str = str(sid)
-            # Prefer coordinates from the merged stops_lookup (has coordinates from GetStops)
-            # Fall back to inline coordinates on the route stop entry if present
-            info = stops_lookup.get(sid_str)
-            lat = (info["lat"] if info else None) or s.get("Latitude") or s.get("Lat")
-            lon = (info["lon"] if info else None) or s.get("Longitude") or s.get("Lon") or s.get("Lng")
-            sname = (info["name"] if info else None) or s.get("Name") or s.get("Description") or sid_str
             if lat is None or lon is None:
                 continue
             try:
-                stops_out.append({
-                    "id": sid_str,
-                    "name": str(sname),
-                    "lat": float(lat),
-                    "lon": float(lon),
-                })
+                lat, lon = float(lat), float(lon)
             except (TypeError, ValueError):
-                pass
+                continue
+            sid_str = str(sid)
+            name = s.get("Name") or s.get("Description") or sid_str
+            stop_info[sid_str] = {"id": sid_str, "name": str(name), "lat": lat, "lon": lon}
+            for rid_val in (s.get("RouteIds") or []):
+                stops_for_route.setdefault(str(rid_val), []).append(sid_str)
+
+    out = []
+    for rid, disp_name in (routes_all or {}).items():
+        route_obj = routes_obj.get(rid)
+        color = (route_obj.color if route_obj else "888888").lstrip("#")
+        rid_str = str(rid)
+        stops_out: list = []
+        if route_obj and route_obj.poly and len(route_obj.poly) >= 2:
+            sid_list = stops_for_route.get(rid_str, [])
+            # Deduplicate while preserving first-seen
+            seen: set = set()
+            unique_sids = [s for s in sid_list if not (s in seen or seen.add(s))]
+            # Project each stop onto the polyline and sort by arc length
+            projected = []
+            for sid_str2 in unique_sids:
+                info = stop_info.get(sid_str2)
+                if not info:
+                    continue
+                s_pos = _project_onto_polyline(info["lat"], info["lon"], route_obj.poly, route_obj.cum)
+                projected.append((s_pos, info))
+            projected.sort(key=lambda x: x[0])
+            stops_out = [info for _, info in projected]
         out.append({
             "id": rid,
-            "name": name,
+            "name": disp_name,
             "color": color,
             "active": rid in actives,
             "stops": stops_out,
