@@ -12027,11 +12027,55 @@ async def madmap_page():
     return HTMLResponse(MADMAP_HTML)
 
 # ---------------------------
-# METRO MAP PAGE
+# METRO MAP PAGE + DATA
 # ---------------------------
 @app.get("/metromap")
 async def metromap_page():
     return HTMLResponse(METROMAP_HTML)
+
+@app.get("/v1/metromap")
+async def metromap_data():
+    """Return route + ordered stop sequence data for the metro map layout."""
+    async with state.lock:
+        actives: set = set(state.vehicles_by_route.keys())
+        routes_all: dict = dict(getattr(state, "routes_all", {}) or {})
+        routes_obj: dict = dict(state.routes)
+        routes_raw: list = list(getattr(state, "routes_raw", []) or [])
+
+    out = []
+    for raw in routes_raw:
+        rid = raw.get("RouteID")
+        if rid is None:
+            continue
+        name = routes_all.get(rid) or raw.get("Description") or str(rid)
+        route_obj = routes_obj.get(rid)
+        color = (route_obj.color if route_obj else None) or raw.get("MapLineColor") or "888888"
+        color = color.lstrip("#")
+        stops_out = []
+        for s in (raw.get("Stops") or []):
+            sid = s.get("StopID")
+            lat = s.get("Latitude")
+            lon = s.get("Longitude")
+            sname = s.get("Name") or s.get("Description") or str(sid)
+            if sid is None or lat is None or lon is None:
+                continue
+            try:
+                stops_out.append({
+                    "id": str(sid),
+                    "name": str(sname),
+                    "lat": float(lat),
+                    "lon": float(lon),
+                })
+            except (TypeError, ValueError):
+                pass
+        out.append({
+            "id": rid,
+            "name": name,
+            "color": color,
+            "active": rid in actives,
+            "stops": stops_out,
+        })
+    return {"routes": out}
 
 # ---------------------------
 # DEBUG PAGE

@@ -9,35 +9,52 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; height: 100%; background: #f4f0e8; overflow: hidden; font-family: sans-serif; }
-    #map { width: 100%; height: 100%; display: block; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #f4f0e8; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    #map { width: 100%; height: 100%; display: block; cursor: grab; }
+    #map:active { cursor: grabbing; }
     #status {
       position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      color: #555; font-size: 18px;
+      color: #666; font-size: 16px; letter-spacing: 0.05em;
+      pointer-events: none;
     }
     #legend {
       position: absolute; bottom: 16px; left: 16px;
-      background: rgba(255,255,255,0.92);
-      border: 1px solid #ccc;
-      border-radius: 8px;
+      background: rgba(255,255,255,0.94);
+      border: 1px solid #d0ccc4;
+      border-radius: 6px;
       padding: 10px 14px;
       max-height: calc(100vh - 48px);
       overflow-y: auto;
+      pointer-events: auto;
     }
-    .leg { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: default; }
-    .leg-line { width: 28px; height: 7px; border-radius: 4px; flex-shrink: 0; }
-    .leg-name { font-size: 12px; color: #222; white-space: nowrap; }
+    .leg { display: flex; align-items: center; gap: 9px; padding: 3px 0; }
+    .leg-swatch { width: 26px; height: 7px; border-radius: 4px; flex-shrink: 0; }
+    .leg-name { font-size: 11.5px; color: #222; white-space: nowrap; }
     .leg.inactive .leg-name { color: #aaa; }
-    .leg.inactive .leg-line { opacity: 0.4; }
+    .leg.inactive .leg-swatch { opacity: 0.35; }
+    #info {
+      position: absolute; top: 12px; right: 12px;
+      background: rgba(255,255,255,0.94);
+      border: 1px solid #d0ccc4;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 11px; color: #777;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
   <svg id="map"></svg>
   <div id="status">Loading routes&hellip;</div>
   <div id="legend"></div>
+  <div id="info">Schematic layout &mdash; geography approximated</div>
   <script>
-  // ── Inline polyline decoder (no external deps) ──────────────────────────
+  'use strict';
+
+  // ═══════════════════════════════════════════════════════
+  // 1. POLYLINE DECODER
+  // ═══════════════════════════════════════════════════════
   function decodePolyline(enc) {
     const pts = [];
     let i = 0, lat = 0, lon = 0;
@@ -50,231 +67,570 @@
       lon += (res & 1) ? ~(res >> 1) : res >> 1;
       pts.push([lat / 1e5, lon / 1e5]);
     }
-    return pts; // [[lat,lon], ...]
+    return pts;
   }
 
-  // ── Douglas-Peucker simplification ──────────────────────────────────────
-  function dpSimplify(pts, eps) {
-    if (pts.length <= 2) return pts.slice();
-    let maxD = 0, maxI = 0;
-    const [ax, ay] = pts[0], [bx, by] = pts[pts.length - 1];
-    const abx = bx - ax, aby = by - ay, ab2 = abx * abx + aby * aby;
-    for (let i = 1; i < pts.length - 1; i++) {
-      const [px, py] = pts[i];
-      let d;
-      if (ab2 === 0) {
-        d = Math.hypot(px - ax, py - ay);
-      } else {
-        const t = Math.max(0, Math.min(1, ((px - ax) * abx + (py - ay) * aby) / ab2));
-        d = Math.hypot(px - (ax + t * abx), py - (ay + t * aby));
-      }
-      if (d > maxD) { maxD = d; maxI = i; }
-    }
-    if (maxD > eps) {
-      const L = dpSimplify(pts.slice(0, maxI + 1), eps);
-      const R = dpSimplify(pts.slice(maxI), eps);
-      return [...L.slice(0, -1), ...R];
-    }
-    return [pts[0], pts[pts.length - 1]];
+  // ═══════════════════════════════════════════════════════
+  // 2. GRAPH CONSTRUCTION
+  //    Nodes = stops, Edges = consecutive stop pairs per route
+  // ═══════════════════════════════════════════════════════
+  function edgeKey(aId, bId) {
+    return aId < bId ? `${aId}/${bId}` : `${bId}/${aId}`;
   }
 
-  // ── Octilinear snapping ──────────────────────────────────────────────────
-  // Snaps each segment to the nearest multiple of 45°, chaining endpoints.
-  function snapOctilinear(pts) {
-    if (pts.length < 2) return pts.slice();
-    const out = [pts[0].slice()];
-    for (let i = 1; i < pts.length; i++) {
-      const [px, py] = out[out.length - 1];
-      const [cx, cy] = pts[i];
-      const dx = cx - px, dy = cy - py;
-      const angle = Math.atan2(dy, dx);
-      const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-      const len = Math.hypot(dx, dy);
-      out.push([px + Math.cos(snapped) * len, py + Math.sin(snapped) * len]);
-    }
-    return out;
-  }
+  function buildGraph(routes) {
+    // nodes: id -> {id, name, lat, lon, x, y, origX, origY, edgeKeys: Set}
+    const nodes = new Map();
+    // edges: key -> {key, a, b, routes: [{id,color,active}]}
+    const edges = new Map();
+    // routeSeqs: routeId -> [nodeId, ...]  (ordered, may be cyclic)
+    const routeSeqs = new Map();
 
-  // ── Coordinate → SVG projection ─────────────────────────────────────────
-  function makeProjection(rawPts, W, H, pad) {
-    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-    for (const [lat, lon] of rawPts) {
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-      if (lon < minLon) minLon = lon;
-      if (lon > maxLon) maxLon = lon;
-    }
-    const latSpan = maxLat - minLat || 0.01;
-    const lonSpan = maxLon - minLon || 0.01;
-    const sx = (W - pad * 2) / lonSpan;
-    const sy = (H - pad * 2) / latSpan;
-    const scale = Math.min(sx, sy);
-    const ox = pad + ((W - pad * 2) - lonSpan * scale) / 2;
-    const oy = pad + ((H - pad * 2) - latSpan * scale) / 2;
-    return ([lat, lon]) => [ox + (lon - minLon) * scale, oy + (maxLat - lat) * scale];
-  }
-
-  // ── SVG helpers ──────────────────────────────────────────────────────────
-  const NS = 'http://www.w3.org/2000/svg';
-  function el(tag, attrs) {
-    const e = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-    return e;
-  }
-  function pathD(projPts) {
-    return 'M ' + projPts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(' L ');
-  }
-
-  // ── Color normalization ──────────────────────────────────────────────────
-  function normalizeColor(c) {
-    if (!c) return '#888888';
-    c = c.trim().replace(/^#/, '');
-    if (/^[0-9a-fA-F]{6}$/.test(c)) return '#' + c;
-    if (/^[0-9a-fA-F]{3}$/.test(c)) return '#' + c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
-    return '#888888';
-  }
-
-  // ── Main ─────────────────────────────────────────────────────────────────
-  async function main() {
-    const statusEl = document.getElementById('status');
-    const legendEl = document.getElementById('legend');
-    const svg = document.getElementById('map');
-
-    // Fetch route list
-    const { routes } = await fetch('/v1/routes').then(r => r.json());
-
-    // Fetch shapes in parallel, skip routes that 404 (inactive w/o cached shape)
-    const shapes = (await Promise.all(routes.map(async r => {
-      try {
-        const s = await fetch(`/v1/routes/${r.id}/shape`).then(x => {
-          if (!x.ok) return null;
-          return x.json();
+    function ensureNode(stop) {
+      if (!nodes.has(stop.id)) {
+        nodes.set(stop.id, {
+          id: stop.id,
+          name: stop.name,
+          lat: stop.lat,
+          lon: stop.lon,
+          x: 0, y: 0,
+          origX: 0, origY: 0,
+          edgeKeys: new Set(),
         });
-        if (!s) return null;
-        const raw = decodePolyline(s.polyline);
-        if (raw.length < 2) return null;
-        return {
-          id: r.id,
-          name: r.name.replace(/ \(inactive\)$/, ''),
-          color: normalizeColor(s.color),
-          active: r.active_vehicles > 0,
-          raw,
-        };
-      } catch { return null; }
-    }))).filter(Boolean);
-
-    if (!shapes.length) {
-      statusEl.textContent = 'No route data available.';
-      return;
+      }
+      return nodes.get(stop.id);
     }
 
-    // Simplify then snap each route
-    // epsilon in degrees: ~0.0004° ≈ 44m. Tune this for desired smoothness.
-    const EPSILON = 4e-4;
-    for (const r of shapes) {
-      r.simplified = dpSimplify(r.raw, EPSILON);
-      r.snapped = snapOctilinear(r.simplified);
-    }
+    for (const route of routes) {
+      if (!route.stops || route.stops.length < 2) continue;
 
-    // Size SVG
-    const W = window.innerWidth, H = window.innerHeight;
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      // Deduplicate consecutive same-ID stops
+      const deduped = [route.stops[0]];
+      for (let i = 1; i < route.stops.length; i++) {
+        if (route.stops[i].id !== deduped[deduped.length - 1].id) {
+          deduped.push(route.stops[i]);
+        }
+      }
+      if (deduped.length < 2) continue;
 
-    // Project using raw (true) bounding box so geographic layout is preserved
-    const allRaw = shapes.flatMap(r => r.raw);
-    const proj = makeProjection(allRaw, W, H, 72);
+      // Detect loop: first and last stop same ID, or geographically within 250m
+      const first = deduped[0], last = deduped[deduped.length - 1];
+      const geoCloseDeg = 0.0022; // ~250m in degrees
+      const isLoop = first.id === last.id ||
+        (Math.hypot(first.lat - last.lat, first.lon - last.lon) < geoCloseDeg);
 
-    for (const r of shapes) {
-      r.projPts = r.snapped.map(proj);
-    }
+      // Remove explicit duplicate endpoint for loops
+      const seq = (first.id === last.id && deduped.length > 2)
+        ? deduped.slice(0, -1)
+        : deduped;
 
-    // Detect interchange points: snapped points from different routes within N px
-    const XCHG_R = 14;
-    const interchanges = [];
-    for (let i = 0; i < shapes.length; i++) {
-      for (const p of shapes[i].projPts) {
-        for (let j = i + 1; j < shapes.length; j++) {
-          for (const q of shapes[j].projPts) {
-            if (Math.hypot(p[0] - q[0], p[1] - q[1]) < XCHG_R) {
-              if (!interchanges.some(x => Math.hypot(x[0] - p[0], x[1] - p[1]) < XCHG_R)) {
-                interchanges.push(p);
-              }
-            }
-          }
+      const nodeIds = [];
+      for (const stop of seq) {
+        ensureNode(stop);
+        nodeIds.push(stop.id);
+      }
+      routeSeqs.set(route.id, { nodeIds, isLoop });
+
+      // Build edges
+      const n = nodeIds.length;
+      const edgeCount = isLoop ? n : n - 1;
+      for (let i = 0; i < edgeCount; i++) {
+        const aId = nodeIds[i];
+        const bId = nodeIds[(i + 1) % n];
+        if (aId === bId) continue;
+        const key = edgeKey(aId, bId);
+        if (!edges.has(key)) {
+          edges.set(key, {
+            key,
+            a: nodes.get(aId),
+            b: nodes.get(bId),
+            routes: [],
+          });
+          nodes.get(aId).edgeKeys.add(key);
+          nodes.get(bId).edgeKeys.add(key);
+        }
+        const edge = edges.get(key);
+        if (!edge.routes.some(r => r.id === route.id)) {
+          edge.routes.push({ id: route.id, color: route.color, active: route.active });
         }
       }
     }
 
-    // ── Draw ────────────────────────────────────────────────────────────────
-    statusEl.remove();
+    return { nodes, edges, routeSeqs };
+  }
 
-    const LINE_W = 8;
+  // ═══════════════════════════════════════════════════════
+  // 3. GEOGRAPHIC PROJECTION  (lat/lon → SVG pixels)
+  //    Uses Mercator-like y-scaling to reduce distortion
+  // ═══════════════════════════════════════════════════════
+  function makeProjection(nodes, W, H, pad) {
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (const n of nodes.values()) {
+      if (n.lat < minLat) minLat = n.lat;
+      if (n.lat > maxLat) maxLat = n.lat;
+      if (n.lon < minLon) minLon = n.lon;
+      if (n.lon > maxLon) maxLon = n.lon;
+    }
+    const latSpan = maxLat - minLat || 0.01;
+    const lonSpan = maxLon - minLon || 0.01;
+    // Correct for Mercator aspect ratio at this latitude
+    const midLat = (minLat + maxLat) / 2;
+    const cosLat = Math.cos(midLat * Math.PI / 180);
+    const effectiveLonSpan = lonSpan * cosLat;
+    const sx = (W - pad * 2) / effectiveLonSpan;
+    const sy = (H - pad * 2) / latSpan;
+    const scale = Math.min(sx, sy);
+    const ox = pad + ((W - pad * 2) - effectiveLonSpan * scale) / 2;
+    const oy = pad + ((H - pad * 2) - latSpan * scale) / 2;
 
-    // Layer order: halos → lines → interchange dots → terminus dots
-    const haloG = el('g', {});
-    const lineG = el('g', {});
-    const dotG  = el('g', {});
-    svg.appendChild(haloG);
-    svg.appendChild(lineG);
-    svg.appendChild(dotG);
+    for (const n of nodes.values()) {
+      n.x = ox + (n.lon - minLon) * cosLat * scale;
+      n.y = oy + (maxLat - n.lat) * scale;
+      n.origX = n.x;
+      n.origY = n.y;
+    }
+  }
 
-    // Sort: active routes on top
-    const sorted = [...shapes].sort((a, b) => a.active === b.active ? 0 : a.active ? 1 : -1);
+  // ═══════════════════════════════════════════════════════
+  // 4. OCTILINEAR SPRING LAYOUT
+  //
+  //    Forces acting on each node each iteration:
+  //      (a) Octilinear alignment: springs try to pull each
+  //          edge toward its nearest 45° direction
+  //      (b) Edge-length preservation: resist stretch/compress
+  //      (c) Node repulsion: prevent overlap between nearby nodes
+  //      (d) Geographic anchor: weak pull toward original position,
+  //          keeps the map recognisable
+  //
+  //    Step size cools geometrically over ITERS iterations.
+  // ═══════════════════════════════════════════════════════
+  function runLayout(nodes, edges, opts = {}) {
+    const ITERS       = opts.iters      ?? 600;
+    const K_OCTI      = opts.kOcti      ?? 0.32;   // octilinear alignment
+    const K_LEN       = opts.kLen       ?? 0.10;   // edge-length preservation
+    const K_REPEL     = opts.kRepel     ?? 400;    // node repulsion (px² * strength)
+    const K_ANCHOR    = opts.kAnchor    ?? 0.012;  // geographic anchor
+    const REPEL_DIST  = opts.repelDist  ?? 28;     // px — repulsion kicks in below this
+    const STEP_INIT   = opts.stepInit   ?? 9;
+    const STEP_FINAL  = opts.stepFinal  ?? 0.25;
 
-    for (const r of sorted) {
-      const d = pathD(r.projPts);
-      const op = r.active ? '1' : '0.35';
+    const nodeArr = Array.from(nodes.values());
+    const edgeArr = Array.from(edges.values());
 
-      haloG.appendChild(el('path', {
-        d, fill: 'none', stroke: '#ffffff',
-        'stroke-width': LINE_W + 5,
+    // Choose preferred edge length from the 30th-percentile initial length
+    // (avoids being skewed by very long inter-terminal edges)
+    const initLens = edgeArr.map(e => Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y)).sort((a,b) => a-b);
+    const prefLen  = Math.max(18, Math.min(70, initLens[Math.floor(initLens.length * 0.30)] || 40));
+
+    for (let iter = 0; iter < ITERS; iter++) {
+      const t    = iter / (ITERS - 1);
+      const step = STEP_INIT * Math.pow(STEP_FINAL / STEP_INIT, t);
+
+      // Reset forces
+      for (const n of nodeArr) { n.fx = 0; n.fy = 0; }
+
+      // (a+b) Edge forces
+      for (const edge of edgeArr) {
+        const { a, b } = edge;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.5) continue;
+
+        // Snap to nearest 45°
+        const angle   = Math.atan2(dy, dx);
+        const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+        const sdx     = Math.cos(snapped) * len;
+        const sdy     = Math.sin(snapped) * len;
+
+        // (a) Octilinear: push endpoints toward snapped alignment
+        const ofx = (sdx - dx) * K_OCTI;
+        const ofy = (sdy - dy) * K_OCTI;
+        b.fx += ofx * 0.5;  b.fy += ofy * 0.5;
+        a.fx -= ofx * 0.5;  a.fy -= ofy * 0.5;
+
+        // (b) Length: resist deviation from preferred length
+        const stretch = len - prefLen;
+        const ux = dx / len, uy = dy / len;
+        const lfx = ux * stretch * K_LEN;
+        const lfy = uy * stretch * K_LEN;
+        b.fx -= lfx;  b.fy -= lfy;
+        a.fx += lfx;  a.fy += lfy;
+      }
+
+      // (c) Node repulsion — O(n²), fine for ~100 nodes
+      for (let i = 0; i < nodeArr.length; i++) {
+        for (let j = i + 1; j < nodeArr.length; j++) {
+          const ni = nodeArr[i], nj = nodeArr[j];
+          const dx = nj.x - ni.x, dy = nj.y - ni.y;
+          const dist2 = dx * dx + dy * dy;
+          if (dist2 > REPEL_DIST * REPEL_DIST || dist2 < 0.01) continue;
+          const dist  = Math.sqrt(dist2);
+          const force = K_REPEL / dist2;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          ni.fx -= fx;  ni.fy -= fy;
+          nj.fx += fx;  nj.fy += fy;
+        }
+      }
+
+      // (d) Geographic anchor — very weak, keeps overall shape recognisable
+      for (const n of nodeArr) {
+        n.fx += (n.origX - n.x) * K_ANCHOR;
+        n.fy += (n.origY - n.y) * K_ANCHOR;
+      }
+
+      // Apply
+      for (const n of nodeArr) {
+        n.x += n.fx * step;
+        n.y += n.fy * step;
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // 5. RENDERING HELPERS
+  // ═══════════════════════════════════════════════════════
+  const NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs, text) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // Snap an angle to the nearest 45°
+  function snapAngle(dx, dy) {
+    return Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+  }
+
+  // For a given edge and route lane, compute the parallel-offset endpoints.
+  // laneIdx: 0-based index of this route among all routes on this edge.
+  // numLanes: total routes on this edge.
+  // Returns {x1,y1,x2,y2} after perpendicular offset.
+  function laneCoords(edge, laneIdx, numLanes, laneW) {
+    const { a, b } = edge;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.5) return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+
+    // Use the snapped direction to compute a consistent perpendicular
+    const sa = snapAngle(dx, dy);
+    const perpX = -Math.sin(sa);
+    const perpY =  Math.cos(sa);
+
+    const offset = (laneIdx - (numLanes - 1) / 2) * laneW;
+    return {
+      x1: a.x + perpX * offset,
+      y1: a.y + perpY * offset,
+      x2: b.x + perpX * offset,
+      y2: b.y + perpY * offset,
+    };
+  }
+
+  // Build an SVG path string for one route through its stop sequence.
+  // Uses per-edge lane offsets, with a simple "average perpendicular at junction"
+  // strategy to smooth joins at nodes.
+  function buildRoutePath(routeId, routeColor, routeSeqData, nodes, edges, laneW) {
+    const { nodeIds, isLoop } = routeSeqData;
+    const n = nodeIds.length;
+    if (n < 2) return null;
+
+    // For each node in the sequence, compute the offset position that this
+    // route occupies.  At a node joining two edges, average the two offsets
+    // so the path segments connect cleanly.
+    const points = [];
+
+    const edgeCount = isLoop ? n : n - 1;
+    for (let i = 0; i < n; i++) {
+      const id = nodeIds[i];
+      const node = nodes.get(id);
+
+      // Preceding edge (i-1 → i)
+      let prevOffset = null;
+      if (i > 0 || isLoop) {
+        const prevId = nodeIds[(i - 1 + n) % n];
+        const key = edgeKey(prevId, id);
+        const edge = edges.get(key);
+        if (edge) {
+          const laneIdx = edge.routes.findIndex(r => r.id === routeId);
+          const numLanes = edge.routes.length;
+          const sa = snapAngle(edge.b.x - edge.a.x, edge.b.y - edge.a.y);
+          const perpX = -Math.sin(sa), perpY = Math.cos(sa);
+          const offset = (laneIdx - (numLanes - 1) / 2) * laneW;
+          // Sign depends on direction: if this node is b, the arriving offset is +offset; if a, it's mirrored
+          const sign = edge.b.id === id ? 1 : -1;
+          prevOffset = { perpX: perpX * sign, perpY: perpY * sign, offset };
+        }
+      }
+
+      // Following edge (i → i+1)
+      let nextOffset = null;
+      if (i < n - 1 || isLoop) {
+        const nextId = nodeIds[(i + 1) % n];
+        const key = edgeKey(id, nextId);
+        const edge = edges.get(key);
+        if (edge) {
+          const laneIdx = edge.routes.findIndex(r => r.id === routeId);
+          const numLanes = edge.routes.length;
+          const sa = snapAngle(edge.b.x - edge.a.x, edge.b.y - edge.a.y);
+          const perpX = -Math.sin(sa), perpY = Math.cos(sa);
+          const offset = (laneIdx - (numLanes - 1) / 2) * laneW;
+          const sign = edge.a.id === id ? 1 : -1;
+          nextOffset = { perpX: perpX * sign, perpY: perpY * sign, offset };
+        }
+      }
+
+      // Determine offset at this node by averaging adjacent edges' perpendiculars
+      let ox = 0, oy = 0;
+      if (prevOffset && nextOffset) {
+        ox = (prevOffset.perpX * prevOffset.offset + nextOffset.perpX * nextOffset.offset) / 2;
+        oy = (prevOffset.perpY * prevOffset.offset + nextOffset.perpY * nextOffset.offset) / 2;
+      } else if (prevOffset) {
+        ox = prevOffset.perpX * prevOffset.offset;
+        oy = prevOffset.perpY * prevOffset.offset;
+      } else if (nextOffset) {
+        ox = nextOffset.perpX * nextOffset.offset;
+        oy = nextOffset.perpY * nextOffset.offset;
+      }
+
+      points.push([node.x + ox, node.y + oy]);
+    }
+
+    if (isLoop && points.length > 0) points.push(points[0]);
+
+    const d = 'M ' + points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L ');
+    return d;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // 6. MAIN RENDER
+  // ═══════════════════════════════════════════════════════
+  function render(svg, routes, nodes, edges, routeSeqs) {
+    const W = window.innerWidth, H = window.innerHeight;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.style.background = '#f4f0e8';
+
+    const LINE_W  = 7;
+    const HALO_W  = LINE_W + 5;
+    const LANE_W  = LINE_W + 2;  // gap between parallel lines
+
+    // Route lookup by id
+    const routeById = new Map(routes.map(r => [r.id, r]));
+
+    // SVG layer groups: halos → lines → nodes → labels
+    const haloG  = svgEl('g', { id: 'halos'  }); svg.appendChild(haloG);
+    const lineG  = svgEl('g', { id: 'lines'  }); svg.appendChild(lineG);
+    const nodeG  = svgEl('g', { id: 'nodes'  }); svg.appendChild(nodeG);
+    const labelG = svgEl('g', { id: 'labels' }); svg.appendChild(labelG);
+
+    // Draw route paths (sorted: inactive first so active draws on top)
+    const routeOrder = [...routeSeqs.keys()].sort((a, b) => {
+      const ra = routeById.get(a), rb = routeById.get(b);
+      return (ra?.active ? 1 : 0) - (rb?.active ? 1 : 0);
+    });
+
+    for (const routeId of routeOrder) {
+      const seqData = routeSeqs.get(routeId);
+      const route   = routeById.get(routeId);
+      if (!route || !seqData) continue;
+
+      const color = '#' + route.color.replace(/^#/, '');
+      const opacity = route.active ? '1' : '0.30';
+      const dash = route.active ? '' : '10,6';
+
+      const d = buildRoutePath(routeId, color, seqData, nodes, edges, LANE_W);
+      if (!d) continue;
+
+      const haloAttrs = {
+        d, fill: 'none', stroke: '#f4f0e8',
+        'stroke-width': HALO_W,
         'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-        opacity: op,
-      }));
-      lineG.appendChild(el('path', {
-        d, fill: 'none', stroke: r.color,
+        opacity,
+      };
+      const lineAttrs = {
+        d, fill: 'none', stroke: color,
         'stroke-width': LINE_W,
         'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-        opacity: op,
-      }));
+        opacity,
+      };
+      if (dash) {
+        haloAttrs['stroke-dasharray'] = dash;
+        lineAttrs['stroke-dasharray'] = dash;
+      }
+      haloG.appendChild(svgEl('path', haloAttrs));
+      lineG.appendChild(svgEl('path', lineAttrs));
     }
 
-    // Interchange circles (white with dark ring)
-    for (const [x, y] of interchanges) {
-      dotG.appendChild(el('circle', { cx: x, cy: y, r: 8, fill: '#fff', stroke: '#222', 'stroke-width': 2.5 }));
-    }
+    // Draw nodes
+    for (const node of nodes.values()) {
+      // Count distinct routes through this node
+      const nodeRoutes = new Set();
+      for (const eKey of node.edgeKeys) {
+        const edge = edges.get(eKey);
+        if (edge) edge.routes.forEach(r => nodeRoutes.add(r.id));
+      }
+      const routeCount = nodeRoutes.size;
+      const isInterchange = routeCount > 1;
 
-    // Terminus dots for each route (first + last projected point)
-    for (const r of shapes) {
-      if (!r.projPts.length) continue;
-      for (const [x, y] of [r.projPts[0], r.projPts[r.projPts.length - 1]]) {
-        if (interchanges.some(ip => Math.hypot(ip[0] - x, ip[1] - y) < XCHG_R)) continue;
-        dotG.appendChild(el('circle', { cx: x, cy: y, r: 5, fill: r.color, stroke: '#fff', 'stroke-width': 2 }));
+      if (isInterchange) {
+        // Interchange: white circle with dark border — signals transfer point
+        const r = 7 + Math.min(routeCount - 2, 3);
+        nodeG.appendChild(svgEl('circle', {
+          cx: node.x.toFixed(1), cy: node.y.toFixed(1), r,
+          fill: '#fff', stroke: '#222', 'stroke-width': 2.5,
+        }));
+      } else {
+        // Terminus or single-route stop: small filled circle
+        const routeId = nodeRoutes.values().next().value;
+        const route   = routeById.get(routeId);
+        const color   = route ? '#' + route.color.replace(/^#/, '') : '#888';
+        nodeG.appendChild(svgEl('circle', {
+          cx: node.x.toFixed(1), cy: node.y.toFixed(1), r: 4,
+          fill: color, stroke: '#fff', 'stroke-width': 2,
+        }));
       }
     }
 
-    // ── Legend ───────────────────────────────────────────────────────────────
-    const legendRoutes = [...shapes].sort((a, b) => {
+    // Draw labels — only for interchange nodes and route termini
+    // Find termini: first and last node in each route's sequence
+    const terminiIds = new Set();
+    for (const [, { nodeIds }] of routeSeqs) {
+      terminiIds.add(nodeIds[0]);
+      terminiIds.add(nodeIds[nodeIds.length - 1]);
+    }
+
+    for (const node of nodes.values()) {
+      const nodeRoutes = new Set();
+      for (const eKey of node.edgeKeys) {
+        const edge = edges.get(eKey);
+        if (edge) edge.routes.forEach(r => nodeRoutes.add(r.id));
+      }
+      const isInterchange = nodeRoutes.size > 1;
+      const isTerminus    = terminiIds.has(node.id);
+
+      if (!isInterchange && !isTerminus) continue;
+      if (!node.name) continue;
+
+      // Choose label angle: perpendicular to the dominant edge direction at this node
+      let labelAngle = 45; // degrees, default
+      if (node.edgeKeys.size > 0) {
+        const firstEdge = edges.get([...node.edgeKeys][0]);
+        if (firstEdge) {
+          const dx = firstEdge.b.x - firstEdge.a.x;
+          const dy = firstEdge.b.y - firstEdge.a.y;
+          const sa = snapAngle(dx, dy) * 180 / Math.PI;
+          // Label perpendicular to edge: rotate 45° to put text off to the side
+          labelAngle = sa + 45;
+          // Keep label readable (avoid upside-down text)
+          if (labelAngle > 90 && labelAngle < 270) labelAngle += 180;
+          labelAngle = ((labelAngle % 360) + 360) % 360;
+          if (labelAngle > 90 && labelAngle <= 270) labelAngle -= 180;
+        }
+      }
+
+      // Offset label 12px from node center
+      const rad = (labelAngle * Math.PI) / 180;
+      const lx = node.x + Math.cos(rad) * 12;
+      const ly = node.y + Math.sin(rad) * 12;
+
+      const anchor = lx > node.x ? 'start' : lx < node.x - 1 ? 'end' : 'middle';
+      const dy     = ly >= node.y ? '0.85em' : '0';
+
+      // White halo for label legibility
+      const labelCommon = {
+        x: lx.toFixed(1), y: ly.toFixed(1),
+        'font-size': '9.5', 'font-family': 'Helvetica Neue, Arial, sans-serif',
+        'text-anchor': anchor,
+        dy,
+      };
+      labelG.appendChild(svgEl('text', {
+        ...labelCommon, fill: '#f4f0e8', stroke: '#f4f0e8',
+        'stroke-width': '3', 'paint-order': 'stroke',
+      }, node.name));
+      labelG.appendChild(svgEl('text', {
+        ...labelCommon,
+        fill: isInterchange ? '#111' : '#444',
+        'font-weight': isInterchange ? 'bold' : 'normal',
+      }, node.name));
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // 7. LEGEND
+  // ═══════════════════════════════════════════════════════
+  function buildLegend(legendEl, routes) {
+    const sorted = [...routes].sort((a, b) => {
       if (a.active !== b.active) return a.active ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-    for (const r of legendRoutes) {
+    for (const r of sorted) {
       const row = document.createElement('div');
       row.className = 'leg' + (r.active ? '' : ' inactive');
-      const swatch = document.createElement('div');
-      swatch.className = 'leg-line';
-      swatch.style.background = r.color;
-      const label = document.createElement('span');
-      label.className = 'leg-name';
-      label.textContent = r.name;
-      row.appendChild(swatch);
-      row.appendChild(label);
+      const sw = document.createElement('div');
+      sw.className = 'leg-swatch';
+      sw.style.background = '#' + r.color.replace(/^#/, '');
+      if (!r.active) sw.style.background += '60';
+      const lbl = document.createElement('span');
+      lbl.className = 'leg-name';
+      lbl.textContent = r.name;
+      row.appendChild(sw); row.appendChild(lbl);
       legendEl.appendChild(row);
     }
   }
 
+  // ═══════════════════════════════════════════════════════
+  // 8. ENTRY POINT
+  // ═══════════════════════════════════════════════════════
+  async function main() {
+    const statusEl = document.getElementById('status');
+    const legendEl = document.getElementById('legend');
+    const svg      = document.getElementById('map');
+
+    let data;
+    try {
+      data = await fetch('/v1/metromap').then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      });
+    } catch (err) {
+      statusEl.textContent = 'Failed to load route data.';
+      console.error(err);
+      return;
+    }
+
+    const routes = (data.routes || []).filter(r => r.stops && r.stops.length >= 2);
+    if (!routes.length) {
+      statusEl.textContent = 'No stop data available yet — try again in a moment.';
+      return;
+    }
+
+    statusEl.textContent = 'Computing layout\u2026';
+
+    // Build graph
+    const { nodes, edges, routeSeqs } = buildGraph(routes);
+
+    if (!nodes.size || !edges.size) {
+      statusEl.textContent = 'Graph is empty — no stop sequences found.';
+      return;
+    }
+
+    // Project to SVG coordinates
+    const W = window.innerWidth, H = window.innerHeight;
+    makeProjection(nodes, W, H, 80);
+
+    // Run the layout on a microtask so the "Computing layout…" message paints first
+    await new Promise(resolve => setTimeout(resolve, 0));
+    runLayout(nodes, edges);
+
+    // Render
+    render(svg, routes, nodes, edges, routeSeqs);
+    statusEl.remove();
+    buildLegend(legendEl, routes);
+  }
+
   main().catch(err => {
-    document.getElementById('status').textContent = 'Failed to load routes.';
+    document.getElementById('status').textContent = 'Error: ' + err.message;
     console.error(err);
   });
   </script>
