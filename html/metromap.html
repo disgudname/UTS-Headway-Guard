@@ -205,14 +205,14 @@
   //    Step size cools geometrically over ITERS iterations.
   // ═══════════════════════════════════════════════════════
   function runLayout(nodes, edges, opts = {}) {
-    const ITERS       = opts.iters      ?? 600;
-    const K_OCTI      = opts.kOcti      ?? 0.32;   // octilinear alignment
-    const K_LEN       = opts.kLen       ?? 0.10;   // edge-length preservation
-    const K_REPEL     = opts.kRepel     ?? 400;    // node repulsion (px² * strength)
-    const K_ANCHOR    = opts.kAnchor    ?? 0.012;  // geographic anchor
-    const REPEL_DIST  = opts.repelDist  ?? 28;     // px — repulsion kicks in below this
-    const STEP_INIT   = opts.stepInit   ?? 9;
-    const STEP_FINAL  = opts.stepFinal  ?? 0.25;
+    const ITERS       = opts.iters      ?? 700;
+    const K_OCTI      = opts.kOcti      ?? 0.18;   // octilinear alignment
+    const K_LEN       = opts.kLen       ?? 0.04;   // edge-length preservation
+    const K_REPEL     = opts.kRepel     ?? 1.8;    // max repulsion force (linear falloff, capped)
+    const K_ANCHOR    = opts.kAnchor    ?? 0.015;  // geographic anchor
+    const REPEL_DIST  = opts.repelDist  ?? 22;     // px — repulsion kicks in below this
+    const STEP_INIT   = opts.stepInit   ?? 3.5;
+    const STEP_FINAL  = opts.stepFinal  ?? 0.08;
 
     const nodeArr = Array.from(nodes.values());
     const edgeArr = Array.from(edges.values());
@@ -258,15 +258,15 @@
         a.fx += lfx;  a.fy += lfy;
       }
 
-      // (c) Node repulsion — O(n²), fine for ~100 nodes
+      // (c) Node repulsion — linear falloff, force capped at K_REPEL, O(n²)
       for (let i = 0; i < nodeArr.length; i++) {
         for (let j = i + 1; j < nodeArr.length; j++) {
           const ni = nodeArr[i], nj = nodeArr[j];
           const dx = nj.x - ni.x, dy = nj.y - ni.y;
-          const dist2 = dx * dx + dy * dy;
-          if (dist2 > REPEL_DIST * REPEL_DIST || dist2 < 0.01) continue;
-          const dist  = Math.sqrt(dist2);
-          const force = K_REPEL / dist2;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist >= REPEL_DIST || dist < 0.5) continue;
+          // Linear falloff: full strength at dist=0, zero at dist=REPEL_DIST
+          const force = K_REPEL * (1 - dist / REPEL_DIST);
           const fx = (dx / dist) * force;
           const fy = (dy / dist) * force;
           ni.fx -= fx;  ni.fy -= fy;
