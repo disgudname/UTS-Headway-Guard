@@ -6204,8 +6204,9 @@ async def dispatch_blocks(request: Request):
 # [05], [06], [07], [08] = Orange
 # [09], [10], [11], [12] = Gold
 # [13], [14] = Silver
-# [15], [16], [17], [18] = Blue (dedicated)
-# [20]-[26] = Red/Blue (Blue only 0700-0800, Red rest of day)
+# [15], [16] = No longer used
+# [17]-[25] = Purple (three time-of-day variants over the course of the day)
+# [26] = No longer used
 ROUTE_TO_BLOCKS: Dict[str, Set[str]] = {
     "green": {"01", "02"},
     "night pilot": {"03", "04"},
@@ -6213,15 +6214,12 @@ ROUTE_TO_BLOCKS: Dict[str, Set[str]] = {
     "gold": {"09", "10", "11", "12"},
     "yellow": {"09", "10", "11", "12"},  # Yellow is same as Gold
     "silver": {"13", "14"},
-    "blue": {"15", "16", "17", "18", "20", "21", "22", "23", "24", "25", "26"},
-    "red": {"20", "21", "22", "23", "24", "25", "26"},
+    "purple": {"17", "18", "19", "20", "21", "22", "23", "24", "25"},
 }
 
 # Preferred (dedicated) blocks for each route - these take priority over shared blocks
-# For Blue, prefer [15]-[18] over [20]-[26] which are shared with Red
-ROUTE_PREFERRED_BLOCKS: Dict[str, Set[str]] = {
-    "blue": {"15", "16", "17", "18"},
-}
+# No preferred-block overrides needed currently (all blocks map uniquely to a route)
+ROUTE_PREFERRED_BLOCKS: Dict[str, Set[str]] = {}
 
 
 def _get_blocks_for_route(route_name: Optional[str]) -> Optional[Set[str]]:
@@ -6247,12 +6245,11 @@ def _get_preferred_blocks_for_route(route_name: Optional[str]) -> Optional[Set[s
     """
     Get the set of PREFERRED block numbers for a route name.
 
-    For routes with both dedicated and shared blocks (like Blue which has
-    [15]-[18] dedicated and [20]-[26] shared with Red), this returns only
+    For routes with both dedicated and shared blocks, this returns only
     the dedicated blocks. Used to prioritize dedicated blocks when matching.
 
     Args:
-        route_name: Route name like "Blue Line", etc.
+        route_name: Route name like "Purple Line", etc.
 
     Returns:
         Set of preferred block numbers, or None if no preference.
@@ -6604,8 +6601,8 @@ async def _fetch_vehicle_drivers():
 
         # Determine which specific block to use for this vehicle
         # Priority:
-        # 1. Preferred block that matches current route (e.g., [15]-[18] for Blue)
-        # 2. Any block that matches current route (e.g., [20]-[26] for Blue/Red)
+        # 1. Preferred block that matches current route (see ROUTE_PREFERRED_BLOCKS)
+        # 2. Any block that matches current route (see ROUTE_TO_BLOCKS)
         # 3. Cached block assignment (vehicle out of service, driver shift still active)
         # 4. Fallback to most recent driver shift
         selected_block_number = None
@@ -6614,7 +6611,7 @@ async def _fetch_vehicle_drivers():
 
         if drivers_by_block:
             # First: try to find a PREFERRED block that matches the current route
-            # This prioritizes dedicated blocks (e.g., [17] for Blue) over shared ones ([23])
+            # This prioritizes dedicated blocks over shared ones (see ROUTE_PREFERRED_BLOCKS)
             if preferred_blocks_for_route:
                 for blk_num in drivers_by_block:
                     if blk_num in preferred_blocks_for_route:
@@ -7652,7 +7649,7 @@ def _build_block_mapping_with_times(
                     pass
                 elif block_data["start_ts"] is not None:
                     # Try to match block number based on route name
-                    # Priority: preferred blocks first (e.g., [15]-[18] for Blue), then any valid block
+                    # Priority: preferred blocks first (see ROUTE_PREFERRED_BLOCKS), then any valid block
                     route_name = block_data.get("route_name", "")
                     preferred_blocks = _get_preferred_blocks_for_route(route_name)
                     valid_blocks_for_route = _get_blocks_for_route(route_name)

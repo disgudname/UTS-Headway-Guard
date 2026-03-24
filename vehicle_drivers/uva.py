@@ -37,8 +37,9 @@ from . import (
 # [05], [06], [07], [08] = Orange
 # [09], [10], [11], [12] = Gold
 # [13], [14] = Silver
-# [15], [16], [17], [18] = Blue (dedicated)
-# [20]-[26] = Red/Blue (Blue only 0700-0800, Red rest of day)
+# [15], [16] = No longer used
+# [17]-[25] = Purple (three time-of-day variants over the course of the day)
+# [26] = No longer used
 ROUTE_TO_BLOCKS: Dict[str, Set[str]] = {
     "green": {"01", "02"},
     "night pilot": {"03", "04"},
@@ -46,17 +47,18 @@ ROUTE_TO_BLOCKS: Dict[str, Set[str]] = {
     "gold": {"09", "10", "11", "12"},
     "yellow": {"09", "10", "11", "12"},  # Yellow is same as Gold
     "silver": {"13", "14"},
-    "blue": {"15", "16", "17", "18", "20", "21", "22", "23", "24", "25", "26"},
-    "red": {"20", "21", "22", "23", "24", "25", "26"},
+    "purple": {"17", "18", "19", "20", "21", "22", "23", "24", "25"},
 }
 
 # Preferred (dedicated) blocks for each route - these take priority over shared blocks
-ROUTE_PREFERRED_BLOCKS: Dict[str, Set[str]] = {
-    "blue": {"15", "16", "17", "18"},
-}
+# No preferred-block overrides needed currently (all blocks map uniquely to a route)
+ROUTE_PREFERRED_BLOCKS: Dict[str, Set[str]] = {}
 
-# Blocks that have separate AM/PM driver assignments
-AM_PM_BLOCKS: Set[str] = {f"{number:02d}" for number in range(20, 27)}
+# Blocks that carry an AM or PM suffix in TransLoc, or that have separate AM/PM
+# driver shifts in W2W. AM runs for some blocks are expressed as interlined blocks
+# (e.g., [17]/[10] is the AM leg of [17]; [19]/[06] is the AM leg of [19]).
+# [20], [21], [23] have no suffix and are treated as single full-day blocks.
+AM_PM_BLOCKS: Set[str] = {"17", "18", "19", "22", "24", "25"}
 
 # OnDemand block names in W2W
 ONDEMAND_BLOCK_NAMES = ["OnDemand Driver", "OnDemand EB"]

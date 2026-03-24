@@ -113,9 +113,11 @@
       }
       if (deduped.length < 2) continue;
 
-      // Detect loop: first and last stop same ID, or geographically within 250m
+      // Detect loop: first and last stop same ID, or geographically within ~600m.
+      // Bus loops often have first/last projected stops 400-500m apart since they
+      // land near opposite sides of the loop's origin.
       const first = deduped[0], last = deduped[deduped.length - 1];
-      const geoCloseDeg = 0.0022; // ~250m in degrees
+      const geoCloseDeg = 0.0055; // ~600m in degrees at this latitude
       const isLoop = first.id === last.id ||
         (Math.hypot(first.lat - last.lat, first.lon - last.lon) < geoCloseDeg);
 
@@ -284,6 +286,43 @@
       for (const n of nodeArr) {
         n.x += n.fx * step;
         n.y += n.fy * step;
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // 4b. HARD SNAP PASS
+  //
+  //     Runs after the spring layout. Applies a tight
+  //     octilinear snapping force for a fixed number of
+  //     passes so edges converge to exact 45° multiples.
+  //     Very weak geographic re-anchor prevents drift.
+  // ═══════════════════════════════════════════════════════
+  function runSnapPass(nodes, edges, passes = 25, strength = 0.45) {
+    const nodeArr = Array.from(nodes.values());
+    for (let pass = 0; pass < passes; pass++) {
+      for (const n of nodeArr) { n.fx = 0; n.fy = 0; }
+
+      for (const edge of edges.values()) {
+        const { a, b } = edge;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len = Math.hypot(dx, dy);
+        if (len < 0.5) continue;
+        const snapped = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        const tdx = Math.cos(snapped) * len - dx;
+        const tdy = Math.sin(snapped) * len - dy;
+        b.fx += tdx * strength;
+        b.fy += tdy * strength;
+        a.fx -= tdx * strength;
+        a.fy -= tdy * strength;
+      }
+
+      for (const n of nodeArr) {
+        n.x += n.fx;
+        n.y += n.fy;
+        // Very gentle re-anchor so the map stays recognisable
+        n.x += (n.origX - n.x) * 0.003;
+        n.y += (n.origY - n.y) * 0.003;
       }
     }
   }
@@ -622,6 +661,7 @@
     // Run the layout on a microtask so the "Computing layout…" message paints first
     await new Promise(resolve => setTimeout(resolve, 0));
     runLayout(nodes, edges);
+    runSnapPass(nodes, edges);
 
     // Render
     render(svg, routes, nodes, edges, routeSeqs);
