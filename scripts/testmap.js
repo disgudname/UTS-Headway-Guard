@@ -11211,9 +11211,9 @@ ${trainPlaneMarkup}
       // SSE connection management for vehicle updates
       function handleVehicleSSEMessage(event) {
         try {
-          // SSE stream only contains UVA vehicles - ignore updates when another agency is selected
-          // to prevent overwriting non-UVA vehicle data in the cache
-          if (!isUvaAgencySelected()) {
+          // SSE stream only contains UTS (University of Virginia) vehicles - ignore updates when
+          // another agency is selected to prevent overwriting that agency's vehicle cache slot
+          if (!isUvaAgencySelected() || doesSelectedAgencyMatchNames([ADMIN_KIOSK_UVA_HEALTH_NAME])) {
             return;
           }
           const data = JSON.parse(event.data);
