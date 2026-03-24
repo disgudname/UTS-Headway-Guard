@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#E57200">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Route Analysis</title>
+  <script defer src="/nav-bar.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      margin: 0; padding: 0;
+      background: #0d0d0d; color: #f5f5f5;
+      line-height: 1.5; min-height: 100vh;
+      display: flex; flex-direction: column;
+    }
+    header {
+      background: linear-gradient(120deg, #12345b, #0f1f3a);
+      padding: 1.5rem 0; color: #e6f0ff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .content-width {
+      width: min(1100px, calc(100% - 2.5rem));
+      margin: 0 auto; box-sizing: border-box;
+    }
+    .header-inner { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+    header h1 { margin: 0; font-size: 1.6rem; font-weight: 700; }
+    header p { margin: 0.25rem 0 0; font-size: 0.9rem; opacity: 0.75; }
+    main { flex: 1; padding: 2rem 0; }
+
+    /* ── Form ─────────────────────────────────────────────────── */
+    .form-card {
+      background: #1a1a1a; border: 1px solid #2e2e2e;
+      border-radius: 10px; padding: 1.5rem;
+      display: grid; gap: 1.25rem;
+    }
+    .form-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 0.35rem; flex: 1; min-width: 160px; }
+    label { font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.05em; color: #aaa; }
+    select, input[type="datetime-local"] {
+      background: #111; border: 1px solid #3a3a3a; border-radius: 6px;
+      color: #f0f0f0; padding: 0.5rem 0.65rem; font-size: 0.95rem;
+      width: 100%; box-sizing: border-box;
+    }
+    select:focus, input:focus { outline: 2px solid #4a90d9; border-color: transparent; }
+    select:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn {
+      background: #1a4a8a; color: #fff; border: none; border-radius: 6px;
+      padding: 0.55rem 1.4rem; font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; white-space: nowrap; align-self: flex-end;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #2060aa; }
+    .btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+    /* ── Results ──────────────────────────────────────────────── */
+    .results { margin-top: 2rem; }
+    .result-header {
+      display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+    }
+    .result-header h2 { margin: 0; font-size: 1.25rem; }
+    .result-header .period { font-size: 0.82rem; color: #888; }
+
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    @media (max-width: 600px) { .stats-grid { grid-template-columns: 1fr; } }
+
+    .stat-card {
+      background: #1a1a1a; border: 1px solid #2e2e2e;
+      border-radius: 10px; padding: 1.25rem 1.5rem;
+    }
+    .stat-card h3 {
+      margin: 0 0 1rem; font-size: 0.9rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em; color: #ccc;
+    }
+    .stat-rows { display: flex; flex-direction: column; gap: 0.5rem; }
+    .stat-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 0.4rem 0; border-bottom: 1px solid #252525;
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { font-size: 0.9rem; color: #aaa; }
+    .stat-value { font-size: 1.1rem; font-weight: 700; color: #e0e0e0; font-variant-numeric: tabular-nums; }
+    .stat-note { font-size: 0.75rem; color: #555; margin-top: 0.75rem; }
+
+    .no-data {
+      background: #1a1a1a; border: 1px solid #2e2e2e; border-radius: 10px;
+      padding: 2rem; text-align: center; color: #777; font-size: 0.95rem;
+    }
+
+    /* ── Status / error ───────────────────────────────────────── */
+    .status { font-size: 0.88rem; color: #888; }
+    .error-msg {
+      background: #2a0a0a; border: 1px solid #5a1a1a; border-radius: 8px;
+      padding: 0.85rem 1.1rem; color: #f08080; font-size: 0.9rem;
+      margin-top: 1.25rem;
+    }
+    .loading { color: #aaa; font-size: 0.9rem; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="content-width">
+    <div class="header-inner">
+      <div>
+        <h1>Route Analysis</h1>
+        <p>Loop times and wait times for any route and stop over any time window</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="content-width">
+    <div class="form-card">
+      <div class="form-row">
+        <div class="field">
+          <label for="routeSelect">Route</label>
+          <select id="routeSelect" disabled>
+            <option value="">Loading routes…</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="stopSelect">Stop</label>
+          <select id="stopSelect" disabled>
+            <option value="">Select a route first</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="startDt">Start</label>
+          <input type="datetime-local" id="startDt" />
+        </div>
+        <div class="field">
+          <label for="endDt">End</label>
+          <input type="datetime-local" id="endDt" />
+        </div>
+        <button class="btn" id="analyzeBtn" disabled>Analyze</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status" style="margin-top:1rem;"></div>
+    <div id="errorMsg" class="error-msg" style="display:none;"></div>
+    <div id="results" class="results" style="display:none;"></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  // ── Catalog ──────────────────────────────────────────────────────────────
+  let catalog = [];  // [{route_id, route_name, stops: [{stop_id, stop_name}]}]
+
+  async function loadCatalog() {
+    setStatus('Loading routes…');
+    try {
+      const resp = await fetch('/api/route-analysis/catalog');
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      catalog = data.routes || [];
+      populateRouteSelect();
+      setStatus('');
+    } catch (err) {
+      showError('Failed to load route catalog: ' + err.message);
+      setStatus('');
+    }
+  }
+
+  function populateRouteSelect() {
+    const sel = document.getElementById('routeSelect');
+    sel.innerHTML = '<option value="">— select a route —</option>';
+    catalog.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.route_id;
+      opt.textContent = r.route_name;
+      sel.appendChild(opt);
+    });
+    sel.disabled = false;
+  }
+
+  document.getElementById('routeSelect').addEventListener('change', function () {
+    const routeId = this.value;
+    const stopSel = document.getElementById('stopSelect');
+    stopSel.innerHTML = '<option value="">— select a stop —</option>';
+    stopSel.disabled = true;
+    document.getElementById('analyzeBtn').disabled = true;
+
+    if (!routeId) return;
+    const route = catalog.find(r => r.route_id === routeId);
+    if (!route) return;
+
+    route.stops.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.stop_id;
+      opt.textContent = s.stop_name;
+      stopSel.appendChild(opt);
+    });
+    stopSel.disabled = false;
+  });
+
+  document.getElementById('stopSelect').addEventListener('change', function () {
+    document.getElementById('analyzeBtn').disabled = !this.value;
+  });
+
+  // ── Default date range: last 7 days ─────────────────────────────────────
+  (function setDefaultDates() {
+    const pad = n => String(n).padStart(2, '0');
+    function toLocalInput(d) {
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    const now = new Date();
+    const week = new Date(now - 7 * 24 * 3600 * 1000);
+    document.getElementById('startDt').value = toLocalInput(week);
+    document.getElementById('endDt').value   = toLocalInput(now);
+  })();
+
+  // ── Analyze ──────────────────────────────────────────────────────────────
+  document.getElementById('analyzeBtn').addEventListener('click', async function () {
+    const routeId = document.getElementById('routeSelect').value;
+    const stopId  = document.getElementById('stopSelect').value;
+    const startRaw = document.getElementById('startDt').value;
+    const endRaw   = document.getElementById('endDt').value;
+
+    if (!routeId || !stopId || !startRaw || !endRaw) return;
+
+    const startIso = new Date(startRaw).toISOString();
+    const endIso   = new Date(endRaw).toISOString();
+
+    if (new Date(endIso) <= new Date(startIso)) {
+      showError('End must be after start.');
+      return;
+    }
+
+    clearError();
+    hideResults();
+    setStatus('Calculating…');
+    this.disabled = true;
+
+    try {
+      const params = new URLSearchParams({ route_id: routeId, stop_id: stopId, start: startIso, end: endIso });
+      const resp = await fetch('/api/route-analysis?' + params);
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      renderResults(data);
+      setStatus('');
+    } catch (err) {
+      showError('Analysis failed: ' + err.message);
+      setStatus('');
+    } finally {
+      this.disabled = false;
+    }
+  });
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  function fmtDuration(seconds) {
+    if (seconds == null) return '—';
+    const totalMin = seconds / 60;
+    const h = Math.floor(totalMin / 60);
+    const m = Math.floor(totalMin % 60);
+    const s = Math.round(seconds % 60);
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  function fmtPeriod(start, end) {
+    const fmt = iso => new Date(iso).toLocaleString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    });
+    return `${fmt(start)} – ${fmt(end)}`;
+  }
+
+  function statRow(label, value) {
+    return `<div class="stat-row">
+      <span class="stat-label">${label}</span>
+      <span class="stat-value">${fmtDuration(value)}</span>
+    </div>`;
+  }
+
+  function renderResults(data) {
+    const loop = data.loop_times;
+    const wait = data.wait_times;
+
+    const loopHtml = loop.sample_count === 0
+      ? '<p class="stat-note">No loop data — need at least 2 arrivals by the same vehicle at this stop.</p>'
+      : `<div class="stat-rows">
+          ${statRow('Minimum', loop.min_seconds)}
+          ${statRow('Average', loop.avg_seconds)}
+          ${statRow('Maximum', loop.max_seconds)}
+        </div>
+        <p class="stat-note">${loop.sample_count} loop${loop.sample_count !== 1 ? 's' : ''} observed</p>`;
+
+    const waitHtml = wait.sample_count === 0
+      ? '<p class="stat-note">No wait data — need at least 2 arrivals at this stop.</p>'
+      : `<div class="stat-rows">
+          ${statRow('Average', wait.avg_seconds)}
+          ${statRow('Maximum', wait.max_seconds)}
+        </div>
+        <p class="stat-note">${wait.sample_count} interval${wait.sample_count !== 1 ? 's' : ''} observed</p>`;
+
+    document.getElementById('results').innerHTML = `
+      <div class="result-header">
+        <h2>${escHtml(data.route_name)} — ${escHtml(data.stop_name)}</h2>
+        <span class="period">${fmtPeriod(data.period.start, data.period.end)}</span>
+      </div>
+      <p style="font-size:0.85rem;color:#777;margin:0 0 1.25rem;">
+        ${data.arrival_count} total arrival${data.arrival_count !== 1 ? 's' : ''} at this stop in the selected window
+      </p>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <h3>Loop Times</h3>
+          ${loopHtml}
+        </div>
+        <div class="stat-card">
+          <h3>Wait Times</h3>
+          ${waitHtml}
+        </div>
+      </div>`;
+    document.getElementById('results').style.display = 'block';
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function setStatus(msg) {
+    document.getElementById('statusMsg').textContent = msg;
+  }
+  function showError(msg) {
+    const el = document.getElementById('errorMsg');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+  function clearError() {
+    document.getElementById('errorMsg').style.display = 'none';
+  }
+  function hideResults() {
+    document.getElementById('results').style.display = 'none';
+  }
+  function escHtml(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  loadCatalog();
+})();
+</script>
+</body>
+</html>

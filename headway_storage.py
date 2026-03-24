@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 import csv
 
 
@@ -306,3 +306,61 @@ class HeadwayStorage:
                     )
         events.sort(key=lambda e: e.timestamp)
         return events
+
+    def scan_catalog(self) -> Dict[str, Any]:
+        """
+        Scan all available event files to discover distinct routes and their stops.
+
+        Reads only the identifier/name columns from each row (no full parse).
+        Returns a dict mapping route_id -> {route_name, stops: {stop_id -> stop_name}}.
+        """
+        if not self.base_dir.exists():
+            return {}
+
+        # route_id -> {"route_name": str, "stops": {stop_id -> stop_name}}
+        catalog: Dict[str, Dict[str, Any]] = {}
+
+        for path in sorted(self.base_dir.glob("*.csv")):
+            try:
+                with path.open("r", newline="") as f:
+                    reader = csv.reader(f)
+                    for row in reader:
+                        if len(row) < 5:
+                            continue
+
+                        is_newest = len(row) >= 14
+                        is_new = not is_newest and (
+                            len(row) >= 13
+                            or (len(row) >= 9 and row[8] in ("arrival", "departure"))
+                        )
+
+                        if is_newest:
+                            route_id = row[1] or None
+                            route_name = row[2] or None
+                            stop_id = row[3] or None
+                            stop_name = row[5] or None
+                        elif is_new:
+                            route_id = row[1] or None
+                            route_name = row[2] or None
+                            stop_id = row[3] or None  # address_id
+                            stop_name = row[4] or None
+                        else:
+                            route_id = row[1] or None
+                            route_name = None
+                            stop_id = row[2] or None
+                            stop_name = None
+
+                        if not route_id or not stop_id:
+                            continue
+
+                        entry = catalog.setdefault(route_id, {"route_name": None, "stops": {}})
+                        if route_name and not entry["route_name"]:
+                            entry["route_name"] = route_name
+                        if stop_id not in entry["stops"]:
+                            entry["stops"][stop_id] = stop_name or stop_id
+                        elif stop_name and entry["stops"][stop_id] == stop_id:
+                            entry["stops"][stop_id] = stop_name
+            except OSError:
+                continue
+
+        return catalog

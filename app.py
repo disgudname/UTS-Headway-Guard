@@ -36,7 +36,7 @@ from collections import deque, defaultdict
 import xml.etree.ElementTree as ET
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
-from headway_storage import HeadwayStorage, parse_iso8601_utc
+from headway_storage import HeadwayStorage, parse_iso8601_utc, _isoformat as _headway_isoformat
 from fullbus_storage import FullBusStorage
 from fullbus_tracker import FullBusTracker
 from headway_tracker import (
@@ -1438,6 +1438,7 @@ REPAIRS_SCREEN_HTML = _load_html("repairsscreen.html")
 REPAIRS_EXPORT_HTML = _load_html("repairsexport.html")
 HEADWAY_HTML = _load_html("headway.html")
 HEADWAY_DIAGNOSTICS_HTML = _load_html("headway_diagnostics.html")
+ROUTE_ANALYSIS_HTML = _load_html("route-analysis.html")
 FULLBUS_HTML = _load_html("fullbus.html")
 OFFLINE_HTML = _load_html("offline.html")
 INCIDENTS_HTML = _load_html("incidents.html")
@@ -4148,6 +4149,155 @@ async def api_headway_export(
         "Content-Type": "text/csv",
     }
     return Response(content=payload, media_type="text/csv", headers=headers)
+
+
+# ---------------------------
+# REST: Route Analysis
+# ---------------------------
+
+# Maximum gap between consecutive arrivals that is counted as a valid loop/wait interval.
+# Gaps longer than this are assumed to be out-of-service breaks between runs.
+_ROUTE_ANALYSIS_MAX_GAP_S: float = 3 * 3600  # 3 hours
+
+
+def _compute_route_analysis(
+    events: list,
+    stop_id: str,
+) -> dict:
+    """
+    Compute loop and wait time statistics from a list of HeadwayEvents.
+
+    Loop times  — intervals between consecutive arrivals of the *same vehicle*
+                  at the chosen stop (one full circuit).
+    Wait times  — intervals between *any* consecutive arrivals at the chosen
+                  stop (what a waiting passenger experiences).
+
+    Gaps longer than _ROUTE_ANALYSIS_MAX_GAP_S are excluded so that overnight
+    or out-of-service breaks do not inflate the statistics.
+    """
+    import statistics as _stats
+
+    arrivals = [
+        e for e in events
+        if e.event_type == "arrival"
+        and (e.stop_id == stop_id or e.address_id == stop_id)
+    ]
+    arrivals.sort(key=lambda e: e.timestamp)
+
+    # ── Wait times ──────────────────────────────────────────────────────────
+    wait_gaps: List[float] = []
+    for i in range(1, len(arrivals)):
+        gap = (arrivals[i].timestamp - arrivals[i - 1].timestamp).total_seconds()
+        if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
+            wait_gaps.append(gap)
+
+    # ── Loop times ───────────────────────────────────────────────────────────
+    from collections import defaultdict
+    by_vehicle: dict = defaultdict(list)
+    for e in arrivals:
+        if e.vehicle_id:
+            by_vehicle[e.vehicle_id].append(e)
+
+    loop_gaps: List[float] = []
+    for veh_arrivals in by_vehicle.values():
+        for i in range(1, len(veh_arrivals)):
+            gap = (veh_arrivals[i].timestamp - veh_arrivals[i - 1].timestamp).total_seconds()
+            if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
+                loop_gaps.append(gap)
+
+    def _stats_block(gaps: List[float], include_min: bool) -> dict:
+        if not gaps:
+            return {
+                **({"min_seconds": None} if include_min else {}),
+                "avg_seconds": None,
+                "max_seconds": None,
+                "sample_count": 0,
+            }
+        return {
+            **({"min_seconds": min(gaps)} if include_min else {}),
+            "avg_seconds": _stats.mean(gaps),
+            "max_seconds": max(gaps),
+            "sample_count": len(gaps),
+        }
+
+    return {
+        "arrival_count": len(arrivals),
+        "loop_times": _stats_block(loop_gaps, include_min=True),
+        "wait_times": _stats_block(wait_gaps, include_min=False),
+    }
+
+
+@app.get("/api/route-analysis/catalog")
+async def api_route_analysis_catalog():
+    """
+    Return all routes and stops that appear in the headway event log.
+    Used to populate the route/stop selectors on the route analysis page.
+    """
+    storage = _get_headway_storage()
+    raw = await asyncio.get_event_loop().run_in_executor(None, storage.scan_catalog)
+    routes = []
+    for route_id, info in sorted(raw.items(), key=lambda kv: kv[1].get("route_name") or kv[0]):
+        stops = [
+            {"stop_id": sid, "stop_name": sname}
+            for sid, sname in sorted(info["stops"].items(), key=lambda kv: kv[1] or kv[0])
+        ]
+        routes.append({
+            "route_id": route_id,
+            "route_name": info.get("route_name") or route_id,
+            "stops": stops,
+        })
+    return {"routes": routes}
+
+
+@app.get("/api/route-analysis")
+async def api_route_analysis(
+    route_id: str = Query(..., description="Route ID"),
+    stop_id: str = Query(..., description="Stop ID"),
+    start: str = Query(..., description="Start timestamp (ISO-8601 UTC)"),
+    end: str = Query(..., description="End timestamp (ISO-8601 UTC)"),
+):
+    """
+    Compute loop and wait time statistics for a route/stop over a time window.
+
+    Loop times measure how long a single vehicle takes to complete one full circuit
+    (consecutive arrivals of the same vehicle at the chosen stop).
+
+    Wait times measure the gap between any two consecutive bus arrivals at the chosen
+    stop — i.e. how long a passenger would wait if they just missed a bus.
+    """
+    start_dt = _parse_headway_timestamp(start)
+    end_dt = _parse_headway_timestamp(end)
+    if end_dt <= start_dt:
+        raise HTTPException(status_code=400, detail="end must be after start")
+
+    storage = _get_headway_storage()
+    events = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: storage.query_events(
+            start_dt, end_dt,
+            route_ids={route_id},
+        ),
+    )
+
+    # Resolve display names from the events themselves
+    route_name = next((e.route_name for e in events if e.route_name), route_id)
+    stop_name = next(
+        (e.stop_name for e in events if (e.stop_id == stop_id or e.address_id == stop_id) and e.stop_name),
+        stop_id,
+    )
+
+    stats = _compute_route_analysis(events, stop_id)
+    return {
+        "route_id": route_id,
+        "route_name": route_name,
+        "stop_id": stop_id,
+        "stop_name": stop_name,
+        "period": {
+            "start": _headway_isoformat(start_dt),
+            "end": _headway_isoformat(end_dt),
+        },
+        **stats,
+    }
 
 
 # ---------------------------
@@ -13065,6 +13215,14 @@ async def headway_diagnostics_page(request: Request):
     _refresh_dispatch_passwords()
     if _has_dispatcher_access(request):
         return HTMLResponse(HEADWAY_DIAGNOSTICS_HTML)
+    return _login_redirect(request)
+
+
+@app.get("/route-analysis")
+async def route_analysis_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(ROUTE_ANALYSIS_HTML)
     return _login_redirect(request)
 
 # ---------------------------
