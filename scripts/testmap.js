@@ -11220,14 +11220,16 @@ ${trainPlaneMarkup}
           if (!data || !Array.isArray(data.vehicles)) {
             return;
           }
-          // Update the vehicle cache with SSE data
+          // Update the vehicle cache with SSE data.
+          // SSE data never includes very-stale vehicles, so always write to the ::fresh slot.
           const sanitizedBaseURL = sanitizeBaseUrl(baseURL);
-          const cacheKey = getVehicleCacheKey(sanitizedBaseURL, includeStaleVehicles);
+          const cacheKey = getVehicleCacheKey(sanitizedBaseURL, false);
           const entry = getOrCreateCacheEntry(translocVehiclesCache, cacheKey);
           entry.data = { vehicles: data.vehicles, fetched_at: Math.round(data.ts / 1000) };
           entry.timestamp = Date.now();
-          // Trigger UI update with fresh data
-          if (utsOverlayEnabled && !refreshIntervalsPaused && pageIsVisible) {
+          // Only trigger a render from SSE when stale mode is off; when stale mode is on
+          // the 7-second poll handles fetching (SSE data would be missing the stale vehicles).
+          if (!includeStaleVehicles && utsOverlayEnabled && !refreshIntervalsPaused && pageIsVisible) {
             fetchBusLocations();
           }
         } catch (error) {
@@ -11306,7 +11308,7 @@ ${trainPlaneMarkup}
         // Poll for vehicle locations; skip when SSE is handling it
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) {
-            if (vehicleSSEConnected && isUtsAgencyForSse()) {
+            if (vehicleSSEConnected && isUtsAgencyForSse() && !includeStaleVehicles) {
               return;
             }
             fetchBusLocations();
