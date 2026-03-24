@@ -12832,11 +12832,24 @@ async def index_init(request: Request):
     # Get system notices (sync, but depends on auth status)
     notices = _get_active_system_notices(include_auth_only=is_authed)
 
+    # Approach-set check (only for authenticated users)
+    approach_missing: List[Dict[str, str]] = []
+    if is_authed:
+        tracker: Optional[HeadwayTracker] = getattr(app.state, "headway_tracker", None)
+        if tracker is not None:
+            approach_missing = [
+                {"stop_id": s.stop_id, "stop_name": s.stop_name or s.stop_id}
+                for s in tracker.stops
+                if not s.approach_sets
+            ]
+            approach_missing.sort(key=lambda x: (x["stop_name"] or "").lower())
+
     return {
         "auth": auth_data,
         "alerts": alerts_result,
         "notices": notices,
         "service_level": service_level_result,
+        "approach_check": {"missing": approach_missing},
     }
 
 

@@ -11284,30 +11284,34 @@ ${trainPlaneMarkup}
         }
         vehicleSSEReconnectTimer = setTimeout(() => {
           vehicleSSEReconnectTimer = null;
-          if (!vehicleSSE && pageIsVisible && !refreshSuspendedForVisibility) {
+          if (!vehicleSSE && pageIsVisible && !refreshSuspendedForVisibility && isUtsAgencyForSse()) {
             connectVehicleSSE();
           }
         }, VEHICLE_SSE_RECONNECT_DELAY_MS);
+      }
+
+      function isUtsAgencyForSse() {
+        return isUvaAgencySelected() && !doesSelectedAgencyMatchNames([ADMIN_KIOSK_UVA_HEALTH_NAME]);
       }
 
       function startRefreshIntervals() {
         if (refreshIntervalsActive) {
           return;
         }
-        // Start SSE connection for real-time vehicle updates
-        connectVehicleSSE();
+        // SSE only carries UTS vehicles — only connect when UTS agency is active
+        if (isUtsAgencyForSse()) {
+          connectVehicleSSE();
+        }
 
-        // Performance optimized: Skip polling when tab is hidden
-        // When SSE is connected, it provides real-time updates - polling is just a fallback
+        // Poll for vehicle locations; skip when SSE is handling it
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) {
-            // Skip polling entirely when SSE is connected - SSE pushes updates in real-time
-            if (vehicleSSEConnected) {
+            if (vehicleSSEConnected && isUtsAgencyForSse()) {
               return;
             }
             fetchBusLocations();
           }
-        }, 7000)); // Polling only used as fallback when SSE is disconnected
+        }, 7000));
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) fetchBusStops();
         }, 60000));

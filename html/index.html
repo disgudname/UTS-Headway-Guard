@@ -532,6 +532,59 @@
   })();
 </script>
 <script>
+  // Approach-set alert (dispatcher only)
+  (function(){
+    const DISMISS_KEY_PREFIX = 'approach_alert_dismissed_';
+
+    function dismissKey(stopIds){
+      return DISMISS_KEY_PREFIX + stopIds.slice().sort().join(',');
+    }
+
+    function isDismissed(stopIds){
+      try { return localStorage.getItem(dismissKey(stopIds)) === '1'; } catch(e){ return false; }
+    }
+
+    function setDismissed(stopIds){
+      try { localStorage.setItem(dismissKey(stopIds), '1'); } catch(e){}
+    }
+
+    window._renderApproachAlert = function(approachCheck){
+      const missing = Array.isArray(approachCheck?.missing) ? approachCheck.missing : [];
+      const noticesContainer = document.getElementById('system-notices');
+      const existingAlert = document.getElementById('approach-alert');
+      if(existingAlert) existingAlert.remove();
+      if(!missing.length || !noticesContainer) return;
+
+      const stopIds = missing.map(s => s.stop_id);
+      if(isDismissed(stopIds)) return;
+
+      const names = missing.map(s => s.stop_name).join(', ');
+      const alert = document.createElement('div');
+      alert.id = 'approach-alert';
+      alert.className = 'system-notice system-notice--yellow';
+      alert.style.display = 'flex';
+      alert.style.alignItems = 'flex-start';
+      alert.style.gap = '10px';
+      alert.innerHTML = `
+        <svg style="width:18px;height:18px;flex-shrink:0;margin-top:2px" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+        <div style="flex:1;font-size:14px;line-height:1.5">
+          <strong style="font-size:13px;text-transform:uppercase;letter-spacing:0.04em">
+            ${missing.length} stop${missing.length !== 1 ? 's' : ''} missing approach sets
+          </strong><br>
+          <a href="/stop-approach" style="color:inherit;opacity:0.85">${names}</a>
+        </div>
+        <button onclick="window._dismissApproachAlert()" style="background:none;border:none;color:inherit;cursor:pointer;font-size:18px;line-height:1;padding:0;opacity:0.7;flex-shrink:0" title="Dismiss">&times;</button>
+      `;
+      noticesContainer.insertAdjacentElement('afterbegin', alert);
+
+      window._dismissApproachAlert = function(){
+        setDismissed(stopIds);
+        alert.remove();
+      };
+    };
+  })();
+</script>
+<script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js');
   }
@@ -548,6 +601,7 @@
       if(window._renderServiceAlerts) window._renderServiceAlerts(data.alerts);
       if(window._renderSystemNotices) window._renderSystemNotices(data.notices);
       if(window._renderServiceLevel) window._renderServiceLevel(data.service_level);
+      if(window._renderApproachAlert && data.approach_check) window._renderApproachAlert(data.approach_check);
     } catch(e){
       // Fallback: trigger individual fetches if combined fails
       console.warn('Combined init failed, using individual fetches');

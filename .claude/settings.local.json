@@ -41,7 +41,9 @@
       "WebFetch(domain:uts-headway-guard.fly.dev)",
       "WebFetch(domain:synctime.telnetnetworks.ca)",
       "WebFetch(domain:telnetnetworks.ca)",
-      "Bash(python3.exe -c \":*)"
+      "Bash(python3.exe -c \":*)",
+      "Bash(fly ssh:*)",
+      "Bash(~/.fly/bin/fly ssh:*)"
     ]
   }
 }
