@@ -10652,7 +10652,43 @@ ${trainPlaneMarkup}
         positionAllPanelTabs();
       }
 
-      function renderRouteLegendContent(legendElement, routes) {
+      const KIOSK_QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 27 27" aria-hidden="true"><path fill="none" stroke="#000" stroke-width="1" stroke-linecap="square" d="M1 1.5h7m1 0h2m2 0h1m1 0h3m1 0h7m-25 1h1m5 0h1m1 0h3m1 0h3m1 0h1m1 0h1m5 0h1m-25 1h1m1 0h3m1 0h1m1 0h1m1 0h2m4 0h1m1 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m1 0h2m1 0h1m1 0h3m2 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m5 0h5m1 0h1m1 0h3m1 0h1m-25 1h1m5 0h1m1 0h1m5 0h1m1 0h1m1 0h1m5 0h1m-25 1h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7m-16 1h1m2 0h1m2 0h2m-17 1h2m2 0h3m4 0h2m6 0h1m1 0h4m-25 1h3m4 0h1m1 0h4m1 0h4m2 0h2m1 0h1m-23 1h1m3 0h3m3 0h6m2 0h1m1 0h2m-21 1h1m1 0h1m2 0h2m1 0h3m1 0h2m1 0h1m1 0h1m2 0h2m-23 1h1m2 0h1m1 0h1m1 0h1m1 0h3m4 0h2m2 0h4m-25 1h2m1 0h1m3 0h2m2 0h1m1 0h5m2 0h1m2 0h1m-18 1h1m2 0h4m2 0h1m1 0h1m1 0h4m-15 1h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h2m-24 1h5m1 0h2m1 0h1m1 0h2m3 0h7m-15 1h2m1 0h1m1 0h1m1 0h2m3 0h1m-21 1h7m3 0h4m2 0h1m1 0h1m1 0h1m-21 1h1m5 0h1m1 0h2m6 0h1m3 0h4m-24 1h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m3 0h8m-24 1h1m1 0h3m1 0h1m2 0h1m1 0h1m1 0h2m2 0h3m2 0h3m-25 1h1m1 0h3m1 0h1m2 0h3m2 0h5m2 0h1m1 0h1m-24 1h1m5 0h1m1 0h1m3 0h1m5 0h6m-24 1h7m1 0h2m1 0h2m1 0h2m1 0h1m4 0h3"/></svg>';
+
+      function appendKioskQrFooter(legendElement) {
+        const separator = document.createElement('div');
+        separator.className = 'legend-qr-separator';
+
+        const footer = document.createElement('div');
+        footer.className = 'legend-qr-footer';
+
+        const qrWrap = document.createElement('a');
+        qrWrap.href = 'https://utsopsdashboard.com/';
+        qrWrap.target = '_blank';
+        qrWrap.rel = 'noopener noreferrer';
+        qrWrap.className = 'legend-qr-wrap';
+        qrWrap.setAttribute('aria-label', 'Open UTS Operations Dashboard');
+        qrWrap.innerHTML = KIOSK_QR_SVG;
+
+        const text = document.createElement('div');
+        text.className = 'legend-qr-text';
+
+        const label = document.createElement('div');
+        label.className = 'legend-qr-label';
+        label.textContent = 'Track buses on your phone';
+
+        const url = document.createElement('div');
+        url.className = 'legend-qr-url';
+        url.textContent = 'utsopsdashboard.com';
+
+        text.appendChild(label);
+        text.appendChild(url);
+        footer.appendChild(qrWrap);
+        footer.appendChild(text);
+        legendElement.appendChild(separator);
+        legendElement.appendChild(footer);
+      }
+
+      function renderRouteLegendContent(legendElement, routes, appendQrFooter = false) {
         if (!legendElement) return;
         legendElement.style.display = "block";
         if (typeof legendElement.replaceChildren === 'function') {
@@ -10696,6 +10732,10 @@ ${trainPlaneMarkup}
 
         if (fragment) {
           legendElement.appendChild(fragment);
+        }
+
+        if (appendQrFooter) {
+          appendKioskQrFooter(legendElement);
         }
       }
 
@@ -11137,7 +11177,7 @@ ${trainPlaneMarkup}
           if (fallbackRoutes.length > 0) {
             routesToRender = fallbackRoutes;
           } else if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
-            renderRouteLegendContent(legend, lastRenderedLegendRoutes);
+            renderRouteLegendContent(legend, lastRenderedLegendRoutes, kioskMode && !adminKioskMode);
             return;
           } else {
             legend.style.display = "none";
@@ -11157,7 +11197,7 @@ ${trainPlaneMarkup}
 
         if (routesToRender.length === 0) {
           if (preserveOnEmpty && lastRenderedLegendRoutes.length > 0) {
-            renderRouteLegendContent(legend, lastRenderedLegendRoutes);
+            renderRouteLegendContent(legend, lastRenderedLegendRoutes, kioskMode && !adminKioskMode);
           } else {
             legend.style.display = "none";
             legend.innerHTML = "";
@@ -11178,7 +11218,7 @@ ${trainPlaneMarkup}
           return;
         }
         lastRenderedLegendSignature = nextSignature;
-        renderRouteLegendContent(legend, routesToRender);
+        renderRouteLegendContent(legend, routesToRender, kioskMode && !adminKioskMode);
       }
 
       // refreshMap updates route paths and bus locations.

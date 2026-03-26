@@ -2006,6 +2006,49 @@
         color: var(--panel-muted-text);
         overflow-wrap: anywhere;
       }
+      #routeLegend .legend-qr-separator {
+        height: 1px;
+        background: var(--panel-border-color);
+        margin: 14px 0 12px;
+        opacity: 0.6;
+      }
+      #routeLegend .legend-qr-footer {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      #routeLegend .legend-qr-wrap {
+        display: block;
+        flex-shrink: 0;
+        width: 68px;
+        height: 68px;
+        background: #fff;
+        border-radius: 6px;
+        padding: 3px;
+        line-height: 0;
+      }
+      #routeLegend .legend-qr-wrap svg {
+        width: 100%;
+        height: 100%;
+      }
+      #routeLegend .legend-qr-text {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+      #routeLegend .legend-qr-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--panel-heading-color);
+        line-height: 1.3;
+      }
+      #routeLegend .legend-qr-url {
+        font-size: 11px;
+        color: var(--panel-muted-text);
+        opacity: 0.75;
+        overflow-wrap: anywhere;
+      }
       @media (max-width: 600px) {
         .selector-panel {
           width: calc(100% - 32px);
