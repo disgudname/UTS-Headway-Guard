@@ -10242,8 +10242,7 @@ async def cap_stop_arrivals(
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
     alert = ET.Element("alert", xmlns=CAP_NS)
-    content_hash = hashlib.md5(message_text.encode()).hexdigest()[:8]
-    ET.SubElement(alert, "identifier").text = f"uts-stop-{stopID}-{content_hash}"
+    ET.SubElement(alert, "identifier").text = f"uts-stop-{stopID}-{uuid.uuid4().hex}"
     ET.SubElement(alert, "sender").text = "utsopsdashboard.com"
     ET.SubElement(alert, "sent").text = sent_str
     ET.SubElement(alert, "status").text = "Actual"
