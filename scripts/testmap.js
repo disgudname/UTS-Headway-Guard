@@ -10674,7 +10674,7 @@ ${trainPlaneMarkup}
 
         const label = document.createElement('div');
         label.className = 'legend-qr-label';
-        label.textContent = 'Track buses on your phone';
+        label.textContent = 'Track your bus live';
 
         const url = document.createElement('div');
         url.className = 'legend-qr-url';
