@@ -10177,8 +10177,6 @@ async def cap_stop_arrivals(
         data = []
 
     now = datetime.now(timezone.utc)
-    # Rotate identifier every minute so consumers treat each poll as fresh
-    minute_stamp = now.strftime("%Y%m%dT%H%MZ")
     sent_str = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
     expires_str = (now + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
     site_root = str(request.base_url).rstrip("/").replace("http://", "https://", 1)
@@ -10234,10 +10232,18 @@ async def cap_stop_arrivals(
             stop_lon = _coerce_float(_s.get("Longitude"))
             break
 
+    if not sorted_routes:
+        message_text = "No buses currently scheduled."
+    else:
+        message_text = " | ".join(
+            f"{route_desc}: {', '.join(labels)}" for route_desc, labels in sorted_routes
+        )
+
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
     alert = ET.Element("alert", xmlns=CAP_NS)
-    ET.SubElement(alert, "identifier").text = f"uts-stop-{stopID}-{minute_stamp}"
+    content_hash = hashlib.md5(message_text.encode()).hexdigest()[:8]
+    ET.SubElement(alert, "identifier").text = f"uts-stop-{stopID}-{content_hash}"
     ET.SubElement(alert, "sender").text = "utsopsdashboard.com"
     ET.SubElement(alert, "sent").text = sent_str
     ET.SubElement(alert, "status").text = "Actual"
@@ -10255,13 +10261,6 @@ async def cap_stop_arrivals(
         gc2 = ET.SubElement(area, "geocode")
         ET.SubElement(gc2, "valueName").text = "SAME"
         ET.SubElement(gc2, "value").text = "051003"  # Albemarle County
-
-    if not sorted_routes:
-        message_text = "No buses currently scheduled."
-    else:
-        message_text = " | ".join(
-            f"{route_desc}: {', '.join(labels)}" for route_desc, labels in sorted_routes
-        )
 
     info = ET.SubElement(alert, "info")
     ET.SubElement(info, "language").text = "en-US"
