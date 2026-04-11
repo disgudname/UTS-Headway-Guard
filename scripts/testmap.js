@@ -4088,23 +4088,6 @@ TM.registerVisibilityResumeHandler(() => {
       let incidentRouteAlertSignature = '';
       const incidentFirstOnSceneTimes = new Map();
       // Demo incident preview state (delete when demo button is removed).
-      let demoIncidentActive = false;
-      let demoIncidentEntry = null;
-      let demoIncidentPreviousVisibility = null;
-      const DEMO_INCIDENT_STATIC_ROW = Object.freeze({
-        Marker: `${INCIDENT_LIST_ICON_BASE_URL}me_map_active.png`,
-        Category: 'active',
-        ID: '2296541797',
-        Type: 'ME',
-        Address: 'HILLSDALE DR, CHARLOTTESVILLE, VA',
-        Received: '2025-09-22T02:25:48Z',
-        Agency: '00300',
-        Latitude: '38.0739216008',
-        Longitude: '-78.4735028808',
-        Units: 'E83 (OS), RS18 (OS)'
-      });
-
-      let demoIncidentCsvRow = null;
 
       function getSelectedAgencyRecord() {
         if (!Array.isArray(agencies) || agencies.length === 0) {
@@ -4438,84 +4421,6 @@ TM.registerVisibilityResumeHandler(() => {
         return null;
       }
 
-      function buildDemoIncidentEntryFromRow(row) {
-        if (!row || typeof row !== 'object') return null;
-        const sanitize = value => (typeof value === 'string' ? value.trim() : value);
-        const typeValue = sanitize(row.Type) || 'INC';
-        const typeCode = String(typeValue || '').trim().toUpperCase();
-        const idRaw = sanitize(row.ID) || 'DEMO_INCIDENT';
-        const id = String(idRaw).trim() || 'DEMO_INCIDENT';
-        const normalizedId = getNormalizedIncidentId(id) || 'DEMO_INCIDENT';
-        const markerUrl = sanitize(row.Marker) || '';
-        const category = sanitize(row.Category) || 'active';
-        const address = sanitize(row.Address) || 'Demo Address';
-        const received = sanitize(row.Received) || new Date().toISOString();
-        const agency = sanitize(row.Agency) || '';
-        const units = sanitize(row.Units) || '';
-        const lat = parseIncidentCoordinate(sanitize(row.Latitude));
-        const lon = parseIncidentCoordinate(sanitize(row.Longitude));
-        const label = (typeCode && Object.prototype.hasOwnProperty.call(INCIDENT_TYPE_LABELS, typeCode))
-          ? INCIDENT_TYPE_LABELS[typeCode]
-          : (typeValue ? String(typeValue) : 'Incident');
-        const incident = {
-          _markerUrl: markerUrl,
-          _markerType: typeCode || 'INC',
-          _category: category,
-          _demo: true,
-          ID: normalizedId,
-          IncidentID: normalizedId,
-          Type: typeCode || typeValue,
-          TypeCode: typeCode || typeValue,
-          PulsePointIncidentCallType: label,
-          PulsePointIncidentCallTypeCode: typeCode || typeValue,
-          CallType: label,
-          CallTypeCode: typeCode || typeValue,
-          Received: received,
-          DisplayAddress: address,
-          FullDisplayAddress: address,
-          Address: address,
-          Latitude: lat,
-          Longitude: lon,
-          Units: units,
-          Agency: agency
-        };
-        const timestamp = getIncidentTimestamp(incident) ?? Date.now();
-        const demoRouteColor = sanitizeCssColor(routeColors?.[404] || '#F97316');
-        return {
-          id: normalizedId,
-          incident,
-          routes: [
-            { routeId: 404, name: 'Demo Route 404', distance: 42, color: demoRouteColor }
-          ],
-          closestDistance: 42,
-          timestamp,
-          _demo: true,
-          _demoSignature: `demo-${normalizedId}`
-        };
-      }
-
-      async function ensureDemoIncidentRow() {
-        if (demoIncidentCsvRow) return demoIncidentCsvRow;
-        if (!DEMO_INCIDENT_STATIC_ROW) return null;
-        demoIncidentCsvRow = { ...DEMO_INCIDENT_STATIC_ROW };
-        return demoIncidentCsvRow;
-      }
-
-      function createDemoIncidentEntry() {
-        if (!demoIncidentCsvRow) return null;
-        const entry = buildDemoIncidentEntryFromRow(demoIncidentCsvRow);
-        if (!entry) return null;
-        entry.incident = entry.incident ? { ...entry.incident } : null;
-        entry.routes = Array.isArray(entry.routes)
-          ? entry.routes.map(route => ({ ...route }))
-          : [];
-        if (entry.incident) {
-          ensureIncidentFirstOnSceneTracking(entry.incident, entry.id);
-          entry.firstOnSceneTimestamp = getIncidentFirstOnSceneTimestamp(entry.incident, entry.id);
-          entry.detailSignature = buildIncidentAlertDetailSignature(entry.incident);
-        }
-        return entry;
-      }
 
       function normalizeUnitStatus(value) {
         if (value === undefined || value === null || value === '') {
@@ -5550,9 +5455,6 @@ TM.registerVisibilityResumeHandler(() => {
       }
 
       function evaluateIncidentRouteAlerts() {
-        if (demoIncidentActive && demoIncidentEntry) {
-          return;
-        }
         const hadAlerts = incidentRouteAlertSignature !== '' || (Array.isArray(incidentsNearRoutes) && incidentsNearRoutes.length > 0);
         if (!incidentsAreAvailable()) {
           if (hadAlerts) {
@@ -5811,9 +5713,6 @@ TM.registerVisibilityResumeHandler(() => {
           setIncidentsVisibility(false);
           return;
         }
-        if (demoIncidentActive && demoIncidentEntry) {
-          return;
-        }
         if (!map || isFetchingIncidents) return;
         isFetchingIncidents = true;
         try {
@@ -5836,10 +5735,6 @@ TM.registerVisibilityResumeHandler(() => {
         const allowIncidents = incidentsAreAvailable();
         const hadAlerts = incidentRouteAlertSignature !== '' || (Array.isArray(incidentsNearRoutes) && incidentsNearRoutes.length > 0);
         incidentsVisible = allowIncidents && !!visible;
-
-        if (!incidentsVisible && demoIncidentActive) {
-          deactivateDemoIncidentPreview({ preserveVisibility: true });
-        }
 
         if (!allowIncidents) {
           if (hadAlerts || (Array.isArray(latestActiveIncidents) && latestActiveIncidents.length > 0)) {
@@ -5869,86 +5764,6 @@ TM.registerVisibilityResumeHandler(() => {
         }
       }
 
-      async function activateDemoIncidentPreview() {
-        if (demoIncidentActive) return;
-        const row = await ensureDemoIncidentRow();
-        if (!row) {
-          if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-            window.alert('Demo incident data is unavailable.');
-          }
-          return;
-        }
-        const entry = createDemoIncidentEntry();
-        if (!entry || !entry.incident) {
-          console.warn('Demo incident data is missing required fields.', entry);
-          if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-            window.alert('Demo incident data is missing required fields.');
-          }
-          return;
-        }
-        demoIncidentEntry = entry;
-        demoIncidentPreviousVisibility = incidentsVisible;
-        demoIncidentActive = true;
-        updateIncidentsNearRoutes([entry], entry._demoSignature || entry.id || 'demo');
-        incidentsVisible = true;
-        incidentsVisibilityPreference = true;
-        if (!incidentLayerGroup && typeof L !== 'undefined' && typeof L.layerGroup === 'function') {
-          incidentLayerGroup = L.layerGroup();
-        }
-        if (map && incidentLayerGroup && typeof incidentLayerGroup.addTo === 'function') {
-          incidentLayerGroup.addTo(map);
-        }
-        if (entry.incident) {
-          applyIncidentMarkers([entry.incident]);
-        }
-        if (!isDispatcherLockActive() && entry.incident && Number.isFinite(entry.incident.Latitude) && Number.isFinite(entry.incident.Longitude) && map && typeof map.setView === 'function') {
-          try {
-            const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : 0;
-            const targetZoom = Number.isFinite(currentZoom) ? Math.max(currentZoom, 15) : 15;
-            map.setView([entry.incident.Latitude, entry.incident.Longitude], targetZoom, { animate: true });
-          } catch (error) {
-            console.warn('Unable to move map to the demo incident location.', error);
-          }
-        }
-        updateControlPanel();
-        updateIncidentToggleButton();
-      }
-
-      function deactivateDemoIncidentPreview(options = {}) {
-        if (!demoIncidentActive) {
-          demoIncidentPreviousVisibility = null;
-          return;
-        }
-        const preserveVisibility = options && options.preserveVisibility;
-        demoIncidentActive = false;
-        demoIncidentEntry = null;
-        resetIncidentAlertState();
-        applyIncidentMarkers([]);
-        if (!preserveVisibility) {
-          if (demoIncidentPreviousVisibility !== null) {
-            incidentsVisible = !!demoIncidentPreviousVisibility;
-            incidentsVisibilityPreference = incidentsVisible;
-            if (map && incidentLayerGroup) {
-              if (incidentsVisible) {
-                incidentLayerGroup.addTo(map);
-              } else {
-                map.removeLayer(incidentLayerGroup);
-              }
-            }
-          }
-        }
-        demoIncidentPreviousVisibility = null;
-        updateControlPanel();
-        updateIncidentToggleButton();
-      }
-
-      async function toggleDemoIncident() {
-        if (demoIncidentActive) {
-          deactivateDemoIncidentPreview();
-        } else {
-          await activateDemoIncidentPreview();
-        }
-      }
 
       function enforceIncidentVisibilityForCurrentAgency() {
         if (incidentsAreAvailable()) {
@@ -9022,23 +8837,16 @@ TM.registerVisibilityResumeHandler(() => {
       }
 
       function renderIncidentAlertsHtml() {
-        const hasDemo = demoIncidentActive && demoIncidentEntry && demoIncidentEntry.incident;
-        if (!hasDemo && !incidentsAreAvailable()) return '';
-        const sourceEntries = hasDemo
-          ? [demoIncidentEntry]
-          : (Array.isArray(incidentsNearRoutes) ? incidentsNearRoutes : []);
-        if (!Array.isArray(sourceEntries) || sourceEntries.length === 0) return '';
+        if (!incidentsAreAvailable()) return '';
+        const sourceEntries = Array.isArray(incidentsNearRoutes) ? incidentsNearRoutes : [];
+        if (sourceEntries.length === 0) return '';
         const itemsHtml = sourceEntries.map(renderIncidentAlertItem).filter(Boolean).join('');
         if (!itemsHtml) return '';
         const multiple = sourceEntries.length > 1;
-        const heading = hasDemo
-          ? 'Demo Incident Near a Route'
-          : (multiple ? 'Active Incidents Near Routes' : 'Active Incident Near a Route');
-        const subheading = hasDemo
-          ? 'Preview of an active incident alert using built-in sample data.'
-          : (multiple
-            ? 'Emergency responses are active on or near multiple transit corridors.'
-            : 'An emergency response is active on or near a transit corridor.');
+        const heading = multiple ? 'Active Incidents Near Routes' : 'Active Incident Near a Route';
+        const subheading = multiple
+          ? 'Emergency responses are active on or near multiple transit corridors.'
+          : 'An emergency response is active on or near a transit corridor.';
         return `
           <div class="selector-section incident-alert-block">
             <div class="incident-alert__header">
@@ -9685,6 +9493,44 @@ TM.registerVisibilityResumeHandler(() => {
         return url.trim().replace(/\/+$/, '');
       }
 
+      // --- Collapsible left-panel sections ---
+      const SECTION_STORAGE_PREFIX = 'testmap:section:';
+
+      function isSectionCollapsed(id) {
+        try {
+          const stored = localStorage.getItem(SECTION_STORAGE_PREFIX + id + ':collapsed');
+          // All sections are collapsed by default
+          return stored === null ? true : stored === 'true';
+        } catch {
+          return true;
+        }
+      }
+
+      function toggleSectionCollapse(id) {
+        const el = document.getElementById('section-' + id);
+        if (!el) return;
+        const nowCollapsed = el.classList.toggle('is-collapsed');
+        try {
+          localStorage.setItem(SECTION_STORAGE_PREFIX + id + ':collapsed', String(nowCollapsed));
+        } catch {}
+      }
+
+      function buildSection(id, label, innerHtml) {
+        if (!innerHtml || !innerHtml.trim()) return '';
+        const collapsed = isSectionCollapsed(id);
+        const chevron = `<svg class="section-chevron" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        return `
+          <div class="selector-group selector-group--collapsible${collapsed ? ' is-collapsed' : ''}" id="section-${id}">
+            <button type="button" class="section-header" onclick="toggleSectionCollapse('${id}')">
+              <span class="section-header__label">${escapeHtml(label)}</span>
+              ${chevron}
+            </button>
+            <div class="section-body">${innerHtml}</div>
+          </div>
+        `;
+      }
+      // --- End collapsible sections ---
+
       function updateControlPanel() {
         if (isKioskExperienceActive()) {
           ensurePanelsHiddenForKioskExperience();
@@ -9731,7 +9577,6 @@ TM.registerVisibilityResumeHandler(() => {
         }
 
         const incidentAlertsHtml = renderIncidentAlertsHtml();
-        const serviceAlertsSectionHtml = renderServiceAlertsSectionHtml();
         const allowAdminFeatures = adminFeaturesAllowed();
         const allowTrainControls = trainsFeatureAllowed();
         const allowRadarControls = radarFeaturesAllowed();
@@ -9745,39 +9590,98 @@ TM.registerVisibilityResumeHandler(() => {
         if (!allowRadarControls && radarEnabled) {
           setRadarEnabled(false);
         }
-        let trainToggleHtml = '';
-        const trainPlaneButtons = [];
-        if (allowTrainControls) {
-          trainPlaneButtons.push(
-            `<button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsFeature.visible ? ' is-active' : ''}" aria-pressed="${trainsFeature.visible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
-                Amtrak<span class="toggle-indicator">${trainsFeature.visible ? 'On' : 'Off'}</span>
-              </button>`
-          );
-        }
-        if (allowAdminFeatures) {
-          trainPlaneButtons.push(
-            `<button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesFeature.visible ? ' is-active' : ''}" aria-pressed="${planesFeature.visible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
-                Aircraft<span class="toggle-indicator">${planesFeature.visible ? 'On' : 'Off'}</span>
-              </button>`
-          );
-        }
-        if (trainPlaneButtons.length > 0) {
-          const trainPlaneLabel = allowTrainControls && allowAdminFeatures
-            ? 'Trains and Planes'
-            : allowTrainControls
-              ? 'Trains'
-              : 'Planes';
-          const trainPlaneMarkup = trainPlaneButtons
-            .map(button => `              ${button}`)
-            .join('\n');
-          trainToggleHtml = `
-            <div class="selector-group">
-              <div class="selector-label">${trainPlaneLabel}</div>
-${trainPlaneMarkup}
+
+        // --- Section: Select System ---
+        const showAgencySelect = !catPriorityMode || utsOverlayEnabled;
+        let systemSectionInner = '';
+        if (showAgencySelect) {
+          systemSectionInner += `
+            <label class="selector-label" for="agencySelect">System</label>
+            <div class="selector-control">
+              <select id="agencySelect" onchange="changeAgency(this.value)">
+          `;
+          agencies.forEach(a => {
+            systemSectionInner += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
+          });
+          systemSectionInner += `
+              </select>
             </div>
           `;
         }
-        let radarControlsHtml = '';
+
+        // --- Section: Map View (theme + center map) ---
+        const mapViewSectionInner = `
+          <div class="theme-mode-group" id="themeModeButtons">
+            <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.LIGHT ? 'is-active' : ''}" data-theme="${MAP_THEMES.LIGHT}" onclick="setMapTheme('${MAP_THEMES.LIGHT}')">
+              Light
+            </button>
+            <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.AUTO ? 'is-active' : ''}" data-theme="${MAP_THEMES.AUTO}" onclick="setMapTheme('${MAP_THEMES.AUTO}')">
+              Auto
+            </button>
+            <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.DARK ? 'is-active' : ''}" data-theme="${MAP_THEMES.DARK}" onclick="setMapTheme('${MAP_THEMES.DARK}')">
+              Dark
+            </button>
+          </div>
+          <button type="button" id="centerMapButton" class="pill-button center-map-button" onclick="centerMapOnRoutes()">
+            Center Map
+          </button>
+        `;
+
+        // --- Section: Other Services (Trains, Planes, CAT/UTS) ---
+        const otherServicesButtons = [];
+        if (allowTrainControls) {
+          otherServicesButtons.push(
+            `<button type="button" id="trainToggleButton" class="pill-button train-toggle-button${trainsFeature.visible ? ' is-active' : ''}" aria-pressed="${trainsFeature.visible ? 'true' : 'false'}" onclick="toggleTrainsVisibility()">
+              Amtrak<span class="toggle-indicator">${trainsFeature.visible ? 'On' : 'Off'}</span>
+            </button>`
+          );
+        }
+        if (allowAdminFeatures) {
+          otherServicesButtons.push(
+            `<button type="button" id="aircraftToggleButton" class="pill-button aircraft-toggle-button${planesFeature.visible ? ' is-active' : ''}" aria-pressed="${planesFeature.visible ? 'true' : 'false'}" onclick="toggleAircraftVisibility()">
+              Aircraft<span class="toggle-indicator">${planesFeature.visible ? 'On' : 'Off'}</span>
+            </button>`
+          );
+        }
+        if (catPriorityMode) {
+          otherServicesButtons.push(
+            `<button type="button" id="utsToggleButton" class="pill-button cat-toggle-button${utsOverlayEnabled ? ' is-active' : ''}" aria-pressed="${utsOverlayEnabled ? 'true' : 'false'}" onclick="toggleUtsOverlay()">
+              UTS<span class="toggle-indicator">${utsOverlayEnabled ? 'On' : 'Off'}</span>
+            </button>`
+          );
+        } else if (catOverlayAvailable) {
+          otherServicesButtons.push(
+            `<button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
+              CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
+            </button>`
+          );
+        }
+        const otherServicesSectionInner = otherServicesButtons.join('\n');
+
+        // --- Section: Traffic & Incidents ---
+        let trafficSectionInner = '';
+        if (allowAdminFeatures || incidentsAreAvailable()) {
+          if (allowAdminFeatures) {
+            trafficSectionInner += `
+              <button type="button" id="trafficToggleButton" class="pill-button traffic-toggle-button${trafficVisible ? ' is-active' : ''}" aria-pressed="${trafficVisible ? 'true' : 'false'}" onclick="toggleTrafficVisibility()">
+                Traffic Flow<span class="toggle-indicator">${trafficVisible ? 'On' : 'Off'}</span>
+              </button>
+              <button type="button" id="tomtomIncidentsToggleButton" class="pill-button tomtom-incidents-toggle-button${tomtomIncidentsVisible ? ' is-active' : ''}" aria-pressed="${tomtomIncidentsVisible ? 'true' : 'false'}" onclick="toggleTomtomIncidentsVisibility()">
+                Traffic Incidents<span class="toggle-indicator">${tomtomIncidentsVisible ? 'On' : 'Off'}</span>
+              </button>
+            `;
+          }
+          if (incidentsAreAvailable()) {
+            trafficSectionInner += `
+              <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
+                Fire/Rescue Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
+              </button>
+            `;
+          }
+        }
+
+        // --- Section: Radar ---
+        let radarSectionInner = '';
         if (allowRadarControls) {
           const toggleActive = radarEnabled && !radarTemporarilyUnavailable;
           const toggleDisabledAttr = radarTemporarilyUnavailable ? ' disabled' : '';
@@ -9789,9 +9693,8 @@ ${trainPlaneMarkup}
             return `<option value="${productKey}"${selected}>${safeLabel}</option>`;
           }).join('');
           const statusText = radarTemporarilyUnavailable ? escapeHtml(RADAR_UNAVAILABLE_MESSAGE) : '';
-          radarControlsHtml = `
-            <div class="selector-group radar-control-group">
-              <div class="selector-label">Radar</div>
+          radarSectionInner = `
+            <div class="radar-control-group">
               <button type="button" id="radarToggleButton" class="pill-button radar-toggle${toggleActive ? ' is-active' : ''}" aria-pressed="${toggleActive ? 'true' : 'false'}"${toggleDisabledAttr}>
                 Radar<span class="toggle-indicator">${toggleActive ? 'On' : 'Off'}</span>
               </button>
@@ -9814,170 +9717,85 @@ ${trainPlaneMarkup}
             </div>
           `;
         }
-        let demoButtonHtml = '';
-        if (adminMode) {
-          const demoButtonLabel = demoIncidentActive ? 'Hide Demo Incident' : 'Show Demo Incident';
-          const demoButtonPressed = demoIncidentActive ? 'true' : 'false';
-          const demoNoteText = demoIncidentActive
-            ? 'Showing sample alert using built-in data.'
-            : 'Load a sample alert using built-in data.';
-          demoButtonHtml = `
-            <!-- Demo incident preview controls (remove when the demo is finished) -->
-            <div class="selector-section demo-incident-section">
-              <button type="button" id="demoIncidentButton" class="demo-incident-button${demoIncidentActive ? ' is-active' : ''}" aria-pressed="${demoButtonPressed}" onclick="toggleDemoIncident()">
-                ${escapeHtml(demoButtonLabel)}
-              </button>
-              <div class="demo-incident-note">${escapeHtml(demoNoteText)}</div>
-            </div>
-          `;
-        }
-        const trafficAndIncidentsHtml = (allowAdminFeatures || incidentsAreAvailable()) ? `
-          <div class="selector-group">
-            <div class="selector-label">Traffic and Incidents</div>
-            ${allowAdminFeatures ? `
-            <button type="button" id="trafficToggleButton" class="pill-button traffic-toggle-button${trafficVisible ? ' is-active' : ''}" aria-pressed="${trafficVisible ? 'true' : 'false'}" onclick="toggleTrafficVisibility()">
-              Traffic Flow<span class="toggle-indicator">${trafficVisible ? 'On' : 'Off'}</span>
-            </button>
-            <button type="button" id="tomtomIncidentsToggleButton" class="pill-button tomtom-incidents-toggle-button${tomtomIncidentsVisible ? ' is-active' : ''}" aria-pressed="${tomtomIncidentsVisible ? 'true' : 'false'}" onclick="toggleTomtomIncidentsVisibility()">
-              Traffic Incidents<span class="toggle-indicator">${tomtomIncidentsVisible ? 'On' : 'Off'}</span>
-            </button>` : ''}
-            ${incidentsAreAvailable() ? `
-            <button type="button" id="incidentToggleButton" class="pill-button incident-toggle-button${incidentsVisible ? ' is-active' : ''}" aria-pressed="${incidentsVisible ? 'true' : 'false'}" onclick="toggleIncidentsVisibility()">
-              Fire/Rescue Incidents<span class="toggle-indicator">${incidentsVisible ? 'On' : 'Off'}</span>
-            </button>` : ''}
-          </div>
-        ` : '';
-        const showAgencySelect = !catPriorityMode || utsOverlayEnabled;
 
-        // Build content HTML separately so we can update just the content when header doesn't change
+        // --- Build content HTML ---
         let contentHtml = '';
 
-        if (showAgencySelect) {
-          contentHtml += `
-            <div class="selector-group">
-              <label class="selector-label" for="agencySelect">Select System</label>
-              <div class="selector-control">
-                <select id="agencySelect" onchange="changeAgency(this.value)">
-          `;
-          agencies.forEach(a => {
-            contentHtml += `<option value="${a.url}" ${a.url === baseURL ? 'selected' : ''}>${a.name}</option>`;
-          });
-          contentHtml += `
-                </select>
-              </div>
-            </div>
-          `;
+        // Select System
+        if (systemSectionInner) {
+          contentHtml += buildSection('system', 'Select System', systemSectionInner);
         }
 
-        // Map theme toggle (always shown)
-        contentHtml += `
-          <div class="selector-group">
-            <div class="selector-label">Map Theme</div>
-            <div class="theme-mode-group" id="themeModeButtons">
-              <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.LIGHT ? 'is-active' : ''}" data-theme="${MAP_THEMES.LIGHT}" onclick="setMapTheme('${MAP_THEMES.LIGHT}')">
-                Light
-              </button>
-              <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.AUTO ? 'is-active' : ''}" data-theme="${MAP_THEMES.AUTO}" onclick="setMapTheme('${MAP_THEMES.AUTO}')">
-                Auto
-              </button>
-              <button type="button" class="pill-button theme-mode-button ${currentMapTheme === MAP_THEMES.DARK ? 'is-active' : ''}" data-theme="${MAP_THEMES.DARK}" onclick="setMapTheme('${MAP_THEMES.DARK}')">
-                Dark
-              </button>
-            </div>
-          </div>
-        `;
+        // Map View
+        contentHtml += buildSection('mapview', 'Map View', mapViewSectionInner);
 
-        const centerMapButtonHtml = `
-            <button type="button" id="centerMapButton" class="pill-button center-map-button" onclick="centerMapOnRoutes()">
-              Center Map
-            </button>
-        `;
-        let bubbleStopFilterHtml = '';
-        // Only show bubble stops section for UVA agencies
+        // Bubble Stops (UVA only)
         if (bubbleVisualizationEnabled && isUvaAgencySelected()) {
-          bubbleStopFilterHtml = `
-            <div class="selector-group bubble-stop-group">
-              <div class="selector-section-heading">
-                <h3>Bubble Stops</h3>
-                <div class="selector-actions">
-                  <button type="button" class="pill-button" onclick="selectAllBubbleStops()">Select All</button>
-                  <button type="button" class="pill-button" onclick="deselectAllBubbleStops()">Deselect All</button>
-                </div>
+          const bubbleInner = `
+            <div class="selector-section-heading">
+              <h3>Bubble Stops</h3>
+              <div class="selector-actions">
+                <button type="button" class="pill-button" onclick="selectAllBubbleStops()">Select All</button>
+                <button type="button" class="pill-button" onclick="deselectAllBubbleStops()">Deselect All</button>
               </div>
-              <div class="bubble-stop-list" style="display:flex; flex-direction:column; gap:6px; margin-top:6px;"></div>
             </div>
+            <div class="bubble-stop-list" style="display:flex; flex-direction:column; gap:6px; margin-top:6px;"></div>
           `;
+          contentHtml += buildSection('bubblestops', 'Bubble Stops', bubbleInner);
         }
-        if (catPriorityMode) {
-          contentHtml += `
-            <div class="selector-group">
-              <button type="button" id="utsToggleButton" class="pill-button cat-toggle-button${utsOverlayEnabled ? ' is-active' : ''}" aria-pressed="${utsOverlayEnabled ? 'true' : 'false'}" onclick="toggleUtsOverlay()">
-                UTS<span class="toggle-indicator">${utsOverlayEnabled ? 'On' : 'Off'}</span>
-              </button>
-              ${centerMapButtonHtml}
-            </div>
-          `;
-        } else if (catOverlayAvailable) {
-          contentHtml += `
-            <div class="selector-group">
-              <button type="button" id="catToggleButton" class="pill-button cat-toggle-button${catOverlayEnabled ? ' is-active' : ''}" aria-pressed="${catOverlayEnabled ? 'true' : 'false'}" onclick="toggleCatOverlay()">
-                CAT<span class="toggle-indicator">${catOverlayEnabled ? 'On' : 'Off'}</span>
-              </button>
-              ${centerMapButtonHtml}
-            </div>
-          `;
-        } else {
-          contentHtml += `
-            <div class="selector-group">
-              ${centerMapButtonHtml}
-            </div>
-          `;
-        }
-        contentHtml += bubbleStopFilterHtml;
-        contentHtml += serviceAlertsSectionHtml;
+
+        // Incident alerts (inline, not collapsible — these are active alerts)
         contentHtml += incidentAlertsHtml;
 
+        // Admin-only sections
         if (adminMode && !catPriorityMode) {
-          contentHtml += `
-            <div class="selector-group">
-              <div class="selector-label">Vehicle Labels</div>
-              <div class="display-mode-group" id="displayModeButtons">
-                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.SPEED ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.SPEED}" onclick="setDisplayMode('${DISPLAY_MODES.SPEED}')">
-                  Speed
-                </button>
-                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.BLOCK ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.BLOCK}" onclick="setDisplayMode('${DISPLAY_MODES.BLOCK}')">
-                  Block
-                </button>
-                <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.NONE ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.NONE}" onclick="setDisplayMode('${DISPLAY_MODES.NONE}')">
-                  None
-                </button>
-              </div>
-            </div>
-            <div class="selector-group">
-              <button type="button" id="staleVehiclesButton" class="pill-button stale-vehicles-button${includeStaleVehicles ? ' is-active' : ''}" aria-pressed="${includeStaleVehicles ? 'true' : 'false'}" onclick="toggleStaleVehicles()">
-                Stale Vehicles<span class="toggle-indicator">${includeStaleVehicles ? 'On' : 'Off'}</span>
+          // Vehicle Labels + Stale Vehicles
+          const vehicleLabelsSectionInner = `
+            <div class="display-mode-group" id="displayModeButtons">
+              <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.SPEED ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.SPEED}" onclick="setDisplayMode('${DISPLAY_MODES.SPEED}')">
+                Speed
+              </button>
+              <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.BLOCK ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.BLOCK}" onclick="setDisplayMode('${DISPLAY_MODES.BLOCK}')">
+                Block
+              </button>
+              <button type="button" class="pill-button display-mode-button ${displayMode === DISPLAY_MODES.NONE ? 'is-active' : ''}" data-mode="${DISPLAY_MODES.NONE}" onclick="setDisplayMode('${DISPLAY_MODES.NONE}')">
+                None
               </button>
             </div>
+            <button type="button" id="staleVehiclesButton" class="pill-button stale-vehicles-button${includeStaleVehicles ? ' is-active' : ''}" aria-pressed="${includeStaleVehicles ? 'true' : 'false'}" onclick="toggleStaleVehicles()">
+              Stale Vehicles<span class="toggle-indicator">${includeStaleVehicles ? 'On' : 'Off'}</span>
+            </button>
           `;
-          // Only show OnDemand buttons for UVA agencies
+          contentHtml += buildSection('vehiclelabels', 'Vehicle Labels', vehicleLabelsSectionInner);
+
+          // OnDemand (UVA agencies only)
           if (isUvaAgencySelected()) {
-            contentHtml += `
-            <div class="selector-group">
+            const onDemandSectionInner = `
               <button type="button" id="onDemandToggleButton" class="pill-button ondemand-toggle-button${onDemandVehiclesEnabled ? ' is-active' : ''}" aria-pressed="${onDemandVehiclesEnabled ? 'true' : 'false'}" onclick="toggleOnDemand()">
                 OnDemand<span class="toggle-indicator">${onDemandVehiclesEnabled ? 'On' : 'Off'}</span>
               </button>
               <button type="button" id="onDemandRoutingToggleButton" class="pill-button ondemand-routing-toggle-button${onDemandRoutingEnabled ? ' is-active' : ''}" aria-pressed="${onDemandRoutingEnabled ? 'true' : 'false'}" onclick="toggleOnDemandRouting()">
                 OnDemand Routing<span class="toggle-indicator">${onDemandRoutingEnabled ? 'On' : 'Off'}</span>
               </button>
-            </div>
             `;
+            contentHtml += buildSection('ondemand', 'OnDemand', onDemandSectionInner);
           }
         }
 
-        contentHtml += trafficAndIncidentsHtml;
-        contentHtml += radarControlsHtml;
-        contentHtml += trainToggleHtml;
-        contentHtml += demoButtonHtml;
+        // Traffic & Incidents
+        if (trafficSectionInner) {
+          contentHtml += buildSection('traffic', 'Traffic & Incidents', trafficSectionInner);
+        }
+
+        // Radar
+        if (radarSectionInner) {
+          contentHtml += buildSection('radar', 'Radar', radarSectionInner);
+        }
+
+        // Other Services (Trains, Planes, CAT)
+        if (otherServicesSectionInner) {
+          contentHtml += buildSection('otherservices', 'Other Services', otherServicesSectionInner);
+        }
 
         // Apply updates: full rebuild only when header changes, otherwise just update content
         if (headerNeedsRebuild) {
@@ -10867,6 +10685,7 @@ ${trainPlaneMarkup}
 
         // Build the full panel HTML
         const dataWarningHtml = buildDataWarningHtml();
+        const serviceAlertsHtml = renderServiceAlertsSectionHtml();
         const toggleSvg = `<svg class="selector-header__toggle" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg>`;
         const html = `
           <div class="selector-header selector-header--collapsible" onclick="toggleStatusPanelCollapse()">
@@ -10890,11 +10709,13 @@ ${trainPlaneMarkup}
               ${conditionsHtml}
             </div>
             ${systemStateHtml}
+            ${serviceAlertsHtml}
           </div>
         `;
 
         panel.innerHTML = html;
         updateRightPanelSizing();
+        refreshServiceAlertsUI();
       }
 
       function initStatusPanel() {
