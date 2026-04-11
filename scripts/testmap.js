@@ -14066,7 +14066,7 @@ ${trainPlaneMarkup}
           busMarkerStates = {};
           previousBusData = {};
           cachedEtas = {};
-          customPopups = customPopups.filter(popup => popup && popup.dataset.popupType === 'incident');
+          customPopups = customPopups.filter(popup => popup && (popup.dataset.popupType === 'incident' || popup.dataset.popupType === 'tomtom-incident'));
           clearStopMarkerCache();
           stopDataCache = [];
           routeStopAddressMap = {};
@@ -14472,7 +14472,7 @@ ${trainPlaneMarkup}
                   if (!popupElement) {
                       return false;
                   }
-                  if (popupElement.dataset.popupType === 'incident') {
+                  if (popupElement.dataset.popupType === 'incident' || popupElement.dataset.popupType === 'tomtom-incident') {
                       return true;
                   }
                   let parsedRouteStopIds = [];
