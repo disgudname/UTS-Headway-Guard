@@ -13500,3 +13500,32 @@ async def traffic_incidents():
     """Return cached TomTom traffic incidents for the service area."""
     async with _tomtom_incidents_lock:
         return {"incidents": _tomtom_incidents_cache}
+
+@app.get("/api/traffic/incidents/debug")
+async def traffic_incidents_debug():
+    """Fire a live TomTom incidents request and return the raw response for debugging."""
+    if not TOMTOM_KEY:
+        return {"error": "TOMTOM_KEY not set"}
+    bb = TOMTOM_SERVICE_BBOX
+    bbox = f"{bb['lon_min']},{bb['lat_min']},{bb['lon_max']},{bb['lat_max']}"
+    url = (
+        f"https://api.tomtom.com/traffic/services/5/incidentDetails"
+        f"?key={TOMTOM_KEY}&bbox={bbox}&language=en-US"
+        f"&timeValidityFilter=present&expandCluster=true"
+    )
+    fields = (
+        "{incidents{type,geometry,properties{iconCategory,"
+        "events{description,code},from,to,delay,magnitudeOfDelay,"
+        "startTime,endTime,length,roadNumbers,"
+        "probabilityOfOccurrence,numberOfReports}}}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+            resp = await client.get(url, params={"fields": fields})
+        return {
+            "status_code": resp.status_code,
+            "url": str(resp.url),
+            "body": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
