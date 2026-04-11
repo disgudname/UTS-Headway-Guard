@@ -905,6 +905,8 @@ TM.registerVisibilityResumeHandler(() => {
 
       let trafficVisible = false;
       let trafficLayer = null;
+      let trafficRefreshIntervalId = null;
+      const TRAFFIC_REDRAW_INTERVAL_MS = 2 * 60 * 1000; // match backend seed cycle
       let radarRefreshTimerId = null;
       let radarCacheBustKey = "";
       let radarTileErrorCount = 0;
@@ -1634,9 +1636,20 @@ TM.registerVisibilityResumeHandler(() => {
           if (map && !map.hasLayer(trafficLayer)) {
             trafficLayer.addTo(map);
           }
+          if (!trafficRefreshIntervalId) {
+            trafficRefreshIntervalId = setInterval(() => {
+              if (trafficLayer && map && map.hasLayer(trafficLayer)) {
+                trafficLayer.redraw();
+              }
+            }, TRAFFIC_REDRAW_INTERVAL_MS);
+          }
         } else {
           if (trafficLayer && map && map.hasLayer(trafficLayer)) {
             map.removeLayer(trafficLayer);
+          }
+          if (trafficRefreshIntervalId !== null) {
+            clearInterval(trafficRefreshIntervalId);
+            trafficRefreshIntervalId = null;
           }
         }
         updateTrafficToggleButton();

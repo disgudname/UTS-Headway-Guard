@@ -134,15 +134,15 @@ ORS_DIRECTIONS_URL = os.getenv(
 ORS_HTTP_TIMEOUT_S = float(os.getenv("ORS_HTTP_TIMEOUT_S", "10"))
 
 TOMTOM_KEY = os.getenv("TOMTOM_KEY", "").strip()
-TOMTOM_REFRESH_S = int(os.getenv("TOMTOM_REFRESH_S", "240"))  # seed cycle interval, seconds
+TOMTOM_REFRESH_S = int(os.getenv("TOMTOM_REFRESH_S", "120"))  # seed cycle interval, seconds
 TOMTOM_SEED_ZOOM_MIN = 13
 TOMTOM_SEED_ZOOM_MAX = 15
 TOMTOM_ONDEMAND_ZOOM_MAX = 18
 TOMTOM_SERVICE_BBOX = {
-    "lat_min": float(os.getenv("TOMTOM_LAT_MIN", "38.00")),
-    "lat_max": float(os.getenv("TOMTOM_LAT_MAX", "38.07")),
-    "lon_min": float(os.getenv("TOMTOM_LON_MIN", "-78.55")),
-    "lon_max": float(os.getenv("TOMTOM_LON_MAX", "-78.46")),
+    "lat_min": float(os.getenv("TOMTOM_LAT_MIN", "38.0081")),
+    "lat_max": float(os.getenv("TOMTOM_LAT_MAX", "38.0582")),
+    "lon_min": float(os.getenv("TOMTOM_LON_MIN", "-78.5419")),
+    "lon_max": float(os.getenv("TOMTOM_LON_MAX", "-78.4872")),
 }
 
 VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "5"))

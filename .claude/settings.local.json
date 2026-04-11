@@ -57,7 +57,8 @@
       "Read(//c/Users/Pat Cox/.claude/projects/C--Users-Pat-Cox-Documents-GitHub-UTS-Headway-Guard/e6200e07-c437-469d-b0ad-3769fb85aada/tool-results//**)",
       "WebFetch(domain:resources.transitapp.com)",
       "Bash(flyctl ssh:*)",
-      "WebFetch(domain:status.flyio.net)"
+      "WebFetch(domain:status.flyio.net)",
+      "Bash(py:*)"
     ]
   }
 }
