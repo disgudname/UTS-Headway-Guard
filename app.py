@@ -5566,7 +5566,7 @@ async def startup():
                         async def _fetch(tz: int, tx: int, ty: int) -> None:
                             nonlocal fetched, errors
                             url = (
-                                f"https://api.tomtom.com/traffic/map/4/tile/flow/absolute"
+                                f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
                                 f"/{tz}/{tx}/{ty}.png?key={TOMTOM_KEY}"
                             )
                             try:
@@ -13438,7 +13438,7 @@ async def traffic_tile(z: int, x: int, y: int):
                         headers={"Cache-Control": "no-store"})
 
     url = (
-        f"https://api.tomtom.com/traffic/map/4/tile/flow/absolute"
+        f"https://api.tomtom.com/traffic/map/4/tile/flow/relative"
         f"/{z}/{x}/{y}.png?key={TOMTOM_KEY}"
     )
     try:
