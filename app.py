@@ -11611,10 +11611,19 @@ async def ardot_cameras():
 # ---------------------------
 # TomTom traffic tile cache
 # ---------------------------
-# 1×1 transparent PNG returned for out-of-area or unavailable tiles
-_TRANSPARENT_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
-)
+# 1×1 fully-transparent RGBA PNG returned for out-of-area or unavailable tiles
+def _make_transparent_png() -> bytes:
+    import struct, zlib
+    sig = b'\x89PNG\r\n\x1a\n'
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', crc)
+    ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0))  # 1×1, 8-bit RGBA
+    idat = chunk(b'IDAT', zlib.compress(b'\x00\x00\x00\x00\x00'))  # filter=0, R=0 G=0 B=0 A=0
+    iend = chunk(b'IEND', b'')
+    return sig + ihdr + idat + iend
+
+_TRANSPARENT_PNG = _make_transparent_png()
 
 # Seeded tiles (zoom TOMTOM_SEED_ZOOM_MIN–MAX): (z,x,y) -> PNG bytes
 _tomtom_tile_cache: dict[tuple[int, int, int], bytes] = {}
