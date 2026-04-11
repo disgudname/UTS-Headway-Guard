@@ -912,6 +912,7 @@ TM.registerVisibilityResumeHandler(() => {
       let tomtomIncidentLayerGroup = null;
       let tomtomIncidentRefreshIntervalId = null;
       const TOMTOM_INCIDENTS_REFRESH_MS = 2 * 60 * 1000;
+      let tomtomIncidentMarkerRegistry = []; // { marker, incident } — rebuilt each refresh
 
       const TOMTOM_INCIDENT_COLORS = {
         0:  '#94A3B8', // unknown
@@ -1095,7 +1096,17 @@ TM.registerVisibilityResumeHandler(() => {
             iconAnchor: [16, 16],
           });
           const marker = L.marker(latlng, { icon: divIcon, pane: 'tomtomIncidentPane' });
-          marker.on('click', () => openPopup(latlng));
+          marker.on('click', (e) => {
+            const clickedLatLng = marker.getLatLng();
+            const overlappingItems = findOverlappingClickableItems(clickedLatLng);
+            if (overlappingItems.length >= 2 && typeof MarkerSelectionMenu !== 'undefined') {
+              if (e && e.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
+              MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlappingItems);
+            } else {
+              openPopup(latlng);
+            }
+          });
+          tomtomIncidentMarkerRegistry.push({ marker, incident });
           layers.push(marker);
         }
 
@@ -1110,6 +1121,7 @@ TM.registerVisibilityResumeHandler(() => {
           const data = await resp.json();
           const incidents = data.incidents ?? [];
           tomtomIncidentLayerGroup.clearLayers();
+          tomtomIncidentMarkerRegistry = [];
           for (const incident of incidents) {
             for (const layer of _buildTomtomIncidentLayers(incident)) {
               tomtomIncidentLayerGroup.addLayer(layer);
@@ -12321,6 +12333,29 @@ ${trainPlaneMarkup}
                           }
                       });
                   }
+              });
+          }
+
+          // Check TomTom traffic incident markers
+          if (tomtomIncidentsVisible && tomtomIncidentMarkerRegistry.length > 0) {
+              tomtomIncidentMarkerRegistry.forEach(({ marker, incident }) => {
+                  if (!marker || typeof marker.getLatLng !== 'function') return;
+                  const markerLatLng = marker.getLatLng();
+                  if (!markerLatLng || !isNearby(markerLatLng)) return;
+                  const props = incident.properties ?? {};
+                  const iconCategory = props.iconCategory ?? 0;
+                  const color = TOMTOM_INCIDENT_COLORS[iconCategory] ?? '#94A3B8';
+                  const typeName = TOMTOM_INCIDENT_TYPE_NAMES[iconCategory] ?? 'Incident';
+                  const roadNums = (props.roadNumbers ?? []).filter(Boolean).join(', ');
+                  const label = roadNums ? `${typeName} · ${roadNums}` : typeName;
+                  items.push({
+                      latlng: markerLatLng,
+                      color,
+                      label,
+                      onClick: () => {
+                          createCustomPopup({ popupType: 'tomtom-incident', position: [markerLatLng.lat, markerLatLng.lng], incident });
+                      }
+                  });
               });
           }
 
