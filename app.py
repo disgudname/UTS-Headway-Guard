@@ -133,6 +133,18 @@ ORS_DIRECTIONS_URL = os.getenv(
 ).strip()
 ORS_HTTP_TIMEOUT_S = float(os.getenv("ORS_HTTP_TIMEOUT_S", "10"))
 
+TOMTOM_KEY = os.getenv("TOMTOM_KEY", "").strip()
+TOMTOM_REFRESH_S = int(os.getenv("TOMTOM_REFRESH_S", "240"))  # seed cycle interval, seconds
+TOMTOM_SEED_ZOOM_MIN = 13
+TOMTOM_SEED_ZOOM_MAX = 15
+TOMTOM_ONDEMAND_ZOOM_MAX = 18
+TOMTOM_SERVICE_BBOX = {
+    "lat_min": float(os.getenv("TOMTOM_LAT_MIN", "38.00")),
+    "lat_max": float(os.getenv("TOMTOM_LAT_MAX", "38.07")),
+    "lon_min": float(os.getenv("TOMTOM_LON_MIN", "-78.55")),
+    "lon_max": float(os.getenv("TOMTOM_LON_MAX", "-78.46")),
+}
+
 VEH_REFRESH_S   = int(os.getenv("VEH_REFRESH_S", "5"))
 ROUTE_REFRESH_S = int(os.getenv("ROUTE_REFRESH_S", "60"))
 BLOCK_REFRESH_S = int(os.getenv("BLOCK_REFRESH_S", "30"))
@@ -5536,6 +5548,47 @@ async def startup():
             await asyncio.sleep(poll_interval_s)
 
     asyncio.create_task(push_notification_poller())
+
+    async def tomtom_traffic_seeder():
+        if not TOMTOM_KEY:
+            print("[tomtom] TOMTOM_KEY not set, traffic tile seeder disabled")
+            return
+        tiles_by_zoom = {z: _tomtom_tiles_for_zoom(z) for z in range(TOMTOM_SEED_ZOOM_MIN, TOMTOM_SEED_ZOOM_MAX + 1)}
+        total = sum(len(v) for v in tiles_by_zoom.values())
+        print(f"[tomtom] traffic tile seeder starting — {total} tiles across zoom {TOMTOM_SEED_ZOOM_MIN}–{TOMTOM_SEED_ZOOM_MAX}, refresh every {TOMTOM_REFRESH_S}s")
+        await asyncio.sleep(5)
+        while True:
+            fetched = 0
+            errors = 0
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                    for z in range(TOMTOM_SEED_ZOOM_MIN, TOMTOM_SEED_ZOOM_MAX + 1):
+                        async def _fetch(tz: int, tx: int, ty: int) -> None:
+                            nonlocal fetched, errors
+                            url = (
+                                f"https://api.tomtom.com/traffic/map/4/tile/flow/absolute"
+                                f"/{tz}/{tx}/{ty}.png?key={TOMTOM_KEY}"
+                            )
+                            try:
+                                resp = await client.get(url)
+                                if resp.status_code == 200:
+                                    _tomtom_tile_cache[(tz, tx, ty)] = resp.content
+                                    fetched += 1
+                                else:
+                                    errors += 1
+                            except Exception as tile_exc:
+                                errors += 1
+                                print(f"[tomtom] tile {tz}/{tx}/{ty} error: {tile_exc}")
+                        batch = tiles_by_zoom[z]
+                        concurrency = 8
+                        for i in range(0, len(batch), concurrency):
+                            await asyncio.gather(*[_fetch(tz, tx, ty) for tz, tx, ty in batch[i:i + concurrency]])
+                print(f"[tomtom] seeded {fetched} tiles ({errors} errors)")
+            except Exception as exc:
+                print(f"[tomtom] seeder cycle error: {exc}")
+            await asyncio.sleep(TOMTOM_REFRESH_S)
+
+    asyncio.create_task(tomtom_traffic_seeder())
 
 # ---------------------------
 # REST: Routes
@@ -11555,6 +11608,53 @@ async def ardot_cameras():
         return {"cameras": [], "error": str(e), "traceback": traceback.format_exc()}
 
 
+# ---------------------------
+# TomTom traffic tile cache
+# ---------------------------
+# 1×1 transparent PNG returned for out-of-area or unavailable tiles
+_TRANSPARENT_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
+# Seeded tiles (zoom TOMTOM_SEED_ZOOM_MIN–MAX): (z,x,y) -> PNG bytes
+_tomtom_tile_cache: dict[tuple[int, int, int], bytes] = {}
+# On-demand tiles (zoom > TOMTOM_SEED_ZOOM_MAX): (z,x,y) -> (PNG bytes, monotonic timestamp)
+_tomtom_ondemand_cache: dict[tuple[int, int, int], tuple[bytes, float]] = {}
+_TOMTOM_ONDEMAND_TTL_S = 300.0  # 5 minutes
+
+
+def _tomtom_lon_to_tile_x(lon: float, zoom: int) -> int:
+    return int((lon + 180.0) / 360.0 * (2 ** zoom))
+
+
+def _tomtom_lat_to_tile_y(lat: float, zoom: int) -> int:
+    lat_rad = math.radians(lat)
+    n = 2 ** zoom
+    return int((1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n)
+
+
+def _tomtom_tiles_for_zoom(zoom: int) -> list[tuple[int, int, int]]:
+    """All (z, x, y) tile coords covering TOMTOM_SERVICE_BBOX at the given zoom."""
+    bb = TOMTOM_SERVICE_BBOX
+    x_min = _tomtom_lon_to_tile_x(bb["lon_min"], zoom)
+    x_max = _tomtom_lon_to_tile_x(bb["lon_max"], zoom)
+    y_min = _tomtom_lat_to_tile_y(bb["lat_max"], zoom)  # lat_max → smaller y (tiles go N→S)
+    y_max = _tomtom_lat_to_tile_y(bb["lat_min"], zoom)
+    return [(zoom, x, y) for x in range(x_min, x_max + 1) for y in range(y_min, y_max + 1)]
+
+
+def _tomtom_tile_in_service_bbox(z: int, x: int, y: int) -> bool:
+    """Returns True if the tile overlaps TOMTOM_SERVICE_BBOX."""
+    n = 2 ** z
+    lon_min = x / n * 360.0 - 180.0
+    lon_max = (x + 1) / n * 360.0 - 180.0
+    lat_max = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    lat_min = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
+    bb = TOMTOM_SERVICE_BBOX
+    return not (lat_max < bb["lat_min"] or lat_min > bb["lat_max"]
+                or lon_max < bb["lon_min"] or lon_min > bb["lon_max"])
+
+
 # Cache current CDN session info per camera: camera_id -> (server, base_path, token, timestamp)
 _ardot_camera_sessions: dict[str, tuple[str, str, str, float]] = {}
 _ardot_session_lock = asyncio.Lock()
@@ -13295,3 +13395,51 @@ async def replay_page(request: Request):
 @app.get("/ips")
 async def ips_page():
     return HTMLResponse(IPS_HTML)
+
+
+# ---------------------------
+# TomTom traffic flow tiles
+# ---------------------------
+@app.get("/api/traffic/tile/{z}/{x}/{y}.png")
+async def traffic_tile(z: int, x: int, y: int):
+    """Serve TomTom traffic flow tiles from the seeded cache or on-demand for higher zooms.
+
+    Tiles outside the service area bounding box return a transparent PNG immediately
+    so the browser treats them as empty without making noise in the logs.
+    """
+    if not _tomtom_tile_in_service_bbox(z, x, y) or z > TOMTOM_ONDEMAND_ZOOM_MAX:
+        return Response(content=_TRANSPARENT_PNG, media_type="image/png")
+
+    # Seeded zoom range: serve directly from the pre-fetched cache
+    if TOMTOM_SEED_ZOOM_MIN <= z <= TOMTOM_SEED_ZOOM_MAX:
+        tile = _tomtom_tile_cache.get((z, x, y))
+        if tile:
+            return Response(content=tile, media_type="image/png",
+                            headers={"Cache-Control": "no-store"})
+        # Seed hasn't run yet — fall through to on-demand below
+
+    if not TOMTOM_KEY:
+        return Response(content=_TRANSPARENT_PNG, media_type="image/png")
+
+    # On-demand path (zoom > seed range, or pre-seed cold start)
+    now = time.monotonic()
+    cached = _tomtom_ondemand_cache.get((z, x, y))
+    if cached and (now - cached[1]) < _TOMTOM_ONDEMAND_TTL_S:
+        return Response(content=cached[0], media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+    url = (
+        f"https://api.tomtom.com/traffic/map/4/tile/flow/absolute"
+        f"/{z}/{x}/{y}.png?key={TOMTOM_KEY}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            resp = await client.get(url)
+        if resp.status_code == 200:
+            _tomtom_ondemand_cache[(z, x, y)] = (resp.content, now)
+            return Response(content=resp.content, media_type="image/png",
+                            headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        print(f"[tomtom] on-demand tile {z}/{x}/{y} error: {exc}")
+
+    return Response(content=_TRANSPARENT_PNG, media_type="image/png")

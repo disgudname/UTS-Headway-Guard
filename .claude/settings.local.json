@@ -43,7 +43,21 @@
       "WebFetch(domain:telnetnetworks.ca)",
       "Bash(python3.exe -c \":*)",
       "Bash(fly ssh:*)",
-      "Bash(~/.fly/bin/fly ssh:*)"
+      "Bash(~/.fly/bin/fly ssh:*)",
+      "WebFetch(domain:developers.sparelabs.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:sparelabs.com)",
+      "WebFetch(domain:spare.com)",
+      "WebFetch(domain:api-docs.io)",
+      "WebFetch(domain:uzurv.com)",
+      "WebFetch(domain:mccmeetingspublic.blob.core.usgovcloudapi.net)",
+      "WebFetch(domain:assets.applytosupply.digitalmarketplace.service.gov.uk)",
+      "Read(//c/Users/PatCox/Documents/**)",
+      "Read(//c/Users/Pat Cox/.claude/projects/C--Users-Pat-Cox-Documents-GitHub-UTS-Headway-Guard/e6200e07-c437-469d-b0ad-3769fb85aada/tool-results//**)",
+      "WebFetch(domain:resources.transitapp.com)",
+      "Bash(flyctl ssh:*)",
+      "WebFetch(domain:status.flyio.net)"
     ]
   }
 }
