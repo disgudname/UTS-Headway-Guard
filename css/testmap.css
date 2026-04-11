@@ -2835,13 +2835,141 @@
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .tomtom-incident-popup strong {
-        display: block;
-        margin-bottom: 4px;
+      /* TomTom incident popup — inner layout, background comes from .custom-popup */
+      .tt-popup {
+        color: #f8fafc;
+        font-family: var(--app-font-family, system-ui, sans-serif);
+        letter-spacing: 0.3px;
+        min-width: 260px;
+        max-width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        white-space: normal;
       }
-      .tomtom-incident-popup .ti-delay {
-        color: #64748b;
-        font-size: 0.85em;
-        font-style: italic;
+      .tt-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .tt-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      }
+      .tt-icon .ti {
+        font-size: 24px;
+        color: #fff;
+        line-height: 1;
+      }
+      .tt-icon svg {
+        width: 22px;
+        height: 22px;
+        stroke: #fff;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .tt-title-block {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding-top: 2px;
+      }
+      .tt-type {
+        font-size: 16px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        line-height: 1.1;
+        color: #f8fafc;
+      }
+      .tt-badges {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+      }
+      .tt-badge {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        border: 1px solid rgba(148,163,184,0.4);
+        background: rgba(15,23,42,0.5);
+        color: rgba(248,250,252,0.85);
+        white-space: nowrap;
+      }
+      .tt-badge--severity-4 { border-color: #f87171; color: #fca5a5; }
+      .tt-badge--severity-3 { border-color: #fb923c; color: #fdba74; }
+      .tt-badge--severity-2 { border-color: #fbbf24; color: #fde68a; }
+      .tt-badge--road {
+        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.4);
+        color: #fff;
+        font-weight: 800;
+      }
+      .tt-divider {
+        height: 1px;
+        background: rgba(255,255,255,0.13);
+      }
+      .tt-section {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .tt-section-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.1px;
+        color: rgba(255,255,255,0.5);
+      }
+      .tt-events {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .tt-event {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 13px;
+        color: rgba(248,250,252,0.9);
+      }
+      .tt-event::before {
+        content: '';
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.45);
+        flex-shrink: 0;
+      }
+      .tt-location {
+        font-size: 13px;
+        color: rgba(248,250,252,0.88);
+        line-height: 1.4;
+      }
+      .tt-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px 10px;
+        font-size: 12px;
+        color: rgba(255,255,255,0.48);
+      }
+      .tt-meta-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .tt-meta-item .ti {
+        font-size: 13px;
       }
 

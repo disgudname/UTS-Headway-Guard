@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TomTom Incident Popup Demo</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+  <style>
+    :root {
+      --navy: #0f1f3d;
+      --navy-dark: #071124;
+      --app-font-family: system-ui, -apple-system, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--app-font-family);
+      background: #e2e8f0;
+      padding: 40px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 32px;
+      align-items: flex-start;
+    }
+
+    /* ── Popup shell (mirrors .custom-popup) ── */
+    .tt-popup {
+      background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+      border: 3px solid rgba(255,255,255,0.92);
+      border-radius: 16px;
+      padding: 14px 16px;
+      color: #f8fafc;
+      font-family: var(--app-font-family);
+      letter-spacing: 0.3px;
+      box-shadow: 0 18px 36px rgba(15,23,42,0.38);
+      min-width: 280px;
+      max-width: 340px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      white-space: normal;
+    }
+
+    /* ── Header row: icon + title block ── */
+    .tt-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .tt-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+    .tt-icon i {
+      font-size: 26px;
+      color: #fff;
+      line-height: 1;
+    }
+    .tt-title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-top: 2px;
+    }
+    .tt-type {
+      font-size: 17px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      line-height: 1.1;
+    }
+    .tt-badges {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .tt-badge {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.4);
+      background: rgba(15,23,42,0.5);
+      color: rgba(248,250,252,0.9);
+    }
+    .tt-badge--severity-4 { border-color: #f87171; color: #fca5a5; }
+    .tt-badge--severity-3 { border-color: #fb923c; color: #fdba74; }
+    .tt-badge--severity-2 { border-color: #fbbf24; color: #fde68a; }
+    .tt-badge--road {
+      background: rgba(255,255,255,0.12);
+      border-color: rgba(255,255,255,0.35);
+      color: #fff;
+      font-weight: 800;
+      letter-spacing: 1px;
+    }
+
+    /* ── Divider ── */
+    .tt-divider {
+      height: 1px;
+      background: rgba(255,255,255,0.14);
+    }
+
+    /* ── Section ── */
+    .tt-section {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .tt-section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.1px;
+      color: rgba(255,255,255,0.55);
+    }
+
+    /* ── Events ── */
+    .tt-events {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .tt-event {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      color: rgba(248,250,252,0.92);
+    }
+    .tt-event::before {
+      content: '';
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.5);
+      flex-shrink: 0;
+    }
+
+    /* ── Location ── */
+    .tt-location {
+      font-size: 13px;
+      color: rgba(248,250,252,0.88);
+      line-height: 1.4;
+    }
+    .tt-location-road {
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 2px;
+    }
+
+    /* ── Footer meta ── */
+    .tt-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+    }
+    .tt-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .tt-meta-item i {
+      font-size: 13px;
+      opacity: 0.7;
+    }
+
+    /* ── Demo labels ── */
+    .demo-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+    .demo-card { display: flex; flex-direction: column; }
+  </style>
+</head>
+<body>
+
+<!-- ── Incident 1: Lane Closed (bridge maintenance) ── -->
+<div class="demo-card">
+  <div class="demo-label">Lane Closed — Fontaine Ave bridge</div>
+  <div class="tt-popup">
+    <div class="tt-header">
+      <div class="tt-icon" style="background:#F97316">
+        <i class="ti ti-road-off"></i>
+      </div>
+      <div class="tt-title-block">
+        <div class="tt-type">Lane Closed</div>
+        <div class="tt-badges">
+          <span class="tt-badge">Probable</span>
+          <span class="tt-badge tt-badge--severity-0">No delay</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-section">
+      <div class="tt-section-label">Events</div>
+      <div class="tt-events">
+        <div class="tt-event">Lane closed</div>
+        <div class="tt-event">Hard shoulder closed</div>
+        <div class="tt-event">Maintenance work</div>
+        <div class="tt-event">Bridge maintenance work</div>
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-section">
+      <div class="tt-section-label">Location</div>
+      <div class="tt-location">
+        <div class="tt-location-road">Fontaine Ave</div>
+        Fontaine Avenue Extended → Holiday Trails Ln
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-meta">
+      <div class="tt-meta-item"><i class="ti ti-ruler"></i> 0.5 mi</div>
+      <div class="tt-meta-item"><i class="ti ti-calendar"></i> Oct 14, 2025 – Mar 31, 2027</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Incident 2: Road Closed (VA-601 Garth Rd) ── -->
+<div class="demo-card">
+  <div class="demo-label">Road Closed — VA-601</div>
+  <div class="tt-popup">
+    <div class="tt-header">
+      <div class="tt-icon" style="background:#EF4444">
+        <i class="ti ti-ban"></i>
+      </div>
+      <div class="tt-title-block">
+        <div class="tt-type">Road Closed</div>
+        <div class="tt-badges">
+          <span class="tt-badge">Confirmed</span>
+          <span class="tt-badge tt-badge--severity-4">Major delays</span>
+          <span class="tt-badge tt-badge--road">VA-601</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-section">
+      <div class="tt-section-label">Events</div>
+      <div class="tt-events">
+        <div class="tt-event">Closed</div>
+        <div class="tt-event">Roadworks</div>
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-section">
+      <div class="tt-section-label">Location</div>
+      <div class="tt-location">
+        Harvest Dr → Bypass Off Ramp / Old Garth Rd
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-meta">
+      <div class="tt-meta-item"><i class="ti ti-ruler"></i> 813 ft</div>
+      <div class="tt-meta-item"><i class="ti ti-calendar"></i> Sep 15, 2025 – Jul 1, 2026</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Incident 3: Road Closed, no end date ── -->
+<div class="demo-card">
+  <div class="demo-label">Road Closed — no end date</div>
+  <div class="tt-popup">
+    <div class="tt-header">
+      <div class="tt-icon" style="background:#EF4444">
+        <i class="ti ti-ban"></i>
+      </div>
+      <div class="tt-title-block">
+        <div class="tt-type">Road Closed</div>
+        <div class="tt-badges">
+          <span class="tt-badge">Probable</span>
+          <span class="tt-badge tt-badge--severity-4">Major delays</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-section">
+      <div class="tt-section-label">Events</div>
+      <div class="tt-events">
+        <div class="tt-event">Closed</div>
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-section">
+      <div class="tt-section-label">Location</div>
+      <div class="tt-location">
+        Montebello Cir / Whitehead Rd → Emmet St S
+      </div>
+    </div>
+
+    <div class="tt-divider"></div>
+
+    <div class="tt-meta">
+      <div class="tt-meta-item"><i class="ti ti-ruler"></i> 706 ft</div>
+      <div class="tt-meta-item"><i class="ti ti-calendar"></i> Since Apr 6, 2026</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -981,34 +981,125 @@ TM.registerVisibilityResumeHandler(() => {
         return null;
       }
 
-      function _buildTomtomIncidentMarker(incident) {
-        const iconCategory = incident.properties?.iconCategory ?? 0;
+      function _tomtomIncidentPopupHtml(incident) {
+        const props = incident.properties ?? {};
+        const iconCategory = props.iconCategory ?? 0;
+        const typeName = TOMTOM_INCIDENT_TYPE_NAMES[iconCategory] ?? 'Incident';
         const color = TOMTOM_INCIDENT_COLORS[iconCategory] ?? '#94A3B8';
         const iconHtml = _tomtomIncidentIconHtml(iconCategory);
-        const divIcon = L.divIcon({
-          html: `<div class="tomtom-incident-marker" style="--ti-color:${color}">${iconHtml}</div>`,
-          className: 'tomtom-incident-icon',
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-        });
-        const latlng = _tomtomIncidentLatLng(incident);
-        if (!latlng) return null;
-        const marker = L.marker(latlng, { icon: divIcon, pane: 'tomtomIncidentPane' });
-        const props = incident.properties ?? {};
-        const typeName = TOMTOM_INCIDENT_TYPE_NAMES[iconCategory] ?? 'Incident';
-        const desc = props.events?.[0]?.description ?? '';
+
+        const events = (props.events ?? []).map(e => escapeHtml(e.description)).filter(Boolean);
         const from = props.from ?? '';
         const to = props.to ?? '';
-        const delaySec = typeof props.delay === 'number' ? props.delay : 0;
-        const delayText = delaySec > 60 ? `${Math.round(delaySec / 60)} min delay` : '';
-        let popupHtml = `<div class="tomtom-incident-popup"><strong>${escapeHtml(typeName)}</strong>`;
-        if (desc) popupHtml += `<br>${escapeHtml(desc)}`;
-        if (from && to) popupHtml += `<br>${escapeHtml(from)} → ${escapeHtml(to)}`;
-        else if (from) popupHtml += `<br>${escapeHtml(from)}`;
-        if (delayText) popupHtml += `<br><span class="ti-delay">${escapeHtml(delayText)}</span>`;
-        popupHtml += '</div>';
-        marker.bindPopup(popupHtml);
-        return marker;
+        const roadNums = (props.roadNumbers ?? []).filter(Boolean);
+
+        const prob = props.probabilityOfOccurrence ?? '';
+        const probLabel = prob === 'certain' ? 'Confirmed' : prob === 'probable' ? 'Probable' : prob === 'risk_of' ? 'Risk of' : prob === 'low_risk' ? 'Low risk' : '';
+
+        const mag = props.magnitudeOfDelay ?? 0;
+        const magLabel = mag === 4 ? 'Major delays' : mag === 3 ? 'Long delays' : mag === 2 ? 'Delays' : mag === 1 ? 'Minor delays' : '';
+
+        const lengthM = typeof props.length === 'number' ? props.length : null;
+        const lengthFt = lengthM !== null ? lengthM * 3.28084 : null;
+        const lengthText = lengthFt !== null ? (lengthFt >= 1000 ? `${(lengthFt / 5280).toFixed(1)} mi` : `${Math.round(lengthFt).toLocaleString()} ft`) : '';
+
+        const delaySec = typeof props.delay === 'number' ? props.delay : null;
+        const delayText = delaySec !== null && delaySec > 60 ? `${Math.round(delaySec / 60)} min delay` : '';
+
+        const fmtDate = iso => {
+          if (!iso) return null;
+          const d = new Date(iso);
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
+        };
+        const startText = fmtDate(props.startTime);
+        const endText = fmtDate(props.endTime);
+        const dateText = startText && endText ? `${startText} – ${endText}` : startText ? `Since ${startText}` : '';
+
+        let html = `<div class="tt-popup">`;
+
+        // Header: icon + title + badges
+        html += `<div class="tt-header">`;
+        html += `<div class="tt-icon" style="background:${color}">${iconHtml}</div>`;
+        html += `<div class="tt-title-block">`;
+        html += `<div class="tt-type">${escapeHtml(typeName)}</div>`;
+        html += `<div class="tt-badges">`;
+        if (probLabel) html += `<span class="tt-badge">${escapeHtml(probLabel)}</span>`;
+        if (magLabel) html += `<span class="tt-badge tt-badge--severity-${mag}">${escapeHtml(magLabel)}</span>`;
+        roadNums.forEach(r => { html += `<span class="tt-badge tt-badge--road">${escapeHtml(r)}</span>`; });
+        html += `</div></div></div>`;
+
+        // Events
+        if (events.length) {
+          html += `<div class="tt-divider"></div>`;
+          html += `<div class="tt-section"><div class="tt-section-label">Events</div><div class="tt-events">`;
+          events.forEach(e => { html += `<div class="tt-event">${e}</div>`; });
+          html += `</div></div>`;
+        }
+
+        // Location
+        if (from || to) {
+          html += `<div class="tt-divider"></div>`;
+          html += `<div class="tt-section"><div class="tt-section-label">Location</div><div class="tt-location">`;
+          if (from && to) html += `${escapeHtml(from)} → ${escapeHtml(to)}`;
+          else html += escapeHtml(from || to);
+          html += `</div></div>`;
+        }
+
+        // Meta footer
+        const metaParts = [lengthText, delayText, dateText].filter(Boolean);
+        if (metaParts.length) {
+          html += `<div class="tt-divider"></div><div class="tt-meta">`;
+          if (lengthText) html += `<div class="tt-meta-item"><i class="ti ti-ruler"></i> ${escapeHtml(lengthText)}</div>`;
+          if (delayText) html += `<div class="tt-meta-item"><i class="ti ti-clock-pause"></i> ${escapeHtml(delayText)}</div>`;
+          if (dateText) html += `<div class="tt-meta-item"><i class="ti ti-calendar"></i> ${escapeHtml(dateText)}</div>`;
+          html += `</div>`;
+        }
+
+        html += `</div>`;
+        return html;
+      }
+
+      function _buildTomtomIncidentLayers(incident) {
+        const iconCategory = incident.properties?.iconCategory ?? 0;
+        const color = TOMTOM_INCIDENT_COLORS[iconCategory] ?? '#94A3B8';
+        const popupHtml = _tomtomIncidentPopupHtml(incident);
+        const layers = [];
+
+        const openPopup = (latlng) => {
+          createCustomPopup({ popupType: 'tomtom-incident', position: latlng, incident });
+        };
+
+        // Polyline along geometry
+        const geom = incident.geometry;
+        if (geom?.type === 'LineString' && geom.coordinates.length >= 2) {
+          const latlngs = geom.coordinates.map(([lon, lat]) => [lat, lon]);
+          const polyline = L.polyline(latlngs, {
+            color,
+            weight: 5,
+            opacity: 0.85,
+            pane: 'tomtomIncidentPane',
+            className: 'tomtom-incident-line',
+          });
+          polyline.on('click', (e) => openPopup([e.latlng.lat, e.latlng.lng]));
+          layers.push(polyline);
+        }
+
+        // Icon marker at midpoint
+        const latlng = _tomtomIncidentLatLng(incident);
+        if (latlng) {
+          const iconHtml = _tomtomIncidentIconHtml(iconCategory);
+          const divIcon = L.divIcon({
+            html: `<div class="tomtom-incident-marker" style="--ti-color:${color}">${iconHtml}</div>`,
+            className: 'tomtom-incident-icon',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
+          });
+          const marker = L.marker(latlng, { icon: divIcon, pane: 'tomtomIncidentPane' });
+          marker.on('click', () => openPopup(latlng));
+          layers.push(marker);
+        }
+
+        return layers;
       }
 
       async function fetchAndRenderTomtomIncidents() {
@@ -1020,8 +1111,9 @@ TM.registerVisibilityResumeHandler(() => {
           const incidents = data.incidents ?? [];
           tomtomIncidentLayerGroup.clearLayers();
           for (const incident of incidents) {
-            const marker = _buildTomtomIncidentMarker(incident);
-            if (marker) tomtomIncidentLayerGroup.addLayer(marker);
+            for (const layer of _buildTomtomIncidentLayers(incident)) {
+              tomtomIncidentLayerGroup.addLayer(layer);
+            }
           }
         } catch (e) {
           console.error('[tomtom incidents] fetch error:', e);
@@ -13797,6 +13889,19 @@ ${trainPlaneMarkup}
           attachPopupCloseHandler(popupElement);
       }
 
+      function setTomtomIncidentPopupContent(popupElement, config) {
+          if (!popupElement) return;
+          popupElement.dataset.popupType = 'tomtom-incident';
+          const incident = config?.incident ?? null;
+          const innerHtml = incident ? _tomtomIncidentPopupHtml(incident) : '<div class="tt-popup">Incident information unavailable.</div>';
+          popupElement.innerHTML = `
+            <button class="custom-popup-close">&times;</button>
+            ${innerHtml}
+            <div class="custom-popup-arrow"></div>
+          `;
+          attachPopupCloseHandler(popupElement);
+      }
+
       function getIncidentPopupElementById(id) {
           const normalizedId = getNormalizedIncidentId(id);
           if (!normalizedId) {
@@ -14552,6 +14657,8 @@ ${trainPlaneMarkup}
           popupElement.dataset.popupType = popupType;
           if (popupType === 'incident') {
               setIncidentPopupContent(popupElement, config);
+          } else if (popupType === 'tomtom-incident') {
+              setTomtomIncidentPopupContent(popupElement, config);
           } else {
               setStopPopupContent(popupElement, config);
           }
