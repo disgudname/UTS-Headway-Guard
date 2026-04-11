@@ -5590,6 +5590,36 @@ async def startup():
 
     asyncio.create_task(tomtom_traffic_seeder())
 
+    async def tomtom_incidents_poller():
+        if not TOMTOM_KEY:
+            return
+        await asyncio.sleep(15)
+        bb = TOMTOM_SERVICE_BBOX
+        bbox = f"{bb['lon_min']},{bb['lat_min']},{bb['lon_max']},{bb['lat_max']}"
+        while True:
+            url = (
+                f"https://api.tomtom.com/traffic/services/5/incidentDetails"
+                f"?key={TOMTOM_KEY}&bbox={bbox}&language=en-US"
+                f"&timeValidityFilter=present&expandCluster=true"
+            )
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                    resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    incidents = data.get("incidents", [])
+                    async with _tomtom_incidents_lock:
+                        global _tomtom_incidents_cache
+                        _tomtom_incidents_cache = incidents
+                    print(f"[tomtom] {len(incidents)} traffic incidents")
+                else:
+                    print(f"[tomtom] incidents API {resp.status_code}")
+            except Exception as exc:
+                print(f"[tomtom] incidents poller error: {exc}")
+            await asyncio.sleep(TOMTOM_REFRESH_S)
+
+    asyncio.create_task(tomtom_incidents_poller())
+
 # ---------------------------
 # REST: Routes
 # ---------------------------
@@ -11631,6 +11661,10 @@ _tomtom_tile_cache: dict[tuple[int, int, int], bytes] = {}
 _tomtom_ondemand_cache: dict[tuple[int, int, int], tuple[bytes, float]] = {}
 _TOMTOM_ONDEMAND_TTL_S = 300.0  # 5 minutes
 
+# Incidents cache: list of GeoJSON-like incident features
+_tomtom_incidents_cache: list[dict] = []
+_tomtom_incidents_lock = asyncio.Lock()
+
 
 def _tomtom_lon_to_tile_x(lon: float, zoom: int) -> int:
     return int((lon + 180.0) / 360.0 * (2 ** zoom))
@@ -13452,3 +13486,10 @@ async def traffic_tile(z: int, x: int, y: int):
         print(f"[tomtom] on-demand tile {z}/{x}/{y} error: {exc}")
 
     return Response(content=_TRANSPARENT_PNG, media_type="image/png")
+
+
+@app.get("/api/traffic/incidents")
+async def traffic_incidents():
+    """Return cached TomTom traffic incidents for the service area."""
+    async with _tomtom_incidents_lock:
+        return {"incidents": _tomtom_incidents_cache}

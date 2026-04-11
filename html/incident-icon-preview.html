@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TomTom Incident Icon Preview</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; padding: 28px; color: #1e293b; }
+    h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+    .subtitle { color: #64748b; font-size: 0.85rem; margin-bottom: 24px; }
+
+    table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    thead th { background: #0f172a; color: #e2e8f0; padding: 11px 16px; text-align: left; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+    tbody tr { border-bottom: 1px solid #e2e8f0; }
+    tbody tr:last-child { border-bottom: none; }
+    td { padding: 14px 16px; vertical-align: middle; }
+
+    .type-name { font-weight: 600; font-size: 0.9rem; }
+    .type-code { font-size: 0.72rem; color: #94a3b8; font-family: monospace; margin-top: 2px; }
+
+    .options { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+    .option { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 72px; }
+    .icon-wrap { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+    .icon-wrap i { font-size: 24px; line-height: 1; }
+    .option-label { font-size: 0.68rem; color: #475569; text-align: center; line-height: 1.35; }
+    .lib { font-size: 0.6rem; color: #94a3b8; font-family: monospace; }
+
+    .divider { height: 1px; background: #e2e8f0; margin: 4px 0; }
+    .section-header td { background: #f8fafc; font-size: 0.72rem; font-weight: 700; color: #64748b; letter-spacing: 0.05em; text-transform: uppercase; padding: 8px 16px; }
+
+    /* Color groups */
+    .c-amber  { background: #FEF3C7; color: #D97706; }
+    .c-orange { background: #FFEDD5; color: #EA580C; }
+    .c-red    { background: #FEE2E2; color: #DC2626; }
+    .c-blue   { background: #DBEAFE; color: #2563EB; }
+    .c-slate  { background: #F1F5F9; color: #475569; }
+    .c-cyan   { background: #CFFAFE; color: #0891B2; }
+  </style>
+</head>
+<body>
+
+<h1>TomTom Incident Icon Proposals</h1>
+<p class="subtitle">Open this file in a browser. Each row shows 2–3 options — pick what you like per type.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:180px">Incident Type</th>
+      <th>Options</th>
+    </tr>
+  </thead>
+  <tbody>
+
+    <tr class="section-header"><td colspan="2">— Traffic Events —</td></tr>
+
+    <tr>
+      <td><div class="type-name">Accident</div><div class="type-code">type 1</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-car-crash"></i></div>
+          <div class="option-label">Car crash</div><div class="lib">ti-car-crash</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-alert-triangle"></i></div>
+          <div class="option-label">Alert triangle</div><div class="lib">ti-alert-triangle</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-alert-hexagon"></i></div>
+          <div class="option-label">Alert hexagon</div><div class="lib">ti-alert-hexagon</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Traffic Jam</div><div class="type-code">type 6</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-traffic-lights"></i></div>
+          <div class="option-label">Traffic lights</div><div class="lib">ti-traffic-lights</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-car-suv"></i></div>
+          <div class="option-label">Vehicle (jam)</div><div class="lib">ti-car-suv</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-clock-pause"></i></div>
+          <div class="option-label">Delay</div><div class="lib">ti-clock-pause</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Lane Closed</div><div class="type-code">type 7</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-orange"><i class="ti ti-traffic-cone"></i></div>
+          <div class="option-label">Traffic cone</div><div class="lib">ti-traffic-cone</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-orange"><i class="ti ti-road-off"></i></div>
+          <div class="option-label">Road off</div><div class="lib">ti-road-off</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-orange"><i class="ti ti-barrier-block"></i></div>
+          <div class="option-label">Barrier block</div><div class="lib">ti-barrier-block</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Road Closed</div><div class="type-code">type 8</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-red"><i class="ti ti-ban"></i></div>
+          <div class="option-label">Ban / no-entry</div><div class="lib">ti-ban</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-red"><i class="ti ti-circle-x"></i></div>
+          <div class="option-label">Circle X</div><div class="lib">ti-circle-x</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-red"><i class="ti ti-road-off"></i></div>
+          <div class="option-label">Road off</div><div class="lib">ti-road-off</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Road Works</div><div class="type-code">type 9</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-orange"><i data-lucide="hard-hat" style="width:24px;height:24px;stroke:#EA580C;"></i></div>
+          <div class="option-label">Hard hat</div><div class="lib">lucide</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-orange"><i class="ti ti-traffic-cone"></i></div>
+          <div class="option-label">Traffic cone</div><div class="lib">ti-traffic-cone</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-orange"><i class="ti ti-tools"></i></div>
+          <div class="option-label">Tools</div><div class="lib">ti-tools</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Broken Down Vehicle</div><div class="type-code">type 14</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-car-off"></i></div>
+          <div class="option-label">Car off</div><div class="lib">ti-car-off</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-car-crash"></i></div>
+          <div class="option-label">Car crash</div><div class="lib">ti-car-crash</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-tool"></i></div>
+          <div class="option-label">Wrench</div><div class="lib">ti-tool</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Dangerous Conditions</div><div class="type-code">type 3</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-alert-triangle"></i></div>
+          <div class="option-label">Alert triangle</div><div class="lib">ti-alert-triangle</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-alert-hexagon"></i></div>
+          <div class="option-label">Alert hexagon</div><div class="lib">ti-alert-hexagon</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-amber"><i class="ti ti-alert-circle"></i></div>
+          <div class="option-label">Alert circle</div><div class="lib">ti-alert-circle</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr class="section-header"><td colspan="2">— Weather Events —</td></tr>
+
+    <tr>
+      <td><div class="type-name">Fog</div><div class="type-code">type 2</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-slate"><i class="ti ti-cloud-fog"></i></div>
+          <div class="option-label">Cloud fog</div><div class="lib">ti-cloud-fog</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-slate"><i class="ti ti-mist"></i></div>
+          <div class="option-label">Mist</div><div class="lib">ti-mist</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Rain</div><div class="type-code">type 4</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-blue"><i class="ti ti-cloud-rain"></i></div>
+          <div class="option-label">Cloud rain</div><div class="lib">ti-cloud-rain</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-blue"><i class="ti ti-droplet"></i></div>
+          <div class="option-label">Droplet</div><div class="lib">ti-droplet</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Ice</div><div class="type-code">type 5</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-cyan"><i class="ti ti-snowflake"></i></div>
+          <div class="option-label">Snowflake</div><div class="lib">ti-snowflake</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-cyan"><i class="ti ti-cloud-snow"></i></div>
+          <div class="option-label">Cloud snow</div><div class="lib">ti-cloud-snow</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Wind</div><div class="type-code">type 10</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-blue"><i class="ti ti-wind"></i></div>
+          <div class="option-label">Wind</div><div class="lib">ti-wind</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-blue"><i class="ti ti-tornado"></i></div>
+          <div class="option-label">Tornado</div><div class="lib">ti-tornado</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr>
+      <td><div class="type-name">Flooding</div><div class="type-code">type 11</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-blue"><i class="ti ti-ripple"></i></div>
+          <div class="option-label">Ripple / waves</div><div class="lib">ti-ripple</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-blue"><i class="ti ti-cloud-storm"></i></div>
+          <div class="option-label">Storm</div><div class="lib">ti-cloud-storm</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-blue"><i class="ti ti-droplets"></i></div>
+          <div class="option-label">Droplets</div><div class="lib">ti-droplets</div>
+        </div>
+      </div></td>
+    </tr>
+
+    <tr class="section-header"><td colspan="2">— Fallback —</td></tr>
+
+    <tr>
+      <td><div class="type-name">Unknown</div><div class="type-code">type 0</div></td>
+      <td><div class="options">
+        <div class="option">
+          <div class="icon-wrap c-slate"><i class="ti ti-question-mark"></i></div>
+          <div class="option-label">Question mark</div><div class="lib">ti-question-mark</div>
+        </div>
+        <div class="option">
+          <div class="icon-wrap c-slate"><i class="ti ti-help-circle"></i></div>
+          <div class="option-label">Help circle</div><div class="lib">ti-help-circle</div>
+        </div>
+      </div></td>
+    </tr>
+
+  </tbody>
+</table>
+
+<p style="margin-top:16px; font-size:0.75rem; color:#94a3b8;">Icons: <a href="https://tabler.io/icons" target="_blank" style="color:#3b82f6;">Tabler Icons</a> + <a href="https://lucide.dev/icons" target="_blank" style="color:#3b82f6;">Lucide</a> (both MIT). If any icon shows blank, the name may have changed — check the respective site.</p>
+<script>lucide.createIcons();</script>
+
+</body>
+</html>

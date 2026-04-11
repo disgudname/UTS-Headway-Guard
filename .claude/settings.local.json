@@ -58,7 +58,19 @@
       "WebFetch(domain:resources.transitapp.com)",
       "Bash(flyctl ssh:*)",
       "WebFetch(domain:status.flyio.net)",
-      "Bash(py:*)"
+      "Bash(py:*)",
+      "WebFetch(domain:api.tomtom.com)",
+      "WebFetch(domain:developer.tomtom.com)",
+      "WebFetch(domain:tabler-icons.io)",
+      "WebFetch(domain:lucide.dev)",
+      "WebFetch(domain:phosphoricons.com)",
+      "WebFetch(domain:tabler.io)",
+      "WebFetch(domain:icones.js.org)",
+      "WebFetch(domain:docs.tabler.io)",
+      "WebFetch(domain:tablericons.com)",
+      "WebFetch(domain:fonts.google.com)",
+      "WebFetch(domain:icons.getbootstrap.com)",
+      "WebFetch(domain:pictogrammers.com)"
     ]
   }
 }
