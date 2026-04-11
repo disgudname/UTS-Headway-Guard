@@ -5597,21 +5597,21 @@ async def startup():
         bb = TOMTOM_SERVICE_BBOX
         bbox = f"{bb['lon_min']},{bb['lat_min']},{bb['lon_max']},{bb['lat_max']}"
         while True:
+            url = (
+                f"https://api.tomtom.com/traffic/services/5/incidentDetails"
+                f"?key={TOMTOM_KEY}&bbox={bbox}&language=en-US"
+                f"&timeValidityFilter=present&expandCluster=true"
+            )
             fields = (
                 "{incidents{type,geometry,properties{iconCategory,"
                 "events{description,code},from,to,delay,magnitudeOfDelay,"
                 "startTime,endTime,length,roadNumbers,"
                 "probabilityOfOccurrence,numberOfReports}}}"
             )
-            url = (
-                f"https://api.tomtom.com/traffic/services/5/incidentDetails"
-                f"?key={TOMTOM_KEY}&bbox={bbox}&language=en-US"
-                f"&timeValidityFilter=present&expandCluster=true"
-                f"&fields={fields}"
-            )
+            params = {"fields": fields}
             try:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-                    resp = await client.get(url)
+                    resp = await client.get(url, params=params)
                 if resp.status_code == 200:
                     data = resp.json()
                     incidents = data.get("incidents", [])
