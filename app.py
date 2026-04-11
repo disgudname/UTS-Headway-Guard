@@ -5620,7 +5620,7 @@ async def startup():
                         _tomtom_incidents_cache = incidents
                     print(f"[tomtom] {len(incidents)} traffic incidents")
                 else:
-                    print(f"[tomtom] incidents API {resp.status_code}")
+                    print(f"[tomtom] incidents API {resp.status_code}: {resp.text[:500]}")
             except Exception as exc:
                 print(f"[tomtom] incidents poller error: {exc}")
             await asyncio.sleep(TOMTOM_REFRESH_S)
