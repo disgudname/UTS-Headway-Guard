@@ -11831,7 +11831,7 @@ ${trainPlaneMarkup}
           map.createPane('tomtomIncidentPane');
           const tomtomIncidentPane = map.getPane('tomtomIncidentPane');
           if (tomtomIncidentPane) {
-              tomtomIncidentPane.style.zIndex = 525;
+              tomtomIncidentPane.style.zIndex = 460;
               tomtomIncidentPane.style.pointerEvents = 'auto';
           }
           sharedRouteRenderer = L.svg({ padding: 0 });
