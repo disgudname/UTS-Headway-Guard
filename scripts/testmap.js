@@ -902,6 +902,9 @@ TM.registerVisibilityResumeHandler(() => {
       let radarOpacity = RADAR_DEFAULT_OPACITY;
       let radarLayer = null;
       let radarLayerProduct = null;
+
+      let trafficVisible = false;
+      let trafficLayer = null;
       let radarRefreshTimerId = null;
       let radarCacheBustKey = "";
       let radarTileErrorCount = 0;
@@ -1615,6 +1618,41 @@ TM.registerVisibilityResumeHandler(() => {
         layer.on("tileload", handleRadarTileLoad);
         layer.on("tileerror", handleRadarTileError);
         return layer;
+      }
+
+      function setTrafficVisibility(visible) {
+        trafficVisible = !!visible;
+        if (trafficVisible) {
+          if (!trafficLayer) {
+            trafficLayer = L.tileLayer('/api/traffic/tile/{z}/{x}/{y}.png', {
+              attribution: '© <a href="https://www.tomtom.com" target="_blank">TomTom</a>',
+              pane: 'trafficPane',
+              opacity: 0.7,
+              errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+            });
+          }
+          if (map && !map.hasLayer(trafficLayer)) {
+            trafficLayer.addTo(map);
+          }
+        } else {
+          if (trafficLayer && map && map.hasLayer(trafficLayer)) {
+            map.removeLayer(trafficLayer);
+          }
+        }
+        updateTrafficToggleButton();
+      }
+
+      function toggleTrafficVisibility() {
+        setTrafficVisibility(!trafficVisible);
+      }
+
+      function updateTrafficToggleButton() {
+        const btn = document.getElementById('trafficToggleButton');
+        if (!btn) return;
+        btn.classList.toggle('is-active', trafficVisible);
+        btn.setAttribute('aria-pressed', trafficVisible ? 'true' : 'false');
+        const indicator = btn.querySelector('.toggle-indicator');
+        if (indicator) indicator.textContent = trafficVisible ? 'On' : 'Off';
       }
 
       function applyRadarState() {
@@ -9655,6 +9693,16 @@ ${trainPlaneMarkup}
 
         contentHtml += incidentToggleHtml;
         contentHtml += radarControlsHtml;
+        if (allowAdminFeatures) {
+          contentHtml += `
+            <div class="selector-group">
+              <div class="selector-label">Traffic</div>
+              <button type="button" id="trafficToggleButton" class="pill-button traffic-toggle-button${trafficVisible ? ' is-active' : ''}" aria-pressed="${trafficVisible ? 'true' : 'false'}" onclick="toggleTrafficVisibility()">
+                Traffic<span class="toggle-indicator">${trafficVisible ? 'On' : 'Off'}</span>
+              </button>
+            </div>
+          `;
+        }
         contentHtml += trainToggleHtml;
         contentHtml += demoButtonHtml;
 
@@ -9709,6 +9757,7 @@ ${trainPlaneMarkup}
         updateStaleVehiclesButton();
         updateOnDemandButton();
         updateOnDemandRoutingButton();
+        updateTrafficToggleButton();
         refreshServiceAlertsUI();
         positionAllPanelTabs();
 
@@ -11603,6 +11652,12 @@ ${trainPlaneMarkup}
               radarPane.style.zIndex = 350;
               radarPane.style.pointerEvents = 'none';
           }
+          map.createPane('trafficPane');
+          const trafficPane = map.getPane('trafficPane');
+          if (trafficPane) {
+              trafficPane.style.zIndex = 360;
+              trafficPane.style.pointerEvents = 'none';
+          }
           sharedRouteRenderer = L.svg({ padding: 0 });
           if (sharedRouteRenderer) {
               map.addLayer(sharedRouteRenderer);
@@ -11726,6 +11781,9 @@ ${trainPlaneMarkup}
           }
 
           applyRadarState();
+          if (adminKioskMode) {
+              setTrafficVisibility(true);
+          }
 
           if (enableOverlapDashRendering) {
             overlapRenderer = new OverlapRouteRenderer(map, {
