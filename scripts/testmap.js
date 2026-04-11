@@ -993,7 +993,7 @@ TM.registerVisibilityResumeHandler(() => {
         });
         const latlng = _tomtomIncidentLatLng(incident);
         if (!latlng) return null;
-        const marker = L.marker(latlng, { icon: divIcon });
+        const marker = L.marker(latlng, { icon: divIcon, pane: 'tomtomIncidentPane' });
         const props = incident.properties ?? {};
         const typeName = TOMTOM_INCIDENT_TYPE_NAMES[iconCategory] ?? 'Incident';
         const desc = props.events?.[0]?.description ?? '';
