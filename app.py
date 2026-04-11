@@ -5603,7 +5603,7 @@ async def startup():
                 f"&timeValidityFilter=present&expandCluster=true"
             )
             fields = (
-                "{incidents{type,geometry,properties{iconCategory,"
+                "{incidents{type,geometry{type,coordinates},properties{iconCategory,"
                 "events{description,code},from,to,delay,magnitudeOfDelay,"
                 "startTime,endTime,length,roadNumbers,"
                 "probabilityOfOccurrence,numberOfReports}}}"
@@ -13514,7 +13514,7 @@ async def traffic_incidents_debug():
         f"&timeValidityFilter=present&expandCluster=true"
     )
     fields = (
-        "{incidents{type,geometry,properties{iconCategory,"
+        "{incidents{type,geometry{type,coordinates},properties{iconCategory,"
         "events{description,code},from,to,delay,magnitudeOfDelay,"
         "startTime,endTime,length,roadNumbers,"
         "probabilityOfOccurrence,numberOfReports}}}"
