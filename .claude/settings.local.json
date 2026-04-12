@@ -70,7 +70,15 @@
       "WebFetch(domain:tablericons.com)",
       "WebFetch(domain:fonts.google.com)",
       "WebFetch(domain:icons.getbootstrap.com)",
-      "WebFetch(domain:pictogrammers.com)"
+      "WebFetch(domain:pictogrammers.com)",
+      "WebFetch(domain:oktraffic.org)",
+      "WebFetch(domain:www.511ok.org)",
+      "WebFetch(domain:api.oktraffic.org)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_network_requests",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot"
     ]
   }
 }

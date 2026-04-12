@@ -206,7 +206,7 @@
       }
       return `${base}${params}`;
     }
-    return `https://opendata.adsb.fi/api//v2/lat/${latStr}/lon/${lonStr}/dist/${distStr}`;
+    return `https://opendata.adsb.fi/api/v2/lat/${latStr}/lon/${lonStr}/dist/${distStr}`;
   }
 
   function getMapCenterLatLng(map) {

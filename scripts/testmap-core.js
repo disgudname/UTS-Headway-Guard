@@ -78,6 +78,7 @@ window.TestMap = window.TestMap || {};
             window.atcStyle = false;
         }
     }
+    window.applyPlaneStyleOptions = applyPlaneStyleOptions;
 
     function schedulePlaneStyleOverride() {
         if (typeof window.setPlaneStyleOptions === 'function') {
