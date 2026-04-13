@@ -401,6 +401,11 @@
         color: rgba(248, 250, 252, 0.92);
         letter-spacing: 0.35px;
       }
+      .incident-unit--upd-notified {
+        background: rgba(59, 130, 246, 0.15) !important;
+        border-color: rgba(59, 130, 246, 0.45) !important;
+        color: #93c5fd !important;
+      }
       .map-toast {
         position: fixed;
         left: 50%;
@@ -1240,6 +1245,11 @@
         color: rgba(30, 41, 59, 0.85);
         letter-spacing: 0.3px;
       }
+      .selector-panel .incident-unit--upd-notified {
+        background: rgba(59, 130, 246, 0.1) !important;
+        border-color: rgba(59, 130, 246, 0.4) !important;
+        color: #1d4ed8 !important;
+      }
       .selector-panel .selector-content::-webkit-scrollbar {
         width: 8px;
       }
@@ -1856,6 +1866,34 @@
       .selector-panel button.is-active .toggle-indicator {
         background: rgba(229, 114, 0, 0.2);
         color: #1f2937;
+      }
+      .selector-panel .ondemand-toggle-button.is-active {
+        background: linear-gradient(135deg, #c8420a, #e85d1a);
+        color: #fff;
+        border-color: rgba(200, 66, 10, 0.45);
+        box-shadow: 0 12px 24px rgba(200, 66, 10, 0.28);
+      }
+      .selector-panel .ondemand-toggle-button.is-active:hover {
+        background: linear-gradient(135deg, #d94f12, #f06a22);
+        box-shadow: 0 16px 30px rgba(200, 66, 10, 0.36);
+      }
+      .selector-panel .ondemand-toggle-button.is-active .toggle-indicator {
+        background: rgba(255, 255, 255, 0.22);
+        color: rgba(255, 255, 255, 0.9);
+      }
+      .selector-panel .ondemand-toggle-button.is-auto {
+        background: linear-gradient(135deg, #1d56c4, #3b82f6);
+        color: #fff;
+        border-color: rgba(59, 130, 246, 0.45);
+        box-shadow: 0 12px 24px rgba(59, 130, 246, 0.28);
+      }
+      .selector-panel .ondemand-toggle-button.is-auto:hover {
+        background: linear-gradient(135deg, #1e48b0, #60a5fa);
+        box-shadow: 0 16px 30px rgba(59, 130, 246, 0.36);
+      }
+      .selector-panel .ondemand-toggle-button.is-auto .toggle-indicator {
+        background: rgba(255, 255, 255, 0.22);
+        color: rgba(255, 255, 255, 0.9);
       }
       .selector-panel button.accent {
         background: linear-gradient(135deg, var(--accent), var(--accent-bright));

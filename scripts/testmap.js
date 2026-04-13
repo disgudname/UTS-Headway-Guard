@@ -3284,6 +3284,7 @@ TM.registerVisibilityResumeHandler(() => {
       let baseURL = '';
       let includeStaleVehicles = false;
       let onDemandVehiclesEnabled = false;
+      let onDemandAutoEnabled = false;
       let onDemandStopsEnabled = true;
       let onDemandRoutingEnabled = false;
       let onDemandPollingTimerId = null;
@@ -3542,6 +3543,7 @@ TM.registerVisibilityResumeHandler(() => {
       function enforceAdminKioskOnDemandSchedule({ force = false } = {}) {
         if (!userIsAuthorizedForOnDemand()) {
           if (onDemandVehiclesEnabled) {
+            onDemandAutoEnabled = false;
             setOnDemandVehiclesEnabled(false);
             setOnDemandStopsEnabled(false);
           } else {
@@ -3552,6 +3554,7 @@ TM.registerVisibilityResumeHandler(() => {
         }
         const shouldEnable = shouldEnableAdminKioskOnDemand();
         if (force || onDemandVehiclesEnabled !== shouldEnable) {
+          onDemandAutoEnabled = shouldEnable;
           setOnDemandVehiclesEnabled(shouldEnable);
           setOnDemandStopsEnabled(shouldEnable);
         }
@@ -4456,8 +4459,15 @@ TM.registerVisibilityResumeHandler(() => {
         return { name: trimmed, status: '', raw: trimmed };
       }
 
+      // UVA2 is not a real apparatus — it means UPD was notified. Filter it out
+      // of the units list and track it separately.
+      function isUpdNotifiedUnitName(name) {
+        return typeof name === 'string' && name.trim().toUpperCase() === 'UVA2';
+      }
+
       function extractIncidentUnits(incident) {
         const units = [];
+        let updNotified = false;
         if (incident && Array.isArray(incident.Unit)) {
           incident.Unit.forEach(entry => {
             if (!entry) return;
@@ -4491,6 +4501,11 @@ TM.registerVisibilityResumeHandler(() => {
             const normalizedLabel = typeof normalized.label === 'string' ? normalized.label.trim() : '';
             const statusLabel = normalizedLabel || (typeof normalized.raw === 'string' ? normalized.raw.trim() : '');
             const unitName = typeof name === 'string' ? name.trim() : '';
+            // UVA2 = UPD was notified — not a real dispatched unit
+            if (isUpdNotifiedUnitName(unitName)) {
+              updNotified = true;
+              return;
+            }
             const rawText = parsed?.raw && parsed.raw.trim()
               ? parsed.raw.trim()
               : (typeof entry === 'string' ? entry.trim() : '');
@@ -4525,11 +4540,16 @@ TM.registerVisibilityResumeHandler(() => {
           if (source) {
             source.split(',').map(part => part.trim()).filter(Boolean).forEach(part => {
               const parsed = parseUnitString(part);
+              const baseName = parsed.name ? parsed.name.trim() : '';
+              // UVA2 in string form
+              if (isUpdNotifiedUnitName(baseName) || isUpdNotifiedUnitName(part)) {
+                updNotified = true;
+                return;
+              }
               const normalized = normalizeUnitStatus(parsed.status);
               const statusKey = normalized.key || '';
               const normalizedLabel = typeof normalized.label === 'string' ? normalized.label.trim() : '';
               const statusLabel = normalizedLabel || (typeof normalized.raw === 'string' ? normalized.raw.trim() : '');
-              const baseName = parsed.name ? parsed.name.trim() : '';
               const displayText = baseName
                 ? baseName
                 : (statusLabel || (parsed.raw ? parsed.raw.trim() : ''));
@@ -4553,6 +4573,7 @@ TM.registerVisibilityResumeHandler(() => {
             });
           }
         }
+        if (updNotified) units.updNotified = true;
         return units;
       }
 
@@ -5822,11 +5843,13 @@ TM.registerVisibilityResumeHandler(() => {
           button.removeAttribute('aria-disabled');
         }
         const isActive = !!onDemandVehiclesEnabled;
+        const isAuto = isActive && !!onDemandAutoEnabled;
         button.classList.toggle('is-active', isActive);
+        button.classList.toggle('is-auto', isAuto);
         button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
         const indicator = button.querySelector('.toggle-indicator');
         if (indicator) {
-          indicator.textContent = isActive ? 'On' : 'Off';
+          indicator.textContent = isAuto ? 'Auto' : (isActive ? 'On' : 'Off');
         }
       }
 
@@ -6285,6 +6308,7 @@ TM.registerVisibilityResumeHandler(() => {
           updateOnDemandButton();
           return;
         }
+        onDemandAutoEnabled = false;
         setOnDemandVehiclesEnabled(!onDemandVehiclesEnabled);
       }
 
@@ -6295,6 +6319,7 @@ TM.registerVisibilityResumeHandler(() => {
           return;
         }
         const newState = !onDemandVehiclesEnabled;
+        onDemandAutoEnabled = false;
         setOnDemandVehiclesEnabled(newState);
         setOnDemandStopsEnabled(newState);
       }
@@ -8723,34 +8748,46 @@ TM.registerVisibilityResumeHandler(() => {
         const validUnits = Array.isArray(units)
           ? units.filter(unit => unit && typeof unit.displayText === 'string' && unit.displayText.trim())
           : [];
-        if (!validUnits.length) return '';
-        const groups = buildIncidentUnitStatusGroups(validUnits);
-        if (!groups.length) return '';
-        const groupsHtml = groups.map(group => {
-          const unitsHtml = group.units.map(renderIncidentUnit).filter(Boolean).join('');
-          if (!unitsHtml) return '';
-          const safeLabel = escapeHtml(group.label);
-          return `<div class="incident-popup__unit-status-group"><div class="incident-popup__unit-status-title">${safeLabel}</div><div class="incident-popup__unit-list">${unitsHtml}</div></div>`;
-        }).filter(Boolean).join('');
-        if (!groupsHtml) return '';
-        return `<div class="incident-popup__section incident-popup__units"><div class="incident-popup__section-title">Units</div>${groupsHtml}</div>`;
+        const updNotified = !!(units && units.updNotified);
+        if (!validUnits.length && !updNotified) return '';
+        const updBadgeHtml = updNotified
+          ? `<div class="incident-popup__unit-list"><span class="incident-unit incident-unit--upd-notified">UPD Notified</span></div>`
+          : '';
+        let groupsHtml = '';
+        if (validUnits.length) {
+          const groups = buildIncidentUnitStatusGroups(validUnits);
+          groupsHtml = groups.map(group => {
+            const unitsHtml = group.units.map(renderIncidentUnit).filter(Boolean).join('');
+            if (!unitsHtml) return '';
+            const safeLabel = escapeHtml(group.label);
+            return `<div class="incident-popup__unit-status-group"><div class="incident-popup__unit-status-title">${safeLabel}</div><div class="incident-popup__unit-list">${unitsHtml}</div></div>`;
+          }).filter(Boolean).join('');
+        }
+        if (!groupsHtml && !updBadgeHtml) return '';
+        return `<div class="incident-popup__section incident-popup__units"><div class="incident-popup__section-title">Units</div>${groupsHtml}${updBadgeHtml}</div>`;
       }
 
       function renderIncidentAlertUnitsSection(units) {
         const validUnits = Array.isArray(units)
           ? units.filter(unit => unit && typeof unit.displayText === 'string' && unit.displayText.trim())
           : [];
-        if (!validUnits.length) return '';
-        const groups = buildIncidentUnitStatusGroups(validUnits);
-        if (!groups.length) return '';
-        const groupsHtml = groups.map(group => {
-          const unitsHtml = group.units.map(renderIncidentUnit).filter(Boolean).join('');
-          if (!unitsHtml) return '';
-          const safeLabel = escapeHtml(group.label);
-          return `<div class="incident-alert__unit-status-group"><div class="incident-alert__unit-status-title">${safeLabel}</div><div class="incident-alert__unit-list">${unitsHtml}</div></div>`;
-        }).filter(Boolean).join('');
-        if (!groupsHtml) return '';
-        return `<div class="incident-alert__units"><div class="incident-alert__units-label">Units</div>${groupsHtml}</div>`;
+        const updNotified = !!(units && units.updNotified);
+        if (!validUnits.length && !updNotified) return '';
+        const updBadgeHtml = updNotified
+          ? `<div class="incident-alert__unit-list"><span class="incident-unit incident-unit--upd-notified">UPD Notified</span></div>`
+          : '';
+        let groupsHtml = '';
+        if (validUnits.length) {
+          const groups = buildIncidentUnitStatusGroups(validUnits);
+          groupsHtml = groups.map(group => {
+            const unitsHtml = group.units.map(renderIncidentUnit).filter(Boolean).join('');
+            if (!unitsHtml) return '';
+            const safeLabel = escapeHtml(group.label);
+            return `<div class="incident-alert__unit-status-group"><div class="incident-alert__unit-status-title">${safeLabel}</div><div class="incident-alert__unit-list">${unitsHtml}</div></div>`;
+          }).filter(Boolean).join('');
+        }
+        if (!groupsHtml && !updBadgeHtml) return '';
+        return `<div class="incident-alert__units"><div class="incident-alert__units-label">Units</div>${groupsHtml}${updBadgeHtml}</div>`;
       }
 
       function renderIncidentAlertItem(entry) {
@@ -9804,7 +9841,6 @@ TM.registerVisibilityResumeHandler(() => {
             <div class="selector-header">
               <div class="selector-header-text">
                 <div class="selector-title">System Controls</div>
-                <div class="selector-subtitle">Choose a transit system and label style.</div>
               </div>
               ${logoHtml}
             </div>
@@ -9824,8 +9860,7 @@ TM.registerVisibilityResumeHandler(() => {
               <div class="selector-header">
                 <div class="selector-header-text">
                   <div class="selector-title">System Controls</div>
-                  <div class="selector-subtitle">Choose a transit system and label style.</div>
-                </div>
+                  </div>
               </div>
               <div class="selector-content">
                 ${contentHtml}
