@@ -2328,6 +2328,201 @@ async def adsb_proxy(request: Request, lat: Optional[str] = None, lon: Optional[
     return JSONResponse(content=payload, status_code=upstream_resp.status_code, headers=cors_headers)
 
 # ---------------------------
+# OpenSky track proxy
+# ---------------------------
+
+OPENSKY_TRACK_URL = "https://opensky-network.org/api/tracks/all"
+opensky_track_cache: Dict[str, Tuple[float, Any]] = {}
+opensky_track_cache_lock = asyncio.Lock()
+OPENSKY_TRACK_CACHE_TTL_S = 30.0
+
+@app.api_route("/api/opensky/track", methods=["GET", "OPTIONS"])
+async def opensky_track_proxy(request: Request, icao24: Optional[str] = None):
+    cors_headers = ADSB_CORS_HEADERS.copy()
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=cors_headers)
+    if not icao24 or not icao24.strip():
+        raise HTTPException(status_code=400, detail="icao24 is required", headers=cors_headers)
+    icao24 = icao24.strip().lower()
+    now = time.time()
+    async with opensky_track_cache_lock:
+        cached = opensky_track_cache.get(icao24)
+        if cached and now - cached[0] < OPENSKY_TRACK_CACHE_TTL_S:
+            return JSONResponse(content=cached[1], status_code=200, headers=cors_headers)
+    try:
+        async with httpx.AsyncClient() as client:
+            upstream_resp = await client.get(
+                OPENSKY_TRACK_URL,
+                params={"icao24": icao24, "time": 0},
+                timeout=10,
+                headers={"User-Agent": "UTS-OpsBoard/1.0"},
+            )
+            record_api_call("GET", OPENSKY_TRACK_URL, upstream_resp.status_code)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="upstream request failed", headers=cors_headers) from exc
+    try:
+        payload = upstream_resp.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="invalid upstream response", headers=cors_headers) from exc
+    async with opensky_track_cache_lock:
+        opensky_track_cache[icao24] = (time.time(), payload)
+    return JSONResponse(content=payload, status_code=upstream_resp.status_code, headers=cors_headers)
+
+# ---------------------------
+# OpenSky positions proxy
+# ---------------------------
+
+OPENSKY_STATES_URL = "https://opensky-network.org/api/states/all"
+opensky_states_cache: Dict[str, Tuple[float, Any]] = {}
+opensky_states_cache_lock = asyncio.Lock()
+OPENSKY_STATES_CACHE_TTL_S = 15.0
+
+_OPENSKY_SOURCE_TYPES: Dict[int, str] = {0: "adsb_icao", 1: "asterix", 2: "mlat", 3: "flarm"}
+
+
+def _opensky_states_bbox(lat: float, lon: float, dist_nm: float) -> Dict[str, float]:
+    dist_m = dist_nm * 1852.0
+    lat_delta = dist_m / 111320.0
+    lon_delta = dist_m / (111320.0 * math.cos(math.radians(max(-89.9, min(89.9, lat)))))
+    return {
+        "lamin": lat - lat_delta,
+        "lamax": lat + lat_delta,
+        "lomin": lon - lon_delta,
+        "lomax": lon + lon_delta,
+    }
+
+
+def _opensky_state_to_row(sv: list) -> Optional[Dict[str, Any]]:
+    if not sv or len(sv) < 17:
+        return None
+    icao24    = sv[0]
+    callsign  = sv[1]
+    lon_val   = sv[5]
+    lat_val   = sv[6]
+    baro_alt  = sv[7]
+    on_ground = sv[8]
+    velocity  = sv[9]
+    track_deg = sv[10]
+    vert_rate = sv[11]
+    geo_alt   = sv[13]
+    squawk    = sv[14]
+    pos_src   = sv[16]
+    if not isinstance(lat_val, (int, float)) or not isinstance(lon_val, (int, float)):
+        return None
+    row: Dict[str, Any] = {
+        "hex": icao24,
+        "lat": lat_val,
+        "lon": lon_val,
+        "type": _OPENSKY_SOURCE_TYPES.get(pos_src if isinstance(pos_src, int) else 0, "adsb_icao"),
+    }
+    if callsign and isinstance(callsign, str) and callsign.strip():
+        row["flight"] = callsign.strip()
+    if on_ground:
+        row["alt_baro"] = "ground"
+    elif isinstance(baro_alt, (int, float)):
+        row["alt_baro"] = round(baro_alt * 3.28084)
+    if isinstance(geo_alt, (int, float)):
+        row["alt_geom"] = round(geo_alt * 3.28084)
+    if isinstance(velocity, (int, float)):
+        row["gs"] = round(velocity * 1.94384, 1)
+    if isinstance(track_deg, (int, float)):
+        row["track"] = track_deg
+    if isinstance(vert_rate, (int, float)):
+        row["baro_rate"] = round(vert_rate * 196.85)
+    if squawk and isinstance(squawk, str):
+        row["squawk"] = squawk
+    return row
+
+
+@app.api_route("/api/opensky/positions", methods=["GET", "OPTIONS"])
+async def opensky_positions_proxy(
+    request: Request,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    dist: Optional[float] = None,
+):
+    cors_headers = ADSB_CORS_HEADERS.copy()
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=cors_headers)
+    if lat is None or lon is None:
+        raise HTTPException(status_code=400, detail="lat and lon are required", headers=cors_headers)
+    dist_nm = min(float(dist) if dist and dist > 0 else 25.0, 250.0)
+    bbox = _opensky_states_bbox(lat, lon, dist_nm)
+    cache_key = f"{round(lat, 3)},{round(lon, 3)},{round(dist_nm, 1)}"
+    now = time.time()
+    async with opensky_states_cache_lock:
+        cached = opensky_states_cache.get(cache_key)
+        if cached and now - cached[0] < OPENSKY_STATES_CACHE_TTL_S:
+            return JSONResponse(content=cached[1], status_code=200, headers=cors_headers)
+    try:
+        async with httpx.AsyncClient() as client:
+            upstream_resp = await client.get(
+                OPENSKY_STATES_URL,
+                params=bbox,
+                timeout=15,
+                headers={"User-Agent": "UTS-OpsBoard/1.0"},
+            )
+            record_api_call("GET", OPENSKY_STATES_URL, upstream_resp.status_code)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="upstream request failed", headers=cors_headers) from exc
+    if upstream_resp.status_code != 200:
+        raise HTTPException(status_code=upstream_resp.status_code, detail="upstream error", headers=cors_headers)
+    try:
+        data = upstream_resp.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="invalid upstream response", headers=cors_headers) from exc
+    states = (data.get("states") or []) if isinstance(data, dict) else []
+    aircraft = [r for sv in states for r in [_opensky_state_to_row(sv)] if r is not None]
+    payload: Dict[str, Any] = {"aircraft": aircraft, "time": data.get("time") if isinstance(data, dict) else None}
+    async with opensky_states_cache_lock:
+        opensky_states_cache[cache_key] = (time.time(), payload)
+    return JSONResponse(content=payload, status_code=200, headers=cors_headers)
+
+
+# ---------------------------
+# adsb.fi per-aircraft metadata proxy
+# ---------------------------
+
+ADSBFI_ICAO_URL_TMPL = "https://opendata.adsb.fi/api/v2/icao/{hex}"
+adsbfi_meta_cache: Dict[str, Tuple[float, Any]] = {}
+adsbfi_meta_cache_lock = asyncio.Lock()
+ADSBFI_META_CACHE_TTL_S = 60.0
+
+
+@app.api_route("/api/adsbfi/aircraft", methods=["GET", "OPTIONS"])
+async def adsbfi_aircraft_proxy(request: Request, icao24: Optional[str] = None):
+    cors_headers = ADSB_CORS_HEADERS.copy()
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=cors_headers)
+    if not icao24 or not icao24.strip():
+        raise HTTPException(status_code=400, detail="icao24 is required", headers=cors_headers)
+    hex_lower = icao24.strip().lower()
+    now = time.time()
+    async with adsbfi_meta_cache_lock:
+        cached = adsbfi_meta_cache.get(hex_lower)
+        if cached and now - cached[0] < ADSBFI_META_CACHE_TTL_S:
+            return JSONResponse(content=cached[1], status_code=200, headers=cors_headers)
+    url = ADSBFI_ICAO_URL_TMPL.format(hex=hex_lower)
+    try:
+        async with httpx.AsyncClient() as client:
+            upstream_resp = await client.get(
+                url,
+                timeout=10,
+                headers={"User-Agent": "UTS-OpsBoard/1.0"},
+            )
+            record_api_call("GET", url, upstream_resp.status_code)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="upstream request failed", headers=cors_headers) from exc
+    try:
+        payload = upstream_resp.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="invalid upstream response", headers=cors_headers) from exc
+    async with adsbfi_meta_cache_lock:
+        adsbfi_meta_cache[hex_lower] = (time.time(), payload)
+    return JSONResponse(content=payload, status_code=upstream_resp.status_code, headers=cors_headers)
+
+
+# ---------------------------
 # Sync endpoint
 # ---------------------------
 

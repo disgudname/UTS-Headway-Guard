@@ -3026,3 +3026,179 @@
         font-size: 13px;
       }
 
+      /* Aircraft popup — uses .custom-popup wrapper, same as incident/tomtom popups */
+      .aircraft-popup {
+        min-width: 240px;
+        max-width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        color: #f8fafc;
+        white-space: normal;
+      }
+      .aircraft-popup__emergency {
+        background: #c0392b;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-align: center;
+        padding: 4px 10px;
+        margin: -12px -14px 0;
+        border-radius: 14px 14px 0 0;
+      }
+      .aircraft-popup__header {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .aircraft-popup__icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: inset 0 0 0 1px rgba(15,23,42,0.08), 0 8px 16px rgba(15,23,42,0.3);
+      }
+      .aircraft-popup__icon .ti {
+        font-size: 26px;
+        color: rgba(15,23,42,0.72);
+      }
+      .aircraft-popup__title-block {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding-top: 2px;
+      }
+      .aircraft-popup__callsign {
+        font-size: 18px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 1.4px;
+        line-height: 1.1;
+      }
+      .aircraft-popup__callsign--none {
+        font-style: italic;
+        opacity: 0.5;
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 15px;
+      }
+      .aircraft-popup__badges {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+      }
+      .aircraft-popup__badge {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        border: 1px solid rgba(148,163,184,0.4);
+        background: rgba(15,23,42,0.5);
+        color: rgba(248,250,252,0.9);
+      }
+      .aircraft-popup__badge--reg {
+        background: rgba(126,184,240,0.15);
+        border-color: rgba(126,184,240,0.45);
+        color: #9ecff7;
+      }
+      .aircraft-popup__badge--military {
+        background: rgba(180,120,60,0.2);
+        border-color: rgba(200,150,80,0.5);
+        color: #d4a85a;
+      }
+      .aircraft-popup__badge--dim {
+        background: transparent;
+        border-color: rgba(148,163,184,0.25);
+        color: rgba(248,250,252,0.4);
+      }
+      .aircraft-popup__callsign--hex {
+        font-size: 15px;
+        letter-spacing: 0.12em;
+        font-family: monospace;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      .aircraft-popup__type-line {
+        font-size: 12px;
+        color: rgba(248,250,252,0.6);
+        line-height: 1.35;
+        white-space: normal;
+      }
+      .aircraft-popup__divider {
+        height: 1px;
+        background: rgba(255,255,255,0.13);
+      }
+      .aircraft-popup__stats {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .aircraft-popup__stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+      }
+      .aircraft-popup__stat-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 700;
+        color: rgba(255,255,255,0.5);
+        white-space: nowrap;
+      }
+      .aircraft-popup__stat-value {
+        font-size: 13px;
+        color: #f8fafc;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+      .aircraft-popup__climb-up   { color: #6ddba8; }
+      .aircraft-popup__climb-down { color: #f08080; }
+      .aircraft-popup__squawk-alert { color: #f0b040; font-weight: 800; }
+      .aircraft-popup__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px 8px;
+        font-size: 11px;
+        color: rgba(255,255,255,0.42);
+        padding-bottom: 4px;
+      }
+      .aircraft-popup__meta-item { white-space: nowrap; }
+      .aircraft-popup__actions {
+        display: flex;
+        gap: 6px;
+        padding-bottom: 4px;
+      }
+      .aircraft-popup__pin-btn {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(148,163,184,0.4);
+        background: rgba(15,23,42,0.5);
+        color: rgba(248,250,252,0.85);
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .aircraft-popup__pin-btn:hover:not(:disabled) {
+        background: rgba(126,184,240,0.2);
+        border-color: rgba(126,184,240,0.5);
+        color: #9ecff7;
+      }
+      .aircraft-popup__pin-btn--active {
+        background: rgba(126,184,240,0.18);
+        border-color: rgba(126,184,240,0.5);
+        color: #9ecff7;
+        cursor: default;
+      }
+

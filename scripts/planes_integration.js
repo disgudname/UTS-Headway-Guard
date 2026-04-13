@@ -55,6 +55,12 @@
     lastFetchCenter: null,
     lastFetchRadiusNM: DEFAULT_RADIUS_NM,
     pendingRotationRefresh: false,
+    selectedAircraftId: null,
+    aircraftPopupEl: null,
+    aircraftPopupLatLng: null,
+    aircraftPopupMoveCleanup: null,
+    pinnedTrackId: null,
+    trackPolyline: null,
   };
   function isLeafletMap(map) {
     return typeof global.L !== 'undefined' && map && typeof global.L.marker === 'function';
@@ -296,6 +302,350 @@
     const altBaro = toFiniteNumber(row.alt_baro);
     if (Number.isFinite(altBaro)) return altBaro;
     return NaN;
+  }
+
+  function fmtAlt(row) {
+    const baro = toFiniteNumber(row && row.alt_baro);
+    if (row && row.alt_baro === 'ground') return 'Ground';
+    if (Number.isFinite(baro)) return baro.toLocaleString() + ' ft';
+    return null;
+  }
+
+  function fmtSpeed(row) {
+    const gs = toFiniteNumber(row && row.gs);
+    if (Number.isFinite(gs)) return Math.round(gs) + ' kt';
+    return null;
+  }
+
+  function fmtVRate(row) {
+    let rate = toFiniteNumber(row && row.baro_rate);
+    if (!Number.isFinite(rate)) rate = toFiniteNumber(row && row.geom_rate);
+    if (!Number.isFinite(rate)) return null;
+    const sign = rate >= 0 ? '+' : '';
+    return sign + rate.toLocaleString() + ' fpm';
+  }
+
+  function fmtSquawk(row) {
+    const sq = row && typeof row.squawk === 'string' ? row.squawk.trim() : '';
+    return sq || null;
+  }
+
+  function buildAircraftPopupHTML(row) {
+    if (!row) return '';
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const callsign  = (typeof row.flight === 'string' ? row.flight.trim() : '') || null;
+    const reg       = (typeof row.r === 'string' ? row.r.trim() : '') || null;
+    const typeCode  = (typeof row.t === 'string' ? row.t.trim() : '') || null;
+    const desc      = (typeof row.desc === 'string' ? row.desc.trim() : '') || null;
+    const operator  = (typeof row.ownOp === 'string' ? row.ownOp.trim() : '') || null;
+    const year      = (typeof row.year === 'string' ? row.year.trim() : '') || null;
+    const rawHex    = (typeof row.hex === 'string' ? row.hex.trim() : '') || null;
+    const hex       = rawHex ? rawHex.toUpperCase() : null;
+    const emergency = (typeof row.emergency === 'string' && row.emergency !== 'none') ? row.emergency : null;
+    const squawk    = fmtSquawk(row);
+    const alt       = fmtAlt(row);
+    const spd       = fmtSpeed(row);
+    const vrate     = fmtVRate(row);
+    const srcType   = (typeof row.type === 'string' ? row.type.replace(/_/g, ' ') : '') || null;
+    const dbFlags   = typeof row.dbFlags === 'number' ? row.dbFlags : 0;
+
+    // Derived flags
+    const isMilitary  = !!(dbFlags & 1);
+    const isPIA       = !!(dbFlags & 4);   // Privacy ICAO Address — no DB info by design
+    const isLADD      = !!(dbFlags & 8);   // FAA-restricted display
+    const isSynthHex  = rawHex && rawHex.startsWith('~'); // TIS-B / track-file, no real ICAO
+
+    // Primary display label: callsign > reg > hex > "Unknown"
+    const primaryLabel = callsign || reg || (hex && !isSynthHex ? hex : null) || 'Unknown';
+    const primaryIsCallsign = !!callsign;
+    const primaryIsReg      = !callsign && !!reg;
+    const primaryIsHex      = !callsign && !reg;
+
+    const isEmergencySquawk = squawk === '7700' || squawk === '7600' || squawk === '7500';
+    const typeLabel = desc
+      ? `${esc(desc)}${typeCode ? ` (${esc(typeCode)})` : ''}`
+      : (typeCode ? esc(typeCode) : '');
+    const climbClass = vrate
+      ? (vrate.startsWith('+') ? ' aircraft-popup__climb-up' : ' aircraft-popup__climb-down')
+      : '';
+
+    // Badges row under the primary label
+    const badges = [];
+    if (primaryIsCallsign && reg)         badges.push(`<span class="aircraft-popup__badge aircraft-popup__badge--reg">${esc(reg)}</span>`);
+    if (primaryIsCallsign && typeCode)    badges.push(`<span class="aircraft-popup__badge">${esc(typeCode)}</span>`);
+    if (primaryIsReg && typeCode)         badges.push(`<span class="aircraft-popup__badge">${esc(typeCode)}</span>`);
+    if (primaryIsHex && hex && !isSynthHex) { /* hex is already the primary label, skip badge */ }
+    if (isMilitary)  badges.push(`<span class="aircraft-popup__badge aircraft-popup__badge--military">Military</span>`);
+    if (isPIA)       badges.push(`<span class="aircraft-popup__badge aircraft-popup__badge--dim">Privacy addr</span>`);
+    if (isLADD)      badges.push(`<span class="aircraft-popup__badge aircraft-popup__badge--dim">LADD</span>`);
+    if (isSynthHex)  badges.push(`<span class="aircraft-popup__badge aircraft-popup__badge--dim">No transponder</span>`);
+    const badgesHTML = badges.length
+      ? `<div class="aircraft-popup__badges">${badges.join('')}</div>`
+      : '';
+
+    let statRows = '';
+    if (alt)    statRows += `<div class="aircraft-popup__stat"><span class="aircraft-popup__stat-label">Altitude</span><span class="aircraft-popup__stat-value">${esc(alt)}</span></div>`;
+    if (spd)    statRows += `<div class="aircraft-popup__stat"><span class="aircraft-popup__stat-label">Speed</span><span class="aircraft-popup__stat-value">${esc(spd)}</span></div>`;
+    if (vrate)  statRows += `<div class="aircraft-popup__stat"><span class="aircraft-popup__stat-label">Climb</span><span class="aircraft-popup__stat-value${climbClass}">${esc(vrate)}</span></div>`;
+    if (squawk) statRows += `<div class="aircraft-popup__stat"><span class="aircraft-popup__stat-label">Squawk</span><span class="aircraft-popup__stat-value${isEmergencySquawk ? ' aircraft-popup__squawk-alert' : ''}">${esc(squawk)}</span></div>`;
+
+    const metaParts = [];
+    if (operator) metaParts.push(esc(operator));
+    if (year)     metaParts.push(`Mfr ${esc(year)}`);
+    // Show ICAO hex in meta only if it wasn't used as the primary label
+    if (hex && !isSynthHex && !primaryIsHex) metaParts.push(`ICAO ${esc(hex)}`);
+    if (srcType)  metaParts.push(esc(srcType));
+
+    const emergencyBanner = emergency
+      ? `<div class="aircraft-popup__emergency">${esc(emergency.toUpperCase())}</div>`
+      : '';
+
+    const isPinned = state.pinnedTrackId === rawHex;
+    const pinBtn = `<button class="aircraft-popup__pin-btn${isPinned ? ' aircraft-popup__pin-btn--active' : ''}"${isPinned ? ' disabled' : ''}>${isPinned ? 'Track pinned' : 'Pin track'}</button>`;
+
+    const primaryClass = `aircraft-popup__callsign${primaryIsHex ? ' aircraft-popup__callsign--hex' : ''}`;
+
+    return `<button class="custom-popup-close">&times;</button>${emergencyBanner}<div class="aircraft-popup"><div class="aircraft-popup__header"><div class="aircraft-popup__icon"><i class="ti ti-plane-inflight"></i></div><div class="aircraft-popup__title-block"><div class="${primaryClass}">${esc(primaryLabel)}</div>${badgesHTML}</div></div>${typeLabel ? `<div class="aircraft-popup__type-line">${typeLabel}</div>` : ''}${statRows ? `<div class="aircraft-popup__divider"></div><div class="aircraft-popup__stats">${statRows}</div>` : ''}${metaParts.length ? `<div class="aircraft-popup__divider"></div><div class="aircraft-popup__meta">${metaParts.map(p => `<span class="aircraft-popup__meta-item">${p}</span>`).join('')}</div>` : ''}<div class="aircraft-popup__divider"></div><div class="aircraft-popup__actions">${pinBtn}</div></div><div class="custom-popup-arrow"></div>`;
+  }
+
+  function updateAircraftPopupPosition() {
+    const el = state.aircraftPopupEl;
+    const latlng = state.aircraftPopupLatLng;
+    if (!el || !latlng || !state.map) return;
+    if (typeof state.map.latLngToContainerPoint !== 'function') return;
+    const mapContainer = typeof state.map.getContainer === 'function' ? state.map.getContainer() : null;
+    if (!mapContainer || typeof mapContainer.getBoundingClientRect !== 'function') return;
+    const mapRect = mapContainer.getBoundingClientRect();
+    const pt = state.map.latLngToContainerPoint(latlng);
+    el.style.left = `${mapRect.left + pt.x}px`;
+    el.style.top  = `${mapRect.top  + pt.y}px`;
+  }
+
+  function centerAircraftPopupOnMap() {
+    const el = state.aircraftPopupEl;
+    if (!el || !state.map || typeof state.map.panBy !== 'function') return;
+    const mapContainer = typeof state.map.getContainer === 'function' ? state.map.getContainer() : null;
+    if (!mapContainer) return;
+    const mapRect   = mapContainer.getBoundingClientRect();
+    const popupRect = el.getBoundingClientRect();
+    if (!mapRect.width || !mapRect.height || !popupRect.width || !popupRect.height) return;
+    const dx = (popupRect.left - mapRect.left + popupRect.width  / 2) - mapRect.width  / 2;
+    const dy = (popupRect.top  - mapRect.top  + popupRect.height / 2) - mapRect.height / 2;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    state.map.panBy([dx, dy], { animate: true, duration: 0.35, easeLinearity: 0.25 });
+  }
+
+  function openAircraftPopup(id, lat, lon, row) {
+    closeAircraftPopup();
+    state.selectedAircraftId = id;
+    state.aircraftPopupLatLng = [lat, lon];
+
+    const el = typeof document !== 'undefined' ? document.createElement('div') : null;
+    if (!el) return;
+    el.className = 'custom-popup';
+    el.dataset.position = `${lat},${lon}`;
+    el.innerHTML = buildAircraftPopupHTML(row);
+    document.body.appendChild(el);
+    state.aircraftPopupEl = el;
+
+    const closeBtn = el.querySelector('.custom-popup-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeAircraftPopup);
+
+    const pinBtn = el.querySelector('.aircraft-popup__pin-btn');
+    if (pinBtn) pinBtn.addEventListener('click', () => pinTrack(id));
+
+    renderTrackPolyline(id);
+    updateAircraftPopupPosition();
+    // Fetch full flight track and rich metadata in the background
+    const hex = row && typeof row.hex === 'string' ? row.hex : null;
+    if (hex) {
+      fetchAndMergeOpenSkyTrack(id, hex);
+      fetchAircraftMetadata(id, hex);
+    }
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(centerAircraftPopupOnMap);
+    } else {
+      centerAircraftPopupOnMap();
+    }
+
+    if (state.map && typeof state.map.on === 'function') {
+      const onMove = () => updateAircraftPopupPosition();
+      state.map.on('zoom move zoomend moveend', onMove);
+      state.aircraftPopupMoveCleanup = () => {
+        if (state.map && typeof state.map.off === 'function') {
+          state.map.off('zoom move zoomend moveend', onMove);
+        }
+      };
+    }
+  }
+
+  function closeAircraftPopup() {
+    if (state.aircraftPopupMoveCleanup) {
+      state.aircraftPopupMoveCleanup();
+      state.aircraftPopupMoveCleanup = null;
+    }
+    if (state.aircraftPopupEl) {
+      state.aircraftPopupEl.remove();
+      state.aircraftPopupEl = null;
+    }
+    state.aircraftPopupLatLng = null;
+    const closingId = state.selectedAircraftId;
+    state.selectedAircraftId = null;
+    // Only remove the track if this aircraft's track isn't pinned
+    if (closingId !== state.pinnedTrackId) {
+      removeTrackPolyline();
+    }
+  }
+
+  function refreshOpenPopup(id, lat, lon, row) {
+    // Refresh pinned track even if popup is closed
+    if (id === state.pinnedTrackId && state.trackPolyline) {
+      renderTrackPolyline(id);
+    }
+    if (state.selectedAircraftId !== id || !state.aircraftPopupEl) return;
+    state.aircraftPopupLatLng = [lat, lon];
+    state.aircraftPopupEl.dataset.position = `${lat},${lon}`;
+    updateAircraftPopupPosition();
+    // Also refresh track for selected (non-pinned) aircraft
+    if (id !== state.pinnedTrackId) {
+      renderTrackPolyline(id);
+    }
+    const inner = state.aircraftPopupEl.querySelector('.aircraft-popup');
+    if (inner) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildAircraftPopupHTML(row);
+      const updated = tmp.querySelector('.aircraft-popup');
+      if (updated) {
+        inner.replaceWith(updated);
+        const pinBtn = state.aircraftPopupEl.querySelector('.aircraft-popup__pin-btn');
+        if (pinBtn) pinBtn.addEventListener('click', () => pinTrack(id));
+      }
+    }
+  }
+
+  function renderTrackPolyline(id) {
+    removeTrackPolyline();
+    if (!isLeafletMap(state.map) || !global.L) return;
+    const entry = state.markers.get(id);
+    if (!entry || !entry.track || entry.track.length < 2) return;
+    const polyline = global.L.polyline(entry.track, {
+      color: '#7eb8f0',
+      weight: 2,
+      opacity: 0.75,
+      dashArray: '5 4',
+      pane: state.leafletPaneName || undefined,
+      interactive: false,
+    });
+    if (state.markerLayer && typeof state.markerLayer.addLayer === 'function') {
+      state.markerLayer.addLayer(polyline);
+    } else if (typeof polyline.addTo === 'function') {
+      polyline.addTo(state.map);
+    }
+    state.trackPolyline = polyline;
+  }
+
+  async function fetchAndMergeOpenSkyTrack(id, hex) {
+    if (!hex) return;
+    const url = `/api/opensky/track?icao24=${encodeURIComponent(hex.toLowerCase())}`;
+    try {
+      const resp = await fetch(url, { cache: 'no-store' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const path = data && Array.isArray(data.path) ? data.path : null;
+      if (!path || path.length < 2) return;
+      // path entries: [unix_ts, lat, lon, alt_m, heading, on_ground]
+      const entry = state.markers.get(id);
+      if (!entry) return;
+      const historical = path
+        .filter(p => Array.isArray(p) && p.length >= 3 && Number.isFinite(p[1]) && Number.isFinite(p[2]))
+        .map(p => [p[1], p[2]]);
+      // Merge: historical points go first, then any live points already accumulated
+      // that are newer than the last historical timestamp
+      const lastHistTs = path[path.length - 1][0];
+      const livePts = (entry.trackTimestamps || [])
+        .map((ts, i) => ({ ts, pt: entry.track[i] }))
+        .filter(x => x.ts > lastHistTs)
+        .map(x => x.pt);
+      entry.track = historical.concat(livePts);
+      // If this aircraft is currently selected or pinned, refresh the polyline
+      if (state.selectedAircraftId === id || state.pinnedTrackId === id) {
+        renderTrackPolyline(id);
+      }
+    } catch (e) {
+      // Silently ignore - fall back to live accumulation
+    }
+  }
+
+  async function fetchAircraftMetadata(id, hex) {
+    if (!hex || hex.startsWith('~')) return; // no real ICAO — nothing to look up
+    const url = `/api/adsbfi/aircraft?icao24=${encodeURIComponent(hex.toLowerCase())}`;
+    try {
+      const resp = await fetch(url, { cache: 'no-store' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      // adsb.fi /v2/icao/{hex} returns { aircraft: [...] }
+      const ac = data && Array.isArray(data.aircraft) ? data.aircraft[0] : null;
+      if (!ac) return;
+      const entry = state.markers.get(id);
+      if (!entry) return;
+      // Merge metadata fields that OpenSky doesn't supply into the live row
+      const metaFields = ['r', 't', 'desc', 'ownOp', 'year', 'dbFlags'];
+      let changed = false;
+      for (const field of metaFields) {
+        if (ac[field] !== undefined && ac[field] !== null) {
+          entry.row[field] = ac[field];
+          changed = true;
+        }
+      }
+      if (changed && (state.selectedAircraftId === id || state.pinnedTrackId === id)) {
+        refreshOpenPopup(id, entry.lat, entry.lon, entry.row);
+      }
+    } catch (e) {
+      // silently ignore
+    }
+  }
+
+  function removeTrackPolyline() {
+    if (!state.trackPolyline) return;
+    try {
+      if (typeof state.trackPolyline.remove === 'function') {
+        state.trackPolyline.remove();
+      } else if (state.map && typeof state.map.removeLayer === 'function') {
+        state.map.removeLayer(state.trackPolyline);
+      }
+    } catch (e) { /* ignore */ }
+    state.trackPolyline = null;
+  }
+
+  function pinTrack(id) {
+    state.pinnedTrackId = id;
+    // Update popup button state
+    if (state.aircraftPopupEl) {
+      const btn = state.aircraftPopupEl.querySelector('.aircraft-popup__pin-btn');
+      if (btn) {
+        btn.textContent = 'Track pinned';
+        btn.classList.add('aircraft-popup__pin-btn--active');
+        btn.disabled = true;
+      }
+    }
+  }
+
+  function updateTrackForEntry(entry, lat, lon) {
+    if (!entry.track) entry.track = [];
+    if (!entry.trackTimestamps) entry.trackTimestamps = [];
+    const last = entry.track[entry.track.length - 1];
+    // Only append if position changed by at least ~10m
+    if (!last || metersBetween(last[0], last[1], lat, lon) > 10) {
+      const ts = Math.floor(Date.now() / 1000);
+      entry.track.push([lat, lon]);
+      entry.trackTimestamps.push(ts);
+      if (entry.track.length > 500) {
+        entry.track.shift();
+        entry.trackTimestamps.shift();
+      }
+    }
   }
 
   function computeFillColor(row, altitudeInfo) {
@@ -698,12 +1048,14 @@
     if (!id) return;
     let entry = state.markers.get(id);
     if (!entry) {
-      entry = { marker: null, iconKey: null, lastSeen: timestamp, lat, lon };
+      entry = { marker: null, iconKey: null, lastSeen: timestamp, lat, lon, row };
       state.markers.set(id, entry);
     }
     entry.lastSeen = timestamp;
     entry.lat = lat;
     entry.lon = lon;
+    entry.row = row;
+    updateTrackForEntry(entry, lat, lon);
 
     if (!isLeafletMap(state.map)) {
       return;
@@ -715,7 +1067,7 @@
     }
 
     const rotationDeg = Number.isFinite(iconInfo.headingDeg) ? iconInfo.headingDeg : 0;
-    const markerOptions = { icon: leafletIcon, interactive: false };
+    const markerOptions = { icon: leafletIcon, interactive: true };
     if (state.leafletPaneName) {
       markerOptions.pane = state.leafletPaneName;
     }
@@ -727,6 +1079,11 @@
       } else if (typeof marker.addTo === 'function') {
         marker.addTo(state.map);
       }
+      marker.on('click', () => {
+        const currentEntry = state.markers.get(id);
+        const r = currentEntry ? currentEntry.row : row;
+        openAircraftPopup(id, currentEntry ? currentEntry.lat : lat, currentEntry ? currentEntry.lon : lon, r);
+      });
       entry.marker = marker;
       entry.iconKey = iconInfo.iconKey;
       entry.rotationDeg = rotationDeg;
@@ -748,6 +1105,8 @@
     }
     entry.rotationDeg = rotationDeg;
     scheduleLeafletMarkerRotation(entry.marker, rotationDeg);
+
+    refreshOpenPopup(id, lat, lon, row);
   }
 
   async function doFetch(reason) {
@@ -945,6 +1304,9 @@
     },
     dispose() {
       PlaneLayer.stop();
+      state.pinnedTrackId = null;
+      closeAircraftPopup();
+      removeTrackPolyline();
       removeAllMapListeners();
       state.markers.forEach(entry => removeMarkerEntry(entry));
       state.markers.clear();

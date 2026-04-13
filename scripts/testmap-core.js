@@ -68,7 +68,7 @@ window.TestMap = window.TestMap || {};
     // GLOBAL CONFIGURATION
     // ============================================================
 
-    window.ADSB_PROXY_ENDPOINT = window.ADSB_PROXY_ENDPOINT || '/adsb';
+    window.ADSB_PROXY_ENDPOINT = window.ADSB_PROXY_ENDPOINT || '/api/opensky/positions';
 
     // Plane style configuration
     function applyPlaneStyleOptions() {
