@@ -402,7 +402,7 @@
       : '';
 
     const isPinned = state.pinnedTrackId === rawHex;
-    const pinBtn = `<button class="aircraft-popup__pin-btn${isPinned ? ' aircraft-popup__pin-btn--active' : ''}"${isPinned ? ' disabled' : ''}>${isPinned ? 'Track pinned' : 'Pin track'}</button>`;
+    const pinBtn = `<button class="aircraft-popup__pin-btn${isPinned ? ' aircraft-popup__pin-btn--active' : ''}">${isPinned ? 'Unpin track' : 'Pin track'}</button>`;
 
     const primaryClass = `aircraft-popup__callsign${primaryIsHex ? ' aircraft-popup__callsign--hex' : ''}`;
 
@@ -620,14 +620,30 @@
   }
 
   function pinTrack(id) {
-    state.pinnedTrackId = id;
-    // Update popup button state
-    if (state.aircraftPopupEl) {
-      const btn = state.aircraftPopupEl.querySelector('.aircraft-popup__pin-btn');
-      if (btn) {
-        btn.textContent = 'Track pinned';
-        btn.classList.add('aircraft-popup__pin-btn--active');
-        btn.disabled = true;
+    if (state.pinnedTrackId === id) {
+      // Unpin
+      state.pinnedTrackId = null;
+      if (state.aircraftPopupEl) {
+        const btn = state.aircraftPopupEl.querySelector('.aircraft-popup__pin-btn');
+        if (btn) {
+          btn.textContent = 'Pin track';
+          btn.classList.remove('aircraft-popup__pin-btn--active');
+          btn.disabled = false;
+        }
+      }
+      // If popup is also closed, remove the dangling polyline
+      if (!state.selectedAircraftId) {
+        removeTrackPolyline();
+      }
+    } else {
+      state.pinnedTrackId = id;
+      if (state.aircraftPopupEl) {
+        const btn = state.aircraftPopupEl.querySelector('.aircraft-popup__pin-btn');
+        if (btn) {
+          btn.textContent = 'Unpin track';
+          btn.classList.add('aircraft-popup__pin-btn--active');
+          btn.disabled = false;
+        }
       }
     }
   }
