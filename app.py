@@ -1455,6 +1455,7 @@ FULLBUS_HTML = _load_html("fullbus.html")
 OFFLINE_HTML = _load_html("offline.html")
 INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
+OVERLAP_DEMO_HTML = _load_html("overlap-demo.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -11591,6 +11592,11 @@ async def eink_block_page():
 @app.get("/vdot-cams")
 async def vdot_cams_page():
     return HTMLResponse(VDOT_CAMS_HTML)
+
+
+@app.get("/overlap-demo")
+async def overlap_demo_page():
+    return HTMLResponse(OVERLAP_DEMO_HTML)
 
 
 @app.get("/api/wv511/stream/{cam_id:path}")
