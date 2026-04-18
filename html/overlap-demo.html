@@ -6,7 +6,7 @@
   <title>Overlap Route Renderer Demo</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/rbush@2.0.2/rbush.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
@@ -64,8 +64,19 @@ function decodePolyline(encoded) {
 function createSpatialIndex(options = {}) {
   if (typeof rbush === 'function') { try { return rbush(options.maxEntries); } catch(e) {} }
   if (typeof RBush === 'function') { try { return new RBush(options.maxEntries); } catch(e) {} }
-  console.error('RBush not available');
-  return null;
+  // Brute-force fallback — slower but always works
+  console.warn('RBush unavailable, using brute-force spatial index');
+  return {
+    _items: [],
+    load(items) { this._items = this._items.concat(items); },
+    search(bbox) {
+      return this._items.filter(i =>
+        i.minX <= bbox.maxX && i.maxX >= bbox.minX &&
+        i.minY <= bbox.maxY && i.maxY >= bbox.minY
+      );
+    },
+    clear() { this._items = []; }
+  };
 }
 
 // ─── Route color registry ─────────────────────────────────────────────────────
@@ -522,7 +533,8 @@ async function loadLive() {
     allRoutes.clear(); routeColorMap.clear(); hiddenRoutes.clear();
     loaded.forEach(r => {
       const id = Number(r.RouteID);
-      const color = `#${r.MapLineColor}`;
+      const raw = String(r.MapLineColor || '888888');
+    const color = raw.startsWith('#') ? raw : `#${raw}`;
       const latLngs = decodePolyline(r.EncodedPolyline);
       if (latLngs.length < 2) return;
       const name = r.Description || r.Name || r.RouteName || `Route ${id}`;
