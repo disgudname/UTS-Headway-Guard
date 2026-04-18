@@ -11599,6 +11599,203 @@ async def overlap_demo_page():
     return HTMLResponse(OVERLAP_DEMO_HTML)
 
 
+# ── Server-side overlap segment computation ───────────────────────────────────
+
+def _decode_polyline(encoded: str) -> List[Tuple[float, float]]:
+    """Decode a Google encoded polyline into [(lat, lng), ...] tuples."""
+    points: List[Tuple[float, float]] = []
+    i = lat = lng = 0
+    n = len(encoded)
+    while i < n:
+        shift = val = 0
+        while True:
+            b = ord(encoded[i]) - 63
+            i += 1
+            val |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        lat += ~(val >> 1) if (val & 1) else (val >> 1)
+        shift = val = 0
+        while True:
+            b = ord(encoded[i]) - 63
+            i += 1
+            val |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        lng += ~(val >> 1) if (val & 1) else (val >> 1)
+        points.append((lat / 1e5, lng / 1e5))
+    return points
+
+
+def _ol_haversine_m(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    R = 6371000.0
+    f1, f2 = math.radians(a[0]), math.radians(b[0])
+    df = math.radians(b[0] - a[0])
+    dl = math.radians(b[1] - a[1])
+    x = math.sin(df / 2) ** 2 + math.cos(f1) * math.cos(f2) * math.sin(dl / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(x), math.sqrt(1 - x))
+
+
+def _ol_bearing_rad(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    lat1, lng1 = math.radians(a[0]), math.radians(a[1])
+    lat2, lng2 = math.radians(b[0]), math.radians(b[1])
+    dl = lng2 - lng1
+    return math.atan2(
+        math.sin(dl) * math.cos(lat2),
+        math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dl),
+    )
+
+
+def _ol_smallest_angle_diff(a: float, b: float) -> float:
+    d = abs(a - b) % math.pi
+    return math.pi - d if d > math.pi / 2 else d
+
+
+def _ol_dist_point_to_seg_m(
+    p: Tuple[float, float], a: Tuple[float, float], b: Tuple[float, float]
+) -> float:
+    cos_lat = math.cos(math.radians(a[0]))
+    mpd = 111319.0
+    px = (p[1] - a[1]) * cos_lat * mpd
+    py = (p[0] - a[0]) * mpd
+    bx = (b[1] - a[1]) * cos_lat * mpd
+    by = (b[0] - a[0]) * mpd
+    len_sq = bx * bx + by * by
+    if len_sq < 1e-6:
+        return math.sqrt(px * px + py * py)
+    t = max(0.0, min(1.0, (px * bx + py * by) / len_sq))
+    dx = px - t * bx
+    dy = py - t * by
+    return math.sqrt(dx * dx + dy * dy)
+
+
+def _ol_polyline_length_m(pts: List[Tuple[float, float]]) -> float:
+    return sum(_ol_haversine_m(pts[i - 1], pts[i]) for i in range(1, len(pts)))
+
+
+def _compute_overlap_segments(
+    routes: List[Dict[str, Any]],
+    tolerance_m: float = 40.0,
+    bearing_tol_deg: float = 35.0,
+    min_shared_m: float = 50.0,
+) -> List[Dict[str, Any]]:
+    """
+    Compute shared-road segment groups from decoded route polylines.
+    Input routes: [{"id": int, "pts": [(lat,lng), ...]}]
+    Returns: [{"points": [[lat,lng],...], "routeIds": [int,...]}]
+    """
+    bearing_tol_rad = math.radians(bearing_tol_deg)
+    buf_deg = tolerance_m / 85000.0
+
+    seg_sharing: Dict[int, List[Set[int]]] = {
+        r["id"]: [{r["id"]} for _ in range(len(r["pts"]) - 1)]
+        for r in routes
+    }
+
+    def match_pair(rA: Dict[str, Any], rB: Dict[str, Any]) -> None:
+        a_segs = seg_sharing[rA["id"]]
+        b_segs = seg_sharing[rB["id"]]
+        b_pts = rB["pts"]
+        for ai in range(len(rA["pts"]) - 1):
+            a1, a2 = rA["pts"][ai], rA["pts"][ai + 1]
+            mid = ((a1[0] + a2[0]) / 2, (a1[1] + a2[1]) / 2)
+            a_brg = _ol_bearing_rad(a1, a2)
+            min_lat = min(a1[0], a2[0]) - buf_deg
+            max_lat = max(a1[0], a2[0]) + buf_deg
+            min_lng = min(a1[1], a2[1]) - buf_deg
+            max_lng = max(a1[1], a2[1]) + buf_deg
+            for bi in range(len(b_pts) - 1):
+                b1, b2 = b_pts[bi], b_pts[bi + 1]
+                if b1[0] > max_lat and b2[0] > max_lat:
+                    continue
+                if b1[0] < min_lat and b2[0] < min_lat:
+                    continue
+                if b1[1] > max_lng and b2[1] > max_lng:
+                    continue
+                if b1[1] < min_lng and b2[1] < min_lng:
+                    continue
+                if _ol_dist_point_to_seg_m(mid, b1, b2) > tolerance_m:
+                    continue
+                if _ol_smallest_angle_diff(a_brg, _ol_bearing_rad(b1, b2)) > bearing_tol_rad:
+                    continue
+                a_segs[ai].add(rB["id"])
+                b_segs[bi].add(rA["id"])
+
+    for i in range(len(routes) - 1):
+        for j in range(i + 1, len(routes)):
+            match_pair(routes[i], routes[j])
+            match_pair(routes[j], routes[i])
+
+    groups: List[Dict[str, Any]] = []
+    for route in routes:
+        segs = seg_sharing[route["id"]]
+        pts = route["pts"]
+        run_start = 0
+        for k in range(1, len(segs) + 1):
+            at_end = k == len(segs)
+            prev_set = segs[k - 1]
+            curr_set = None if at_end else segs[k]
+            if at_end or prev_set != curr_set:
+                route_ids = sorted(prev_set)
+                if route_ids[0] == route["id"]:
+                    seg_pts = pts[run_start : k + 1]
+                    is_shared = len(route_ids) > 1
+                    if not is_shared or _ol_polyline_length_m(seg_pts) >= min_shared_m:
+                        groups.append({"points": [list(p) for p in seg_pts], "routeIds": route_ids})
+                run_start = k
+
+    return groups
+
+
+_overlap_segments_cache: Optional[Dict[str, Any]] = None
+_overlap_segments_fetched_at: float = 0.0
+_OVERLAP_CACHE_TTL_S = 300  # 5 minutes
+
+
+@app.get("/api/overlap-segments")
+async def overlap_segments_endpoint():
+    global _overlap_segments_cache, _overlap_segments_fetched_at
+    now = time.time()
+    if _overlap_segments_cache is not None and (now - _overlap_segments_fetched_at) < _OVERLAP_CACHE_TTL_S:
+        return JSONResponse(_overlap_segments_cache)
+
+    routes_raw, extra_routes_raw = await _load_transloc_route_sources(None)
+    metadata = await _assemble_transloc_metadata(
+        base_url=None,
+        routes_raw=routes_raw,
+        extra_routes_raw=extra_routes_raw,
+    )
+
+    route_list: List[Dict[str, Any]] = []
+    route_info: List[Dict[str, Any]] = []
+    for r in metadata.get("routes", []):
+        encoded = r.get("EncodedPolyline")
+        if not encoded:
+            continue
+        color_raw = str(r.get("MapLineColor") or "888888")
+        color = color_raw if color_raw.startswith("#") else f"#{color_raw}"
+        pts = _decode_polyline(encoded)
+        if len(pts) < 2:
+            continue
+        rid = int(r.get("RouteID") or 0)
+        name = (r.get("Description") or r.get("InfoText") or f"Route {rid}").strip()
+        route_list.append({"id": rid, "pts": pts})
+        route_info.append({"id": rid, "name": name, "color": color})
+
+    segments = _compute_overlap_segments(route_list)
+
+    color_by_id = {ri["id"]: ri["color"] for ri in route_info}
+    for seg in segments:
+        seg["colors"] = [color_by_id.get(rid, "#888888") for rid in seg["routeIds"]]
+
+    result: Dict[str, Any] = {"segments": segments, "routes": route_info}
+    _overlap_segments_cache = result
+    _overlap_segments_fetched_at = now
+    return JSONResponse(result)
+
+
 @app.get("/api/wv511/stream/{cam_id:path}")
 async def wv511_stream_proxy(cam_id: str):
     """Proxy WV511 camera HLS streams to avoid CORS issues."""
