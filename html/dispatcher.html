@@ -2985,7 +2985,11 @@ function normalizeAssignmentResult(entry){
 }
 
 function findBestAssignment(blockNumber,periodSuffix,blockIdNormalized,entries,nowMinutes){
-  const matches=blockNumber?entries.filter(e=>Array.isArray(e.blockNumbers)&&e.blockNumbers.includes(blockNumber)):[];
+  // For block-number matches, prefer entries where this is the only block (standalone),
+  // so interlined groups (e.g. [01]/[04]) don't steal the display from the dedicated group.
+  const allMatches=blockNumber?entries.filter(e=>Array.isArray(e.blockNumbers)&&e.blockNumbers.includes(blockNumber)):[];
+  const specificMatches=allMatches.filter(e=>e.blockNumbers.length===1&&e.blockNumbers[0]===blockNumber);
+  const matches=specificMatches.length>0?specificMatches:allMatches;
   const normalizedPeriod=(periodSuffix||'').toLowerCase();
 
   if(blockIdNormalized){

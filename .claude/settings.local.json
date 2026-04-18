@@ -87,7 +87,10 @@
       "Bash(pdftotext:*)",
       "mcp__plugin_playwright_playwright__browser_wait_for",
       "Bash(pandoc --version)",
-      "Bash(fly deploy *)"
+      "Bash(fly deploy *)",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_fill_form",
+      "mcp__plugin_playwright_playwright__browser_navigate_back"
     ]
   }
 }
