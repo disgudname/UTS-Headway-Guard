@@ -114,7 +114,8 @@ class OverlapRouteRenderer {
       sampleStepPx: 8,
       dashLengthPx: 16,
       minDashLengthPx: 0.5,
-      matchTolerancePx: 6,
+      matchTolerancePx: 12,
+      minGroupLengthPx: 40,
       headingToleranceDeg: 20,
       simplifyTolerancePx: 0.75,
       latLngEqualityMargin: 1e-9,
@@ -167,6 +168,11 @@ class OverlapRouteRenderer {
     return this.getLayers();
   }
 
+  handleMoveEnd() {
+    this.render();
+    return this.getLayers();
+  }
+
   getLayers() { return this.layers.slice(); }
 
   _signature(latlngs) {
@@ -189,7 +195,9 @@ class OverlapRouteRenderer {
     if (!Number.isFinite(zoom)) { this.clearLayers(); return; }
 
     // Skip re-render if nothing changed
+    const center = this.map.getCenter();
     const stateKey = this.selectedRoutes.join(',') + '|' + zoom.toFixed(4) + '|' +
+      center.lat.toFixed(5) + ',' + center.lng.toFixed(5) + '|' +
       this.selectedRoutes.map(id => `${id}:${this.routeGeometrySignatures.get(id)}:${getRouteColor(id)}`).join('|');
     if (this.lastRenderState === stateKey) return;
     this.clearLayers();
@@ -285,10 +293,9 @@ class OverlapRouteRenderer {
     const pts = this._collapse(g.points || []);
     if (pts.length < 2) return null;
     const lenPx = g.segments.reduce((s, seg) => s + (Number.isFinite(seg.lengthPx) ? seg.lengthPx : 0), 0);
-    const offMap = new Map();
-    g.offsets.forEach((v, k) => { if (Number.isFinite(v)) offMap.set(k, v); });
-    const rawOff = g.segments.map(s => Number(s.routeOffsets?.[g.routes[0]]?.min)).filter(Number.isFinite);
-    return { routes: g.routes.slice(), points: pts, lengthPx: lenPx, offsetPx: rawOff.length ? Math.min(...rawOff) : 0, routeOffsets: offMap };
+    const minLen = this.options.minGroupLengthPx || 0;
+    if (lenPx < minLen) return null;
+    return { routes: g.routes.slice(), points: pts, lengthPx: lenPx };
   }
 
   _collapse(pts) {
@@ -320,10 +327,6 @@ class OverlapRouteRenderer {
       if (!group?.routes?.length || !group.points?.length || group.points.length < 2) return;
       const coords = group.points.map(ll => [ll.lat, ll.lng]);
       const routes = group.routes.slice().sort((a, b) => a - b);
-      const offsets = new Map();
-      if (group.routeOffsets instanceof Map) {
-        group.routeOffsets.forEach((v, k) => { const n = Number(v); if (Number.isFinite(n)) { const ex = offsets.get(Number(k)); if (!Number.isFinite(ex) || n < ex) offsets.set(Number(k), n); } });
-      }
 
       if (routes.length === 1) {
         const layer = L.polyline(coords, mergeRouteLayerOptions({ color: getRouteColor(routes[0]), weight, opacity: 1, lineCap: 'round', lineJoin: 'round' })).addTo(this.map);
@@ -337,28 +340,11 @@ class OverlapRouteRenderer {
       if (dashLen * routes.length > groupLen) dashLen = groupLen / routes.length;
       if (!(dashLen > 0)) dashLen = minDash;
       const gapLen = dashLen * (routes.length - 1);
-      const patLen = dashLen + gapLen;
 
-      // Find anchor route (highest cumulative offset) for stripe alignment
-      let anchorId = null, anchorOff = -Infinity;
-      routes.forEach(id => {
-        const v = offsets.get(id);
-        if (Number.isFinite(v) && (anchorId === null || v > anchorOff + 1e-9 || (Math.abs(v - anchorOff) <= 1e-9 && id < anchorId))) {
-          anchorId = id; anchorOff = v;
-        }
-      });
-      let baseOff = anchorId !== null && Number.isFinite(anchorOff)
-        ? anchorOff - dashLen * routes.indexOf(anchorId)
-        : (Number.isFinite(group.offsetPx) ? group.offsetPx : 0);
-
+      // Simple per-route phase offset — anchored to path start, not absolute pixel
+      // coords, so stripes stay stable across pans.
       routes.forEach((id, i) => {
-        let off = baseOff + dashLen * i;
-        const target = offsets.get(id);
-        if (Number.isFinite(target) && patLen > 0) {
-          const adj = Math.round((target - off) / patLen);
-          if (Number.isFinite(adj) && adj !== 0) off += adj * patLen;
-          off = ((off % patLen) + patLen) % patLen;
-        }
+        const off = dashLen * i;
         const layer = L.polyline(coords, mergeRouteLayerOptions({ color: getRouteColor(id), weight, opacity: 1, dashArray: `${dashLen} ${gapLen}`, dashOffset: `${off}`, lineCap: 'butt', lineJoin: 'round' })).addTo(this.map);
         newLayers.push(layer);
       });
@@ -454,6 +440,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 
 renderer = new OverlapRouteRenderer(map);
 map.on('zoomend', () => renderer.handleZoomEnd());
+map.on('moveend', () => renderer.handleMoveEnd());
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
