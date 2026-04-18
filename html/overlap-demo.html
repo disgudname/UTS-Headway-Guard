@@ -129,9 +129,9 @@ function polylineLengthM(pts) {
 class OverlapRenderer {
   constructor(map, opts = {}) {
     this.map        = map;
-    this.toleranceM = opts.toleranceM  ?? 25;  // match if midpoint is within this many metres
-    this.bearingTol = opts.bearingTol  ?? 25;  // max heading difference in degrees
-    this.minSharedM = opts.minSharedM  ?? 30;  // drop shared groups shorter than this
+    this.toleranceM = opts.toleranceM  ?? 35;  // match if midpoint is within this many metres
+    this.bearingTol = opts.bearingTol  ?? 35;  // max heading difference in degrees
+    this.minSharedM = opts.minSharedM  ?? 20;  // drop shared groups shorter than this
     this.dashPx     = opts.dashPx      ?? 14;  // stripe dash length in pixels
     this.getColor   = opts.getColor    ?? (() => '#888888');
     this.layers     = [];
@@ -206,9 +206,12 @@ class OverlapRenderer {
     });
 
     // Pairwise segment matching (geographic space, computed once).
+    // Run both directions: A→B catches A's coarse segments; B→A catches B's fine
+    // segments that fall within A's longer segments but not near A's midpoints.
     for (let i = 0; i < routes.length - 1; i++) {
       for (let j = i + 1; j < routes.length; j++) {
         this._matchPair(routes[i], routes[j], segSharing);
+        this._matchPair(routes[j], routes[i], segSharing);
       }
     }
 
