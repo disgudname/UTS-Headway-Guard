@@ -83,7 +83,10 @@
       "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless --screenshot=\"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview.png\" --window-size=420,320 \"file:///C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview.html\")",
       "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless --screenshot=\"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview2.png\" --window-size=420,420 \"file:///C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview2.html\")",
       "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless --screenshot=\"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview3.png\" --window-size=1000,400 \"file:///C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview3.html\")",
-      "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless --screenshot=\"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview3.png\" --window-size=1000,500 --force-device-scale-factor=2 \"file:///C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview3.html\")"
+      "Bash(\"/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe\" --headless --screenshot=\"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview3.png\" --window-size=1000,500 --force-device-scale-factor=2 \"file:///C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/.playwright-mcp/popup-preview3.html\")",
+      "Bash(pdftotext:*)",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "Bash(pandoc --version)"
     ]
   }
 }

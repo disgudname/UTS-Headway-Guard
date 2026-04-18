@@ -11980,6 +11980,59 @@ TM.registerVisibilityResumeHandler(() => {
           if (typeof MarkerSelectionMenu !== 'undefined' && typeof MarkerSelectionMenu.init === 'function') {
               MarkerSelectionMenu.init(map);
           }
+
+          // Continuous arrow-key panning: replace Leaflet's single-step handler with a
+          // requestAnimationFrame loop so holding an arrow key pans smoothly.
+          if (map.keyboard) {
+              map.keyboard.disable();
+          }
+          const _arrowKeysHeld = new Set();
+          const _PAN_SPEED_PX_PER_MS = 0.3; // 300 px/sec
+          let _arrowRafId = null;
+          let _arrowLastTs = null;
+
+          function _arrowPanTick(ts) {
+              if (_arrowKeysHeld.size === 0) {
+                  _arrowRafId = null;
+                  _arrowLastTs = null;
+                  return;
+              }
+              const dt = _arrowLastTs !== null ? Math.min(ts - _arrowLastTs, 50) : 16;
+              _arrowLastTs = ts;
+              const dist = _PAN_SPEED_PX_PER_MS * dt;
+              let dx = 0, dy = 0;
+              if (_arrowKeysHeld.has('ArrowLeft'))  dx -= dist;
+              if (_arrowKeysHeld.has('ArrowRight')) dx += dist;
+              if (_arrowKeysHeld.has('ArrowUp'))    dy -= dist;
+              if (_arrowKeysHeld.has('ArrowDown'))  dy += dist;
+              if (dx !== 0 || dy !== 0) {
+                  map.panBy([dx, dy], { animate: false });
+              }
+              _arrowRafId = requestAnimationFrame(_arrowPanTick);
+          }
+
+          document.addEventListener('keydown', function(e) {
+              if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+              const active = document.activeElement;
+              if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+              e.preventDefault();
+              stopFollowingVehicle();
+              if (!_arrowKeysHeld.has(e.key)) {
+                  _arrowKeysHeld.add(e.key);
+                  if (_arrowRafId === null) {
+                      _arrowLastTs = null;
+                      _arrowRafId = requestAnimationFrame(_arrowPanTick);
+                  }
+              }
+          });
+
+          document.addEventListener('keyup', function(e) {
+              _arrowKeysHeld.delete(e.key);
+          });
+
+          window.addEventListener('blur', function() {
+              _arrowKeysHeld.clear();
+          });
       }
 
       /**

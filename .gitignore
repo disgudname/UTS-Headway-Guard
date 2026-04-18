@@ -1,5 +1,7 @@
 # Ignore generated vehicle logs
 vehicle_log.jsonl
+transloc_api.txt
+transloc_api_external.txt
 __pycache__/
 node_modules/
 .playwright-mcp/
