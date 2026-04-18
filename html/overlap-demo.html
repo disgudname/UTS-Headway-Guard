@@ -334,11 +334,7 @@ class OverlapRouteRenderer {
         return;
       }
 
-      const groupLen = group.lengthPx || 0;
-      if (!(groupLen > 0)) return;
-      let dashLen = dashBase;
-      if (dashLen * routes.length > groupLen) dashLen = groupLen / routes.length;
-      if (!(dashLen > 0)) dashLen = minDash;
+      const dashLen = dashBase > 0 ? dashBase : minDash;
       const gapLen = dashLen * (routes.length - 1);
 
       // Simple per-route phase offset — anchored to path start, not absolute pixel
