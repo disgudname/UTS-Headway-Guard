@@ -1,0 +1,474 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dispatch Demo – UTS Ops</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+@font-face{font-family:'FGDC';src:url('/FGDC.ttf') format('truetype')}
+@font-face{font-family:'Antonio';src:url('/ANTONIO.ttf') format('truetype');font-weight:400}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#080b10;
+  --bg2:#060810;
+  --surface:#0c1018;
+  --surface2:#0f141c;
+  --border:rgba(255,255,255,.06);
+  --border2:rgba(255,255,255,.10);
+  --text:#e8eef5;
+  --muted:rgba(255,255,255,.38);
+  --dim:rgba(255,255,255,.18);
+}
+
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'FGDC',system-ui}
+
+/* ── Layout ─────────────────────────────────────────── */
+body{display:flex;flex-direction:column}
+
+header{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 16px;
+  background:linear-gradient(180deg,#0d1319 0%,#080b10 100%);
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;min-height:50px;
+}
+
+#main{display:flex;flex:1;overflow:hidden}
+
+/* Left panel */
+#left{
+  flex:0 0 52%;min-width:260px;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+}
+
+/* Splitter */
+#splitter{
+  flex:0 0 5px;cursor:col-resize;
+  background:var(--bg2);
+  border-left:1px solid var(--border);
+  position:relative;
+}
+#splitter::after{
+  content:"";position:absolute;top:50%;left:50%;
+  width:2px;height:32px;
+  background:rgba(143,163,193,.25);border-radius:999px;
+  transform:translate(-50%,-50%);
+}
+
+/* Right panel: map placeholder */
+#right{
+  flex:1;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  background:#060a10;border-left:1px solid var(--border);
+  color:var(--muted);font-size:14px;letter-spacing:.08em;
+}
+
+/* Scroll area */
+#scroll{flex:1;overflow-y:auto;padding:14px 12px 20px}
+
+/* ── Header controls ──────────────────────────────── */
+.layout-select{
+  display:flex;align-items:center;gap:8px;flex-shrink:0;
+}
+.layout-label{
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);white-space:nowrap;
+}
+.layout-select select{
+  background:#111822;color:var(--text);
+  border:1px solid var(--border2);border-radius:10px;
+  padding:6px 12px;font-family:inherit;font-size:13px;
+  cursor:pointer;
+}
+
+#duty-roster{
+  display:flex;gap:6px;margin-left:auto;flex-shrink:0;
+}
+.duty-pill{
+  display:flex;align-items:center;gap:7px;
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:999px;
+  padding:5px 14px 5px 11px;
+  white-space:nowrap;
+}
+.duty-role{
+  font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);
+}
+.duty-dot{
+  width:7px;height:7px;border-radius:50%;flex-shrink:0;
+}
+.duty-name{font-size:12px;font-weight:600;color:#cfe1ff}
+
+/* ── Section headers ──────────────────────────────── */
+.section{margin-bottom:12px}
+.section-head{
+  display:flex;align-items:center;gap:8px;
+  margin-bottom:8px;
+}
+.section-head h2{
+  font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);font-weight:700;
+}
+.section-rule{flex:1;height:1px;background:var(--border)}
+
+/* ── Block grid ───────────────────────────────────── */
+.blocks-grid{
+  display:grid;
+  grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));
+  gap:5px;
+}
+
+/* ── Block cell ───────────────────────────────────── */
+.cell{
+  position:relative;overflow:hidden;border-radius:12px;
+  background:var(--cell-bg,#0c1018);
+  border:1px solid rgba(255,255,255,.07);
+  display:flex;flex-direction:column;
+  cursor:default;
+  transition:filter .15s,border-color .15s;
+  min-height:72px;
+}
+.cell:hover{border-color:rgba(255,255,255,.16);filter:brightness(1.06)}
+
+/* Colored accent bar at top */
+.cell-accent{
+  height:4px;width:100%;flex-shrink:0;
+  background:var(--accent,#2a3442);
+  border-radius:12px 12px 0 0;
+}
+
+/* Subtle tint from the accent color */
+.cell::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;
+  background:linear-gradient(160deg,var(--tint,rgba(0,0,0,0)) 0%,transparent 55%);
+  pointer-events:none;z-index:0;
+}
+
+.cell-body{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:6px 8px 8px;position:relative;z-index:1;gap:2px;text-align:center;
+}
+
+.block-badge{
+  font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--badge-color,rgba(255,255,255,.4));
+  font-family:'FGDC',system-ui;
+}
+
+.bus-num{
+  font-family:'Antonio','FGDC',system-ui;
+  font-size:28px;letter-spacing:.04em;
+  color:var(--bus-color,#e8eef5);
+  line-height:1;
+}
+.cell[data-empty] .bus-num{color:rgba(255,255,255,.18);font-size:20px}
+
+.driver-name{
+  font-size:10px;color:rgba(255,255,255,.55);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:100%;
+}
+.driver-suffix{color:rgba(255,255,255,.3);font-size:9px}
+
+/* ── Colour token presets ─────────────────────────── */
+.route-green{
+  --accent:#1a7a3c;--tint:rgba(26,122,60,.12);
+  --badge-color:rgba(120,220,140,.6);--bus-color:#b8ffce;
+}
+.route-orange{
+  --accent:#c95a00;--tint:rgba(201,90,0,.12);
+  --badge-color:rgba(255,155,80,.6);--bus-color:#ffd0a0;
+}
+.route-gold{
+  --accent:#c9a200;--tint:rgba(201,162,0,.10);
+  --badge-color:rgba(255,220,80,.6);--bus-color:#ffeda0;
+}
+.route-silver{
+  --accent:#5a6a80;--tint:rgba(90,106,128,.10);
+  --badge-color:rgba(180,200,220,.6);--bus-color:#d0dce8;
+}
+.route-purple{
+  --accent:#7c2dba;--tint:rgba(124,45,186,.12);
+  --badge-color:rgba(200,140,255,.6);--bus-color:#e5c0ff;
+}
+.route-training{
+  --accent:#3a8c00;--tint:rgba(58,140,0,.10);
+  --badge-color:rgba(140,230,80,.6);--bus-color:#c8f080;
+}
+.route-charter{
+  --accent:#b02070;--tint:rgba(176,32,112,.10);
+  --badge-color:rgba(255,140,190,.6);--bus-color:#ffc0de;
+}
+.route-empty{
+  --accent:#1a2030;--tint:transparent;
+  --badge-color:rgba(255,255,255,.15);--bus-color:rgba(255,255,255,.18);
+}
+
+/* ── Extra buses ──────────────────────────────────── */
+#extra-buses{
+  display:flex;flex-wrap:wrap;gap:4px;
+}
+.extra-bus{
+  font-size:12px;letter-spacing:.04em;
+  background:#0c1018;border:1px solid #1e2838;
+  border-radius:6px;padding:4px 9px;
+  color:rgba(255,255,255,.65);
+  font-family:'FGDC',system-ui;
+  transition:background .12s,border-color .12s;
+  cursor:default;
+}
+.extra-bus:hover{background:#111a26;border-color:#2a3e55;color:var(--text)}
+.extra-bus.flagged{background:#1e1010;border-color:#5a2222;color:#ff9090}
+
+/* ── Scrollbar ────────────────────────────────────── */
+#scroll::-webkit-scrollbar{width:5px}
+#scroll::-webkit-scrollbar-track{background:transparent}
+#scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:999px}
+</style>
+<body>
+
+<header>
+  <div class="layout-select">
+    <span class="layout-label">Layout</span>
+    <select>
+      <option>Full Service Weekend</option>
+      <option>Default</option>
+      <option>Recess Service</option>
+    </select>
+  </div>
+  <div id="duty-roster">
+    <div class="duty-pill">
+      <span class="duty-role">Sup on Duty</span>
+      <span class="duty-dot" style="background:#5bb8ff"></span>
+      <span class="duty-name">Bron Hendrickson</span>
+      <span class="driver-suffix">until 02:30</span>
+    </div>
+    <div class="duty-pill">
+      <span class="duty-role">Dispatcher</span>
+      <span class="duty-dot" style="background:#a78bff"></span>
+      <span class="duty-name">Tony Lawson</span>
+    </div>
+  </div>
+</header>
+
+<div id="main">
+  <div id="left">
+    <div id="scroll">
+
+      <!-- Current Block Assignments -->
+      <div class="section">
+        <div class="section-head">
+          <h2>Current Block Assignments</h2>
+          <div class="section-rule"></div>
+        </div>
+
+        <div class="blocks-grid" style="--cols:3">
+
+          <!-- Green -->
+          <div class="cell route-green">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">01</div>
+              <div class="bus-num">19432</div>
+            </div>
+          </div>
+
+          <!-- Training A -->
+          <div class="cell route-training">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Training A</div>
+              <div class="bus-num">17332</div>
+            </div>
+          </div>
+
+          <!-- Charter 1 -->
+          <div class="cell route-charter">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Charter 1</div>
+              <div class="bus-num">17132</div>
+            </div>
+          </div>
+
+          <!-- Night Pilot 03 -->
+          <div class="cell route-purple">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">03</div>
+              <div class="bus-num">18732</div>
+              <div class="driver-name">Sadie Perl <span class="driver-suffix">until 02:30</span></div>
+            </div>
+          </div>
+
+          <!-- Training B -->
+          <div class="cell route-training">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Training B</div>
+              <div class="bus-num">14332</div>
+            </div>
+          </div>
+
+          <!-- Charter 2 -->
+          <div class="cell route-charter">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Charter 2</div>
+              <div class="bus-num">25231</div>
+            </div>
+          </div>
+
+          <!-- Night Pilot 04 -->
+          <div class="cell route-purple">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">04</div>
+              <div class="bus-num">12532</div>
+              <div class="driver-name">Dometrious Gordine <span class="driver-suffix">until 02:30</span></div>
+            </div>
+          </div>
+
+          <!-- Training C (empty) -->
+          <div class="cell route-training" data-empty>
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Training C</div>
+              <div class="bus-num">—</div>
+            </div>
+          </div>
+
+          <!-- Charter 3 -->
+          <div class="cell route-charter">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Charter 3</div>
+              <div class="bus-num">18332</div>
+            </div>
+          </div>
+
+          <!-- Orange 05 -->
+          <div class="cell route-orange">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">05</div>
+              <div class="bus-num">19332</div>
+            </div>
+          </div>
+
+          <!-- Empty slot -->
+          <div class="cell route-empty" data-empty>
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="bus-num">—</div>
+            </div>
+          </div>
+
+          <!-- Charter 4 -->
+          <div class="cell route-charter">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Charter 4</div>
+              <div class="bus-num">25331</div>
+            </div>
+          </div>
+
+          <!-- Gold 09 -->
+          <div class="cell route-gold">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">09</div>
+              <div class="bus-num">18832</div>
+            </div>
+          </div>
+
+          <!-- Empty -->
+          <div class="cell route-empty" data-empty>
+            <div class="cell-accent"></div>
+            <div class="cell-body"><div class="bus-num">—</div></div>
+          </div>
+
+          <!-- Charter 5 (empty) -->
+          <div class="cell route-charter" data-empty>
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">Charter 5</div>
+              <div class="bus-num">—</div>
+            </div>
+          </div>
+
+          <!-- Gold 11 -->
+          <div class="cell route-gold">
+            <div class="cell-accent"></div>
+            <div class="cell-body">
+              <div class="block-badge">11</div>
+              <div class="bus-num">18532</div>
+            </div>
+          </div>
+
+          <!-- Two empties -->
+          <div class="cell route-empty" data-empty>
+            <div class="cell-accent"></div>
+            <div class="cell-body"><div class="bus-num">—</div></div>
+          </div>
+          <div class="cell route-empty" data-empty>
+            <div class="cell-accent"></div>
+            <div class="cell-body"><div class="bus-num">—</div></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Extra Buses -->
+      <div class="section">
+        <div class="section-head">
+          <h2>Extra Buses</h2>
+          <div class="section-rule"></div>
+        </div>
+        <div id="extra-buses">
+          <div class="extra-bus">12132</div>
+          <div class="extra-bus">12232</div>
+          <div class="extra-bus">12332</div>
+          <div class="extra-bus">12432</div>
+          <div class="extra-bus">12632</div>
+          <div class="extra-bus">14132</div>
+          <div class="extra-bus">14432</div>
+          <div class="extra-bus">14532</div>
+          <div class="extra-bus">17232</div>
+          <div class="extra-bus">17432</div>
+          <div class="extra-bus">17532</div>
+          <div class="extra-bus">17632</div>
+          <div class="extra-bus">18132</div>
+          <div class="extra-bus">18232</div>
+          <div class="extra-bus">18432</div>
+          <div class="extra-bus">18632</div>
+          <div class="extra-bus">19132</div>
+          <div class="extra-bus">19532</div>
+          <div class="extra-bus">20131</div>
+          <div class="extra-bus">20231</div>
+          <div class="extra-bus">20331</div>
+          <div class="extra-bus">20431</div>
+          <div class="extra-bus">24012</div>
+          <div class="extra-bus">24112</div>
+          <div class="extra-bus">24212</div>
+          <div class="extra-bus">24312</div>
+          <div class="extra-bus">24412</div>
+          <div class="extra-bus flagged">25131</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="splitter"></div>
+
+  <div id="right">
+    <span>[ map ]</span>
+  </div>
+</div>
+
+</body>
+</html>

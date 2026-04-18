@@ -90,7 +90,16 @@
       "Bash(fly deploy *)",
       "mcp__plugin_playwright_playwright__browser_click",
       "mcp__plugin_playwright_playwright__browser_fill_form",
-      "mcp__plugin_playwright_playwright__browser_navigate_back"
+      "mcp__plugin_playwright_playwright__browser_navigate_back",
+      "Bash(awk 'NR>=3334 && NR<=3340 {print NR\": \"$0}' \"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/html/dispatcher.html\")",
+      "Bash(awk 'NR>=3488 && NR<=3535 {print NR\": \"$0}' \"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/html/dispatcher.html\")",
+      "Bash(awk 'NR>=3748 && NR<=3760 {print NR\": \"$0}' \"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/html/dispatcher.html\")",
+      "Bash(awk NR>=3750 && NR<=3820 {print NR\": \"$0} *)",
+      "Bash(awk NR>=3820 && NR<=3870 {print NR\": \"$0} *)",
+      "Bash(awk NR>=489 && NR<=545 {print NR\": \"$0} *)",
+      "Bash(awk 'NR>=338 && NR<=342 {print NR\": \"$0}' \"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/html/dispatcher.html\")",
+      "Bash(awk 'NR>=484 && NR<=492 {print NR\": \"$0}' \"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/html/dispatcher.html\")",
+      "Bash(node scripts/remove-themes.mjs)"
     ]
   }
 }
