@@ -131,7 +131,7 @@ class OverlapRenderer {
     this.map        = map;
     this.toleranceM = opts.toleranceM  ?? 40;  // match if midpoint is within this many metres
     this.bearingTol = opts.bearingTol  ?? 35;  // max heading difference in degrees
-    this.minSharedM = opts.minSharedM  ?? 5;   // drop shared groups shorter than this
+    this.minSharedM = opts.minSharedM  ?? 50;  // drop shared groups shorter than this
     this.dashPx     = opts.dashPx      ?? 20;  // stripe dash length in pixels
     this.getColor   = opts.getColor    ?? (() => '#888888');
     this.layers     = [];
