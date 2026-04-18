@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overlap Route Renderer Demo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/rbush@3.0.1/rbush.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+    #header { padding: 10px 16px; background: #16213e; border-bottom: 1px solid #0f3460; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+    #header h1 { font-size: 15px; font-weight: 600; color: #a8d8ea; white-space: nowrap; }
+    #controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    button { padding: 5px 12px; border: 1px solid #0f3460; border-radius: 4px; background: #0f3460; color: #e0e0e0; cursor: pointer; font-size: 13px; }
+    button:hover { background: #1a5276; }
+    button.active { background: #2874a6; border-color: #5dade2; }
+    #status { font-size: 12px; color: #888; margin-left: auto; white-space: nowrap; }
+    #map-container { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+    #legend { position: absolute; bottom: 20px; right: 10px; background: rgba(22,33,62,0.92); border: 1px solid #0f3460; border-radius: 6px; padding: 10px 12px; min-width: 160px; max-height: 50vh; overflow-y: auto; z-index: 1000; }
+    #legend h3 { font-size: 12px; color: #a8d8ea; margin-bottom: 8px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; cursor: pointer; }
+    .legend-swatch { width: 24px; height: 4px; border-radius: 2px; flex-shrink: 0; }
+    .legend-item.hidden .legend-name { opacity: 0.4; text-decoration: line-through; }
+    #info-bar { padding: 5px 12px; background: #16213e; border-top: 1px solid #0f3460; font-size: 11px; color: #666; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+<div id="header">
+  <h1>Overlap Renderer Demo</h1>
+  <div id="controls">
+    <button id="btn-live" onclick="loadLive()">Load Live Routes</button>
+    <button id="btn-demo" onclick="loadDemo()">Load Demo Routes</button>
+    <button id="btn-toggle" class="active" onclick="toggleOverlap()">Overlap: ON</button>
+  </div>
+  <span id="status">Ready</span>
+</div>
+<div id="map-container">
+  <div id="map"></div>
+  <div id="legend"><h3>Routes</h3><div id="legend-items"></div></div>
+</div>
+<div id="info-bar">Zoom in for narrower lines &nbsp;|&nbsp; Click routes in legend to toggle visibility &nbsp;|&nbsp; <span id="route-count">0 routes</span></div>
+
+<script>
+// ─── Google Polyline Decoder ──────────────────────────────────────────────────
+function decodePolyline(encoded) {
+  const result = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, val = 0;
+    do { b = encoded.charCodeAt(index++) - 63; val |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += (val & 1) ? ~(val >> 1) : (val >> 1);
+    shift = 0; val = 0;
+    do { b = encoded.charCodeAt(index++) - 63; val |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += (val & 1) ? ~(val >> 1) : (val >> 1);
+    result.push(L.latLng(lat / 1e5, lng / 1e5));
+  }
+  return result;
+}
+
+// ─── Spatial Index (wraps rbush) ──────────────────────────────────────────────
+function createSpatialIndex(options = {}) {
+  if (typeof rbush === 'function') { try { return rbush(options.maxEntries); } catch(e) {} }
+  if (typeof RBush === 'function') { try { return new RBush(options.maxEntries); } catch(e) {} }
+  console.error('RBush not available');
+  return null;
+}
+
+// ─── Route color registry ─────────────────────────────────────────────────────
+const routeColorMap = new Map();
+function getRouteColor(routeId) {
+  return routeColorMap.get(Number(routeId)) || '#888888';
+}
+
+// ─── Stroke weight by zoom ────────────────────────────────────────────────────
+const DEFAULT_ROUTE_STROKE_WEIGHT = 6;
+const MIN_ROUTE_STROKE_WEIGHT = 3;
+const MAX_ROUTE_STROKE_WEIGHT = 12;
+const ROUTE_WEIGHT_BASE_ZOOM = 15;
+const ROUTE_WEIGHT_STEP_PER_ZOOM = 1;
+const ROUTE_WEIGHT_ZOOM_DELTA_LIMIT = 3;
+
+function computeRouteStrokeWeight(zoom) {
+  if (!Number.isFinite(zoom)) return DEFAULT_ROUTE_STROKE_WEIGHT;
+  const delta = Math.max(-ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, Math.min(ROUTE_WEIGHT_ZOOM_DELTA_LIMIT, zoom - ROUTE_WEIGHT_BASE_ZOOM));
+  return Math.max(MIN_ROUTE_STROKE_WEIGHT, Math.min(MAX_ROUTE_STROKE_WEIGHT, DEFAULT_ROUTE_STROKE_WEIGHT + ROUTE_WEIGHT_STEP_PER_ZOOM * delta));
+}
+
+// ─── Polyline options helper ──────────────────────────────────────────────────
+function mergeRouteLayerOptions(overrides = {}) {
+  return Object.assign({ updateWhenZooming: true, updateWhenIdle: true, interactive: false }, overrides);
+}
+
+// ─── OverlapRouteRenderer ─────────────────────────────────────────────────────
+// Extracted from scripts/testmap.js. Detects road segments shared by multiple
+// routes and renders them as interleaved dash patterns so all route colors show.
+class OverlapRouteRenderer {
+  constructor(map, options = {}) {
+    this.map = map;
+    this.options = Object.assign({
+      sampleStepPx: 8,
+      dashLengthPx: 16,
+      minDashLengthPx: 0.5,
+      matchTolerancePx: 6,
+      headingToleranceDeg: 20,
+      simplifyTolerancePx: 0.75,
+      latLngEqualityMargin: 1e-9,
+      strokeWeight: DEFAULT_ROUTE_STROKE_WEIGHT,
+      minStrokeWeight: MIN_ROUTE_STROKE_WEIGHT,
+      maxStrokeWeight: MAX_ROUTE_STROKE_WEIGHT
+    }, options);
+    this.layers = [];
+    this.routeGeometries = new Map();
+    this.selectedRoutes = [];
+    this.currentZoom = map.getZoom();
+    this.routeGeometrySignatures = new Map();
+    this.lastRenderState = null;
+  }
+
+  reset() {
+    this.clearLayers();
+    this.routeGeometries.clear();
+    this.selectedRoutes = [];
+    this.routeGeometrySignatures.clear();
+    this.lastRenderState = null;
+  }
+
+  clearLayers() {
+    this.layers.forEach(layer => { if (this.map.hasLayer(layer)) this.map.removeLayer(layer); });
+    this.layers = [];
+  }
+
+  updateRoutes(routeGeometryMap, selectedRouteIds) {
+    if (!Array.isArray(selectedRouteIds) || selectedRouteIds.length === 0) {
+      this.reset(); return this.getLayers();
+    }
+    const entries = routeGeometryMap instanceof Map ? Array.from(routeGeometryMap.entries()) : Object.entries(routeGeometryMap || {});
+    const desired = new Set(selectedRouteIds.map(Number).filter(Number.isFinite));
+    const next = new Map();
+    entries.forEach(([k, v]) => { const n = Number(k); if (!isNaN(n) && desired.has(n) && Array.isArray(v)) next.set(n, v); });
+    this.routeGeometries = next;
+    this.selectedRoutes = Array.from(next.keys()).sort((a, b) => a - b);
+    const sigs = new Map();
+    this.routeGeometries.forEach((pts, id) => sigs.set(id, this._signature(pts)));
+    this.routeGeometrySignatures = sigs;
+    this.currentZoom = this.map.getZoom();
+    this.render();
+    return this.getLayers();
+  }
+
+  handleZoomEnd() {
+    this.currentZoom = this.map.getZoom();
+    this.render();
+    return this.getLayers();
+  }
+
+  getLayers() { return this.layers.slice(); }
+
+  _signature(latlngs) {
+    if (!latlngs || latlngs.length === 0) return 'empty';
+    const n = latlngs.length, step = Math.max(1, Math.floor(n / Math.min(n, 10)));
+    const parts = [n];
+    const lat = p => (p && typeof p.lat === 'number') ? p.lat : (Array.isArray(p) ? p[0] : NaN);
+    const lng = p => (p && typeof p.lng === 'number') ? p.lng : (Array.isArray(p) ? p[1] : NaN);
+    for (let i = 0; i < n; i += step) parts.push(`${lat(latlngs[i]).toFixed(6)},${lng(latlngs[i]).toFixed(6)}`);
+    return parts.join('|');
+  }
+
+  computeStrokeWeight(zoom = this.currentZoom) {
+    return Math.max(this.options.minStrokeWeight, Math.min(this.options.maxStrokeWeight, computeRouteStrokeWeight(zoom)));
+  }
+
+  render() {
+    if (!this.map || this.routeGeometries.size === 0) { this.clearLayers(); return; }
+    const zoom = this.currentZoom;
+    if (!Number.isFinite(zoom)) { this.clearLayers(); return; }
+
+    // Skip re-render if nothing changed
+    const stateKey = this.selectedRoutes.join(',') + '|' + zoom.toFixed(4) + '|' +
+      this.selectedRoutes.map(id => `${id}:${this.routeGeometrySignatures.get(id)}:${getRouteColor(id)}`).join('|');
+    if (this.lastRenderState === stateKey) return;
+    this.clearLayers();
+
+    const step = this.options.sampleStepPx;
+    const tolerance = this.options.matchTolerancePx;
+    const headingTolRad = this.options.headingToleranceDeg * Math.PI / 180;
+    const segsByRoute = new Map();
+    const spatialItems = [];
+
+    this.routeGeometries.forEach((latlngs, routeId) => {
+      if (!latlngs || latlngs.length < 2) return;
+      const segs = this._resampleRoute(routeId, latlngs, zoom, step);
+      if (!segs.length) return;
+      segsByRoute.set(routeId, segs);
+      segs.forEach(seg => spatialItems.push({
+        minX: seg.bounds.minX - tolerance, minY: seg.bounds.minY - tolerance,
+        maxX: seg.bounds.maxX + tolerance, maxY: seg.bounds.maxY + tolerance, segment: seg
+      }));
+    });
+
+    if (!spatialItems.length) { this.lastRenderState = stateKey; return; }
+
+    const tree = createSpatialIndex();
+    if (!tree) { this.lastRenderState = stateKey; return; }
+    tree.load(spatialItems);
+    this._populateSharedRoutes(spatialItems, tree, tolerance, headingTolRad);
+
+    const groups = this._buildGroups(segsByRoute, zoom);
+    this._drawGroups(groups);
+    this.lastRenderState = stateKey;
+  }
+
+  _populateSharedRoutes(items, tree, tolerance, headingTolRad) {
+    const seen = new Set();
+    items.forEach(item => {
+      const seg = item.segment;
+      tree.search(item).forEach(cand => {
+        const other = cand.segment;
+        if (!other || other === seg || other.routeId === seg.routeId) return;
+        const key = seg.routeId < other.routeId
+          ? `${seg.routeId}:${seg.index}|${other.routeId}:${other.index}`
+          : `${other.routeId}:${other.index}|${seg.routeId}:${seg.index}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        if (!this._segmentsOverlap(seg, other, tolerance, headingTolRad)) return;
+        seg.sharedRoutes.add(other.routeId);
+        other.sharedRoutes.add(seg.routeId);
+        this._applyOffset(seg, other);
+        this._applyOffset(other, seg);
+      });
+    });
+  }
+
+  _applyOffset(target, source) {
+    if (!target.routeOffsets) target.routeOffsets = {};
+    const v = source.start?.cumulativeLength;
+    if (!Number.isFinite(Number(v))) return;
+    const existing = target.routeOffsets[source.routeId];
+    target.routeOffsets[source.routeId] = { min: Number.isFinite(existing?.min) ? Math.min(existing.min, v) : v };
+  }
+
+  _buildGroups(segsByRoute, zoom) {
+    const groups = [];
+    segsByRoute.forEach((segs, routeId) => {
+      const ordered = segs.slice().sort((a, b) => (a.start?.cumulativeLength || 0) - (b.start?.cumulativeLength || 0));
+      let cur = null;
+      ordered.forEach(seg => {
+        const shared = Array.from(seg.sharedRoutes).sort((a, b) => a - b);
+        if (!shared.length || shared[0] !== routeId) return;
+        const newGroup = !cur || !this._sameSet(cur.routes, shared) || !this._close(cur.lastLatLng, seg.start.latlng);
+        if (newGroup) {
+          if (cur) { const f = this._finalizeGroup(cur); if (f) groups.push(f); }
+          cur = { routes: shared, segments: [], points: [], offsets: new Map(), lastLatLng: null };
+        }
+        cur.segments.push(seg);
+        if (!cur.points.length) cur.points.push(seg.start.latlng);
+        else if (!this._close(cur.points[cur.points.length - 1], seg.start.latlng)) cur.points.push(seg.start.latlng);
+        cur.points.push(seg.end.latlng);
+        cur.lastLatLng = seg.end.latlng;
+        const ro = seg.routeOffsets || {};
+        cur.routes.forEach(rk => {
+          const v = Number(ro[rk]?.min ?? ro[rk]);
+          if (Number.isFinite(v)) { const ex = cur.offsets.get(rk); if (!Number.isFinite(ex) || v < ex) cur.offsets.set(rk, v); }
+        });
+      });
+      if (cur) { const f = this._finalizeGroup(cur); if (f) groups.push(f); }
+    });
+    return groups;
+  }
+
+  _finalizeGroup(g) {
+    const pts = this._collapse(g.points || []);
+    if (pts.length < 2) return null;
+    const lenPx = g.segments.reduce((s, seg) => s + (Number.isFinite(seg.lengthPx) ? seg.lengthPx : 0), 0);
+    const offMap = new Map();
+    g.offsets.forEach((v, k) => { if (Number.isFinite(v)) offMap.set(k, v); });
+    const rawOff = g.segments.map(s => Number(s.routeOffsets?.[g.routes[0]]?.min)).filter(Number.isFinite);
+    return { routes: g.routes.slice(), points: pts, lengthPx: lenPx, offsetPx: rawOff.length ? Math.min(...rawOff) : 0, routeOffsets: offMap };
+  }
+
+  _collapse(pts) {
+    const out = [];
+    pts.forEach(p => { if (!out.length || !this._close(out[out.length - 1], p)) out.push(p); });
+    return out;
+  }
+
+  _sameSet(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  _close(a, b) {
+    if (!a || !b) return false;
+    const t = this.options.latLngEqualityMargin;
+    const latA = a.lat ?? a?.latlng?.lat ?? 0, lngA = a.lng ?? a?.latlng?.lng ?? 0;
+    const latB = b.lat ?? b?.latlng?.lat ?? 0, lngB = b.lng ?? b?.latlng?.lng ?? 0;
+    return Math.abs(latA - latB) <= t && Math.abs(lngA - lngB) <= t;
+  }
+
+  _drawGroups(groups) {
+    const newLayers = [];
+    const dashBase = this.options.dashLengthPx, minDash = this.options.minDashLengthPx;
+    const weight = this.computeStrokeWeight();
+
+    groups.forEach(group => {
+      if (!group?.routes?.length || !group.points?.length || group.points.length < 2) return;
+      const coords = group.points.map(ll => [ll.lat, ll.lng]);
+      const routes = group.routes.slice().sort((a, b) => a - b);
+      const offsets = new Map();
+      if (group.routeOffsets instanceof Map) {
+        group.routeOffsets.forEach((v, k) => { const n = Number(v); if (Number.isFinite(n)) { const ex = offsets.get(Number(k)); if (!Number.isFinite(ex) || n < ex) offsets.set(Number(k), n); } });
+      }
+
+      if (routes.length === 1) {
+        const layer = L.polyline(coords, mergeRouteLayerOptions({ color: getRouteColor(routes[0]), weight, opacity: 1, lineCap: 'round', lineJoin: 'round' })).addTo(this.map);
+        newLayers.push(layer);
+        return;
+      }
+
+      const groupLen = group.lengthPx || 0;
+      if (!(groupLen > 0)) return;
+      let dashLen = dashBase;
+      if (dashLen * routes.length > groupLen) dashLen = groupLen / routes.length;
+      if (!(dashLen > 0)) dashLen = minDash;
+      const gapLen = dashLen * (routes.length - 1);
+      const patLen = dashLen + gapLen;
+
+      // Find anchor route (highest cumulative offset) for stripe alignment
+      let anchorId = null, anchorOff = -Infinity;
+      routes.forEach(id => {
+        const v = offsets.get(id);
+        if (Number.isFinite(v) && (anchorId === null || v > anchorOff + 1e-9 || (Math.abs(v - anchorOff) <= 1e-9 && id < anchorId))) {
+          anchorId = id; anchorOff = v;
+        }
+      });
+      let baseOff = anchorId !== null && Number.isFinite(anchorOff)
+        ? anchorOff - dashLen * routes.indexOf(anchorId)
+        : (Number.isFinite(group.offsetPx) ? group.offsetPx : 0);
+
+      routes.forEach((id, i) => {
+        let off = baseOff + dashLen * i;
+        const target = offsets.get(id);
+        if (Number.isFinite(target) && patLen > 0) {
+          const adj = Math.round((target - off) / patLen);
+          if (Number.isFinite(adj) && adj !== 0) off += adj * patLen;
+          off = ((off % patLen) + patLen) % patLen;
+        }
+        const layer = L.polyline(coords, mergeRouteLayerOptions({ color: getRouteColor(id), weight, opacity: 1, dashArray: `${dashLen} ${gapLen}`, dashOffset: `${off}`, lineCap: 'butt', lineJoin: 'round' })).addTo(this.map);
+        newLayers.push(layer);
+      });
+    });
+
+    this.layers = newLayers;
+  }
+
+  _simplify(latlngs, zoom) {
+    const projected = latlngs.map(ll => this.map.project(ll, zoom));
+    let simplified = projected;
+    if (projected.length > 2 && this.options.simplifyTolerancePx > 0 && L.LineUtil?.simplify) {
+      simplified = L.LineUtil.simplify(projected, this.options.simplifyTolerancePx);
+    }
+    return simplified.map(pt => ({ point: L.point(pt.x, pt.y), latlng: this.map.unproject(pt, zoom) }));
+  }
+
+  _resampleRoute(routeId, latlngs, zoom, step) {
+    const simp = this._simplify(latlngs, zoom);
+    if (simp.length < 2) return [];
+    const samples = [{ latlng: simp[0].latlng, point: simp[0].point, cumulativeLength: 0 }];
+    let traversed = 0, distSinceLast = 0;
+    for (let i = 1; i < simp.length; i++) {
+      const prev = simp[i - 1], curr = simp[i];
+      const segLen = this._dist(prev.point, curr.point);
+      if (segLen === 0) continue;
+      let consumed = 0;
+      while (distSinceLast + (segLen - consumed) >= step) {
+        const rem = step - distSinceLast; consumed += rem;
+        const t = consumed / segLen;
+        const pt = L.point(prev.point.x + (curr.point.x - prev.point.x) * t, prev.point.y + (curr.point.y - prev.point.y) * t);
+        traversed += rem;
+        samples.push({ latlng: this.map.unproject(pt, zoom), point: pt, cumulativeLength: traversed });
+        distSinceLast = 0;
+      }
+      traversed += segLen - consumed;
+      distSinceLast += segLen - consumed;
+    }
+    const last = simp[simp.length - 1];
+    if (!this._close(samples[samples.length - 1].latlng, last.latlng)) {
+      samples.push({ latlng: last.latlng, point: last.point, cumulativeLength: traversed });
+    } else {
+      samples[samples.length - 1].cumulativeLength = traversed;
+    }
+
+    const segs = [];
+    for (let i = 0; i < samples.length - 1; i++) {
+      const s = samples[i], e = samples[i + 1];
+      const lenPx = this._dist(s.point, e.point);
+      if (!(lenPx > 0)) continue;
+      segs.push({
+        routeId, index: segs.length, start: s, end: e, lengthPx: lenPx,
+        bounds: { minX: Math.min(s.point.x, e.point.x), minY: Math.min(s.point.y, e.point.y), maxX: Math.max(s.point.x, e.point.x), maxY: Math.max(s.point.y, e.point.y) },
+        midpoint: L.point((s.point.x + e.point.x) / 2, (s.point.y + e.point.y) / 2),
+        heading: Math.atan2(e.point.y - s.point.y, e.point.x - s.point.x),
+        routeOffsets: { [routeId]: { min: Math.min(s.cumulativeLength, e.cumulativeLength) } },
+        sharedRoutes: new Set([routeId])
+      });
+    }
+    return segs;
+  }
+
+  _dist(a, b) {
+    const dx = (b?.x ?? 0) - (a?.x ?? 0), dy = (b?.y ?? 0) - (a?.y ?? 0);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  _segmentsOverlap(a, b, tolerance, headingTolRad) {
+    if (this._dist(a.midpoint, b.midpoint) > tolerance) return false;
+    const hd = this._headingDiff(a.heading, b.heading);
+    if (hd > headingTolRad && Math.abs(Math.PI - hd) > headingTolRad) return false;
+    return Math.min(this._dist(a.start.point, b.start.point), this._dist(a.end.point, b.end.point), this._dist(a.start.point, b.end.point), this._dist(a.end.point, b.start.point)) <= tolerance * 2;
+  }
+
+  _headingDiff(a, b) {
+    let d = Math.abs(a - b) % (Math.PI * 2);
+    return d > Math.PI ? Math.PI * 2 - d : d;
+  }
+}
+
+// ─── App state ────────────────────────────────────────────────────────────────
+let map, renderer;
+let overlapEnabled = true;
+let allRoutes = new Map(); // routeId -> { latLngs, color, name }
+let hiddenRoutes = new Set();
+let simpleLayers = [];
+
+// ─── Map init ─────────────────────────────────────────────────────────────────
+map = L.map('map', { zoomControl: true }).setView([38.034, -78.508], 14);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO', maxZoom: 19
+}).addTo(map);
+
+renderer = new OverlapRouteRenderer(map);
+map.on('zoomend', () => renderer.handleZoomEnd());
+
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+// ─── Render all routes (overlap or simple) ────────────────────────────────────
+function redraw() {
+  // Clear simple layers
+  simpleLayers.forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
+  simpleLayers = [];
+  renderer.reset();
+
+  const visibleIds = Array.from(allRoutes.keys()).filter(id => !hiddenRoutes.has(id));
+  if (!visibleIds.length) return;
+
+  if (overlapEnabled) {
+    const geomMap = new Map();
+    visibleIds.forEach(id => geomMap.set(id, allRoutes.get(id).latLngs));
+    renderer.updateRoutes(geomMap, visibleIds);
+  } else {
+    visibleIds.forEach(id => {
+      const route = allRoutes.get(id);
+      const layer = L.polyline(route.latLngs.map(ll => [ll.lat, ll.lng]), {
+        color: route.color, weight: computeRouteStrokeWeight(map.getZoom()), opacity: 0.9, lineCap: 'round', lineJoin: 'round'
+      }).addTo(map);
+      simpleLayers.push(layer);
+    });
+  }
+
+  document.getElementById('route-count').textContent = `${visibleIds.length} of ${allRoutes.size} routes visible`;
+}
+
+// ─── Legend ───────────────────────────────────────────────────────────────────
+function buildLegend() {
+  const el = document.getElementById('legend-items');
+  el.innerHTML = '';
+  allRoutes.forEach((route, id) => {
+    const item = document.createElement('div');
+    item.className = 'legend-item' + (hiddenRoutes.has(id) ? ' hidden' : '');
+    item.innerHTML = `<div class="legend-swatch" style="background:${route.color}"></div><span class="legend-name">${route.name}</span>`;
+    item.onclick = () => {
+      if (hiddenRoutes.has(id)) hiddenRoutes.delete(id); else hiddenRoutes.add(id);
+      item.classList.toggle('hidden');
+      redraw();
+    };
+    el.appendChild(item);
+  });
+}
+
+// ─── Toggle overlap mode ──────────────────────────────────────────────────────
+function toggleOverlap() {
+  overlapEnabled = !overlapEnabled;
+  const btn = document.getElementById('btn-toggle');
+  btn.textContent = `Overlap: ${overlapEnabled ? 'ON' : 'OFF'}`;
+  btn.classList.toggle('active', overlapEnabled);
+  redraw();
+}
+
+// ─── Load live routes from utsopsdashboard.com ───────────────────────────────
+async function loadLive() {
+  setStatus('Fetching live routes…');
+  document.getElementById('btn-live').disabled = true;
+  try {
+    // Try same-origin first (when served from the app), then absolute URL
+    const urls = ['/v1/testmap/transloc/metadata', 'https://utsopsdashboard.com/v1/testmap/transloc/metadata'];
+    let data = null;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.ok) { data = await res.json(); break; }
+      } catch (_) {}
+    }
+    if (!data) throw new Error('Could not reach metadata endpoint');
+
+    const routes = Array.isArray(data.routes) ? data.routes : [];
+    const loaded = routes.filter(r => r.EncodedPolyline && r.MapLineColor);
+    if (!loaded.length) throw new Error('No routes with polylines returned');
+
+    allRoutes.clear(); routeColorMap.clear(); hiddenRoutes.clear();
+    loaded.forEach(r => {
+      const id = Number(r.RouteID);
+      const color = `#${r.MapLineColor}`;
+      const latLngs = decodePolyline(r.EncodedPolyline);
+      if (latLngs.length < 2) return;
+      const name = r.Description || r.Name || r.RouteName || `Route ${id}`;
+      allRoutes.set(id, { latLngs, color, name });
+      routeColorMap.set(id, color);
+    });
+
+    buildLegend();
+    redraw();
+
+    // Fit to bounds
+    const allPts = [];
+    allRoutes.forEach(r => allPts.push(...r.latLngs));
+    if (allPts.length) map.fitBounds(L.latLngBounds(allPts), { padding: [20, 20] });
+
+    setStatus(`Loaded ${allRoutes.size} live routes`);
+  } catch (err) {
+    setStatus(`Error: ${err.message}`);
+    console.error(err);
+  } finally {
+    document.getElementById('btn-live').disabled = false;
+  }
+}
+
+// ─── Hardcoded demo routes (UVA-area, designed to show overlap) ───────────────
+function loadDemo() {
+  allRoutes.clear(); routeColorMap.clear(); hiddenRoutes.clear();
+
+  // Three routes sharing a central corridor (roughly University Ave area)
+  // Route 1: Blue – travels east along the corridor, then turns north
+  const r1 = [
+    [38.0395, -78.5210], [38.0390, -78.5150], [38.0385, -78.5085],
+    [38.0380, -78.5020], [38.0375, -78.4960], [38.0370, -78.4900],
+    [38.0400, -78.4870], [38.0430, -78.4850], [38.0460, -78.4840]
+  ];
+  // Route 2: Red – same corridor eastbound, diverges at the end going south
+  const r2 = [
+    [38.0330, -78.5230], [38.0350, -78.5160], [38.0360, -78.5085],
+    [38.0375, -78.5020], [38.0375, -78.4960], [38.0370, -78.4900],
+    [38.0350, -78.4870], [38.0320, -78.4860], [38.0290, -78.4855]
+  ];
+  // Route 3: Orange – joins the shared corridor for its full length, no deviation
+  const r3 = [
+    [38.0510, -78.5180], [38.0460, -78.5140], [38.0420, -78.5085],
+    [38.0380, -78.5020], [38.0375, -78.4960], [38.0370, -78.4900],
+    [38.0360, -78.4840], [38.0345, -78.4770], [38.0330, -78.4700]
+  ];
+  // Route 4: Green – independent route, no overlap
+  const r4 = [
+    [38.0280, -78.5300], [38.0260, -78.5200], [38.0250, -78.5100],
+    [38.0240, -78.5000], [38.0230, -78.4900]
+  ];
+
+  const demos = [
+    { id: 1, color: '#3b82f6', name: 'Blue – North Loop', pts: r1 },
+    { id: 2, color: '#ef4444', name: 'Red – South Loop',  pts: r2 },
+    { id: 3, color: '#f97316', name: 'Orange – Express',  pts: r3 },
+    { id: 4, color: '#22c55e', name: 'Green – Connector', pts: r4 }
+  ];
+
+  demos.forEach(({ id, color, name, pts }) => {
+    const latLngs = pts.map(([lat, lng]) => L.latLng(lat, lng));
+    allRoutes.set(id, { latLngs, color, name });
+    routeColorMap.set(id, color);
+  });
+
+  buildLegend();
+  redraw();
+  map.fitBounds(L.latLngBounds(demos.flatMap(d => d.pts)), { padding: [30, 30] });
+  setStatus('Demo routes loaded (3 routes share a central corridor)');
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+loadDemo();
+</script>
+</body>
+</html>
