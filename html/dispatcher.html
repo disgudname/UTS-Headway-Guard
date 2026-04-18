@@ -845,7 +845,48 @@ let mapBannerActiveMessage = null;
 
 const BLOCK_LAYOUT_COOKIE_NAME = 'dispatcherBlockLayout';
 window.BLOCK_LAYOUT_COOKIE_NAME = BLOCK_LAYOUT_COOKIE_NAME;
+const BLOCK_LAYOUT_DATE_COOKIE_NAME = 'dispatcherBlockLayoutDate';
 const BLOCK_LAYOUT_COOKIE_MAX_AGE = 60*60*24*90;
+
+const NO_SERVICE_LAYOUT_ID = 'No_Service';
+const SERVICE_LEVEL_LAYOUT_MAP = {
+  'full service': 'default',
+  'recess service': 'Recess_Service',
+  'weekend service': 'FULL_SERVICE_-_WEEKEND',
+  'no service': NO_SERVICE_LAYOUT_ID,
+};
+const LATE_NIGHT_LAYOUT_ID = 'Full_Service_LN';
+// Only these base layouts transition to late-night — no-service days do not.
+const LATE_NIGHT_BASE_LAYOUTS = new Set(['default', 'FULL_SERVICE_-_WEEKEND']);
+const LATE_NIGHT_START_M = 22*60+30;
+const LATE_NIGHT_END_M   = 2*60+30;
+
+function todayDateString(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function isLateNightNow(){
+  const d=new Date();
+  const m=d.getHours()*60+d.getMinutes();
+  return m>=LATE_NIGHT_START_M||m<LATE_NIGHT_END_M;
+}
+
+async function suggestLayoutForServiceLevel(){
+  try{
+    const res=await fetch('/v1/uts/service_level',{cache:'no-store'});
+    if(!res.ok) return null;
+    const data=await res.json();
+    const sl=String(data.service_level||'').toLowerCase().trim();
+    const known=Object.prototype.hasOwnProperty.call(SERVICE_LEVEL_LAYOUT_MAP,sl);
+    const base=known?SERVICE_LEVEL_LAYOUT_MAP[sl]:'default';
+    // Only apply late-night override for known full/weekend service days.
+    if(known&&LATE_NIGHT_BASE_LAYOUTS.has(base)&&isLateNightNow()) return LATE_NIGHT_LAYOUT_ID;
+    return base;
+  }catch{
+    return null;
+  }
+}
 let blockGridLayoutMap = new Map();
 let blockGridAvailableLayouts = [];
 let currentBlockGridLayoutId = '';
@@ -855,14 +896,20 @@ let latestBlockGridColorMap = null;
 let latestBlockGridMessage = null;
 
 function getSavedBlockLayoutPreference(){
-  return readCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
+  const saved=readCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
+  if(!saved) return null;
+  const savedDate=readCookieValue(BLOCK_LAYOUT_DATE_COOKIE_NAME);
+  if(savedDate!==todayDateString()) return null;
+  return saved;
 }
 
 function saveBlockLayoutPreference(value){
   if(value){
     writeCookieValue(BLOCK_LAYOUT_COOKIE_NAME,value,{maxAge:BLOCK_LAYOUT_COOKIE_MAX_AGE});
+    writeCookieValue(BLOCK_LAYOUT_DATE_COOKIE_NAME,todayDateString(),{maxAge:BLOCK_LAYOUT_COOKIE_MAX_AGE});
   }else{
     deleteCookieValue(BLOCK_LAYOUT_COOKIE_NAME);
+    deleteCookieValue(BLOCK_LAYOUT_DATE_COOKIE_NAME);
   }
 }
 
@@ -4276,6 +4323,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   loadMapFrameIfNeeded();
   await loadConfig();
   pollHealth();
+  const initialLayout=getSavedBlockLayoutPreference()||await suggestLayoutForServiceLevel();
+  await loadBlockGridLayout(initialLayout);
   loadBlocks();
   setInterval(loadBlocks,30000);
   loadDownedBuses();
