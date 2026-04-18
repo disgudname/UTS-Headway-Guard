@@ -43,24 +43,7 @@
 <div id="info-bar"><span id="route-count">0 routes</span></div>
 
 <script>
-// ─── Google Polyline Decoder ──────────────────────────────────────────────────
-function decodePolyline(encoded) {
-  const out = [];
-  let i = 0, lat = 0, lng = 0;
-  while (i < encoded.length) {
-    let b, shift = 0, val = 0;
-    do { b = encoded.charCodeAt(i++) - 63; val |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    lat += (val & 1) ? ~(val >> 1) : (val >> 1);
-    shift = 0; val = 0;
-    do { b = encoded.charCodeAt(i++) - 63; val |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
-    lng += (val & 1) ? ~(val >> 1) : (val >> 1);
-    out.push(L.latLng(lat / 1e5, lng / 1e5));
-  }
-  return out;
-}
-
-// ─── Geographic utilities ─────────────────────────────────────────────────────
-// Distance in meters between two L.LatLng points (Haversine).
+// ─── Geographic utilities (used by demo-mode OverlapRenderer) ─────────────────
 function haversineM(a, b) {
   const R = 6371000;
   const f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180;
@@ -69,96 +52,70 @@ function haversineM(a, b) {
   const x = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
-
-// Bearing in radians from a to b.
 function bearingRad(a, b) {
   const f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180;
   const dl = (b.lng - a.lng) * Math.PI / 180;
   return Math.atan2(Math.sin(dl) * Math.cos(f2), Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl));
 }
-
-// Smallest angle between two bearings, folded into [0, π/2].
-// Treats opposite directions (180° apart) as equivalent (same road, different direction).
 function smallestAngleDiff(a, b) {
   let d = Math.abs(a - b) % Math.PI;
   return d > Math.PI / 2 ? Math.PI - d : d;
 }
-
-// Distance in meters from point p to segment (a → b).
-// Uses a flat-earth approximation centred on a — accurate to <0.1% for segments <1 km.
 function distPointToSegM(p, a, b) {
   const cosLat = Math.cos(a.lat * Math.PI / 180);
   const mPerDeg = 111319;
-  const px = (p.lng - a.lng) * cosLat * mPerDeg;
-  const py = (p.lat - a.lat) * mPerDeg;
-  const bx = (b.lng - a.lng) * cosLat * mPerDeg;
-  const by = (b.lat - a.lat) * mPerDeg;
+  const px = (p.lng - a.lng) * cosLat * mPerDeg, py = (p.lat - a.lat) * mPerDeg;
+  const bx = (b.lng - a.lng) * cosLat * mPerDeg, by = (b.lat - a.lat) * mPerDeg;
   const lenSq = bx * bx + by * by;
   if (lenSq < 1e-6) return Math.sqrt(px * px + py * py);
   const t = Math.max(0, Math.min(1, (px * bx + py * by) / lenSq));
   const dx = px - t * bx, dy = py - t * by;
   return Math.sqrt(dx * dx + dy * dy);
 }
-
-// Total length of a polyline in meters.
 function polylineLengthM(pts) {
   let len = 0;
   for (let i = 1; i < pts.length; i++) len += haversineM(pts[i - 1], pts[i]);
   return len;
 }
 
-// ─── OverlapRenderer ──────────────────────────────────────────────────────────
-//
-// Algorithm overview:
-//   1. setRoutes() — runs once per route change, in geographic space:
-//      a. For every pair of routes, compare segments pairwise.
-//         For each segment of route A, project its midpoint onto each segment of
-//         route B. If the distance is within toleranceM AND the bearings are
-//         within bearingTolDeg, both segments are marked as shared.
-//      b. Group consecutive segments of each route with the same sharing set.
-//         Only the lowest-ID route in a shared group "owns" it (renders it),
-//         so shared segments are drawn exactly once.
-//      c. Short shared groups (< minSharedM) are dropped to avoid tiny artifacts
-//         at divergence points.
-//
-//   2. render() — cheap, runs on zoom/pan/route visibility change:
-//      Draws each group as either a solid polyline (solo) or N overlapping dashed
-//      polylines with fixed phase offsets (shared). Dash length is fixed so
-//      stripes are visually uniform everywhere.
-//
+// ─── OverlapRenderer (used for demo-mode client-side detection) ───────────────
 class OverlapRenderer {
   constructor(map, opts = {}) {
     this.map        = map;
-    this.toleranceM = opts.toleranceM  ?? 35;  // match if midpoint is within this many metres
-    this.bearingTol = opts.bearingTol  ?? 35;  // max heading difference in degrees
-    this.minSharedM = opts.minSharedM  ?? 20;  // drop shared groups shorter than this
-    this.dashPx     = opts.dashPx      ?? 14;  // stripe dash length in pixels
+    this.toleranceM = opts.toleranceM  ?? 40;
+    this.bearingTol = opts.bearingTol  ?? 35;
+    this.minSharedM = opts.minSharedM  ?? 50;
+    this.dashPx     = opts.dashPx      ?? 20;
     this.getColor   = opts.getColor    ?? (() => '#888888');
     this.layers     = [];
-    this._groups    = []; // [{pts: L.LatLng[], routeIds: number[]}]
+    this._groups    = [];
   }
 
-  // Call when the set of routes changes. Rebuilds groups then redraws.
+  // Client-side computation (demo mode)
   setRoutes(routeMap) {
-    // routeMap: Map<number, L.LatLng[]>
     const routes = Array.from(routeMap.entries())
       .map(([id, pts]) => ({ id: Number(id), pts }))
       .filter(r => r.pts.length >= 2)
       .sort((a, b) => a.id - b.id);
-
     this._groups = this._buildGroups(routes);
     this.render();
   }
 
-  // Call on zoom/pan/visibility change. Does not recompute groups.
+  // Server-pre-computed segments (live mode) — skip all geometry detection
+  setPrecomputed(segments) {
+    this._groups = segments.map(seg => ({
+      pts: seg.points.map(([lat, lng]) => L.latLng(lat, lng)),
+      routeIds: seg.routeIds,
+    }));
+    this.render();
+  }
+
   render() {
     this.clearLayers();
     const w = this._weight();
-
     for (const g of this._groups) {
       const coords = g.pts.map(ll => [ll.lat, ll.lng]);
       const ids = g.routeIds;
-
       if (ids.length === 1) {
         this.layers.push(L.polyline(coords, {
           color: this.getColor(ids[0]),
@@ -179,7 +136,7 @@ class OverlapRenderer {
     }
   }
 
-  reset()       { this.clearLayers(); this._groups = []; }
+  reset()         { this.clearLayers(); this._groups = []; }
   handleZoomEnd() { this.render(); }
   handleMoveEnd() { this.render(); }
 
@@ -193,95 +150,61 @@ class OverlapRenderer {
     return Math.max(3, Math.min(12, 6 + Math.round(z - 15)));
   }
 
-  // ── Core matching ──────────────────────────────────────────────────────────
-
   _buildGroups(routes) {
     if (!routes.length) return [];
-
-    // segSharing[routeId][segIdx] = Set of routeIds that share this segment.
-    // Starts with just {self}.
     const segSharing = new Map();
     routes.forEach(r => {
       segSharing.set(r.id, Array.from({ length: r.pts.length - 1 }, () => new Set([r.id])));
     });
-
-    // Pairwise segment matching (geographic space, computed once).
-    // Run both directions: A→B catches A's coarse segments; B→A catches B's fine
-    // segments that fall within A's longer segments but not near A's midpoints.
     for (let i = 0; i < routes.length - 1; i++) {
       for (let j = i + 1; j < routes.length; j++) {
         this._matchPair(routes[i], routes[j], segSharing);
         this._matchPair(routes[j], routes[i], segSharing);
       }
     }
-
-    // Build groups: runs of consecutive segments with identical sharing sets,
-    // rendered only by the lowest-ID route in the set (the "owner").
     const groups = [];
     routes.forEach(route => {
       const segs = segSharing.get(route.id);
       let runStart = 0;
-
       for (let k = 1; k <= segs.length; k++) {
         const atEnd   = k === segs.length;
         const prevSet = segs[k - 1];
         const currSet = atEnd ? null : segs[k];
-
         if (atEnd || !this._setsEq(prevSet, currSet)) {
           const routeIds = Array.from(prevSet).sort((a, b) => a - b);
-          const isOwner  = routeIds[0] === route.id;
-
-          if (isOwner) {
-            const pts      = route.pts.slice(runStart, k + 1); // +1 includes endpoint
-            const isShared = routeIds.length > 1;
-
-            if (!isShared || polylineLengthM(pts) >= this.minSharedM) {
+          if (routeIds[0] === route.id) {
+            const pts = route.pts.slice(runStart, k + 1);
+            if (routeIds.length === 1 || polylineLengthM(pts) >= this.minSharedM) {
               groups.push({ pts, routeIds });
             }
           }
-
-          runStart = k; // next run starts at end of this one (shared endpoint = no gap)
+          runStart = k;
         }
       }
     });
-
     return groups;
   }
 
   _matchPair(rA, rB, segSharing) {
     const tolM       = this.toleranceM;
-    const bufDeg     = tolM / 85000; // rough degree buffer for bbox pre-filter
+    const bufDeg     = tolM / 85000;
     const bearTolRad = this.bearingTol * Math.PI / 180;
     const aSegs      = segSharing.get(rA.id);
     const bSegs      = segSharing.get(rB.id);
-
     for (let ai = 0; ai < rA.pts.length - 1; ai++) {
       const a1 = rA.pts[ai], a2 = rA.pts[ai + 1];
       const mid = { lat: (a1.lat + a2.lat) / 2, lng: (a1.lng + a2.lng) / 2 };
       const aBrg = bearingRad(a1, a2);
-
-      // Expanded bbox of this A-segment for quick rejection of B-segments.
-      const minLat = Math.min(a1.lat, a2.lat) - bufDeg;
-      const maxLat = Math.max(a1.lat, a2.lat) + bufDeg;
-      const minLng = Math.min(a1.lng, a2.lng) - bufDeg;
-      const maxLng = Math.max(a1.lng, a2.lng) + bufDeg;
-
+      const minLat = Math.min(a1.lat, a2.lat) - bufDeg, maxLat = Math.max(a1.lat, a2.lat) + bufDeg;
+      const minLng = Math.min(a1.lng, a2.lng) - bufDeg, maxLng = Math.max(a1.lng, a2.lng) + bufDeg;
       for (let bi = 0; bi < rB.pts.length - 1; bi++) {
         const b1 = rB.pts[bi], b2 = rB.pts[bi + 1];
-
-        // Bbox rejection: skip if both B-endpoints are clearly outside.
         if (b1.lat > maxLat && b2.lat > maxLat) continue;
         if (b1.lat < minLat && b2.lat < minLat) continue;
         if (b1.lng > maxLng && b2.lng > maxLng) continue;
         if (b1.lng < minLng && b2.lng < minLng) continue;
-
-        // Distance: how far is A's midpoint from segment B?
         if (distPointToSegM(mid, b1, b2) > tolM) continue;
-
-        // Bearing: are they heading roughly the same way (or opposite)?
         if (smallestAngleDiff(aBrg, bearingRad(b1, b2)) > bearTolRad) continue;
-
-        // Match — both segments are shared.
         aSegs[ai].add(rB.id);
         bSegs[bi].add(rA.id);
       }
@@ -302,9 +225,11 @@ function getRouteColor(id) { return routeColorMap.get(Number(id)) || '#888888'; 
 // ─── App state ────────────────────────────────────────────────────────────────
 let map, renderer;
 let overlapEnabled = true;
-let allRoutes  = new Map(); // id -> {latLngs, color, name}
+let allRoutes  = new Map(); // id -> {color, name}
 let hiddenRoutes = new Set();
 let simpleLayers = [];
+// For server-mode live rendering: cached pre-computed segments
+let serverSegments = null; // null = use demo client-side mode
 
 // ─── Map init ─────────────────────────────────────────────────────────────────
 map = L.map('map', { zoomControl: true }).setView([38.034, -78.508], 14);
@@ -320,9 +245,19 @@ map.on('moveend', () => renderer.handleMoveEnd());
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
 function getVisibleGeomMap() {
+  // Used only in demo mode (client-side OverlapRenderer)
   const m = new Map();
-  allRoutes.forEach((r, id) => { if (!hiddenRoutes.has(id)) m.set(id, r.latLngs); });
+  allRoutes.forEach((r, id) => { if (!hiddenRoutes.has(id) && r.latLngs) m.set(id, r.latLngs); });
   return m;
+}
+
+function getVisibleServerSegments() {
+  if (!serverSegments) return null;
+  if (!hiddenRoutes.size) return serverSegments;
+  // Filter out segments that only contain hidden routes
+  return serverSegments.filter(seg =>
+    seg.routeIds.some(id => !hiddenRoutes.has(id))
+  );
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
@@ -331,26 +266,33 @@ function redraw() {
   simpleLayers = [];
   renderer.reset();
 
-  const geomMap = getVisibleGeomMap();
-  if (!geomMap.size) {
-    document.getElementById('route-count').textContent = '0 routes visible';
-    return;
-  }
+  const routeCount = allRoutes.size - hiddenRoutes.size;
+  document.getElementById('route-count').textContent =
+    `${routeCount} of ${allRoutes.size} routes visible`;
 
-  if (overlapEnabled) {
-    renderer.setRoutes(geomMap);
-  } else {
+  if (!allRoutes.size) return;
+
+  if (!overlapEnabled) {
     const w = Math.max(3, Math.min(12, 6 + Math.round(map.getZoom() - 15)));
-    geomMap.forEach((pts, id) => {
-      simpleLayers.push(L.polyline(pts.map(ll => [ll.lat, ll.lng]), {
+    allRoutes.forEach((r, id) => {
+      if (hiddenRoutes.has(id) || !r.latLngs) return;
+      simpleLayers.push(L.polyline(r.latLngs.map(ll => [ll.lat, ll.lng]), {
         color: getRouteColor(id), weight: w, opacity: 0.9,
         lineCap: 'round', lineJoin: 'round', interactive: false
       }).addTo(map));
     });
+    return;
   }
 
-  document.getElementById('route-count').textContent =
-    `${geomMap.size} of ${allRoutes.size} routes visible`;
+  if (serverSegments !== null) {
+    // Live mode: use server pre-computed segments
+    const visible = getVisibleServerSegments();
+    if (visible && visible.length) renderer.setPrecomputed(visible);
+  } else {
+    // Demo mode: client-side detection
+    const geomMap = getVisibleGeomMap();
+    if (geomMap.size) renderer.setRoutes(geomMap);
+  }
 }
 
 // ─── Legend ───────────────────────────────────────────────────────────────────
@@ -380,45 +322,37 @@ function toggleOverlap() {
   redraw();
 }
 
-// ─── Load live routes ─────────────────────────────────────────────────────────
+// ─── Load live routes (server-side computation) ───────────────────────────────
 async function loadLive() {
-  setStatus('Fetching live routes…');
+  setStatus('Fetching from server…');
   document.getElementById('btn-live').disabled = true;
   try {
-    const urls = [
-      '/v1/testmap/transloc/metadata',
-      'https://utsopsdashboard.com/v1/testmap/transloc/metadata'
-    ];
+    const urls = ['/api/overlap-segments', 'https://utsopsdashboard.com/api/overlap-segments'];
     let data = null;
     for (const url of urls) {
-      try { const r = await fetch(url, { cache: 'no-store' }); if (r.ok) { data = await r.json(); break; } } catch (_) {}
+      try {
+        const r = await fetch(url, { cache: 'no-store' });
+        if (r.ok) { data = await r.json(); break; }
+      } catch (_) {}
     }
-    if (!data) throw new Error('Could not reach metadata endpoint');
-
-    const routes = Array.isArray(data.routes) ? data.routes : [];
-    const loaded = routes.filter(r => r.EncodedPolyline && r.MapLineColor);
-    if (!loaded.length) throw new Error('No routes with polylines in response');
+    if (!data) throw new Error('Could not reach overlap-segments endpoint');
 
     allRoutes.clear(); routeColorMap.clear(); hiddenRoutes.clear();
-    loaded.forEach(r => {
-      const id     = Number(r.RouteID);
-      const raw    = String(r.MapLineColor || '888888');
-      const color  = raw.startsWith('#') ? raw : `#${raw}`;
-      const latLngs = decodePolyline(r.EncodedPolyline);
-      if (latLngs.length < 2) return;
-      const name = (r.Description || r.Name || r.RouteName || `Route ${id}`).trim();
-      allRoutes.set(id, { latLngs, color, name });
-      routeColorMap.set(id, color);
-    });
+    for (const r of (data.routes || [])) {
+      const id = Number(r.id);
+      allRoutes.set(id, { color: r.color, name: r.name });
+      routeColorMap.set(id, r.color);
+    }
+    serverSegments = data.segments || [];
 
     buildLegend();
-    setStatus('Computing overlaps…');
+    setStatus('Rendering…');
     redraw();
 
-    const allPts = [];
-    allRoutes.forEach(r => allPts.push(...r.latLngs));
+    // Fit map to all segment points
+    const allPts = serverSegments.flatMap(s => s.points.map(([lat, lng]) => [lat, lng]));
     if (allPts.length) map.fitBounds(L.latLngBounds(allPts), { padding: [20, 20] });
-    setStatus(`Loaded ${allRoutes.size} live routes`);
+    setStatus(`Loaded ${allRoutes.size} live routes (server-computed)`);
   } catch (err) {
     setStatus(`Error: ${err.message}`);
     console.error(err);
@@ -428,9 +362,9 @@ async function loadLive() {
 }
 
 // ─── Hardcoded demo routes ────────────────────────────────────────────────────
-// Three routes share a central corridor; one is independent.
 function loadDemo() {
   allRoutes.clear(); routeColorMap.clear(); hiddenRoutes.clear();
+  serverSegments = null; // switch to client-side detection
 
   const demos = [
     { id: 1, color: '#3b82f6', name: 'Blue – North Loop', pts: [
