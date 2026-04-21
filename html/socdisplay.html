@@ -59,7 +59,7 @@
     socES.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'initial') {
-        if (!msg.payload.enabled) { document.getElementById('soc-panel').innerHTML = '<span style="color:var(--muted);font-size:18px;">EV telemetry not enabled</span>'; return; }
+        if (!msg.payload.enabled) { document.getElementById('soc-panel').innerHTML = '<span style="color:var(--muted);font-size:18px;">chargepoint turned my api access off :(</span>'; return; }
         socData = msg.payload.vehicles || {};
       } else if (msg.type === 'soc_update') {
         const p = msg.payload;
