@@ -100,7 +100,9 @@
       "Bash(awk 'NR>=338 && NR<=342 {print NR\": \"$0}' \"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/html/dispatcher.html\")",
       "Bash(awk 'NR>=484 && NR<=492 {print NR\": \"$0}' \"C:/Users/Pat Cox/Documents/GitHub/UTS-Headway-Guard/html/dispatcher.html\")",
       "Bash(node scripts/remove-themes.mjs)",
-      "Bash(flyctl secrets *)"
+      "Bash(flyctl secrets *)",
+      "Bash(uvicorn app:app --port 8080)",
+      "Bash(pip show *)"
     ]
   }
 }

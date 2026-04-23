@@ -6974,6 +6974,15 @@ async def _fetch_vehicle_drivers():
                 for block_number in block_numbers:
                     drivers = _find_current_drivers(block_number, assignments_by_block, now_ts)
                     if drivers:
+                        # For blocks with a known end time, only accept drivers whose
+                        # shift started at or before that end time. Without this, a
+                        # [19]PM driver (start 14:00) would match the [19]AM block
+                        # (end 12:00) on an interlined vehicle like [19]/[06], causing
+                        # the vehicle to show [19] instead of nothing after [06] ends.
+                        if end_ts is not None:
+                            drivers = [d for d in drivers if d.get("start_ts", 0) <= end_ts]
+                        if not drivers:
+                            continue
                         # Found active driver shift - use this block
                         blocks_mapping[vehicle_id] = block_name
                         print(f"[vehicle_drivers] Vehicle {vehicle_id} included via W2W shift (block {block_name})")

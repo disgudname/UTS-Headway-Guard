@@ -9758,6 +9758,14 @@ TM.registerVisibilityResumeHandler(() => {
         // --- Build content HTML ---
         let contentHtml = '';
 
+        // Report a Bug
+        contentHtml += `
+          <div class="report-bug-banner">
+            <span class="report-bug-label">REPORT A BUG</span>
+            <div class="report-bug-tooltip">Pat loves hearing about bugs! Please send him a Teams message if you spot one!</div>
+          </div>
+        `;
+
         // Select System
         if (systemSectionInner) {
           contentHtml += buildSection('system', 'Select System', systemSectionInner);
