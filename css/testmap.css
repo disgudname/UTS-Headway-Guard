@@ -1718,7 +1718,9 @@
         line-height: 1.5;
         padding: 9px 13px;
         border-radius: 8px;
-        white-space: nowrap;
+        white-space: normal;
+        max-width: 220px;
+        text-align: center;
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.15s ease, transform 0.15s ease;
