@@ -1709,9 +1709,9 @@
       }
       .selector-panel .report-bug-tooltip {
         position: absolute;
-        bottom: calc(100% + 10px);
+        top: calc(100% + 10px);
         left: 50%;
-        transform: translateX(-50%) translateY(4px);
+        transform: translateX(-50%) translateY(-4px);
         background: #1e293b;
         color: #f1f5f9;
         font-size: 12px;
@@ -1728,11 +1728,11 @@
       .selector-panel .report-bug-tooltip::after {
         content: '';
         position: absolute;
-        top: 100%;
+        bottom: 100%;
         left: 50%;
         transform: translateX(-50%);
         border: 6px solid transparent;
-        border-top-color: #1e293b;
+        border-bottom-color: #1e293b;
       }
       .selector-panel .report-bug-banner:hover .report-bug-tooltip {
         opacity: 1;
