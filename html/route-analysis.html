@@ -88,6 +88,7 @@
     .stat-row:last-child { border-bottom: none; }
     .stat-label { font-size: 0.9rem; color: #aaa; }
     .stat-value { font-size: 1.1rem; font-weight: 700; color: #e0e0e0; font-variant-numeric: tabular-nums; }
+    .stat-at { font-size: 0.78rem; font-weight: 400; color: #666; margin-left: 0.4rem; }
     .stat-note { font-size: 0.75rem; color: #555; margin-top: 0.75rem; }
 
     .no-data {
@@ -264,13 +265,32 @@
   // ── Render ───────────────────────────────────────────────────────────────
   function fmtDuration(seconds) {
     if (seconds == null) return '—';
-    const totalMin = seconds / 60;
-    const h = Math.floor(totalMin / 60);
-    const m = Math.floor(totalMin % 60);
-    const s = Math.round(seconds % 60);
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
+    const total = Math.round(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const mLabel = m === 1 ? 'min' : 'mins';
+    if (h > 0) return `${h} hr ${m} ${mLabel} ${s} secs`;
+    if (m > 0) return `${m} ${mLabel} ${s} secs`;
+    return `${s} secs`;
+  }
+
+  function fmtAt(isoString, multiDay) {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    if (multiDay) {
+      const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return `at ${hh}${mm} on ${dateStr}`;
+    }
+    return `at ${hh}${mm}`;
+  }
+
+  function isMultiDay() {
+    const s = document.getElementById('startDt').value;
+    const e = document.getElementById('endDt').value;
+    return s && e && s.split('T')[0] !== e.split('T')[0];
   }
 
   function fmtPeriod(start, end) {
@@ -281,31 +301,34 @@
     return `${fmt(start)} – ${fmt(end)}`;
   }
 
-  function statRow(label, value) {
+  function statRow(label, seconds, atIso, multiDay) {
+    const dur = fmtDuration(seconds);
+    const at = (atIso && seconds != null) ? fmtAt(atIso, multiDay) : '';
     return `<div class="stat-row">
       <span class="stat-label">${label}</span>
-      <span class="stat-value">${fmtDuration(value)}</span>
+      <span class="stat-value">${dur}${at ? `<span class="stat-at">${at}</span>` : ''}</span>
     </div>`;
   }
 
   function renderResults(data) {
     const loop = data.loop_times;
     const wait = data.wait_times;
+    const multiDay = isMultiDay();
 
     const loopHtml = loop.sample_count === 0
       ? '<p class="stat-note">No loop data — need at least 2 arrivals by the same vehicle at this stop.</p>'
       : `<div class="stat-rows">
-          ${statRow('Minimum', loop.min_seconds)}
-          ${statRow('Average', loop.avg_seconds)}
-          ${statRow('Maximum', loop.max_seconds)}
+          ${statRow('Max Loop Time', loop.max_seconds, loop.max_at, multiDay)}
+          ${statRow('Avg Loop Time', loop.avg_seconds, null, multiDay)}
+          ${statRow('Min Loop Time', loop.min_seconds, loop.min_at, multiDay)}
         </div>
         <p class="stat-note">${loop.sample_count} loop${loop.sample_count !== 1 ? 's' : ''} observed</p>`;
 
     const waitHtml = wait.sample_count === 0
       ? '<p class="stat-note">No wait data — need at least 2 arrivals at this stop.</p>'
       : `<div class="stat-rows">
-          ${statRow('Average', wait.avg_seconds)}
-          ${statRow('Maximum', wait.max_seconds)}
+          ${statRow('Max Wait Time', wait.max_seconds, wait.max_at, multiDay)}
+          ${statRow('Avg Wait Time', wait.avg_seconds, null, multiDay)}
         </div>
         <p class="stat-note">${wait.sample_count} interval${wait.sample_count !== 1 ? 's' : ''} observed</p>`;
 

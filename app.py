@@ -4393,11 +4393,12 @@ def _compute_route_analysis(
     arrivals.sort(key=lambda e: e.timestamp)
 
     # ── Wait times ──────────────────────────────────────────────────────────
-    wait_gaps: List[float] = []
+    # Each entry is (gap_seconds, end_timestamp) so we can report when the max occurred.
+    wait_gaps: List[tuple] = []
     for i in range(1, len(arrivals)):
         gap = (arrivals[i].timestamp - arrivals[i - 1].timestamp).total_seconds()
         if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
-            wait_gaps.append(gap)
+            wait_gaps.append((gap, arrivals[i].timestamp))
 
     # ── Loop times ───────────────────────────────────────────────────────────
     from collections import defaultdict
@@ -4406,27 +4407,35 @@ def _compute_route_analysis(
         if e.vehicle_id:
             by_vehicle[e.vehicle_id].append(e)
 
-    loop_gaps: List[float] = []
+    loop_gaps: List[tuple] = []
     for veh_arrivals in by_vehicle.values():
         for i in range(1, len(veh_arrivals)):
             gap = (veh_arrivals[i].timestamp - veh_arrivals[i - 1].timestamp).total_seconds()
             if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
-                loop_gaps.append(gap)
+                loop_gaps.append((gap, veh_arrivals[i].timestamp))
 
-    def _stats_block(gaps: List[float], include_min: bool) -> dict:
+    def _stats_block(gaps: List[tuple], include_min: bool) -> dict:
         if not gaps:
             return {
-                **({"min_seconds": None} if include_min else {}),
+                **({"min_seconds": None, "min_at": None} if include_min else {}),
                 "avg_seconds": None,
                 "max_seconds": None,
+                "max_at": None,
                 "sample_count": 0,
             }
-        return {
-            **({"min_seconds": min(gaps)} if include_min else {}),
-            "avg_seconds": _stats.mean(gaps),
-            "max_seconds": max(gaps),
+        secs = [g[0] for g in gaps]
+        max_pair = max(gaps, key=lambda x: x[0])
+        result: dict = {
+            "avg_seconds": _stats.mean(secs),
+            "max_seconds": max_pair[0],
+            "max_at": max_pair[1].isoformat(),
             "sample_count": len(gaps),
         }
+        if include_min:
+            min_pair = min(gaps, key=lambda x: x[0])
+            result["min_seconds"] = min_pair[0]
+            result["min_at"] = min_pair[1].isoformat()
+        return result
 
     return {
         "arrival_count": len(arrivals),
