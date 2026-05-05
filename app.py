@@ -6425,6 +6425,7 @@ def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
         return {"headerLine": [], "sections": []}
 
     header_line = rows[0]
+    header_sentinel = header_line[0] if header_line else ""
     sections: List[Dict[str, Any]] = []
     current: Optional[Dict[str, Any]] = None
     SECTION_TITLES = {"Bus", "P&T Support Vehicle"}
@@ -6433,6 +6434,8 @@ def _parse_downed_sheet_csv(csv_text: Optional[str]) -> Dict[str, Any]:
         if not any(raw_row):
             continue
         first = raw_row[0]
+        if header_sentinel and first == header_sentinel:
+            continue
         if first in SECTION_TITLES:
             current = {
                 "title": first,

@@ -102,7 +102,9 @@
       "Bash(node scripts/remove-themes.mjs)",
       "Bash(flyctl secrets *)",
       "Bash(uvicorn app:app --port 8080)",
-      "Bash(pip show *)"
+      "Bash(pip show *)",
+      "WebFetch(domain:docs.google.com)",
+      "WebFetch(domain:doc-00-bo-sheets.googleusercontent.com)"
     ]
   }
 }
