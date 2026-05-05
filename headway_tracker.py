@@ -455,7 +455,10 @@ class HeadwayTracker:
 
             # IMPORTANT: Only process stops that this bus's route actually serves
             # This prevents logging arrivals when a bus passes a stop it doesn't serve
-            if route_id and stop.route_ids and route_id not in stop.route_ids:
+            # Exception: if we already have active progress for this stop, keep processing
+            # so that route changes (route-to-route or route-to-OOS) don't swallow departures
+            has_active_progress = bool(vehicle_progress.get(stop.stop_id))
+            if route_id and stop.route_ids and route_id not in stop.route_ids and not has_active_progress:
                 continue
 
             stop_progress = vehicle_progress.get(stop.stop_id, {})
@@ -495,6 +498,41 @@ class HeadwayTracker:
                             )
                             stop_progress[set_idx] = progress
                             self._log_bubble_activation(vid, snap, stop, set_idx, approach_set.name, 1, "entered")
+                        elif (max_order in current_bubbles and
+                              speed_mps is not None and
+                              speed_mps <= STOP_SPEED_THRESHOLD_MPS and
+                              stop.stop_id not in stops_with_arrival_this_cycle):
+                            # Bus appeared in the final bubble already stopped without entering via bubble #1.
+                            # This happens when a bus drives to a stop while OOS and then comes on-route
+                            # while already parked there — log the route-activation moment as the arrival.
+                            progress = BubbleProgressState(
+                                stop_id=stop.stop_id,
+                                set_index=set_idx,
+                                set_name=approach_set.name,
+                                max_bubble_order=max_order,
+                                route_id=route_id,
+                                entered_at=timestamp,
+                                last_seen=timestamp,
+                                highest_bubble_reached=max_order,
+                                next_expected_order=max_order + 1,
+                                final_bubble_lat=final_bubble.lat if final_bubble else None,
+                                final_bubble_lon=final_bubble.lon if final_bubble else None,
+                                in_final_bubble=True,
+                                entered_final_at=timestamp,
+                                stopped_in_final=True,
+                                arrival_logged=True,
+                                arrival_time=timestamp,
+                            )
+                            stop_progress[set_idx] = progress
+                            stops_with_arrival_this_cycle.add(stop.stop_id)
+                            events.append(self._create_arrival_event(
+                                vid, snap, stop.stop_id, route_id, timestamp,
+                                arrival_type="route_activation"
+                            ))
+                            self._log_bubble_activation(
+                                vid, snap, stop, set_idx, approach_set.name,
+                                max_order, "arrival_route_activation"
+                            )
                     else:
                         # Update existing tracking
                         progress.last_seen = timestamp
