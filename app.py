@@ -4385,6 +4385,7 @@ def _compute_route_analysis(
     """
     import statistics as _stats
     import bisect
+    from collections import defaultdict
 
     def _at_stop(e: object) -> bool:
         return e.stop_id == stop_id or e.address_id == stop_id  # type: ignore[attr-defined]
@@ -4397,11 +4398,12 @@ def _compute_route_analysis(
         (e for e in events if e.event_type == "departure" and _at_stop(e)),
         key=lambda e: e.timestamp,
     )
-
-    # ── Wait times (cross-vehicle dep-to-arr) ───────────────────────────────
-    # For each arrival find the most recent departure before it (any vehicle).
-    # This matches TransLoc's "gap" metric and reflects actual passenger wait.
     dep_ts = [d.timestamp for d in departures]
+
+    # ── Wait times (cross-vehicle dep-to-arr) ────────────────────────────────
+    # For each arrival, find the most recent departure of any vehicle before it.
+    # Computed fresh from logged events so stale in-memory tracker state
+    # (stored in headway_departure_arrival) cannot pollute the result.
     wait_gaps: List[tuple] = []
     for arr in arrivals:
         idx = bisect.bisect_left(dep_ts, arr.timestamp) - 1
@@ -4410,14 +4412,27 @@ def _compute_route_analysis(
             if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
                 wait_gaps.append((gap, arr.timestamp))
 
-    # ── Loop times (per-vehicle dep-to-arr, pre-computed by tracker) ─────────
-    # headway_departure_arrival = time from this vehicle's last departure at
-    # this stop to this arrival — i.e. one full circuit excluding dwell time.
+    # ── Loop times (per-vehicle dep-to-arr) ──────────────────────────────────
+    # For each departure, find that same vehicle's next arrival.
+    # Using logged events avoids the stale-state problem with the stored field.
+    by_vehicle_deps: dict = defaultdict(list)
+    by_vehicle_arrs: dict = defaultdict(list)
+    for d in departures:
+        if d.vehicle_id:
+            by_vehicle_deps[d.vehicle_id].append(d.timestamp)
+    for a in arrivals:
+        if a.vehicle_id:
+            by_vehicle_arrs[a.vehicle_id].append(a.timestamp)
+
     loop_gaps: List[tuple] = []
-    for arr in arrivals:
-        gap = arr.headway_departure_arrival
-        if gap is not None and 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
-            loop_gaps.append((gap, arr.timestamp))
+    for vid in set(by_vehicle_deps) & set(by_vehicle_arrs):
+        arr_times = by_vehicle_arrs[vid]  # already sorted
+        for dep_t in by_vehicle_deps[vid]:
+            idx = bisect.bisect_right(arr_times, dep_t)
+            if idx < len(arr_times):
+                gap = (arr_times[idx] - dep_t).total_seconds()
+                if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
+                    loop_gaps.append((gap, arr_times[idx]))
 
     def _stats_block(gaps: List[tuple], include_min: bool) -> dict:
         if not gaps:
