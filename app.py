@@ -4384,35 +4384,40 @@ def _compute_route_analysis(
     or out-of-service breaks do not inflate the statistics.
     """
     import statistics as _stats
+    import bisect
 
-    arrivals = [
-        e for e in events
-        if e.event_type == "arrival"
-        and (e.stop_id == stop_id or e.address_id == stop_id)
-    ]
-    arrivals.sort(key=lambda e: e.timestamp)
+    def _at_stop(e: object) -> bool:
+        return e.stop_id == stop_id or e.address_id == stop_id  # type: ignore[attr-defined]
 
-    # ── Wait times ──────────────────────────────────────────────────────────
-    # Each entry is (gap_seconds, end_timestamp) so we can report when the max occurred.
+    arrivals = sorted(
+        (e for e in events if e.event_type == "arrival" and _at_stop(e)),
+        key=lambda e: e.timestamp,
+    )
+    departures = sorted(
+        (e for e in events if e.event_type == "departure" and _at_stop(e)),
+        key=lambda e: e.timestamp,
+    )
+
+    # ── Wait times (cross-vehicle dep-to-arr) ───────────────────────────────
+    # For each arrival find the most recent departure before it (any vehicle).
+    # This matches TransLoc's "gap" metric and reflects actual passenger wait.
+    dep_ts = [d.timestamp for d in departures]
     wait_gaps: List[tuple] = []
-    for i in range(1, len(arrivals)):
-        gap = (arrivals[i].timestamp - arrivals[i - 1].timestamp).total_seconds()
-        if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
-            wait_gaps.append((gap, arrivals[i].timestamp))
-
-    # ── Loop times ───────────────────────────────────────────────────────────
-    from collections import defaultdict
-    by_vehicle: dict = defaultdict(list)
-    for e in arrivals:
-        if e.vehicle_id:
-            by_vehicle[e.vehicle_id].append(e)
-
-    loop_gaps: List[tuple] = []
-    for veh_arrivals in by_vehicle.values():
-        for i in range(1, len(veh_arrivals)):
-            gap = (veh_arrivals[i].timestamp - veh_arrivals[i - 1].timestamp).total_seconds()
+    for arr in arrivals:
+        idx = bisect.bisect_left(dep_ts, arr.timestamp) - 1
+        if idx >= 0:
+            gap = (arr.timestamp - dep_ts[idx]).total_seconds()
             if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
-                loop_gaps.append((gap, veh_arrivals[i].timestamp))
+                wait_gaps.append((gap, arr.timestamp))
+
+    # ── Loop times (per-vehicle dep-to-arr, pre-computed by tracker) ─────────
+    # headway_departure_arrival = time from this vehicle's last departure at
+    # this stop to this arrival — i.e. one full circuit excluding dwell time.
+    loop_gaps: List[tuple] = []
+    for arr in arrivals:
+        gap = arr.headway_departure_arrival
+        if gap is not None and 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
+            loop_gaps.append((gap, arr.timestamp))
 
     def _stats_block(gaps: List[tuple], include_min: bool) -> dict:
         if not gaps:
