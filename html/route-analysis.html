@@ -59,15 +59,30 @@
     }
     .btn:hover { background: #2060aa; }
     .btn:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn-secondary {
+      background: #222; color: #ccc; border: 1px solid #3a3a3a; border-radius: 6px;
+      padding: 0.55rem 1.4rem; font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; white-space: nowrap; align-self: flex-end;
+      transition: background 0.15s;
+      text-decoration: none; display: inline-block;
+    }
+    .btn-secondary:hover { background: #2a2a2a; color: #fff; }
+    .btn-secondary:disabled, .btn-secondary[aria-disabled="true"] {
+      opacity: 0.4; cursor: not-allowed; pointer-events: none;
+    }
 
     /* ── Results ──────────────────────────────────────────────── */
     .results { margin-top: 2rem; }
     .result-header {
       display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
-      margin-bottom: 1.25rem;
+      margin-bottom: 0.75rem;
     }
     .result-header h2 { margin: 0; font-size: 1.25rem; }
     .result-header .period { font-size: 0.82rem; color: #888; }
+    .result-actions {
+      display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+    }
 
     .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
     @media (max-width: 600px) { .stats-grid { grid-template-columns: 1fr; } }
@@ -104,6 +119,57 @@
       margin-top: 1.25rem;
     }
     .loading { color: #aaa; font-size: 0.9rem; margin-top: 1.5rem; }
+
+    /* ── Methodology modal ────────────────────────────────────── */
+    .info-btn {
+      background: none; border: 1px solid #3a3a3a; border-radius: 50%;
+      color: #888; cursor: pointer; font-size: 0.8rem; font-weight: 700;
+      width: 1.5rem; height: 1.5rem; line-height: 1; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      vertical-align: middle; transition: border-color 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .info-btn:hover { border-color: #888; color: #ccc; }
+
+    .modal-backdrop {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); z-index: 1000;
+      align-items: center; justify-content: center; padding: 1rem;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 12px;
+      padding: 1.75rem; max-width: 560px; width: 100%;
+      max-height: 90vh; overflow-y: auto; position: relative;
+    }
+    .modal h2 { margin: 0 0 1.25rem; font-size: 1.1rem; color: #e0e0e0; }
+    .modal-close {
+      position: absolute; top: 1rem; right: 1rem;
+      background: none; border: none; color: #777; font-size: 1.25rem;
+      cursor: pointer; line-height: 1; padding: 0.25rem;
+    }
+    .modal-close:hover { color: #ccc; }
+    .modal section { margin-bottom: 1.25rem; }
+    .modal section:last-child { margin-bottom: 0; }
+    .modal h3 {
+      margin: 0 0 0.4rem; font-size: 0.8rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em; color: #888;
+    }
+    .modal p { margin: 0; font-size: 0.9rem; color: #bbb; line-height: 1.6; }
+    .modal .diff-table {
+      width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.75rem;
+    }
+    .modal .diff-table th {
+      text-align: left; padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid #333; color: #888; font-weight: 600;
+      font-size: 0.75rem; text-transform: uppercase;
+    }
+    .modal .diff-table td {
+      padding: 0.4rem 0.5rem; border-bottom: 1px solid #252525; color: #bbb;
+    }
+    .modal .diff-table tr:last-child td { border-bottom: none; }
+    .modal .tag-us { color: #6aaf6a; font-weight: 600; }
+    .modal .tag-tl { color: #888; }
   </style>
 </head>
 <body>
@@ -117,6 +183,45 @@
     </div>
   </div>
 </header>
+
+<!-- Methodology modal -->
+<div class="modal-backdrop" id="methodModal" role="dialog" aria-modal="true" aria-labelledby="methodTitle">
+  <div class="modal">
+    <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+    <h2 id="methodTitle">How these numbers are calculated</h2>
+
+    <section>
+      <h3>Arrival detection</h3>
+      <p>A bus is counted as <em>arrived</em> when it enters the stop's detection bubble (a small zone centered on the stop) and its speed drops below 0.5 m/s — meaning it's physically at the curb, doors open. TransLoc fires arrival earlier, while the bus is still on final approach.</p>
+    </section>
+
+    <section>
+      <h3>Departure detection</h3>
+      <p>A bus is counted as <em>departed</em> when it exits the detection bubble — i.e., the moment it pulls away from the curb. TransLoc fires departure once the bus is roughly 600–650 ft from the stop, which can lag by 1–3 minutes if traffic holds the bus after it leaves.</p>
+    </section>
+
+    <section>
+      <h3>Loop times</h3>
+      <p>Loop time = time from a vehicle's departure at this stop to its next arrival here (same vehicle, one full circuit). Because our departure fires at the curb and TransLoc's fires ~600 ft out, our loop times run <strong>~1 minute longer on average</strong> — that extra minute is real road time between the curb and the 600 ft mark, not an error.</p>
+    </section>
+
+    <section>
+      <h3>Wait times</h3>
+      <p>Wait time = time between any two consecutive bus arrivals at this stop — what a passenger would experience if they just missed one. Computed the same way as loop times but across all vehicles.</p>
+    </section>
+
+    <section>
+      <h3>vs. TransLoc</h3>
+      <table class="diff-table">
+        <tr><th></th><th class="tag-us">This system</th><th class="tag-tl">TransLoc</th></tr>
+        <tr><td>Arrival fires</td><td class="tag-us">Bus stopped at curb</td><td class="tag-tl">Bus on final approach</td></tr>
+        <tr><td>Departure fires</td><td class="tag-us">Bus exits stop zone</td><td class="tag-tl">Bus ~600 ft away</td></tr>
+        <tr><td>Loop time basis</td><td class="tag-us">Curb-to-curb</td><td class="tag-tl">600 ft-to-approach</td></tr>
+        <tr><td>Avg loop diff</td><td class="tag-us">~1 min longer</td><td class="tag-tl">—</td></tr>
+      </table>
+    </section>
+  </div>
+</div>
 
 <main>
   <div class="content-width">
@@ -156,9 +261,21 @@
 
 <script>
 (function () {
-  // ── Catalog ──────────────────────────────────────────────────────────────
-  let catalog = [];  // [{route_id, route_name, stops: [{stop_id, stop_name}]}]
+  let catalog = [];
+  let lastParams = null; // {routeId, stopId, startIso, endIso} — for export
 
+  // ── Methodology modal ─────────────────────────────────────────────────────
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  document.getElementById('methodModal').addEventListener('click', function (e) {
+    if (e.target === this) closeModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeModal();
+  });
+  function openModal()  { document.getElementById('methodModal').classList.add('open'); }
+  function closeModal() { document.getElementById('methodModal').classList.remove('open'); }
+
+  // ── Catalog ──────────────────────────────────────────────────────────────
   async function loadCatalog() {
     setStatus('Loading routes…');
     try {
@@ -224,8 +341,8 @@
 
   // ── Analyze ──────────────────────────────────────────────────────────────
   document.getElementById('analyzeBtn').addEventListener('click', async function () {
-    const routeId = document.getElementById('routeSelect').value;
-    const stopId  = document.getElementById('stopSelect').value;
+    const routeId  = document.getElementById('routeSelect').value;
+    const stopId   = document.getElementById('stopSelect').value;
     const startRaw = document.getElementById('startDt').value;
     const endRaw   = document.getElementById('endDt').value;
 
@@ -243,6 +360,7 @@
     hideResults();
     setStatus('Calculating…');
     this.disabled = true;
+    lastParams = null;
 
     try {
       const params = new URLSearchParams({ route_id: routeId, stop_id: stopId, start: startIso, end: endIso });
@@ -252,6 +370,7 @@
         throw new Error(body.detail || `HTTP ${resp.status}`);
       }
       const data = await resp.json();
+      lastParams = { routeId, stopId, startIso, endIso };
       renderResults(data);
       setStatus('');
     } catch (err) {
@@ -332,14 +451,21 @@
         </div>
         <p class="stat-note">${wait.sample_count} interval${wait.sample_count !== 1 ? 's' : ''} observed</p>`;
 
+    const exportParams = lastParams
+      ? new URLSearchParams({ route_id: lastParams.routeId, stop_id: lastParams.stopId, start: lastParams.startIso, end: lastParams.endIso })
+      : null;
+
     document.getElementById('results').innerHTML = `
       <div class="result-header">
         <h2>${escHtml(data.route_name)} — ${escHtml(data.stop_name)}</h2>
         <span class="period">${fmtPeriod(data.period.start, data.period.end)}</span>
       </div>
-      <p style="font-size:0.85rem;color:#777;margin:0 0 1.25rem;">
-        ${data.arrival_count} total arrival${data.arrival_count !== 1 ? 's' : ''} at this stop in the selected window
-      </p>
+      <div class="result-actions">
+        <a class="btn-secondary" id="exportBtn"
+           href="${exportParams ? '/api/route-analysis/export?' + exportParams : '#'}"
+           download>Export CSV</a>
+        <button class="info-btn" id="methodBtn" title="How these numbers are calculated" aria-label="Methodology">?</button>
+      </div>
       <div class="stats-grid">
         <div class="stat-card">
           <h3>Loop Times</h3>
@@ -351,6 +477,7 @@
         </div>
       </div>`;
     document.getElementById('results').style.display = 'block';
+    document.getElementById('methodBtn').addEventListener('click', openModal);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

@@ -4464,6 +4464,190 @@ def _compute_route_analysis(
     }
 
 
+def _build_route_analysis_rows(events: list, stop_id: str) -> list:
+    """
+    Build one row per arrival for the TransLoc-format CSV export.
+
+    Columns mirror TransLoc's "Arrivals and Departures (By Route and Vehicle
+    with Loop Time)" report:
+      Route, Arrival_Date1, Textbox137 (per-vehicle daily avg dep-arr),
+      Vehicle, Textbox139 (per-vehicle daily avg arr-arr),
+      Stop, Arrival, Departure, Dwell, Dep-Arr, Arr-Arr
+    """
+    import bisect
+    from collections import defaultdict
+
+    def _at_stop(e: object) -> bool:
+        return e.stop_id == stop_id or e.address_id == stop_id  # type: ignore[attr-defined]
+
+    ET = ZoneInfo("America/New_York")
+
+    arrivals = sorted(
+        (e for e in events if e.event_type == "arrival" and _at_stop(e)),
+        key=lambda e: e.timestamp,
+    )
+    departures = sorted(
+        (e for e in events if e.event_type == "departure" and _at_stop(e)),
+        key=lambda e: e.timestamp,
+    )
+
+    dep_by_vehicle: dict = defaultdict(list)
+    arr_by_vehicle: dict = defaultdict(list)
+    for d in departures:
+        if d.vehicle_id:
+            dep_by_vehicle[d.vehicle_id].append(d.timestamp)
+    for a in arrivals:
+        if a.vehicle_id:
+            arr_by_vehicle[a.vehicle_id].append(a.timestamp)
+
+    rows = []
+    for arr in arrivals:
+        vid = arr.vehicle_id
+        arr_et = arr.timestamp.astimezone(ET)
+
+        # Next departure of same vehicle → dwell
+        dep_time = None
+        if vid:
+            dep_times = dep_by_vehicle[vid]
+            idx = bisect.bisect_right(dep_times, arr.timestamp)
+            if idx < len(dep_times):
+                if (dep_times[idx] - arr.timestamp).total_seconds() <= _ROUTE_ANALYSIS_MAX_GAP_S:
+                    dep_time = dep_times[idx]
+        dwell_s = (dep_time - arr.timestamp).total_seconds() if dep_time else None
+
+        # Previous departure of same vehicle → dep-arr loop time
+        dep_arr_s = None
+        if vid:
+            dep_times = dep_by_vehicle[vid]
+            idx = bisect.bisect_left(dep_times, arr.timestamp) - 1
+            if idx >= 0:
+                gap = (arr.timestamp - dep_times[idx]).total_seconds()
+                if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
+                    dep_arr_s = gap
+
+        # Previous arrival of same vehicle → arr-arr loop time
+        arr_arr_s = None
+        if vid:
+            arr_times = arr_by_vehicle[vid]
+            idx = bisect.bisect_left(arr_times, arr.timestamp) - 1
+            if idx >= 0:
+                gap = (arr.timestamp - arr_times[idx]).total_seconds()
+                if 0 < gap <= _ROUTE_ANALYSIS_MAX_GAP_S:
+                    arr_arr_s = gap
+
+        rows.append({
+            "arr": arr,
+            "arr_et": arr_et,
+            "dep_time": dep_time,
+            "dwell_s": dwell_s,
+            "dep_arr_s": dep_arr_s,
+            "arr_arr_s": arr_arr_s,
+            "textbox137": None,
+            "textbox139": None,
+        })
+
+    # Per-vehicle daily averages (constant per vehicle per date, like TransLoc's cols C and E)
+    veh_day_dep: dict = defaultdict(list)
+    veh_day_arr: dict = defaultdict(list)
+    for row in rows:
+        key = (row["arr"].vehicle_id, row["arr_et"].date())
+        if row["dep_arr_s"] is not None:
+            veh_day_dep[key].append(row["dep_arr_s"])
+        if row["arr_arr_s"] is not None:
+            veh_day_arr[key].append(row["arr_arr_s"])
+
+    avg_dep = {k: sum(v) / len(v) for k, v in veh_day_dep.items()}
+    avg_arr = {k: sum(v) / len(v) for k, v in veh_day_arr.items()}
+
+    for row in rows:
+        key = (row["arr"].vehicle_id, row["arr_et"].date())
+        row["textbox137"] = avg_dep.get(key)
+        row["textbox139"] = avg_arr.get(key)
+
+    return rows
+
+
+@app.get("/api/route-analysis/export")
+async def api_route_analysis_export(
+    route_id: str = Query(...),
+    stop_id: str = Query(...),
+    start: str = Query(...),
+    end: str = Query(...),
+):
+    """Export per-arrival data as a TransLoc-compatible CSV."""
+    import csv as _csv
+    import io as _io
+
+    start_dt = _parse_headway_timestamp(start)
+    end_dt = _parse_headway_timestamp(end)
+    if end_dt <= start_dt:
+        raise HTTPException(status_code=400, detail="end must be after start")
+
+    storage = _get_headway_storage()
+    events = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: storage.query_events(start_dt, end_dt, route_ids={route_id}),
+    )
+
+    route_name = next((e.route_name for e in events if e.route_name), route_id)
+    stop_name = next(
+        (e.stop_name for e in events if (e.stop_id == stop_id or e.address_id == stop_id) and e.stop_name),
+        stop_id,
+    )
+
+    rows = _build_route_analysis_rows(events, stop_id)
+
+    ET = ZoneInfo("America/New_York")
+
+    def _hms(seconds: Optional[float]) -> str:
+        if seconds is None:
+            return "00:00:00"
+        total = int(round(seconds))
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+
+    def _fmt_ts(dt_utc: datetime) -> str:
+        dt = dt_utc.astimezone(ET)
+        h12 = dt.hour % 12 or 12
+        ampm = "AM" if dt.hour < 12 else "PM"
+        return f"{dt.month}/{dt.day}/{dt.year} {h12}:{dt.minute:02d}:{dt.second:02d} {ampm}"
+
+    buf = _io.StringIO()
+    writer = _csv.writer(buf)
+    writer.writerow([
+        "Route", "Arrival_Date1", "Textbox137", "Vehicle", "Textbox139",
+        "Stop", "Arrival", "Departure", "Dwell", "Dep-Arr", "Arr-Arr",
+    ])
+
+    for row in rows:
+        arr = row["arr"]
+        vehicle = arr.vehicle_name or arr.vehicle_id or ""
+        writer.writerow([
+            route_name,
+            row["arr_et"].strftime("%m/%d"),
+            _hms(row["textbox137"]),
+            vehicle,
+            _hms(row["textbox139"]),
+            stop_name,
+            _fmt_ts(arr.timestamp),
+            _fmt_ts(row["dep_time"]) if row["dep_time"] else "",
+            _hms(row["dwell_s"]),
+            _hms(row["dep_arr_s"]),
+            _hms(row["arr_arr_s"]),
+        ])
+
+    filename = (
+        f"route_analysis_{route_id}_{stop_id}"
+        f"_{start_dt.strftime('%Y%m%d')}-{end_dt.strftime('%Y%m%d')}.csv"
+    )
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/api/route-analysis/catalog")
 async def api_route_analysis_catalog():
     """
