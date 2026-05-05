@@ -179,7 +179,7 @@
         <h1>Route Analysis</h1>
         <p>Loop times and wait times for any route and stop over any time window</p>
       </div>
-      <button class="header-info-btn" id="methodBtn" onclick="openModal()">Our numbers differ from TransLoc — why?</button>
+      <button class="header-info-btn" id="methodBtn">Our numbers differ from TransLoc — why?</button>
     </div>
   </div>
 </header>
@@ -265,6 +265,9 @@
   let lastParams = null; // {routeId, stopId, startIso, endIso} — for export
 
   // ── Methodology modal ─────────────────────────────────────────────────────
+  function openModal()  { document.getElementById('methodModal').classList.add('open'); }
+  function closeModal() { document.getElementById('methodModal').classList.remove('open'); }
+  document.getElementById('methodBtn').addEventListener('click', openModal);
   document.getElementById('modalClose').addEventListener('click', closeModal);
   document.getElementById('methodModal').addEventListener('click', function (e) {
     if (e.target === this) closeModal();
@@ -272,8 +275,6 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeModal();
   });
-  function openModal()  { document.getElementById('methodModal').classList.add('open'); }
-  function closeModal() { document.getElementById('methodModal').classList.remove('open'); }
 
   // ── Catalog ──────────────────────────────────────────────────────────────
   async function loadCatalog() {
