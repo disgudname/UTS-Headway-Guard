@@ -11204,11 +11204,11 @@ async def stream_testmap_vehicles():
 # ---------------------------
 
 def _serve_js_asset(name: str) -> FileResponse:
-    return FileResponse(SCRIPT_DIR / name, media_type="application/javascript")
+    return FileResponse(SCRIPT_DIR / name, media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
 
 def _serve_css_asset(name: str) -> FileResponse:
-    return FileResponse(CSS_DIR / name, media_type="text/css")
+    return FileResponse(CSS_DIR / name, media_type="text/css", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/FGDC.ttf", include_in_schema=False)
