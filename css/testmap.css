@@ -586,6 +586,9 @@
       .leaflet-marker-icon.stop-marker-image-icon.leaflet-interactive:focus-visible {
         transform: translateY(-2px) scale(1.05);
       }
+      .leaflet-zoom-anim .leaflet-marker-icon.stop-marker-image-icon {
+        transition: none !important;
+      }
       .stop-entry + .stop-entry {
         margin-top: 12px;
         padding-top: 8px;

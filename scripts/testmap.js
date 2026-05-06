@@ -2393,7 +2393,7 @@ TM.registerVisibilityResumeHandler(() => {
       const CAT_SERVICE_ALERTS_ENDPOINT = '/v1/testmap/cat/service-alerts';
       const CAT_STOP_ETAS_ENDPOINT = '/v1/testmap/cat/stop-etas';
       const RIDESYSTEMS_CLIENTS_ENDPOINT = '/v1/testmap/ridesystems/clients';
-      const CAT_VEHICLE_FETCH_INTERVAL_MS = 5000;
+      const CAT_VEHICLE_FETCH_INTERVAL_MS = 8000;
       const CAT_METADATA_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
       const CAT_SERVICE_ALERT_REFRESH_INTERVAL_MS = 60000;
       const CAT_SERVICE_ALERT_UNAVAILABLE_MESSAGE = 'CAT service alerts are unavailable.';
@@ -3653,8 +3653,11 @@ TM.registerVisibilityResumeHandler(() => {
         const lowPowerUserAgent = /raspberry pi|armv[0-9]+l|aarch64/.test(userAgent);
         const lowThreadCount = Number.isFinite(hardwareConcurrency) && hardwareConcurrency > 0 && hardwareConcurrency <= 4;
         const lowMemory = Number.isFinite(deviceMemory) && deviceMemory > 0 && deviceMemory <= 4;
+        const touchPrimary = typeof window !== 'undefined' && window.matchMedia
+          ? window.matchMedia('(hover: none) and (pointer: coarse)').matches
+          : false;
 
-        return lowPowerUserAgent || lowThreadCount || lowMemory || isReducedMotionPreferred();
+        return lowPowerUserAgent || lowThreadCount || lowMemory || touchPrimary || isReducedMotionPreferred();
       }
 
       function updateLowPerformanceMode() {
@@ -16094,66 +16097,93 @@ TM.registerVisibilityResumeHandler(() => {
                   }
 
                   if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
-                      const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg, computeVehicleOccupancyPct(state));
-                      if (speedIcon) {
-                          nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                          if (nameBubbles[vehicleID].speedMarker) {
-                              animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
-                              nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
-                          } else {
-                              nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                      const _occ = computeVehicleOccupancyPct(state);
+                      const _speedKey = `${routeColor}|${markerMetricsForZoom.scale.toFixed(2)}|${Math.round(headingDeg / 5) * 5}|${Math.round(groundSpeed)}|${Math.round(_occ ?? -1)}`;
+                      if (nameBubbles[vehicleID]._speedKey !== _speedKey) {
+                          const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg, _occ);
+                          if (speedIcon) {
+                              if (nameBubbles[vehicleID].speedMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
+                                  nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
+                              } else {
+                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              }
+                              nameBubbles[vehicleID]._speedKey = _speedKey;
+                          } else if (nameBubbles[vehicleID].speedMarker) {
+                              map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                              delete nameBubbles[vehicleID].speedMarker;
+                              delete nameBubbles[vehicleID]._speedKey;
                           }
-                      } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
-                          map.removeLayer(nameBubbles[vehicleID].speedMarker);
-                          delete nameBubbles[vehicleID].speedMarker;
+                      } else if (nameBubbles[vehicleID].speedMarker) {
+                          animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
                       }
                   } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].speedMarker) {
                       map.removeLayer(nameBubbles[vehicleID].speedMarker);
                       delete nameBubbles[vehicleID].speedMarker;
+                      delete nameBubbles[vehicleID]._speedKey;
                   }
 
                   if (adminMode && !kioskMode) {
-                      const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
-                      if (nameIcon) {
-                          nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                          if (nameBubbles[vehicleID].nameMarker) {
-                              animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
-                              nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
-                          } else {
-                              nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                      const _nameKey = `${busName}|${routeColor}|${markerMetricsForZoom.scale.toFixed(2)}|${Math.round(headingDeg / 5) * 5}`;
+                      if (nameBubbles[vehicleID]._nameKey !== _nameKey) {
+                          const nameIcon = createNameBubbleDivIcon(busName, routeColor, markerMetricsForZoom.scale, headingDeg);
+                          if (nameIcon) {
+                              if (nameBubbles[vehicleID].nameMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
+                                  nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
+                              } else {
+                                  nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              }
+                              nameBubbles[vehicleID]._nameKey = _nameKey;
+                          } else if (nameBubbles[vehicleID].nameMarker) {
+                              map.removeLayer(nameBubbles[vehicleID].nameMarker);
+                              delete nameBubbles[vehicleID].nameMarker;
+                              delete nameBubbles[vehicleID]._nameKey;
                           }
-                      } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
-                          map.removeLayer(nameBubbles[vehicleID].nameMarker);
-                          delete nameBubbles[vehicleID].nameMarker;
+                      } else if (nameBubbles[vehicleID].nameMarker) {
+                          animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
                       }
 
                       const blockName = busBlocks[vehicleID];
                       if (displayMode === DISPLAY_MODES.BLOCK && blockName && blockName.includes('[')) {
-                          const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale, headingDeg, computeVehicleOccupancyPct(state));
-                          if (blockIcon) {
-                              nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
-                              if (nameBubbles[vehicleID].blockMarker) {
-                                  animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
-                                  nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
-                              } else {
-                                  nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                          nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                          const _occ = computeVehicleOccupancyPct(state);
+                          const _blockKey = `${blockName}|${routeColor}|${markerMetricsForZoom.scale.toFixed(2)}|${Math.round(headingDeg / 5) * 5}|${Math.round(_occ ?? -1)}`;
+                          if (nameBubbles[vehicleID]._blockKey !== _blockKey) {
+                              const blockIcon = createBlockBubbleDivIcon(blockName, routeColor, markerMetricsForZoom.scale, headingDeg, _occ);
+                              if (blockIcon) {
+                                  if (nameBubbles[vehicleID].blockMarker) {
+                                      animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
+                                      nameBubbles[vehicleID].blockMarker.setIcon(blockIcon);
+                                  } else {
+                                      nameBubbles[vehicleID].blockMarker = L.marker(newPosition, { icon: blockIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                                  }
+                                  nameBubbles[vehicleID]._blockKey = _blockKey;
+                              } else if (nameBubbles[vehicleID].blockMarker) {
+                                  map.removeLayer(nameBubbles[vehicleID].blockMarker);
+                                  delete nameBubbles[vehicleID].blockMarker;
+                                  delete nameBubbles[vehicleID]._blockKey;
                               }
-                          } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
-                              map.removeLayer(nameBubbles[vehicleID].blockMarker);
-                              delete nameBubbles[vehicleID].blockMarker;
+                          } else if (nameBubbles[vehicleID].blockMarker) {
+                              animateMarkerTo(nameBubbles[vehicleID].blockMarker, newPosition);
                           }
                       } else if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                           map.removeLayer(nameBubbles[vehicleID].blockMarker);
                           delete nameBubbles[vehicleID].blockMarker;
+                          delete nameBubbles[vehicleID]._blockKey;
                       }
                   } else {
                       if (nameBubbles[vehicleID] && nameBubbles[vehicleID].nameMarker) {
                           map.removeLayer(nameBubbles[vehicleID].nameMarker);
                           delete nameBubbles[vehicleID].nameMarker;
+                          delete nameBubbles[vehicleID]._nameKey;
                       }
                       if (nameBubbles[vehicleID] && nameBubbles[vehicleID].blockMarker) {
                           map.removeLayer(nameBubbles[vehicleID].blockMarker);
                           delete nameBubbles[vehicleID].blockMarker;
+                          delete nameBubbles[vehicleID]._blockKey;
                       }
                       if (nameBubbles[vehicleID] && nameBubbles[vehicleID].routeMarker) {
                           map.removeLayer(nameBubbles[vehicleID].routeMarker);
@@ -18764,26 +18794,34 @@ TM.registerVisibilityResumeHandler(() => {
               const bubbleKey = markerKey;
 
               if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
-                  const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
-                  if (speedIcon) {
-                      nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
-                      if (nameBubbles[bubbleKey].speedMarker) {
-                          animateMarkerTo(nameBubbles[bubbleKey].speedMarker, newPosition);
-                          nameBubbles[bubbleKey].speedMarker.setIcon(speedIcon);
-                      } else if (map) {
-                          nameBubbles[bubbleKey].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                  nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
+                  const _speedKey = `${routeColor}|${markerMetricsForZoom.scale.toFixed(2)}|${Math.round(headingDeg / 5) * 5}|${Math.round(groundSpeed)}`;
+                  if (nameBubbles[bubbleKey]._speedKey !== _speedKey) {
+                      const speedIcon = createSpeedBubbleDivIcon(routeColor, groundSpeed, markerMetricsForZoom.scale, headingDeg);
+                      if (speedIcon) {
+                          if (nameBubbles[bubbleKey].speedMarker) {
+                              animateMarkerTo(nameBubbles[bubbleKey].speedMarker, newPosition);
+                              nameBubbles[bubbleKey].speedMarker.setIcon(speedIcon);
+                          } else if (map) {
+                              nameBubbles[bubbleKey].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                          }
+                          nameBubbles[bubbleKey]._speedKey = _speedKey;
+                      } else if (nameBubbles[bubbleKey].speedMarker) {
+                          if (map && typeof map.removeLayer === 'function') {
+                              map.removeLayer(nameBubbles[bubbleKey].speedMarker);
+                          }
+                          delete nameBubbles[bubbleKey].speedMarker;
+                          delete nameBubbles[bubbleKey]._speedKey;
                       }
-                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].speedMarker) {
-                      if (map && typeof map.removeLayer === 'function') {
-                          map.removeLayer(nameBubbles[bubbleKey].speedMarker);
-                      }
-                      delete nameBubbles[bubbleKey].speedMarker;
+                  } else if (nameBubbles[bubbleKey].speedMarker) {
+                      animateMarkerTo(nameBubbles[bubbleKey].speedMarker, newPosition);
                   }
               } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].speedMarker) {
                   if (map && typeof map.removeLayer === 'function') {
                       map.removeLayer(nameBubbles[bubbleKey].speedMarker);
                   }
                   delete nameBubbles[bubbleKey].speedMarker;
+                  delete nameBubbles[bubbleKey]._speedKey;
               }
 
               if (adminMode && !kioskMode) {
@@ -18793,25 +18831,32 @@ TM.registerVisibilityResumeHandler(() => {
                       || toNonEmptyString(vehicle.displayName)
                       || toNonEmptyString(vehicle.id)
                       || previousLabel;
-                  const nameIcon = labelText
-                      ? createNameBubbleDivIcon(labelText, routeColor, markerMetricsForZoom.scale, headingDeg)
-                      : null;
-                  if (nameIcon) {
-                      if (nameBubbles[bubbleKey].nameMarker) {
-                          animateMarkerTo(nameBubbles[bubbleKey].nameMarker, newPosition);
-                          nameBubbles[bubbleKey].nameMarker.setIcon(nameIcon);
-                      } else if (map) {
-                          nameBubbles[bubbleKey].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                  const _nameKey = `${labelText}|${routeColor}|${markerMetricsForZoom.scale.toFixed(2)}|${Math.round(headingDeg / 5) * 5}`;
+                  if (nameBubbles[bubbleKey]._nameKey !== _nameKey) {
+                      const nameIcon = labelText
+                          ? createNameBubbleDivIcon(labelText, routeColor, markerMetricsForZoom.scale, headingDeg)
+                          : null;
+                      if (nameIcon) {
+                          if (nameBubbles[bubbleKey].nameMarker) {
+                              animateMarkerTo(nameBubbles[bubbleKey].nameMarker, newPosition);
+                              nameBubbles[bubbleKey].nameMarker.setIcon(nameIcon);
+                          } else if (map) {
+                              nameBubbles[bubbleKey].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                          }
+                          nameBubbles[bubbleKey].lastLabelText = labelText;
+                          nameBubbles[bubbleKey]._nameKey = _nameKey;
+                      } else if (nameBubbles[bubbleKey].nameMarker) {
+                          if (map && typeof map.removeLayer === 'function') {
+                              map.removeLayer(nameBubbles[bubbleKey].nameMarker);
+                          }
+                          delete nameBubbles[bubbleKey].nameMarker;
+                          delete nameBubbles[bubbleKey]._nameKey;
+                          if (!nameBubbles[bubbleKey].speedMarker && !nameBubbles[bubbleKey].blockMarker && !nameBubbles[bubbleKey].routeMarker && !nameBubbles[bubbleKey].catRouteMarker) {
+                              delete nameBubbles[bubbleKey];
+                          }
                       }
-                      nameBubbles[bubbleKey].lastLabelText = labelText;
-                  } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
-                      if (map && typeof map.removeLayer === 'function') {
-                          map.removeLayer(nameBubbles[bubbleKey].nameMarker);
-                      }
-                      delete nameBubbles[bubbleKey].nameMarker;
-                      if (!nameBubbles[bubbleKey].speedMarker && !nameBubbles[bubbleKey].blockMarker && !nameBubbles[bubbleKey].routeMarker && !nameBubbles[bubbleKey].catRouteMarker) {
-                          delete nameBubbles[bubbleKey];
-                      }
+                  } else if (nameBubbles[bubbleKey].nameMarker) {
+                      animateMarkerTo(nameBubbles[bubbleKey].nameMarker, newPosition);
                   }
               } else {
                   if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].nameMarker) {
@@ -18819,25 +18864,32 @@ TM.registerVisibilityResumeHandler(() => {
                           map.removeLayer(nameBubbles[bubbleKey].nameMarker);
                       }
                       delete nameBubbles[bubbleKey].nameMarker;
+                      delete nameBubbles[bubbleKey]._nameKey;
                   }
               }
 
               const rawRouteIdForLabel = toNonEmptyString(vehicle.routeId);
               const fallbackRouteId = rawRouteIdForLabel !== '' ? rawRouteIdForLabel : effectiveRouteKey;
               const routeLabel = formatCatRouteBubbleLabel(fallbackRouteId);
-              const routeIcon = routeLabel
-                  ? createBlockBubbleDivIcon(routeLabel, routeColor, markerMetricsForZoom.scale, headingDeg)
-                  : null;
-              if (routeIcon) {
+              if (routeLabel) {
                   nameBubbles[bubbleKey] = nameBubbles[bubbleKey] || {};
                   const bubbleEntry = nameBubbles[bubbleKey];
-                  if (bubbleEntry.catRouteMarker) {
+                  const _routeKey = `${routeLabel}|${routeColor}|${markerMetricsForZoom.scale.toFixed(2)}|${Math.round(headingDeg / 5) * 5}`;
+                  if (bubbleEntry._routeKey !== _routeKey) {
+                      const routeIcon = createBlockBubbleDivIcon(routeLabel, routeColor, markerMetricsForZoom.scale, headingDeg);
+                      if (routeIcon) {
+                          if (bubbleEntry.catRouteMarker) {
+                              animateMarkerTo(bubbleEntry.catRouteMarker, newPosition);
+                              bubbleEntry.catRouteMarker.setIcon(routeIcon);
+                          } else if (map) {
+                              const marker = L.marker(newPosition, { icon: routeIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              marker._isCatRouteLabel = true;
+                              bubbleEntry.catRouteMarker = marker;
+                          }
+                          bubbleEntry._routeKey = _routeKey;
+                      }
+                  } else if (bubbleEntry.catRouteMarker) {
                       animateMarkerTo(bubbleEntry.catRouteMarker, newPosition);
-                      bubbleEntry.catRouteMarker.setIcon(routeIcon);
-                  } else if (map) {
-                      const marker = L.marker(newPosition, { icon: routeIcon, interactive: false, pane: 'busesPane' }).addTo(map);
-                      marker._isCatRouteLabel = true;
-                      bubbleEntry.catRouteMarker = marker;
                   }
               } else if (nameBubbles[bubbleKey] && nameBubbles[bubbleKey].catRouteMarker) {
                   removeCatRouteMarkerForBubble(bubbleKey, nameBubbles[bubbleKey]);
@@ -20361,7 +20413,10 @@ TM.registerVisibilityResumeHandler(() => {
           applyBusMarkerStoppedVisualState(state);
           const rotationDeg = normalizeHeadingDegrees(Number.isFinite(state.headingDeg) ? state.headingDeg : BUS_MARKER_DEFAULT_HEADING);
           if (elements.svg) {
-              setMarkerSvgRotation(elements.svg, rotationDeg);
+              if (state._appliedRotation !== rotationDeg) {
+                  state._appliedRotation = rotationDeg;
+                  setMarkerSvgRotation(elements.svg, rotationDeg);
+              }
               if (state.accessibleLabel) {
                   elements.svg.setAttribute('aria-label', state.accessibleLabel);
               }
@@ -20755,11 +20810,17 @@ TM.registerVisibilityResumeHandler(() => {
           updateLabelIconsForMetrics(metrics);
       }
 
+      let _lastLabelMetricsScale = null;
+
       function updateLabelIconsForMetrics(metrics) {
           if (!metrics || !Number.isFinite(metrics.scale) || !map) {
               return;
           }
           const scale = metrics.scale;
+          if (_lastLabelMetricsScale !== null && Math.abs(scale - _lastLabelMetricsScale) < 0.02) {
+              return;
+          }
+          _lastLabelMetricsScale = scale;
           Object.keys(nameBubbles).forEach(vehicleID => {
               const bubble = nameBubbles[vehicleID];
               const state = busMarkerStates[vehicleID];
@@ -21534,7 +21595,7 @@ TM.registerVisibilityResumeHandler(() => {
         const cacheStopListChanged = populateBubbleStopsFromCaches();
 
         // Start polling for bubble states
-        bubbleVisualizationState.pollInterval = setInterval(fetchBubbleStates, 1000);
+        bubbleVisualizationState.pollInterval = setInterval(fetchBubbleStates, 3000);
         fetchBubbleStates();
 
         if (cacheStopListChanged) {
@@ -21677,50 +21738,55 @@ TM.registerVisibilityResumeHandler(() => {
               setName: state.set_name,
               vehicleId: vid,
               highestReached: state.highest_bubble_reached,
+              inFinalBubble: state.in_final_bubble,
             });
           } else {
-            // Update existing bubble visuals
-            const bubbles = state.bubbles || [];
-            for (let i = 0; i < bubbles.length && i < existing.circles.length; i++) {
-              const bubble = bubbles[i];
-              const circle = existing.circles[i];
-              const marker = existing.markers[i];
-              const color = BUBBLE_COLORS[i % BUBBLE_COLORS.length];
-              const isActive = bubble.order <= state.highest_bubble_reached;
-              const isFinal = bubble.order === state.max_bubble_order;
+            // Only repaint if the activation level actually changed
+            const stateChanged = existing.highestReached !== state.highest_bubble_reached
+              || existing.inFinalBubble !== state.in_final_bubble;
+            if (stateChanged) {
+              const bubbles = state.bubbles || [];
+              for (let i = 0; i < bubbles.length && i < existing.circles.length; i++) {
+                const bubble = bubbles[i];
+                const circle = existing.circles[i];
+                const marker = existing.markers[i];
+                const color = BUBBLE_COLORS[i % BUBBLE_COLORS.length];
+                const isActive = bubble.order <= state.highest_bubble_reached;
+                const isFinal = bubble.order === state.max_bubble_order;
 
-              circle.setStyle({
-                color: isActive ? color : '#6b7280',
-                weight: isActive ? 3 : 1,
-                fillColor: isActive ? color : '#6b7280',
-                fillOpacity: isActive ? 0.25 : 0.05,
-                dashArray: isActive ? null : '5, 5',
-              });
+                circle.setStyle({
+                  color: isActive ? color : '#6b7280',
+                  weight: isActive ? 3 : 1,
+                  fillColor: isActive ? color : '#6b7280',
+                  fillOpacity: isActive ? 0.25 : 0.05,
+                  dashArray: isActive ? null : '5, 5',
+                });
 
-              // Update marker color
-              const iconHtml = `<div style="
-                background: ${isActive ? color : '#6b7280'};
-                color: white;
-                border-radius: 50%;
-                width: 22px;
-                height: 22px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 12px;
-                font-weight: bold;
-                border: 2px solid white;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-                ${isFinal && state.in_final_bubble ? 'animation: bubble-pulse 0.5s infinite;' : ''}
-              ">${bubble.order}</div>`;
-              marker.setIcon(L.divIcon({
-                className: 'bubble-order-marker',
-                html: iconHtml,
-                iconSize: [22, 22],
-                iconAnchor: [11, 11],
-              }));
+                const iconHtml = `<div style="
+                  background: ${isActive ? color : '#6b7280'};
+                  color: white;
+                  border-radius: 50%;
+                  width: 22px;
+                  height: 22px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 12px;
+                  font-weight: bold;
+                  border: 2px solid white;
+                  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                  ${isFinal && state.in_final_bubble ? 'animation: bubble-pulse 0.5s infinite;' : ''}
+                ">${bubble.order}</div>`;
+                marker.setIcon(L.divIcon({
+                  className: 'bubble-order-marker',
+                  html: iconHtml,
+                  iconSize: [22, 22],
+                  iconAnchor: [11, 11],
+                }));
+              }
+              existing.highestReached = state.highest_bubble_reached;
+              existing.inFinalBubble = state.in_final_bubble;
             }
-            existing.highestReached = state.highest_bubble_reached;
           }
         }
 

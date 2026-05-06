@@ -222,6 +222,8 @@ class FullBusTracker:
                 best_id = str(
                     stop.get("StopID")
                     or stop.get("StopId")
+                    or stop.get("RouteStopID")
+                    or stop.get("RouteStopId")
                     or stop.get("AddressID")
                     or stop.get("AddressId")
                     or ""

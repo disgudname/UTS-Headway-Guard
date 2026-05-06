@@ -104,7 +104,9 @@
       "Bash(uvicorn app:app --port 8080)",
       "Bash(pip show *)",
       "WebFetch(domain:docs.google.com)",
-      "WebFetch(domain:doc-00-bo-sheets.googleusercontent.com)"
+      "WebFetch(domain:doc-00-bo-sheets.googleusercontent.com)",
+      "WebFetch(domain:uva.transloc.com)",
+      "WebFetch(domain:feeds.transloc.com)"
     ]
   }
 }

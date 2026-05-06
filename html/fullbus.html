@@ -363,13 +363,22 @@
       return Array.from(selectEl.selectedOptions).map(opt => opt.value).filter(Boolean);
     }
 
+    function localDateTimeStr(d) {
+      const pad = n => String(n).padStart(2, '0');
+      const date = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      return { date, time };
+    }
+
     function setDefaults() {
       const now = new Date();
-      document.getElementById('to-date').value = now.toISOString().slice(0, 10);
-      document.getElementById('to-time').value = now.toTimeString().slice(0, 5);
+      const { date: toDate, time: toTime } = localDateTimeStr(now);
+      document.getElementById('to-date').value = toDate;
+      document.getElementById('to-time').value = toTime;
       const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      document.getElementById('from-date').value = from.toISOString().slice(0, 10);
-      document.getElementById('from-time').value = from.toTimeString().slice(0, 5);
+      const { date: fromDate, time: fromTime } = localDateTimeStr(from);
+      document.getElementById('from-date').value = fromDate;
+      document.getElementById('from-time').value = fromTime;
     }
 
     async function loadMetadata() {
