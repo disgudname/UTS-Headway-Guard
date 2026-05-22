@@ -63,6 +63,7 @@ from urllib.parse import quote, unquote, urlparse, urlunparse, parse_qsl, urlenc
 from tickets_store import TicketStore
 from push_subscriptions import PushSubscriptionStore
 from ondemand_client import OnDemandClient
+from spare_client import SpareClient
 from vehicle_drivers import VehicleDriversProvider
 from vehicle_drivers.uva import UVAVehicleDriversProvider, UVAProviderConfig
 from uva_athletics import (
@@ -550,6 +551,12 @@ EXPECTED_ENV_KEYS = sorted(
         "VEH_REFRESH_S",
         "W2W_ASSIGNMENT_TTL_S",
         "W2W_KEY",
+        "SPARE_API_KEY",
+        "SPARE_BASE_URL",
+        "SPARE_WEBHOOK_SECRET",
+        "SPARE_REQUESTS_TTL_S",
+        "SPARE_DUTIES_TTL_S",
+        "SPARE_VEHICLES_TTL_S",
     }
 )
 
@@ -607,6 +614,10 @@ ONDEMAND_DEFAULT_MARKER_COLOR = (os.getenv("ONDEMAND_DEFAULT_MARKER_COLOR") or "
 if not ONDEMAND_DEFAULT_MARKER_COLOR.startswith("#"):
     ONDEMAND_DEFAULT_MARKER_COLOR = f"#{ONDEMAND_DEFAULT_MARKER_COLOR.lstrip('#')}"
 ADSB_CACHE_TTL_S = float(os.getenv("ADSB_CACHE_TTL_S", "15"))
+SPARE_REQUESTS_TTL_S = int(os.getenv("SPARE_REQUESTS_TTL_S", "30"))
+SPARE_DUTIES_TTL_S = int(os.getenv("SPARE_DUTIES_TTL_S", "60"))
+SPARE_VEHICLES_TTL_S = int(os.getenv("SPARE_VEHICLES_TTL_S", "120"))
+SPARE_WEBHOOK_SECRET = (os.getenv("SPARE_WEBHOOK_SECRET") or "").strip()
 DISPATCHER_DOWNED_SHEET_URL = os.getenv(
     "DISPATCHER_DOWNED_SHEET_URL",
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vRZz9HtiUnA6MONcaHw_Kz1Cd8dHhm7Gt9OBuOy7bPfNiHaGYvkVlONxttrUgNCjXdLDnDcgCh4IeQH/pub?gid=0&single=true&output=csv",
@@ -1362,6 +1373,16 @@ async def init_viriciti_client() -> None:
         app.state.viriciti_client = None
 
 
+@app.on_event("startup")
+async def init_spare_client() -> None:
+    try:
+        app.state.spare_client = SpareClient.from_env()
+        print("[spare] client initialized")
+    except RuntimeError as exc:
+        print(f"[spare] client not configured: {exc}")
+        app.state.spare_client = None
+
+
 @app.on_event("shutdown")
 async def shutdown_ondemand_client() -> None:
     client = getattr(app.state, "ondemand_client", None)
@@ -1370,6 +1391,9 @@ async def shutdown_ondemand_client() -> None:
     transloc_client = getattr(app.state, "transloc_client", None)
     if transloc_client is not None:
         await transloc_client.aclose()
+    spare_client = getattr(app.state, "spare_client", None)
+    if spare_client is not None:
+        await spare_client.aclose()
 
 
 @app.on_event("startup")
@@ -1456,6 +1480,7 @@ OFFLINE_HTML = _load_html("offline.html")
 INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
 OVERLAP_DEMO_HTML = _load_html("overlap-demo.html")
+VANDISPATCH_HTML = _load_html("vandispatch.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -1519,6 +1544,22 @@ def broadcast_viriciti_soc(soc_data: Dict[str, Any]) -> None:
             q.put_nowait(encoded)
         except asyncio.QueueFull:
             pass
+
+# Spare Van Dispatch SSE subscribers + in-memory vehicle location store
+SPARE_SUBS: set[asyncio.Queue] = set()
+_spare_locations: Dict[str, Dict[str, Any]] = {}  # vehicleId -> latest VehicleLocation payload
+
+
+def broadcast_spare_event(event: Dict[str, Any]) -> None:
+    if not SPARE_SUBS:
+        return
+    encoded = f"data: {json.dumps(event)}\n\n"
+    for q in list(SPARE_SUBS):
+        try:
+            q.put_nowait(encoded)
+        except asyncio.QueueFull:
+            pass
+
 
 CONFIG_KEYS = [
     "TRANSLOC_BASE","TRANSLOC_KEY","OVERPASS_EP",
@@ -2144,6 +2185,9 @@ w2w_assignments_cache = TTLCache(W2W_ASSIGNMENT_TTL_S)
 vehicle_drivers_cache = TTLCache(VEHICLE_DRIVERS_TTL_S)
 adsb_cache: Dict[Tuple[str, str, str], Tuple[float, Any]] = {}
 adsb_cache_lock = asyncio.Lock()
+spare_requests_cache = TTLCache(SPARE_REQUESTS_TTL_S)
+spare_duties_cache = TTLCache(SPARE_DUTIES_TTL_S)
+spare_vehicles_cache = TTLCache(SPARE_VEHICLES_TTL_S)
 
 
 def _is_within_ondemand_operating_window(now: Optional[datetime] = None) -> bool:
@@ -14152,3 +14196,200 @@ async def traffic_incidents_debug():
         }
     except Exception as exc:
         return {"error": str(exc)}
+
+
+# -----------------------------------------------------------------------
+# Spare Van Dispatch
+# -----------------------------------------------------------------------
+
+def _spare_today_range() -> tuple[int, int]:
+    """Return (start_ts, end_ts) Unix timestamps for today in ET."""
+    tz = ZoneInfo("America/New_York")
+    today = datetime.now(tz).date()
+    start = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=tz)
+    end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=tz)
+    return int(start.timestamp()), int(end.timestamp())
+
+
+def _get_spare_client() -> Optional[SpareClient]:
+    return getattr(app.state, "spare_client", None)
+
+
+@app.get("/api/spare/requests")
+async def api_spare_requests():
+    """Today's active paratransit trip requests."""
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
+
+    async def fetch():
+        start_ts, end_ts = _spare_today_range()
+        active_statuses = "processing|accepted|arriving|inProgress"
+        try:
+            requests = await client.get_requests(
+                fromRequestedPickupTs=start_ts,
+                toRequestedPickupTs=end_ts,
+                status=active_statuses,
+                limit=200,
+            )
+        except httpx.HTTPStatusError as exc:
+            print(f"[spare] requests fetch error {exc.response.status_code}: {exc}")
+            return []
+        except Exception as exc:
+            print(f"[spare] requests fetch failed: {exc}")
+            return []
+        return requests
+
+    return await spare_requests_cache.get(fetch)
+
+
+@app.get("/api/spare/duties")
+async def api_spare_duties():
+    """Today's duty roster (shifts that overlap with today)."""
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
+
+    async def fetch():
+        start_ts, end_ts = _spare_today_range()
+        try:
+            duties = await client.get_duty_schedules(
+                withinRangeFromTs=start_ts,
+                withinRangeToTs=end_ts,
+            )
+        except httpx.HTTPStatusError as exc:
+            print(f"[spare] duties fetch error {exc.response.status_code}: {exc}")
+            return []
+        except Exception as exc:
+            print(f"[spare] duties fetch failed: {exc}")
+            return []
+        return duties
+
+    return await spare_duties_cache.get(fetch)
+
+
+@app.get("/api/spare/vehicles")
+async def api_spare_vehicles():
+    """Vehicle roster with latest known locations (from webhook cache)."""
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
+
+    async def fetch():
+        try:
+            vehicles = await client.get_vehicles()
+        except httpx.HTTPStatusError as exc:
+            print(f"[spare] vehicles fetch error {exc.response.status_code}: {exc}")
+            return []
+        except Exception as exc:
+            print(f"[spare] vehicles fetch failed: {exc}")
+            return []
+        for v in vehicles:
+            vid = v.get("id")
+            if vid and vid in _spare_locations:
+                v["currentLocation"] = _spare_locations[vid]
+        return vehicles
+
+    return await spare_vehicles_cache.get(fetch)
+
+
+@app.post("/api/spare/webhook")
+async def api_spare_webhook(request: Request):
+    """Receive Spare webhook events (vehicleLocation, requestStatus, eta)."""
+    if SPARE_WEBHOOK_SECRET:
+        incoming = request.headers.get("X-Spare-Secret", "")
+        if incoming != SPARE_WEBHOOK_SECRET:
+            raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    event_type = body.get("type") or body.get("event")
+    data = body.get("data", body)
+
+    if event_type == "vehicleLocation":
+        vehicle_id = data.get("vehicleId")
+        if vehicle_id:
+            _spare_locations[vehicle_id] = data
+        broadcast_spare_event({"type": "vehicleLocation", "data": data})
+
+    elif event_type == "requestStatus":
+        broadcast_spare_event({"type": "requestStatus", "data": data})
+        spare_requests_cache.ts = 0.0  # force cache miss on next poll
+
+    elif event_type == "eta":
+        broadcast_spare_event({"type": "eta", "data": data})
+
+    return {"ok": True}
+
+
+@app.get("/stream/spare")
+async def stream_spare():
+    """SSE stream for real-time Spare vehicle locations and request updates."""
+    async def gen():
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
+        SPARE_SUBS.add(q)
+        try:
+            initial = {
+                "type": "initial",
+                "data": {
+                    "vehicleLocations": list(_spare_locations.values()),
+                    "webhookConfigured": bool(SPARE_WEBHOOK_SECRET),
+                }
+            }
+            yield f"data: {json.dumps(initial)}\n\n"
+            while True:
+                encoded = await q.get()
+                yield encoded
+        finally:
+            SPARE_SUBS.discard(q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/api/spare/webhook/register")
+async def api_spare_register_webhook(request: Request):
+    """Register this app's webhook URL with Spare (one-time admin action)."""
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    webhook_url = body.get("url")
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    types = body.get("types", ["vehicleLocation", "requestStatus", "eta"])
+    try:
+        result = await client.register_webhook(
+            url=webhook_url,
+            types=types,
+            secret_header="X-Spare-Secret" if SPARE_WEBHOOK_SECRET else None,
+            secret_value=SPARE_WEBHOOK_SECRET if SPARE_WEBHOOK_SECRET else None,
+        )
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
+    return result
+
+
+@app.get("/api/spare/webhooks")
+async def api_spare_list_webhooks():
+    """List webhooks registered in Spare."""
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured")
+    try:
+        return await client.list_webhooks()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=str(exc))
+
+
+@app.get("/vandispatch")
+async def vandispatch_page():
+    return HTMLResponse(VANDISPATCH_HTML)

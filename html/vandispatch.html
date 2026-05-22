@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#E57200">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Van Dispatch — Paratransit</title>
+  <script defer src="/nav-bar.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+      background: #0d0d0d;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: linear-gradient(120deg, #1a0a3d, #0f0820);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 2px solid #6c3fc5;
+    }
+    header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #e0d0ff;
+      letter-spacing: 0.02em;
+    }
+    header .subtitle {
+      font-size: 0.8rem;
+      color: #9980d0;
+      margin-left: auto;
+    }
+    #status-bar {
+      background: #1a1a2e;
+      padding: 0.4rem 1.5rem;
+      font-size: 0.78rem;
+      color: #888;
+      border-bottom: 1px solid #2a2a44;
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+    }
+    #status-bar .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #555;
+      display: inline-block;
+    }
+    .dot.live { background: #4caf50; box-shadow: 0 0 6px #4caf5099; }
+    .dot.warn { background: #ff9800; }
+    .dot.off  { background: #f44336; }
+
+    .main-layout {
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      grid-template-rows: 1fr auto;
+      flex: 1;
+      min-height: 0;
+    }
+    /* Map */
+    #map-pane {
+      grid-row: 1;
+      grid-column: 1;
+      position: relative;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+      min-height: 400px;
+      background: #111;
+    }
+    #map-no-webhooks {
+      display: none;
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.75);
+      color: #ffd54f;
+      font-size: 0.75rem;
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* Trip board */
+    #trip-board {
+      grid-row: 1;
+      grid-column: 2;
+      display: flex;
+      flex-direction: column;
+      background: #111;
+      border-left: 1px solid #2a2a44;
+      overflow: hidden;
+    }
+    #trip-board h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9980d0;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #2a2a44;
+      background: #16162a;
+    }
+    #trip-board h2 span {
+      float: right;
+      font-size: 0.75rem;
+      color: #666;
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    #trips-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem;
+    }
+    .trip-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      border-radius: 8px;
+      padding: 0.7rem 0.8rem;
+      margin-bottom: 0.5rem;
+      transition: border-color 0.2s;
+    }
+    .trip-card:hover { border-color: #6c3fc5; }
+    .trip-card.arriving { border-left: 3px solid #ff9800; }
+    .trip-card.inProgress { border-left: 3px solid #4caf50; }
+    .trip-card.accepted { border-left: 3px solid #2196f3; }
+    .trip-card.processing { border-left: 3px solid #9e9e9e; }
+    .trip-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.4rem;
+    }
+    .status-pill {
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .status-pill.processing { background: #333; color: #aaa; }
+    .status-pill.accepted   { background: #1565c0; color: #90caf9; }
+    .status-pill.arriving   { background: #e65100; color: #ffe0b2; }
+    .status-pill.inProgress { background: #1b5e20; color: #a5d6a7; }
+    .rider-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #e0d0ff;
+      flex: 1;
+    }
+    .trip-body {
+      font-size: 0.78rem;
+      color: #aaa;
+      line-height: 1.5;
+    }
+    .trip-body .addr {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .trip-meta {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 0.35rem;
+      font-size: 0.75rem;
+    }
+    .trip-meta .eta-label { color: #9980d0; font-weight: 500; }
+    .trip-meta .eta-time  { color: #f0f0f0; }
+    .access-icons {
+      display: flex;
+      gap: 0.3rem;
+      margin-top: 0.35rem;
+      flex-wrap: wrap;
+    }
+    .access-tag {
+      background: #2a1f4a;
+      color: #b0a0e0;
+      font-size: 0.68rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+    }
+    .no-trips {
+      text-align: center;
+      color: #555;
+      padding: 2rem 1rem;
+      font-size: 0.85rem;
+    }
+
+    /* Duty roster */
+    #duty-roster {
+      grid-row: 2;
+      grid-column: 1 / -1;
+      background: #111;
+      border-top: 1px solid #2a2a44;
+    }
+    #duty-roster h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9980d0;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid #2a2a44;
+      background: #16162a;
+    }
+    #duties-table-wrap {
+      overflow-x: auto;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th {
+      background: #16162a;
+      color: #9980d0;
+      font-weight: 600;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.5rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid #2a2a44;
+      position: sticky;
+      top: 0;
+    }
+    td {
+      padding: 0.45rem 1rem;
+      border-bottom: 1px solid #1e1e32;
+      color: #ddd;
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1a1a2e; }
+    .duty-status {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .duty-status.scheduled   { background: #1a237e; color: #90caf9; }
+    .duty-status.inProgress  { background: #1b5e20; color: #a5d6a7; }
+    .duty-status.completed   { background: #212121; color: #757575; }
+    .duty-status.cancelled   { background: #b71c1c; color: #ef9a9a; }
+    .no-duties {
+      text-align: center;
+      color: #555;
+      padding: 1.5rem;
+      font-size: 0.82rem;
+    }
+
+    @media (max-width: 900px) {
+      .main-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: 50vh auto 1fr;
+      }
+      #map-pane { grid-column: 1; grid-row: 1; }
+      #trip-board { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid #2a2a44; }
+      #duty-roster { grid-column: 1; grid-row: 2; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Van Dispatch</h1>
+    </div>
+    <span class="subtitle">Paratransit Operations</span>
+  </header>
+
+  <div id="status-bar">
+    <div class="badge"><span class="dot" id="sse-dot"></span><span id="sse-label">connecting…</span></div>
+    <div class="badge">Trips today: <strong id="trip-count">—</strong></div>
+    <div class="badge">Duties: <strong id="duty-count">—</strong></div>
+    <div class="badge" id="webhook-badge" style="display:none">
+      <span class="dot warn"></span><span>Live GPS inactive — configure Spare webhook</span>
+    </div>
+    <div class="badge" style="margin-left:auto">
+      <span id="last-refresh">—</span>
+    </div>
+  </div>
+
+  <div class="main-layout">
+    <div id="map-pane">
+      <div id="map"></div>
+      <div id="map-no-webhooks">Vehicle GPS requires Spare webhook configuration</div>
+    </div>
+
+    <div id="trip-board">
+      <h2>Active Trips <span id="trips-updated"></span></h2>
+      <div id="trips-list"><div class="no-trips">Loading…</div></div>
+    </div>
+
+    <div id="duty-roster">
+      <h2>Duty Roster — Today</h2>
+      <div id="duties-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Driver</th>
+              <th>Vehicle</th>
+              <th>Status</th>
+              <th>Identifier</th>
+            </tr>
+          </thead>
+          <tbody id="duties-tbody">
+            <tr><td colspan="4" class="no-duties">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---- Map init ----
+    const map = L.map('map', {
+      center: [38.0336, -78.5080],
+      zoom: 13,
+    });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
+
+    // ---- Spare vehicle markers ----
+    const vehicleMarkers = {};
+
+    function makeVanIcon(bearing) {
+      const angle = (bearing ?? 0);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+        <g transform="rotate(${angle},14,14)">
+          <circle cx="14" cy="14" r="11" fill="#7c3aed" stroke="#e0d0ff" stroke-width="2"/>
+          <polygon points="14,4 18,16 14,13 10,16" fill="#e0d0ff"/>
+        </g>
+      </svg>`;
+      return L.divIcon({
+        html: svg,
+        className: '',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+    }
+
+    function upsertVehicleMarker(locData) {
+      const loc = locData.location;
+      if (!loc || !loc.coordinates) return;
+      const [lng, lat] = loc.coordinates;
+      const vid = locData.vehicleId;
+      const bearing = locData.bearing ?? 0;
+      if (vehicleMarkers[vid]) {
+        vehicleMarkers[vid].setLatLng([lat, lng]);
+        vehicleMarkers[vid].setIcon(makeVanIcon(bearing));
+      } else {
+        vehicleMarkers[vid] = L.marker([lat, lng], { icon: makeVanIcon(bearing) })
+          .bindPopup(`<b>Van</b><br>Vehicle: ${vid.slice(0,8)}…`)
+          .addTo(map);
+      }
+    }
+
+    // ---- SSE ----
+    const sseDot = document.getElementById('sse-dot');
+    const sseLabel = document.getElementById('sse-label');
+
+    function connectSSE() {
+      const es = new EventSource('/stream/spare');
+      es.onopen = () => {
+        sseDot.className = 'dot live';
+        sseLabel.textContent = 'Live';
+      };
+      es.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'initial') {
+          const locs = msg.data.vehicleLocations || [];
+          locs.forEach(upsertVehicleMarker);
+          if (!msg.data.webhookConfigured) {
+            document.getElementById('webhook-badge').style.display = '';
+            document.getElementById('map-no-webhooks').style.display = 'block';
+          }
+        } else if (msg.type === 'vehicleLocation') {
+          upsertVehicleMarker(msg.data);
+          document.getElementById('map-no-webhooks').style.display = 'none';
+          document.getElementById('webhook-badge').style.display = 'none';
+        } else if (msg.type === 'requestStatus') {
+          fetchTrips();
+        }
+      };
+      es.onerror = () => {
+        sseDot.className = 'dot off';
+        sseLabel.textContent = 'Disconnected — reconnecting…';
+        es.close();
+        setTimeout(connectSSE, 5000);
+      };
+    }
+    connectSSE();
+
+    // ---- Trip board ----
+    const STATUS_ORDER = { arriving: 0, inProgress: 1, accepted: 2, processing: 3 };
+
+    function fmtTime(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+
+    function riderName(req) {
+      const r = req.rider;
+      if (!r) return 'Rider';
+      return [r.firstName, r.lastName].filter(Boolean).join(' ') || 'Rider';
+    }
+
+    function accessTags(req) {
+      const features = req.accessibilityFeatures || [];
+      if (!features.length) return '';
+      return features.map(f => `<span class="access-tag">${f}</span>`).join('');
+    }
+
+    function renderTrips(trips) {
+      const list = document.getElementById('trips-list');
+      document.getElementById('trip-count').textContent = trips.length;
+      document.getElementById('trips-updated').textContent = new Date().toLocaleTimeString();
+
+      if (!trips.length) {
+        list.innerHTML = '<div class="no-trips">No active trips right now</div>';
+        return;
+      }
+
+      const sorted = [...trips].sort((a, b) =>
+        (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)
+      );
+
+      list.innerHTML = sorted.map(req => {
+        const name = riderName(req);
+        const status = req.status || 'unknown';
+        const pickup = req.scheduledPickupAddress || req.requestedPickupAddress || '—';
+        const dropoff = req.scheduledDropoffAddress || req.requestedDropoffAddress || '—';
+        const pickupEta = req.pickupEta ? fmtTime(req.pickupEta) : (req.scheduledPickupTs ? fmtTime(req.scheduledPickupTs) : '—');
+        const dropoffEta = req.dropoffEta ? fmtTime(req.dropoffEta) : (req.scheduledDropoffTs ? fmtTime(req.scheduledDropoffTs) : '—');
+        const notes = req.notes ? `<div class="addr" style="color:#ffd54f;margin-top:0.25rem">📝 ${req.notes}</div>` : '';
+        const riders = req.numRiders ? ` · ${req.numRiders} rider${req.numRiders > 1 ? 's' : ''}` : '';
+        return `
+          <div class="trip-card ${status}">
+            <div class="trip-header">
+              <span class="status-pill ${status}">${status}</span>
+              <span class="rider-name">${name}${riders}</span>
+            </div>
+            <div class="trip-body">
+              <div class="addr">▲ ${pickup}</div>
+              <div class="addr">▼ ${dropoff}</div>
+              <div class="trip-meta">
+                <span><span class="eta-label">PU</span> <span class="eta-time">${pickupEta}</span></span>
+                <span><span class="eta-label">DO</span> <span class="eta-time">${dropoffEta}</span></span>
+              </div>
+              ${notes}
+              <div class="access-icons">${accessTags(req)}</div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    async function fetchTrips() {
+      try {
+        const res = await fetch('/api/spare/requests');
+        if (!res.ok) {
+          if (res.status === 503) {
+            document.getElementById('trips-list').innerHTML =
+              '<div class="no-trips">⚠ Spare not configured — set SPARE_API_KEY</div>';
+            return;
+          }
+          throw new Error(res.statusText);
+        }
+        const trips = await res.json();
+        renderTrips(Array.isArray(trips) ? trips : []);
+      } catch (err) {
+        console.error('trips fetch failed:', err);
+        document.getElementById('trips-list').innerHTML =
+          `<div class="no-trips">Error loading trips: ${err.message}</div>`;
+      }
+    }
+
+    // ---- Duty roster ----
+    function renderDuties(duties) {
+      const tbody = document.getElementById('duties-tbody');
+      document.getElementById('duty-count').textContent = duties.length;
+
+      if (!duties.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="no-duties">No duties scheduled today</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = duties.map(d => {
+        const status = d.status || 'unknown';
+        return `
+          <tr>
+            <td>${d.driverName || '—'}</td>
+            <td>${d.vehicleIdentifier || '—'}</td>
+            <td><span class="duty-status ${status}">${status}</span></td>
+            <td style="color:#888;font-size:0.75rem">${d.identifier || d.id?.slice(0,8) || '—'}</td>
+          </tr>`;
+      }).join('');
+    }
+
+    async function fetchDuties() {
+      try {
+        const res = await fetch('/api/spare/duties');
+        if (!res.ok) {
+          tbody.innerHTML = '<tr><td colspan="4" class="no-duties">⚠ Spare not configured</td></tr>';
+          return;
+        }
+        const duties = await res.json();
+        renderDuties(Array.isArray(duties) ? duties : []);
+      } catch (err) {
+        console.error('duties fetch failed:', err);
+      }
+    }
+
+    // ---- Last refresh ticker ----
+    function updateLastRefresh() {
+      document.getElementById('last-refresh').textContent =
+        'Updated ' + new Date().toLocaleTimeString();
+    }
+
+    // ---- Initial load + polling ----
+    fetchTrips();
+    fetchDuties();
+    updateLastRefresh();
+
+    setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
+    setInterval(fetchDuties, 60_000);
+  </script>
+</body>
+</html>
