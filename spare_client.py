@@ -44,13 +44,28 @@ class SpareClient:
     async def get(self, path: str, **params: Any) -> Any:
         client = await self._ensure_client()
         url = f"{self._base_url}/{path.lstrip('/')}"
-        filtered = {k: v for k, v in params.items() if v is not None}
-        resp = await client.get(url, params=filtered, headers=self._auth_headers())
+        # Build as list of tuples so list values become repeated params (?k=v1&k=v2)
+        param_list = []
+        for k, v in params.items():
+            if v is None:
+                continue
+            if isinstance(v, list):
+                for item in v:
+                    param_list.append((k, item))
+            else:
+                param_list.append((k, v))
+        resp = await client.get(url, params=param_list, headers=self._auth_headers())
         resp.raise_for_status()
         return resp.json()
 
     async def get_requests(self, **params: Any) -> List[Dict[str, Any]]:
         data = await self.get("requests", **params)
+        if isinstance(data, list):
+            return data
+        return data.get("data", [])
+
+    async def get_duties(self, **params: Any) -> List[Dict[str, Any]]:
+        data = await self.get("duties", **params)
         if isinstance(data, list):
             return data
         return data.get("data", [])

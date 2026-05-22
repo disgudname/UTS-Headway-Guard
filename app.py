@@ -14251,11 +14251,10 @@ async def api_spare_duties():
         raise HTTPException(status_code=503, detail="Spare client not configured (set SPARE_API_KEY)")
 
     async def fetch():
-        start_ts, end_ts = _spare_today_range()
         try:
-            duties = await client.get_duty_schedules(
-                withinRangeFromTs=start_ts,
-                withinRangeToTs=end_ts,
+            duties = await client.get_duties(
+                status=["inProgress", "scheduled"],
+                limit=100,
             )
         except httpx.HTTPStatusError as exc:
             print(f"[spare] duties fetch error {exc.response.status_code}: {exc}")
