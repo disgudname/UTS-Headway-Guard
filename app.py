@@ -14224,12 +14224,10 @@ async def api_spare_requests():
 
     async def fetch():
         start_ts, end_ts = _spare_today_range()
-        active_statuses = "processing|accepted|arriving|inProgress"
         try:
             requests = await client.get_requests(
                 fromRequestedPickupTs=start_ts,
                 toRequestedPickupTs=end_ts,
-                status=active_statuses,
                 limit=200,
             )
         except httpx.HTTPStatusError as exc:
@@ -14238,7 +14236,8 @@ async def api_spare_requests():
         except Exception as exc:
             print(f"[spare] requests fetch failed: {exc}")
             return []
-        return requests
+        terminal = {"completed", "cancelled", "noDriversAvailable", "serviceDisruption"}
+        return [r for r in requests if r.get("status") not in terminal]
 
     return await spare_requests_cache.get(fetch)
 
@@ -14252,17 +14251,15 @@ async def api_spare_duties():
 
     async def fetch():
         try:
-            duties = await client.get_duties(
-                status=["inProgress", "scheduled"],
-                limit=100,
-            )
+            duties = await client.get_duties(limit=100)
         except httpx.HTTPStatusError as exc:
             print(f"[spare] duties fetch error {exc.response.status_code}: {exc}")
             return []
         except Exception as exc:
             print(f"[spare] duties fetch failed: {exc}")
             return []
-        return duties
+        active = {"inProgress", "scheduled"}
+        return [d for d in duties if d.get("status") in active]
 
     return await spare_duties_cache.get(fetch)
 
