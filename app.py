@@ -14267,6 +14267,21 @@ async def api_spare_duties():
     return await spare_duties_cache.get(fetch)
 
 
+@app.get("/api/spare/duties/debug")
+async def api_spare_duties_debug():
+    """Raw Spare /duties response with no filters — for debugging only."""
+    client = _get_spare_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Spare client not configured")
+    try:
+        raw = await client.get("duties", limit=20)
+        return raw
+    except httpx.HTTPStatusError as exc:
+        return {"error": exc.response.status_code, "body": exc.response.text}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @app.get("/api/spare/vehicles")
 async def api_spare_vehicles():
     """Vehicle roster with latest known locations (from webhook cache)."""
