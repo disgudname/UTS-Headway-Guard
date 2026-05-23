@@ -106,7 +106,9 @@
       "WebFetch(domain:docs.google.com)",
       "WebFetch(domain:doc-00-bo-sheets.googleusercontent.com)",
       "WebFetch(domain:uva.transloc.com)",
-      "WebFetch(domain:feeds.transloc.com)"
+      "WebFetch(domain:feeds.transloc.com)",
+      "Bash(findstr /n \"nameBubbles\\\\|createMarker\\\\|updateVehicleMarker\" scripts/testmap.js)",
+      "PowerShell(head *)"
     ]
   }
 }

@@ -286,6 +286,36 @@
       #trip-board { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid #2a2a44; }
       #duty-roster { grid-column: 1; grid-row: 2; }
     }
+
+    /* ondemand-driver-popup (matches testmap style) */
+    .leaflet-popup.ondemand-driver-popup .leaflet-popup-content-wrapper {
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(15,23,42,0.25);
+      color: #0f172a;
+      font-family: "Inter","Segoe UI",system-ui,sans-serif;
+      padding: 10px 14px;
+      border: 2px solid rgba(35,45,75,0.08);
+    }
+    .leaflet-popup.ondemand-driver-popup .leaflet-popup-content { margin: 0; }
+    .leaflet-popup.ondemand-driver-popup .leaflet-popup-tip {
+      background: #ffffff;
+      border: 2px solid rgba(35,45,75,0.08);
+      box-shadow: 0 4px 12px rgba(15,23,42,0.25);
+    }
+    .ondemand-driver-popup__content {
+      display: flex; flex-direction: column; gap: 4px; min-width: 160px;
+    }
+    .ondemand-driver-popup__section { display: flex; flex-direction: column; gap: 4px; }
+    .ondemand-driver-popup__label {
+      font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(15,23,42,0.75);
+    }
+    .ondemand-driver-popup__value { font-size: 15px; font-weight: 700; color: #1f2937; }
+    .ondemand-driver-popup__sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .ondemand-driver-popup__divider {
+      height: 1px; width: 100%; background: rgba(35,45,75,0.12); margin: 6px 0;
+    }
   </style>
 </head>
 <body>
@@ -342,94 +372,169 @@
 
   <script>
     // ---- Map init ----
-    const map = L.map('map', {
-      center: [38.0336, -78.5080],
-      zoom: 13,
-    });
+    const map = L.map('map', { center: [38.0336, -78.5080], zoom: 13 });
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       attribution: '© OpenStreetMap © CARTO',
-      subdomains: 'abcd',
-      maxZoom: 19,
+      subdomains: 'abcd', maxZoom: 19,
     }).addTo(map);
 
-    // ---- Spare vehicle markers ----
-    // vehicleId -> { marker, identifier }
-    const vehicleMarkers = {};
-    // vehicleId -> identifier string (populated from /api/spare/vehicles)
-    const vehicleIdents = {};
+    // ---- State ----
+    const vehicleData  = {};  // vehicleId  -> full vehicle object
+    const dutiesData   = {};  // dutyId     -> full duty object
+    const vehicleMarkers = {}; // vehicleId -> bus-body L.marker
+    const bubbleMarkers  = {}; // vehicleId -> label-bubble L.marker
 
-    function makeBusMarkerSvg(bearing, color) {
-      const fill = color || '#7c3aed';
-      // Inline the busmarker.svg shape, rotated by bearing, tinted with van color
-      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52.99 86.99" width="26" height="44"
-               style="transform:rotate(${bearing}deg);transform-origin:center 50%;display:block">
+    // ---- Helpers ----
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function fmtTime(ts) {
+      if (!ts) return '—';
+      return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+
+    // ---- Bubble icon (matches testmap createNameBubbleDivIcon) ----
+    const _bubbleCanvas = document.createElement('canvas');
+    function measureText(text, fontSize) {
+      const ctx = _bubbleCanvas.getContext('2d');
+      if (!ctx) return text.length * fontSize * 0.6;
+      ctx.font = `bold ${fontSize}px "Inter","Segoe UI",system-ui,sans-serif`;
+      return ctx.measureText(text).width;
+    }
+
+    function createBubbleIcon(text, fillColor) {
+      const FONT  = 13, H_PAD = 10, V_PAD = 3, CORNER = 8, STROKE = 2.5, INSET = 4;
+      const tw = measureText(text, FONT);
+      const rw = Math.max(40, tw + H_PAD * 2);
+      const rh = Math.max(20, FONT + V_PAD * 2);
+      const sw = rw + STROKE * 2;
+      const sh = rh + INSET * 2 + STROKE;
+      // Anchor so the bubble sits just above the bus marker tip (44px tall, anchor at bottom)
+      const anchorX = sw / 2;
+      const anchorY = sh + 44 + 5;
+      const rx = STROKE, ry = INSET + STROKE / 2;
+      const tx = sw / 2, ty = ry + rh / 2 + FONT * 0.35;
+      const svg = `<svg width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
+        <rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="${CORNER}" ry="${CORNER}" fill="${fillColor}" stroke="white" stroke-width="${STROKE}"/>
+        <text x="${tx}" y="${ty}" text-anchor="middle" font-size="${FONT}" font-weight="bold" fill="white" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(text)}</text>
+      </svg>`;
+      return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sh], iconAnchor: [anchorX, anchorY] });
+    }
+
+    // ---- Bus-body marker icon ----
+    function makeBusMarkerIcon(bearing) {
+      const fill = '#7c3aed';
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52.99 86.99" width="26" height="44"
+          style="transform:rotate(${bearing}deg);transform-origin:50% 50%;display:block">
         <path d="M26.49,0c1.56,0,3.11.52,4.38,1.55,3.68,2.93,22.12,18.71,22.12,39.94,0,17.84-13.46,28.5-26.49,28.5S0,59.33,0,41.49C0,20.26,18.44,4.48,22.14,1.54,23.4.52,24.94.01,26.49.01h0Z" fill="#fff"/>
         <path d="M26.5,67.49c-11.5,0-24-9.5-24-26C2.5,23.99,16.3,9.39,23.7,3.49c1.6-1.3,4-1.3,5.6,0,7.4,5.9,21.2,20.5,21.2,38,0,16.5-12.5,26-24,26Z" fill="${fill}"/>
         <path d="M26.5,27.99c8.55,0,15.5,6.95,15.5,15.5s-6.95,15.5-15.5,15.5-15.5-6.95-15.5-15.5,6.95-15.5,15.5-15.5ZM26.5,52.49c4.97,0,9-4.03,9-9s-4.03-9-9-9-9,4.03-9,9,4.03,9,9,9Z" fill="#fff"/>
         <path d="M26.5,8.49l10,18c-6.67-4-13.33-4-20,0l10-18Z" fill="#fff"/>
       </svg>`;
+      return L.divIcon({ html: svg, className: '', iconSize: [26, 44], iconAnchor: [13, 44] });
     }
 
-    function makeVanDivIcon(bearing, label) {
-      const wrapper = document.createElement('div');
-      wrapper.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px';
-      wrapper.innerHTML = makeBusMarkerSvg(bearing, '#7c3aed') +
-        `<div style="background:#7c3aed;color:#fff;font-size:10px;font-weight:700;
-          padding:1px 5px;border-radius:3px;white-space:nowrap;line-height:1.4;
-          box-shadow:0 1px 3px rgba(0,0,0,0.5)">${label || 'Van'}</div>`;
-      return L.divIcon({
-        html: wrapper.outerHTML,
-        className: '',
-        iconSize: [26, 62],
-        iconAnchor: [13, 44],
-      });
+    // ---- Popup content (ondemand-driver-popup style) ----
+    function buildPopupHtml(vid) {
+      const v = vehicleData[vid] || {};
+      const loc = v.currentLocation || {};
+      const duty = dutiesData[loc.dutyId] || {};
+      const driver = duty.driver || {};
+
+      const vehName = v.identifier || 'Van';
+      const vehSub = [v.make, v.model, v.color, v.licensePlate].filter(Boolean).join(' · ');
+      const driverName = [driver.firstName, driver.lastName].filter(Boolean).join(' ') || '—';
+      const shift = duty.startRequestedTs
+        ? `${fmtTime(duty.startRequestedTs)} – ${fmtTime(duty.endRequestedTs)}`
+        : null;
+      const status = duty.status || null;
+
+      const sections = [
+        `<div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Vehicle</div>
+          <div class="ondemand-driver-popup__value">${escHtml(vehName)}</div>
+          ${vehSub ? `<div class="ondemand-driver-popup__sub">${escHtml(vehSub)}</div>` : ''}
+        </div>`,
+        `<div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Driver</div>
+          <div class="ondemand-driver-popup__value">${escHtml(driverName)}</div>
+          ${shift ? `<div class="ondemand-driver-popup__sub">${escHtml(shift)}</div>` : ''}
+        </div>`,
+        status ? `<div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Duty Status</div>
+          <div class="ondemand-driver-popup__value">${escHtml(status)}</div>
+        </div>` : null,
+      ].filter(Boolean);
+
+      return `<div class="ondemand-driver-popup__content">
+        ${sections.join('<div class="ondemand-driver-popup__divider"></div>')}
+      </div>`;
     }
 
+    const POPUP_OPTS = {
+      className: 'ondemand-driver-popup',
+      closeButton: false,
+      autoClose: true,
+      autoPan: false,
+      offset: [0, -20],
+    };
+
+    // ---- Upsert van marker (bus body + bubble label) ----
     function upsertVehicleMarker(locData) {
       const loc = locData.location;
       if (!loc || !loc.coordinates) return;
       const [lng, lat] = loc.coordinates;
       const vid = locData.vehicleId;
       const bearing = locData.bearing ?? 0;
-      const label = vehicleIdents[vid] || 'Van';
-      const icon = makeVanDivIcon(bearing, label);
+
+      // Keep vehicleData location in sync so popup can read it
+      if (vehicleData[vid]) vehicleData[vid].currentLocation = locData;
+
+      const v = vehicleData[vid] || {};
+      const label = v.identifier || 'Van';
+      const busIcon    = makeBusMarkerIcon(bearing);
+      const bubbleIcon = createBubbleIcon(label, '#7c3aed');
+      const popupHtml  = buildPopupHtml(vid);
+
       if (vehicleMarkers[vid]) {
-        vehicleMarkers[vid].setLatLng([lat, lng]);
-        vehicleMarkers[vid].setIcon(icon);
+        vehicleMarkers[vid].setLatLng([lat, lng]).setIcon(busIcon).setPopupContent(popupHtml);
+        bubbleMarkers[vid].setLatLng([lat, lng]).setIcon(bubbleIcon);
       } else {
-        vehicleMarkers[vid] = L.marker([lat, lng], { icon })
-          .bindPopup(`<b>${label}</b><br>Bearing: ${bearing}°`)
+        vehicleMarkers[vid] = L.marker([lat, lng], { icon: busIcon })
+          .bindPopup(popupHtml, POPUP_OPTS)
+          .addTo(map);
+        // Bubble is non-interactive so clicks fall through to bus marker
+        bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false })
           .addTo(map);
       }
     }
 
+    // ---- Load vehicle roster (populates vehicleData + initial map pins) ----
     async function loadVehicleIdents() {
       try {
         const res = await fetch('/api/spare/vehicles');
         if (!res.ok) return;
         const vehicles = await res.json();
-        vehicles.forEach(v => {
-          if (v.id && v.identifier) vehicleIdents[v.id] = v.identifier;
-          if (v.id && v.currentLocation) upsertVehicleMarker({ ...v.currentLocation, vehicleId: v.id });
+        (Array.isArray(vehicles) ? vehicles : []).forEach(v => {
+          if (!v.id) return;
+          vehicleData[v.id] = v;
+          if (v.currentLocation) upsertVehicleMarker({ ...v.currentLocation, vehicleId: v.id });
         });
       } catch (e) { /* ignore */ }
     }
 
     // ---- SSE ----
-    const sseDot = document.getElementById('sse-dot');
+    const sseDot   = document.getElementById('sse-dot');
     const sseLabel = document.getElementById('sse-label');
 
     function connectSSE() {
       const es = new EventSource('/stream/spare');
-      es.onopen = () => {
-        sseDot.className = 'dot live';
-        sseLabel.textContent = 'Live';
-      };
+      es.onopen = () => { sseDot.className = 'dot live'; sseLabel.textContent = 'Live'; };
       es.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === 'initial') {
-          const locs = msg.data.vehicleLocations || [];
-          locs.forEach(upsertVehicleMarker);
+          (msg.data.vehicleLocations || []).forEach(upsertVehicleMarker);
           if (!msg.data.webhookConfigured) {
             document.getElementById('webhook-badge').style.display = '';
             document.getElementById('map-no-webhooks').style.display = 'block';
@@ -454,12 +559,6 @@
     // ---- Trip board ----
     const STATUS_ORDER = { arriving: 0, inProgress: 1, accepted: 2, processing: 3 };
 
-    function fmtTime(ts) {
-      if (!ts) return '—';
-      const d = new Date(ts * 1000);
-      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-    }
-
     function riderName(req) {
       const r = req.rider;
       if (!r) return 'Rider';
@@ -469,49 +568,43 @@
     function accessTags(req) {
       const features = req.accessibilityFeatures || [];
       if (!features.length) return '';
-      return features.map(f => `<span class="access-tag">${f}</span>`).join('');
+      return features.map(f => {
+        const label = typeof f === 'object' ? (f.type || JSON.stringify(f)) : f;
+        return `<span class="access-tag">${escHtml(label)}</span>`;
+      }).join('');
     }
 
     function renderTrips(trips) {
       const list = document.getElementById('trips-list');
       document.getElementById('trip-count').textContent = trips.length;
       document.getElementById('trips-updated').textContent = new Date().toLocaleTimeString();
-
-      if (!trips.length) {
-        list.innerHTML = '<div class="no-trips">No active trips right now</div>';
-        return;
-      }
-
-      const sorted = [...trips].sort((a, b) =>
-        (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)
-      );
-
+      if (!trips.length) { list.innerHTML = '<div class="no-trips">No active trips right now</div>'; return; }
+      const sorted = [...trips].sort((a,b) => (STATUS_ORDER[a.status]??9)-(STATUS_ORDER[b.status]??9));
       list.innerHTML = sorted.map(req => {
-        const name = riderName(req);
+        const name   = riderName(req);
         const status = req.status || 'unknown';
-        const pickup = req.scheduledPickupAddress || req.requestedPickupAddress || '—';
+        const pickup  = req.scheduledPickupAddress  || req.requestedPickupAddress  || '—';
         const dropoff = req.scheduledDropoffAddress || req.requestedDropoffAddress || '—';
-        const pickupEta = req.pickupEta ? fmtTime(req.pickupEta) : (req.scheduledPickupTs ? fmtTime(req.scheduledPickupTs) : '—');
-        const dropoffEta = req.dropoffEta ? fmtTime(req.dropoffEta) : (req.scheduledDropoffTs ? fmtTime(req.scheduledDropoffTs) : '—');
-        const notes = req.notes ? `<div class="addr" style="color:#ffd54f;margin-top:0.25rem">📝 ${req.notes}</div>` : '';
-        const riders = req.numRiders ? ` · ${req.numRiders} rider${req.numRiders > 1 ? 's' : ''}` : '';
-        return `
-          <div class="trip-card ${status}">
-            <div class="trip-header">
-              <span class="status-pill ${status}">${status}</span>
-              <span class="rider-name">${name}${riders}</span>
+        const puEta = req.pickupEta  ? fmtTime(req.pickupEta)  : fmtTime(req.scheduledPickupTs);
+        const doEta = req.dropoffEta ? fmtTime(req.dropoffEta) : fmtTime(req.scheduledDropoffTs);
+        const notes  = req.notes ? `<div class="addr" style="color:#ffd54f;margin-top:.25rem">📝 ${escHtml(req.notes)}</div>` : '';
+        const riders = req.numRiders ? ` · ${req.numRiders} rider${req.numRiders>1?'s':''}` : '';
+        return `<div class="trip-card ${status}">
+          <div class="trip-header">
+            <span class="status-pill ${status}">${status}</span>
+            <span class="rider-name">${escHtml(name)}${riders}</span>
+          </div>
+          <div class="trip-body">
+            <div class="addr">▲ ${escHtml(pickup)}</div>
+            <div class="addr">▼ ${escHtml(dropoff)}</div>
+            <div class="trip-meta">
+              <span><span class="eta-label">PU</span> <span class="eta-time">${puEta}</span></span>
+              <span><span class="eta-label">DO</span> <span class="eta-time">${doEta}</span></span>
             </div>
-            <div class="trip-body">
-              <div class="addr">▲ ${pickup}</div>
-              <div class="addr">▼ ${dropoff}</div>
-              <div class="trip-meta">
-                <span><span class="eta-label">PU</span> <span class="eta-time">${pickupEta}</span></span>
-                <span><span class="eta-label">DO</span> <span class="eta-time">${dropoffEta}</span></span>
-              </div>
-              ${notes}
-              <div class="access-icons">${accessTags(req)}</div>
-            </div>
-          </div>`;
+            ${notes}
+            <div class="access-icons">${accessTags(req)}</div>
+          </div>
+        </div>`;
       }).join('');
     }
 
@@ -520,8 +613,7 @@
         const res = await fetch('/api/spare/requests');
         if (!res.ok) {
           if (res.status === 503) {
-            document.getElementById('trips-list').innerHTML =
-              '<div class="no-trips">⚠ Spare not configured — set SPARE_API_KEY</div>';
+            document.getElementById('trips-list').innerHTML = '<div class="no-trips">⚠ Spare not configured — set SPARE_API_KEY</div>';
             return;
           }
           throw new Error(res.statusText);
@@ -530,70 +622,53 @@
         renderTrips(Array.isArray(trips) ? trips : []);
       } catch (err) {
         console.error('trips fetch failed:', err);
-        document.getElementById('trips-list').innerHTML =
-          `<div class="no-trips">Error loading trips: ${err.message}</div>`;
+        document.getElementById('trips-list').innerHTML = `<div class="no-trips">Error: ${err.message}</div>`;
       }
     }
 
     // ---- Duty roster ----
-    function dutyDriverName(d) {
-      if (d.driver) return [d.driver.firstName, d.driver.lastName].filter(Boolean).join(' ') || '—';
-      if (d.driverName) return d.driverName;
-      return '—';
-    }
-
-    function dutyVehicleName(d) {
-      if (d.vehicle && d.vehicle.identifier) return d.vehicle.identifier;
-      if (d.vehicleIdentifier) return d.vehicleIdentifier;
-      if (d.vehicleId && vehicleIdents[d.vehicleId]) return vehicleIdents[d.vehicleId];
-      return '—';
-    }
-
-    function fmtShiftTime(ts) {
-      if (!ts) return '—';
-      return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-    }
-
     function renderDuties(duties) {
       const tbody = document.getElementById('duties-tbody');
       document.getElementById('duty-count').textContent = duties.length;
-
       if (!duties.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="no-duties">No active duties right now</td></tr>';
         return;
       }
-
       tbody.innerHTML = duties.map(d => {
-        const status = d.status || 'unknown';
-        return `
-          <tr>
-            <td>${dutyDriverName(d)}</td>
-            <td>${dutyVehicleName(d)}</td>
-            <td><span class="duty-status ${status}">${status}</span></td>
-            <td>${fmtShiftTime(d.startRequestedTs)} – ${fmtShiftTime(d.endRequestedTs)}</td>
-            <td style="color:#888;font-size:0.75rem">${d.identifier || '—'}</td>
-          </tr>`;
+        const status      = d.status || 'unknown';
+        const driver      = d.driver || {};
+        const driverName  = [driver.firstName, driver.lastName].filter(Boolean).join(' ') || '—';
+        const vehName     = (d.vehicle && d.vehicle.identifier) || (vehicleData[d.vehicleId] && vehicleData[d.vehicleId].identifier) || '—';
+        const shift       = `${fmtTime(d.startRequestedTs)} – ${fmtTime(d.endRequestedTs)}`;
+        return `<tr>
+          <td>${escHtml(driverName)}</td>
+          <td>${escHtml(vehName)}</td>
+          <td><span class="duty-status ${status}">${status}</span></td>
+          <td>${escHtml(shift)}</td>
+          <td style="color:#888;font-size:.75rem">${escHtml(d.identifier || '—')}</td>
+        </tr>`;
       }).join('');
     }
 
     async function fetchDuties() {
       try {
         const res = await fetch('/api/spare/duties');
-        if (!res.ok) {
-          tbody.innerHTML = '<tr><td colspan="4" class="no-duties">⚠ Spare not configured</td></tr>';
-          return;
-        }
-        const duties = await res.json();
-        renderDuties(Array.isArray(duties) ? duties : []);
+        if (!res.ok) return;
+        const dutiesJson = await res.json();
+        const duties = Array.isArray(dutiesJson) ? dutiesJson : [];
+        // Cache duties by ID for popup lookups
+        duties.forEach(d => { if (d.id) dutiesData[d.id] = d; });
+        renderDuties(duties);
+        // Refresh open/existing marker popups with latest duty info
+        Object.keys(vehicleMarkers).forEach(vid => vehicleMarkers[vid].setPopupContent(buildPopupHtml(vid)));
       } catch (err) {
         console.error('duties fetch failed:', err);
       }
     }
 
-    // ---- Last refresh ticker ----
+    // ---- Last refresh ----
     function updateLastRefresh() {
-      document.getElementById('last-refresh').textContent =
-        'Updated ' + new Date().toLocaleTimeString();
+      document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
     }
 
     // ---- Initial load + polling ----
@@ -604,6 +679,7 @@
 
     setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
     setInterval(fetchDuties, 60_000);
+    setInterval(loadVehicleIdents, 120_000);
   </script>
 </body>
 </html>
