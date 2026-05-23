@@ -337,6 +337,7 @@
     <div class="badge"><span class="dot" id="sse-dot"></span><span id="sse-label">connecting…</span></div>
     <div class="badge">Trips today: <strong id="trip-count">—</strong></div>
     <div class="badge">Duties: <strong id="duty-count">—</strong></div>
+    <div class="badge">OnDemand: <strong id="od-count">—</strong></div>
     <div class="badge" id="webhook-badge" style="display:none">
       <span class="dot warn"></span><span>Live GPS inactive — configure Spare webhook</span>
     </div>
@@ -386,11 +387,15 @@
     }).addTo(map);
 
     // ---- State ----
-    const vehicleData    = {};  // vehicleId -> full vehicle object
-    const dutiesData     = {};  // dutyId    -> full duty object
-    const vehicleMarkers = {};  // vehicleId -> bus-body L.marker
+    const vehicleData    = {};  // vehicleId -> full vehicle object (Spare)
+    const dutiesData     = {};  // dutyId    -> full duty object (Spare)
+    const vehicleMarkers = {};  // vehicleId -> bus-body L.marker (Spare, keyed by Spare vehicleId)
     const bubbleMarkers  = {};  // vehicleId -> name bubble L.marker (above)
     const speedMarkers   = {};  // vehicleId -> speed bubble L.marker (below)
+    // OnDemand markers are keyed "od_<vehicleId>" to avoid collision with Spare
+    const odVehicleMarkers = {};
+    const odBubbleMarkers  = {};
+    const odSpeedMarkers   = {};
 
     // ---- Helpers ----
     function escHtml(s) {
@@ -450,8 +455,8 @@
     }
 
     // ---- Bus-body marker icon ----
-    function makeBusMarkerIcon(bearing) {
-      const fill = '#7c3aed';
+    function makeBusMarkerIcon(bearing, fillColor = '#7c3aed') {
+      const fill = fillColor;
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52.99 86.99" width="26" height="44"
           style="transform:rotate(${bearing}deg);transform-origin:50% 50%;display:block">
         <path d="M26.49,0c1.56,0,3.11.52,4.38,1.55,3.68,2.93,22.12,18.71,22.12,39.94,0,17.84-13.46,28.5-26.49,28.5S0,59.33,0,41.49C0,20.26,18.44,4.48,22.14,1.54,23.4.52,24.94.01,26.49.01h0Z" fill="#fff"/>
@@ -556,6 +561,94 @@
       } else if (speedMarkers[vid]) {
         map.removeLayer(speedMarkers[vid]);
         delete speedMarkers[vid];
+      }
+    }
+
+    // ---- OnDemand popup ----
+    function buildOdPopupHtml(v) {
+      const name   = v.callName || `Van ${v.vehicleId}`;
+      const driver = v.driverName || '—';
+      const ns     = v.nextStop;
+      const nsAddr = ns && (ns.address || ns.name || ns.stopName);
+      const sections = [
+        `<div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Vehicle</div>
+          <div class="ondemand-driver-popup__value">${escHtml(name)}</div>
+          <div class="ondemand-driver-popup__sub">TransLoc OnDemand</div>
+        </div>`,
+        `<div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Driver</div>
+          <div class="ondemand-driver-popup__value">${escHtml(driver)}</div>
+        </div>`,
+        nsAddr ? `<div class="ondemand-driver-popup__section">
+          <div class="ondemand-driver-popup__label">Next Stop</div>
+          <div class="ondemand-driver-popup__value">${escHtml(nsAddr)}</div>
+        </div>` : null,
+      ].filter(Boolean);
+      return `<div class="ondemand-driver-popup__content">
+        ${sections.join('<div class="ondemand-driver-popup__divider"></div>')}
+      </div>`;
+    }
+
+    // ---- OnDemand marker upsert ----
+    function upsertOdMarker(v) {
+      const key     = 'od_' + v.vehicleId;
+      const lat     = v.lat, lng = v.lng;
+      const bearing = v.heading ?? 0;
+      const color   = v.markerColor || '#ec4899';
+      const label   = v.callName || 'Van';
+      const busIcon    = makeBusMarkerIcon(bearing, color);
+      const bubbleIcon = createBubbleIcon(label, color);
+      const popupHtml  = buildOdPopupHtml(v);
+      if (odVehicleMarkers[key]) {
+        odVehicleMarkers[key].setLatLng([lat, lng]).setIcon(busIcon).setPopupContent(popupHtml);
+        odBubbleMarkers[key].setLatLng([lat, lng]).setIcon(bubbleIcon);
+      } else {
+        odVehicleMarkers[key] = L.marker([lat, lng], { icon: busIcon })
+          .bindPopup(popupHtml, POPUP_OPTS).addTo(map);
+        odBubbleMarkers[key] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
+      }
+      if (typeof v.speed === 'number' && v.speed >= 0) {
+        const speedIcon = createSpeedBubbleIcon(v.speed, color);
+        if (odSpeedMarkers[key]) {
+          odSpeedMarkers[key].setLatLng([lat, lng]).setIcon(speedIcon);
+        } else {
+          odSpeedMarkers[key] = L.marker([lat, lng], { icon: speedIcon, interactive: false }).addTo(map);
+        }
+      } else if (odSpeedMarkers[key]) {
+        map.removeLayer(odSpeedMarkers[key]);
+        delete odSpeedMarkers[key];
+      }
+    }
+
+    function removeOdMarker(key) {
+      if (odVehicleMarkers[key]) { map.removeLayer(odVehicleMarkers[key]); delete odVehicleMarkers[key]; }
+      if (odBubbleMarkers[key])  { map.removeLayer(odBubbleMarkers[key]);  delete odBubbleMarkers[key]; }
+      if (odSpeedMarkers[key])   { map.removeLayer(odSpeedMarkers[key]);   delete odSpeedMarkers[key]; }
+    }
+
+    // ---- OnDemand fetch + poll ----
+    async function fetchOnDemand() {
+      try {
+        const res = await fetch('/api/ondemand');
+        if (res.status === 403 || res.status === 401) return; // not logged in as dispatcher — silent
+        if (res.status === 503) return; // ondemand not configured
+        if (!res.ok) return;
+        const data = await res.json();
+        const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+        const active = new Set();
+        for (const v of vehicles) {
+          if (!v.vehicleId || v.lat == null || v.lng == null) continue;
+          upsertOdMarker(v);
+          active.add('od_' + v.vehicleId);
+        }
+        // Remove markers for vans that left the OnDemand response
+        for (const key of Object.keys(odVehicleMarkers)) {
+          if (!active.has(key)) removeOdMarker(key);
+        }
+        document.getElementById('od-count').textContent = vehicles.length;
+      } catch (err) {
+        console.error('[ondemand] fetch failed:', err);
       }
     }
 
@@ -724,11 +817,13 @@
     loadVehicleIdents();
     fetchTrips();
     fetchDuties();
+    fetchOnDemand();
     updateLastRefresh();
 
     setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
     setInterval(fetchDuties, 60_000);
     setInterval(loadVehicleIdents, 120_000);
+    setInterval(fetchOnDemand, 10_000);
   </script>
 </body>
 </html>
