@@ -409,6 +409,17 @@
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    // Contrast text color (black or white) based on fill luminance — matches testmap
+    function contrastColor(hex) {
+      const h = (hex || '#000000').replace('#', '');
+      if (h.length !== 6) return '#ffffff';
+      const r = parseInt(h.slice(0,2),16)/255;
+      const g = parseInt(h.slice(2,4),16)/255;
+      const b = parseInt(h.slice(4,6),16)/255;
+      const L = 0.2126*r + 0.7152*g + 0.0722*b;
+      return L > 0.55 ? '#000000' : '#ffffff';
+    }
+
     function fmtTime(ts) {
       if (!ts) return '—';
       return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -436,9 +447,10 @@
       const anchorY = sh + 44 + 5;
       const rx = STROKE, ry = INSET + STROKE / 2;
       const tx = sw / 2, ty = ry + rh / 2 + FONT * 0.06;
+      const textColor = contrastColor(fillColor);
       const svg = `<svg width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
         <rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="${CORNER}" ry="${CORNER}" fill="${fillColor}" stroke="white" stroke-width="${STROKE}"/>
-        <text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="white" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(text)}</text>
+        <text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="${textColor}" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(text)}</text>
       </svg>`;
       return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sh], iconAnchor: [anchorX, anchorY] });
     }
@@ -454,9 +466,10 @@
       const sw = rw + STROKE * 2;
       const sh = rh + STROKE * 2;
       // anchorY negative → icon top sits below the geographic point (pin tip), giving a gap
+      const textColor = contrastColor(fillColor);
       const svg = `<svg width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
         <rect x="${STROKE}" y="${STROKE}" width="${rw}" height="${rh}" rx="${CORNER}" ry="${CORNER}" fill="${fillColor}" stroke="white" stroke-width="${STROKE}"/>
-        <text x="${sw/2}" y="${sh/2}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="white" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(label)}</text>
+        <text x="${sw/2}" y="${sh/2}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="${textColor}" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(label)}</text>
       </svg>`;
       return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sh], iconAnchor: [sw / 2, -8] });
     }
@@ -646,6 +659,14 @@
         const active = new Set();
         for (const v of vehicles) {
           if (!v.vehicleId || v.lat == null || v.lng == null) continue;
+          // Skip decommissioned vehicles — last_active_at years in the past, or stale with no history
+          const lastActive = v.lastActiveAt || v.last_active_at;
+          if (lastActive) {
+            const ageDays = (Date.now() - new Date(lastActive).getTime()) / 86400000;
+            if (ageDays > 3) continue;
+          } else if (v.stale) {
+            continue;
+          }
           upsertOdMarker(v);
           active.add('od_' + v.vehicleId);
         }
