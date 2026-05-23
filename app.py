@@ -1550,6 +1550,22 @@ def broadcast_viriciti_soc(soc_data: Dict[str, Any]) -> None:
 # Spare Van Dispatch SSE subscribers + in-memory vehicle location store
 SPARE_SUBS: set[asyncio.Queue] = set()
 _spare_locations: Dict[str, Dict[str, Any]] = {}  # vehicleId -> latest VehicleLocation payload
+_spare_location_times: Dict[str, float] = {}  # vehicleId -> time.time() when stored
+
+
+def _today_start_ts() -> float:
+    """Unix timestamp of midnight ET today — used to expire yesterday's Spare locations."""
+    now = datetime.now(ZoneInfo("America/New_York"))
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+
+def _fresh_spare_locations() -> list:
+    """Return Spare vehicle locations received since ET midnight (no cross-day carryover)."""
+    cutoff = _today_start_ts()
+    return [
+        loc for vid, loc in _spare_locations.items()
+        if _spare_location_times.get(vid, 0) >= cutoff
+    ]
 
 
 def broadcast_spare_event(event: Dict[str, Any]) -> None:
@@ -14307,9 +14323,10 @@ async def api_spare_vehicles():
         except Exception as exc:
             print(f"[spare] vehicles fetch failed: {exc}")
             return []
+        cutoff = _today_start_ts()
         for v in vehicles:
             vid = v.get("id")
-            if vid and vid in _spare_locations:
+            if vid and vid in _spare_locations and _spare_location_times.get(vid, 0) >= cutoff:
                 v["currentLocation"] = _spare_locations[vid]
         return vehicles
 
@@ -14336,6 +14353,7 @@ async def api_spare_webhook(request: Request):
         vehicle_id = data.get("vehicleId")
         if vehicle_id:
             _spare_locations[vehicle_id] = data
+            _spare_location_times[vehicle_id] = time.time()
         broadcast_spare_event({"type": "vehicleLocation", "data": data})
 
     elif event_type == "requestStatus":
@@ -14358,7 +14376,7 @@ async def stream_spare():
             initial = {
                 "type": "initial",
                 "data": {
-                    "vehicleLocations": list(_spare_locations.values()),
+                    "vehicleLocations": _fresh_spare_locations(),
                     "webhookConfigured": bool(SPARE_WEBHOOK_SECRET),
                 }
             }

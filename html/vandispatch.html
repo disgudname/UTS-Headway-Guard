@@ -1087,6 +1087,23 @@
       }).join('');
     }
 
+    // Remove Spare vehicle markers for vans not on an inProgress duty
+    function syncVehicleMarkersWithDuties() {
+      const activeVids = new Set(
+        spareDuties
+          .filter(d => d.status === 'inProgress')
+          .map(d => d.vehicleId || d.vehicle?.id)
+          .filter(Boolean)
+      );
+      for (const vid of Object.keys(vehicleMarkers)) {
+        if (!activeVids.has(vid)) {
+          map.removeLayer(vehicleMarkers[vid]); delete vehicleMarkers[vid];
+          if (bubbleMarkers[vid]) { map.removeLayer(bubbleMarkers[vid]); delete bubbleMarkers[vid]; }
+          if (speedMarkers[vid])  { map.removeLayer(speedMarkers[vid]);  delete speedMarkers[vid]; }
+        }
+      }
+    }
+
     async function fetchDuties() {
       try {
         const res = await fetch('/api/spare/duties');
@@ -1095,6 +1112,7 @@
         spareDuties = Array.isArray(dutiesJson) ? dutiesJson : [];
         spareDuties.forEach(d => { if (d.id) dutiesData[d.id] = d; });
         renderDuties();
+        syncVehicleMarkersWithDuties();
         Object.keys(vehicleMarkers).forEach(vid => vehicleMarkers[vid].setPopupContent(buildPopupHtml(vid)));
       } catch (err) {
         console.error('duties fetch failed:', err);
