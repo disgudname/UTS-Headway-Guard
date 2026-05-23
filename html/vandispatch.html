@@ -313,6 +313,7 @@
     }
     .ondemand-driver-popup__value { font-size: 15px; font-weight: 700; color: #1f2937; }
     .ondemand-driver-popup__sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .ondemand-driver-popup__sub { font-size: 12px; color: #6b7280; margin-top: 1px; }
     .ondemand-driver-popup__divider {
       height: 1px; width: 100%; background: rgba(35,45,75,0.12); margin: 6px 0;
     }
@@ -379,10 +380,11 @@
     }).addTo(map);
 
     // ---- State ----
-    const vehicleData  = {};  // vehicleId  -> full vehicle object
-    const dutiesData   = {};  // dutyId     -> full duty object
-    const vehicleMarkers = {}; // vehicleId -> bus-body L.marker
-    const bubbleMarkers  = {}; // vehicleId -> label-bubble L.marker
+    const vehicleData    = {};  // vehicleId -> full vehicle object
+    const dutiesData     = {};  // dutyId    -> full duty object
+    const vehicleMarkers = {};  // vehicleId -> bus-body L.marker
+    const bubbleMarkers  = {};  // vehicleId -> name bubble L.marker (above)
+    const speedMarkers   = {};  // vehicleId -> speed bubble L.marker (below)
 
     // ---- Helpers ----
     function escHtml(s) {
@@ -404,22 +406,41 @@
     }
 
     function createBubbleIcon(text, fillColor) {
-      const FONT  = 13, H_PAD = 10, V_PAD = 3, CORNER = 8, STROKE = 2.5, INSET = 4;
+      const FONT = 14, H_PAD = 14, V_PAD = 3, STROKE = 3, INSET = 5;
       const tw = measureText(text, FONT);
       const rw = Math.max(40, tw + H_PAD * 2);
       const rh = Math.max(20, FONT + V_PAD * 2);
+      // Corner radius = half height → pill shape (matches testmap NAME_BUBBLE_CORNER_RADIUS=10 on min-height 20)
+      const CORNER = rh / 2;
       const sw = rw + STROKE * 2;
       const sh = rh + INSET * 2 + STROKE;
-      // Anchor so the bubble sits just above the bus marker tip (44px tall, anchor at bottom)
       const anchorX = sw / 2;
       const anchorY = sh + 44 + 5;
       const rx = STROKE, ry = INSET + STROKE / 2;
-      const tx = sw / 2, ty = ry + rh / 2 + FONT * 0.35;
+      const tx = sw / 2, ty = ry + rh / 2 + FONT * 0.06;
       const svg = `<svg width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
         <rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="${CORNER}" ry="${CORNER}" fill="${fillColor}" stroke="white" stroke-width="${STROKE}"/>
-        <text x="${tx}" y="${ty}" text-anchor="middle" font-size="${FONT}" font-weight="bold" fill="white" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(text)}</text>
+        <text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="white" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(text)}</text>
       </svg>`;
       return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sh], iconAnchor: [anchorX, anchorY] });
+    }
+
+    // ---- Speed bubble icon (below marker, matches testmap createSpeedBubbleDivIcon) ----
+    function createSpeedBubbleIcon(speedMph, fillColor) {
+      const FONT = 12, H_PAD = 12, V_PAD = 4, STROKE = 3;
+      const label = `${Math.round(Math.max(0, speedMph))} MPH`;
+      const tw = measureText(label, FONT);
+      const rw = Math.max(60, tw + H_PAD * 2);
+      const rh = Math.max(20, FONT + V_PAD * 2);
+      const CORNER = rh / 2;  // pill
+      const sw = rw + STROKE * 2;
+      const sh = rh + STROKE * 2;
+      // anchorY negative → icon top sits below the geographic point (pin tip), giving a gap
+      const svg = `<svg width="${sw}" height="${sh}" viewBox="0 0 ${sw} ${sh}" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none">
+        <rect x="${STROKE}" y="${STROKE}" width="${rw}" height="${rh}" rx="${CORNER}" ry="${CORNER}" fill="${fillColor}" stroke="white" stroke-width="${STROKE}"/>
+        <text x="${sw/2}" y="${sh/2}" text-anchor="middle" dominant-baseline="middle" font-size="${FONT}" font-weight="bold" fill="white" font-family="Inter,Segoe UI,system-ui,sans-serif">${escHtml(label)}</text>
+      </svg>`;
+      return L.divIcon({ html: svg, className: 'leaflet-div-icon bus-label-icon', iconSize: [sw, sh], iconAnchor: [sw / 2, -8] });
     }
 
     // ---- Bus-body marker icon ----
@@ -435,6 +456,12 @@
       return L.divIcon({ html: svg, className: '', iconSize: [26, 44], iconAnchor: [13, 44] });
     }
 
+    // ---- Status display helpers ----
+    const STATUS_LABELS = { inProgress: 'In Progress', scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
+    const STATUS_COLORS = { inProgress: '#16a34a', scheduled: '#2563eb', completed: '#6b7280', cancelled: '#dc2626' };
+    function humanizeStatus(s) { return STATUS_LABELS[s] || s || '—'; }
+    function statusColor(s) { return STATUS_COLORS[s] || '#9ca3af'; }
+
     // ---- Popup content (ondemand-driver-popup style) ----
     function buildPopupHtml(vid) {
       const v = vehicleData[vid] || {};
@@ -448,7 +475,7 @@
       const shift = duty.startRequestedTs
         ? `${fmtTime(duty.startRequestedTs)} – ${fmtTime(duty.endRequestedTs)}`
         : null;
-      const status = duty.status || null;
+      const rawStatus = duty.status || null;
 
       const sections = [
         `<div class="ondemand-driver-popup__section">
@@ -461,9 +488,12 @@
           <div class="ondemand-driver-popup__value">${escHtml(driverName)}</div>
           ${shift ? `<div class="ondemand-driver-popup__sub">${escHtml(shift)}</div>` : ''}
         </div>`,
-        status ? `<div class="ondemand-driver-popup__section">
+        rawStatus ? `<div class="ondemand-driver-popup__section">
           <div class="ondemand-driver-popup__label">Duty Status</div>
-          <div class="ondemand-driver-popup__value">${escHtml(status)}</div>
+          <div class="ondemand-driver-popup__value" style="display:flex;align-items:center;gap:6px">
+            <span style="width:8px;height:8px;border-radius:50%;background:${statusColor(rawStatus)};flex-shrink:0;display:inline-block;box-shadow:0 0 4px ${statusColor(rawStatus)}66"></span>
+            ${escHtml(humanizeStatus(rawStatus))}
+          </div>
         </div>` : null,
       ].filter(Boolean);
 
@@ -504,9 +534,22 @@
         vehicleMarkers[vid] = L.marker([lat, lng], { icon: busIcon })
           .bindPopup(popupHtml, POPUP_OPTS)
           .addTo(map);
-        // Bubble is non-interactive so clicks fall through to bus marker
-        bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false })
-          .addTo(map);
+        bubbleMarkers[vid] = L.marker([lat, lng], { icon: bubbleIcon, interactive: false }).addTo(map);
+      }
+
+      // Speed bubble — show if Spare provides speed in the location payload (m/s → mph)
+      const rawSpeedMs = locData.speed ?? locData.groundSpeed ?? locData.speedMs ?? null;
+      const speedMph = rawSpeedMs != null ? rawSpeedMs * 2.23694 : null;
+      if (speedMph != null && speedMph >= 0) {
+        const speedIcon = createSpeedBubbleIcon(speedMph, '#7c3aed');
+        if (speedMarkers[vid]) {
+          speedMarkers[vid].setLatLng([lat, lng]).setIcon(speedIcon);
+        } else {
+          speedMarkers[vid] = L.marker([lat, lng], { icon: speedIcon, interactive: false }).addTo(map);
+        }
+      } else if (speedMarkers[vid]) {
+        map.removeLayer(speedMarkers[vid]);
+        delete speedMarkers[vid];
       }
     }
 
