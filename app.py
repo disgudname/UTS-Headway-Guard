@@ -221,6 +221,52 @@ PUSH_SUBSCRIPTIONS_PATH = PRIMARY_DATA_DIR / "push_subscriptions.json"
 push_subscription_store = PushSubscriptionStore(PUSH_SUBSCRIPTIONS_PATH)
 VAN_COLORS_PATH = PRIMARY_DATA_DIR / "van_colors.json"
 
+# User presence tracking
+PRESENCE_PATH = PRIMARY_DATA_DIR / "user_presence.json"
+PRESENCE_COOKIE_NAME = "presence_session"
+PRESENCE_ADMIN_COOKIE = "presence_admin"
+PRESENCE_ADMIN_PASS = os.getenv("PRESENCE_ADMIN_PASS", "")
+_presence_data: Dict[str, Dict] = {}
+
+
+def _load_presence() -> None:
+    global _presence_data
+    try:
+        if PRESENCE_PATH.exists():
+            _presence_data = json.loads(PRESENCE_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        _presence_data = {}
+
+
+def _save_presence() -> None:
+    try:
+        PRESENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PRESENCE_PATH.write_text(json.dumps(_presence_data, indent=2))
+    except OSError:
+        pass
+
+
+def _record_presence(identifier: str, is_named: bool) -> None:
+    entry = _presence_data.get(identifier, {"type": "named" if is_named else "anonymous", "visit_count": 0})
+    entry["last_seen"] = datetime.now(timezone.utc).isoformat()
+    entry["visit_count"] = entry.get("visit_count", 0) + 1
+    _presence_data[identifier] = entry
+    _save_presence()
+
+
+def _presence_admin_token() -> str:
+    return hashlib.sha256(f"presence_admin:{PRESENCE_ADMIN_PASS}".encode()).hexdigest()
+
+
+def _check_presence_admin(request: Request) -> bool:
+    if not PRESENCE_ADMIN_PASS:
+        return False
+    token = request.cookies.get(PRESENCE_ADMIN_COOKIE)
+    return bool(token and secrets.compare_digest(token, _presence_admin_token()))
+
+
+_load_presence()
+
 # Track sent alert IDs to prevent duplicate notifications
 _sent_alert_ids: set = set()
 _SENT_ALERT_IDS_PATH = PRIMARY_DATA_DIR / "sent_alert_ids.json"
@@ -1482,6 +1528,7 @@ INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
 OVERLAP_DEMO_HTML = _load_html("overlap-demo.html")
 VANDISPATCH_HTML = _load_html("vandispatch.html")
+PRESENCE_HTML = _load_html("presence.html")
 VAN_COLORS_HTML = _load_html("van-colors.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
@@ -1508,6 +1555,7 @@ API_CALL_LOG = deque(maxlen=100)
 API_CALL_SUBS: set[asyncio.Queue] = set()
 SERVICECREW_SUBS: set[asyncio.Queue] = set()
 TESTMAP_VEHICLES_SUBS: set[asyncio.Queue] = set()
+TESTMAP_VEHICLES_PRESENCE: Dict[asyncio.Queue, Tuple[str, bool]] = {}  # queue -> (identifier, is_named)
 
 def record_api_call(method: str, url: str, status: int) -> None:
     item = {"ts": int(time.time()*1000), "method": method, "url": url, "status": status}
@@ -1532,6 +1580,10 @@ def broadcast_testmap_vehicles(payload: List[Dict[str, Any]]) -> None:
             q.put_nowait(encoded)
         except asyncio.QueueFull:
             pass  # Drop update for slow clients
+    # Update presence for all active map sessions
+    for q, (identifier, is_named) in list(TESTMAP_VEHICLES_PRESENCE.items()):
+        if q in TESTMAP_VEHICLES_SUBS:
+            _record_presence(identifier, is_named)
 
 # ViriCiti SOC SSE subscribers
 VIRICITI_SOC_SUBS: set[asyncio.Queue] = set()
@@ -11452,15 +11504,24 @@ async def stream_api_calls():
 # SSE: Testmap vehicle updates
 # ---------------------------
 @app.get("/v1/stream/testmap/vehicles")
-async def stream_testmap_vehicles():
+async def stream_testmap_vehicles(request: Request):
     """SSE stream for testmap vehicle position updates.
 
     Broadcasts vehicle updates whenever the background updater refreshes data.
     This replaces polling for clients that support SSE.
     """
+    secret_info = _get_dispatcher_secret_info(request)
+    if secret_info:
+        presence_id, presence_named = secret_info[0], True
+    else:
+        presence_id = request.cookies.get(PRESENCE_COOKIE_NAME)
+        presence_named = False
+
     async def gen():
         q: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit queue to prevent memory bloat
         TESTMAP_VEHICLES_SUBS.add(q)
+        if presence_id:
+            TESTMAP_VEHICLES_PRESENCE[q] = (presence_id, presence_named)
         try:
             # Send current state immediately on connect
             current_payload = state.testmap_vehicles_payload
@@ -11475,6 +11536,7 @@ async def stream_testmap_vehicles():
                 yield encoded
         finally:
             TESTMAP_VEHICLES_SUBS.discard(q)
+            TESTMAP_VEHICLES_PRESENCE.pop(q, None)
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ---------------------------
@@ -11864,8 +11926,29 @@ async def login_page():
 # MAP PAGE
 # ---------------------------
 @app.get("/map")
-async def map_page():
-    return HTMLResponse(TESTMAP_HTML)
+async def map_page(request: Request):
+    secret_info = _get_dispatcher_secret_info(request)
+    if secret_info:
+        _record_presence(secret_info[0], is_named=True)
+        return HTMLResponse(TESTMAP_HTML)
+
+    session_id = request.cookies.get(PRESENCE_COOKIE_NAME)
+    new_session = not session_id
+    if new_session:
+        session_id = "anon-" + secrets.token_hex(4)
+    _record_presence(session_id, is_named=False)
+
+    resp = HTMLResponse(TESTMAP_HTML)
+    if new_session:
+        resp.set_cookie(
+            PRESENCE_COOKIE_NAME,
+            session_id,
+            max_age=365 * 24 * 3600,
+            httponly=True,
+            secure=DISPATCH_COOKIE_SECURE,
+            samesite="lax",
+        )
+    return resp
 
 
 @app.get("/radar")
@@ -13712,6 +13795,46 @@ async def dispatcher_auth(
 async def dispatcher_logout(response: Response):
     response.delete_cookie(DISPATCH_COOKIE_NAME)
     return {"ok": True}
+
+
+# ---------------------------
+# PRESENCE TRACKING
+# ---------------------------
+
+@app.get("/presence")
+async def presence_page():
+    return HTMLResponse(PRESENCE_HTML)
+
+
+@app.post("/api/presence/login")
+async def presence_login(request: Request, response: Response):
+    body = await request.json()
+    password = body.get("password", "")
+    if not PRESENCE_ADMIN_PASS or not secrets.compare_digest(password, PRESENCE_ADMIN_PASS):
+        raise HTTPException(status_code=401, detail="Incorrect password.")
+    response.set_cookie(
+        PRESENCE_ADMIN_COOKIE,
+        _presence_admin_token(),
+        max_age=8 * 3600,
+        httponly=True,
+        secure=DISPATCH_COOKIE_SECURE,
+        samesite="lax",
+    )
+    return {"ok": True}
+
+
+@app.post("/api/presence/logout")
+async def presence_logout(response: Response):
+    response.delete_cookie(PRESENCE_ADMIN_COOKIE)
+    return {"ok": True}
+
+
+@app.get("/api/presence/data")
+async def presence_data(request: Request):
+    if not _check_presence_admin(request):
+        raise HTTPException(status_code=403, detail="Forbidden.")
+    return _presence_data
+
 
 
 # ---------------------------

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Presence — UTS</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 2rem 1rem; }
+
+    /* Login card */
+    #login-card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 12px; padding: 2rem; width: 100%; max-width: 360px; margin-top: 20vh; }
+    #login-card h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem; }
+    #login-card p { font-size: 0.85rem; color: #718096; margin-bottom: 1.5rem; }
+    #login-card input { width: 100%; padding: 0.65rem 0.9rem; background: #0f1117; border: 1px solid #2d3748; border-radius: 8px; color: #e2e8f0; font-size: 1rem; margin-bottom: 0.75rem; outline: none; }
+    #login-card input:focus { border-color: #4a6fa5; }
+    #login-card button { width: 100%; padding: 0.65rem; background: #3b82f6; border: none; border-radius: 8px; color: #fff; font-size: 1rem; font-weight: 500; cursor: pointer; }
+    #login-card button:hover { background: #2563eb; }
+    #login-error { color: #fc8181; font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.2em; }
+
+    /* Main panel */
+    #main { display: none; width: 100%; max-width: 700px; }
+    #main header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.5rem; }
+    #main header h1 { font-size: 1.4rem; font-weight: 700; }
+    #main header .meta { font-size: 0.8rem; color: #718096; }
+
+    .logout-btn { background: none; border: 1px solid #2d3748; color: #718096; padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer; }
+    .logout-btn:hover { border-color: #4a5568; color: #a0aec0; }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead th { text-align: left; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #718096; padding: 0.5rem 0.75rem; border-bottom: 1px solid #2d3748; }
+    tbody tr { border-bottom: 1px solid #1e2536; transition: background 0.1s; }
+    tbody tr:hover { background: #1a1f2e; }
+    tbody td { padding: 0.7rem 0.75rem; font-size: 0.9rem; }
+
+    .badge-online { display: inline-block; width: 8px; height: 8px; background: #48bb78; border-radius: 50%; margin-right: 6px; box-shadow: 0 0 0 2px rgba(72,187,120,0.3); }
+    .badge-offline { display: inline-block; width: 8px; height: 8px; background: #4a5568; border-radius: 50%; margin-right: 6px; }
+
+    .tag-named { font-size: 0.75rem; background: #2d3a5a; color: #90cdf4; padding: 0.15rem 0.5rem; border-radius: 4px; }
+    .tag-anon { font-size: 0.75rem; background: #2d3a3a; color: #81e6d9; padding: 0.15rem 0.5rem; border-radius: 4px; }
+
+    .count { color: #718096; font-size: 0.85rem; }
+
+    #empty { text-align: center; color: #718096; padding: 3rem 0; font-size: 0.95rem; }
+    #refresh-note { font-size: 0.75rem; color: #4a5568; margin-top: 1.25rem; text-align: right; }
+  </style>
+</head>
+<body>
+
+<div id="login-card">
+  <h1>User Presence</h1>
+  <p>Admin access required.</p>
+  <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" />
+  <button id="login-btn">Sign in</button>
+  <div id="login-error"></div>
+</div>
+
+<div id="main">
+  <header>
+    <h1>User Presence</h1>
+    <div style="display:flex;align-items:center;gap:1rem;">
+      <span class="meta" id="updated-at"></span>
+      <button class="logout-btn" id="logout-btn">Sign out</button>
+    </div>
+  </header>
+
+  <table id="presence-table">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Type</th>
+        <th>Last seen</th>
+        <th>Visits</th>
+      </tr>
+    </thead>
+    <tbody id="presence-body"></tbody>
+  </table>
+  <div id="empty" style="display:none;">No presence data yet.</div>
+  <div id="refresh-note">Auto-refreshes every 30 s</div>
+</div>
+
+<script>
+  const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+  function relativeTime(isoStr) {
+    const diff = Date.now() - new Date(isoStr).getTime();
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' min ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' hr ago';
+    return Math.floor(diff / 86400000) + ' day(s) ago';
+  }
+
+  async function login() {
+    const pw = document.getElementById('password-input').value;
+    const err = document.getElementById('login-error');
+    err.textContent = '';
+    try {
+      const r = await fetch('/api/presence/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (r.ok) {
+        document.getElementById('login-card').style.display = 'none';
+        document.getElementById('main').style.display = 'block';
+        loadData();
+      } else {
+        err.textContent = 'Incorrect password.';
+      }
+    } catch {
+      err.textContent = 'Network error.';
+    }
+  }
+
+  async function logout() {
+    await fetch('/api/presence/logout', { method: 'POST' });
+    document.getElementById('main').style.display = 'none';
+    document.getElementById('login-card').style.display = 'block';
+    document.getElementById('password-input').value = '';
+  }
+
+  async function loadData() {
+    try {
+      const r = await fetch('/api/presence/data');
+      if (r.status === 403) {
+        // Session expired
+        document.getElementById('main').style.display = 'none';
+        document.getElementById('login-card').style.display = 'block';
+        return;
+      }
+      const data = await r.json();
+      renderTable(data);
+      document.getElementById('updated-at').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch {
+      // silently ignore transient errors
+    }
+  }
+
+  function renderTable(data) {
+    const tbody = document.getElementById('presence-body');
+    const empty = document.getElementById('empty');
+    tbody.innerHTML = '';
+
+    const entries = Object.entries(data).sort((a, b) => {
+      const ta = a[1].last_seen || '';
+      const tb = b[1].last_seen || '';
+      return tb.localeCompare(ta);
+    });
+
+    if (entries.length === 0) {
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    for (const [id, info] of entries) {
+      const lastSeen = info.last_seen;
+      const isOnline = lastSeen && (Date.now() - new Date(lastSeen).getTime()) < ONLINE_THRESHOLD_MS;
+      const isNamed = info.type === 'named';
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>
+          <span class="${isOnline ? 'badge-online' : 'badge-offline'}"></span>
+          ${escHtml(id)}
+        </td>
+        <td><span class="${isNamed ? 'tag-named' : 'tag-anon'}">${isNamed ? 'named' : 'anonymous'}</span></td>
+        <td>${lastSeen ? relativeTime(lastSeen) : '—'}</td>
+        <td class="count">${info.visit_count ?? 0}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  document.getElementById('login-btn').addEventListener('click', login);
+  document.getElementById('password-input').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  document.getElementById('logout-btn').addEventListener('click', logout);
+
+  // Try loading data immediately (in case cookie already set)
+  (async () => {
+    const r = await fetch('/api/presence/data').catch(() => null);
+    if (r && r.ok) {
+      document.getElementById('login-card').style.display = 'none';
+      document.getElementById('main').style.display = 'block';
+      const data = await r.json();
+      renderTable(data);
+      document.getElementById('updated-at').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    }
+  })();
+
+  setInterval(async () => {
+    const main = document.getElementById('main');
+    if (main.style.display !== 'none') await loadData();
+  }, 30000);
+</script>
+</body>
+</html>
