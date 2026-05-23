@@ -649,35 +649,57 @@
 
     // ---- OnDemand fetch + poll ----
     async function fetchOnDemand() {
+      let res;
       try {
-        const res = await fetch('/api/ondemand');
-        if (res.status === 403 || res.status === 401) return; // not logged in as dispatcher — silent
-        if (res.status === 503) return; // ondemand not configured
-        if (!res.ok) return;
-        const data = await res.json();
-        const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
-        const active = new Set();
-        for (const v of vehicles) {
-          if (!v.vehicleId || v.lat == null || v.lng == null) continue;
-          // Skip decommissioned vehicles — last_active_at years in the past, or stale with no history
-          const lastActive = v.lastActiveAt || v.last_active_at;
-          if (lastActive) {
-            const ageDays = (Date.now() - new Date(lastActive).getTime()) / 86400000;
-            if (ageDays > 3) continue;
-          } else if (v.stale) {
-            continue;
-          }
-          upsertOdMarker(v);
-          active.add('od_' + v.vehicleId);
-        }
-        // Remove markers for vans that left the OnDemand response
-        for (const key of Object.keys(odVehicleMarkers)) {
-          if (!active.has(key)) removeOdMarker(key);
-        }
-        document.getElementById('od-count').textContent = vehicles.length;
+        res = await fetch('/api/ondemand');
       } catch (err) {
-        console.error('[ondemand] fetch failed:', err);
+        // Network failure — keep last known state silently
+        return;
       }
+      if (res.status === 403 || res.status === 401) return; // not logged in — silent
+      if (!res.ok) return; // any other error — keep last known state
+
+      let data;
+      try {
+        data = await res.json();
+      } catch (err) {
+        return; // malformed response — keep last known state
+      }
+
+      const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+      const active = new Set();
+      const freshStops = [];
+
+      for (const v of vehicles) {
+        if (!v.vehicleId || v.lat == null || v.lng == null) continue;
+        // Skip decommissioned vehicles
+        const lastActive = v.lastActiveAt || v.last_active_at;
+        if (lastActive) {
+          if ((Date.now() - new Date(lastActive).getTime()) / 86400000 > 3) continue;
+        } else if (v.stale) {
+          continue;
+        }
+        upsertOdMarker(v);
+        active.add('od_' + v.vehicleId);
+
+        // Extract stops for the trip board
+        for (const stop of (v.stops || [])) {
+          freshStops.push({
+            ...stop,
+            vehicleName: v.callName || 'Van',
+            vehicleColor: v.markerColor || '#ec4899',
+          });
+        }
+      }
+
+      // Remove markers for vans that left the response
+      for (const key of Object.keys(odVehicleMarkers)) {
+        if (!active.has(key)) removeOdMarker(key);
+      }
+
+      odStops = freshStops;
+      document.getElementById('od-count').textContent = active.size;
+      renderTrips();
     }
 
     // ---- Load vehicle roster (populates vehicleData + initial map pins) ----
@@ -726,8 +748,15 @@
     }
     connectSSE();
 
-    // ---- Trip board ----
-    const STATUS_ORDER = { arriving: 0, inProgress: 1, accepted: 2, processing: 3 };
+    // ---- Trip board (Spare requests + OnDemand stops) ----
+    let spareTrips = [];
+    let odStops    = [];  // extracted from ondemand vehicle stop plans
+
+    const SPARE_STATUS_ORDER = { arriving: 0, inProgress: 1, accepted: 2, processing: 3 };
+    // OD rideStatus values we consider active (skip completed/cancelled)
+    const OD_ACTIVE = new Set(['pending', 'in_progress', 'inProgress', 'scheduled', 'accepted']);
+    const OD_STATUS_CLASS = { in_progress: 'inProgress', inProgress: 'inProgress', pending: 'accepted', scheduled: 'accepted', accepted: 'accepted' };
+    const OD_STATUS_LABEL = { in_progress: 'In Progress', inProgress: 'In Progress', pending: 'Pending', scheduled: 'Scheduled', accepted: 'Accepted' };
 
     function riderName(req) {
       const r = req.rider;
@@ -744,13 +773,14 @@
       }).join('');
     }
 
-    function renderTrips(trips) {
+    function renderTrips() {
       const list = document.getElementById('trips-list');
-      document.getElementById('trip-count').textContent = trips.length;
       document.getElementById('trips-updated').textContent = new Date().toLocaleTimeString();
-      if (!trips.length) { list.innerHTML = '<div class="no-trips">No active trips right now</div>'; return; }
-      const sorted = [...trips].sort((a,b) => (STATUS_ORDER[a.status]??9)-(STATUS_ORDER[b.status]??9));
-      list.innerHTML = sorted.map(req => {
+      const cards = [];
+
+      // Spare requests
+      const sorted = [...spareTrips].sort((a,b) => (SPARE_STATUS_ORDER[a.status]??9)-(SPARE_STATUS_ORDER[b.status]??9));
+      for (const req of sorted) {
         const name   = riderName(req);
         const status = req.status || 'unknown';
         const pickup  = req.scheduledPickupAddress  || req.requestedPickupAddress  || '—';
@@ -759,10 +789,11 @@
         const doEta = req.dropoffEta ? fmtTime(req.dropoffEta) : fmtTime(req.scheduledDropoffTs);
         const notes  = req.notes ? `<div class="addr" style="color:#ffd54f;margin-top:.25rem">📝 ${escHtml(req.notes)}</div>` : '';
         const riders = req.numRiders ? ` · ${req.numRiders} rider${req.numRiders>1?'s':''}` : '';
-        return `<div class="trip-card ${status}">
+        cards.push(`<div class="trip-card ${status}">
           <div class="trip-header">
             <span class="status-pill ${status}">${status}</span>
             <span class="rider-name">${escHtml(name)}${riders}</span>
+            <span class="source-badge source-badge--spare" style="margin-left:auto">Spare</span>
           </div>
           <div class="trip-body">
             <div class="addr">▲ ${escHtml(pickup)}</div>
@@ -774,8 +805,34 @@
             ${notes}
             <div class="access-icons">${accessTags(req)}</div>
           </div>
-        </div>`;
-      }).join('');
+        </div>`);
+      }
+
+      // OnDemand stops (active only)
+      for (const stop of odStops) {
+        const rs = stop.rideStatus || '';
+        if (!OD_ACTIVE.has(rs) && rs !== '') continue;
+        const cls   = OD_STATUS_CLASS[rs] || 'processing';
+        const lbl   = OD_STATUS_LABEL[rs] || (rs || 'Active');
+        const names = (stop.riders || []).join(', ') || 'Rider';
+        const icon  = stop.stopType === 'pickup' ? '▲' : '▼';
+        const typeLabel = stop.stopType === 'pickup' ? 'Pickup' : 'Drop-off';
+        const vehColor = stop.vehicleColor || '#ec4899';
+        cards.push(`<div class="trip-card ${cls}">
+          <div class="trip-header">
+            <span class="status-pill ${cls}">${escHtml(lbl)}</span>
+            <span class="rider-name">${escHtml(names)}</span>
+            <span class="source-badge source-badge--w2w" style="margin-left:auto">OD</span>
+          </div>
+          <div class="trip-body">
+            <div class="addr" style="color:#aaa;font-size:.72rem;margin-bottom:.15rem">${escHtml(typeLabel)} · <span style="color:${vehColor};font-weight:600">${escHtml(stop.vehicleName)}</span></div>
+            <div class="addr">${icon} ${escHtml(stop.address || '—')}</div>
+          </div>
+        </div>`);
+      }
+
+      document.getElementById('trip-count').textContent = cards.length;
+      list.innerHTML = cards.length ? cards.join('') : '<div class="no-trips">No active trips right now</div>';
     }
 
     async function fetchTrips() {
@@ -786,13 +843,14 @@
             document.getElementById('trips-list').innerHTML = '<div class="no-trips">⚠ Spare not configured — set SPARE_API_KEY</div>';
             return;
           }
-          throw new Error(res.statusText);
+          return; // soft-fail: keep last known board
         }
         const trips = await res.json();
-        renderTrips(Array.isArray(trips) ? trips : []);
+        spareTrips = Array.isArray(trips) ? trips : [];
+        renderTrips();
       } catch (err) {
-        console.error('trips fetch failed:', err);
-        document.getElementById('trips-list').innerHTML = `<div class="no-trips">Error: ${err.message}</div>`;
+        console.error('[spare] trips fetch failed:', err);
+        // soft-fail: board unchanged
       }
     }
 
