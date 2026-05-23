@@ -326,10 +326,43 @@
       background: transparent !important;
       border: none !important;
     }
-    .ondemand-driver-popup__sub { font-size: 12px; color: #6b7280; margin-top: 1px; }
     .ondemand-driver-popup__divider {
       height: 1px; width: 100%; background: rgba(35,45,75,0.12); margin: 6px 0;
     }
+    /* Info-card section (matches testmap buildInfoCardSection) */
+    .bus-popup__drivers-list { display: flex; flex-direction: column; gap: 10px; }
+    .bus-popup__driver-row {
+      display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 8px;
+      background: rgba(35,45,75,0.04); border: 1px solid rgba(35,45,75,0.08);
+    }
+    .bus-popup__info-card { border-left: 3px solid; }
+    .bus-popup__info-line { line-height: 1.4; }
+    .bus-popup__info-line--route { font-size: 14px; font-weight: 700; color: #1f2937; }
+    .bus-popup__info-line--block { font-size: 12px; font-weight: 600; color: #4b5563; }
+    .bus-popup__info-line--meta  { font-size: 12px; font-weight: 500; color: #6b7280; }
+    /* Ride cards (matches testmap renderOnDemandStopList) */
+    .ondemand-driver-popup__stops { display: flex; flex-direction: column; gap: 6px; }
+    .ondemand-driver-popup__rides { display: flex; flex-direction: column; gap: 10px; }
+    .ondemand-driver-popup__ride-card {
+      background: rgba(35,45,75,0.06); border: 1px solid rgba(35,45,75,0.12);
+      border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .ondemand-driver-popup__ride-header { display: flex; justify-content: space-between; align-items: center; }
+    .ondemand-driver-popup__ride-name { font-weight: 700; font-size: 15px; color: #1f2937; }
+    .ondemand-driver-popup__ride-order {
+      font-weight: 700; font-size: 12px; color: #6b7280;
+      background: rgba(35,45,75,0.12); padding: 3px 8px; border-radius: 999px;
+    }
+    .ondemand-driver-popup__ride-locations { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+    .ondemand-driver-popup__ride-location { display: flex; align-items: flex-start; gap: 8px; }
+    .ondemand-driver-popup__ride-location-icon {
+      flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+    }
+    .ondemand-driver-popup__ride-location-icon--pickup  { background: #4ade80; color: #052e16; }
+    .ondemand-driver-popup__ride-location-icon--dropoff { background: #f87171; color: #450a0a; }
+    .ondemand-driver-popup__ride-location-icon--onboard { background: #60a5fa; color: #1e3a5f; }
+    .ondemand-driver-popup__ride-location-text { flex: 1; color: #374151; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -407,6 +440,27 @@
     // ---- Helpers ----
     function escHtml(s) {
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Parse OnDemand callName — always "VAN XX:" or "CAR XX:", strip colon + suffix, title-case prefix
+    function parseOdCallName(raw) {
+      if (!raw) return raw;
+      const name = raw.split(':')[0].trim();
+      return name.replace(/^([A-Za-z]+)/, m => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase());
+    }
+
+    // ---- Van color config (shared across Spare + OnDemand) ----
+    let vanColors = {};  // { "Van 16": "#hex", ... }
+
+    function getVanColor(displayName, fallback) {
+      return (displayName && vanColors[displayName]) || fallback;
+    }
+
+    async function loadVanColors() {
+      try {
+        const res = await fetch('/api/van-colors');
+        if (res.ok) vanColors = await res.json();
+      } catch (_) { /* soft-fail */ }
     }
 
     // Contrast text color (black or white) based on fill luminance — matches testmap
@@ -554,8 +608,9 @@
 
       const v = vehicleData[vid] || {};
       const label = v.identifier || 'Van';
-      const busIcon    = makeBusMarkerIcon(bearing);
-      const bubbleIcon = createBubbleIcon(label, '#7c3aed');
+      const spareColor = getVanColor(label, '#7c3aed');
+      const busIcon    = makeBusMarkerIcon(bearing, spareColor);
+      const bubbleIcon = createBubbleIcon(label, spareColor);
       const popupHtml  = buildPopupHtml(vid);
 
       if (vehicleMarkers[vid]) {
@@ -572,7 +627,7 @@
       const rawSpeedMs = locData.speed ?? locData.groundSpeed ?? locData.speedMs ?? null;
       const speedMph = rawSpeedMs != null ? rawSpeedMs * 2.23694 : null;
       if (speedMph != null && speedMph >= 0) {
-        const speedIcon = createSpeedBubbleIcon(speedMph, '#7c3aed');
+        const speedIcon = createSpeedBubbleIcon(speedMph, spareColor);
         if (speedMarkers[vid]) {
           speedMarkers[vid].setLatLng([lat, lng]).setIcon(speedIcon);
         } else {
@@ -584,26 +639,137 @@
       }
     }
 
+    // ---- Info-card section builder (matches testmap buildInfoCardSection) ----
+    function buildInfoCard(primary, secondary, color, meta) {
+      primary   = (primary   || '').trim();
+      secondary = (secondary || '').trim();
+      meta      = (meta      || '').trim();
+      if (!primary && !secondary) return '';
+      const lines = [];
+      if (primary)   lines.push(`<div class="bus-popup__info-line bus-popup__info-line--route">${escHtml(primary)}</div>`);
+      if (secondary) lines.push(`<div class="bus-popup__info-line bus-popup__info-line--block">${escHtml(secondary)}</div>`);
+      if (meta)      lines.push(`<div class="bus-popup__info-line bus-popup__info-line--meta">${escHtml(meta)}</div>`);
+      return `<div class="ondemand-driver-popup__section">
+        <div class="bus-popup__drivers-list">
+          <div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color:${color};">
+            ${lines.join('')}
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // ---- OnDemand stop plan normalizer (simplified — no ride visibility filtering) ----
+    function normalizeOdStopPlan(rawStops) {
+      if (!Array.isArray(rawStops)) return [];
+      const normalized = [];
+      let fallbackOrder = 1;
+      for (const stop of rawStops) {
+        if (!stop || typeof stop !== 'object') continue;
+        const baseAddress = (stop.address || '').trim();
+        const stopRideId  = stop.rideId || stop.ride_id || '';
+        const stopStatus  = stop.status || stop.rideStatus || stop.ride_status || '';
+        const rides = Array.isArray(stop.rides) ? stop.rides : null;
+        if (rides) {
+          const baseOrder = Number.isFinite(Number(stop.order)) ? Number(stop.order) : fallbackOrder;
+          for (const ride of rides) {
+            if (!ride || typeof ride !== 'object') continue;
+            const type   = ride.stop_type || ride.stopType || stop.stopType || stop.stop_type || '';
+            const rideId = ride.rideId || ride.ride_id || ride.id || '';
+            const status = ride.status || ride.rideStatus || ride.ride_status || '';
+            const riders = Array.isArray(ride.riders) ? ride.riders : (Array.isArray(ride.passengers) ? ride.passengers : []);
+            const t = `${type}`.trim().toLowerCase();
+            if (t !== 'pickup' && t !== 'dropoff') continue;
+            normalized.push({ order: baseOrder, stopType: t, address: baseAddress,
+              riders: riders.map(r => `${r}`.trim()).filter(Boolean),
+              rideId: rideId ? `${rideId}` : undefined,
+              rideStatus: status ? `${status}` : undefined });
+          }
+          continue;
+        }
+        const t = `${stop.stopType || stop.stop_type || ''}`.trim().toLowerCase();
+        if (t !== 'pickup' && t !== 'dropoff') continue;
+        const orderVal = Number(stop.order);
+        const riders = Array.isArray(stop.riders) ? stop.riders : [];
+        normalized.push({ order: Number.isFinite(orderVal) ? orderVal : fallbackOrder++,
+          stopType: t, address: baseAddress,
+          riders: riders.map(r => `${r}`.trim()).filter(Boolean),
+          rideId: stopRideId ? `${stopRideId}` : undefined,
+          rideStatus: stopStatus ? `${stopStatus}` : undefined });
+      }
+      normalized.sort((a, b) => a.order - b.order);
+      return normalized;
+    }
+
+    // ---- Render stop plan as ride cards (matches testmap renderOnDemandStopList) ----
+    function renderOdStopList(stopPlan) {
+      if (!stopPlan.length) return '';
+      const rideMap = new Map();
+      for (const stop of stopPlan) {
+        const key = stop.rideId || (stop.riders.length ? stop.riders.join(',') : `stop-${stop.order}`);
+        if (!rideMap.has(key)) {
+          rideMap.set(key, { riders: stop.riders, pickup: null, dropoff: null,
+            minOrder: stop.order, rideStatus: stop.rideStatus || '' });
+        }
+        const ride = rideMap.get(key);
+        if (stop.stopType === 'pickup')  { ride.pickup  = stop; ride.minOrder = Math.min(ride.minOrder, stop.order); }
+        if (stop.stopType === 'dropoff') { ride.dropoff = stop; }
+        if (!ride.riders.length && stop.riders.length) ride.riders = stop.riders;
+        if (stop.rideStatus && ride.rideStatus !== 'in_progress') ride.rideStatus = stop.rideStatus;
+      }
+      const rides = [...rideMap.values()].sort((a, b) => (a.minOrder || 999) - (b.minOrder || 999));
+      const cards = rides.map(ride => {
+        const name = ride.riders.join(', ') || 'Rider';
+        const nextOrder = ride.pickup?.order ?? ride.dropoff?.order;
+        const orderLabel = Number.isFinite(nextOrder) ? `#${nextOrder}` : '';
+        const isOnBoard = !ride.pickup && ride.dropoff && ride.rideStatus === 'in_progress';
+        const pickupAddr  = ride.pickup?.address || (isOnBoard ? 'On board' : 'Unknown pickup');
+        const dropoffAddr = ride.dropoff?.address || 'Unknown dropoff';
+        const pickupClass = isOnBoard
+          ? 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--onboard'
+          : 'ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--pickup';
+        const pickupIcon = isOnBoard ? '✓' : 'P';
+        return `<div class="ondemand-driver-popup__ride-card">
+          <div class="ondemand-driver-popup__ride-header">
+            <span class="ondemand-driver-popup__ride-name">${escHtml(name)}</span>
+            ${orderLabel ? `<span class="ondemand-driver-popup__ride-order">${escHtml(orderLabel)}</span>` : ''}
+          </div>
+          <div class="ondemand-driver-popup__ride-locations">
+            <div class="ondemand-driver-popup__ride-location">
+              <span class="${pickupClass}">${pickupIcon}</span>
+              <span class="ondemand-driver-popup__ride-location-text">${escHtml(pickupAddr)}</span>
+            </div>
+            <div class="ondemand-driver-popup__ride-location">
+              <span class="ondemand-driver-popup__ride-location-icon ondemand-driver-popup__ride-location-icon--dropoff">D</span>
+              <span class="ondemand-driver-popup__ride-location-text">${escHtml(dropoffAddr)}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+      return `<div class="ondemand-driver-popup__stops">
+        <div class="ondemand-driver-popup__label">Rides</div>
+        <div class="ondemand-driver-popup__rides">${cards}</div>
+      </div>`;
+    }
+
     // ---- OnDemand popup ----
-    function buildOdPopupHtml(v) {
-      const name   = v.callName || `Van ${v.vehicleId}`;
-      const driver = v.driverName || '—';
-      const ns     = v.nextStop;
-      const nsAddr = ns && (ns.address || ns.name || ns.stopName);
+    function buildOdPopupHtml(v, color) {
+      const name   = parseOdCallName(v.callName) || `Van ${v.vehicleId}`;
+      const driver = v.driverName || null;
+      const stopPlan  = normalizeOdStopPlan(v.stops || []);
+      const stopHtml  = renderOdStopList(stopPlan);
+      const onboardRiders = stopPlan
+        .filter(s => s.stopType === 'dropoff' && s.rideStatus === 'in_progress')
+        .flatMap(s => s.riders);
       const sections = [
-        `<div class="ondemand-driver-popup__section">
-          <div class="ondemand-driver-popup__label">Vehicle</div>
-          <div class="ondemand-driver-popup__value">${escHtml(name)}</div>
-          <div class="ondemand-driver-popup__sub">TransLoc OnDemand</div>
-        </div>`,
-        `<div class="ondemand-driver-popup__section">
-          <div class="ondemand-driver-popup__label">Driver</div>
-          <div class="ondemand-driver-popup__value">${escHtml(driver)}</div>
-        </div>`,
-        nsAddr ? `<div class="ondemand-driver-popup__section">
-          <div class="ondemand-driver-popup__label">Next Stop</div>
-          <div class="ondemand-driver-popup__value">${escHtml(nsAddr)}</div>
-        </div>` : null,
+        buildInfoCard(name, 'TransLoc OnDemand', color),
+        driver ? buildInfoCard(driver, 'OnDemand Driver', color) : null,
+        onboardRiders.length
+          ? `<div class="ondemand-driver-popup__section">
+               <div class="ondemand-driver-popup__label">Passengers on board</div>
+               <div class="ondemand-driver-popup__value">${escHtml(onboardRiders.join(', '))}</div>
+             </div>`
+          : null,
+        stopHtml || null,
       ].filter(Boolean);
       return `<div class="ondemand-driver-popup__content">
         ${sections.join('<div class="ondemand-driver-popup__divider"></div>')}
@@ -615,11 +781,11 @@
       const key     = 'od_' + v.vehicleId;
       const lat     = v.lat, lng = v.lng;
       const bearing = v.heading ?? 0;
-      const color   = v.markerColor || '#ec4899';
-      const label   = v.callName || 'Van';
+      const label   = parseOdCallName(v.callName) || 'Van';
+      const color   = getVanColor(label, v.markerColor || '#ec4899');
       const busIcon    = makeBusMarkerIcon(bearing, color);
       const bubbleIcon = createBubbleIcon(label, color);
-      const popupHtml  = buildOdPopupHtml(v);
+      const popupHtml  = buildOdPopupHtml(v, color);
       if (odVehicleMarkers[key]) {
         odVehicleMarkers[key].setLatLng([lat, lng]).setIcon(busIcon).setPopupContent(popupHtml);
         odBubbleMarkers[key].setLatLng([lat, lng]).setIcon(bubbleIcon);
@@ -683,11 +849,13 @@
         active.add('od_' + v.vehicleId);
 
         // Extract stops for the trip board
+        const odLabel = parseOdCallName(v.callName) || 'Van';
+        const odColor = getVanColor(odLabel, v.markerColor || '#ec4899');
         for (const stop of (v.stops || [])) {
           freshStops.push({
             ...stop,
-            vehicleName: v.callName || 'Van',
-            vehicleColor: v.markerColor || '#ec4899',
+            vehicleName: odLabel,
+            vehicleColor: odColor,
           });
         }
       }
@@ -963,17 +1131,20 @@
     }
 
     // ---- Initial load + polling ----
-    loadVehicleIdents();
+    loadVanColors().then(() => {
+      loadVehicleIdents();
+      fetchOnDemand();
+    });
     fetchTrips();
     fetchDuties();
     fetchW2WShifts();
-    fetchOnDemand();
     updateLastRefresh();
 
     setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
     setInterval(fetchDuties, 60_000);
     setInterval(fetchW2WShifts, 60_000);
     setInterval(loadVehicleIdents, 120_000);
+    setInterval(loadVanColors, 60_000);
     setInterval(fetchOnDemand, 10_000);
   </script>
 </body>

@@ -219,6 +219,7 @@ VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:ops@virginia.edu")
 PUSH_SUBSCRIPTIONS_PATH = PRIMARY_DATA_DIR / "push_subscriptions.json"
 push_subscription_store = PushSubscriptionStore(PUSH_SUBSCRIPTIONS_PATH)
+VAN_COLORS_PATH = PRIMARY_DATA_DIR / "van_colors.json"
 
 # Track sent alert IDs to prevent duplicate notifications
 _sent_alert_ids: set = set()
@@ -1481,6 +1482,7 @@ INCIDENTS_HTML = _load_html("incidents.html")
 VDOT_CAMS_HTML = _load_html("vdot-cams.html")
 OVERLAP_DEMO_HTML = _load_html("overlap-demo.html")
 VANDISPATCH_HTML = _load_html("vandispatch.html")
+VAN_COLORS_HTML = _load_html("van-colors.html")
 
 ADSB_URL_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 ADSB_CORS_HEADERS = {
@@ -14414,3 +14416,37 @@ async def api_spare_list_webhooks():
 @app.get("/vandispatch")
 async def vandispatch_page():
     return HTMLResponse(VANDISPATCH_HTML)
+
+
+@app.get("/van-colors")
+async def van_colors_admin():
+    return HTMLResponse(VAN_COLORS_HTML)
+
+
+def _load_van_colors() -> dict:
+    if VAN_COLORS_PATH.exists():
+        try:
+            return json.loads(VAN_COLORS_PATH.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+@app.get("/api/van-colors")
+async def get_van_colors():
+    return _load_van_colors()
+
+
+@app.put("/api/van-colors")
+async def put_van_colors(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Expected a JSON object")
+    colors = {str(k).strip(): str(v).strip() for k, v in data.items()
+              if isinstance(v, str) and str(v).strip().startswith("#")}
+    VAN_COLORS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    VAN_COLORS_PATH.write_text(json.dumps(colors, indent=2))
+    return colors

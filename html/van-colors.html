@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Van Colors</title>
+  <script defer src="/nav-bar.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+      background: #0d0d0d;
+      color: #f0f0f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: linear-gradient(120deg, #1a0a3d, #0f0820);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 2px solid #6c3fc5;
+    }
+    header h1 { font-size: 1.3rem; font-weight: 700; color: #e0d0ff; }
+    header p  { font-size: 0.82rem; color: #9980d0; margin-top: 0.2rem; }
+    .content {
+      max-width: 640px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      flex: 1;
+    }
+    .instructions {
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      font-size: 0.82rem;
+      color: #9980d0;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+    #status {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-bottom: 1rem;
+      min-height: 1.2rem;
+    }
+    #status.ok  { color: #4caf50; }
+    #status.err { color: #f44336; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+    th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #666;
+      border-bottom: 1px solid #2a2a44;
+    }
+    td {
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid #1c1c2e;
+      vertical-align: middle;
+    }
+    tr:hover td { background: #12122a; }
+    .van-name { font-weight: 600; color: #e0d0ff; }
+    .color-cell { display: flex; align-items: center; gap: 0.6rem; }
+    input[type="color"] {
+      width: 38px;
+      height: 28px;
+      border: none;
+      border-radius: 4px;
+      padding: 0;
+      cursor: pointer;
+      background: none;
+    }
+    .hex-input {
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      border-radius: 4px;
+      color: #e0d0ff;
+      font-size: 0.85rem;
+      font-family: monospace;
+      padding: 0.25rem 0.5rem;
+      width: 90px;
+    }
+    .hex-input:focus { outline: none; border-color: #6c3fc5; }
+    .swatch {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 2px solid rgba(255,255,255,0.15);
+    }
+    .source-pill {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .source-pill--spare { background: #2a1f4a; color: #b0a0e0; }
+    .source-pill--od    { background: #1a2a1e; color: #6ee7b7; }
+    .source-pill--both  { background: #1a1f3a; color: #93c5fd; }
+    .actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    button {
+      background: #6c3fc5;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.55rem 1.2rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #7c4fd5; }
+    button.secondary {
+      background: #1a1a2e;
+      color: #9980d0;
+      border: 1px solid #2a2a44;
+    }
+    button.secondary:hover { background: #22223a; }
+    .no-vans { color: #555; font-size: 0.85rem; padding: 1rem 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Van Colors</h1>
+      <p>Hardcode marker colors per vehicle — shared across Spare and OnDemand</p>
+    </div>
+  </header>
+
+  <div class="content">
+    <div class="instructions">
+      Colors set here apply to both Spare (FlexRide) and TransLoc OnDemand vans by vehicle name.
+      Leave a van at its default color by clearing the hex field (empty = use source default).
+      Changes take effect on the next map refresh.
+    </div>
+
+    <div id="status"></div>
+
+    <table id="van-table">
+      <thead>
+        <tr>
+          <th>Van</th>
+          <th>Color</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody id="van-tbody">
+        <tr><td colspan="3" class="no-vans">Loading vehicles…</td></tr>
+      </tbody>
+    </table>
+
+    <div class="actions">
+      <button onclick="save()">Save Colors</button>
+      <button class="secondary" onclick="loadAll()">Refresh Vehicle List</button>
+    </div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    function setStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className = type || '';
+    }
+
+    // Known vehicles: { name: { sources: Set<'spare'|'od'> } }
+    let knownVans = {};
+    // Current saved colors: { name: "#hex" }
+    let savedColors = {};
+
+    async function loadAll() {
+      setStatus('Loading…');
+      knownVans = {};
+
+      await Promise.allSettled([
+        loadSpareVehicles(),
+        loadOdVehicles(),
+        loadSavedColors(),
+      ]);
+
+      render();
+      setStatus('');
+    }
+
+    async function loadSpareVehicles() {
+      try {
+        const res = await fetch('/api/spare/vehicles');
+        if (!res.ok) return;
+        const vehicles = await res.json();
+        for (const v of (Array.isArray(vehicles) ? vehicles : [])) {
+          const name = (v.identifier || '').trim();
+          if (!name) continue;
+          if (!knownVans[name]) knownVans[name] = { sources: new Set() };
+          knownVans[name].sources.add('spare');
+        }
+      } catch (_) {}
+    }
+
+    async function loadOdVehicles() {
+      try {
+        const res = await fetch('/api/ondemand');
+        if (!res.ok) return;
+        const data = await res.json();
+        for (const v of (Array.isArray(data.vehicles) ? data.vehicles : [])) {
+          const raw = v.callName || '';
+          const name = raw.split(':')[0].trim().replace(/^([A-Za-z]+)/, m => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase());
+          if (!name) continue;
+          if (!knownVans[name]) knownVans[name] = { sources: new Set() };
+          knownVans[name].sources.add('od');
+        }
+      } catch (_) {}
+    }
+
+    async function loadSavedColors() {
+      try {
+        const res = await fetch('/api/van-colors');
+        if (res.ok) savedColors = await res.json();
+      } catch (_) {}
+    }
+
+    // Merge saved-color-only entries that aren't in live API
+    function allVanNames() {
+      const names = new Set(Object.keys(knownVans));
+      for (const name of Object.keys(savedColors)) names.add(name);
+      return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+
+    function render() {
+      const tbody = document.getElementById('van-tbody');
+      const names = allVanNames();
+      if (!names.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="no-vans">No vehicles found — Spare or OnDemand may be unconfigured</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = names.map(name => {
+        const saved = savedColors[name] || '';
+        const info  = knownVans[name];
+        const src   = info ? [...info.sources] : [];
+        const srcLabel = src.includes('spare') && src.includes('od') ? 'both'
+          : src.includes('spare') ? 'spare' : src.includes('od') ? 'od' : '';
+        const srcHtml = srcLabel
+          ? `<span class="source-pill source-pill--${srcLabel}">${srcLabel === 'both' ? 'Spare + OD' : srcLabel === 'spare' ? 'Spare' : 'OD'}</span>`
+          : '';
+        const swatchStyle = saved ? `background:${saved}` : 'background:#444;border-style:dashed';
+        return `<tr data-van="${escAttr(name)}">
+          <td class="van-name">${escHtml(name)}</td>
+          <td>
+            <div class="color-cell">
+              <span class="swatch" id="swatch-${escAttr(name)}" style="${swatchStyle}"></span>
+              <input type="color" id="picker-${escAttr(name)}" value="${saved || '#7c3aed'}"
+                oninput="onColorInput('${escAttr(name)}', this.value)">
+              <input type="text" class="hex-input" id="hex-${escAttr(name)}" value="${saved}"
+                placeholder="default" maxlength="7"
+                oninput="onHexInput('${escAttr(name)}', this.value)">
+            </div>
+          </td>
+          <td>${srcHtml}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function onColorInput(name, hex) {
+      document.getElementById(`hex-${name}`).value = hex;
+      document.getElementById(`swatch-${name}`).style.background = hex;
+      document.getElementById(`swatch-${name}`).style.borderStyle = 'solid';
+    }
+
+    function onHexInput(name, val) {
+      val = val.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+        document.getElementById(`picker-${name}`).value = val;
+        document.getElementById(`swatch-${name}`).style.background = val;
+        document.getElementById(`swatch-${name}`).style.borderStyle = 'solid';
+      } else if (!val) {
+        document.getElementById(`swatch-${name}`).style.background = '#444';
+        document.getElementById(`swatch-${name}`).style.borderStyle = 'dashed';
+      }
+    }
+
+    async function save() {
+      const colors = {};
+      const rows = document.querySelectorAll('#van-tbody tr[data-van]');
+      for (const row of rows) {
+        const name = row.dataset.van;
+        const hex  = document.getElementById(`hex-${name}`).value.trim();
+        if (/^#[0-9a-fA-F]{6}$/.test(hex)) colors[name] = hex;
+      }
+      setStatus('Saving…');
+      try {
+        const res = await fetch('/api/van-colors', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(colors),
+        });
+        if (res.ok) {
+          savedColors = await res.json();
+          setStatus('Saved!', 'ok');
+          setTimeout(() => setStatus(''), 3000);
+        } else {
+          setStatus(`Error ${res.status}`, 'err');
+        }
+      } catch (err) {
+        setStatus('Network error', 'err');
+      }
+    }
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function escAttr(s) {
+      return String(s ?? '').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>
