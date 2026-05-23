@@ -11927,27 +11927,25 @@ async def login_page():
 # ---------------------------
 @app.get("/map")
 async def map_page(request: Request):
-    secret_info = _get_dispatcher_secret_info(request)
-    if secret_info:
-        _record_presence(secret_info[0], is_named=True)
+    if _get_dispatcher_secret_info(request):
         return HTMLResponse(TESTMAP_HTML)
 
+    # Set a silent session cookie so the SSE stream can identify this browser.
+    # Don't record presence here — uptime monitors hit this endpoint without
+    # persisting cookies, and would generate a flood of single-visit anon entries.
     session_id = request.cookies.get(PRESENCE_COOKIE_NAME)
-    new_session = not session_id
-    if new_session:
-        session_id = "anon-" + secrets.token_hex(4)
-    _record_presence(session_id, is_named=False)
+    if session_id:
+        return HTMLResponse(TESTMAP_HTML)
 
     resp = HTMLResponse(TESTMAP_HTML)
-    if new_session:
-        resp.set_cookie(
-            PRESENCE_COOKIE_NAME,
-            session_id,
-            max_age=365 * 24 * 3600,
-            httponly=True,
-            secure=DISPATCH_COOKIE_SECURE,
-            samesite="lax",
-        )
+    resp.set_cookie(
+        PRESENCE_COOKIE_NAME,
+        "anon-" + secrets.token_hex(4),
+        max_age=365 * 24 * 3600,
+        httponly=True,
+        secure=DISPATCH_COOKIE_SECURE,
+        samesite="lax",
+    )
     return resp
 
 
