@@ -313,6 +313,13 @@
     }
     .ondemand-driver-popup__value { font-size: 15px; font-weight: 700; color: #1f2937; }
     .ondemand-driver-popup__sub { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    /* Source badges in duty table */
+    .source-badge {
+      font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem;
+      border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase; vertical-align: middle;
+    }
+    .source-badge--spare { background: #2a1f4a; color: #b0a0e0; }
+    .source-badge--w2w   { background: #142a1e; color: #6ee7b7; }
     /* Strip Leaflet's default white-box styling from SVG label icons */
     .bus-label-icon {
       pointer-events: none !important;
@@ -364,10 +371,10 @@
           <thead>
             <tr>
               <th>Driver</th>
-              <th>Vehicle</th>
+              <th>Assignment</th>
               <th>Status</th>
               <th>Shift</th>
-              <th>ID</th>
+              <th>Source</th>
             </tr>
           </thead>
           <tbody id="duties-tbody">
@@ -768,26 +775,67 @@
       }
     }
 
-    // ---- Duty roster ----
-    function renderDuties(duties) {
+    // ---- Duty roster (combined: Spare duties + W2W OnDemand shifts) ----
+    let spareDuties = [];
+    let w2wShifts   = [];
+
+    function renderDuties() {
       const tbody = document.getElementById('duties-tbody');
-      document.getElementById('duty-count').textContent = duties.length;
-      if (!duties.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="no-duties">No active duties right now</td></tr>';
+      const rows = [];
+
+      for (const d of spareDuties) {
+        const driver = d.driver || {};
+        const driverName = [driver.firstName, driver.lastName].filter(Boolean).join(' ') || '—';
+        const vehName = (d.vehicle && d.vehicle.identifier)
+          || (vehicleData[d.vehicleId] && vehicleData[d.vehicleId].identifier) || '—';
+        rows.push({
+          source: 'spare',
+          startMs: (d.startRequestedTs || 0) * 1000,
+          driverName,
+          assignment: vehName,
+          status: d.status || 'unknown',
+          shiftStr: `${fmtTime(d.startRequestedTs)} – ${fmtTime(d.endRequestedTs)}`,
+          detail: d.identifier || '',
+        });
+      }
+
+      for (const s of w2wShifts) {
+        rows.push({
+          source: 'w2w',
+          startMs: s.start_ts || 0,
+          driverName: s.name || '—',
+          assignment: s.position_name || 'OnDemand',
+          status: 'shift',
+          shiftStr: `${fmtTime(s.start_ts / 1000)} – ${fmtTime(s.end_ts / 1000)}`,
+          detail: '',
+        });
+      }
+
+      document.getElementById('duty-count').textContent = rows.length;
+
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="no-duties">No shifts or duties today</td></tr>';
         return;
       }
-      tbody.innerHTML = duties.map(d => {
-        const status      = d.status || 'unknown';
-        const driver      = d.driver || {};
-        const driverName  = [driver.firstName, driver.lastName].filter(Boolean).join(' ') || '—';
-        const vehName     = (d.vehicle && d.vehicle.identifier) || (vehicleData[d.vehicleId] && vehicleData[d.vehicleId].identifier) || '—';
-        const shift       = `${fmtTime(d.startRequestedTs)} – ${fmtTime(d.endRequestedTs)}`;
+
+      rows.sort((a, b) => a.startMs - b.startMs);
+
+      tbody.innerHTML = rows.map(r => {
+        const srcBadge = r.source === 'spare'
+          ? `<span class="source-badge source-badge--spare">Spare</span>${r.detail ? ` <span style="color:#666;font-size:.7rem">${escHtml(r.detail)}</span>` : ''}`
+          : `<span class="source-badge source-badge--w2w">W2W</span>`;
+        const statusCell = r.source === 'spare'
+          ? `<span class="duty-status ${r.status}">${escHtml(humanizeStatus(r.status))}</span>`
+          : `<span class="duty-status scheduled" style="background:#1a2a1e;color:#6ee7b7">Shift</span>`;
+        const assignCell = r.source === 'w2w'
+          ? `<span style="color:#9980d0">${escHtml(r.assignment)}</span>`
+          : escHtml(r.assignment);
         return `<tr>
-          <td>${escHtml(driverName)}</td>
-          <td>${escHtml(vehName)}</td>
-          <td><span class="duty-status ${status}">${status}</span></td>
-          <td>${escHtml(shift)}</td>
-          <td style="color:#888;font-size:.75rem">${escHtml(d.identifier || '—')}</td>
+          <td>${escHtml(r.driverName)}</td>
+          <td>${assignCell}</td>
+          <td>${statusCell}</td>
+          <td>${escHtml(r.shiftStr)}</td>
+          <td>${srcBadge}</td>
         </tr>`;
       }).join('');
     }
@@ -797,14 +845,36 @@
         const res = await fetch('/api/spare/duties');
         if (!res.ok) return;
         const dutiesJson = await res.json();
-        const duties = Array.isArray(dutiesJson) ? dutiesJson : [];
-        // Cache duties by ID for popup lookups
-        duties.forEach(d => { if (d.id) dutiesData[d.id] = d; });
-        renderDuties(duties);
-        // Refresh open/existing marker popups with latest duty info
+        spareDuties = Array.isArray(dutiesJson) ? dutiesJson : [];
+        spareDuties.forEach(d => { if (d.id) dutiesData[d.id] = d; });
+        renderDuties();
         Object.keys(vehicleMarkers).forEach(vid => vehicleMarkers[vid].setPopupContent(buildPopupHtml(vid)));
       } catch (err) {
         console.error('duties fetch failed:', err);
+      }
+    }
+
+    async function fetchW2WShifts() {
+      try {
+        const res = await fetch('/v1/dispatch/block-drivers');
+        if (res.status === 403 || res.status === 401) return;
+        if (!res.ok) return;
+        const data = await res.json();
+        const byBlock = data.assignments_by_block || {};
+        const shifts = [];
+        for (const blockName of ['OnDemand Driver', 'OnDemand EB']) {
+          const block = byBlock[blockName];
+          if (!block) continue;
+          for (const period of Object.values(block)) {
+            for (const s of period) {
+              shifts.push({ ...s, position_name: blockName });
+            }
+          }
+        }
+        w2wShifts = shifts;
+        renderDuties();
+      } catch (err) {
+        console.error('[w2w] fetch failed:', err);
       }
     }
 
@@ -817,11 +887,13 @@
     loadVehicleIdents();
     fetchTrips();
     fetchDuties();
+    fetchW2WShifts();
     fetchOnDemand();
     updateLastRefresh();
 
     setInterval(() => { fetchTrips(); updateLastRefresh(); }, 30_000);
     setInterval(fetchDuties, 60_000);
+    setInterval(fetchW2WShifts, 60_000);
     setInterval(loadVehicleIdents, 120_000);
     setInterval(fetchOnDemand, 10_000);
   </script>

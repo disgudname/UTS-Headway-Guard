@@ -14258,13 +14258,17 @@ async def api_spare_duties():
         except Exception as exc:
             print(f"[spare] duties fetch failed: {exc}")
             return []
-        start_ts, end_ts = _spare_today_range()
+        _, end_ts = _spare_today_range()
+        now_ts = int(datetime.now(ZoneInfo("America/New_York")).timestamp())
         active = {"inProgress", "scheduled"}
         return [
             d for d in duties
             if d.get("status") in active
-            and (d.get("endRequestedTs") or 0) >= start_ts
-            and (d.get("startRequestedTs") or 0) <= end_ts
+            and (d.get("startRequestedTs") or 0) <= end_ts   # starts today, not tomorrow
+            and (
+                d.get("status") == "inProgress"              # always show active duties even if running over
+                or (d.get("endRequestedTs") or 0) >= now_ts  # scheduled: only if not yet over
+            )
         ]
 
     return await spare_duties_cache.get(fetch)
