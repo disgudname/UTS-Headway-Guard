@@ -16279,6 +16279,94 @@ TM.registerVisibilityResumeHandler(() => {
           return busLocationsFetchPromise;
       }
 
+      const TRACCAR_COLOR = '#dc2626';
+      const TRACCAR_POPUP_OPTIONS = {
+          className: 'ondemand-driver-popup',
+          closeButton: false,
+          autoClose: true,
+          autoPan: false,
+          offset: [0, -20],
+      };
+
+      function buildTraccarPopupHtml(v) {
+          const fixMs = v.fixTime ? new Date(v.fixTime).getTime() : 0;
+          const ageMs = fixMs > 0 ? Date.now() - fixMs : null;
+          let lastFixText = '';
+          if (ageMs !== null && ageMs >= 0) {
+              const mins = Math.floor(ageMs / 60000);
+              if (mins < 1) lastFixText = 'just now';
+              else if (mins < 60) lastFixText = `${mins} min ago`;
+              else if (mins < 1440) {
+                  const h = Math.floor(mins / 60), m = mins % 60;
+                  lastFixText = m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
+              } else {
+                  const d = Math.floor(mins / 1440);
+                  lastFixText = `${d} day${d !== 1 ? 's' : ''} ago`;
+              }
+          }
+          const attrs = v.attributes || {};
+          const statusColor = v.deviceStatus === 'online' ? '#16a34a'
+              : v.deviceStatus === 'offline' ? '#dc2626' : '#64748b';
+          const sections = [];
+
+          sections.push([
+              '<div class="ondemand-driver-popup__section">',
+              `<div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color:${TRACCAR_COLOR};">`,
+              `<div class="bus-popup__info-line bus-popup__info-line--route">${escapeHtml(v.name)}</div>`,
+              `<div class="bus-popup__info-line bus-popup__info-line--block" style="color:${statusColor};">`,
+              escapeHtml(v.deviceStatus || 'unknown'),
+              lastFixText ? ` · ${lastFixText}` : '',
+              '</div></div></div>',
+          ].join(''));
+
+          if (typeof v.speed === 'number' && v.speed > 0) {
+              sections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Speed</div>',
+                  `<div class="ondemand-driver-popup__value">${v.speed} mph</div>`,
+                  '</div>',
+              ].join(''));
+          }
+          if (v.address) {
+              sections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Location</div>',
+                  `<div class="ondemand-driver-popup__value">${escapeHtml(v.address)}</div>`,
+                  '</div>',
+              ].join(''));
+          }
+          if (typeof attrs.ignition === 'boolean') {
+              sections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">Ignition</div>',
+                  `<div class="ondemand-driver-popup__value">${attrs.ignition ? 'On' : 'Off'}</div>`,
+                  '</div>',
+              ].join(''));
+          }
+          const voltage = typeof attrs.battery === 'number' ? attrs.battery
+              : typeof attrs.power === 'number' ? attrs.power : null;
+          if (voltage !== null) {
+              const label = typeof attrs.battery === 'number' ? 'Battery' : 'Power';
+              sections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  `<div class="ondemand-driver-popup__label">${label}</div>`,
+                  `<div class="ondemand-driver-popup__value">${voltage.toFixed(1)} V</div>`,
+                  '</div>',
+              ].join(''));
+          }
+          if (typeof attrs.sat === 'number') {
+              sections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  '<div class="ondemand-driver-popup__label">GPS Satellites</div>',
+                  `<div class="ondemand-driver-popup__value">${attrs.sat}</div>`,
+                  '</div>',
+              ].join(''));
+          }
+          return `<div class="ondemand-driver-popup__content">${
+              sections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>')
+          }</div>`;
+      }
+
       async function fetchTraccarLocations() {
           try {
               const response = await fetch('/api/traccar/positions');
@@ -16286,7 +16374,6 @@ TM.registerVisibilityResumeHandler(() => {
               const vehicles = await response.json();
               if (!Array.isArray(vehicles)) return;
 
-              const TRACCAR_COLOR = '#dc2626';
               const glyphColor = computeBusMarkerGlyphColor(TRACCAR_COLOR);
               const markerMetrics = computeBusMarkerMetrics(map && typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
               const currentIds = new Set();
@@ -16298,23 +16385,27 @@ TM.registerVisibilityResumeHandler(() => {
                   const headingDeg = v.heading || 0;
                   const busName = v.name;
                   const isStopped = speedMph < 1;
+                  const isStale = v.outdated === true;
+                  if (isStale && !includeStaleVehicles) continue;
+                  const accessibleLabel = `${busName}, ${Math.round(speedMph)} mph`;
 
                   currentIds.add(vehicleID);
                   const state = ensureBusMarkerState(vehicleID);
-                  const accessibleLabel = `${busName}, ${Math.round(speedMph)} mph`;
-
                   state.busName = busName;
                   state.routeID = null;
                   state.fillColor = TRACCAR_COLOR;
                   state.glyphColor = glyphColor;
                   state.headingDeg = headingDeg;
                   state.accessibleLabel = accessibleLabel;
-                  state.isStale = false;
+                  state.isStale = isStale;
                   state.isStopped = isStopped;
                   state.groundSpeed = speedMph;
                   state.lastUpdateTimestamp = Date.now();
+                  state.traccarData = v;
 
                   if (!state.size) setBusMarkerSize(state, markerMetrics);
+
+                  const nameIcon = createNameBubbleDivIcon(busName, TRACCAR_COLOR, markerMetrics.scale, headingDeg);
 
                   if (markers[vehicleID]) {
                       animateMarkerTo(markers[vehicleID], newPosition);
@@ -16322,25 +16413,40 @@ TM.registerVisibilityResumeHandler(() => {
                           fillColor: TRACCAR_COLOR,
                           glyphColor,
                           headingDeg,
-                          stale: false,
+                          stale: isStale,
                           accessibleLabel,
                           stopped: isStopped
                       });
+                      nameBubbles[vehicleID] = nameBubbles[vehicleID] || {};
+                      if (nameIcon) {
+                          if (nameBubbles[vehicleID].nameMarker) {
+                              animateMarkerTo(nameBubbles[vehicleID].nameMarker, newPosition);
+                              nameBubbles[vehicleID].nameMarker.setIcon(nameIcon);
+                          } else {
+                              nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                          }
+                      }
                   } else {
                       try {
                           const icon = await createBusMarkerDivIcon(vehicleID, state);
                           if (!icon) continue;
-                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true, keyboard: true });
+                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true, keyboard: false });
                           marker.routeID = null;
                           marker.vehicleID = vehicleID;
+                          marker.on('click', () => {
+                              const popupHtml = buildTraccarPopupHtml(busMarkerStates[vehicleID]?.traccarData || v);
+                              marker.bindPopup(popupHtml, TRACCAR_POPUP_OPTIONS).openPopup();
+                          });
                           marker.addTo(map);
                           markers[vehicleID] = marker;
                           state.marker = marker;
                           registerBusMarkerElements(vehicleID);
-                          attachBusMarkerInteractions(vehicleID);
                           updateBusMarkerRootClasses(state);
                           updateBusMarkerZIndex(state);
                           applyBusMarkerOutlineWidth(state);
+                          if (nameIcon) {
+                              nameBubbles[vehicleID] = { nameMarker: L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map) };
+                          }
                       } catch (err) {
                           console.error(`Failed to create Traccar marker for ${vehicleID}:`, err);
                       }
@@ -16352,6 +16458,10 @@ TM.registerVisibilityResumeHandler(() => {
                       map.removeLayer(markers[id]);
                       delete markers[id];
                       clearBusMarkerState(id);
+                      if (nameBubbles[id]) {
+                          if (nameBubbles[id].nameMarker) map.removeLayer(nameBubbles[id].nameMarker);
+                          delete nameBubbles[id];
+                      }
                   }
               });
           } catch (err) {

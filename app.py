@@ -1601,8 +1601,9 @@ def broadcast_viriciti_soc(soc_data: Dict[str, Any]) -> None:
         except asyncio.QueueFull:
             pass
 
-# Traccar device name cache
+# Traccar device name/status cache
 _traccar_device_names: Dict[int, str] = {}
+_traccar_device_status: Dict[int, str] = {}
 _traccar_device_names_ts: float = 0.0
 TRACCAR_DEVICE_TTL_S = 300
 
@@ -14598,12 +14599,14 @@ async def put_van_colors(request: Request):
     return colors
 
 
+_TRACCAR_ATTR_ALLOWLIST = {"ignition", "motion", "sat", "battery", "power", "fuel", "rpm"}
+
 @app.get("/api/traccar/positions")
 async def traccar_positions(request: Request):
     _require_dispatcher_access(request)
     if not TRACCAR_TOKEN:
         return []
-    global _traccar_device_names, _traccar_device_names_ts
+    global _traccar_device_names, _traccar_device_status, _traccar_device_names_ts
     headers = {"Authorization": f"Bearer {TRACCAR_TOKEN}"}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -14612,7 +14615,9 @@ async def traccar_positions(request: Request):
                 try:
                     dr = await client.get(f"{TRACCAR_BASE}/api/devices", headers=headers)
                     dr.raise_for_status()
-                    _traccar_device_names = {d["id"]: d.get("name", f"Device {d['id']}") for d in dr.json()}
+                    devices = dr.json()
+                    _traccar_device_names = {d["id"]: d.get("name", f"Device {d['id']}") for d in devices}
+                    _traccar_device_status = {d["id"]: d.get("status", "unknown") for d in devices}
                     _traccar_device_names_ts = now
                 except Exception as exc:
                     print(f"[traccar] devices fetch error: {exc}")
@@ -14627,6 +14632,14 @@ async def traccar_positions(request: Request):
                     "speed": round(p.get("speed", 0) * 1.15078, 1),  # knots → mph
                     "heading": p.get("course", 0),
                     "valid": p.get("valid", True),
+                    "outdated": p.get("outdated", False),
+                    "fixTime": p.get("fixTime") or "",
+                    "address": p.get("address") or "",
+                    "deviceStatus": _traccar_device_status.get(p["deviceId"], "unknown"),
+                    "attributes": {
+                        k: v for k, v in (p.get("attributes") or {}).items()
+                        if k in _TRACCAR_ATTR_ALLOWLIST
+                    },
                 }
                 for p in pr.json()
             ]
