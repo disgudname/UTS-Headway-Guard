@@ -16439,7 +16439,7 @@ TM.registerVisibilityResumeHandler(() => {
                   const headingDeg = v.heading || 0;
                   const busName = v.name;
                   const isStopped = speedMph < 1;
-                  const isStale = v.outdated === true || v.deviceStatus !== 'online';
+                  const isStale = v.outdated === true || v.deviceStatus === 'offline';
                   if (isStale && !includeStaleVehicles) continue;
                   const accessibleLabel = `${busName}, ${Math.round(speedMph)} mph`;
 
@@ -16524,6 +16524,14 @@ TM.registerVisibilityResumeHandler(() => {
                           markers[vehicleID] = marker;
                           state.marker = marker;
                           registerBusMarkerElements(vehicleID);
+                          // registerBusMarkerElements sets pointer-events:none by default;
+                          // Traccar markers need them enabled so clicks reach Leaflet.
+                          if (state.elements?.icon) state.elements.icon.style.pointerEvents = 'auto';
+                          if (state.elements?.root) {
+                              state.elements.root.style.pointerEvents = 'auto';
+                              state.elements.root.style.touchAction = 'manipulation';
+                              state.elements.root.style.cursor = 'pointer';
+                          }
                           updateBusMarkerRootClasses(state);
                           updateBusMarkerZIndex(state);
                           applyBusMarkerOutlineWidth(state);
@@ -20832,6 +20840,19 @@ TM.registerVisibilityResumeHandler(() => {
           const state = busMarkerStates[vehicleID];
           const marker = markers[vehicleID];
           if (!state || !marker) {
+              return;
+          }
+          // Traccar markers own their click handler (set in fetchTraccarLocations).
+          // Don't strip it via marker.off(); just ensure the marker stays clickable.
+          if (`${vehicleID}`.startsWith('traccar_')) {
+              const els = state.elements;
+              if (marker.options) marker.options.interactive = true;
+              if (els?.icon) els.icon.style.pointerEvents = 'auto';
+              if (els?.root) {
+                  els.root.style.pointerEvents = 'auto';
+                  els.root.style.touchAction = 'manipulation';
+                  els.root.style.cursor = 'pointer';
+              }
               return;
           }
           const existingPopup = typeof marker.getPopup === 'function' ? marker.getPopup() : null;
