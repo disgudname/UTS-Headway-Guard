@@ -16307,8 +16307,30 @@ TM.registerVisibilityResumeHandler(() => {
           const attrs = v.attributes || {};
           const statusColor = v.deviceStatus === 'online' ? '#16a34a'
               : v.deviceStatus === 'offline' ? '#dc2626' : '#64748b';
+
+          function row(label, value) {
+              return [
+                  '<div class="ondemand-driver-popup__section">',
+                  `<div class="ondemand-driver-popup__label">${label}</div>`,
+                  `<div class="ondemand-driver-popup__value">${value}</div>`,
+                  '</div>',
+              ].join('');
+          }
+
           const sections = [];
 
+          // Alarm — shown first and prominently if present
+          if (attrs.alarm) {
+              const alarmLabel = escapeHtml(String(attrs.alarm).replace(/([A-Z])/g, ' $1').trim());
+              sections.push([
+                  '<div class="ondemand-driver-popup__section">',
+                  `<div class="ondemand-driver-popup__label" style="color:#dc2626;font-weight:700;">⚠ Alert</div>`,
+                  `<div class="ondemand-driver-popup__value" style="color:#dc2626;font-weight:600;">${alarmLabel}</div>`,
+                  '</div>',
+              ].join(''));
+          }
+
+          // Header card: device name + status + last fix
           sections.push([
               '<div class="ondemand-driver-popup__section">',
               `<div class="bus-popup__driver-row bus-popup__info-card" style="border-left-color:${TRACCAR_COLOR};">`,
@@ -16319,49 +16341,80 @@ TM.registerVisibilityResumeHandler(() => {
               '</div></div></div>',
           ].join(''));
 
-          if (typeof v.speed === 'number' && v.speed > 0) {
-              sections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Speed</div>',
-                  `<div class="ondemand-driver-popup__value">${v.speed} mph</div>`,
-                  '</div>',
-              ].join(''));
-          }
-          if (v.address) {
-              sections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Location</div>',
-                  `<div class="ondemand-driver-popup__value">${escapeHtml(v.address)}</div>`,
-                  '</div>',
-              ].join(''));
-          }
+          // Driver ID
+          if (attrs.driver) sections.push(row('Driver', escapeHtml(String(attrs.driver))));
+
+          // Motion & ignition
           if (typeof attrs.ignition === 'boolean') {
-              sections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">Ignition</div>',
-                  `<div class="ondemand-driver-popup__value">${attrs.ignition ? 'On' : 'Off'}</div>`,
-                  '</div>',
-              ].join(''));
+              sections.push(row('Ignition', attrs.ignition ? 'On' : 'Off'));
           }
+
+          // Speed
+          if (typeof v.speed === 'number' && v.speed > 0) {
+              sections.push(row('Speed', `${v.speed} mph`));
+          }
+
+          // Address
+          if (v.address) sections.push(row('Location', escapeHtml(v.address)));
+
+          // Altitude (m → ft)
+          if (typeof v.altitude === 'number' && v.altitude !== 0) {
+              sections.push(row('Altitude', `${Math.round(v.altitude * 3.28084).toLocaleString()} ft`));
+          }
+
+          // Odometer (m → miles)
+          if (typeof attrs.odometer === 'number' && attrs.odometer > 0) {
+              const miles = (attrs.odometer / 1609.344).toFixed(1);
+              sections.push(row('Odometer', `${Number(miles).toLocaleString()} mi`));
+          }
+
+          // Engine hours (ms → h m)
+          if (typeof attrs.hours === 'number' && attrs.hours > 0) {
+              const totalMins = Math.floor(attrs.hours / 60000);
+              const h = Math.floor(totalMins / 60), m = totalMins % 60;
+              sections.push(row('Engine Hours', m > 0 ? `${h}h ${m}m` : `${h}h`));
+          }
+
+          // Coolant temp (°C → °F)
+          if (typeof attrs.coolantTemp === 'number') {
+              const f = Math.round(attrs.coolantTemp * 9 / 5 + 32);
+              sections.push(row('Coolant Temp', `${f}°F`));
+          }
+
+          // Fuel level
+          if (typeof attrs.fuel === 'number') {
+              sections.push(row('Fuel', `${Math.round(attrs.fuel)}%`));
+          }
+
+          // RPM
+          if (typeof attrs.rpm === 'number' && attrs.rpm > 0) {
+              sections.push(row('RPM', attrs.rpm.toLocaleString()));
+          }
+
+          // Voltage (battery preferred over power)
           const voltage = typeof attrs.battery === 'number' ? attrs.battery
               : typeof attrs.power === 'number' ? attrs.power : null;
           if (voltage !== null) {
               const label = typeof attrs.battery === 'number' ? 'Battery' : 'Power';
-              sections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  `<div class="ondemand-driver-popup__label">${label}</div>`,
-                  `<div class="ondemand-driver-popup__value">${voltage.toFixed(1)} V</div>`,
-                  '</div>',
-              ].join(''));
+              const charging = attrs.charge === true ? ' ⚡' : '';
+              sections.push(row(label, `${voltage.toFixed(1)} V${charging}`));
           }
-          if (typeof attrs.sat === 'number') {
-              sections.push([
-                  '<div class="ondemand-driver-popup__section">',
-                  '<div class="ondemand-driver-popup__label">GPS Satellites</div>',
-                  `<div class="ondemand-driver-popup__value">${attrs.sat}</div>`,
-                  '</div>',
-              ].join(''));
+
+          // OBD fault codes
+          if (attrs.dtcs) sections.push(row('Fault Codes', escapeHtml(String(attrs.dtcs))));
+
+          // GPS quality
+          const gpsQualityParts = [];
+          if (typeof attrs.sat === 'number') gpsQualityParts.push(`${attrs.sat} sat`);
+          if (typeof attrs.hdop === 'number') gpsQualityParts.push(`HDOP ${attrs.hdop.toFixed(1)}`);
+          if (typeof v.accuracy === 'number' && v.accuracy > 0) gpsQualityParts.push(`±${Math.round(v.accuracy)} m`);
+          if (gpsQualityParts.length) sections.push(row('GPS', gpsQualityParts.join(' · ')));
+
+          // Cell signal
+          if (typeof attrs.rssi === 'number') {
+              sections.push(row('Signal', `${attrs.rssi} dBm`));
           }
+
           return `<div class="ondemand-driver-popup__content">${
               sections.join('<div class="ondemand-driver-popup__divider" aria-hidden="true"></div>')
           }</div>`;
@@ -16426,6 +16479,23 @@ TM.registerVisibilityResumeHandler(() => {
                               nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
                           }
                       }
+                      if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                          const speedIcon = createSpeedBubbleDivIcon(TRACCAR_COLOR, speedMph, markerMetrics.scale, headingDeg);
+                          if (speedIcon) {
+                              if (nameBubbles[vehicleID].speedMarker) {
+                                  animateMarkerTo(nameBubbles[vehicleID].speedMarker, newPosition);
+                                  nameBubbles[vehicleID].speedMarker.setIcon(speedIcon);
+                              } else {
+                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              }
+                          } else if (nameBubbles[vehicleID].speedMarker) {
+                              map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                              delete nameBubbles[vehicleID].speedMarker;
+                          }
+                      } else if (nameBubbles[vehicleID]?.speedMarker) {
+                          map.removeLayer(nameBubbles[vehicleID].speedMarker);
+                          delete nameBubbles[vehicleID].speedMarker;
+                      }
                   } else {
                       try {
                           const icon = await createBusMarkerDivIcon(vehicleID, state);
@@ -16433,9 +16503,21 @@ TM.registerVisibilityResumeHandler(() => {
                           const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true, keyboard: false });
                           marker.routeID = null;
                           marker.vehicleID = vehicleID;
-                          marker.on('click', () => {
-                              const popupHtml = buildTraccarPopupHtml(busMarkerStates[vehicleID]?.traccarData || v);
-                              marker.bindPopup(popupHtml, TRACCAR_POPUP_OPTIONS).openPopup();
+                          marker.bindPopup('', TRACCAR_POPUP_OPTIONS);
+                          marker.off('click');
+                          marker.on('click', (e) => {
+                              if (e?.originalEvent) L.DomEvent.stopPropagation(e.originalEvent);
+                              const clickedLatLng = marker.getLatLng();
+                              const overlapping = typeof findOverlappingClickableItems === 'function'
+                                  ? findOverlappingClickableItems(clickedLatLng) : [];
+                              if (overlapping.length >= 2 && typeof MarkerSelectionMenu !== 'undefined') {
+                                  if (e?.originalEvent) L.DomEvent.preventDefault(e.originalEvent);
+                                  MarkerSelectionMenu.handleMarkerClick(clickedLatLng, overlapping);
+                                  return;
+                              }
+                              marker.setPopupContent(buildTraccarPopupHtml(busMarkerStates[vehicleID]?.traccarData || v));
+                              marker.openPopup();
+                              if (typeof syncMarkerPopupPosition === 'function') syncMarkerPopupPosition(marker);
                           });
                           marker.addTo(map);
                           markers[vehicleID] = marker;
@@ -16444,8 +16526,15 @@ TM.registerVisibilityResumeHandler(() => {
                           updateBusMarkerRootClasses(state);
                           updateBusMarkerZIndex(state);
                           applyBusMarkerOutlineWidth(state);
+                          nameBubbles[vehicleID] = {};
                           if (nameIcon) {
-                              nameBubbles[vehicleID] = { nameMarker: L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map) };
+                              nameBubbles[vehicleID].nameMarker = L.marker(newPosition, { icon: nameIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                          }
+                          if (adminMode && displayMode === DISPLAY_MODES.SPEED && !kioskMode) {
+                              const speedIcon = createSpeedBubbleDivIcon(TRACCAR_COLOR, speedMph, markerMetrics.scale, headingDeg);
+                              if (speedIcon) {
+                                  nameBubbles[vehicleID].speedMarker = L.marker(newPosition, { icon: speedIcon, interactive: false, pane: 'busesPane' }).addTo(map);
+                              }
                           }
                       } catch (err) {
                           console.error(`Failed to create Traccar marker for ${vehicleID}:`, err);
@@ -16460,6 +16549,7 @@ TM.registerVisibilityResumeHandler(() => {
                       clearBusMarkerState(id);
                       if (nameBubbles[id]) {
                           if (nameBubbles[id].nameMarker) map.removeLayer(nameBubbles[id].nameMarker);
+                          if (nameBubbles[id].speedMarker) map.removeLayer(nameBubbles[id].speedMarker);
                           delete nameBubbles[id];
                       }
                   }

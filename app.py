@@ -14599,7 +14599,11 @@ async def put_van_colors(request: Request):
     return colors
 
 
-_TRACCAR_ATTR_ALLOWLIST = {"ignition", "motion", "sat", "battery", "power", "fuel", "rpm"}
+_TRACCAR_ATTR_ALLOWLIST = {
+    "ignition", "motion", "sat", "battery", "power", "fuel", "rpm",
+    "alarm", "odometer", "hours", "coolantTemp", "driver", "dtcs",
+    "hdop", "charge", "rssi",
+}
 
 @app.get("/api/traccar/positions")
 async def traccar_positions(request: Request):
@@ -14635,6 +14639,8 @@ async def traccar_positions(request: Request):
                     "outdated": p.get("outdated", False),
                     "fixTime": p.get("fixTime") or "",
                     "address": p.get("address") or "",
+                    "altitude": p.get("altitude"),
+                    "accuracy": p.get("accuracy"),
                     "deviceStatus": _traccar_device_status.get(p["deviceId"], "unknown"),
                     "attributes": {
                         k: v for k, v in (p.get("attributes") or {}).items()
