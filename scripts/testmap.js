@@ -12358,10 +12358,11 @@ TM.registerVisibilityResumeHandler(() => {
                           const busName = state.busName || `Bus ${vehicleID}`;
                           const routeColor = state.fillColor || '#0f172a';
                           const isOnDemand = isOnDemandVehicleId(vehicleID);
+                          const isTraccar = `${vehicleID}`.startsWith('traccar_');
 
                           // Build label with block info for regular buses
                           let label = busName;
-                          if (!isOnDemand) {
+                          if (!isOnDemand && !isTraccar) {
                               const driverInfo = cachedVehicleDrivers[vehicleID];
                               if (driverInfo && driverInfo.block) {
                                   label = `${busName} • ${driverInfo.block}`;
@@ -12373,8 +12374,18 @@ TM.registerVisibilityResumeHandler(() => {
                               color: routeColor,
                               label: label,
                               onClick: async () => {
-                                  // For ondemand vehicles, directly open the popup to avoid re-checking overlaps
-                                  if (isOnDemand && typeof marker.openPopup === 'function') {
+                                  if (isTraccar) {
+                                      const traccarData = state.traccarData;
+                                      if (!traccarData) return;
+                                      marker.setPopupContent(buildTraccarPopupHtml(traccarData));
+                                      if (typeof marker.openPopup === 'function') {
+                                          marker.openPopup();
+                                          if (typeof syncMarkerPopupPosition === 'function') {
+                                              syncMarkerPopupPosition(marker);
+                                          }
+                                      }
+                                  } else if (isOnDemand && typeof marker.openPopup === 'function') {
+                                      // For ondemand vehicles, directly open the popup to avoid re-checking overlaps
                                       marker.openPopup();
                                       if (typeof syncMarkerPopupPosition === 'function') {
                                           syncMarkerPopupPosition(marker);
