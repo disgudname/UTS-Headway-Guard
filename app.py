@@ -104,6 +104,8 @@ PULSEPOINT_ICON_BASE = os.getenv(
     "PULSEPOINT_ICON_BASE", "https://web.pulsepoint.org/images/respond_icons/"
 )
 AMTRAKER_URL = os.getenv("AMTRAKER_URL", "https://api-v3.amtraker.com/v3/trains")
+TRACCAR_BASE = os.getenv("TRACCAR_BASE", "https://traccar.pandemoniumair.com").rstrip("/")
+TRACCAR_TOKEN = os.getenv("TRACCAR_TOKEN", "").strip()
 RIDESYSTEMS_CLIENTS_URL = os.getenv(
     "RIDESYSTEMS_CLIENTS_URL",
     "https://admin.ridesystems.net/api/Clients/GetClients",
@@ -1598,6 +1600,11 @@ def broadcast_viriciti_soc(soc_data: Dict[str, Any]) -> None:
             q.put_nowait(encoded)
         except asyncio.QueueFull:
             pass
+
+# Traccar device name cache
+_traccar_device_names: Dict[int, str] = {}
+_traccar_device_names_ts: float = 0.0
+TRACCAR_DEVICE_TTL_S = 300
 
 # Spare Van Dispatch SSE subscribers + in-memory vehicle location store
 SPARE_SUBS: set[asyncio.Queue] = set()
@@ -14589,3 +14596,40 @@ async def put_van_colors(request: Request):
     VAN_COLORS_PATH.parent.mkdir(parents=True, exist_ok=True)
     VAN_COLORS_PATH.write_text(json.dumps(colors, indent=2))
     return colors
+
+
+@app.get("/api/traccar/positions")
+async def traccar_positions(request: Request):
+    _require_dispatcher_access(request)
+    if not TRACCAR_TOKEN:
+        return []
+    global _traccar_device_names, _traccar_device_names_ts
+    headers = {"Authorization": f"Bearer {TRACCAR_TOKEN}"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            now = time.time()
+            if now - _traccar_device_names_ts >= TRACCAR_DEVICE_TTL_S:
+                try:
+                    dr = await client.get(f"{TRACCAR_BASE}/api/devices", headers=headers)
+                    dr.raise_for_status()
+                    _traccar_device_names = {d["id"]: d.get("name", f"Device {d['id']}") for d in dr.json()}
+                    _traccar_device_names_ts = now
+                except Exception as exc:
+                    print(f"[traccar] devices fetch error: {exc}")
+            pr = await client.get(f"{TRACCAR_BASE}/api/positions", headers=headers)
+            pr.raise_for_status()
+            return [
+                {
+                    "id": f"traccar_{p['deviceId']}",
+                    "name": _traccar_device_names.get(p["deviceId"], f"Device {p['deviceId']}"),
+                    "lat": p["latitude"],
+                    "lon": p["longitude"],
+                    "speed": round(p.get("speed", 0) * 1.15078, 1),  # knots → mph
+                    "heading": p.get("course", 0),
+                    "valid": p.get("valid", True),
+                }
+                for p in pr.json()
+            ]
+    except Exception as exc:
+        print(f"[traccar] positions fetch error: {exc}")
+        return []

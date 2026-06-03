@@ -11593,6 +11593,10 @@ TM.registerVisibilityResumeHandler(() => {
         refreshIntervals.push(setInterval(() => {
           if (!refreshIntervalsPaused && pageIsVisible) fetchViricitiSOC();
         }, VIRICITI_SOC_POLL_INTERVAL_MS));
+        fetchTraccarLocations();
+        refreshIntervals.push(setInterval(() => {
+          if (!refreshIntervalsPaused && pageIsVisible) fetchTraccarLocations();
+        }, 10000));
         refreshIntervalsActive = true;
       }
 
@@ -16216,6 +16220,9 @@ TM.registerVisibilityResumeHandler(() => {
                   if (isOnDemandVehicleId(vehicleID)) {
                       return;
                   }
+                  if (`${vehicleID}`.startsWith('traccar_')) {
+                      return;
+                  }
                   if (!currentBusData[vehicleID] || !isRouteSelected(markers[vehicleID].routeID)) {
                       map.removeLayer(markers[vehicleID]);
                       delete markers[vehicleID];
@@ -16270,6 +16277,86 @@ TM.registerVisibilityResumeHandler(() => {
               }
           });
           return busLocationsFetchPromise;
+      }
+
+      async function fetchTraccarLocations() {
+          try {
+              const response = await fetch('/api/traccar/positions');
+              if (!response.ok) return;
+              const vehicles = await response.json();
+              if (!Array.isArray(vehicles)) return;
+
+              const TRACCAR_COLOR = '#dc2626';
+              const glyphColor = computeBusMarkerGlyphColor(TRACCAR_COLOR);
+              const markerMetrics = computeBusMarkerMetrics(map && typeof map.getZoom === 'function' ? map.getZoom() : BUS_MARKER_BASE_ZOOM);
+              const currentIds = new Set();
+
+              for (const v of vehicles) {
+                  const vehicleID = v.id;
+                  const newPosition = [v.lat, v.lon];
+                  const speedMph = v.speed || 0;
+                  const headingDeg = v.heading || 0;
+                  const busName = v.name;
+                  const isStopped = speedMph < 1;
+
+                  currentIds.add(vehicleID);
+                  const state = ensureBusMarkerState(vehicleID);
+                  const accessibleLabel = `${busName}, ${Math.round(speedMph)} mph`;
+
+                  state.busName = busName;
+                  state.routeID = null;
+                  state.fillColor = TRACCAR_COLOR;
+                  state.glyphColor = glyphColor;
+                  state.headingDeg = headingDeg;
+                  state.accessibleLabel = accessibleLabel;
+                  state.isStale = false;
+                  state.isStopped = isStopped;
+                  state.groundSpeed = speedMph;
+                  state.lastUpdateTimestamp = Date.now();
+
+                  if (!state.size) setBusMarkerSize(state, markerMetrics);
+
+                  if (markers[vehicleID]) {
+                      animateMarkerTo(markers[vehicleID], newPosition);
+                      queueBusMarkerVisualUpdate(vehicleID, {
+                          fillColor: TRACCAR_COLOR,
+                          glyphColor,
+                          headingDeg,
+                          stale: false,
+                          accessibleLabel,
+                          stopped: isStopped
+                      });
+                  } else {
+                      try {
+                          const icon = await createBusMarkerDivIcon(vehicleID, state);
+                          if (!icon) continue;
+                          const marker = L.marker(newPosition, { icon, pane: 'busesPane', interactive: true, keyboard: true });
+                          marker.routeID = null;
+                          marker.vehicleID = vehicleID;
+                          marker.addTo(map);
+                          markers[vehicleID] = marker;
+                          state.marker = marker;
+                          registerBusMarkerElements(vehicleID);
+                          attachBusMarkerInteractions(vehicleID);
+                          updateBusMarkerRootClasses(state);
+                          updateBusMarkerZIndex(state);
+                          applyBusMarkerOutlineWidth(state);
+                      } catch (err) {
+                          console.error(`Failed to create Traccar marker for ${vehicleID}:`, err);
+                      }
+                  }
+              }
+
+              Object.keys(markers).filter(id => `${id}`.startsWith('traccar_')).forEach(id => {
+                  if (!currentIds.has(id)) {
+                      map.removeLayer(markers[id]);
+                      delete markers[id];
+                      clearBusMarkerState(id);
+                  }
+              });
+          } catch (err) {
+              console.error('Error fetching Traccar locations:', err);
+          }
       }
 
       async function fetchVehicleDrivers() {
