@@ -11413,6 +11413,7 @@ TM.registerVisibilityResumeHandler(() => {
 
       // refreshMap updates route paths and bus locations.
       function refreshMap() {
+        fetchTraccarLocations();
         fetchBusLocations().then(fetchRoutePaths);
         const hasTranslocStops = Array.isArray(stopDataCache) && stopDataCache.length > 0;
         const hasCatStops = catOverlayEnabled && Array.isArray(catStopDataCache) && catStopDataCache.length > 0;
