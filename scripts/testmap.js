@@ -16438,7 +16438,7 @@ TM.registerVisibilityResumeHandler(() => {
                   const headingDeg = v.heading || 0;
                   const busName = v.name;
                   const isStopped = speedMph < 1;
-                  const isStale = v.outdated === true;
+                  const isStale = v.outdated === true || v.deviceStatus !== 'online';
                   if (isStale && !includeStaleVehicles) continue;
                   const accessibleLabel = `${busName}, ${Math.round(speedMph)} mph`;
 
