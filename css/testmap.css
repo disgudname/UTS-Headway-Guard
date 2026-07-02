@@ -2660,13 +2660,13 @@
       }
       #statusPanel .selector-content {
         padding: 14px 16px 16px;
-        overflow: visible;
+        overflow: auto;
         gap: 14px;
       }
       /* Status Panel must not scroll */
       #statusPanel.panel--half .selector-content,
       #statusPanel.panel--full .selector-content {
-        overflow: hidden;
+        /* overflow: hidden; */
       }
       /* Status section styling */
       .status-section {
