@@ -111,8 +111,9 @@
     Active system notices (created by dispatch at <code>/admin</code>) targeting a stop &mdash; or set to apply
     system-wide &mdash; show up automatically in that stop's feed, ahead of arrival times. Each notice uses its
     short-form text (falling back to the full home page message if none was set). In the RSS feed this appears
-    as an extra <code>&lt;item&gt;</code> titled "Service Alert"; in the CAP feed it's prepended to the message,
-    and a red-severity notice raises the feed's overall CAP severity/urgency.
+    as an extra <code>&lt;item&gt;</code> titled "Service Alert"; in the CAP feed it's prepended to the message.
+    Notice severity does not change the feed's CAP severity/urgency fields (always Minor/Expected) &mdash; this
+    feed is routine bus-arrival signage and should never be mistaken for the university's actual emergency feed.
   </p>
 
   <h2>Example</h2>

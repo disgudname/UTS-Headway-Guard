@@ -514,25 +514,20 @@ def _get_active_system_notices(
         active.append(notice)
     return active
 
-_NOTICE_SEVERITY_RANK = {"red": 3, "yellow": 2, "green": 1}
-_NOTICE_SEVERITY_TO_CAP = {
-    "red": ("Severe", "Immediate"),
-    "yellow": ("Moderate", "Expected"),
-    "green": ("Minor", "Expected"),
-}
-
-def _active_notice_texts(stop_ids: Sequence[str]) -> List[Tuple[str, str, str]]:
-    """Active, non-staff-only notices targeting these stops, as (id, severity, text).
+def _active_notice_texts(stop_ids: Sequence[str]) -> List[Tuple[str, str]]:
+    """Active, non-staff-only notices targeting these stops, as (id, text).
 
     Uses each notice's short_message (written for LED signage) if set, falling back to
     the full message otherwise. Used to surface service alerts in RSS/CAP arrival feeds.
+    Notice severity intentionally has no bearing on the CAP feed's own severity/urgency
+    fields — see the caller in _cap_feed_response for why.
     """
     notices = _get_active_system_notices(include_auth_only=False, stop_ids=stop_ids)
-    result: List[Tuple[str, str, str]] = []
+    result: List[Tuple[str, str]] = []
     for n in notices:
         text = (n.get("short_message") or "").strip() or (n.get("message") or "").strip()
         if text:
-            result.append((str(n.get("id") or ""), n.get("severity") or "yellow", text))
+            result.append((str(n.get("id") or ""), text))
     return result
 
 # Shared secret required for /sync endpoint
@@ -10863,7 +10858,7 @@ async def _rss_feed_response(
     ET.SubElement(channel, "lastBuildDate").text = pub_date
 
     # Active service alerts targeting this stop (or campus-wide) show first, ahead of arrivals
-    for notice_id, _severity, notice_text in _active_notice_texts(stop_ids):
+    for notice_id, notice_text in _active_notice_texts(stop_ids):
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = "Service Alert"
         ET.SubElement(item, "description").text = notice_text
@@ -11025,21 +11020,19 @@ async def _cap_feed_response(
             f"{route_desc}: {', '.join(labels)}" for route_desc, labels in sorted_routes
         )
 
-    # Active service alerts targeting this stop (or campus-wide) lead the message, and the
-    # most severe active alert (if any) drives the CAP severity/urgency for the whole feed.
+    # Active service alerts targeting this stop (or campus-wide) lead the message. Severity/
+    # urgency intentionally stay fixed at Minor/Expected regardless of notice severity — this
+    # feed is routine bus-arrival signage, and some CAP consumers (including, on the same
+    # sign, the university's actual emergency feed) may treat Severe/Immediate as a trigger
+    # for escalated behavior. Never let a routine detour notice look like a real emergency.
     active_notices = _active_notice_texts(stop_ids)
     if active_notices:
-        alert_prefix = " | ".join(f"⚠ {text}" for _, _, text in active_notices)
+        alert_prefix = " | ".join(f"⚠ {text}" for _, text in active_notices)
         message_text = f"{alert_prefix} | {arrivals_text}"
-        top_severity = max(
-            (severity for _, severity, _ in active_notices),
-            key=lambda s: _NOTICE_SEVERITY_RANK.get(s, 0),
-        )
-        cap_severity, cap_urgency = _NOTICE_SEVERITY_TO_CAP.get(top_severity, ("Minor", "Expected"))
     else:
         message_text = arrivals_text
-        cap_severity = "Minor"
-        cap_urgency = "Unknown" if not sorted_routes else "Expected"
+    cap_severity = "Minor"
+    cap_urgency = "Unknown" if not sorted_routes else "Expected"
 
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
