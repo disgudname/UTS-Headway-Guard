@@ -387,6 +387,39 @@ async def send_low_soc_notification(bus_number: str, soc: float, threshold: int)
 
 
 # ---------------------------
+# Feed Codes (stable code -> TransLoc stop ID mapping for RSS/CAP arrival feeds)
+# ---------------------------
+FEED_CODES_PATH = PRIMARY_DATA_DIR / "feed_codes.json"
+
+def _load_feed_codes() -> Dict[str, Dict[str, Any]]:
+    """Load code -> {stop_id, name} mapping used by /api/rss|cap/stop_arrivals/{code}."""
+    try:
+        if FEED_CODES_PATH.exists():
+            data = json.loads(FEED_CODES_PATH.read_text())
+            if isinstance(data, dict):
+                return data.get("codes", {})
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[feeds] failed to load feed_codes.json: {exc}")
+    return {}
+
+def _save_feed_codes(codes: Dict[str, Dict[str, Any]]) -> None:
+    FEED_CODES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    FEED_CODES_PATH.write_text(
+        json.dumps({
+            "codes": codes,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }, indent=2)
+    )
+
+def _resolve_feed_code(code: str) -> Dict[str, Any]:
+    """Look up a feed code, raising 404 if it isn't configured at /feed-codes."""
+    entry = _load_feed_codes().get((code or "").strip().upper())
+    if not entry or not entry.get("stop_id"):
+        raise HTTPException(status_code=404, detail=f"Unknown feed code '{code}'")
+    return entry
+
+
+# ---------------------------
 # System Notices (admin-managed alerts for index.html)
 # ---------------------------
 SYSTEM_NOTICES_PATH = PRIMARY_DATA_DIR / "system_notices.json"
@@ -1505,6 +1538,7 @@ RIDERSHIP_HTML = _load_html("ridership.html")
 TRANSLOC_TICKER_HTML = _load_html("transloc_ticker.html")
 SITEMAP_HTML = _load_html("sitemap.html")
 FEEDS_HTML = _load_html("feeds.html")
+FEED_CODES_HTML = _load_html("feed-codes.html")
 ARRIVALSDISPLAY_HTML = _load_html("arrivalsdisplay.html")
 CLOCKDISPLAY_HTML = _load_html("clockdisplay.html")
 SOCDISPLAY_HTML = _load_html("socdisplay.html")
@@ -10687,20 +10721,8 @@ async def transloc_stop_arrivals(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
-@app.get("/api/rss/stop_arrivals")
-async def rss_stop_arrivals(
-    request: Request,
-    stopID: str = Query(..., description="TransLoc stop ID"),
-    base_url: Optional[str] = Query(None),
-):
-    """RSS 2.0 feed of upcoming bus arrivals at a given stop.
-
-    Designed for digital signage (e.g. NovaNex LED displays) that consume RSS.
-    One <item> per route, sorted by soonest arrival, with all upcoming times
-    listed in the description.  Clients should poll every minute (<ttl>1</ttl>).
-
-    Example: /api/rss/stop_arrivals?stopID=26
-    """
+async def _rss_feed_response(request: Request, stopID: str, base_url: Optional[str] = None) -> Response:
+    """Build an RSS 2.0 feed of upcoming bus arrivals for a resolved TransLoc stop ID."""
     url = build_transloc_url(base_url, "GetStopArrivalTimes")
     params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": stopID}
     try:
@@ -10789,19 +10811,44 @@ async def rss_stop_arrivals(
     )
 
 
-@app.get("/api/cap/stop_arrivals")
-async def cap_stop_arrivals(
+@app.get("/api/rss/stop_arrivals")
+async def rss_stop_arrivals(
     request: Request,
     stopID: str = Query(..., description="TransLoc stop ID"),
     base_url: Optional[str] = Query(None),
 ):
-    """CAP 1.2 feed of upcoming bus arrivals at a given stop.
+    """RSS 2.0 feed of upcoming bus arrivals at a given stop, keyed by raw TransLoc stop ID.
 
-    Intended for Rave/Alertus digital signage systems that consume CAP.
-    One <info> block per route with the next two ETAs.  Poll every minute.
+    Designed for digital signage (e.g. NovaNex LED displays) that consume RSS.
+    One <item> per route, sorted by soonest arrival, with all upcoming times
+    listed in the description.  Clients should poll every minute (<ttl>1</ttl>).
 
-    Example: /api/cap/stop_arrivals?stopID=26
+    Prefer /api/rss/stop_arrivals/{code} where a stable code has been set up at
+    /feed-codes — TransLoc stop IDs can change, and codes let ops repoint a feed
+    without reconfiguring the signage device.
+
+    Example: /api/rss/stop_arrivals?stopID=26
     """
+    return await _rss_feed_response(request, stopID, base_url)
+
+
+@app.get("/api/rss/stop_arrivals/{code}")
+async def rss_stop_arrivals_by_code(
+    request: Request,
+    code: str,
+    base_url: Optional[str] = Query(None),
+):
+    """RSS 2.0 feed of upcoming bus arrivals, keyed by a stable code (e.g. NGPG) instead
+    of a raw TransLoc stop ID. Codes are managed at /feed-codes.
+
+    Example: /api/rss/stop_arrivals/NGPG
+    """
+    entry = _resolve_feed_code(code)
+    return await _rss_feed_response(request, str(entry["stop_id"]), base_url)
+
+
+async def _cap_feed_response(request: Request, stopID: str, base_url: Optional[str] = None) -> Response:
+    """Build a CAP 1.2 feed of upcoming bus arrivals for a resolved TransLoc stop ID."""
     url = build_transloc_url(base_url, "GetStopArrivalTimes")
     params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": stopID}
     try:
@@ -10919,6 +10966,41 @@ async def cap_stop_arrivals(
         media_type="application/cap+xml; charset=utf-8",
         headers={"Access-Control-Allow-Origin": "*"},
     )
+
+
+@app.get("/api/cap/stop_arrivals")
+async def cap_stop_arrivals(
+    request: Request,
+    stopID: str = Query(..., description="TransLoc stop ID"),
+    base_url: Optional[str] = Query(None),
+):
+    """CAP 1.2 feed of upcoming bus arrivals at a given stop, keyed by raw TransLoc stop ID.
+
+    Intended for Rave/Alertus digital signage systems that consume CAP.
+    One <info> block per route with the next two ETAs.  Poll every minute.
+
+    Prefer /api/cap/stop_arrivals/{code} where a stable code has been set up at
+    /feed-codes — TransLoc stop IDs can change, and codes let ops repoint a feed
+    without reconfiguring the signage device.
+
+    Example: /api/cap/stop_arrivals?stopID=26
+    """
+    return await _cap_feed_response(request, stopID, base_url)
+
+
+@app.get("/api/cap/stop_arrivals/{code}")
+async def cap_stop_arrivals_by_code(
+    request: Request,
+    code: str,
+    base_url: Optional[str] = Query(None),
+):
+    """CAP 1.2 feed of upcoming bus arrivals, keyed by a stable code (e.g. NGPG) instead
+    of a raw TransLoc stop ID. Codes are managed at /feed-codes.
+
+    Example: /api/cap/stop_arrivals/NGPG
+    """
+    entry = _resolve_feed_code(code)
+    return await _cap_feed_response(request, str(entry["stop_id"]), base_url)
 
 
 @app.get("/v1/transloc/vehicle_capacities")
@@ -13228,6 +13310,14 @@ async def stop_approach_page(request: Request):
     return _login_redirect(request)
 
 
+@app.get("/feed-codes")
+async def feed_codes_page(request: Request):
+    _refresh_dispatch_passwords()
+    if _has_dispatcher_access(request):
+        return HTMLResponse(FEED_CODES_HTML)
+    return _login_redirect(request)
+
+
 # ---------------------------
 # DUCK CONFIG PAGE
 # ---------------------------
@@ -13373,6 +13463,47 @@ async def delete_system_notice(request: Request, notice_id: str):
     if len(notices) == original_len:
         raise HTTPException(status_code=404, detail="Notice not found")
     _save_system_notices(notices)
+    return {"deleted": True}
+
+
+@app.get("/v1/feed-codes")
+async def list_feed_codes(request: Request):
+    """List code -> {stop_id, name} mappings used by /api/rss|cap/stop_arrivals/{code}."""
+    _require_dispatcher_access(request)
+    return {"codes": _load_feed_codes()}
+
+
+@app.post("/v1/feed-codes")
+async def upsert_feed_code(request: Request):
+    """Create or update a feed code. Body: {code, stop_id, name?}."""
+    _require_dispatcher_access(request)
+    body = await request.json()
+    code = str(body.get("code", "")).strip().upper()
+    stop_id = str(body.get("stop_id", "")).strip()
+    name = str(body.get("name", "")).strip()
+    if not code or not re.match(r"^[A-Z0-9_-]{1,20}$", code):
+        raise HTTPException(status_code=400, detail="code must be 1-20 letters, digits, - or _")
+    if not stop_id:
+        raise HTTPException(status_code=400, detail="stop_id is required")
+    codes = _load_feed_codes()
+    codes[code] = {
+        "stop_id": stop_id,
+        "name": name,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_feed_codes(codes)
+    return {"code": code, "entry": codes[code]}
+
+
+@app.delete("/v1/feed-codes/{code}")
+async def delete_feed_code(request: Request, code: str):
+    _require_dispatcher_access(request)
+    codes = _load_feed_codes()
+    key = code.strip().upper()
+    if key not in codes:
+        raise HTTPException(status_code=404, detail="code not found")
+    del codes[key]
+    _save_feed_codes(codes)
     return {"deleted": True}
 
 

@@ -89,6 +89,28 @@ Returns TransLoc route and stop metadata.
 Includes stop IDs needed for stop_arrivals endpoint.
 
 
+3. RSS/CAP ARRIVAL FEEDS (signage)
+===================================
+
+GET /api/rss/stop_arrivals/{code}
+GET /api/cap/stop_arrivals/{code}
+----------------------------------
+RSS 2.0 / CAP 1.2 arrival feeds keyed by a stable code (e.g. NGPG) instead of
+a raw TransLoc stop ID. Codes are managed at /feed-codes (dispatcher login
+required) so the underlying stop ID can be repointed without redeploying or
+reconfiguring the signage device.
+
+GET /api/rss/stop_arrivals?stopID={id}
+GET /api/cap/stop_arrivals?stopID={id}
+----------------------------------------
+Legacy versions of the same feeds, keyed by raw TransLoc stop ID. Still
+supported for existing signage; prefer the code-based URLs above for new
+deployments since TransLoc stop IDs can change.
+
+Docs: /feeds
+Admin editor: /feed-codes
+
+
 USAGE NOTES
 ===========
 

@@ -71,9 +71,27 @@
     and <a href="#cap">CAP 1.2</a> for alerting platforms such as Rave and Alertus.
   </p>
 
-  <h2 id="rss">Feed URL</h2>
+  <div class="disclaimer">
+    <strong>Note:</strong> TransLoc stop IDs can change without notice. New signage should use the
+    <strong>code-based feed URL</strong> below instead of a raw stop ID &mdash; ops staff can then repoint a code
+    to a new stop ID at <a href="/feed-codes">/feed-codes</a> (dispatcher login required) without touching the
+    signage device or redeploying the dashboard.
+  </div>
+
+  <h2 id="rss">Feed URL (recommended — by code)</h2>
+  <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals/<strong>{code}</strong></div>
+  <p>
+    Replace <code>{code}</code> with a short code configured at <a href="/feed-codes">/feed-codes</a>, e.g.
+    <code>NGPG</code> for North Grounds Parking Garage or <code>JPA</code> for Jefferson Park Ave @ West Complex.
+    The feed updates every 15 seconds on the server; configure your device to poll at least once per minute.
+  </p>
+
+  <h2>Legacy Feed URL (by raw stop ID)</h2>
   <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=<strong>{stopID}</strong></div>
-  <p>Replace <code>{stopID}</code> with the numeric ID for the stop you want. The feed updates every 15 seconds on the server; configure your device to poll at least once per minute.</p>
+  <p>
+    Still supported for existing signage. Replace <code>{stopID}</code> with the numeric TransLoc stop ID.
+    Because raw stop IDs can change, prefer the code-based URL above for anything newly deployed.
+  </p>
 
   <h2>How to Find a Stop ID</h2>
   <div class="step"><strong>1</strong> Go to <a href="https://uva.transloc.com/" target="_blank">uva.transloc.com</a></div>
@@ -81,6 +99,9 @@
   <div class="step"><strong>3</strong> The stop ID appears in the URL, for example:<br>
     <code>https://uva.transloc.com/stops/<strong>26</strong></code><br>
     In this case the stop ID is <strong>26</strong>.
+  </div>
+  <div class="step"><strong>4</strong> Set (or update) a code for it at <a href="/feed-codes">/feed-codes</a> so signage
+    URLs never need to change again, even if TransLoc renumbers the stop.
   </div>
 
   <h2>Example</h2>
@@ -124,9 +145,13 @@
   </table>
   <p>This table lists a few common stops from the live system. Use the TransLoc map above to find any stop not listed here.</p>
 
-  <h2 id="cap">CAP Feed URL</h2>
+  <h2 id="cap">CAP Feed URL (recommended — by code)</h2>
+  <div class="feed-url">https://utsopsdashboard.com/api/cap/stop_arrivals/<strong>{code}</strong></div>
+  <p>Replace <code>{code}</code> with a code configured at <a href="/feed-codes">/feed-codes</a>. The same codes used for the RSS feed apply here. Configure your device to poll at least once per minute.</p>
+
+  <h2>Legacy CAP Feed URL (by raw stop ID)</h2>
   <div class="feed-url">https://utsopsdashboard.com/api/cap/stop_arrivals?stopID=<strong>{stopID}</strong></div>
-  <p>Replace <code>{stopID}</code> with the numeric ID for the stop you want. The same stop IDs used for the RSS feed apply here. Configure your device to poll at least once per minute.</p>
+  <p>Still supported for existing signage. Replace <code>{stopID}</code> with the numeric TransLoc stop ID.</p>
 
   <h2>CAP Example</h2>
   <p>Feed for <strong>Massie Rd @ JPJ South Lot</strong> (stop 26):</p>

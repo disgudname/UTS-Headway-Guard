@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feed Codes - UTS Operations Dashboard</title>
+  <link rel="icon" type="image/png" href="/media/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="120x120" href="/media/apple-touch-icon-120.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="/media/apple-touch-icon-152.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/media/apple-touch-icon-180.png" />
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.6; }
+    h1 { color: #232D4B; margin-bottom: 0.25rem; }
+    .subtitle { color: #555; margin-top: 0; }
+    code { background: #f0f0f0; border-radius: 4px; font-family: monospace; padding: 2px 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; vertical-align: middle; }
+    th { background: #232D4B; color: #fff; }
+    tr:nth-child(even) { background: #f8f8f8; }
+    input[type="text"] { font-size: 0.95rem; padding: 4px 6px; width: 100%; box-sizing: border-box; }
+    .feed-links a { display: block; font-size: 0.85rem; word-break: break-all; }
+    .actions { white-space: nowrap; }
+    button { font-size: 0.9rem; padding: 4px 10px; cursor: pointer; }
+    .danger { background: #b91c1c; color: #fff; border: none; border-radius: 4px; }
+    .primary { background: #232D4B; color: #fff; border: none; border-radius: 4px; }
+    #add-row td { background: #eef4ff; }
+    #status { margin-top: 0.75rem; font-size: 0.9rem; color: #555; min-height: 1.2em; }
+    #status.error { color: #b91c1c; }
+    .back-link { display: inline-block; margin-top: 1.5rem; color: #0b63ce; }
+  </style>
+</head>
+<body>
+
+  <h1>Feed Codes</h1>
+  <p class="subtitle">
+    Maps a stable code (used in <code>/api/rss/stop_arrivals/{code}</code> and
+    <code>/api/cap/stop_arrivals/{code}</code>) to the current TransLoc stop ID.
+    Edit the stop ID here whenever TransLoc renumbers a stop &mdash; no redeploy needed,
+    and any signage already pointed at the code will pick up the change immediately.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 12%">Code</th>
+        <th style="width: 14%">Stop ID</th>
+        <th style="width: 22%">Name (optional)</th>
+        <th style="width: 32%">Feed URLs</th>
+        <th style="width: 20%">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+    <tbody>
+      <tr id="add-row">
+        <td><input type="text" id="new-code" placeholder="e.g. NGPG" maxlength="20"></td>
+        <td><input type="text" id="new-stop-id" placeholder="e.g. 66"></td>
+        <td><input type="text" id="new-name" placeholder="e.g. North Grounds Parking Garage"></td>
+        <td colspan="2"><button class="primary" id="add-btn">Add code</button></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div id="status"></div>
+
+  <a class="back-link" href="/feeds">&larr; Back to Feeds documentation</a>
+
+  <script>
+  (function () {
+    const rowsEl = document.getElementById('rows');
+    const statusEl = document.getElementById('status');
+
+    function setStatus(msg, isError) {
+      statusEl.textContent = msg || '';
+      statusEl.classList.toggle('error', !!isError);
+    }
+
+    function feedUrls(code) {
+      const c = encodeURIComponent(code);
+      return {
+        rss: `/api/rss/stop_arrivals/${c}`,
+        cap: `/api/cap/stop_arrivals/${c}`,
+      };
+    }
+
+    function renderRow(code, entry) {
+      const tr = document.createElement('tr');
+      const urls = feedUrls(code);
+
+      const codeTd = document.createElement('td');
+      codeTd.textContent = code;
+      tr.appendChild(codeTd);
+
+      const stopIdTd = document.createElement('td');
+      const stopIdInput = document.createElement('input');
+      stopIdInput.type = 'text';
+      stopIdInput.value = entry.stop_id || '';
+      stopIdTd.appendChild(stopIdInput);
+      tr.appendChild(stopIdTd);
+
+      const nameTd = document.createElement('td');
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = entry.name || '';
+      nameTd.appendChild(nameInput);
+      tr.appendChild(nameTd);
+
+      const linksTd = document.createElement('td');
+      linksTd.className = 'feed-links';
+      const rssLink = document.createElement('a');
+      rssLink.href = urls.rss;
+      rssLink.textContent = urls.rss;
+      rssLink.target = '_blank';
+      const capLink = document.createElement('a');
+      capLink.href = urls.cap;
+      capLink.textContent = urls.cap;
+      capLink.target = '_blank';
+      linksTd.appendChild(rssLink);
+      linksTd.appendChild(capLink);
+      tr.appendChild(linksTd);
+
+      const actionsTd = document.createElement('td');
+      actionsTd.className = 'actions';
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'primary';
+      saveBtn.textContent = 'Save';
+      saveBtn.onclick = () => saveCode(code, stopIdInput.value.trim(), nameInput.value.trim());
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.style.marginLeft = '0.4rem';
+      deleteBtn.onclick = () => deleteCode(code);
+      actionsTd.appendChild(saveBtn);
+      actionsTd.appendChild(deleteBtn);
+      tr.appendChild(actionsTd);
+
+      return tr;
+    }
+
+    async function loadCodes() {
+      setStatus('Loading…');
+      try {
+        const r = await fetch('/v1/feed-codes', { cache: 'no-store' });
+        if (r.status === 401) {
+          window.location.href = '/login?return=' + encodeURIComponent(window.location.pathname);
+          return;
+        }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        const codes = data.codes || {};
+        rowsEl.innerHTML = '';
+        Object.keys(codes).sort().forEach((code) => {
+          rowsEl.appendChild(renderRow(code, codes[code]));
+        });
+        setStatus(Object.keys(codes).length ? '' : 'No feed codes configured yet — add one below.');
+      } catch (e) {
+        setStatus('Failed to load feed codes: ' + e.message, true);
+      }
+    }
+
+    async function saveCode(code, stopId, name) {
+      if (!stopId) {
+        setStatus('Stop ID is required.', true);
+        return;
+      }
+      setStatus('Saving…');
+      try {
+        const r = await fetch('/v1/feed-codes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, stop_id: stopId, name }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Saved ' + code + '.');
+        loadCodes();
+      } catch (e) {
+        setStatus('Failed to save: ' + e.message, true);
+      }
+    }
+
+    async function deleteCode(code) {
+      if (!window.confirm('Delete feed code "' + code + '"? Any signage pointed at it will stop working.')) return;
+      setStatus('Deleting…');
+      try {
+        const r = await fetch('/v1/feed-codes/' + encodeURIComponent(code), { method: 'DELETE' });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + r.status));
+        }
+        setStatus('Deleted ' + code + '.');
+        loadCodes();
+      } catch (e) {
+        setStatus('Failed to delete: ' + e.message, true);
+      }
+    }
+
+    document.getElementById('add-btn').addEventListener('click', () => {
+      const code = document.getElementById('new-code').value.trim().toUpperCase();
+      const stopId = document.getElementById('new-stop-id').value.trim();
+      const name = document.getElementById('new-name').value.trim();
+      if (!code) {
+        setStatus('Code is required.', true);
+        return;
+      }
+      saveCode(code, stopId, name).then(() => {
+        document.getElementById('new-code').value = '';
+        document.getElementById('new-stop-id').value = '';
+        document.getElementById('new-name').value = '';
+      });
+    });
+
+    loadCodes();
+  })();
+  </script>
+
+</body>
+</html>

@@ -62,6 +62,8 @@ This document provides comprehensive guidance for AI assistants working with the
 │   ├── ridership.html          # Ridership analytics
 │   ├── admin.html              # Admin panel
 │   ├── stop-approach.html      # Stop approach config editor
+│   ├── feeds.html              # RSS/CAP arrival feed documentation
+│   ├── feed-codes.html         # Feed code editor (admin)
 │   └── sitemap.html            # Navigation sitemap
 ├── scripts/                    # Frontend JavaScript modules
 │   ├── markers.js              # Map marker rendering
@@ -311,6 +313,18 @@ fly secrets set TRANSLOC_KEY=xxx W2W_KEY=yyy
 }
 ```
 
+**`/data/feed_codes.json`** (not checked into the repo — lives in the persistent volume, edited at runtime via `/feed-codes`):
+```json
+{
+  "codes": {
+    "NGPG": {"stop_id": "66", "name": "North Grounds Parking Garage"},
+    "JPA": {"stop_id": "26", "name": "Jefferson Park Ave @ West Complex"}
+  },
+  "updated_at": "2026-07-07T00:00:00+00:00"
+}
+```
+Maps a stable code to the current TransLoc stop ID for the RSS/CAP arrival feeds (see [Managing Feed Codes](#managing-feed-codes)). Since TransLoc stop IDs can change, signage should be pointed at `/api/rss|cap/stop_arrivals/{code}` rather than a raw `?stopID=`, so ops can repoint a code without redeploying.
+
 ---
 
 ## API Endpoints Overview
@@ -338,12 +352,17 @@ fly secrets set TRANSLOC_KEY=xxx W2W_KEY=yyy
 - `GET /arrivalsdisplay` - Arrivals board
 - `GET /vdot-cams` - Multi-state traffic camera viewer
 - `GET /sitemap` - Full page list
+- `GET /feeds` - RSS/CAP arrival feed documentation
+- `GET /feed-codes` - Feed code editor (dispatcher auth required)
 
 **Specialized endpoints:**
 - `GET /api/uva_athletics/home` - UVA home games (query: `start_date`, `end_date`, `start_time`, `end_time`)
 - `GET /api/mileage` - Vehicle mileage tracking
 - `GET /api/pulsepoint` - Emergency incidents
 - `GET /api/amtrak` - Train positions
+- `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
+- `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form
+- `GET /v1/feed-codes`, `POST /v1/feed-codes`, `DELETE /v1/feed-codes/{code}` - manage the code → stop ID mapping (dispatcher auth required)
 
 ### Node.js Maintenance Ticket API
 
@@ -564,6 +583,20 @@ All code in this repo was originally written by OpenAI's Codex (see README discl
 Format: `{"stop_id": [lat, lon, radius_m]}`
 
 **UI editor:** `/stop-approach` (admin page)
+
+### Managing Feed Codes
+
+**File:** `/data/feed_codes.json` (persisted in the data volume, not checked into the repo)
+
+Format: `{"codes": {"CODE": {"stop_id": "26", "name": "Optional label"}}}`
+
+TransLoc stop IDs can change without notice, so RSS/CAP signage should point at
+`/api/rss/stop_arrivals/{code}` and `/api/cap/stop_arrivals/{code}` instead of a raw
+`?stopID=`. When TransLoc renumbers a stop, repoint the code at `/feed-codes` — signage
+picks up the change immediately, no redeploy needed. The legacy `?stopID=` form still
+works for any devices still configured that way.
+
+**UI editor:** `/feed-codes` (dispatcher auth required)
 
 ### Adding External API Integration
 
