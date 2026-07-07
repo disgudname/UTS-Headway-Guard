@@ -69,6 +69,7 @@ button{margin-top:12px;padding:10px 14px;border-radius:6px;border:1px solid #2a3
     </label>
     <label style="margin-top:8px;display:block;">Short Message (for LED signage feeds)
       <textarea id="noticeShortMessage" rows="2" placeholder="Optional shorter text for RSS/CAP feeds. Falls back to the message above if left blank."></textarea>
+      <span style="font-size:11px;color:#9fb0c9;">Plain ASCII only (no emoji, smart quotes, or accented characters) &mdash; LED signage hardware can't reliably render anything else.</span>
     </label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
       <label>Severity
@@ -413,6 +414,23 @@ function updateTargetStopIdsVisibility(){
 if(noticeTargetScope){
   noticeTargetScope.addEventListener('change', updateTargetStopIdsVisibility);
   updateTargetStopIdsVisibility();
+}
+
+// Basic LED signage hardware can't reliably render Unicode (emoji, smart quotes, em/en
+// dashes, accented characters) - strip anything outside plain printable ASCII as it's typed,
+// so what the admin sees here matches what the sign will actually receive.
+if(noticeShortMessage){
+  noticeShortMessage.addEventListener('input', () => {
+    const before = noticeShortMessage.value;
+    const filtered = before.replace(/[^\x20-\x7E]/g, '');
+    if(filtered !== before){
+      const start = noticeShortMessage.selectionStart;
+      const removedBeforeCursor = before.slice(0, start).length - before.slice(0, start).replace(/[^\x20-\x7E]/g, '').length;
+      noticeShortMessage.value = filtered;
+      const newPos = Math.max(0, start - removedBeforeCursor);
+      noticeShortMessage.setSelectionRange(newPos, newPos);
+    }
+  });
 }
 
 function formatNoticeTime(isoStr){

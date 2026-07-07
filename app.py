@@ -514,6 +514,19 @@ def _get_active_system_notices(
         active.append(notice)
     return active
 
+_SIGNAGE_UNSAFE_CHARS_RE = re.compile(r"[^\x20-\x7E]")
+
+def _sanitize_signage_text(text: str) -> str:
+    """Strip to plain printable ASCII (0x20-0x7E).
+
+    Dot-matrix LED signs (Novanex/NovaNex included) typically render a fixed bitmap font
+    with no guaranteed support for Unicode — emoji, smart quotes, en/em dashes, accented
+    characters, etc. This is the last line of defense before text reaches a feed, applied
+    regardless of whether it came from the (client-filtered) short_message field or the
+    message fallback below.
+    """
+    return _SIGNAGE_UNSAFE_CHARS_RE.sub("", text or "").strip()
+
 def _active_notice_texts(stop_ids: Sequence[str]) -> List[Tuple[str, str]]:
     """Active, non-staff-only notices targeting these stops, as (id, text).
 
@@ -525,7 +538,8 @@ def _active_notice_texts(stop_ids: Sequence[str]) -> List[Tuple[str, str]]:
     notices = _get_active_system_notices(include_auth_only=False, stop_ids=stop_ids)
     result: List[Tuple[str, str]] = []
     for n in notices:
-        text = (n.get("short_message") or "").strip() or (n.get("message") or "").strip()
+        raw_text = (n.get("short_message") or "").strip() or (n.get("message") or "").strip()
+        text = _sanitize_signage_text(raw_text)
         if text:
             result.append((str(n.get("id") or ""), text))
     return result
@@ -10857,16 +10871,29 @@ async def _rss_feed_response(
     ET.SubElement(channel, "pubDate").text = pub_date
     ET.SubElement(channel, "lastBuildDate").text = pub_date
 
-    # Active service alerts targeting this stop (or campus-wide) show first, ahead of arrivals
-    for notice_id, notice_text in _active_notice_texts(stop_ids):
+    # Active service alerts targeting this stop (or campus-wide) are merged into a single
+    # combined item along with every route's arrivals, rather than a standalone item — a
+    # sign cycling between items could otherwise show the alert alone, with no arrival
+    # context, or skip past it before ever reaching the arrivals items.
+    active_notices = _active_notice_texts(stop_ids)
+    if active_notices:
+        alert_text = " | ".join(text for _, text in active_notices)
+        if not sorted_routes:
+            arrivals_summary = "No buses currently scheduled."
+            title_tail = "No arrivals currently scheduled"
+        else:
+            arrivals_summary = " | ".join(
+                f"{route_desc}: {', '.join(labels)}" for route_desc, labels in sorted_routes
+            )
+            top_route, top_labels = sorted_routes[0]
+            title_tail = f"{top_route}: {top_labels[0]}"
         item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = "Service Alert"
-        ET.SubElement(item, "description").text = notice_text
+        ET.SubElement(item, "title").text = f"ALERT: {alert_text} | {title_tail}"
+        ET.SubElement(item, "description").text = f"{alert_text} | {arrivals_summary}"
         ET.SubElement(item, "link").text = arrivals_link
-        ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-notice-{notice_id}"
+        ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-alert-combined"
         ET.SubElement(item, "pubDate").text = pub_date
-
-    if not sorted_routes:
+    elif not sorted_routes:
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = "No arrivals currently scheduled"
         ET.SubElement(item, "description").text = "No buses are scheduled at this stop right now."
@@ -11027,7 +11054,7 @@ async def _cap_feed_response(
     # for escalated behavior. Never let a routine detour notice look like a real emergency.
     active_notices = _active_notice_texts(stop_ids)
     if active_notices:
-        alert_prefix = " | ".join(f"⚠ {text}" for _, text in active_notices)
+        alert_prefix = " | ".join(f"ALERT: {text}" for _, text in active_notices)
         message_text = f"{alert_prefix} | {arrivals_text}"
     else:
         message_text = arrivals_text
@@ -11059,7 +11086,7 @@ async def _cap_feed_response(
     info = ET.SubElement(alert, "info")
     ET.SubElement(info, "language").text = "en-US"
     ET.SubElement(info, "category").text = "Transport"
-    ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
+    ET.SubElement(info, "event").text = f"Bus Arrivals - {stop_name}"
     ET.SubElement(info, "responseType").text = "Monitor"
     ET.SubElement(info, "urgency").text = cap_urgency
     ET.SubElement(info, "severity").text = cap_severity
@@ -11071,8 +11098,8 @@ async def _cap_feed_response(
     ET.SubElement(info, "description").text = message_text
     ET.SubElement(info, "instruction").text = "Check the arrivals display or UVA Transit app for updates."
     ET.SubElement(info, "web").text = arrivals_link
-    ET.SubElement(info, "contact").text = "UVA Transit – parking.virginia.edu"
-    _add_cap_area(info, f"{stop_name} – UVA Transit Service Area")
+    ET.SubElement(info, "contact").text = "UVA Transit - parking.virginia.edu"
+    _add_cap_area(info, f"{stop_name} - UVA Transit Service Area")
 
     xml_body = ET.tostring(alert, encoding="unicode")
     xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
@@ -13552,7 +13579,7 @@ async def create_system_notice(request: Request):
     notice = {
         "id": str(uuid.uuid4()),
         "message": body.get("message", "").strip(),
-        "short_message": (body.get("short_message") or "").strip(),
+        "short_message": _sanitize_signage_text(body.get("short_message") or ""),
         "severity": body.get("severity", "yellow"),  # red, yellow, green
         "start_time": body.get("start_time"),  # ISO8601 string or null
         "end_time": body.get("end_time"),  # ISO8601 string or null
@@ -13582,7 +13609,7 @@ async def update_system_notice(request: Request, notice_id: str):
             if "message" in body:
                 notices[i]["message"] = body["message"].strip()
             if "short_message" in body:
-                notices[i]["short_message"] = (body["short_message"] or "").strip()
+                notices[i]["short_message"] = _sanitize_signage_text(body["short_message"] or "")
             if "severity" in body:
                 sev = body["severity"]
                 notices[i]["severity"] = sev if sev in ("red", "yellow", "green") else "yellow"

@@ -109,9 +109,10 @@
   <h2>Service Alerts</h2>
   <p>
     Active system notices (created by dispatch at <code>/admin</code>) targeting a stop &mdash; or set to apply
-    system-wide &mdash; show up automatically in that stop's feed, ahead of arrival times. Each notice uses its
-    short-form text (falling back to the full home page message if none was set). In the RSS feed this appears
-    as an extra <code>&lt;item&gt;</code> titled "Service Alert"; in the CAP feed it's prepended to the message.
+    system-wide &mdash; show up automatically in that stop's feed. Each notice uses its short-form text (falling
+    back to the full home page message if none was set). When an alert is active, both feeds combine the alert
+    text and every route's arrivals into a single message, rather than a standalone alert entry &mdash; a sign
+    cycling between separate items could otherwise show the alert alone with no arrival context, or skip past it.
     Notice severity does not change the feed's CAP severity/urgency fields (always Minor/Expected) &mdash; this
     feed is routine bus-arrival signage and should never be mistaken for the university's actual emergency feed.
   </p>
@@ -180,7 +181,7 @@
   &lt;info&gt;
     &lt;language&gt;en-US&lt;/language&gt;
     &lt;category&gt;Transport&lt;/category&gt;
-    &lt;event&gt;Bus Arrivals – Massie Rd @ JPJ South Lot&lt;/event&gt;
+    &lt;event&gt;Bus Arrivals - Massie Rd @ JPJ South Lot&lt;/event&gt;
     &lt;urgency&gt;Expected&lt;/urgency&gt;
     &lt;severity&gt;Minor&lt;/severity&gt;
     &lt;certainty&gt;Observed&lt;/certainty&gt;
