@@ -392,7 +392,7 @@ async def send_low_soc_notification(bus_number: str, soc: float, threshold: int)
 FEED_CODES_PATH = PRIMARY_DATA_DIR / "feed_codes.json"
 
 def _load_feed_codes() -> Dict[str, Dict[str, Any]]:
-    """Load code -> {stop_id, name} mapping used by /api/rss|cap/stop_arrivals/{code}."""
+    """Load code -> {stop_ids, name} mapping used by /api/rss|cap/stop_arrivals/{code}."""
     try:
         if FEED_CODES_PATH.exists():
             data = json.loads(FEED_CODES_PATH.read_text())
@@ -411,12 +411,29 @@ def _save_feed_codes(codes: Dict[str, Dict[str, Any]]) -> None:
         }, indent=2)
     )
 
+def _normalize_stop_ids(entry: Dict[str, Any]) -> List[str]:
+    """Normalize a feed code entry to a list of stop IDs.
+
+    Some stops (e.g. a physical stop served by multiple routes) show up as separate
+    TransLoc stop IDs for the same real-world location — a code can map to several IDs
+    so the feed merges arrivals across all of them. Also accepts the older singular
+    `stop_id` key for entries saved before multi-ID support existed.
+    """
+    raw = entry.get("stop_ids")
+    if isinstance(raw, list) and raw:
+        return [str(s).strip() for s in raw if str(s).strip()]
+    single = entry.get("stop_id")
+    if single:
+        return [str(single).strip()]
+    return []
+
 def _resolve_feed_code(code: str) -> Dict[str, Any]:
     """Look up a feed code, raising 404 if it isn't configured at /feed-codes."""
     entry = _load_feed_codes().get((code or "").strip().upper())
-    if not entry or not entry.get("stop_id"):
+    stop_ids = _normalize_stop_ids(entry) if entry else []
+    if not stop_ids:
         raise HTTPException(status_code=404, detail=f"Unknown feed code '{code}'")
-    return entry
+    return {**entry, "stop_ids": stop_ids}
 
 
 # ---------------------------
@@ -10721,10 +10738,22 @@ async def transloc_stop_arrivals(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
-async def _rss_feed_response(request: Request, stopID: str, base_url: Optional[str] = None) -> Response:
-    """Build an RSS 2.0 feed of upcoming bus arrivals for a resolved TransLoc stop ID."""
+async def _rss_feed_response(
+    request: Request,
+    stop_ids: List[str],
+    base_url: Optional[str] = None,
+    *,
+    feed_key: Optional[str] = None,
+    display_name: Optional[str] = None,
+) -> Response:
+    """Build an RSS 2.0 feed of upcoming bus arrivals for one or more resolved TransLoc stop IDs.
+
+    Multiple stop_ids are merged into a single feed — TransLoc sometimes represents the
+    same physical stop as separate IDs per route, so a feed code can point at several.
+    """
+    joined_ids = ",".join(stop_ids)
     url = build_transloc_url(base_url, "GetStopArrivalTimes")
-    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": stopID}
+    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": joined_ids}
     try:
         data = await _proxy_transloc_get(url, params=params, base_url=base_url)
     except HTTPException:
@@ -10734,9 +10763,9 @@ async def _rss_feed_response(request: Request, stopID: str, base_url: Optional[s
     now = datetime.now(timezone.utc)
     pub_date = now.strftime("%a, %d %b %Y %H:%M:%S +0000")
 
-    # Pull stop name from the first entry that has one
-    stop_name = f"Stop {stopID}"
-    if isinstance(data, list):
+    # Pull stop name from the first entry that has one, unless an admin-set name was given
+    stop_name = display_name or f"Stop {joined_ids}"
+    if not display_name and isinstance(data, list):
         for entry in data:
             raw = (entry.get("StopDescription") or "").strip()
             if raw:
@@ -10754,7 +10783,8 @@ async def _rss_feed_response(request: Request, stopID: str, base_url: Optional[s
             return "Due"
         return "1 min" if mins == 1 else f"{mins} min"
 
-    # Group arrivals by route; keep insertion order (data is already sorted)
+    # Group arrivals by route; keep insertion order (data is already sorted). Entries from
+    # multiple merged stop IDs may report the same route, so dedupe identical labels.
     route_labels: Dict[str, List[str]] = {}
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
@@ -10768,13 +10798,15 @@ async def _rss_feed_response(request: Request, stopID: str, base_url: Optional[s
                     route_labels[route_desc] = []
                     secs = t.get("Seconds") or 0
                     route_first_seconds[route_desc] = secs if not t.get("IsArriving") else 0
-                route_labels[route_desc].append(label)
+                if label not in route_labels[route_desc]:
+                    route_labels[route_desc].append(label)
 
     # Sort routes by soonest arrival
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     # Build RSS 2.0 XML
-    arrivals_link = f"{site_root}/arrivalsdisplay?stopid={stopID}"
+    guid_key = feed_key or joined_ids
+    arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
     ET.SubElement(channel, "title").text = f"Bus Arrivals - {stop_name}"
@@ -10790,7 +10822,7 @@ async def _rss_feed_response(request: Request, stopID: str, base_url: Optional[s
         ET.SubElement(item, "title").text = "No arrivals currently scheduled"
         ET.SubElement(item, "description").text = "No buses are scheduled at this stop right now."
         ET.SubElement(item, "link").text = arrivals_link
-        ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{stopID}-none"
+        ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-none"
         ET.SubElement(item, "pubDate").text = pub_date
     else:
         for route_desc, labels in sorted_routes:
@@ -10799,7 +10831,7 @@ async def _rss_feed_response(request: Request, stopID: str, base_url: Optional[s
             ET.SubElement(item, "title").text = f"{route_desc}: {labels[0]}"
             ET.SubElement(item, "description").text = "Next arrivals: " + ", ".join(labels)
             ET.SubElement(item, "link").text = arrivals_link
-            ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{stopID}-{safe_route}"
+            ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-{safe_route}"
             ET.SubElement(item, "pubDate").text = pub_date
 
     xml_body = ET.tostring(rss, encoding="unicode")
@@ -10829,7 +10861,7 @@ async def rss_stop_arrivals(
 
     Example: /api/rss/stop_arrivals?stopID=26
     """
-    return await _rss_feed_response(request, stopID, base_url)
+    return await _rss_feed_response(request, [stopID], base_url)
 
 
 @app.get("/api/rss/stop_arrivals/{code}")
@@ -10839,18 +10871,34 @@ async def rss_stop_arrivals_by_code(
     base_url: Optional[str] = Query(None),
 ):
     """RSS 2.0 feed of upcoming bus arrivals, keyed by a stable code (e.g. NGPG) instead
-    of a raw TransLoc stop ID. Codes are managed at /feed-codes.
+    of a raw TransLoc stop ID. Codes are managed at /feed-codes and may map to more than
+    one stop ID (TransLoc sometimes splits one physical stop into an ID per route).
 
     Example: /api/rss/stop_arrivals/NGPG
     """
     entry = _resolve_feed_code(code)
-    return await _rss_feed_response(request, str(entry["stop_id"]), base_url)
+    return await _rss_feed_response(
+        request, entry["stop_ids"], base_url,
+        feed_key=code.strip().upper(), display_name=entry.get("name") or None,
+    )
 
 
-async def _cap_feed_response(request: Request, stopID: str, base_url: Optional[str] = None) -> Response:
-    """Build a CAP 1.2 feed of upcoming bus arrivals for a resolved TransLoc stop ID."""
+async def _cap_feed_response(
+    request: Request,
+    stop_ids: List[str],
+    base_url: Optional[str] = None,
+    *,
+    feed_key: Optional[str] = None,
+    display_name: Optional[str] = None,
+) -> Response:
+    """Build a CAP 1.2 feed of upcoming bus arrivals for one or more resolved TransLoc stop IDs.
+
+    Multiple stop_ids are merged into a single feed — TransLoc sometimes represents the
+    same physical stop as separate IDs per route, so a feed code can point at several.
+    """
+    joined_ids = ",".join(stop_ids)
     url = build_transloc_url(base_url, "GetStopArrivalTimes")
-    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": stopID}
+    params: Dict[str, Any] = {"APIKey": TRANSLOC_KEY, "stopIDs": joined_ids}
     try:
         data = await _proxy_transloc_get(url, params=params, base_url=base_url)
     except HTTPException:
@@ -10861,13 +10909,16 @@ async def _cap_feed_response(request: Request, stopID: str, base_url: Optional[s
     expires_str = (now + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
     site_root = str(request.base_url).rstrip("/").replace("http://", "https://", 1)
 
-    stop_name = f"Stop {stopID}"
+    # Track the raw TransLoc-provided name separately from the displayed name, since an
+    # admin-set display_name may not match any single stop entry's StopDescription.
+    stop_name_from_data: Optional[str] = None
     if isinstance(data, list):
         for entry in data:
             raw = (entry.get("StopDescription") or "").strip()
             if raw:
-                stop_name = raw
+                stop_name_from_data = raw
                 break
+    stop_name = display_name or stop_name_from_data or f"Stop {joined_ids}"
 
     def _arrival_label(t: Dict[str, Any]) -> str:
         if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
@@ -10880,7 +10931,8 @@ async def _cap_feed_response(request: Request, stopID: str, base_url: Optional[s
             return "Due"
         return "1 min" if mins == 1 else f"{mins} min"
 
-    # Group arrivals by route; cap at 2 ETAs per route
+    # Group arrivals by route; cap at 2 ETAs per route. Entries from multiple merged stop
+    # IDs may report the same route, so dedupe identical labels before applying the cap.
     route_labels: Dict[str, List[str]] = {}
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
@@ -10894,23 +10946,23 @@ async def _cap_feed_response(request: Request, stopID: str, base_url: Optional[s
                     route_labels[route_desc] = []
                     secs = t.get("Seconds") or 0
                     route_first_seconds[route_desc] = secs if not t.get("IsArriving") else 0
-                if len(route_labels[route_desc]) < 2:
+                if len(route_labels[route_desc]) < 2 and label not in route_labels[route_desc]:
                     route_labels[route_desc].append(label)
 
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
-    arrivals_link = f"{site_root}/arrivalsdisplay?stopid={stopID}"
+    arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"
 
-    # Look up stop coordinates from cached state
+    # Look up stop coordinates from cached state, matching against TransLoc's own naming
+    # rather than the (possibly admin-overridden) display name.
     stop_lat: Optional[float] = None
     stop_lon: Optional[float] = None
-    # Match by name — the stopID param is the AddressID scheme used by GetStopArrivalTimes,
-    # which doesn't reliably map to StopID in state.stops.
-    for _s in state.stops:
-        if (_s.get("Name") or _s.get("Description") or "").strip() == stop_name and stop_name != f"Stop {stopID}":
-            stop_lat = _coerce_float(_s.get("Latitude"))
-            stop_lon = _coerce_float(_s.get("Longitude"))
-            break
+    if stop_name_from_data:
+        for _s in state.stops:
+            if (_s.get("Name") or _s.get("Description") or "").strip() == stop_name_from_data:
+                stop_lat = _coerce_float(_s.get("Latitude"))
+                stop_lon = _coerce_float(_s.get("Longitude"))
+                break
 
     if not sorted_routes:
         message_text = "No buses currently scheduled."
@@ -10922,7 +10974,7 @@ async def _cap_feed_response(request: Request, stopID: str, base_url: Optional[s
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
     alert = ET.Element("alert", xmlns=CAP_NS)
-    ET.SubElement(alert, "identifier").text = f"uts-stop-{stopID}-{uuid.uuid4().hex}"
+    ET.SubElement(alert, "identifier").text = f"uts-stop-{feed_key or joined_ids}-{uuid.uuid4().hex}"
     ET.SubElement(alert, "sender").text = "utsopsdashboard.com"
     ET.SubElement(alert, "sent").text = sent_str
     ET.SubElement(alert, "status").text = "Actual"
@@ -10985,7 +11037,7 @@ async def cap_stop_arrivals(
 
     Example: /api/cap/stop_arrivals?stopID=26
     """
-    return await _cap_feed_response(request, stopID, base_url)
+    return await _cap_feed_response(request, [stopID], base_url)
 
 
 @app.get("/api/cap/stop_arrivals/{code}")
@@ -10995,12 +11047,16 @@ async def cap_stop_arrivals_by_code(
     base_url: Optional[str] = Query(None),
 ):
     """CAP 1.2 feed of upcoming bus arrivals, keyed by a stable code (e.g. NGPG) instead
-    of a raw TransLoc stop ID. Codes are managed at /feed-codes.
+    of a raw TransLoc stop ID. Codes are managed at /feed-codes and may map to more than
+    one stop ID (TransLoc sometimes splits one physical stop into an ID per route).
 
     Example: /api/cap/stop_arrivals/NGPG
     """
     entry = _resolve_feed_code(code)
-    return await _cap_feed_response(request, str(entry["stop_id"]), base_url)
+    return await _cap_feed_response(
+        request, entry["stop_ids"], base_url,
+        feed_key=code.strip().upper(), display_name=entry.get("name") or None,
+    )
 
 
 @app.get("/v1/transloc/vehicle_capacities")
@@ -13475,19 +13531,33 @@ async def list_feed_codes(request: Request):
 
 @app.post("/v1/feed-codes")
 async def upsert_feed_code(request: Request):
-    """Create or update a feed code. Body: {code, stop_id, name?}."""
+    """Create or update a feed code. Body: {code, stop_ids, name?}.
+
+    stop_ids may be a list (["40", "113"]) or a comma-separated string ("40,113").
+    A single legacy `stop_id` field is also accepted. Multiple IDs let one code cover
+    a physical stop that TransLoc has split into separate IDs per route.
+    """
     _require_dispatcher_access(request)
     body = await request.json()
     code = str(body.get("code", "")).strip().upper()
-    stop_id = str(body.get("stop_id", "")).strip()
     name = str(body.get("name", "")).strip()
+
+    raw_stop_ids = body.get("stop_ids")
+    if raw_stop_ids is None:
+        raw_stop_ids = body.get("stop_id", "")
+    if isinstance(raw_stop_ids, list):
+        stop_ids = [str(s).strip() for s in raw_stop_ids if str(s).strip()]
+    else:
+        stop_ids = [s.strip() for s in str(raw_stop_ids).split(",") if s.strip()]
+
     if not code or not re.match(r"^[A-Z0-9_-]{1,20}$", code):
         raise HTTPException(status_code=400, detail="code must be 1-20 letters, digits, - or _")
-    if not stop_id:
-        raise HTTPException(status_code=400, detail="stop_id is required")
+    if not stop_ids:
+        raise HTTPException(status_code=400, detail="stop_ids is required")
+
     codes = _load_feed_codes()
     codes[code] = {
-        "stop_id": stop_id,
+        "stop_ids": stop_ids,
         "name": name,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }

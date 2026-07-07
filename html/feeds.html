@@ -84,6 +84,8 @@
     Replace <code>{code}</code> with a short code configured at <a href="/feed-codes">/feed-codes</a>, e.g.
     <code>NGPG</code> for North Grounds Parking Garage or <code>JPA</code> for Jefferson Park Ave @ West Complex.
     The feed updates every 15 seconds on the server; configure your device to poll at least once per minute.
+    A code can map to more than one TransLoc stop ID &mdash; useful since TransLoc sometimes represents one
+    physical stop as separate IDs per route. Arrivals from all mapped IDs are merged into a single feed.
   </p>
 
   <h2>Legacy Feed URL (by raw stop ID)</h2>

@@ -34,17 +34,20 @@
   <h1>Feed Codes</h1>
   <p class="subtitle">
     Maps a stable code (used in <code>/api/rss/stop_arrivals/{code}</code> and
-    <code>/api/cap/stop_arrivals/{code}</code>) to the current TransLoc stop ID.
-    Edit the stop ID here whenever TransLoc renumbers a stop &mdash; no redeploy needed,
+    <code>/api/cap/stop_arrivals/{code}</code>) to the current TransLoc stop ID(s).
+    Edit the stop ID(s) here whenever TransLoc renumbers a stop &mdash; no redeploy needed,
     and any signage already pointed at the code will pick up the change immediately.
+    Enter more than one ID, comma-separated (e.g. <code>40, 113</code>), when TransLoc
+    represents one physical stop as separate IDs per route &mdash; arrivals from all of
+    them are merged into a single feed.
   </p>
 
   <table>
     <thead>
       <tr>
         <th style="width: 12%">Code</th>
-        <th style="width: 14%">Stop ID</th>
-        <th style="width: 22%">Name (optional)</th>
+        <th style="width: 16%">Stop ID(s)</th>
+        <th style="width: 20%">Name (optional)</th>
         <th style="width: 32%">Feed URLs</th>
         <th style="width: 20%">Actions</th>
       </tr>
@@ -53,7 +56,7 @@
     <tbody>
       <tr id="add-row">
         <td><input type="text" id="new-code" placeholder="e.g. NGPG" maxlength="20"></td>
-        <td><input type="text" id="new-stop-id" placeholder="e.g. 66"></td>
+        <td><input type="text" id="new-stop-id" placeholder="e.g. 66 or 40, 113"></td>
         <td><input type="text" id="new-name" placeholder="e.g. North Grounds Parking Garage"></td>
         <td colspan="2"><button class="primary" id="add-btn">Add code</button></td>
       </tr>
@@ -93,7 +96,8 @@
       const stopIdTd = document.createElement('td');
       const stopIdInput = document.createElement('input');
       stopIdInput.type = 'text';
-      stopIdInput.value = entry.stop_id || '';
+      const stopIds = Array.isArray(entry.stop_ids) ? entry.stop_ids : (entry.stop_id ? [entry.stop_id] : []);
+      stopIdInput.value = stopIds.join(', ');
       stopIdTd.appendChild(stopIdInput);
       tr.appendChild(stopIdTd);
 
@@ -157,9 +161,10 @@
       }
     }
 
-    async function saveCode(code, stopId, name) {
-      if (!stopId) {
-        setStatus('Stop ID is required.', true);
+    async function saveCode(code, stopIdsRaw, name) {
+      const stopIds = stopIdsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+      if (!stopIds.length) {
+        setStatus('At least one stop ID is required.', true);
         return;
       }
       setStatus('Saving…');
@@ -167,7 +172,7 @@
         const r = await fetch('/v1/feed-codes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, stop_id: stopId, name }),
+          body: JSON.stringify({ code, stop_ids: stopIds, name }),
         });
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));

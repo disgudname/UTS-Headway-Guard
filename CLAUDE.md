@@ -317,13 +317,13 @@ fly secrets set TRANSLOC_KEY=xxx W2W_KEY=yyy
 ```json
 {
   "codes": {
-    "NGPG": {"stop_id": "66", "name": "North Grounds Parking Garage"},
-    "JPA": {"stop_id": "26", "name": "Jefferson Park Ave @ West Complex"}
+    "NGPG": {"stop_ids": ["66"], "name": "North Grounds Parking Garage"},
+    "JPA": {"stop_ids": ["40", "113"], "name": "Jefferson Park Ave @ West Complex"}
   },
   "updated_at": "2026-07-07T00:00:00+00:00"
 }
 ```
-Maps a stable code to the current TransLoc stop ID for the RSS/CAP arrival feeds (see [Managing Feed Codes](#managing-feed-codes)). Since TransLoc stop IDs can change, signage should be pointed at `/api/rss|cap/stop_arrivals/{code}` rather than a raw `?stopID=`, so ops can repoint a code without redeploying.
+Maps a stable code to one or more current TransLoc stop IDs for the RSS/CAP arrival feeds (see [Managing Feed Codes](#managing-feed-codes)). Since TransLoc stop IDs can change — and sometimes represents one physical stop as separate IDs per route — signage should be pointed at `/api/rss|cap/stop_arrivals/{code}` rather than a raw `?stopID=`, so ops can repoint a code (including adding/removing merged IDs) without redeploying. A legacy singular `stop_id` key is still read for entries saved before multi-ID support existed.
 
 ---
 
@@ -588,13 +588,18 @@ Format: `{"stop_id": [lat, lon, radius_m]}`
 
 **File:** `/data/feed_codes.json` (persisted in the data volume, not checked into the repo)
 
-Format: `{"codes": {"CODE": {"stop_id": "26", "name": "Optional label"}}}`
+Format: `{"codes": {"CODE": {"stop_ids": ["26"], "name": "Optional label"}}}`
 
 TransLoc stop IDs can change without notice, so RSS/CAP signage should point at
 `/api/rss/stop_arrivals/{code}` and `/api/cap/stop_arrivals/{code}` instead of a raw
 `?stopID=`. When TransLoc renumbers a stop, repoint the code at `/feed-codes` — signage
 picks up the change immediately, no redeploy needed. The legacy `?stopID=` form still
 works for any devices still configured that way.
+
+A code can map to multiple stop IDs (`/feed-codes` accepts a comma-separated list) —
+TransLoc sometimes represents a single physical stop as separate IDs per route (e.g. one
+ID per direction/line serving the same shelter). Arrivals from every mapped ID are merged
+into one feed, deduped by route + arrival time.
 
 **UI editor:** `/feed-codes` (dispatcher auth required)
 
