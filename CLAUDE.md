@@ -325,6 +325,26 @@ fly secrets set TRANSLOC_KEY=xxx W2W_KEY=yyy
 ```
 Maps a stable code to one or more current TransLoc stop IDs for the RSS/CAP arrival feeds (see [Managing Feed Codes](#managing-feed-codes)). Since TransLoc stop IDs can change — and sometimes represents one physical stop as separate IDs per route — signage should be pointed at `/api/rss|cap/stop_arrivals/{code}` rather than a raw `?stopID=`, so ops can repoint a code (including adding/removing merged IDs) without redeploying. A legacy singular `stop_id` key is still read for entries saved before multi-ID support existed.
 
+**`/data/system_notices.json`** (not checked into the repo — lives in the persistent volume, edited via `/admin`):
+```json
+{
+  "notices": [
+    {
+      "id": "…uuid…",
+      "message": "Long-form text shown on the home page banner.",
+      "short_message": "Short text for LED signage feeds.",
+      "severity": "yellow",
+      "auth_only": false,
+      "start_time": null,
+      "end_time": null,
+      "target_scope": "stops",
+      "target_stop_ids": ["40", "113"]
+    }
+  ]
+}
+```
+Admin-managed alerts (`/v1/system-notices` CRUD). `target_scope` is `"all"` (system-wide interruption, shown everywhere) or `"stops"` (only applies where `target_stop_ids` — raw TransLoc stop IDs — overlap the stops in question). The home page (`index.html`) always shows every currently-active notice regardless of targeting, with a small badge if it's stop-specific. The RSS/CAP arrival feeds (`/api/rss|cap/stop_arrivals/{code}`) only surface notices that target that feed's stop IDs (or scope `"all"`), using `short_message` (falling back to `message` if blank) — see `_active_notice_texts()` in `app.py`. A red-severity active notice also bumps the CAP feed's `severity`/`urgency` fields (`Severe`/`Immediate`); yellow maps to `Moderate`/`Expected`.
+
 ---
 
 ## API Endpoints Overview
@@ -363,6 +383,7 @@ Maps a stable code to one or more current TransLoc stop IDs for the RSS/CAP arri
 - `GET /api/rss/stop_arrivals/{code}` / `GET /api/cap/stop_arrivals/{code}` - RSS 2.0 / CAP 1.2 arrival feeds for signage, keyed by a feed code managed at `/feed-codes`
 - `GET /api/rss/stop_arrivals?stopID=` / `GET /api/cap/stop_arrivals?stopID=` - same feeds, legacy raw-stop-ID form
 - `GET /v1/feed-codes`, `POST /v1/feed-codes`, `DELETE /v1/feed-codes/{code}` - manage the code → stop ID mapping (dispatcher auth required)
+- `GET /v1/system-notices` - active system notices (add `all=true` + dispatcher auth for every notice, including inactive/staff-only); `POST /v1/system-notices`, `PUT /v1/system-notices/{id}`, `DELETE /v1/system-notices/{id}` - manage notices, including `short_message` and `target_scope`/`target_stop_ids` (dispatcher auth required)
 
 ### Node.js Maintenance Ticket API
 

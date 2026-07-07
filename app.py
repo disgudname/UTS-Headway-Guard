@@ -461,8 +461,30 @@ def _save_system_notices(notices: List[Dict[str, Any]]) -> None:
         }, indent=2)
     )
 
-def _get_active_system_notices(include_auth_only: bool = False) -> List[Dict[str, Any]]:
-    """Get currently active system notices, optionally filtering auth-only notices."""
+def _notice_target_stop_ids(notice: Dict[str, Any]) -> List[str]:
+    raw = notice.get("target_stop_ids")
+    if isinstance(raw, list):
+        return [str(s).strip() for s in raw if str(s).strip()]
+    return []
+
+def _notice_applies_to_stops(notice: Dict[str, Any], stop_ids: Sequence[str]) -> bool:
+    """Whether a notice targets any of the given TransLoc stop IDs.
+
+    scope "all" always applies (system-wide interruption); scope "stops" only applies
+    if one of the notice's target_stop_ids overlaps the given stop_ids (a detour or
+    closure affecting specific stops).
+    """
+    if (notice.get("target_scope") or "all") != "stops":
+        return True
+    targets = set(_notice_target_stop_ids(notice))
+    return any(str(sid) in targets for sid in stop_ids)
+
+def _get_active_system_notices(
+    include_auth_only: bool = False,
+    stop_ids: Optional[Sequence[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Get currently active system notices, optionally filtering auth-only notices
+    and/or notices that don't target the given stop_ids (see _notice_applies_to_stops)."""
     notices = _load_system_notices()
     now = datetime.now(timezone.utc)
     active = []
@@ -487,8 +509,31 @@ def _get_active_system_notices(include_auth_only: bool = False) -> List[Dict[str
         # Check visibility
         if notice.get("auth_only") and not include_auth_only:
             continue
+        if stop_ids is not None and not _notice_applies_to_stops(notice, stop_ids):
+            continue
         active.append(notice)
     return active
+
+_NOTICE_SEVERITY_RANK = {"red": 3, "yellow": 2, "green": 1}
+_NOTICE_SEVERITY_TO_CAP = {
+    "red": ("Severe", "Immediate"),
+    "yellow": ("Moderate", "Expected"),
+    "green": ("Minor", "Expected"),
+}
+
+def _active_notice_texts(stop_ids: Sequence[str]) -> List[Tuple[str, str, str]]:
+    """Active, non-staff-only notices targeting these stops, as (id, severity, text).
+
+    Uses each notice's short_message (written for LED signage) if set, falling back to
+    the full message otherwise. Used to surface service alerts in RSS/CAP arrival feeds.
+    """
+    notices = _get_active_system_notices(include_auth_only=False, stop_ids=stop_ids)
+    result: List[Tuple[str, str, str]] = []
+    for n in notices:
+        text = (n.get("short_message") or "").strip() or (n.get("message") or "").strip()
+        if text:
+            result.append((str(n.get("id") or ""), n.get("severity") or "yellow", text))
+    return result
 
 # Shared secret required for /sync endpoint
 SYNC_SECRET = os.getenv("SYNC_SECRET")
@@ -10817,6 +10862,15 @@ async def _rss_feed_response(
     ET.SubElement(channel, "pubDate").text = pub_date
     ET.SubElement(channel, "lastBuildDate").text = pub_date
 
+    # Active service alerts targeting this stop (or campus-wide) show first, ahead of arrivals
+    for notice_id, _severity, notice_text in _active_notice_texts(stop_ids):
+        item = ET.SubElement(channel, "item")
+        ET.SubElement(item, "title").text = "Service Alert"
+        ET.SubElement(item, "description").text = notice_text
+        ET.SubElement(item, "link").text = arrivals_link
+        ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-notice-{notice_id}"
+        ET.SubElement(item, "pubDate").text = pub_date
+
     if not sorted_routes:
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = "No arrivals currently scheduled"
@@ -10965,11 +11019,27 @@ async def _cap_feed_response(
                 break
 
     if not sorted_routes:
-        message_text = "No buses currently scheduled."
+        arrivals_text = "No buses currently scheduled."
     else:
-        message_text = " | ".join(
+        arrivals_text = " | ".join(
             f"{route_desc}: {', '.join(labels)}" for route_desc, labels in sorted_routes
         )
+
+    # Active service alerts targeting this stop (or campus-wide) lead the message, and the
+    # most severe active alert (if any) drives the CAP severity/urgency for the whole feed.
+    active_notices = _active_notice_texts(stop_ids)
+    if active_notices:
+        alert_prefix = " | ".join(f"⚠ {text}" for _, _, text in active_notices)
+        message_text = f"{alert_prefix} | {arrivals_text}"
+        top_severity = max(
+            (severity for _, severity, _ in active_notices),
+            key=lambda s: _NOTICE_SEVERITY_RANK.get(s, 0),
+        )
+        cap_severity, cap_urgency = _NOTICE_SEVERITY_TO_CAP.get(top_severity, ("Minor", "Expected"))
+    else:
+        message_text = arrivals_text
+        cap_severity = "Minor"
+        cap_urgency = "Unknown" if not sorted_routes else "Expected"
 
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
@@ -10998,8 +11068,8 @@ async def _cap_feed_response(
     ET.SubElement(info, "category").text = "Transport"
     ET.SubElement(info, "event").text = f"Bus Arrivals – {stop_name}"
     ET.SubElement(info, "responseType").text = "Monitor"
-    ET.SubElement(info, "urgency").text = "Unknown" if not sorted_routes else "Expected"
-    ET.SubElement(info, "severity").text = "Minor"
+    ET.SubElement(info, "urgency").text = cap_urgency
+    ET.SubElement(info, "severity").text = cap_severity
     ET.SubElement(info, "certainty").text = "Observed"
     ET.SubElement(info, "effective").text = sent_str
     ET.SubElement(info, "expires").text = expires_str
@@ -13460,18 +13530,42 @@ async def get_system_notices(request: Request, all: bool = Query(False)):
     return {"notices": _get_active_system_notices(include_auth_only=is_authed)}
 
 
+def _parse_target_fields(body: Dict[str, Any]) -> Tuple[str, List[str]]:
+    """Parse target_scope/target_stop_ids from a request body.
+
+    Falls back to "all" if scope is "stops" but no stop IDs were given, since an
+    unresolvable "specific stops" target would silently show the notice nowhere.
+    """
+    scope = body.get("target_scope") or "all"
+    raw_ids = body.get("target_stop_ids")
+    if isinstance(raw_ids, list):
+        stop_ids = [str(s).strip() for s in raw_ids if str(s).strip()]
+    elif raw_ids:
+        stop_ids = [s.strip() for s in str(raw_ids).split(",") if s.strip()]
+    else:
+        stop_ids = []
+    if scope != "stops" or not stop_ids:
+        scope = "all"
+        stop_ids = []
+    return scope, stop_ids
+
+
 @app.post("/v1/system-notices")
 async def create_system_notice(request: Request):
     """Create a new system notice. Requires auth."""
     _require_dispatcher_access(request)
     body = await request.json()
+    target_scope, target_stop_ids = _parse_target_fields(body)
     notice = {
         "id": str(uuid.uuid4()),
         "message": body.get("message", "").strip(),
+        "short_message": (body.get("short_message") or "").strip(),
         "severity": body.get("severity", "yellow"),  # red, yellow, green
         "start_time": body.get("start_time"),  # ISO8601 string or null
         "end_time": body.get("end_time"),  # ISO8601 string or null
         "auth_only": bool(body.get("auth_only", False)),
+        "target_scope": target_scope,  # "all" or "stops"
+        "target_stop_ids": target_stop_ids,  # TransLoc stop IDs, only used when scope is "stops"
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     if not notice["message"]:
@@ -13494,6 +13588,8 @@ async def update_system_notice(request: Request, notice_id: str):
         if notice.get("id") == notice_id:
             if "message" in body:
                 notices[i]["message"] = body["message"].strip()
+            if "short_message" in body:
+                notices[i]["short_message"] = (body["short_message"] or "").strip()
             if "severity" in body:
                 sev = body["severity"]
                 notices[i]["severity"] = sev if sev in ("red", "yellow", "green") else "yellow"
@@ -13503,6 +13599,13 @@ async def update_system_notice(request: Request, notice_id: str):
                 notices[i]["end_time"] = body["end_time"]
             if "auth_only" in body:
                 notices[i]["auth_only"] = bool(body["auth_only"])
+            if "target_scope" in body or "target_stop_ids" in body:
+                target_scope, target_stop_ids = _parse_target_fields({
+                    "target_scope": body.get("target_scope", notices[i].get("target_scope")),
+                    "target_stop_ids": body.get("target_stop_ids", notices[i].get("target_stop_ids")),
+                })
+                notices[i]["target_scope"] = target_scope
+                notices[i]["target_stop_ids"] = target_stop_ids
             notices[i]["updated_at"] = datetime.now(timezone.utc).isoformat()
             _save_system_notices(notices)
             return {"notice": notices[i]}

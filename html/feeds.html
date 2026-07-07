@@ -106,6 +106,15 @@
     URLs never need to change again, even if TransLoc renumbers the stop.
   </div>
 
+  <h2>Service Alerts</h2>
+  <p>
+    Active system notices (created by dispatch at <code>/admin</code>) targeting a stop &mdash; or set to apply
+    system-wide &mdash; show up automatically in that stop's feed, ahead of arrival times. Each notice uses its
+    short-form text (falling back to the full home page message if none was set). In the RSS feed this appears
+    as an extra <code>&lt;item&gt;</code> titled "Service Alert"; in the CAP feed it's prepended to the message,
+    and a red-severity notice raises the feed's overall CAP severity/urgency.
+  </p>
+
   <h2>Example</h2>
   <p>Feed for <strong>Massie Rd @ JPJ South Lot</strong> (stop 26):</p>
   <div class="feed-url">https://utsopsdashboard.com/api/rss/stop_arrivals?stopID=26</div>
