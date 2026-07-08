@@ -128,8 +128,8 @@
     &lt;title&gt;Bus Arrivals - Massie Rd @ JPJ South Lot&lt;/title&gt;
     &lt;ttl&gt;1&lt;/ttl&gt;
     &lt;item&gt;
-      &lt;title&gt;Silver:Due&lt;/title&gt;
-      &lt;description&gt;Next arrivals: Due, 8m&lt;/description&gt;
+      &lt;title&gt;Silver:0m&lt;/title&gt;
+      &lt;description&gt;Next arrivals: 0m, 8m&lt;/description&gt;
     &lt;/item&gt;
     &lt;item&gt;
       &lt;title&gt;Gold:3m&lt;/title&gt;
@@ -143,7 +143,7 @@
     <tr><th>Field</th><th>Description</th></tr>
     <tr><td><code>&lt;title&gt;</code> (channel)</td><td>Stop name, e.g. "Bus Arrivals - Massie Rd @ JPJ South Lot"</td></tr>
     <tr><td><code>&lt;ttl&gt;</code></td><td>1 (minute) — recommended poll interval</td></tr>
-    <tr><td><code>&lt;item&gt; &lt;title&gt;</code></td><td>Route name and next arrival, no space around the colon and "min" shortened to "m", e.g. "Gold:3m" or "Silver:Due". A trailing "Line"/"Loop" word is dropped from the route name.</td></tr>
+    <tr><td><code>&lt;item&gt; &lt;title&gt;</code></td><td>Route name and next arrival, no space around the colon, "min" shortened to "m", and an arriving bus shown as "0m" instead of "Due", e.g. "Gold:3m" or "Silver:0m". A trailing "Line"/"Loop" word is dropped from the route name.</td></tr>
     <tr><td><code>&lt;item&gt; &lt;description&gt;</code></td><td>All upcoming arrivals for that route, e.g. "Next arrivals: 3m, 10m, 18m"</td></tr>
   </table>
   <p>Items are sorted by soonest arrival. If no buses are scheduled, the feed contains a single item indicating no arrivals.</p>
@@ -199,8 +199,8 @@
     &lt;effective&gt;2026-03-05T14:30:00+00:00&lt;/effective&gt;
     &lt;expires&gt;2026-03-05T14:32:00+00:00&lt;/expires&gt;
     &lt;senderName&gt;UVA Transit&lt;/senderName&gt;
-    &lt;headline&gt;Silver:Due,8m Gold:3m,10m&lt;/headline&gt;
-    &lt;description&gt;Silver:Due,8m Gold:3m,10m&lt;/description&gt;
+    &lt;headline&gt;Silver:0m,8m Gold:3m,10m&lt;/headline&gt;
+    &lt;description&gt;Silver:0m,8m Gold:3m,10m&lt;/description&gt;
     &lt;web&gt;https://utsopsdashboard.com/arrivalsdisplay?stopid=26&lt;/web&gt;
   &lt;/info&gt;
 &lt;/alert&gt;</pre>
@@ -212,7 +212,7 @@
     <tr><td><code>&lt;info&gt; &lt;effective&gt;</code></td><td>10 seconds before the response is generated (not "now") — guarantees it's already in the past by the time a polling client checks it, avoiding a race against client clock drift/request latency</td></tr>
     <tr><td><code>&lt;info&gt; &lt;expires&gt;</code></td><td>Two minutes after the response is generated, refreshed on every poll — the alert never goes stale as long as the feed keeps being polled successfully</td></tr>
     <tr><td><code>&lt;info&gt; &lt;senderName&gt;</code></td><td>Always "UVA Transit"</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, space-separated between routes, comma-separated (no space) between times, e.g. "Silver:Due,8m Gold:3m,10m". A trailing "Line"/"Loop" word is dropped from route names.</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, space-separated between routes, comma-separated (no space) between times, an arriving bus shown as "0m" instead of "Due", e.g. "Silver:0m,8m Gold:3m,10m". A trailing "Line"/"Loop" word is dropped from route names.</td></tr>
     <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Same as <code>&lt;headline&gt;</code> — duplicated so the sign works regardless of which field is configured to display</td></tr>
     <tr><td><code>&lt;info&gt; &lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
   </table>

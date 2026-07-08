@@ -10837,13 +10837,13 @@ async def _rss_feed_response(
 
     def _arrival_label(t: Dict[str, Any]) -> str:
         if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
-            return "Due"
+            return "0m"
         seconds = t.get("Seconds")
         if seconds is None:
             return ""
         mins = math.ceil(seconds / 60)
         if mins <= 0:
-            return "Due"
+            return "0m"
         return f"{mins}m"
 
     # Group arrivals by route; keep insertion order (data is already sorted). Entries from
@@ -11012,13 +11012,13 @@ async def _cap_feed_response(
 
     def _arrival_label(t: Dict[str, Any]) -> str:
         if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
-            return "Due"
+            return "0m"
         seconds = t.get("Seconds")
         if seconds is None:
             return ""
         mins = math.ceil(seconds / 60)
         if mins <= 0:
-            return "Due"
+            return "0m"
         return f"{mins}m"
 
     # Group arrivals by route; cap at 2 ETAs per route. Entries from multiple merged stop
