@@ -10820,22 +10820,6 @@ def _abbreviate_route(route_desc: str) -> str:
     return _ROUTE_ABBREVIATIONS.get(route_desc, route_desc)
 
 
-_DOUBLE_DIGIT_ETA_RE = re.compile(r"^\d{2,}m$")
-
-def _cap_double_digit_eta(labels: List[str]) -> List[str]:
-    """Drop the second ETA whenever it would render as double-digit minutes.
-
-    Labels are soonest-first, so this catches both a double-digit first ETA (which makes
-    any second one double-digit too, e.g. "12m,45m") and a single-digit first ETA paired
-    with a double-digit second one (e.g. "8m,20m") — either is wide enough on its own to
-    push the sign's pixel-width word-wrap past a single line. A single double-digit ETA
-    alone is fine; it's the second one that overflows.
-    """
-    if len(labels) > 1 and _DOUBLE_DIGIT_ETA_RE.match(labels[1]):
-        return labels[:1]
-    return labels
-
-
 async def _rss_feed_response(
     request: Request,
     stop_ids: List[str],
@@ -10900,7 +10884,6 @@ async def _rss_feed_response(
                     route_labels[route_desc].append(label)
 
     # Sort routes by soonest arrival
-    route_labels = {route: _cap_double_digit_eta(labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     # Build RSS 2.0 XML
@@ -11075,7 +11058,6 @@ async def _cap_feed_response(
                 if len(route_labels[route_desc]) < 2 and label not in route_labels[route_desc]:
                     route_labels[route_desc].append(label)
 
-    route_labels = {route: _cap_double_digit_eta(labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"
