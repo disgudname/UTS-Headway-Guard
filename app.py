@@ -10792,50 +10792,6 @@ async def transloc_stop_arrivals(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
-_ROUTE_NAME_TRAILING_WORD_RE = re.compile(r"\s+(?:Loop|Line)$", re.IGNORECASE)
-
-def _strip_route_suffix(route_desc: str) -> str:
-    """Drop a trailing "Loop" or "Line" word from a route name for shorter signage text,
-    e.g. "Green Loop" -> "Green", "Orange Line" -> "Orange". Only strips those two exact
-    words, not a generic suffix trim — other route names pass through unchanged."""
-    return _ROUTE_NAME_TRAILING_WORD_RE.sub("", route_desc)
-
-
-# UTS's own official short names for routes, used on physical bus signage. Red and Blue
-# are decommissioned (replaced by Purple) so they're intentionally absent here. Routes
-# with no official short name (fan shuttles, Charter, Training, ...) pass through
-# unabbreviated from _strip_route_suffix.
-_ROUTE_ABBREVIATIONS = {
-    "Green": "GRN",
-    "Night Pilot": "NP",
-    "Orange": "OR",
-    "Gold": "GOLD",
-    "Purple": "PRP",
-    "Silver": "SLV",
-}
-
-def _abbreviate_route(route_desc: str) -> str:
-    """Map a (suffix-stripped) route name to its official short name for signage, where one
-    exists — shorter tokens are less likely to overflow the sign's pixel-width word-wrap."""
-    return _ROUTE_ABBREVIATIONS.get(route_desc, route_desc)
-
-
-_DOUBLE_DIGIT_ETA_RE = re.compile(r"^\d{2,}m$")
-
-def _trim_gold_double_digit_eta(route_desc: str, labels: List[str]) -> List[str]:
-    """Drop Gold's second ETA when both ETAs would render as double-digit minutes.
-
-    Labels are soonest-first, so a double-digit first ETA means the second is double-digit
-    too — "GOLD:12m,45m" is long enough to risk the OnAlert sign's pixel-width word-wrap
-    splitting mid-token. A single-digit first ETA paired with a double-digit second one
-    (e.g. "GOLD:8m,20m") is short enough to keep both. The other, shorter route
-    abbreviations (GRN, OR, NP, PRP, SLV) have enough headroom to keep both ETAs regardless.
-    """
-    if route_desc == "GOLD" and labels and _DOUBLE_DIGIT_ETA_RE.match(labels[0]):
-        return labels[:1]
-    return labels
-
-
 async def _rss_feed_response(
     request: Request,
     stop_ids: List[str],
@@ -10872,14 +10828,14 @@ async def _rss_feed_response(
 
     def _arrival_label(t: Dict[str, Any]) -> str:
         if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
-            return "0m"
+            return "0min"
         seconds = t.get("Seconds")
         if seconds is None:
             return ""
         mins = math.ceil(seconds / 60)
         if mins <= 0:
-            return "0m"
-        return f"{mins}m"
+            return "0min"
+        return f"{mins}min"
 
     # Group arrivals by route; keep insertion order (data is already sorted). Entries from
     # multiple merged stop IDs may report the same route, so dedupe identical labels.
@@ -10887,7 +10843,7 @@ async def _rss_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = _abbreviate_route(_strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip(".")))
+            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
@@ -10900,7 +10856,6 @@ async def _rss_feed_response(
                     route_labels[route_desc].append(label)
 
     # Sort routes by soonest arrival
-    route_labels = {route: _trim_gold_double_digit_eta(route, labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     # Build RSS 2.0 XML
@@ -10928,10 +10883,10 @@ async def _rss_feed_response(
             title_tail = "No arrivals currently scheduled"
         else:
             arrivals_summary = " ".join(
-                f"{route_desc}:{','.join(labels)}" for route_desc, labels in sorted_routes
+                f"{route_desc} {','.join(labels)}" for route_desc, labels in sorted_routes
             )
             top_route, top_labels = sorted_routes[0]
-            title_tail = f"{top_route}:{top_labels[0]}"
+            title_tail = f"{top_route} {top_labels[0]}"
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = f"{alert_text} {title_tail}"
         ET.SubElement(item, "description").text = f"{alert_text} {arrivals_summary}"
@@ -10949,7 +10904,7 @@ async def _rss_feed_response(
         for route_desc, labels in sorted_routes:
             safe_route = re.sub(r"[^a-z0-9]+", "-", route_desc.lower()).strip("-")
             item = ET.SubElement(channel, "item")
-            ET.SubElement(item, "title").text = f"{route_desc}:{labels[0]}"
+            ET.SubElement(item, "title").text = f"{route_desc} {labels[0]}"
             ET.SubElement(item, "description").text = "Next arrivals: " + ", ".join(labels)
             ET.SubElement(item, "link").text = arrivals_link
             ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-{safe_route}"
@@ -11048,14 +11003,14 @@ async def _cap_feed_response(
 
     def _arrival_label(t: Dict[str, Any]) -> str:
         if t.get("IsArriving") or (t.get("Text") or "").strip().lower() == "arriving":
-            return "0m"
+            return "0min"
         seconds = t.get("Seconds")
         if seconds is None:
             return ""
         mins = math.ceil(seconds / 60)
         if mins <= 0:
-            return "0m"
-        return f"{mins}m"
+            return "0min"
+        return f"{mins}min"
 
     # Group arrivals by route; cap at 2 ETAs per route. Entries from multiple merged stop
     # IDs may report the same route, so dedupe identical labels before applying the cap.
@@ -11063,7 +11018,7 @@ async def _cap_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = _abbreviate_route(_strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip(".")))
+            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
@@ -11075,7 +11030,6 @@ async def _cap_feed_response(
                 if len(route_labels[route_desc]) < 2 and label not in route_labels[route_desc]:
                     route_labels[route_desc].append(label)
 
-    route_labels = {route: _trim_gold_double_digit_eta(route, labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"
@@ -11095,7 +11049,7 @@ async def _cap_feed_response(
         arrivals_text = "No buses currently scheduled."
     else:
         arrivals_text = " ".join(
-            f"{route_desc}:{','.join(labels)}" for route_desc, labels in sorted_routes
+            f"{route_desc} {','.join(labels)}" for route_desc, labels in sorted_routes
         )
 
     # Active service alerts targeting this stop (or campus-wide) are appended after the
