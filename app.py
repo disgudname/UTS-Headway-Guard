@@ -10938,7 +10938,7 @@ async def _rss_feed_response(
     xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
     return Response(
         content=xml_bytes,
-        media_type="application/rss+xml; charset=utf-8",
+        media_type="application/xml; charset=utf-8",
         headers={"Access-Control-Allow-Origin": "*"},
     )
 
@@ -11160,7 +11160,7 @@ async def _cap_feed_response(
     xml_bytes = ('<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body).encode("utf-8")
     return Response(
         content=xml_bytes,
-        media_type="application/cap+xml; charset=utf-8",
+        media_type="application/xml; charset=utf-8",
         headers={"Access-Control-Allow-Origin": "*"},
     )
 
