@@ -188,8 +188,8 @@
     &lt;effective&gt;2026-03-05T14:30:00+00:00&lt;/effective&gt;
     &lt;expires&gt;2026-03-05T14:32:00+00:00&lt;/expires&gt;
     &lt;senderName&gt;UVA Transit&lt;/senderName&gt;
-    &lt;headline&gt;Silver Line: Due, 8 min | Gold Line: 3 min, 10 min&lt;/headline&gt;
-    &lt;description&gt;Silver Line: Due, 8 min | Gold Line: 3 min, 10 min&lt;/description&gt;
+    &lt;headline&gt;Silver Line: Due, 8 min; Gold Line: 3 min, 10 min&lt;/headline&gt;
+    &lt;description&gt;Silver Line: Due, 8 min; Gold Line: 3 min, 10 min&lt;/description&gt;
     &lt;web&gt;https://utsopsdashboard.com/arrivalsdisplay?stopid=26&lt;/web&gt;
   &lt;/info&gt;
 &lt;/alert&gt;</pre>
@@ -201,7 +201,7 @@
     <tr><td><code>&lt;info&gt; &lt;effective&gt;</code></td><td>Same as <code>&lt;sent&gt;</code> — the message is valid immediately</td></tr>
     <tr><td><code>&lt;info&gt; &lt;expires&gt;</code></td><td>Two minutes after <code>&lt;sent&gt;</code> — when this data should be considered stale</td></tr>
     <tr><td><code>&lt;info&gt; &lt;senderName&gt;</code></td><td>Always "UVA Transit"</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, pipe-separated, e.g. "Silver Line: Due, 8 min | Gold Line: 3 min, 10 min"</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, semicolon-separated, e.g. "Silver Line: Due, 8 min; Gold Line: 3 min, 10 min"</td></tr>
     <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Same as <code>&lt;headline&gt;</code> — duplicated so the sign works regardless of which field is configured to display</td></tr>
     <tr><td><code>&lt;info&gt; &lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
   </table>
@@ -293,7 +293,7 @@
         // Each <item><title> is already formatted as "Route: time"
         const items = [...doc.querySelectorAll('item > title')].map(el => el.textContent.trim());
 
-        const text = items.length ? items.join('   |   ') : 'No arrivals currently scheduled';
+        const text = items.length ? items.join('   -   ') : 'No arrivals currently scheduled';
         setText(text.toUpperCase());
       } catch (e) {
         statusEl.textContent = 'Error loading data.';
