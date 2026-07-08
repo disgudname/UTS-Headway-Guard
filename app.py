@@ -11108,13 +11108,17 @@ async def _cap_feed_response(
         identifier = f"uts-stop-{cache_key}-{uuid.uuid4().hex}"
         sent_dt = now
         _CAP_ALERT_CACHE[cache_key] = {"content": message_text, "identifier": identifier, "sent_dt": sent_dt}
-    sent_str = sent_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-    expires_str = (now + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    # CAP dateTimes carry their own UTC offset rather than always being "Z"/+00:00, so we
+    # render them in America/New_York (Charlottesville) local time — isoformat() picks the
+    # correct EST/EDT offset automatically via ZoneInfo's DST rules.
+    charlottesville_tz = ZoneInfo("America/New_York")
+    sent_str = sent_dt.astimezone(charlottesville_tz).isoformat(timespec="seconds")
+    expires_str = (now + timedelta(minutes=2)).astimezone(charlottesville_tz).isoformat(timespec="seconds")
     # effective is backdated (not "now") on every response, hit or miss, so it's always
     # already in the past by the time a polling client checks it — otherwise request
     # latency/clock drift can land the client a few hundred ms before its own effective
     # timestamp, making it wrongly treat a valid alert as "not yet effective".
-    effective_str = (now - timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    effective_str = (now - timedelta(seconds=10)).astimezone(charlottesville_tz).isoformat(timespec="seconds")
 
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
