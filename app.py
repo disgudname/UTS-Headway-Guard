@@ -10804,13 +10804,15 @@ def _strip_route_suffix(route_desc: str) -> str:
 _DOUBLE_DIGIT_ETA_RE = re.compile(r"^\d{2,}m$")
 
 def _cap_double_digit_eta(labels: List[str]) -> List[str]:
-    """Drop every ETA after the first if the soonest one is already double-digit minutes.
+    """Drop the second ETA whenever it would render as double-digit minutes.
 
-    Labels are soonest-first, so a double-digit first ETA means any second one is also
-    double-digit — "Route:12m,45m" is wide enough to push the sign's pixel-width word-wrap
-    past a single line. A single double-digit ETA is fine; two back to back isn't.
+    Labels are soonest-first, so this catches both a double-digit first ETA (which makes
+    any second one double-digit too, e.g. "12m,45m") and a single-digit first ETA paired
+    with a double-digit second one (e.g. "8m,20m") — either is wide enough on its own to
+    push the sign's pixel-width word-wrap past a single line. A single double-digit ETA
+    alone is fine; it's the second one that overflows.
     """
-    if labels and _DOUBLE_DIGIT_ETA_RE.match(labels[0]):
+    if len(labels) > 1 and _DOUBLE_DIGIT_ETA_RE.match(labels[1]):
         return labels[:1]
     return labels
 
