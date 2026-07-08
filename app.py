@@ -10801,6 +10801,25 @@ def _strip_route_suffix(route_desc: str) -> str:
     return _ROUTE_NAME_TRAILING_WORD_RE.sub("", route_desc)
 
 
+# UTS's own official short names for routes, used on physical bus signage. Red and Blue
+# are decommissioned (replaced by Purple) so they're intentionally absent here. Routes
+# with no official short name (fan shuttles, Charter, Training, ...) pass through
+# unabbreviated from _strip_route_suffix.
+_ROUTE_ABBREVIATIONS = {
+    "Green": "GRN",
+    "Night Pilot": "NP",
+    "Orange": "OR",
+    "Gold": "GOLD",
+    "Purple": "PRP",
+    "Silver": "SLV",
+}
+
+def _abbreviate_route(route_desc: str) -> str:
+    """Map a (suffix-stripped) route name to its official short name for signage, where one
+    exists — shorter tokens are less likely to overflow the sign's pixel-width word-wrap."""
+    return _ROUTE_ABBREVIATIONS.get(route_desc, route_desc)
+
+
 _DOUBLE_DIGIT_ETA_RE = re.compile(r"^\d{2,}m$")
 
 def _cap_double_digit_eta(labels: List[str]) -> List[str]:
@@ -10868,7 +10887,7 @@ async def _rss_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = _strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
+            route_desc = _abbreviate_route(_strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip(".")))
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
@@ -11044,7 +11063,7 @@ async def _cap_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = _strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
+            route_desc = _abbreviate_route(_strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip(".")))
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
