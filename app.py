@@ -10886,19 +10886,19 @@ async def _rss_feed_response(
     # context, or skip past it before ever reaching the arrivals items.
     active_notices = _active_notice_texts(stop_ids)
     if active_notices:
-        alert_text = "; ".join(text for _, text in active_notices)
+        alert_text = " ".join(text for _, text in active_notices)
         if not sorted_routes:
             arrivals_summary = "No buses currently scheduled."
             title_tail = "No arrivals currently scheduled"
         else:
-            arrivals_summary = "; ".join(
+            arrivals_summary = " ".join(
                 f"{route_desc}:{','.join(labels)}" for route_desc, labels in sorted_routes
             )
             top_route, top_labels = sorted_routes[0]
             title_tail = f"{top_route}:{top_labels[0]}"
         item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = f"{alert_text}; {title_tail}"
-        ET.SubElement(item, "description").text = f"{alert_text}; {arrivals_summary}"
+        ET.SubElement(item, "title").text = f"{alert_text} {title_tail}"
+        ET.SubElement(item, "description").text = f"{alert_text} {arrivals_summary}"
         ET.SubElement(item, "link").text = arrivals_link
         ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-alert-combined"
         ET.SubElement(item, "pubDate").text = pub_date
@@ -11057,7 +11057,7 @@ async def _cap_feed_response(
     if not sorted_routes:
         arrivals_text = "No buses currently scheduled."
     else:
-        arrivals_text = "; ".join(
+        arrivals_text = " ".join(
             f"{route_desc}:{','.join(labels)}" for route_desc, labels in sorted_routes
         )
 
@@ -11068,8 +11068,8 @@ async def _cap_feed_response(
     # for escalated behavior. Never let a routine detour notice look like a real emergency.
     active_notices = _active_notice_texts(stop_ids)
     if active_notices:
-        alert_prefix = "; ".join(text for _, text in active_notices)
-        message_text = f"{alert_prefix}; {arrivals_text}"
+        alert_prefix = " ".join(text for _, text in active_notices)
+        message_text = f"{alert_prefix} {arrivals_text}"
     else:
         message_text = arrivals_text
     cap_severity = "Minor"

@@ -150,7 +150,8 @@
     The compact "Route:time,time" format (no spaces, "m" instead of "min", trailing "Line"/"Loop" dropped) is
     deliberately tight: it's sized so a Novanex sign displays one line per route and one route per line, rather
     than a route's arrivals wrapping past the sign's character width and pushing onto (or getting cut off from)
-    the next line.
+    the next line. Multiple routes are joined with a single space rather than a punctuation separator, so the
+    sign's own text wrapping breaks cleanly between routes.
   </p>
 
   <h2>Common Stop IDs</h2>
@@ -194,8 +195,8 @@
     &lt;effective&gt;2026-03-05T14:30:00+00:00&lt;/effective&gt;
     &lt;expires&gt;2026-03-05T14:32:00+00:00&lt;/expires&gt;
     &lt;senderName&gt;UVA Transit&lt;/senderName&gt;
-    &lt;headline&gt;Silver:Due,8m; Gold:3m,10m&lt;/headline&gt;
-    &lt;description&gt;Silver:Due,8m; Gold:3m,10m&lt;/description&gt;
+    &lt;headline&gt;Silver:Due,8m Gold:3m,10m&lt;/headline&gt;
+    &lt;description&gt;Silver:Due,8m Gold:3m,10m&lt;/description&gt;
     &lt;web&gt;https://utsopsdashboard.com/arrivalsdisplay?stopid=26&lt;/web&gt;
   &lt;/info&gt;
 &lt;/alert&gt;</pre>
@@ -207,7 +208,7 @@
     <tr><td><code>&lt;info&gt; &lt;effective&gt;</code></td><td>10 seconds before the response is generated (not "now") — guarantees it's already in the past by the time a polling client checks it, avoiding a race against client clock drift/request latency</td></tr>
     <tr><td><code>&lt;info&gt; &lt;expires&gt;</code></td><td>Two minutes after the response is generated, refreshed on every poll — the alert never goes stale as long as the feed keeps being polled successfully</td></tr>
     <tr><td><code>&lt;info&gt; &lt;senderName&gt;</code></td><td>Always "UVA Transit"</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, semicolon-separated between routes, comma-separated (no space) between times, e.g. "Silver:Due,8m; Gold:3m,10m". A trailing "Line"/"Loop" word is dropped from route names.</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, space-separated between routes, comma-separated (no space) between times, e.g. "Silver:Due,8m Gold:3m,10m". A trailing "Line"/"Loop" word is dropped from route names.</td></tr>
     <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Same as <code>&lt;headline&gt;</code> — duplicated so the sign works regardless of which field is configured to display</td></tr>
     <tr><td><code>&lt;info&gt; &lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
   </table>
@@ -215,6 +216,8 @@
   <p>
     Same reasoning as the RSS feed: the compact "Route:time,time" format is sized so a Novanex sign renders one
     line per route and one route per line, instead of a route's arrivals wrapping past the sign's character width.
+    Routes are joined with a single space rather than a punctuation separator, so the sign's own text wrapping
+    breaks cleanly between routes.
   </p>
 
   <h2>CAP Common Stop IDs</h2>
