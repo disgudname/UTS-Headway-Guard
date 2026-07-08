@@ -10801,6 +10801,20 @@ def _strip_route_suffix(route_desc: str) -> str:
     return _ROUTE_NAME_TRAILING_WORD_RE.sub("", route_desc)
 
 
+_DOUBLE_DIGIT_ETA_RE = re.compile(r"^\d{2,}m$")
+
+def _cap_double_digit_eta(labels: List[str]) -> List[str]:
+    """Drop every ETA after the first if the soonest one is already double-digit minutes.
+
+    Labels are soonest-first, so a double-digit first ETA means any second one is also
+    double-digit — "Route:12m,45m" is wide enough to push the sign's pixel-width word-wrap
+    past a single line. A single double-digit ETA is fine; two back to back isn't.
+    """
+    if labels and _DOUBLE_DIGIT_ETA_RE.match(labels[0]):
+        return labels[:1]
+    return labels
+
+
 async def _rss_feed_response(
     request: Request,
     stop_ids: List[str],
@@ -10865,6 +10879,7 @@ async def _rss_feed_response(
                     route_labels[route_desc].append(label)
 
     # Sort routes by soonest arrival
+    route_labels = {route: _cap_double_digit_eta(labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     # Build RSS 2.0 XML
@@ -11039,6 +11054,7 @@ async def _cap_feed_response(
                 if len(route_labels[route_desc]) < 2 and label not in route_labels[route_desc]:
                     route_labels[route_desc].append(label)
 
+    route_labels = {route: _cap_double_digit_eta(labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"

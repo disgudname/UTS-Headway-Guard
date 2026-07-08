@@ -155,7 +155,9 @@
     per line &mdash; two short routes can still land on the same line together if both fit, since the wrapper has
     no concept of "these are different routes," only pixel widths. Multiple routes are joined with a single space
     rather than a punctuation separator, so nothing renders as stray punctuation if two routes do end up sharing
-    a line.
+    a line. In the compact "Route:time,time" title, if the soonest ETA for a route is already double-digit
+    minutes, any second ETA is dropped &mdash; two double-digit times back to back (e.g. "12m,45m") is wide enough
+    on its own to risk overflowing a line.
   </p>
 
   <h2>Common Stop IDs</h2>
@@ -223,7 +225,8 @@
     ETAs come first in the message, with any active service alert appended after &mdash; the sign paginates in
     fixed 2-line pages (vertical-hold mode) and only the first page is guaranteed to start cleanly at line 0.
     Route ETAs need that reliable pagination; the alert is lower-priority supplementary text that can tolerate
-    landing wherever the page-parity falls out after the (variable-length) arrivals.
+    landing wherever the page-parity falls out after the (variable-length) arrivals. As with RSS, a route's second
+    ETA is dropped whenever the soonest one is already double-digit minutes.
   </p>
 
   <h2>CAP Common Stop IDs</h2>
