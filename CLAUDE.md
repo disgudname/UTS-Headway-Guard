@@ -387,6 +387,8 @@ Admin-managed alerts (`/v1/system-notices` CRUD). `target_scope` is `"all"` (sys
 
 **CAP feed identifier stability:** `_cap_feed_response()` keeps an in-memory `_CAP_ALERT_CACHE` (keyed by feed code / stop IDs) of the last-served `<identifier>` and `<sent>` for each feed. A poll only mints a new identifier/sent when the rendered `message_text` (arrivals + any active alert) actually changes — otherwise it reuses the cached ones and just slides `<expires>` forward. This is deliberate: a CAP client that treats a changed `<identifier>` as a brand-new alert would replay its alert tone/flash on every ~15s poll otherwise, even with unchanged arrivals. `<effective>` is always backdated 10s from generation time (not tied to `<sent>`) on every response, to avoid a race where request latency/clock drift makes a polling client see `effective` as still in the future.
 
+**Route/ETA formatting in RSS/CAP:** `_strip_route_suffix()` drops a trailing "Loop"/"Line" word from route names, `_arrival_label()` renders times as `"3m"` not `"3 min"`, and route:times are joined with no space around the colon/commas (e.g. `"Purple:2m,5m"`). This is deliberately tight, not just cosmetic — it's sized so a Novanex sign renders one line per route and one route per line, instead of a route's arrivals wrapping past the sign's character width.
+
 ### Node.js Maintenance Ticket API
 
 **CRUD operations:**

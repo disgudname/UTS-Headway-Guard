@@ -146,6 +146,12 @@
     <tr><td><code>&lt;item&gt; &lt;description&gt;</code></td><td>All upcoming arrivals for that route, e.g. "Next arrivals: 3m, 10m, 18m"</td></tr>
   </table>
   <p>Items are sorted by soonest arrival. If no buses are scheduled, the feed contains a single item indicating no arrivals.</p>
+  <p>
+    The compact "Route:time,time" format (no spaces, "m" instead of "min", trailing "Line"/"Loop" dropped) is
+    deliberately tight: it's sized so a Novanex sign displays one line per route and one route per line, rather
+    than a route's arrivals wrapping past the sign's character width and pushing onto (or getting cut off from)
+    the next line.
+  </p>
 
   <h2>Common Stop IDs</h2>
   <table>
@@ -206,6 +212,10 @@
     <tr><td><code>&lt;info&gt; &lt;web&gt;</code></td><td>Link to the live arrivals display for the stop</td></tr>
   </table>
   <p>The feed always contains a single <code>&lt;info&gt;</code> block. All routes are combined into one message, sorted by soonest arrival. If no buses are scheduled, the message reads "No buses currently scheduled."</p>
+  <p>
+    Same reasoning as the RSS feed: the compact "Route:time,time" format is sized so a Novanex sign renders one
+    line per route and one route per line, instead of a route's arrivals wrapping past the sign's character width.
+  </p>
 
   <h2>CAP Common Stop IDs</h2>
   <table>
