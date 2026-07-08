@@ -149,10 +149,13 @@
   <p>Items are sorted by soonest arrival. If no buses are scheduled, the feed contains a single item indicating no arrivals.</p>
   <p>
     The compact "Route:time,time" format (no spaces, "m" instead of "min", trailing "Line"/"Loop" dropped) is
-    deliberately tight: it's sized so a Novanex sign displays one line per route and one route per line, rather
-    than a route's arrivals wrapping past the sign's character width and pushing onto (or getting cut off from)
-    the next line. Multiple routes are joined with a single space rather than a punctuation separator, so the
-    sign's own text wrapping breaks cleanly between routes.
+    deliberately tight: the sign's word-wrap is pixel-width-based and only breaks on spaces, treating any
+    space-free run of text as one unsplittable unit. Formatting each route with no internal spaces guarantees a
+    single route's own text is never fractured mid-content across a line break. It does not guarantee one route
+    per line &mdash; two short routes can still land on the same line together if both fit, since the wrapper has
+    no concept of "these are different routes," only pixel widths. Multiple routes are joined with a single space
+    rather than a punctuation separator, so nothing renders as stray punctuation if two routes do end up sharing
+    a line.
   </p>
 
   <h2>Common Stop IDs</h2>
@@ -215,10 +218,12 @@
   </table>
   <p>The feed always contains a single <code>&lt;info&gt;</code> block. All routes are combined into one message, sorted by soonest arrival. If no buses are scheduled, the message reads "No buses currently scheduled."</p>
   <p>
-    Same reasoning as the RSS feed: the compact "Route:time,time" format is sized so a Novanex sign renders one
-    line per route and one route per line, instead of a route's arrivals wrapping past the sign's character width.
-    Routes are joined with a single space rather than a punctuation separator, so the sign's own text wrapping
-    breaks cleanly between routes.
+    Same reasoning as the RSS feed: the compact "Route:time,time" format keeps each route as one unsplittable,
+    space-free token, since the OnAlert sign's word-wrap is pixel-width-based and only breaks on spaces. Route
+    ETAs come first in the message, with any active service alert appended after &mdash; the sign paginates in
+    fixed 2-line pages (vertical-hold mode) and only the first page is guaranteed to start cleanly at line 0.
+    Route ETAs need that reliable pagination; the alert is lower-priority supplementary text that can tolerate
+    landing wherever the page-parity falls out after the (variable-length) arrivals.
   </p>
 
   <h2>CAP Common Stop IDs</h2>
