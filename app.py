@@ -10823,14 +10823,15 @@ def _abbreviate_route(route_desc: str) -> str:
 _DOUBLE_DIGIT_ETA_RE = re.compile(r"^\d{2,}m$")
 
 def _trim_gold_double_digit_eta(route_desc: str, labels: List[str]) -> List[str]:
-    """Drop Gold's second ETA whenever it would render as double-digit minutes.
+    """Drop Gold's second ETA when both ETAs would render as double-digit minutes.
 
-    GOLD is the longest of the route abbreviations (4 characters), so a two-ETA token like
-    "GOLD:8m,20m" is still long enough to risk the OnAlert sign's pixel-width word-wrap
-    splitting mid-token. The other, shorter abbreviations (GRN, OR, NP, PRP, SLV) have
-    enough headroom to keep both ETAs regardless of digit count.
+    Labels are soonest-first, so a double-digit first ETA means the second is double-digit
+    too — "GOLD:12m,45m" is long enough to risk the OnAlert sign's pixel-width word-wrap
+    splitting mid-token. A single-digit first ETA paired with a double-digit second one
+    (e.g. "GOLD:8m,20m") is short enough to keep both. The other, shorter route
+    abbreviations (GRN, OR, NP, PRP, SLV) have enough headroom to keep both ETAs regardless.
     """
-    if route_desc == "GOLD" and len(labels) > 1 and _DOUBLE_DIGIT_ETA_RE.match(labels[1]):
+    if route_desc == "GOLD" and labels and _DOUBLE_DIGIT_ETA_RE.match(labels[0]):
         return labels[:1]
     return labels
 
