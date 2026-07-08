@@ -10792,6 +10792,15 @@ async def transloc_stop_arrivals(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
+def _expand_solo_eta(labels: List[str]) -> List[str]:
+    """When a route has only one upcoming ETA, spell out "minutes" instead of "min" (e.g.
+    "25minutes") for extra length to help the sign's line wrap land favorably. A route with
+    two ETAs keeps the compact "min" form for both, e.g. "0min,13min"."""
+    if len(labels) == 1:
+        return [labels[0] + "utes"]
+    return labels
+
+
 async def _rss_feed_response(
     request: Request,
     stop_ids: List[str],
@@ -10856,6 +10865,7 @@ async def _rss_feed_response(
                     route_labels[route_desc].append(label)
 
     # Sort routes by soonest arrival
+    route_labels = {route: _expand_solo_eta(labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     # Build RSS 2.0 XML
@@ -11030,6 +11040,7 @@ async def _cap_feed_response(
                 if len(route_labels[route_desc]) < 2 and label not in route_labels[route_desc]:
                     route_labels[route_desc].append(label)
 
+    route_labels = {route: _expand_solo_eta(labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"
