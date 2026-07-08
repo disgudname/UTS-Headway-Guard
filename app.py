@@ -10844,7 +10844,7 @@ async def _rss_feed_response(
         mins = math.ceil(seconds / 60)
         if mins <= 0:
             return "Due"
-        return "1 min" if mins == 1 else f"{mins} min"
+        return f"{mins}m"
 
     # Group arrivals by route; keep insertion order (data is already sorted). Entries from
     # multiple merged stop IDs may report the same route, so dedupe identical labels.
@@ -10892,10 +10892,10 @@ async def _rss_feed_response(
             title_tail = "No arrivals currently scheduled"
         else:
             arrivals_summary = "; ".join(
-                f"{route_desc}: {', '.join(labels)}" for route_desc, labels in sorted_routes
+                f"{route_desc}:{','.join(labels)}" for route_desc, labels in sorted_routes
             )
             top_route, top_labels = sorted_routes[0]
-            title_tail = f"{top_route}: {top_labels[0]}"
+            title_tail = f"{top_route}:{top_labels[0]}"
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = f"{alert_text}; {title_tail}"
         ET.SubElement(item, "description").text = f"{alert_text}; {arrivals_summary}"
@@ -10913,7 +10913,7 @@ async def _rss_feed_response(
         for route_desc, labels in sorted_routes:
             safe_route = re.sub(r"[^a-z0-9]+", "-", route_desc.lower()).strip("-")
             item = ET.SubElement(channel, "item")
-            ET.SubElement(item, "title").text = f"{route_desc}: {labels[0]}"
+            ET.SubElement(item, "title").text = f"{route_desc}:{labels[0]}"
             ET.SubElement(item, "description").text = "Next arrivals: " + ", ".join(labels)
             ET.SubElement(item, "link").text = arrivals_link
             ET.SubElement(item, "guid", isPermaLink="false").text = f"uts-stop-{guid_key}-{safe_route}"
@@ -11019,7 +11019,7 @@ async def _cap_feed_response(
         mins = math.ceil(seconds / 60)
         if mins <= 0:
             return "Due"
-        return "1 min" if mins == 1 else f"{mins} min"
+        return f"{mins}m"
 
     # Group arrivals by route; cap at 2 ETAs per route. Entries from multiple merged stop
     # IDs may report the same route, so dedupe identical labels before applying the cap.
@@ -11058,7 +11058,7 @@ async def _cap_feed_response(
         arrivals_text = "No buses currently scheduled."
     else:
         arrivals_text = "; ".join(
-            f"{route_desc}: {', '.join(labels)}" for route_desc, labels in sorted_routes
+            f"{route_desc}:{','.join(labels)}" for route_desc, labels in sorted_routes
         )
 
     # Active service alerts targeting this stop (or campus-wide) lead the message. Severity/
