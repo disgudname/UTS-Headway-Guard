@@ -10792,6 +10792,15 @@ async def transloc_stop_arrivals(
     return await _proxy_transloc_get(url, params=params, base_url=base_url)
 
 
+_ROUTE_NAME_TRAILING_WORD_RE = re.compile(r"\s+(?:Loop|Line)$", re.IGNORECASE)
+
+def _strip_route_suffix(route_desc: str) -> str:
+    """Drop a trailing "Loop" or "Line" word from a route name for shorter signage text,
+    e.g. "Green Loop" -> "Green", "Orange Line" -> "Orange". Only strips those two exact
+    words, not a generic suffix trim — other route names pass through unchanged."""
+    return _ROUTE_NAME_TRAILING_WORD_RE.sub("", route_desc)
+
+
 async def _rss_feed_response(
     request: Request,
     stop_ids: List[str],
@@ -10843,7 +10852,7 @@ async def _rss_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
+            route_desc = _strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
@@ -11018,7 +11027,7 @@ async def _cap_feed_response(
     route_first_seconds: Dict[str, float] = {}
     if isinstance(data, list):
         for entry in data:
-            route_desc = (entry.get("RouteDescription") or "Bus").strip().rstrip(".")
+            route_desc = _strip_route_suffix((entry.get("RouteDescription") or "Bus").strip().rstrip("."))
             for t in entry.get("Times") or []:
                 label = _arrival_label(t)
                 if not label:
