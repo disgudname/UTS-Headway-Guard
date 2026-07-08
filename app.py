@@ -11061,15 +11061,16 @@ async def _cap_feed_response(
             f"{route_desc}:{','.join(labels)}" for route_desc, labels in sorted_routes
         )
 
-    # Active service alerts targeting this stop (or campus-wide) lead the message. Severity/
-    # urgency intentionally stay fixed at Minor/Expected regardless of notice severity — this
-    # feed is routine bus-arrival signage, and some CAP consumers (including, on the same
-    # sign, the university's actual emergency feed) may treat Severe/Immediate as a trigger
-    # for escalated behavior. Never let a routine detour notice look like a real emergency.
+    # Active service alerts targeting this stop (or campus-wide) are appended after the
+    # arrivals, not prepended. Severity/urgency intentionally stay fixed at Minor/Expected
+    # regardless of notice severity — this feed is routine bus-arrival signage, and some CAP
+    # consumers (including, on the same sign, the university's actual emergency feed) may
+    # treat Severe/Immediate as a trigger for escalated behavior. Never let a routine detour
+    # notice look like a real emergency.
     active_notices = _active_notice_texts(stop_ids)
     if active_notices:
-        alert_prefix = " ".join(text for _, text in active_notices)
-        message_text = f"{alert_prefix} {arrivals_text}"
+        alert_suffix = " ".join(text for _, text in active_notices)
+        message_text = f"{arrivals_text} {alert_suffix}"
     else:
         message_text = arrivals_text
     cap_severity = "Minor"
