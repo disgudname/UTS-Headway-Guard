@@ -10820,6 +10820,21 @@ def _abbreviate_route(route_desc: str) -> str:
     return _ROUTE_ABBREVIATIONS.get(route_desc, route_desc)
 
 
+_DOUBLE_DIGIT_ETA_RE = re.compile(r"^\d{2,}m$")
+
+def _trim_gold_double_digit_eta(route_desc: str, labels: List[str]) -> List[str]:
+    """Drop Gold's second ETA whenever it would render as double-digit minutes.
+
+    GOLD is the longest of the route abbreviations (4 characters), so a two-ETA token like
+    "GOLD:8m,20m" is still long enough to risk the OnAlert sign's pixel-width word-wrap
+    splitting mid-token. The other, shorter abbreviations (GRN, OR, NP, PRP, SLV) have
+    enough headroom to keep both ETAs regardless of digit count.
+    """
+    if route_desc == "GOLD" and len(labels) > 1 and _DOUBLE_DIGIT_ETA_RE.match(labels[1]):
+        return labels[:1]
+    return labels
+
+
 async def _rss_feed_response(
     request: Request,
     stop_ids: List[str],
@@ -10884,6 +10899,7 @@ async def _rss_feed_response(
                     route_labels[route_desc].append(label)
 
     # Sort routes by soonest arrival
+    route_labels = {route: _trim_gold_double_digit_eta(route, labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     # Build RSS 2.0 XML
@@ -11058,6 +11074,7 @@ async def _cap_feed_response(
                 if len(route_labels[route_desc]) < 2 and label not in route_labels[route_desc]:
                     route_labels[route_desc].append(label)
 
+    route_labels = {route: _trim_gold_double_digit_eta(route, labels) for route, labels in route_labels.items()}
     sorted_routes = sorted(route_labels.items(), key=lambda kv: route_first_seconds.get(kv[0], 0))
 
     arrivals_link = f"{site_root}/arrivalsdisplay?stopid={joined_ids}"
