@@ -385,6 +385,8 @@ Admin-managed alerts (`/v1/system-notices` CRUD). `target_scope` is `"all"` (sys
 - `GET /v1/feed-codes`, `POST /v1/feed-codes`, `DELETE /v1/feed-codes/{code}` - manage the code → stop ID mapping (dispatcher auth required)
 - `GET /v1/system-notices` - active system notices (add `all=true` + dispatcher auth for every notice, including inactive/staff-only); `POST /v1/system-notices`, `PUT /v1/system-notices/{id}`, `DELETE /v1/system-notices/{id}` - manage notices, including `short_message` and `target_scope`/`target_stop_ids` (dispatcher auth required)
 
+**CAP feed identifier stability:** `_cap_feed_response()` keeps an in-memory `_CAP_ALERT_CACHE` (keyed by feed code / stop IDs) of the last-served `<identifier>` and `<sent>` for each feed. A poll only mints a new identifier/sent when the rendered `message_text` (arrivals + any active alert) actually changes — otherwise it reuses the cached ones and just slides `<expires>` forward. This is deliberate: a CAP client that treats a changed `<identifier>` as a brand-new alert would replay its alert tone/flash on every ~15s poll otherwise, even with unchanged arrivals. `<effective>` is always backdated 10s from generation time (not tied to `<sent>`) on every response, to avoid a race where request latency/clock drift makes a polling client see `effective` as still in the future.
+
 ### Node.js Maintenance Ticket API
 
 **CRUD operations:**

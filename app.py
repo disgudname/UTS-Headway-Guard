@@ -10959,6 +10959,13 @@ async def rss_stop_arrivals_by_code(
     )
 
 
+# Per-feed (keyed by feed_key/stopIDs) last-served CAP identifier + sent time, so repeated
+# polls with unchanged content reuse the same identifier instead of minting a new one every
+# ~15s. In-memory only — fine for a single Fly machine (see fly.toml processes/min_machines);
+# would need a shared store if this app ever runs multiple concurrent instances.
+_CAP_ALERT_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
 async def _cap_feed_response(
     request: Request,
     stop_ids: List[str],
@@ -10981,8 +10988,6 @@ async def _cap_feed_response(
         data = []
 
     now = datetime.now(timezone.utc)
-    sent_str = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-    expires_str = (now + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
     site_root = str(request.base_url).rstrip("/").replace("http://", "https://", 1)
 
     # Track the raw TransLoc-provided name separately from the displayed name, since an
@@ -11061,10 +11066,34 @@ async def _cap_feed_response(
     cap_severity = "Minor"
     cap_urgency = "Unknown" if not sorted_routes else "Expected"
 
+    # Reuse the identifier/sent time from the last response for this feed as long as the
+    # displayed content (message_text) hasn't actually changed, instead of minting a new
+    # identifier on every single poll. A CAP client that treats each new identifier as a
+    # brand-new alert would otherwise replay its alert tone/flash every ~15s forever, even
+    # though the arrivals data is unchanged. Only mint fresh identifier+sent when the text
+    # actually moves. expires always slides forward on a cache hit so the alert never goes
+    # stale purely from repeated identical polls.
+    cache_key = feed_key or joined_ids
+    cached = _CAP_ALERT_CACHE.get(cache_key)
+    if cached is not None and cached.get("content") == message_text:
+        identifier = cached["identifier"]
+        sent_dt = cached["sent_dt"]
+    else:
+        identifier = f"uts-stop-{cache_key}-{uuid.uuid4().hex}"
+        sent_dt = now
+        _CAP_ALERT_CACHE[cache_key] = {"content": message_text, "identifier": identifier, "sent_dt": sent_dt}
+    sent_str = sent_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    expires_str = (now + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    # effective is backdated (not "now") on every response, hit or miss, so it's always
+    # already in the past by the time a polling client checks it — otherwise request
+    # latency/clock drift can land the client a few hundred ms before its own effective
+    # timestamp, making it wrongly treat a valid alert as "not yet effective".
+    effective_str = (now - timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
     # Build CAP 1.2 XML
     CAP_NS = "urn:oasis:names:tc:emergency:cap:1.2"
     alert = ET.Element("alert", xmlns=CAP_NS)
-    ET.SubElement(alert, "identifier").text = f"uts-stop-{feed_key or joined_ids}-{uuid.uuid4().hex}"
+    ET.SubElement(alert, "identifier").text = identifier
     ET.SubElement(alert, "sender").text = "utsopsdashboard.com"
     ET.SubElement(alert, "sent").text = sent_str
     ET.SubElement(alert, "status").text = "Actual"
@@ -11091,7 +11120,7 @@ async def _cap_feed_response(
     ET.SubElement(info, "urgency").text = cap_urgency
     ET.SubElement(info, "severity").text = cap_severity
     ET.SubElement(info, "certainty").text = "Observed"
-    ET.SubElement(info, "effective").text = sent_str
+    ET.SubElement(info, "effective").text = effective_str
     ET.SubElement(info, "expires").text = expires_str
     ET.SubElement(info, "senderName").text = "UVA Transit"
     ET.SubElement(info, "headline").text = message_text

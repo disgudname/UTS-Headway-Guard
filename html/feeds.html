@@ -197,9 +197,9 @@
   <h2>CAP Feed Structure</h2>
   <table>
     <tr><th>Field</th><th>Description</th></tr>
-    <tr><td><code>&lt;identifier&gt;</code></td><td>Unique ID rotated every minute, e.g. "uts-stop-26-20260305T1430Z"</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;effective&gt;</code></td><td>Same as <code>&lt;sent&gt;</code> — the message is valid immediately</td></tr>
-    <tr><td><code>&lt;info&gt; &lt;expires&gt;</code></td><td>Two minutes after <code>&lt;sent&gt;</code> — when this data should be considered stale</td></tr>
+    <tr><td><code>&lt;identifier&gt;</code></td><td>Stays the same across polls as long as the displayed text hasn't changed; only changes when the arrivals/alert content actually updates, so a CAP client doesn't treat every poll as a brand-new alert</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;effective&gt;</code></td><td>10 seconds before the response is generated (not "now") — guarantees it's already in the past by the time a polling client checks it, avoiding a race against client clock drift/request latency</td></tr>
+    <tr><td><code>&lt;info&gt; &lt;expires&gt;</code></td><td>Two minutes after the response is generated, refreshed on every poll — the alert never goes stale as long as the feed keeps being polled successfully</td></tr>
     <tr><td><code>&lt;info&gt; &lt;senderName&gt;</code></td><td>Always "UVA Transit"</td></tr>
     <tr><td><code>&lt;info&gt; &lt;headline&gt;</code></td><td>All routes and next two arrivals, semicolon-separated, e.g. "Silver Line: Due, 8 min; Gold Line: 3 min, 10 min"</td></tr>
     <tr><td><code>&lt;info&gt; &lt;description&gt;</code></td><td>Same as <code>&lt;headline&gt;</code> — duplicated so the sign works regardless of which field is configured to display</td></tr>
